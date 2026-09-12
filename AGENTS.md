@@ -5,7 +5,7 @@ work-fold is a local-first Electron shell around ordinary folders and the native
 ## First visit
 
 - Start with [Contributing](CONTRIBUTING.md) and the [development guide](docs/development.md) for setup, a source map, development profiles, and the right verification lane.
-- Use Node 24 for the contributor/CI lane (`.nvmrc`). Run `npm ci`, then `npm run repo:check`; the latter also works before installation and never needs credentials or a network connection.
+- Use Node 24 and npm 11.16.0 or newer for the contributor/CI lane (`.nvmrc`); npm must enforce the dependency-script policy described in [Contributing](CONTRIBUTING.md#first-run). Run `npm ci`, then `npm run repo:check`; the latter also works before installation and never needs credentials or a network connection.
 - `npm run local:dev` starts the browser UI and local API; `npm run desktop:smoke` starts unpackaged Electron after preparation. Use disposable folders for live work. The development app profile is separate, but Pi resources and Keychain require their own consideration; follow the development guide for explicit isolation.
 - `npm run check` includes repository hygiene and TypeScript checks. Keep new shared Skills, Claude symlinks, links, and documented npm commands valid; do not copy shared policy into a harness-specific file.
 

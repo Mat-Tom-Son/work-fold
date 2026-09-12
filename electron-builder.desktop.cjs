@@ -44,7 +44,7 @@ module.exports = {
     output: outputDirectory,
     buildResources: "desktop/assets",
   },
-  files: ["package.json", "LICENSE", "dist/desktop/**/*"],
+  files: ["package.json", "LICENSE", "dist/desktop/**/*", "resources/included-tools/**/*"],
   extraFiles: [
     {
       from: "desktop/cli",
@@ -62,7 +62,11 @@ module.exports = {
       to: "assets",
     },
   ],
+  afterPack: require("./scripts/sign-computer-helper.cjs"),
   asar: true,
+  // Node worker entrypoints and native canvas bindings must be real files.
+  // PDF.js, its fonts and other JS libraries remain in the verified archive.
+  asarUnpack: ["resources/included-tools/documents/worker.mjs", "node_modules/@napi-rs/**/*.node"],
   compression: "normal",
   npmRebuild: false,
   win: {
@@ -84,6 +88,9 @@ module.exports = {
     },
   },
   mac: {
+    extraResources: [{ from: "out/included-tools/computer-helper", to: "computer-helper" }],
+    // The afterPack hook signs this Swift app without Electron JIT entitlements.
+    signIgnore: ["/computer-helper/"],
     target: ["dmg", "zip"],
     icon: path.join(root, "desktop", "assets", "icon.icns"),
     category: "public.app-category.productivity",

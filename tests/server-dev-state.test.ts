@@ -113,6 +113,6 @@ test("the Local API resolves development defaults only after loading .env", asyn
   assert.ok(loadIndex >= 0 && defaultsIndex > loadIndex);
 
   const entrypoint = await readFile(new URL("../src/local/server-dev.ts", import.meta.url), "utf8");
-  assert.match(entrypoint, /startLocalApi\(\{\s*appMode:\s*"dev"\s*\}\)/);
+  assert.match(entrypoint, /startLocalApi\(\{\s*appMode:\s*"dev"(?:\s*[,}])/);
   assert.doesNotMatch(entrypoint, /createLocalDevelopmentApiOptions/);
 });

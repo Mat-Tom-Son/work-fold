@@ -39,7 +39,7 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
   const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [stage, setStage] = useState<"assembled" | "provider_payload">("assembled");
+  const [stage, setStage] = useState<"assembled" | "provider_payload" | "provenance">("assembled");
   const [sample, setSample] = useState(0);
   const [copied, setCopied] = useState(false);
   const jsonRef = useRef<HTMLPreElement>(null);
@@ -155,7 +155,7 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
   }
 
   const activeRecord = record?.id === selectedId ? record : null;
-  const snapshot = activeRecord ? stage === "assembled" ? activeRecord.assembled : activeRecord.payloads[sample] : undefined;
+  const snapshot = activeRecord ? stage === "assembled" ? activeRecord.assembled : stage === "provenance" ? activeRecord.provenance : activeRecord.payloads[sample] : undefined;
   const json = useMemo(() => snapshot ? JSON.stringify(snapshot.value, null, 2) : "", [snapshot]);
   useEffect(() => { copyGeneration.current++; setCopied(false); }, [json]);
   const matches = useMemo(() => findMatches(json, query), [json, query]);
@@ -204,11 +204,16 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
           <span>{statusLabel(selectedSummary.status)} · {formatBytes(selectedSummary.bytes)}</span>
         </div> : null}
         <div className="model-context-stages" role="tablist" aria-label="Capture stage">
-          <button id={`${titleId}-assembled`} role="tab" aria-selected={stage === "assembled"} aria-controls={`${titleId}-content`} tabIndex={stage === "assembled" ? 0 : -1} onClick={() => setStage("assembled")} onKeyDown={(event) => { if (event.key === "ArrowRight" || event.key === "ArrowLeft") { event.preventDefault(); setStage("provider_payload"); (event.currentTarget.nextElementSibling as HTMLElement)?.focus(); } }}>Assembled context</button>
-          <button id={`${titleId}-provider_payload`} role="tab" aria-selected={stage === "provider_payload"} aria-controls={`${titleId}-content`} tabIndex={stage === "provider_payload" ? 0 : -1} onClick={() => setStage("provider_payload")} onKeyDown={(event) => { if (event.key === "ArrowRight" || event.key === "ArrowLeft") { event.preventDefault(); setStage("assembled"); (event.currentTarget.previousElementSibling as HTMLElement)?.focus(); } }}>Provider payload observed</button>
+          {([ ["assembled", "Assembled context"], ["provider_payload", "Provider payload observed"], ["provenance", "Provenance"] ] as const).map(([value, label], index, stages) => <button key={value} id={`${titleId}-${value}`} role="tab" aria-selected={stage === value} aria-controls={`${titleId}-content`} tabIndex={stage === value ? 0 : -1} onClick={() => setStage(value)} onKeyDown={(event) => {
+            if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+            event.preventDefault();
+            const next = (index + (event.key === "ArrowRight" ? 1 : -1) + stages.length) % stages.length;
+            setStage(stages[next][0]);
+            (event.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();
+          }}>{label}</button>)}
         </div>
         <div className="model-context-content" id={`${titleId}-content`} role="tabpanel" aria-labelledby={`${titleId}-${stage}`} aria-busy={detailLoading}>
-          <p className="model-context-stage-note">{stage === "assembled" ? "Context assembled by Pi before provider conversion. This can differ from the provider payload." : "Payload exposed by the provider adapter. Capture does not prove network delivery or model completion."}</p>
+          <p className="model-context-stage-note">{stage === "provenance" ? "Origins from the loaded Pi runtime at dispatch. File contents are not reconstructed afterward; available Skills are not evidence they were read." : stage === "assembled" ? "Context assembled by Pi before provider conversion. This can differ from the provider payload." : "Payload exposed by the provider adapter. Capture does not prove network delivery or model completion."}</p>
           {stage === "provider_payload" && (activeRecord?.payloads.length ?? 0) > 1 ? <label className="model-context-sample">Payload sample <select value={sample} onChange={(event) => setSample(Number(event.target.value))}>{activeRecord?.payloads.map((item, index) => <option value={index} key={index}>{index + 1} · {new Date(item.capturedAt).toLocaleTimeString()}</option>)}</select></label> : null}
           {snapshot ? <>
             {snapshot.truncated || snapshot.omissions.length ? <p className="model-context-omissions">{snapshot.truncated ? "This snapshot is truncated. " : ""}{snapshot.omissions.join(" · ")}</p> : null}
@@ -218,7 +223,7 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
               <button type="button" onClick={() => void copyJson()} title="Copy displayed JSON">{copied ? <Check size={14} /> : <Copy size={14} />}<span>{copied ? "Copied" : "Copy"}</span></button>
             </div>
             <pre ref={jsonRef} className="model-context-json" tabIndex={0} aria-label="Captured JSON"><HighlightedJson text={json} matches={matches} queryLength={query.length} /></pre>
-          </> : <div className="model-context-no-payload" role="status">{detailLoading ? "Loading snapshot…" : stage === "provider_payload" ? "No provider payload was observed for this request. The adapter may not expose it, or the request has not reached that stage. Assembled context is still available." : "This capture is no longer available. Refresh to see the remaining requests."}</div>}
+          </> : <div className="model-context-no-payload" role="status">{detailLoading ? "Loading snapshot…" : stage === "provenance" ? "No runtime provenance was captured for this request." : stage === "provider_payload" ? "No provider payload was observed for this request. The adapter may not expose it, or the request has not reached that stage. Assembled context is still available." : "This capture is no longer available. Refresh to see the remaining requests."}</div>}
         </div>
       </div>}
       <footer className="model-context-coverage">Captures work-fold’s Pi requests. Extensions using their own model transport may be absent.</footer>

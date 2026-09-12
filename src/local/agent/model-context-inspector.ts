@@ -66,7 +66,7 @@ export class ModelContextInspector {
   }
 
   /** Used by the transport observer; nothing from options or auth enters here. */
-  begin(owner: ModelContextOwner, model: unknown, context: unknown): Capture | undefined {
+  begin(owner: ModelContextOwner, model: unknown, context: unknown, getProvenance?: () => unknown): Capture | undefined {
     if (!this.enabled) return undefined;
     this.prune();
     const generation = this.generation;
@@ -77,6 +77,7 @@ export class ModelContextInspector {
       model: label(own(model, "id")), api: label(own(model, "api")), createdAt,
       status: "captured", stage: "assembled", payloadSamples: 0, truncated: false, bytes: 0,
       assembled: this.snapshot(context), payloads: [],
+      ...(getProvenance ? { provenance: this.snapshot(safely(getProvenance) ?? { unavailable: true }) } : {}),
     };
     this.records.set(id, record);
     this.refresh(record);
@@ -115,12 +116,12 @@ export class ModelContextInspector {
 
   private snapshot(value: unknown): ModelContextSnapshot {
     // Reserve room for each possible stage and its metadata within one record.
-    const budget = Math.max(128, Math.floor((this.limits.recordBytes - 2048) / (this.limits.payloadSamples + 1)) - 512);
+    const budget = Math.max(128, Math.floor((this.limits.recordBytes - 2048) / (this.limits.payloadSamples + 2)) - 512);
     return captureValue(value, this.limits, budget, this.now());
   }
 
   private refresh(record: ModelContextInspection): void {
-    record.truncated ||= record.assembled.truncated || record.payloads.some((item) => item.truncated);
+    record.truncated ||= record.assembled.truncated || Boolean(record.provenance?.truncated) || record.payloads.some((item) => item.truncated);
     record.bytes = Buffer.byteLength(JSON.stringify(record));
     record.bytes = Buffer.byteLength(JSON.stringify(record));
     if (record.bytes > this.limits.recordBytes) this.records.delete(record.id);
@@ -147,24 +148,26 @@ export class ModelContextInspector {
   }
 }
 
-const installed = new WeakMap<object, { original: StreamFunction; wrapped: StreamFunction; inspector: ModelContextInspector; getOwner: () => ModelContextOwner }>();
+const installed = new WeakMap<object, { original: StreamFunction; wrapped: StreamFunction; inspector: ModelContextInspector; getOwner: () => ModelContextOwner; getProvenance?: () => unknown }>();
 
 /** Preserve native transport and hook semantics; observing never consumes a stream. */
 export function installModelContextInspection(
   session: InspectionSession,
   inspector: ModelContextInspector,
   getOwner: () => ModelContextOwner,
+  getProvenance?: () => unknown,
 ): () => void {
   const previous = installed.get(session.agent);
   if (previous && session.agent.streamFn === previous.wrapped) {
     previous.inspector = inspector;
     previous.getOwner = getOwner;
+    previous.getProvenance = getProvenance;
     return () => uninstall(session, previous.wrapped);
   }
   const original = session.agent.streamFn;
-  const binding = { original, wrapped: original, inspector, getOwner };
+  const binding = { original, wrapped: original, inspector, getOwner, getProvenance };
   const wrapped: StreamFunction = function (this: unknown, model, context, options) {
-    const capture = safely(() => binding.inspector.begin(binding.getOwner(), model, context));
+    const capture = safely(() => binding.inspector.begin(binding.getOwner(), model, context, binding.getProvenance));
     if (!capture) return original.call(this, model, context, options);
     const priorPayload = options?.onPayload;
     const priorResponse = options?.onResponse;
@@ -217,7 +220,7 @@ function matches(record: ModelContextInspection, filter?: ModelContextFilter): b
 }
 
 function summary(record: ModelContextInspection): ModelContextInspectionSummary {
-  const { assembled: _assembled, payloads: _payloads, ...rest } = record;
+  const { assembled: _assembled, payloads: _payloads, provenance: _provenance, ...rest } = record;
   return structuredClone(rest);
 }
 

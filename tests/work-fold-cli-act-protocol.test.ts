@@ -2240,3 +2240,12 @@ test("Check and correction proposals use explicit inert act verbs", () => {
     assert.throws(() => parseWorkFoldCliActArgv(["checks", verb, "--space", "space-1", "--proposal", "review.json", "--enable"]), /flag|option/i);
   }
 });
+
+
+test("resource enablement verbs require exact scope, kind and path", () => {
+  const args = ["--scope", "personal", "--kind", "extensions", "--path", "/tools/example.ts"];
+  assert.equal(parseWorkFoldCliActArgv(["tools", "enable", ...args]).name, "tools.enable");
+  assert.equal(parseWorkFoldCliActArgv(["tools", "disable", ...args]).name, "tools.disable");
+  assert.throws(() => parseWorkFoldCliActArgv(["tools", "enable", "--scope", "space", "--kind", "extensions", "--path", "/tools/example.ts"]), /space/i);
+  assert.throws(() => parseWorkFoldCliActArgv(["tools", "enable", "--scope", "personal", "--kind", "made-up", "--path", "/tools/example.ts"]), /kind/);
+});

@@ -23,6 +23,7 @@ import {
 import { defaultAgentSdkDir, spaceSessionDir } from "./agent-data-dir.js";
 import type { PiExtensionUiBridge } from "./extension-ui.js";
 import type { ModelContextInspector } from "./model-context-inspector.js";
+import { includedResourceOptions, type IncludedToolsConfiguration } from "./included-tools.js";
 
 export interface PiPreferredModel {
   provider: string;
@@ -61,6 +62,7 @@ export interface PiRuntimeMetadata {
  * model/settings services; otherwise Pi's native persistent files are used.
  */
 export interface PiRuntimeConfig {
+  includedTools?: IncludedToolsConfiguration;
   agentDir?: string;
   sessionDir?: string;
   authStorage?: AuthStorage;
@@ -683,6 +685,7 @@ async function loadRuntimeProviders(
       additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
       additionalThemePaths: runtime.config.additionalThemePaths,
       appendSystemPromptOverride: (base) => appendAssistantInstructions(base, runtime.config.assistantInstructions),
+      ...await includedResourceOptions(spaceRoot, runtime, "catalog"),
     },
   });
   return [

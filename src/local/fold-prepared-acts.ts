@@ -59,6 +59,10 @@ function opt(type: FoldPreparedActFieldType, values?: readonly string[]): FoldPr
  * fail closed, so adding one is a deliberate contract change.
  */
 const KIND_DESCRIPTORS = {
+  "capability.resource.enabled": {
+    parameters: { path: req("string"), kind: req("string", ["extensions", "skills", "prompts", "themes"]), enabled: req("boolean"), scope: req("string", CAPABILITY_SCOPES), spaceId: opt("string") },
+    pins: { path: req("string"), digest: req("string"), scope: req("string", CAPABILITY_SCOPES) },
+  },
   "app.review.install": {
     parameters: { spaceId: req("string"), proposalId: req("string") },
     pins: { proposalId: req("string"), reviewDigest: req("string") },
@@ -481,7 +485,7 @@ function crossFieldIssue(
     }
     return scopedSpaceIssue(section, fields);
   }
-  if (kind === "capability.skills.import" && section === "parameters") {
+  if ((kind === "capability.skills.import" || kind === "capability.resource.enabled") && section === "parameters") {
     return scopedSpaceIssue(section, fields);
   }
   if (kind === "publish.viewer.expose") return exposureIssue(section, fields);

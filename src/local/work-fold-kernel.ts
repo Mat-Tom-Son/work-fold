@@ -318,6 +318,7 @@ export interface WorkFoldCapabilityDiagnosticSnapshot {
 }
 
 export interface WorkFoldCapabilityCatalogSnapshot {
+  resources?: PiResourceCatalog["resources"];
   projectTrust: WorkFoldCapabilityTrustSnapshot;
   trust: WorkFoldCapabilityTrustSnapshot;
   projectTrusted: boolean;
@@ -758,6 +759,7 @@ export function buildWorkFoldCapabilityCatalog(
   const projectTrust = { ...catalog.projectTrust, mutationTrusted };
 
   return {
+    ...(catalog.resources ? { resources: catalog.resources } : {}),
     projectTrust: { ...projectTrust },
     trust: { ...projectTrust },
     // Compatibility for older renderers. A Space with no gated resources is
@@ -786,7 +788,7 @@ export function buildWorkFoldCapabilityCatalog(
     })),
     extensions: catalog.extensions.map((extension) => ({
       id: extension.resolvedPath,
-      name: basename(extension.resolvedPath).replace(/\.[^.]+$/, ""),
+      name: extension.name ?? basename(extension.resolvedPath).replace(/\.[^.]+$/, ""),
       path: extension.path,
       source: sourceLabel(extension.source),
       ...capabilitySourceFields(extension.source),

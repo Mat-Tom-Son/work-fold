@@ -87,18 +87,18 @@ conversion remain authoritative. A stopped native tool may still be draining:
 its late activity is hidden and this Chat refuses overlapping work until Pi
 settles, while other Chats continue.
 
-**Inspect context** beside the Chat model controls, in the fold header, or in
-Settings → Assistant opens local diagnostics. Enable **Record model context**
-before the request to capture its assembled instructions, messages and tools,
-plus provider payloads where Pi's adapter exposes them. Settings shows all
-captured requests, including host title, Check, app inference and compaction
-calls; Chat entry points filter by their exact owner. Independent transports
-inside third-party Extensions are outside this recorder. Images appear as
-metadata. Recording is off by default, bounded and memory-only; clearing,
-disabling and restart remove recordings. Inspection never starts model work.
-See [the feedback contract](tool-feedback.md) for fidelity and coverage limits.
+The local `?dev-context` developer route opens **Inspect context**; normal
+Chats, the fold and Settings have no inspector entry. Enable **Record model
+context** before the request to capture assembled instructions, messages and
+tools, provider payloads where Pi exposes them, and loaded-source provenance.
+The view includes host title, Check, app inference and compaction calls with
+their own attribution. Independent transports inside third-party Extensions
+are outside this recorder. Images appear as metadata. Recording is off by
+default, bounded and memory-only; clearing, disabling and restart remove
+recordings. Inspection never starts model work. See [the feedback
+contract](tool-feedback.md) for fidelity and coverage limits.
 
-### Live Extension questions (development)
+### Live Extension questions
 
 Ordinary Pi selection, confirmation, text input, and editor requests appear
 inline in their owning Space Chat or fold Chat. Multiple questions remain
@@ -106,11 +106,15 @@ separate; switching Chats and reconnecting restores the current pending set.
 Typed responses are validated before the callback settles. A failed send keeps
 the field available for retry. The paired web client can see and answer only
 non-secret requests from its own exact management turn and browser grant.
-Async context carries the originating task identity; a delayed callback from
-an ended turn cannot become a question owned by a newer turn in that Chat.
-Session-start and reload callbacks keep session ownership instead: their
-desktop questions can outlive an ordinary turn, without borrowing its task or
-becoming available to an unrelated paired browser.
+Async context carries the originating task identity while that turn is live.
+A later question from an ended turn or a reused connection belongs to the Chat
+without borrowing a newer turn's task identity. Session-start and reload
+callbacks likewise keep session ownership: their desktop questions can outlive
+an ordinary turn. These unattributed questions are not relayed to a paired
+browser, which requires an exact browser-owned task. Stop cancels pending
+callbacks and questions during native prompt draining. After draining, a
+surviving connection may ask a new Chat-owned question; session disposal
+permanently cancels that session's UI access.
 
 These are live Pi callbacks, not durable collaboration questions. Stop,
 timeout, session disposal and app shutdown cancel them. Restart never recreates
@@ -130,11 +134,20 @@ does not identify secrets; credential setup must use the appropriate desktop
 setup surface, not an ordinary Chat question. Terminal-only component
 factories remain unsupported.
 
-[Extensions and computer work](extension-foundation.md) defines the shared
-design and staged inclusion requirements for computer control, Chrome, web
-access, document tools, and MCP. The candidates listed there are not yet
-bundled or represented as ready. “Included with work-fold” will describe
-maintenance and tested compatibility, not a different Extension runtime.
+[Extensions and computer work](extension-foundation.md) defines the included
+Computer control, Chrome, Web, Documents and MCP service connections. Their
+pinned versions and reviewed compatibility patches live in
+[the integration manifest](../patches/included-tools/manifest.json). “Included
+with work-fold” describes maintenance, not a different Extension runtime.
+The Installed view separates enabled state and Pi load diagnostics from
+observed readiness. Setup belongs to that tool: macOS permissions, the Chrome
+companion, optional Brave search credentials, and native MCP server definitions
+and authentication. A saved credential alone does not establish readiness.
+Web defaults to DuckDuckGo without a key. Documents supplies ordinary libraries
+and a cancellable JavaScript worker; Office visual inspection uses existing
+apps, and Excel formulas are preserved rather than recalculated. MCP sampling
+is disabled for the embedded Pi version; stdio servers need their executable
+and runtime installed. Setup details and remaining limits are in the contract.
 
 ### Declarative Extension surfaces
 
@@ -179,7 +192,7 @@ In product language, lead with the outcome (“install this Skill” or “add t
 
 work-fold delegates package update and removal to Pi so its settings, installed paths, pinned references, and deduplication rules stay authoritative. Project package installation, update, and removal require a registered target Space. Capability mutations are rejected while an affected Space has an active Assistant turn or Chat compaction; switching tabs or minimizing the app must not let a catalog reload terminate background work.
 
-Direct Skill imports and packages have different ownership semantics. Package-provided resources can be updated or removed through their package record. Direct-imported Skills have import receipts and a separate removal path that checks their recorded ownership. Per-resource enable/disable and Pi package filters are likewise future controls, even though the catalog already distinguishes active tools from tools that are merely available.
+Direct Skill imports and packages have different ownership semantics. Package-provided resources can be updated or removed through their package record. Direct-imported Skills have import receipts and a separate removal path that checks their recorded ownership. Per-resource enable/disable uses Pi's native filters for Extensions, Skills, prompts and themes, preserving unrelated resources, package patterns and scopes. Included resources use the same controls. The desktop and `tools enable|disable --path <resource-path> --kind extensions|skills|prompts|themes --scope personal|space [--space <id>]` share the prepared, identity-pinned, receipted operation. Affected active work blocks the change; clients are invalidated only after it succeeds. A package configured as a single Extension file cannot be filtered by Pi: work-fold explains that limitation and offers package removal rather than showing a false disabled state.
 
 ## Discovery sources
 
@@ -198,7 +211,7 @@ Model-provider credentials belong to **Settings → Assistant** and application/
 
 Restricted-app connection credentials use a separate encrypted namespace and host-owned setup UI; they do not reuse model-provider AuthStorage or pass secrets through app JavaScript. Public HTTPS targets can declare `none`, API key, bearer, basic, or OAuth 2 PKCE. PKCE accepts only a public issuer, a supplied client id for a provider registration that supports public clients without a client secret, and non-OIDC scopes; work-fold owns discovery, the system-browser callback, encrypted tokens, and refresh. It does not accept a client secret, device-code flow, or package-supplied endpoints. Credential replacement, **Disconnect**, app update, and app removal invalidate the OAuth binding generation so an in-flight browser connection or token refresh cannot restore a deleted local token. Revoking destination access leaves its separately stored connection in place; **Disconnect** deletes the local record but does not revoke or rotate the credential at its provider. Numeric `127.0.0.1` and `::1` targets are a separate anonymous-only permission with no DNS, redirects, or saved credentials; work-fold does not yet verify which process owns the port. The broker derives app and Space identity from the sandbox's sender, injects authorization, strips sensitive headers, and enforces target, method, redirect, size, and time bounds.
 
-For app creation, Pi receives one host-owned `propose_space_app` tool rather than another loaded Extension. The model supplies only the completed package's Space-relative folder. work-fold derives the review and digest, persists the owning Space/Chat receipt, and returns a review-only result. Installation, destination grants, and connection setup remain later human actions; proposal data never carries a credential.
+For app creation, Pi receives one host-owned `propose_space_app` tool rather than another loaded Extension. The model supplies only the completed package's Space-relative folder. work-fold derives the inspected digest, installs its preview with the declared powers, persists the owning Space/Chat receipt, and reports any destinations still needing a secret. Connection secrets remain separate trusted setup; proposal data never carries a credential.
 
 Likewise, an Extension can implement an external connection, but that does not make the core app a native integration with that service. Google Drive currently works by registering a folder synchronized through Google Drive for desktop. Direct Drive API synchronization remains future provider-adapter work.
 
@@ -211,7 +224,7 @@ For every new Assistant capability, keep these answers visible in code and UI:
 3. Is it Everywhere or This Space?
 4. Is it a full-trust Pi Extension or a restricted app package?
 5. Which Space, network destinations, file roots, notification categories, actions, connections, and named automations are granted?
-6. Is it loaded, staged, disabled, or failing diagnostics?
+6. Is it enabled, loaded, ready, missing setup, or failing diagnostics?
 7. How can the person update, disable, remove, or revoke it?
 
 The current Pi catalog and import/install surfaces expose provenance, scope, status, diagnostics, and package update/removal. Fine-grained permissions and per-resource enable/disable for full-trust Pi resources, direct-import receipts/removal, and named Anthropic-pack selection remain lifecycle work to complete. Restricted Space apps already have their separate per-destination, file, notification, connection, and per-automation authority model.

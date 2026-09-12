@@ -1,0 +1,264 @@
+--- a/brave.ts
++++ b/brave.ts
+@@ -2,7 +2,7 @@
+ import { activityMonitor } from "./activity.ts";
+ import type { SearchOptions, SearchResult, SearchResponse } from "./perplexity.ts";
+ import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
+-import { fetchWithCredentialRedirects, getWebSearchConfigPath, resolveApiBaseUrl } from "./utils.ts";
++import { fetchWithCredentialRedirects, getWebSearchConfigPath, resolveApiBaseUrl, readSearchResponseText } from "./utils.ts";
+ 
+ const BRAVE_API_BASE_URL = "https://api.search.brave.com/res/v1";
+ const CONFIG_PATH = getWebSearchConfigPath();
+@@ -138,10 +138,12 @@
+ 
+ export async function searchWithBrave(
+ 	query: string,
+-	options: SearchOptions = {},
++	options: SearchOptions & { apiKey?: string; apiBaseUrl?: string } = {},
+ ): Promise<SearchResponse> {
+-	const apiUrl = getApiUrl();
+-	const apiKey = await getApiKey(options.signal);
++	const apiUrl = options.apiBaseUrl !== undefined
++		? `${options.apiBaseUrl.replace(/\/$/, "")}/web/search`
++		: options.apiKey !== undefined ? `${BRAVE_API_BASE_URL}/web/search` : getApiUrl();
++	const apiKey = options.apiKey !== undefined ? options.apiKey : await getApiKey(options.signal);
+ 	if (!apiKey) {
+ 		throw new Error(
+ 			"Brave Search API key not found. Either:\n" +
+@@ -186,11 +188,11 @@
+ 
+ 		if (!response.ok) {
+ 			activityMonitor.logError(activityId, `HTTP ${response.status}`);
+-			const errorText = redactCredential(await response.text(), apiKey);
++			const errorText = redactCredential(await readSearchResponseText(response), apiKey);
+ 			throw new Error(`Brave Search API error ${response.status}: ${errorText.slice(0, 300)}`);
+ 		}
+ 
+-		const data = await response.json() as {
++		const data = JSON.parse(await readSearchResponseText(response)) as {
+ 			web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
+ 		};
+ 		activityMonitor.logComplete(activityId, response.status);
+--- a/duckduckgo.ts
++++ b/duckduckgo.ts
+@@ -1,5 +1,6 @@
+ import { activityMonitor } from "./activity.ts";
+ import type { SearchOptions, SearchResult, SearchResponse } from "./perplexity.ts";
++import { readSearchResponseText } from "./utils.ts";
+ 
+ const SEARCH_URL = "https://html.duckduckgo.com/html/";
+ const SEARCH_TIMEOUT_MS = 30_000;
+@@ -83,12 +84,12 @@
+ 				: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+ 		});
+ 		if (!response.ok) {
+-			const body = await response.text();
++			const body = await readSearchResponseText(response);
+ 			throw new Error(`DuckDuckGo search error ${response.status}: ${body.slice(0, 300)}`);
+ 		}
+ 
+ 		const { parseHTML } = await import("linkedom");
+-		const { document } = parseHTML(await response.text());
++		const { document } = parseHTML(await readSearchResponseText(response));
+ 		const filters = normalizeDomainFilters(options.domainFilter);
+ 		const results: SearchResult[] = [];
+ 		let parseableResults = 0;
+--- a/utils.ts
++++ b/utils.ts
+@@ -4,6 +4,30 @@
+ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+ import { homedir, hostname, tmpdir } from "node:os";
+ import { join } from "node:path";
++
++/** Bound provider result bodies with the same 5 MiB ceiling as ordinary HTTP extraction. */
++export async function readSearchResponseText(response: Response): Promise<string> {
++	const maxBytes = 5 * 1024 * 1024;
++	const reader = response.body?.getReader();
++	if (!reader) return "";
++	const chunks: Uint8Array[] = [];
++	let size = 0;
++	try {
++		while (true) {
++			const { done, value } = await reader.read();
++			if (done) break;
++			size += value.byteLength;
++			if (size > maxBytes) {
++				await reader.cancel();
++				throw new Error("Search response exceeds the 5 MiB download limit");
++			}
++			chunks.push(value);
++		}
++	} finally {
++		reader.releaseLock();
++	}
++	return Buffer.concat(chunks).toString("utf8");
++}
+ 
+ let cachedWebSearchConfigDir: string | undefined;
+ 
+--- a/extract.ts
++++ b/extract.ts
+@@ -331,6 +331,12 @@
+ type HttpExtractedContent = ExtractedContent & { declaredLinks?: DeclaredWebLink[] };
+ 
+ export interface ExtractOptions {
++	/** Use only direct HTTP and local text parsing; never a hosted extraction or media provider. */
++	directHttpOnly?: boolean;
++	/** Refuse binary/media content before reading provider or media configuration. */
++	textOnly?: boolean;
++	/** Explicit host network policy; when supplied, no personal fetch policy is read. */
++	networkPolicy?: { allowRanges: string[]; trustEnvProxy: boolean; allowLoopback?: boolean; domainPolicy?: { allow: string[]; deny: string[] } };
+ 	timeoutMs?: number;
+ 	forceClone?: boolean;
+ 	prompt?: string;
+@@ -511,6 +517,15 @@
+ ): Promise<ExtractedContent> {
+ 	if (signal?.aborted) {
+ 		return { url, title: "", content: "", error: "Aborted" };
++	}
++	if (options?.directHttpOnly) {
++		try {
++			const parsed = new URL(url);
++			if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("Only HTTP and HTTPS pages are supported");
++			return await extractViaHttp(url, resolveFetchTimeoutMs(options), signal, options);
++		} catch (error) {
++			return { url, title: "", content: "", error: errorMessage(error) };
++		}
+ 	}
+ 
+ 	let remoteUrl: URL | null = null;
+@@ -1159,8 +1174,8 @@
+ 	signal?.addEventListener("abort", onAbort);
+ 
+ 	try {
+-		const ssrf = loadSsrfConfig();
+-		const domainPolicy = loadFetchContentDomainPolicy();
++		const ssrf = options?.networkPolicy ?? loadSsrfConfig();
++		const domainPolicy = options?.networkPolicy ? options.networkPolicy.domainPolicy ?? { allow: [], deny: [] } : loadFetchContentDomainPolicy();
+ 		const authProfile = options?.authFetchProfile;
+ 		const trustEnvProxy = options?.proxy === undefined && ssrf.trustEnvProxy;
+ 		const requestInit: ProxiedRequestInit = {
+@@ -1186,6 +1201,7 @@
+ 				{
+ 					allowRanges: ssrf.allowRanges,
+ 					trustEnvProxy,
++					allowLoopback: options?.networkPolicy?.allowLoopback,
+ 					domainPolicy,
+ 					...(options?.lookup ? { lookup: options.lookup } : {}),
+ 				},
+@@ -1205,6 +1221,10 @@
+ 		const contentLengthHeader = response.headers.get("content-length");
+ 		const contentType = response.headers.get("content-type") || "";
+ 		const mimeType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
++		if (options?.textOnly && !isTextContentType(contentType)) {
++			await response.body?.cancel();
++			return { url, title: "", content: "", error: `Use a file or document tool for content type: ${mimeType || "missing"}`, mimeType, status: response.status };
++		}
+ 		const isPDFContent = isPDF(url, contentType);
+ 		const pdfConfig = isPDFContent ? loadPDFConfig() : null;
+ 		if (isPDFContent && pdfConfig && !pdfConfig.enabled) {
+--- /dev/null
++++ b/embedded.ts
+@@ -0,0 +1,102 @@
++import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
++import { Type } from 'typebox';
++import { createHash } from 'node:crypto';
++import { searchWithBrave } from './brave.ts';
++import { searchWithDuckDuckGo } from './duckduckgo.ts';
++import { extractContent } from './extract.ts';
++
++/** Same values used by pi-web-access's ordinary search/fetch path. */
++export const WEB_ACCESS_LIMITS = { timeoutMs: 30_000, textCharacters: 30_000, searchResults: 20 } as const;
++export type WebAccessSearchConfig = { provider: 'duckduckgo' } | {
++  provider: 'brave';
++  apiKey: string;
++  /** An explicit endpoint override for a configured gateway or a deterministic test. */
++  apiBaseUrl?: string;
++}
++export interface WebAccessExtensionOptions {
++  getSearchConfig?: () => WebAccessSearchConfig | undefined | Promise<WebAccessSearchConfig | undefined>;
++  /** Explicit policy for this runtime, without importing personal browser/profile settings. */
++  networkPolicy?: { allowRanges: string[]; trustEnvProxy: boolean; allowLoopback?: boolean; domainPolicy?: { allow: string[]; deny: string[] } };
++}
++function textResult(text: string, details: Record<string, unknown>) {
++  return { content: [{ type: 'text' as const, text }], details };
++}
++function selectedText(text: string, offset: number, limit: number) {
++  const start = Math.min(offset, text.length);
++  const end = Math.min(text.length, start + limit);
++  // Do not split an astral character at either boundary.
++  const safeStart = start > 0 && /[\uDC00-\uDFFF]/.test(text[start] ?? '') ? start - 1 : start;
++  const safeEnd = end > safeStart && /[\uD800-\uDBFF]/.test(text[end - 1] ?? '') ? end - 1 : end;
++  return { content: text.slice(safeStart, safeEnd), start: safeStart, end: safeEnd, total: text.length };
++}
++
++/** A standard Pi Extension factory, using the upstream transport/parsers without its curator UI. */
++export function createWebAccessExtension(options: WebAccessExtensionOptions = {}) {
++  // Snapshot non-secret configuration. No setup, requests, watcher or process-global mutations at import/load.
++  const networkPolicy = structuredClone(options.networkPolicy ?? { allowRanges: [], trustEnvProxy: false });
++  return function webAccess(pi: ExtensionAPI) {
++    let lifetime = new AbortController();
++    pi.on('session_start', () => { lifetime.abort(); lifetime = new AbortController(); });
++    pi.on('session_shutdown', () => lifetime.abort());
++    const signalFor = (signal?: AbortSignal) => AbortSignal.any([lifetime.signal, ...(signal ? [signal] : [])]);
++
++    pi.registerTool({
++      name: 'web_search', label: 'Search the web',
++      description: 'Search the web with DuckDuckGo, or an explicitly connected Brave Search account. Returns source titles, URLs and snippets without another model call. DuckDuckGo works without setup; use Skills & Extensions to connect Brave. The recency filter requires Brave. Inspect relevant sources with fetch_content before making claims that need full page evidence.',
++      parameters: Type.Object({
++        query: Type.String({ minLength: 1, maxLength: 8192 }),
++        count: Type.Optional(Type.Integer({ minimum: 1, maximum: WEB_ACCESS_LIMITS.searchResults })),
++        recency: Type.Optional(Type.Union([Type.Literal('day'), Type.Literal('week'), Type.Literal('month'), Type.Literal('year')])),
++      }),
++      async execute(_id, params, signal) {
++        const ownedSignal = signalFor(signal); ownedSignal.throwIfAborted();
++        const config = await options.getSearchConfig?.() ?? { provider: 'duckduckgo' }; ownedSignal.throwIfAborted();
++        if (config.provider === 'brave' && !config.apiKey?.trim()) throw new Error('The selected Brave Search connection needs an API key. Open Skills & Extensions → Web access → Connect, or choose DuckDuckGo to search without an account.');
++        if (config.provider === 'duckduckgo' && params.recency) throw new Error('DuckDuckGo does not provide the requested recency filter. Search without it and inspect source dates, or connect Brave Search.');
++        const result = config.provider === 'brave'
++          ? await searchWithBrave(params.query, {
++            apiKey: config.apiKey, ...(config.apiBaseUrl ? { apiBaseUrl: config.apiBaseUrl } : {}),
++            numResults: params.count ?? 5, recencyFilter: params.recency, signal: ownedSignal,
++          })
++          : await searchWithDuckDuckGo(params.query, { numResults: params.count ?? 5, signal: ownedSignal });
++        ownedSignal.throwIfAborted();
++        const sourceText = result.results.map((item, index) => `${index + 1}. ${item.title}\n${item.url}\n${item.snippet}`).join('\n\n');
++        const text = sourceText.slice(0, WEB_ACCESS_LIMITS.textCharacters);
++        const omitted = text.length < sourceText.length;
++        return textResult(`${config.provider === 'brave' ? 'Brave Search' : 'DuckDuckGo'} results for: ${params.query}\n\n${text || 'No results found.'}${omitted ? '\n\n[Result snippets truncated.]' : ''}`, {
++          provider: config.provider, resultCount: result.results.length, fetchedAt: new Date().toISOString(), truncated: omitted,
++        });
++      },
++    });
++    pi.registerTool({
++      name: 'fetch_content', label: 'Read a web page',
++      description: 'Fetch an explicit HTTP(S) URL and extract readable text locally. No browser cookies, hosted extraction, or additional model calls. Returns source URL, fetch time, content digest and a selected text range. Dynamic or signed-in pages may require the browser tool. Larger pages can be read with offset; each call fetches current content, so compare digests before combining excerpts.',
++      parameters: Type.Object({
++        url: Type.String({ minLength: 1, maxLength: 8192 }),
++        offset: Type.Optional(Type.Integer({ minimum: 0 })),
++        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: WEB_ACCESS_LIMITS.textCharacters })),
++      }),
++      async execute(_id, params, signal) {
++        const ownedSignal = signalFor(signal); ownedSignal.throwIfAborted();
++        const parsed = new URL(params.url);
++        if (parsed.username || parsed.password) throw new Error('Use the browser or a configured connection for authenticated URLs. Do not include a password in a URL.');
++        const result = await extractContent(parsed.href, ownedSignal, {
++          directHttpOnly: true, textOnly: true, mode: 'readable', networkPolicy,
++          timeoutMs: WEB_ACCESS_LIMITS.timeoutMs,
++        });
++        ownedSignal.throwIfAborted();
++        if (result.error && !result.content) throw new Error(`Could not read ${parsed.href}: ${result.error}`);
++        const selected = selectedText(result.content, params.offset ?? 0, params.limit ?? WEB_ACCESS_LIMITS.textCharacters);
++        const digest = createHash('sha256').update(result.content).digest('hex');
++        const fetchedAt = new Date().toISOString();
++        return textResult([
++          `Source: ${result.url}\nTitle: ${result.title || '(untitled)'}\nFetched: ${fetchedAt}\nText SHA-256: ${digest}`,
++          `Characters ${selected.start}–${selected.end} of ${selected.total}.`,
++          ...(result.error ? [`Extraction warning: ${result.error}`] : []),
++          selected.content,
++          ...(selected.end < selected.total ? [`[More text is available: fetch_content with offset ${selected.end}. Verify the digest is unchanged.]`] : []),
++        ].join('\n\n'), { url: result.url, fetchedAt, digest, start: selected.start, end: selected.end, total: selected.total, partial: !!result.error });
++      },
++    });
++  };
++}

@@ -19,7 +19,6 @@ import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference
 import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contract";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { AssistantSetupPane, type AssistantModelScope } from "../panes/spacePanes";
-import { InspectContextButton, ModelContextInspector } from "../chat/ModelContextInspector";
 import { FoldLimitsPane } from "./FoldLimitsPane";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
@@ -49,7 +48,6 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   const [page, setPage] = useState<SettingsPage>(initialPage);
   const [foldSection, setFoldSection] = useState<FoldSettingsSection>("access");
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
-  const [inspectingContext, setInspectingContext] = useState(false);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
   const [closeToTrayError, setCloseToTrayError] = useState<string | null>(null);
   const [closeToTrayNotice, setCloseToTrayNotice] = useState<string | null>(null);
@@ -169,10 +167,6 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
             {page === "assistant" ? (
               <div className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
                 <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
-                <section className="model-context-settings-entry" aria-label="Model context diagnostics">
-                  <div><h3>Model context</h3><p>Inspect captured Chat, title, Check, and app model requests on this desktop.</p></div>
-                  <InspectContextButton onClick={() => setInspectingContext(true)} />
-                </section>
               </div>
             ) : null}
             {page === "remote" ? (
@@ -236,7 +230,6 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
             ) : null}
           </div>
         </div>
-        {inspectingContext ? <ModelContextInspector fixtureMode={fixtureMode} onClose={() => setInspectingContext(false)} /> : null}
       </section>
     </div>
   );

@@ -62,6 +62,7 @@ import {
 } from "./work-fold-cli-host.js";
 import { ManagementPopover, type ManagementPopoverStagedItem } from "./management-popover.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
+import { includedToolsRoot } from "../../src/local/agent/included-tools.js";
 import { applyLoginShellEnvironment, formatLoginShellEnvironmentResult, type LoginShellEnvironmentResult } from "./shell-environment.js";
 import { createRestrictedAppConnectionStore } from "./restricted-app-connections.js";
 import { createRestrictedAppOAuthClient } from "./restricted-app-oauth.js";
@@ -502,6 +503,12 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       else if (event.method === "quit") app.quit();
       });
       const runtime = new PackagedPiRuntimeProvider({
+        includedTools: {
+          rootPath: includedToolsRoot(), stateRoot: join(userData, "assistant-tools"),
+          helperAppPath: app.isPackaged
+            ? join(process.resourcesPath, "computer-helper", "work-fold Computer.app")
+            : join(app.getAppPath(), "out", "included-tools", "computer-helper", "work-fold Computer.app"),
+        },
         agentDir: defaultAgentSdkDir(),
         authStorageHost: settings,
         assistantPreferencesPath: join(userData, "assistant-model-preferences.json"),

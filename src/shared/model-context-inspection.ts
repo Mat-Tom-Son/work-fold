@@ -50,6 +50,8 @@ export interface ModelContextInspectionSummary {
 
 export interface ModelContextInspection extends ModelContextInspectionSummary {
   assembled: ModelContextSnapshot;
+  /** Origins from the loaded runtime at dispatch; not reconstructed from later disk contents. */
+  provenance?: ModelContextSnapshot;
   /** Native onPayload observations, not a count of HTTP attempts or retries. */
   payloads: ModelContextSnapshot[];
 }

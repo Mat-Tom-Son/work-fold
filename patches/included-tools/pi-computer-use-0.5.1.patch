@@ -1,0 +1,1770 @@
+diff --git a/extensions/computer-use.ts b/extensions/computer-use.ts
+--- a/extensions/computer-use.ts
++++ b/extensions/computer-use.ts
+@@ -1,6 +1,8 @@
+ import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ import { Type } from "typebox";
+ import {
++	createComputerUseRuntime,
++	type ComputerUseRuntimeOptions,
+ 	ensureComputerUseSetup,
+ 	executeAct,
+ 	executeEvaluateBrowser,
+@@ -179,8 +181,25 @@
+ 	].join("\n");
+ }
+ 
+-export default function computerUseExtension(pi: ExtensionAPI): void {
+-	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool]) pi.registerTool(tool);
++export interface ComputerUseExtensionOptions extends ComputerUseRuntimeOptions {
++  /** Setup is explicit in embedded applications; native terminal hosts may retain startup setup. */
++  setupOnStart?: boolean;
++  restoreObservations?: boolean;
++  browserTools?: boolean;
++}
++
++export default function computerUseExtension(pi: ExtensionAPI, options: ComputerUseExtensionOptions = {}): void {
++  const runtime = createComputerUseRuntime(options);
++  const executors = [runtime.executeFind, runtime.executeObserve, runtime.executeSearchUi, runtime.executeExpandUi, runtime.executeInspectUi, runtime.executeAct, runtime.executeReadText, runtime.executeWaitFor, runtime.executeLaunchBrowser, runtime.executeNavigateBrowser, runtime.executeEvaluateBrowser];
++  const tools = [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool];
++  for (const [index, tool] of tools.entries()) {
++    if (options.browserTools === false && index >= 8) continue;
++    const exactRoot = tool.name === "observe_ui" && options.requireExplicitRoot;
++    pi.registerTool({ ...tool,
++      ...(exactRoot ? { description: "Observe one exact root returned by find_roots and return its bounded UI outline.", parameters: Type.Object({ root: Type.String({ description: "Exact @r ref issued by find_roots" }), mode: Type.Optional(Type.Union([Type.Literal("semantic"), Type.Literal("visual"), Type.Literal("fused")])) }) } : {}),
++      execute: executors[index],
++    } as any);
++  }
+ 
+ 	pi.registerCommand("computer-use", {
+ 		description: "Show pi-computer-use configuration",
+@@ -192,12 +211,12 @@
+ 
+ 	pi.on("session_start", async (_event, ctx) => {
+ 		loadComputerUseConfig(ctx.cwd);
+-		reconstructStateFromBranch(ctx);
+-		if (!ctx.hasUI) return;
+-		try { await ensureComputerUseSetup(ctx); } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"); }
++		if (options.restoreObservations !== false) runtime.reconstructStateFromBranch(ctx);
++		if (!ctx.hasUI || options.setupOnStart === false) return;
++		try { await runtime.ensureComputerUseSetup(ctx); } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"); }
+ 	});
+ 
+ 	pi.on("session_shutdown", async () => {
+-		await shutdownComputerUseSession();
++		await runtime.shutdownComputerUseSession();
+ 	});
+ }
+diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
+--- a/native/macos/bridge.swift
++++ b/native/macos/bridge.swift
+@@ -369,10 +369,12 @@
+ }
+ 
+ final class Bridge {
+-	private let protocolVersion = 6
++	private let protocolVersion = 7
+ 	private let refStore = AXRefStore()
+ 	private let inputSuppressionGuard = InputSuppressionGuard()
+ 	private let physicalInputLock = NSRecursiveLock()
++	private let humanInputMonitor = HumanInputMonitor()
++	private let requestGuardKey = "pi-computer-use.request-guard"
+ 	private let supportsAgentCursor = CommandLine.arguments.contains("serve")
+ 	private let browserBundleIds: Set<String> = [
+ 		"com.apple.Safari", "com.google.Chrome", "org.chromium.Chromium", "company.thebrowser.Browser", "com.brave.Browser", "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "net.imput.helium", "org.mozilla.firefox",
+@@ -388,8 +390,6 @@
+ 	private let rootObserverLock = NSLock()
+ 	private var rootObservers: [Int32: RootAXObserverState] = [:]
+ 	private let maxRootObservers = 4
+-	private let permissionCacheLock = NSLock()
+-	private var grantedPermissionStatus: [String: Any]?
+ 	private let completedRequestLock = NSLock()
+ 	private var recentCompletedRequestIds: [String] = []
+ 
+@@ -440,7 +440,8 @@
+ 		var address = sockaddr_un()
+ 		address.sun_family = sa_family_t(AF_UNIX)
+ 		let sunPathCapacity = MemoryLayout.size(ofValue: address.sun_path)
+-		let bytes = Array(socketPath.utf8.prefix(sunPathCapacity - 1))
++        guard socketPath.utf8.count < sunPathCapacity else { close(server); close(lockFile); exit(1) }
++		let bytes = Array(socketPath.utf8)
+ 		withUnsafeMutablePointer(to: &address.sun_path) { pointer in
+ 			pointer.withMemoryRebound(to: CChar.self, capacity: sunPathCapacity) { dest in
+ 				for (index, byte) in bytes.enumerated() { dest[index] = CChar(bitPattern: byte) }
+@@ -450,6 +451,7 @@
+ 			pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(server, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+ 		}
+ 		if bindStatus != 0 || listen(server, 8) != 0 { close(server); close(lockFile); exit(1) }
++        _ = chmod(socketPath, S_IRUSR | S_IWUSR)
+ 		while true {
+ 			let client = accept(server, nil, nil)
+ 			if client < 0 { continue }
+@@ -508,6 +510,13 @@
+ 			completionId = id
+ 
+ 			do {
++                let mutation = ["act", "actBatch", "focusWindow"].contains(object["cmd"] as? String ?? "")
++                if mutation { try humanInputMonitor.begin() }
++                defer { if mutation { humanInputMonitor.end() } }
++                let guardState = RequestExecutionGuard(socket: responseSocket, inputGeneration: mutation ? { self.humanInputMonitor.currentGeneration() } : { 0 })
++                Thread.current.threadDictionary[requestGuardKey] = guardState
++                defer { Thread.current.threadDictionary.removeObject(forKey: requestGuardKey) }
++                try guardState.check()
+ 				let result = try handleRequest(object)
+ 				send([
+ 					"id": id,
+@@ -594,7 +603,11 @@
+ 		return recentCompletedRequestIds
+ 	}
+ 
+-	private func handleRequest(_ request: [String: Any]) throws -> Any {
++	private func checkRequestActive() throws {
++        try (Thread.current.threadDictionary[requestGuardKey] as? RequestExecutionGuard)?.check()
++    }
++
++    private func handleRequest(_ request: [String: Any]) throws -> Any {
+ 		let cmd = try stringArg(request, "cmd")
+ 
+ 		switch cmd {
+@@ -812,6 +825,8 @@
+ 			"parentPid": Int(parentPid),
+ 			"executablePath": executable,
+ 			"macOS": ProcessInfo.processInfo.operatingSystemVersionString,
++            "bundleId": Bundle.main.bundleIdentifier ?? "",
++            "bundleName": Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? Bundle.main.bundleURL.deletingPathExtension().lastPathComponent,
+ 		]
+ 		if let parentPath = processPath(pid: parentPid) {
+ 			source["parentPath"] = parentPath
+@@ -820,7 +835,8 @@
+ 			source["parentBundleId"] = parentBundleId
+ 		}
+ 		let attribution: String
+-		if executable.contains("/pi-computer-use.app/Contents/MacOS/"), parentPid == 1 {
++        if let bundleExecutable = Bundle.main.executableURL?.standardizedFileURL.path,
++            Bundle.main.bundleURL.pathExtension == "app", bundleExecutable == URL(fileURLWithPath: executable).standardizedFileURL.path, parentPid == 1 {
+ 			// Non-spoofable signals only: installed-bundle executable path +
+ 			// launchd parent (`open` handed us to LaunchServices). A dev
+ 			// binary or a directly-spawned copy fails closed to "caller".
+@@ -833,12 +849,6 @@
+ 	}
+ 
+ 	private func checkPermissions() -> [String: Any] {
+-		permissionCacheLock.lock()
+-		if let cached = grantedPermissionStatus {
+-			permissionCacheLock.unlock()
+-			return cached
+-		}
+-		permissionCacheLock.unlock()
+ 		let accessibility = AXIsProcessTrusted()
+ 		let screenRecordingPreflight: Bool
+ 		if #available(macOS 10.15, *) {
+@@ -846,7 +856,9 @@
+ 		} else {
+ 			screenRecordingPreflight = true
+ 		}
+-		let capturable = screenRecordingCapturable()
++        // SCShareableContent may request access when denied. A readiness check
++        // must not prompt; explicit registerPermissions owns that interaction.
++		let capturable = screenRecordingPreflight && screenRecordingCapturable()
+ 		let result: [String: Any] = [
+ 			"accessibility": accessibility,
+ 			// The live probe is authoritative; the preflight boolean is kept
+@@ -857,15 +869,7 @@
+ 			"screenRecordingCapturable": capturable,
+ 			"source": permissionSource(),
+ 		]
+-		// A successful TCC grant is process-stable in practice. Cache only the
+-		// positive result so missing grants are always rechecked after the user
+-		// enables them, while fresh agent processes avoid repeating a multi-second
+-		// ScreenCaptureKit probe against the same long-lived helper daemon.
+-		if accessibility && capturable {
+-			permissionCacheLock.lock()
+-			grantedPermissionStatus = result
+-			permissionCacheLock.unlock()
+-		}
++        // Recheck grants on request; do not cache an earlier authorization forever.
+ 		return result
+ 	}
+ 
+@@ -1089,6 +1093,7 @@
+ 	}
+ 
+ 	private func focusWindow(_ request: [String: Any]) throws -> [String: Any] {
++        try checkRequestActive()
+ 		let pid = Int32(try intArg(request, "pid"))
+ 		let windowId = optionalIntArg(request, "windowId").map { UInt32($0) }
+ 		let windowRef = optionalStringArg(request, "windowRef")
+@@ -1856,11 +1861,15 @@
+ 	}
+ 
+ 	private func act(_ request: [String: Any]) throws -> [String: Any] {
++        try checkRequestActive()
+ 		let lookId = try stringArg(request, "lookId")
+ 		guard let record = lookRecord(for: lookId) else {
+ 			throw BridgeFailure(message: "Look id '\(lookId)' is no longer available", code: "stale_look")
+ 		}
+ 		let pid = Int32(try intArg(request, "pid"))
++        if record.windowId > 0, pidForWindowId(record.windowId) != pid {
++            throw BridgeFailure(message: "Observed window no longer belongs to the requested application. Observe again.", code: "stale_target")
++        }
+ 		let action = try stringArg(request, "action")
+ 		let target = request["target"] as? [String: Any] ?? [:]
+ 		let params = request["params"] as? [String: Any] ?? [:]
+@@ -1914,6 +1923,9 @@
+ 			beforeValue = stringAttribute(stored, attribute: kAXValueAttribute as CFString)
+ 			beforeSelected = stringAttribute(stored, attribute: kAXSelectedTextAttribute as CFString)
+ 		} else if let xNumber = target["x"] as? NSNumber, let yNumber = target["y"] as? NSNumber {
++            if let current = currentWindowBounds(windowId: record.windowId), current != record.windowFrame {
++                throw BridgeFailure(message: "Window geometry changed after observation. Observe again before coordinate input.", code: "stale_geometry")
++            }
+ 			guard record.hasImage else {
+ 				throw BridgeFailure(message: "Coordinate targeting is unavailable for this outline-only root", code: "coordinate_unavailable_for_root")
+ 			}
+@@ -1942,14 +1954,18 @@
+ 			Task { @MainActor in AgentCursor.shared.animate(to: point, above: record.windowId) }
+ 		}
+ 
+-		func focusTargetForPhysicalInput() {
++		func focusTargetForPhysicalInput() throws {
++            try checkRequestActive()
+ 			guard delivery == "hid" else { return }
+ 			if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
+ 				performed["activated"] = app.activate()
+ 			}
+ 			if let window = windowElement(pid: pid, windowId: record.windowId) {
++				try checkRequestActive()
+ 				_ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
++				try checkRequestActive()
+ 				_ = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
++				try checkRequestActive()
+ 				performed["raised"] = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+ 			}
+ 			usleep(20_000)
+@@ -1963,7 +1979,7 @@
+ 				let role = stringAttribute(hit, attribute: kAXRoleAttribute as CFString) ?? ""
+ 				if role == "AXWindow" || role == "AXApplication" { preflightCapsUnknown = true; return }
+ 				if delivery == "hid" && attempt < 3 {
+-					focusTargetForPhysicalInput()
++					try focusTargetForPhysicalInput()
+ 					usleep(20_000)
+ 					continue
+ 				}
+@@ -1978,7 +1994,8 @@
+ 			performed["grounding"] = "coordinates"
+ 			if delivery == "pid" { performed["verification"] = "caller_required" }
+ 			acquirePhysicalInputIfNeeded()
+-			focusTargetForPhysicalInput()
++            try checkRequestActive()
++			try focusTargetForPhysicalInput()
+ 			if delivery == "hid" { try preflight(point) }
+ 			switch action {
+ 			case "press", "click":
+@@ -2028,8 +2045,10 @@
+ 				}
+ 			} else if supportsAction(element, action: kAXPressAction as CFString) {
+ 				let cursorPoint = try? coordinatePoint()
++				try checkRequestActive()
+ 				var status = AXUIElementPerformAction(element, kAXPressAction as CFString)
+ 				if status != .success, let refreshed = refreshElement(), supportsAction(refreshed, action: kAXPressAction as CFString) {
++					try checkRequestActive()
+ 					status = AXUIElementPerformAction(refreshed, kAXPressAction as CFString)
+ 				}
+ 				if status == .success {
+@@ -2046,12 +2065,14 @@
+ 			let text = params["text"] as? String ?? ""
+ 			if hasAncestorRole(element, role: "AXWebArea") {
+ 				acquirePhysicalInputIfNeeded()
+-				focusTargetForPhysicalInput()
++				try focusTargetForPhysicalInput()
++				try checkRequestActive()
+ 				_ = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+ 				let currentValue = stringAttribute(element, attribute: kAXValueAttribute as CFString) ?? ""
+ 				var range = CFRange(location: 0, length: (currentValue as NSString).length)
+-				let selected = AXValueCreate(.cfRange, &range).map {
+-					AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, $0) == .success
++				let selected = try AXValueCreate(.cfRange, &range).map {
++					try checkRequestActive()
++					return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, $0) == .success
+ 				} ?? false
+ 				if !selected {
+ 					try postKeyPress(keys: ["cmd", "a"], pid: pid, delivery: delivery)
+@@ -2067,9 +2088,11 @@
+ 				return finish(["outcome": value == text ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]])
+ 			}
+ 			var targetElement = element
++			try checkRequestActive()
+ 			var status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
+ 			if status != .success, let refreshed = refreshElement() {
+ 				targetElement = refreshed
++				try checkRequestActive()
+ 				status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
+ 			}
+ 			if status == .success {
+@@ -2085,11 +2108,12 @@
+ 		} else if action == "typeText" {
+ 			let preserveFocus = params["preserveFocus"] as? Bool ?? false
+ 			if let element {
++				try checkRequestActive()
+ 				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+ 				if focused == .success { performed["focused"] = true }
+ 			}
+ 			acquirePhysicalInputIfNeeded()
+-			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
++			if delivery == "hid" && !preserveFocus { try focusTargetForPhysicalInput() }
+ 			let text = params["text"] as? String ?? ""
+ 			try postUnicodeText(text, pid: pid, delivery: delivery)
+ 			performed["grounding"] = "coordinates"
+@@ -2105,6 +2129,7 @@
+ 				throw BridgeFailure(message: "keypress requires keys", code: "invalid_args")
+ 			}
+ 			if let element {
++				try checkRequestActive()
+ 				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+ 				if focused == .success { performed["focused"] = true }
+ 				let normalizedKeys = keys.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+@@ -2114,7 +2139,8 @@
+ 					let value = stringAttribute(element, attribute: kAXValueAttribute as CFString)
+ 				{
+ 					var range = CFRange(location: 0, length: (value as NSString).length)
+-					if let selection = AXValueCreate(.cfRange, &range),
++					try checkRequestActive()
++                    if let selection = AXValueCreate(.cfRange, &range),
+ 						AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, selection) == .success
+ 					{
+ 						performed["selectionGrounding"] = "ax"
+@@ -2122,7 +2148,7 @@
+ 				}
+ 			}
+ 			acquirePhysicalInputIfNeeded()
+-			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
++			if delivery == "hid" && !preserveFocus { try focusTargetForPhysicalInput() }
+ 			try postKeyPress(keys: keys, pid: pid, delivery: delivery)
+ 			performed["grounding"] = "coordinates"
+ 		} else if let element, action == "scroll" {
+@@ -2186,6 +2212,7 @@
+ 		var steps: [[String: Any]] = []
+ 		var stoppedAt: Int?
+ 		for (index, action) in actions.enumerated() {
++            try checkRequestActive()
+ 			var deferred = action
+ 			deferred["deferRootDelta"] = true
+ 			do {
+@@ -2193,6 +2220,7 @@
+ 				steps.append(step)
+ 				if (step["outcome"] as? String) == "didnt" { stoppedAt = index; break }
+ 			} catch let failure as BridgeFailure {
++                if failure.code == "request_cancelled" || failure.code == "human_takeover" { throw failure }
+ 				steps.append(["outcome": "didnt", "error": ["code": failure.code, "message": failure.message]])
+ 				stoppedAt = index
+ 				break
+@@ -3123,6 +3151,7 @@
+ 	}
+ 
+ 	private func captureWindow(windowId: UInt32) throws -> CapturedWindowImage {
++        try checkRequestActive()
+ 		if #available(macOS 14.0, *) {
+ 			let semaphore = DispatchSemaphore(value: 0)
+ 			let capturedImage = Box<CGImage?>(nil)
+@@ -3155,7 +3184,13 @@
+ 				}
+ 			}
+ 
+-			if semaphore.wait(timeout: .now() + .seconds(8)) == .timedOut {
++            let captureDeadline = Date().addingTimeInterval(8)
++            var captureTimedOut = false
++            while semaphore.wait(timeout: .now() + .milliseconds(100)) == .timedOut {
++                do { try checkRequestActive() } catch { task.cancel(); throw error }
++                if Date() >= captureDeadline { captureTimedOut = true; break }
++            }
++			if captureTimedOut {
+ 				task.cancel()
+ 				if let payload = try cgWindowScreenshotFallback(windowId: windowId) {
+ 					return payload
+@@ -3308,7 +3343,10 @@
+ 		optionalStringArg(request, "delivery") == "pid" ? "pid" : "hid"
+ 	}
+ 
+-	private func postEvent(_ event: CGEvent, pid: Int32, delivery: String = "hid") {
++	private func postEvent(_ event: CGEvent, pid: Int32, delivery: String = "hid") throws {
++        let release = [CGEventType.keyUp, .leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type)
++        if !release { try checkRequestActive() }
++        event.setIntegerValueField(.eventSourceUserData, value: HumanInputMonitor.eventMarker)
+ 		if delivery == "pid" {
+ 			event.postToPid(pid)
+ 			return
+@@ -3317,7 +3355,7 @@
+ 		// can ignore pid-targeted CGEvents even though postToPid reports success.
+ 		// Keep the target app frontmost so the HID event is delivered to the intended
+ 		// window, then post at the session event tap.
+-		if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
++		if !release, let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
+ 			if #available(macOS 14.0, *) {
+ 				_ = app.activate()
+ 			} else {
+@@ -3334,7 +3372,7 @@
+ 		guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
+ 			throw BridgeFailure(message: "Failed to create mouse move event", code: "input_failed")
+ 		}
+-		postEvent(move, pid: pid, delivery: delivery)
++		try postEvent(move, pid: pid, delivery: delivery)
+ 	}
+ 
+ 	private func mouseButton(_ name: String) -> CGMouseButton {
+@@ -3393,9 +3431,9 @@
+ 			}
+ 			down.setIntegerValueField(.mouseEventClickState, value: Int64(index))
+ 			up.setIntegerValueField(.mouseEventClickState, value: Int64(index))
+-			postEvent(down, pid: pid, delivery: delivery)
++			try postEvent(down, pid: pid, delivery: delivery)
+ 			usleep(12_000)
+-			postEvent(up, pid: pid, delivery: delivery)
++			try postEvent(up, pid: pid, delivery: delivery)
+ 			if index < clickCount {
+ 				usleep(70_000)
+ 			}
+@@ -3412,14 +3450,20 @@
+ 		guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: first, mouseButton: .left) else {
+ 			throw BridgeFailure(message: "Failed to create mouse down event", code: "input_failed")
+ 		}
+-		postEvent(down, pid: pid, delivery: delivery)
++		try postEvent(down, pid: pid, delivery: delivery)
++        var dragReleased = false
++        defer {
++            if !dragReleased, let release = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: CGEvent(source: nil)?.location ?? points[0], mouseButton: .left) {
++                try? postEvent(release, pid: pid, delivery: delivery)
++            }
++        }
+ 		usleep(12_000)
+ 
+ 		for point in points.dropFirst() {
+ 			guard let drag = CGEvent(mouseEventSource: nil, mouseType: mouseDraggedType(for: .left), mouseCursorPosition: point, mouseButton: .left) else {
+ 				throw BridgeFailure(message: "Failed to create mouse drag event", code: "input_failed")
+ 			}
+-			postEvent(drag, pid: pid, delivery: delivery)
++			try postEvent(drag, pid: pid, delivery: delivery)
+ 			usleep(8_000)
+ 		}
+ 
+@@ -3428,7 +3472,8 @@
+ 		else {
+ 			throw BridgeFailure(message: "Failed to create mouse up event", code: "input_failed")
+ 		}
+-		postEvent(up, pid: pid, delivery: delivery)
++		try postEvent(up, pid: pid, delivery: delivery)
++        dragReleased = true
+ 	}
+ 
+ 	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, delivery: String = "hid") throws {
+@@ -3446,7 +3491,7 @@
+ 			throw BridgeFailure(message: "Failed to create scroll event", code: "input_failed")
+ 		}
+ 		event.location = point
+-		postEvent(event, pid: pid, delivery: delivery)
++		try postEvent(event, pid: pid, delivery: delivery)
+ 	}
+ 
+ 	private func modifierFlag(_ key: String) -> CGEventFlags? {
+@@ -3536,8 +3581,8 @@
+ 		}
+ 		down.flags = flags
+ 		up.flags = flags
+-		postEvent(down, pid: pid, delivery: delivery)
+-		postEvent(up, pid: pid, delivery: delivery)
++		try postEvent(down, pid: pid, delivery: delivery)
++		try postEvent(up, pid: pid, delivery: delivery)
+ 		usleep(8_000)
+ 	}
+ 
+@@ -3557,8 +3602,8 @@
+ 			}
+ 			setUnicodeString(event: down, text: char)
+ 			setUnicodeString(event: up, text: char)
+-			postEvent(down, pid: pid, delivery: delivery)
+-			postEvent(up, pid: pid, delivery: delivery)
++			try postEvent(down, pid: pid, delivery: delivery)
++			try postEvent(up, pid: pid, delivery: delivery)
+ 			usleep(8_000)
+ 		}
+ 	}
+@@ -3571,9 +3616,9 @@
+ 		else { throw BridgeFailure(message: "Failed to create unicode text event", code: "input_failed") }
+ 		setUnicodeString(event: down, text: text)
+ 		setUnicodeString(event: up, text: text)
+-		postEvent(down, pid: pid, delivery: delivery)
++		try postEvent(down, pid: pid, delivery: delivery)
+ 		usleep(8_000)
+-		postEvent(up, pid: pid, delivery: delivery)
++		try postEvent(up, pid: pid, delivery: delivery)
+ 	}
+ 
+ 	/// Prefer physical key codes for characters represented by the US layout.
+diff --git a/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
+new file mode 100644
+--- /dev/null
++++ b/native/macos/request_lifecycle.swift
+@@ -0,0 +1,100 @@
++import Foundation
++import ApplicationServices
++import Darwin
++
++/// A request stays cancellable while waiting for a lock or emitting an input
++/// sequence. Closing the caller's socket withdraws all not-yet-dispatched work.
++final class RequestExecutionGuard {
++    private let socket: Int32?
++    private let inputGeneration: () -> UInt64
++    private let initialGeneration: UInt64
++
++    init(socket: Int32?, inputGeneration: @escaping () -> UInt64 = { 0 }) {
++        self.socket = socket
++        self.inputGeneration = inputGeneration
++        self.initialGeneration = inputGeneration()
++    }
++
++    func check() throws {
++        if inputGeneration() != initialGeneration {
++            throw BridgeFailure(message: "Computer input stopped because the person took over. The last operation may have partially completed; observe before continuing.", code: "human_takeover")
++        }
++        if let socket {
++            var byte: UInt8 = 0
++            let count = recv(socket, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
++            if count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
++                throw BridgeFailure(message: "Computer request cancelled. The last operation may have partially completed; observe before continuing.", code: "request_cancelled")
++            }
++        }
++    }
++}
++
++/// Observe human input only during active requested mutations. Never suppress
++/// keyboard or mouse events. Helper-generated events carry a private marker so
++/// one request cannot cancel another merely by emitting its own input.
++final class HumanInputMonitor {
++    static let eventMarker: Int64 = 0x50494355494E5054
++    private let lock = NSLock()
++    private var generation: UInt64 = 0
++    private var users = 0
++    private var tap: CFMachPort?
++    private var source: CFRunLoopSource?
++
++    func currentGeneration() -> UInt64 {
++        lock.lock(); defer { lock.unlock() }
++        return generation
++    }
++
++    func noteHumanInput() {
++        lock.lock(); generation &+= 1; lock.unlock()
++    }
++
++    func begin() throws {
++        var failure: Error?
++        let install = {
++            self.lock.lock()
++            defer { self.lock.unlock() }
++            if self.users > 0 { self.users += 1; return }
++            let types: [CGEventType] = [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel]
++            let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
++            let callback: CGEventTapCallBack = { _, type, event, userInfo in
++                guard let userInfo else { return Unmanaged.passUnretained(event) }
++                let monitor = Unmanaged<HumanInputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
++                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
++                    // A missing monitor cannot honestly promise takeover. Mark
++                    // active requests cancelled; a later request can reinstall.
++                    monitor.noteHumanInput()
++                } else if event.getIntegerValueField(.eventSourceUserData) != HumanInputMonitor.eventMarker && event.getIntegerValueField(.eventSourceUnixProcessID) != Int64(getpid()) {
++                    monitor.noteHumanInput()
++                }
++                return Unmanaged.passUnretained(event)
++            }
++            guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly, eventsOfInterest: mask, callback: callback, userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
++                failure = BridgeFailure(message: "Computer input requires Accessibility access so human takeover can be observed.", code: "takeover_monitor_unavailable")
++                return
++            }
++            guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
++                failure = BridgeFailure(message: "Could not start the human-input monitor.", code: "takeover_monitor_unavailable")
++                return
++            }
++            self.tap = tap; self.source = source; self.users = 1
++            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
++            CGEvent.tapEnable(tap: tap, enable: true)
++        }
++        if Thread.isMainThread { install() } else { DispatchQueue.main.sync(execute: install) }
++        if let failure { throw failure }
++    }
++
++    func end() {
++        let remove = {
++            self.lock.lock(); defer { self.lock.unlock() }
++            guard self.users > 0 else { return }
++            self.users -= 1
++            guard self.users == 0 else { return }
++            if let tap = self.tap { CGEvent.tapEnable(tap: tap, enable: false) }
++            if let source = self.source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
++            self.source = nil; self.tap = nil
++        }
++        if Thread.isMainThread { remove() } else { DispatchQueue.main.sync(execute: remove) }
++    }
++}
+diff --git a/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
+new file mode 100644
+--- /dev/null
++++ b/native/macos/request_lifecycle_tests.swift
+@@ -0,0 +1,16 @@
++import Foundation
++import Darwin
++struct BridgeFailure: Error { let message: String; let code: String }
++@main struct RequestLifecycleTests {
++ static func main() throws {
++  var sockets:[Int32]=[0,0]; precondition(socketpair(AF_UNIX,SOCK_STREAM,0,&sockets)==0)
++  defer{close(sockets[0])}
++  let request=RequestExecutionGuard(socket:sockets[0]);try request.check()
++  close(sockets[1])
++  do{try request.check();preconditionFailure("closed peer accepted")}catch let e as BridgeFailure{precondition(e.code=="request_cancelled")}
++  var generation:UInt64=0
++  let human=RequestExecutionGuard(socket:nil,inputGeneration:{generation});try human.check();generation+=1
++  do{try human.check();preconditionFailure("human takeover accepted")}catch let e as BridgeFailure{precondition(e.code=="human_takeover")}
++  print("PASS closed-peer cancellation and human generation withdrawal without screen capture or input")
++ }
++}
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -42,7 +42,10 @@
+ 		"LICENSE",
+ 		"native/linux/bridge-rs",
+ 		"prebuilt/linux",
+-		"docs/*.md"
++		"docs/*.md",
++		"native/macos/request_lifecycle.swift",
++		"native/macos/agent_cursor.swift",
++		"native/macos/agent_cursor_motion.swift"
+ 	],
+ 	"pi": {
+ 		"extensions": [
+diff --git a/scripts/build-native.mjs b/scripts/build-native.mjs
+--- a/scripts/build-native.mjs
++++ b/scripts/build-native.mjs
+@@ -8,7 +8,7 @@
+ 
+ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+ const macosSourcePaths = [
+-	"agent_cursor.swift",
++	"request_lifecycle.swift", "agent_cursor.swift",
+ 	"agent_cursor_motion.swift",
+ 	"bridge.swift",
+ ].map((file) => path.join(rootDir, "native", "macos", file));
+diff --git a/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/check-embedded.mjs
+@@ -0,0 +1,53 @@
++import assert from 'node:assert/strict';
++import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
++import os from 'node:os';
++import path from 'node:path';
++import { createComputerUseRuntime } from '../src/bridge.ts';
++import { ResourceScheduler } from '../src/runtime.ts';
++import { currentPlatformBackend as backend } from '../src/platform/index.ts';
++import { createStoredOutputs } from '../src/output.ts';
++import { getComputerUseConfig, withComputerUseConfig } from '../src/config.ts';
++import { parseLookResponse } from '../src/outline.ts';
++import extension from '../extensions/computer-use.ts';
++const root = await mkdtemp(path.join(os.tmpdir(),'pi-cu-embedded-'));
++const scheduler = new ResourceScheduler();
++const original = {...backend};
++let calls = 0;
++const seen=[];
++const rootData = {windowId:1,pid:101,title:'Test',kind:'window',framePoints:{x:0,y:0,w:400,h:300},scaleFactor:1,isOnscreen:true,isMain:true,isFocused:true};
++Object.assign(backend,{
++ ensureReady:async(_ctx,state)=>{calls++;return {...state,permissionStatus:{accessibility:true,screenRecording:true},lastPermissionCheckAt:Date.now()}},
++ listApps:async()=>[{pid:101,appName:'Fixture',bundleId:'test.fixture',isFrontmost:true}],
++ listRoots:async()=>[rootData],
++ observe:async()=>parseLookResponse({lookId:crypto.randomUUID(),capturedAt:Date.now()/1000,window:{...rootData,role:'AXWindow',subrole:'AXStandardWindow'},outline:{ref:'window',role:'AXWindow',children:[{ref:'value',role:'AXStaticText',value:'fixture evidence'}]},timings:{}}),
++});
++try {
++ const context = {cwd:root,hasUI:false,sessionManager:{getBranch:()=>[]}};
++ const opts={scheduler,requireExplicitRoot:true,enableCdp:false,interactiveSetup:false};
++ const a=createComputerUseRuntime(opts), b=createComputerUseRuntime(opts);
++ function piFixture(){const tools=new Map(),handlers=new Map();return {tools,handlers,registerTool:t=>tools.set(t.name,t),registerCommand(){},on:(name,fn)=>handlers.set(name,fn)}}
++ const catalog=piFixture(),piA=piFixture(),piB=piFixture();
++ for(const pi of [catalog,piA,piB]){extension(pi,{...opts,setupOnStart:false,restoreObservations:false,browserTools:false});await pi.handlers.get('session_start')({},context);assert.equal(pi.tools.size,8)}
++ assert.equal(calls,0,'catalog/session creation cannot start or probe the helper');
++ assert.notEqual(piA.tools.get('find_roots').execute,piB.tools.get('find_roots').execute,'cached factory tools must own separate runtime closures');
++ const find=await a.executeFind('find',{app:'Fixture'},undefined,undefined,context);
++ const rootRef=find.details.windows[0].windowRef;
++ const observe=await a.executeObserve('look',{root:rootRef,mode:'semantic'},undefined,undefined,context);
++ const stateId=observe.details.capture.stateId;
++ await assert.rejects(()=>b.executeInspectUi('wrong',{stateId,ref:'@e1'},undefined,undefined,context),/unavailable or was evicted/);
++ await assert.rejects(()=>a.executeObserve('implicit',{},undefined,undefined,context),/exact root/);
++ await a.shutdownComputerUseSession();
++ await assert.rejects(()=>a.executeFind('late',{},undefined,undefined,context),/session has ended/);
++ assert((await b.executeFind('other',{app:'Fixture'},undefined,undefined,context)).details.windows.length>0,'one Chat shutdown must not close shared scheduler');
++ await b.shutdownComputerUseSession();
++ for(const pi of [catalog,piA,piB])await pi.handlers.get('session_shutdown')();
++ const outA=createStoredOutputs(),outB=createStoredOutputs();
++ for(const [store,value] of [[outA,'A'],[outB,'B']]) store.applyOutputEnvelope('read_text',{content:[{type:'text',text:value.repeat(60000)}],details:{}});
++ assert(outA.readStoredOutput('@o1',0).text.startsWith('A'));
++ assert(outB.readStoredOutput('@o1',0).text.startsWith('B'));
++ outA.clearStoredOutputs();assert(outB.readStoredOutput('@o1',0).text.startsWith('B'));outB.clearStoredOutputs();
++ for(const [name,value]of[['a',true],['b',false]]){const dir=path.join(root,name,'.pi');await mkdir(dir,{recursive:true});await writeFile(path.join(dir,'computer-use.json'),JSON.stringify({headless:value}));}
++ await Promise.all([withComputerUseConfig(path.join(root,'a'),async()=>{await new Promise(r=>setTimeout(r,10));seen.push(getComputerUseConfig().headless)}),withComputerUseConfig(path.join(root,'b'),async()=>{await new Promise(r=>setTimeout(r,5));seen.push(getComputerUseConfig().headless)})]);
++ assert.deepEqual(seen,[false,true],'one session must not change another active operation configuration');
++ console.log('PASS embedded catalog, factory isolation, exact targets, state/output ownership, shared scheduler shutdown and concurrent configuration');
++}finally{Object.assign(backend,original);await scheduler.close();await rm(root,{recursive:true,force:true})}
+diff --git a/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/check-helper-cancellation.mjs
+@@ -0,0 +1,18 @@
++import assert from 'node:assert/strict';
++import net from 'node:net';
++import {mkdtemp,rm} from 'node:fs/promises';
++import os from 'node:os';
++import path from 'node:path';
++const dir=await mkdtemp(path.join(os.tmpdir(),'pi-cu-cancel-'));const socketPath=path.join(dir,'helper.sock');
++process.env.PI_CU_SOCKET_PATH=socketPath;
++const completed=[];const ids=new Set();let accepted;let acceptedPromise=new Promise(resolve=>accepted=resolve);let mutations=0;let sockets=new Set();
++const server=net.createServer(socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));let buffer='';socket.on('data',chunk=>{buffer+=chunk;const i=buffer.indexOf('\n');if(i<0)return;const req=JSON.parse(buffer.slice(0,i));assert(!ids.has(req.id), "request ids must remain unique across clients");ids.add(req.id);if(req.cmd==='diagnostics'){socket.end(JSON.stringify({id:req.id,ok:true,result:{recentCompletedRequestIds:completed}})+'\n');return}if(req.cmd==='mismatch'){socket.end(JSON.stringify({id:'wrong',ok:true,result:{}})+'\n');return}mutations++;accepted();socket.once('end',()=>{completed.push(req.id);socket.end()})})});
++await new Promise(resolve=>server.listen(socketPath,resolve));
++try{
++ const {MacosHelperClient}=await import('../src/platform/macos/helper.ts');const client=new MacosHelperClient();
++ const cancelled=new AbortController();cancelled.abort();await assert.rejects(()=>client.daemonCommand('act',{},1000,cancelled.signal),/aborted/);assert.equal(ids.size,0);
++ const live=new AbortController();const pending=client.daemonCommand('act',{},1000,live.signal);await acceptedPromise;live.abort();await assert.rejects(()=>pending,e=>e.code==='interrupted_unknown'&&/uncertain/.test(e.message));assert.equal(mutations,1,'cancellation must not redispatch');assert.equal(completed.length,1,'wait for helper acknowledgement before releasing active request');
++ await assert.rejects(()=>client.daemonCommand('mismatch',{},1000),/did not match/);
++ const second=new MacosHelperClient();await Promise.all([client.daemonCommand('diagnostics',{},1000),second.daemonCommand('diagnostics',{},1000)]);assert.equal(ids.size,new Set(ids).size);
++ console.log('PASS cancelled-before-dispatch, uncertain dispatched outcome, drained socket closure, no replay, response identity and concurrent clients');
++}finally{for(const socket of sockets)socket.destroy();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true})}
+diff --git a/scripts/setup-helper.mjs b/scripts/setup-helper.mjs
+--- a/scripts/setup-helper.mjs
++++ b/scripts/setup-helper.mjs
+@@ -21,7 +21,7 @@
+ const windowsHelperDestPath = process.env.PI_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "windows-bridge.exe");
+ const linuxCrateDir = path.join(rootDir, "native", "linux", "bridge-rs");
+ const linuxHelperDestPath = process.env.PI_COMPUTER_USE_LINUX_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "linux-bridge");
+-const helperSourcePaths = ["agent_cursor.swift", "agent_cursor_motion.swift", "bridge.swift"]
++const helperSourcePaths = ["request_lifecycle.swift", "agent_cursor.swift", "agent_cursor_motion.swift", "bridge.swift"]
+ 	.map((file) => path.join(rootDir, "native", "macos", file));
+ const packageJsonPath = path.join(rootDir, "package.json");
+ const releaseRepo = "injaneity/pi-computer-use";
+diff --git a/src/bridge.ts b/src/bridge.ts
+--- a/src/bridge.ts
++++ b/src/bridge.ts
+@@ -8,10 +8,10 @@
+ import type { AgentToolResult, AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
+ import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, prepareAction, type ActionState, type PreparedAction } from "./actions.ts";
+ import { cdpClickForContext, cdpDragForContext, cdpEvaluateForContext, cdpKeypressForContext, cdpMouseForContext, cdpNavigateContext, cdpScrollForContext, cdpSnapshotForContext, cdpTabForWindow, cdpTypeFocusedForContext, cdpTypeForContext, disconnectCdp, listCdpPageContexts, type CdpConsoleEntry, type CdpPageSnapshot } from "./cdp.ts";
+-import { getComputerUseConfig, isBrowserUseEnabled, isHeadlessMode, loadComputerUseConfig } from "./config.ts";
++import { getComputerUseConfig, isBrowserUseEnabled, isHeadlessMode, loadComputerUseConfig, withComputerUseConfig } from "./config.ts";
+ import { noteAfterAct, noteFromLook, noteRegionKeyForRef, renderNote, type WindowNote } from "./note.ts";
+ import { foldToBudget, graftScopedOutline, nodeByRef, outlineNodeLabel, outlineNodePath, rankedTextMatch, restoreOutline, searchOutline, searchOutlineRanked, serializeOutline, serializeOutlineNodeShallow, serializeOutlineSearchMatch, type LookResponse, type Outline, type OutlineChange, type OutlineNode, type OutlineSearchMatch, type SerializedOutline, type SerializedOutlineNode, type SerializedOutlineSearchMatch } from "./outline.ts";
+-import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutput, UI_TEXT_PAGE_CHARS } from "./output.ts";
++import { createStoredOutputs, UI_TEXT_PAGE_CHARS } from "./output.ts";
+ import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
+ import { toFiniteNumber } from "./platform/coerce.ts";
+ import { currentPlatformBackend } from "./platform/index.ts";
+@@ -297,6 +297,23 @@
+ const EXPLICIT_IMAGE_MAX_DIMENSION = 1_600;
+ const BROWSER_TRANSACTION_ACTIONS = new Set<UiAction["action"]>(["press", "click", "setText", "typeText", "keypress", "scroll", "drag", "moveMouse"]);
+ 
++export interface ComputerUseRuntimeOptions {
++  /** Share one scheduler between sessions that address the same helper. */
++  scheduler?: ResourceScheduler;
++  /** Embedded hosts must explicitly select a root rather than adopt foreground. */
++  requireExplicitRoot?: boolean;
++  /** Keep Chrome integration separate when an embedded host supplies it. */
++  enableCdp?: boolean;
++  /** Setup UI belongs to the trusted host, not a model tool waiting on permissions. */
++  interactiveSetup?: boolean;
++}
++
++/** State and continuation refs belong to one factory invocation, never a cached module. */
++export function createComputerUseRuntime(options: ComputerUseRuntimeOptions = {}) {
++const { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutput } = createStoredOutputs();
++const lifetime = new AbortController();
++const operations = new Set<Promise<unknown>>();
++let closed = false;
+ const runtimeState: RuntimeState = {
+ 	lastPermissionCheckAt: 0,
+ 	windowRefs: new Map(),
+@@ -307,7 +324,7 @@
+ };
+ 
+ const savedStates = new SavedStates();
+-let resourceScheduler = new ResourceScheduler();
++const resourceScheduler = options.scheduler ?? new ResourceScheduler();
+ 
+ function operationState(): OperationState {
+ 	return savedStates.current();
+@@ -325,10 +342,13 @@
+ }
+ 
+ /** Release handles and state owned by the current Pi session. */
+-export async function shutdownComputerUseSession(): Promise<void> {
+-	await resourceScheduler.close();
+-	resourceScheduler = new ResourceScheduler();
+-	disconnectCdp();
++async function shutdownComputerUseSession(): Promise<void> {
++  if (closed) return;
++  closed = true;
++  lifetime.abort();
++  await Promise.allSettled([...operations]);
++  if (!options.scheduler) await resourceScheduler.close();
++	if (options.enableCdp !== false) disconnectCdp();
+ 
+ 	const managedBrowser = runtimeState.managedBrowser;
+ 	runtimeState.managedBrowser = undefined;
+@@ -551,7 +571,7 @@
+ 
+ 	throwIfAborted(signal);
+ 	const ready = await currentPlatformBackend.ensureReady(
+-		ctx,
++		options.interactiveSetup === false ? { ...ctx, hasUI: false } : ctx,
+ 		{
+ 			permissionStatus: runtimeState.permissionStatus,
+ 			lastPermissionCheckAt: runtimeState.lastPermissionCheckAt,
+@@ -559,12 +579,19 @@
+ 		},
+ 		signal,
+ 	);
++  const previousHelperPid = runtimeState.helperDiagnostics?.pid;
++  if (previousHelperPid && ready.helperDiagnostics?.pid && previousHelperPid !== ready.helperDiagnostics.pid) {
++    savedStates.clear(); clearStoredOutputs();
++    runtimeState.windowRefs.clear(); runtimeState.windowRefByIdentity.clear();
++    runtimeState.helperDiagnostics = ready.helperDiagnostics;
++    throw new Error("The computer helper restarted. Old roots and observations are no longer valid; find and observe the target again.");
++  }
+ 	runtimeState.permissionStatus = ready.permissionStatus;
+ 	runtimeState.lastPermissionCheckAt = ready.lastPermissionCheckAt;
+ 	runtimeState.helperDiagnostics = ready.helperDiagnostics;
+ }
+ 
+-export async function ensureComputerUseSetup(ctx: ExtensionContext, signal?: AbortSignal): Promise<void> {
++async function ensureComputerUseSetup(ctx: ExtensionContext, signal?: AbortSignal): Promise<void> {
+ 	await ensureReady(ctx, signal);
+ }
+ 
+@@ -1067,7 +1094,7 @@
+ 	// Console piggyback: when a CDP connection is active for this browser
+ 	// window, surface console output collected since the last tool result.
+ 	let consoleText = "";
+-	if (currentPlatformBackend.isChromeFamilyApp(result.target.appName, result.target.bundleId)) {
++	if (options.enableCdp !== false && currentPlatformBackend.isChromeFamilyApp(result.target.appName, result.target.bundleId)) {
+ 		const tab = await cdpTabForWindow(result.target.windowTitle, result.target.framePoints);
+ 		const entries = tab?.drainConsole() ?? [];
+ 		if (entries.length > 0) {
+@@ -1302,7 +1329,7 @@
+ 	const config = getComputerUseConfig();
+ 	const desktopForest = await windowDetailsForFind(query, config, signal);
+ 	const includeBrowserPages = !query.pid && !query.bundleId && (!query.app || normalizeText(query.app) === "browser") && config.browser_use;
+-	const browserForest: ListWindowsDetails["windows"] = !includeBrowserPages ? [] : (await listCdpPageContexts().catch(() => []))
++	const browserForest: ListWindowsDetails["windows"] = !includeBrowserPages || options.enableCdp === false ? [] : (await listCdpPageContexts().catch(() => []))
+ 		.map((page) => ({
+ 			app: "Browser",
+ 			pid: 0,
+@@ -2175,7 +2202,7 @@
+ 	if (requestedUrl && !/^https?:\/\//i.test(requestedUrl)) throw new Error("launch_browser.url must be an absolute HTTP(S) URL.");
+ 	const url = requestedUrl ?? "about:blank";
+ 	const profileDir = path.join(os.tmpdir(), `pi-${browser}-cdp-${port}`);
+-	disconnectCdp();
++	if (options.enableCdp !== false) disconnectCdp();
+ 	runtimeState.managedBrowser?.kill("SIGTERM");
+ 	const args = [
+ 		`--remote-debugging-port=${port}`,
+@@ -2276,27 +2303,41 @@
+ 		_onUpdate: AgentToolUpdateCallback<D> | undefined,
+ 		ctx: ExtensionContext,
+ 	): Promise<AgentToolResult<D>> => {
+-		try {
+-			return applyOutputEnvelope(tool, await executeTool(ctx, params, signal, () => perform(params, signal)));
+-		} catch (error) {
+-			throw boundToolError(tool, error);
+-		}
+-	};
+-}
+-
+-export const executeFind = makeToolExecutor("find_roots", performListWindows);
+-export const executeReadText = makeToolExecutor("read_text", performReadText);
+-export const executeWaitFor = makeToolExecutor("wait_for", performWaitFor);
+-export const executeObserve = makeToolExecutor("observe_ui", performObserve);
+-export const executeSearchUi = makeToolExecutor("search_ui", performSearchUi);
+-export const executeExpandUi = makeToolExecutor("expand_ui", performExpandUi);
+-export const executeInspectUi = makeToolExecutor("inspect_ui", performInspectUi);
+-export const executeAct = makeToolExecutor<ActParams, ComputerUseDetails | TerminalDesktopActionDetails | BrowserObservationDetails>("act_ui", performAct);
+-export const executeNavigateBrowser = makeToolExecutor("navigate_browser", performNavigateBrowser);
+-export const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", performEvaluateBrowser);
+-export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
+-
+-export function reconstructStateFromBranch(ctx: ExtensionContext): void {
++    if (closed) throw new Error("Computer-use session has ended. Start a fresh session and observe again.");
++    if (options.enableCdp === false && ["launch_browser", "navigate_browser", "evaluate_browser"].includes(tool)) throw new Error("Use the installed browser integration for browser-page tools.");
++    if (tool === "observe_ui" && options.requireExplicitRoot && !(params as { root?: string }).root) {
++      throw new Error("Select an exact root from find_roots before observing. An unrelated foreground app is never adopted implicitly.");
++    }
++    const combinedSignal = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
++    const operation = withComputerUseConfig(ctx.cwd, async () => {
++      try {
++        return applyOutputEnvelope(tool, await executeTool(ctx, params, combinedSignal, () => perform(params, combinedSignal)));
++      } catch (error) {
++        if ((error as { code?: string })?.code === "human_takeover") {
++          ctx.ui?.notify?.("Computer work stopped because you took over.", "info");
++          ctx.abort();
++        }
++        throw boundToolError(tool, error);
++      }
++    });
++    operations.add(operation);
++    try { return await operation; } finally { operations.delete(operation); }
++	};
++}
++
++const executeFind = makeToolExecutor("find_roots", performListWindows);
++const executeReadText = makeToolExecutor("read_text", performReadText);
++const executeWaitFor = makeToolExecutor("wait_for", performWaitFor);
++const executeObserve = makeToolExecutor("observe_ui", performObserve);
++const executeSearchUi = makeToolExecutor("search_ui", performSearchUi);
++const executeExpandUi = makeToolExecutor("expand_ui", performExpandUi);
++const executeInspectUi = makeToolExecutor("inspect_ui", performInspectUi);
++const executeAct = makeToolExecutor<ActParams, ComputerUseDetails | TerminalDesktopActionDetails | BrowserObservationDetails>("act_ui", performAct);
++const executeNavigateBrowser = makeToolExecutor("navigate_browser", performNavigateBrowser);
++const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", performEvaluateBrowser);
++const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
++
++function reconstructStateFromBranch(ctx: ExtensionContext): void {
+ 	savedStates.clear();
+ 	clearStoredOutputs();
+ 	runtimeState.windowRefs.clear();
+@@ -2403,3 +2444,9 @@
+ 		}
+ 	}
+ }
++
++return { executeFind, executeReadText, executeWaitFor, executeObserve, executeSearchUi, executeExpandUi, executeInspectUi, executeAct, executeNavigateBrowser, executeEvaluateBrowser, executeLaunchBrowser, ensureComputerUseSetup, reconstructStateFromBranch, shutdownComputerUseSession };
++}
++
++// Keep the direct executor API available to existing native callers.
++export const { executeFind, executeReadText, executeWaitFor, executeObserve, executeSearchUi, executeExpandUi, executeInspectUi, executeAct, executeNavigateBrowser, executeEvaluateBrowser, executeLaunchBrowser, ensureComputerUseSetup, reconstructStateFromBranch, shutdownComputerUseSession } = createComputerUseRuntime();
+diff --git a/src/config.ts b/src/config.ts
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -1,3 +1,4 @@
++import { AsyncLocalStorage } from "node:async_hooks";
+ import { existsSync, readFileSync } from "node:fs";
+ import path from "node:path";
+ import { getAgentDir } from "@earendil-works/pi-coding-agent";
+@@ -28,6 +29,8 @@
+ 	cursor_overlay: true,
+ 	managed_browser: "chrome",
+ };
++
++const configContext = new AsyncLocalStorage<LoadedComputerUseConfig>();
+ 
+ let activeConfig: ComputerUseConfig = { ...DEFAULT_CONFIG };
+ let activeLoadedConfig: LoadedComputerUseConfig = { config: activeConfig, sources: [], env: {} };
+@@ -93,21 +96,27 @@
+ 	Object.assign(config, env);
+ 	activeConfig = config;
+ 	activeLoadedConfig = { config, sources, env };
+-	return activeLoadedConfig;
++	return configContext.getStore() ?? activeLoadedConfig;
+ }
+ 
+ export function getComputerUseConfig(): ComputerUseConfig {
+-	return activeConfig;
++	return configContext.getStore()?.config ?? activeConfig;
+ }
+ 
+ export function getLoadedComputerUseConfig(): LoadedComputerUseConfig {
+-	return activeLoadedConfig;
++	return configContext.getStore() ?? activeLoadedConfig;
+ }
+ 
+ export function isHeadlessMode(): boolean {
+-	return activeConfig.headless;
++	return getComputerUseConfig().headless;
+ }
+ 
+ export function isBrowserUseEnabled(): boolean {
+-	return activeConfig.browser_use;
++	return getComputerUseConfig().browser_use;
+ }
++
++/** Keep concurrent embedded sessions on their own project configuration. */
++export function withComputerUseConfig<T>(cwd: string, work: () => T): T {
++  const loaded = loadComputerUseConfig(cwd);
++  return configContext.run(loaded, work);
++}
+diff --git a/src/output.ts b/src/output.ts
+--- a/src/output.ts
++++ b/src/output.ts
+@@ -19,6 +19,7 @@
+ 	complete: boolean;
+ }
+ 
++export function createStoredOutputs() {
+ const outputs = new Map<string, StoredOutput>();
+ let outputDirectory: string | undefined;
+ let outputBytes = 0;
+@@ -66,7 +67,7 @@
+ 	return "request a smaller or more focused result";
+ }
+ 
+-export function applyOutputEnvelope<T>(tool: string, result: AgentToolResult<T>): AgentToolResult<T> {
++function applyOutputEnvelope<T>(tool: string, result: AgentToolResult<T>): AgentToolResult<T> {
+ 	const textParts = result.content.filter((part): part is Extract<(typeof result.content)[number], { type: "text" }> => part.type === "text");
+ 	const combined = textParts.map((part) => part.text).join("\n");
+ 	const bytes = new TextEncoder().encode(combined).byteLength;
+@@ -88,7 +89,7 @@
+ 	return { ...result, content: [{ type: "text", text: `${preview}\n\n${trailer}` }, ...images] };
+ }
+ 
+-export function boundToolError(tool: string, error: unknown): Error {
++function boundToolError(tool: string, error: unknown): Error {
+ 	const message = error instanceof Error ? error.message : String(error);
+ 	const bytes = new TextEncoder().encode(message).byteLength;
+ 	const lines = message.split("\n").length;
+@@ -100,7 +101,7 @@
+ 	return new Error(`${preview}\n\nerror truncated: returned ${returnedBytes} of ${entry.totalBytes} utf-8 bytes\nrefine: ${refinementFor(tool)}\ncontinue: read_text({ ref: "${entry.ref}", offset: ${returnedBytes} })${storageNote}`);
+ }
+ 
+-export function readStoredOutput(ref: string, offsetValue: unknown): { text: string; offset: number; limit: number; totalBytes: number; hasMore: boolean; complete: boolean } | undefined {
++function readStoredOutput(ref: string, offsetValue: unknown): { text: string; offset: number; limit: number; totalBytes: number; hasMore: boolean; complete: boolean } | undefined {
+ 	const entry = outputs.get(ref);
+ 	if (!entry) return undefined;
+ 	let offset = Math.min(entry.storedBytes, Math.max(0, Math.trunc(typeof offsetValue === "number" && Number.isFinite(offsetValue) ? offsetValue : 0)));
+@@ -123,7 +124,7 @@
+ 	};
+ }
+ 
+-export function clearStoredOutputs(): void {
++function clearStoredOutputs(): void {
+ 	outputs.clear();
+ 	if (outputDirectory) {
+ 		try { rmSync(outputDirectory, { recursive: true, force: true }); } catch { /* best-effort session cleanup */ }
+@@ -132,3 +133,8 @@
+ 	outputBytes = 0;
+ 	nextOutputId = 1;
+ }
++
++return { applyOutputEnvelope, boundToolError, readStoredOutput, clearStoredOutputs };
++}
++
++export const { applyOutputEnvelope, boundToolError, readStoredOutput, clearStoredOutputs } = createStoredOutputs();
+diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
+--- a/src/platform/macos/helper.ts
++++ b/src/platform/macos/helper.ts
+@@ -1,3 +1,4 @@
++import { randomUUID } from "node:crypto";
+ import { spawn } from "node:child_process";
+ import { constants as fsConstants } from "node:fs";
+ import { access, mkdir, realpath } from "node:fs/promises";
+@@ -10,15 +11,15 @@
+ import { resolveMacosHelperAppPath } from "./helper-path.mjs";
+ 
+ const COMMAND_TIMEOUT_MS = 15_000;
+-const HELPER_PROTOCOL_VERSION = 6;
++const HELPER_PROTOCOL_VERSION = 7;
+ const HELPER_SETUP_TIMEOUT_MS = 60_000;
+ 
+ export const HELPER_BUNDLE_ID = "com.injaneity.pi-computer-use";
+ export const HELPER_APP_PATH = resolveMacosHelperAppPath();
+ export const HELPER_APP_EXECUTABLE_PATH = path.join(HELPER_APP_PATH, "Contents", "MacOS", "bridge");
+ const DEFAULT_HELPER_SOCKET_PATH = path.join(os.homedir(), "Library", "Caches", "pi-computer-use", "bridge.sock");
+-export const HELPER_SOCKET_PATH = process.env.PI_CU_SOCKET_PATH ?? DEFAULT_HELPER_SOCKET_PATH;
+-const usingExternalHelperSocket = HELPER_SOCKET_PATH !== DEFAULT_HELPER_SOCKET_PATH;
++export const HELPER_SOCKET_PATH = process.env.PI_CU_SOCKET_PATH ?? process.env.PI_COMPUTER_USE_OWNED_SOCKET_PATH ?? DEFAULT_HELPER_SOCKET_PATH;
++const usingExternalHelperSocket = Boolean(process.env.PI_CU_SOCKET_PATH);
+ 
+ const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+ const SETUP_HELPER_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "setup-helper.mjs");
+@@ -138,7 +139,6 @@
+ 
+ export class MacosHelperClient {
+ 	private daemonAvailable = false;
+-	private requestSequence = 0;
+ 	private diagnosticsCache?: PlatformDiagnostics;
+ 
+ 	get diagnostics(): PlatformDiagnostics | undefined {
+@@ -154,6 +154,9 @@
+ 			return;
+ 		}
+ 
++        if (process.env.PI_COMPUTER_USE_NO_RUNTIME_INSTALL === "1") {
++          throw new Error(`The included computer helper is missing at ${HELPER_APP_PATH}. Reinstall the application; runtime installation is disabled.`);
++        }
+ 		// Re-enter Electron and Bun standalone hosts as their JavaScript runtimes.
+ 		await runProcess(process.execPath, [SETUP_HELPER_SCRIPT, "--runtime"], HELPER_SETUP_TIMEOUT_MS, signal, {
+ 			...process.env,
+@@ -175,35 +178,68 @@
+ 	}
+ 
+ 	async daemonCommand<T>(cmd: string, args: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
+-		return await new Promise<T>((resolve, reject) => {
+-			const id = `req_${++this.requestSequence}`;
+-			const socket = net.createConnection(HELPER_SOCKET_PATH);
+-			let buffer = "";
+-			const timer = setTimeout(() => { socket.destroy(); reject(new HelperTransportError(`Daemon command '${cmd}' timed out after ${timeoutMs}ms.`)); }, timeoutMs);
+-			const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
+-			const onAbort = () => { socket.destroy(); cleanup(); reject(new Error("Operation aborted.")); };
+-			signal?.addEventListener("abort", onAbort, { once: true });
+-			socket.setEncoding("utf8");
+-			socket.on("connect", () => socket.write(`${JSON.stringify({ id, cmd, ...args })}\n`));
+-			socket.on("data", (chunk) => {
+-				buffer += chunk;
+-				const newline = buffer.indexOf("\n");
+-				if (newline < 0) return;
+-				cleanup();
+-				socket.end();
+-				try {
+-					const parsed = JSON.parse(buffer.slice(0, newline));
+-					if (parsed.ok === true) resolve(parsed.result as T);
+-					else reject(new HelperCommandError(parsed?.error?.message ?? `Daemon command '${cmd}' failed.`, parsed?.error?.code));
+-				} catch (error) {
+-					reject(error);
+-				}
+-			});
+-			socket.on("error", (error) => { cleanup(); reject(new HelperTransportError(error.message)); });
+-		});
+-	}
++    throwIfAborted(signal);
++    return await new Promise<T>((resolve, reject) => {
++      const id = randomUUID();
++      const socket = net.createConnection(HELPER_SOCKET_PATH);
++      let buffer = "";
++      let settled = false;
++      let dispatched = false;
++      const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
++      const fail = (error: Error) => {
++        if (settled) return;
++        settled = true;
++        cleanup();
++        // The helper checks peer closure before each effect. Dispatched effects
++        // can already have happened; never convert cancellation into a retry.
++        socket.destroy();
++        if (dispatched && ["act", "actBatch", "focusWindow"].includes(cmd)) {
++          void this.awaitRequestCompletion(id).finally(() => reject(new HelperCommandError(`${error.message} The computer operation's outcome is uncertain. Observe before continuing; do not automatically repeat it.`, "interrupted_unknown")));
++        } else reject(error);
++      };
++      const timer = setTimeout(() => fail(new HelperTransportError(`Daemon command '${cmd}' timed out after ${timeoutMs}ms.`)), timeoutMs);
++      const onAbort = () => fail(new Error("Operation aborted."));
++      signal?.addEventListener("abort", onAbort, { once: true });
++      socket.setEncoding("utf8");
++      socket.on("connect", () => {
++        if (settled || signal?.aborted) { onAbort(); return; }
++        dispatched = true;
++        socket.write(`${JSON.stringify({ id, cmd, ...args })}\n`);
++      });
++      socket.on("data", (chunk) => {
++        if (settled) return;
++        buffer += chunk;
++        if (Buffer.byteLength(buffer) > 16 * 1024 * 1024) { fail(new HelperTransportError("Computer helper response exceeded 16 MiB.")); return; }
++        const newline = buffer.indexOf("\n");
++        if (newline < 0) return;
++        try {
++          const parsed = JSON.parse(buffer.slice(0, newline));
++          if (parsed.id !== id) throw new HelperTransportError("Computer helper response did not match its request.");
++          settled = true;
++          cleanup();
++          socket.end();
++          if (parsed.ok === true) resolve(parsed.result as T);
++          else reject(new HelperCommandError(parsed?.error?.message ?? `Daemon command '${cmd}' failed.`, parsed?.error?.code));
++        } catch (error) { fail(error instanceof Error ? error : new Error(String(error))); }
++      });
++      socket.on("error", (error) => fail(new HelperTransportError(error.message)));
++      socket.on("end", () => { if (!settled) fail(new HelperTransportError(`Computer helper disconnected during '${cmd}'.`)); });
++    });
++  }
++
++  private async awaitRequestCompletion(id: string): Promise<void> {
++    const deadline = Date.now() + 2_000;
++    while (Date.now() < deadline) {
++      try {
++        const result = await this.daemonCommand<{ recentCompletedRequestIds?: string[] }>("diagnostics", {}, 250);
++        if (result.recentCompletedRequestIds?.includes(id)) return;
++      } catch { return; }
++      await new Promise((resolve) => setTimeout(resolve, 25));
++    }
++  }
+ 
+ 	async ensureDaemon(signal?: AbortSignal): Promise<boolean> {
++        throwIfAborted(signal);
+ 		if (this.daemonAvailable) return true;
+ 		try {
+ 			await this.daemonCommand("diagnostics", {}, 1_000, signal);
+@@ -224,6 +260,7 @@
+ 	}
+ 
+ 	async command<T>(cmd: string, args: Record<string, unknown> = {}, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
++        throwIfAborted(options?.signal);
+ 		const timeoutMs = options?.timeoutMs ?? COMMAND_TIMEOUT_MS;
+ 		if (!(await this.ensureDaemon(options?.signal))) {
+ 			throw new HelperTransportError(`pi-computer-use helper app daemon is unavailable at ${HELPER_APP_PATH}.`);
+diff --git a/src/platform/macos/permissions.ts b/src/platform/macos/permissions.ts
+--- a/src/platform/macos/permissions.ts
++++ b/src/platform/macos/permissions.ts
+@@ -1,12 +1,15 @@
++import { release } from "node:os";
++import { realpath } from "node:fs/promises";
++import { basename } from "node:path";
+ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+ import { ensurePermissions, type PermissionKind, type PermissionStatus } from "../../permissions.ts";
+ import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
+ import type { PlatformReadyState } from "../types.ts";
+-import { HELPER_APP_PATH, macosHelper } from "./helper.ts";
++import { HELPER_APP_PATH, HELPER_APP_EXECUTABLE_PATH, macosHelper } from "./helper.ts";
+ import { assertPlatformArchitecture } from "../architecture.ts";
+ 
+ const GRANT_INSTRUCTIONS =
+-	"Grant Accessibility and Screen Recording to pi-computer-use.app in System Settings → Privacy & Security. " +
++	`Grant Accessibility and Screen Recording to ${basename(HELPER_APP_PATH)} in System Settings → Privacy & Security. ` +
+ 	"Screen Recording lets the agent see the window; Accessibility lets it interact with the window.";
+ 
+ const SIGNING_MIGRATION_WARNING =
+@@ -122,7 +125,9 @@
+ 			{
+ 				kinds: macosPermissionKinds,
+ 				copy: {
+-					nonInteractiveError: (helperPath) => `pi-computer-use setup requires an interactive session. Start pi in interactive mode. ${GRANT_INSTRUCTIONS}\nHelper path: ${helperPath}`,
++					nonInteractiveError: (helperPath) => process.env.PI_COMPUTER_USE_NO_RUNTIME_INSTALL === "1"
++                      ? `Computer setup is required in your host application. ${GRANT_INSTRUCTIONS}\nHelper path: ${helperPath}`
++                      : `pi-computer-use setup requires an interactive session. Start pi in interactive mode. ${GRANT_INSTRUCTIONS}\nHelper path: ${helperPath}`,
+ 					prompt: permissionPrompt,
+ 					incompleteError: (helperPath) => `pi-computer-use setup is incomplete. ${GRANT_INSTRUCTIONS} Helper path: ${helperPath}`,
+ 					readyMessage: "pi-computer-use is ready.",
+@@ -144,3 +149,46 @@
+ 
+ 	return { permissionStatus, lastPermissionCheckAt, helperDiagnostics };
+ }
++
++/** Explicit host diagnostics. A plain inspection never launches a helper or asks for a grant. */
++export async function probeMacosComputerUse(options: { launch?: boolean; signal?: AbortSignal } = {}) {
++  if (process.platform !== "darwin" || Number.parseInt(release(), 10) < 23) return { status: "unavailable" as const, supportedOS: false, reason: "This included helper requires macOS 14 or later." };
++  let connected = false;
++  try {
++    if (options.launch) {
++      await macosHelper.ensureInstalled(options.signal);
++      if (!(await macosHelper.ensureDaemon(options.signal))) throw new Error("Computer helper did not start.");
++      await macosHelper.ensureProtocol(options.signal);
++    }
++    const diagnostics = await macosHelper.daemonCommand<any>("diagnostics", {}, 1_000, options.signal);
++    connected = true;
++    if (diagnostics.protocolVersion !== 7 || !diagnostics.executablePath || await realpath(diagnostics.executablePath) !== await realpath(HELPER_APP_EXECUTABLE_PATH)) {
++      throw new Error("The running computer helper does not match this application. Recheck setup while no Assistant turn is running.");
++    }
++    const permissions = await macosHelper.daemonCommand<any>("checkPermissions", {}, 6_000, options.signal);
++    return {
++      status: permissions.accessibility && permissions.screenRecordingCapturable ? "ready" as const : "setup_required" as const,
++      supportedOS: true,
++      helper: { appPath: HELPER_APP_PATH, executablePath: diagnostics.executablePath, bundleId: permissions.source?.bundleId, name: permissions.source?.bundleName, protocolVersion: diagnostics.protocolVersion, pid: diagnostics.pid },
++      accessibility: permissions.accessibility === true,
++      screenRecording: permissions.screenRecordingCapturable === true,
++      screenRecordingPreflight: permissions.screenRecordingPreflight === true,
++      source: permissions.source,
++    };
++  } catch (error) {
++    if (options.signal?.aborted) throw error;
++    return { status: options.launch || connected ? "error" as const : "not_running" as const, supportedOS: true, helper: { appPath: HELPER_APP_PATH }, reason: error instanceof Error ? error.message : String(error) };
++  }
++}
++
++/** Only a trusted setup action calls this, never startup/catalog inspection. */
++export async function setupMacosComputerUse(action: "request-permissions" | "accessibility" | "screen-recording" | "recheck", signal?: AbortSignal) {
++  await macosHelper.ensureInstalled(signal);
++  if (!(await macosHelper.ensureDaemon(signal))) throw new Error("Computer helper did not start.");
++  await macosHelper.ensureProtocol(signal);
++  if (action === "request-permissions") await macosHelper.command("registerPermissions", {}, { signal, timeoutMs: 15_000 });
++  else if (action === "accessibility" || action === "screen-recording") await macosHelper.command("openPermissionPane", { kind: action === "accessibility" ? "accessibility" : "screenRecording" }, { signal });
++  else if (action === "recheck") await macosHelper.restart(signal);
++  else throw new Error("Unknown computer setup action.");
++  return await probeMacosComputerUse({ signal });
++}
+diff --git a/src/runtime.ts b/src/runtime.ts
+--- a/src/runtime.ts
++++ b/src/runtime.ts
+@@ -17,8 +17,32 @@
+ /** Bounded insertion-ordered store for immutable agent-facing observations. */
+ export class StateStore<T> {
+ 	private readonly records = new Map<string, StoredState<T>>();
++  private readonly sizes = new Map<string, number>();
++  private readonly expires = new Map<string, number>();
++  private bytes = 0;
++  private expiryTimer?: ReturnType<typeof setTimeout>;
+ 
+-	constructor(private readonly limit = 128) {}
++	constructor(private readonly limit = 128, private readonly maxBytes = 32 * 1024 * 1024, private readonly maxAgeMs = 30 * 60_000) {}
++
++  private scheduleExpiry(): void {
++    if (this.expiryTimer) clearTimeout(this.expiryTimer);
++    this.expiryTimer = undefined;
++    if (!this.expires.size) return;
++    const next = Math.min(...this.expires.values());
++    this.expiryTimer = setTimeout(() => {
++      const now = Date.now();
++      for (const [id, expiry] of this.expires) if (expiry <= now) this.remove(id);
++      this.scheduleExpiry();
++    }, Math.max(1, next - Date.now()));
++    this.expiryTimer.unref();
++  }
++
++  private remove(stateId: string): void {
++    this.records.delete(stateId);
++    this.bytes -= this.sizes.get(stateId) ?? 0;
++    this.sizes.delete(stateId);
++    this.expires.delete(stateId);
++  }
+ 
+ 	create(resourceKey: string, epoch: number, value: T): StoredState<T> {
+ 		const record = { stateId: randomUUID(), resourceKey, epoch, value };
+@@ -27,21 +51,30 @@
+ 	}
+ 
+ 	set(record: StoredState<T>): void {
+-		this.records.delete(record.stateId);
++    this.remove(record.stateId);
++    const bytes = Buffer.byteLength(JSON.stringify(record));
++    if (bytes > this.maxBytes) throw new Error("Computer observation exceeds the 32 MiB state budget. Request a narrower observation.");
+ 		this.records.set(record.stateId, record);
+-		while (this.records.size > this.limit) {
++    this.sizes.set(record.stateId, bytes);
++    this.expires.set(record.stateId, Date.now() + this.maxAgeMs);
++    this.bytes += bytes;
++		while (this.records.size > this.limit || this.bytes > this.maxBytes) {
+ 			const oldest = this.records.keys().next().value as string | undefined;
+ 			if (!oldest) break;
+-			this.records.delete(oldest);
++			this.remove(oldest);
+ 		}
++    this.scheduleExpiry();
+ 	}
+ 
+ 	get(stateId: string): StoredState<T> | undefined {
++    if ((this.expires.get(stateId) ?? 0) < Date.now()) this.remove(stateId);
+ 		return this.records.get(stateId);
+ 	}
+ 
+ 	clear(): void {
+-		this.records.clear();
++		this.records.clear(); this.sizes.clear(); this.expires.clear(); this.bytes = 0;
++    if (this.expiryTimer) clearTimeout(this.expiryTimer);
++    this.expiryTimer = undefined;
+ 	}
+ 
+ 	get size(): number {
+diff --git a/native/macos/agent_cursor.swift b/native/macos/agent_cursor.swift
+new file mode 100644
+--- /dev/null
++++ b/native/macos/agent_cursor.swift
+@@ -0,0 +1,159 @@
++import AppKit
++import SwiftUI
++
++/// Visual-only cursor; native action delivery remains authoritative.
++@MainActor
++final class AgentCursor {
++    typealias IdleHideScheduler = @MainActor (@escaping @MainActor () -> Void) -> Task<Void, Never>
++
++    static let shared = AgentCursor(scheduleIdleHide: scheduleDefaultIdleHide)
++
++    private var overlay: AgentCursorOverlayWindow?
++    private var idleHideTask: Task<Void, Never>?
++    private var idleGeneration: UInt = 0
++    private let scheduleIdleHide: IdleHideScheduler
++
++    init(scheduleIdleHide: @escaping IdleHideScheduler) {
++        self.scheduleIdleHide = scheduleIdleHide
++    }
++
++    func animate(to point: CGPoint, above windowId: UInt32) {
++        idleHideTask?.cancel()
++        idleHideTask = nil
++        idleGeneration &+= 1
++
++        let window = ensureWindow()
++        if !window.isVisible { window.orderFrontRegardless() }
++        window.order(.above, relativeTo: Int(windowId))
++
++        let renderer = AgentCursorRenderer.shared
++        if renderer.position.x < -100 {
++            let frame = NSScreen.main?.frame ?? .zero
++            renderer.setInitialPosition(CGPoint(
++                x: min(max(point.x - 140, frame.minX + 2), frame.maxX - 2),
++                y: min(max(point.y - 140, frame.minY + 2), frame.maxY - 2)
++            ))
++        }
++        renderer.moveTo(point: point)
++
++        let generation = idleGeneration
++        idleHideTask = scheduleIdleHide { [weak self, weak window] in
++            guard let self, let window else { return }
++            guard generation == idleGeneration, self.overlay === window else { return }
++
++            renderer.cancelAnimation()
++            window.orderOut(nil)
++            window.contentView = nil
++            window.close()
++            overlay = nil
++            idleHideTask = nil
++        }
++    }
++
++    private static func scheduleDefaultIdleHide(_ hide: @escaping @MainActor () -> Void) -> Task<Void, Never> {
++        Task { @MainActor in
++            try? await Task.sleep(for: .seconds(8))
++            guard !Task.isCancelled else { return }
++            hide()
++        }
++    }
++
++    private func ensureWindow() -> AgentCursorOverlayWindow {
++        if let overlay { return overlay }
++        let window = AgentCursorOverlayWindow(
++            contentRect: NSScreen.main?.frame ?? NSScreen.screens.first?.frame ?? .zero,
++            styleMask: .borderless,
++            backing: .buffered,
++            defer: false
++        )
++        window.contentView = NSHostingView(rootView: AgentCursorView())
++        overlay = window
++        return window
++    }
++}
++
++/// Main-display-only, click-through overlay that can never take focus.
++private final class AgentCursorOverlayWindow: NSWindow {
++    override var canBecomeKey: Bool { false }
++    override var canBecomeMain: Bool { false }
++
++    override init(contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
++        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
++        isOpaque = false
++        backgroundColor = .clear
++        hasShadow = false
++        ignoresMouseEvents = true
++        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
++        isReleasedWhenClosed = false
++        hidesOnDeactivate = false
++    }
++}
++
++@MainActor
++private struct AgentCursorView: View {
++    @Bindable private var renderer = AgentCursorRenderer.shared
++
++    var body: some View {
++        TimelineView(.animation(minimumInterval: 1.0 / 120.0, paused: !renderer.isAnimating)) { context in
++            Canvas { graphics, _ in
++                renderer.tick(now: context.date.timeIntervalSinceReferenceDate)
++                drawCursor(in: graphics)
++            }
++            .ignoresSafeArea()
++            .allowsHitTesting(false)
++        }
++    }
++
++    private func drawCursor(in graphics: GraphicsContext) {
++        let point = renderer.position
++        guard point.x > -100 else { return }
++
++        let bloom = Color(nsColor: NSColor(red: 1, green: 0x78 / 255, blue: 0x18 / 255, alpha: 1))
++        let radius: CGFloat = 22
++        graphics.fill(
++            Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)),
++            with: .radialGradient(
++                Gradient(colors: [bloom.opacity(0.55), bloom.opacity(0.15), bloom.opacity(0)]),
++                center: point,
++                startRadius: 0,
++                endRadius: radius
++            )
++        )
++
++        let points = [
++            CGPoint(x: 14, y: 0),
++            CGPoint(x: -8, y: -9),
++            CGPoint(x: -3, y: 0),
++            CGPoint(x: -8, y: 9),
++        ]
++        var shape = Path()
++        for index in points.indices {
++            let previous = points[(index + points.count - 1) % points.count]
++            let current = points[index]
++            let next = points[(index + 1) % points.count]
++            let entry = CGPoint(x: current.x + (previous.x - current.x) * 0.16, y: current.y + (previous.y - current.y) * 0.16)
++            let exit = CGPoint(x: current.x + (next.x - current.x) * 0.16, y: current.y + (next.y - current.y) * 0.16)
++            if index == points.startIndex { shape.move(to: entry) } else { shape.addLine(to: entry) }
++            shape.addQuadCurve(to: exit, control: current)
++        }
++        shape.closeSubpath()
++
++        let transformed = shape.applying(
++            CGAffineTransform(translationX: point.x, y: point.y)
++                .rotated(by: CGFloat(renderer.heading + .pi))
++        )
++        graphics.fill(
++            transformed,
++            with: .linearGradient(
++                Gradient(colors: [
++                    Color(red: 1, green: 0xD0 / 255, blue: 0x76 / 255),
++                    Color(red: 1, green: 0x78 / 255, blue: 0x18 / 255),
++                    Color(red: 0xE8 / 255, green: 0x4A / 255, blue: 0x0C / 255),
++                ]),
++                startPoint: CGPoint(x: point.x + 14, y: point.y - 9),
++                endPoint: CGPoint(x: point.x - 8, y: point.y + 9)
++            )
++        )
++        graphics.stroke(transformed, with: .color(.white), lineWidth: 2)
++    }
++}
+diff --git a/native/macos/agent_cursor_motion.swift b/native/macos/agent_cursor_motion.swift
+new file mode 100644
+--- /dev/null
++++ b/native/macos/agent_cursor_motion.swift
+@@ -0,0 +1,252 @@
++import CoreGraphics
++import Foundation
++import Observation
++
++/// Main-actor Dubins-path animation state consumed by the SwiftUI overlay.
++@Observable
++@MainActor
++final class AgentCursorRenderer {
++    static let shared = AgentCursorRenderer()
++
++    private(set) var position = CGPoint(x: -200, y: -200)
++    private(set) var heading: Double = .pi / 4
++    private(set) var isAnimating = false
++
++    private var path: PlannedPath?
++    private var spring: Spring?
++    private var distanceSoFar: Double = 0
++    private var lastFrameTime: CFTimeInterval?
++    private var springTarget: (point: CGPoint, heading: Double)?
++
++    func moveTo(point clickPoint: CGPoint) {
++        let endAngle = Double.pi / 4
++        let targetPoint = CGPoint(
++            x: clickPoint.x + CGFloat(cos(endAngle) * 16),
++            y: clickPoint.y + CGFloat(sin(endAngle) * 16)
++        )
++        path = planPath(
++            x0: Double(position.x), y0: Double(position.y), th0: heading + .pi,
++            x1: Double(targetPoint.x), y1: Double(targetPoint.y), th1: endAngle + .pi,
++            R: 80, endVisualHeading: endAngle, targetPoint: targetPoint)
++        spring = nil
++        springTarget = nil
++        distanceSoFar = 0
++        lastFrameTime = nil
++        isAnimating = true
++    }
++
++    func setInitialPosition(_ point: CGPoint) {
++        position = point
++        cancelAnimation()
++    }
++
++    func cancelAnimation() {
++        path = nil
++        spring = nil
++        springTarget = nil
++        distanceSoFar = 0
++        lastFrameTime = nil
++        isAnimating = false
++    }
++
++    func tick(now: CFTimeInterval) {
++        guard isAnimating else { return }
++        let previous = lastFrameTime ?? now
++        let dt = min(0.05, now - previous)
++        lastFrameTime = now
++
++        if let path {
++            let progress = min(1.0, distanceSoFar / max(path.length, 1))
++            let profile = 16 * progress * progress * (1 - progress) * (1 - progress)
++            let minimumSpeed = progress < 0.5 ? 300.0 : 200.0
++            let speed = minimumSpeed + (900 - minimumSpeed) * profile
++            distanceSoFar += speed * dt
++
++            if distanceSoFar >= path.length {
++                let endState = path.sample(at: path.length)
++                spring = Spring(
++                    ox: 0,
++                    oy: 0,
++                    vx: cos(endState.heading) * speed * 0.8,
++                    vy: sin(endState.heading) * speed * 0.8
++                )
++                springTarget = (path.targetPoint, path.endVisualHeading)
++                position = path.targetPoint
++                heading = path.endVisualHeading
++                self.path = nil
++                distanceSoFar = 0
++            } else {
++                let state = path.sample(at: distanceSoFar)
++                position = CGPoint(x: state.x, y: state.y)
++                heading = rotateToward(current: heading, desired: state.heading + .pi, maxStep: 14 * dt)
++            }
++        } else if var spring, let target = springTarget {
++            let substep = dt / 4
++            for _ in 0..<4 {
++                spring.vx += (-400 * spring.ox - 17 * spring.vx) * substep
++                spring.vy += (-400 * spring.oy - 17 * spring.vy) * substep
++                spring.ox += spring.vx * substep
++                spring.oy += spring.vy * substep
++            }
++            position = CGPoint(x: target.point.x + CGFloat(spring.ox), y: target.point.y + CGFloat(spring.oy))
++            heading = target.heading
++            if hypot(spring.ox, spring.oy) < 0.3 && hypot(spring.vx, spring.vy) < 2 {
++                position = target.point
++                self.spring = nil
++                springTarget = nil
++                lastFrameTime = nil
++                isAnimating = false
++            } else {
++                self.spring = spring
++            }
++        }
++    }
++
++    private func rotateToward(current: Double, desired: Double, maxStep: Double) -> Double {
++        var difference = desired - current
++        while difference > .pi { difference -= 2 * .pi }
++        while difference < -.pi { difference += 2 * .pi }
++        return current + max(-maxStep, min(maxStep, difference))
++    }
++}
++
++private struct Spring { var ox, oy, vx, vy: Double }
++
++struct DubinsPlannedPath {
++    enum Kind { case dubins, linear }
++    let kind: Kind
++    let length: Double
++    let endVisualHeading: Double
++    let targetPoint: CGPoint
++    let x0, y0, th0, R, seg1, seg2, seg3: Double
++    let types: [Character]
++    let x1, y1, th1: Double
++
++    struct State { let x, y, heading: Double }
++
++    func sample(at s: Double) -> State {
++        switch kind { case .linear: return sampleLinear(s); case .dubins: return sampleDubins(s) }
++    }
++
++    private func sampleLinear(_ s: Double) -> State {
++        let u = max(0, min(1, s / length))
++        var diff = th1 - th0
++        while diff > .pi  { diff -= 2 * .pi }
++        while diff < -.pi { diff += 2 * .pi }
++        return State(x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u, heading: th0 + diff * u)
++    }
++
++    private func sampleDubins(_ sIn: Double) -> State {
++        guard sIn > 0 else { return State(x: x0, y: y0, heading: th0) }
++        let L1 = seg1 * R, L2 = seg2 * R, L3 = seg3 * R
++        let s = min(sIn, L1 + L2 + L3)
++        var x = x0, y = y0, th = th0
++
++        func advance(length L: Double, type: Character) {
++            if type == "S" { x += cos(th) * L; y += sin(th) * L }
++            else {
++                let dth = L / R * (type == "L" ? 1.0 : -1.0)
++                let perp: Double = (type == "L") ? .pi / 2 : -.pi / 2
++                let cx = x + cos(th + perp) * R, cy = y + sin(th + perp) * R
++                let ang = atan2(y - cy, x - cx)
++                x = cx + cos(ang + dth) * R; y = cy + sin(ang + dth) * R; th += dth
++            }
++        }
++        if s <= L1 { advance(length: s, type: types[0]); return State(x: x, y: y, heading: th) }
++        advance(length: L1, type: types[0])
++        if s <= L1 + L2 { advance(length: s - L1, type: types[1]); return State(x: x, y: y, heading: th) }
++        advance(length: L2, type: types[1])
++        advance(length: s - L1 - L2, type: types[2])
++        return State(x: x, y: y, heading: th)
++    }
++}
++
++private typealias PlannedPath = DubinsPlannedPath
++
++private func mod2pi(_ x: Double) -> Double {
++    let tau = 2 * Double.pi; let r = x - tau * floor(x / tau); return r < 0 ? r + tau : r
++}
++
++private struct DubinsSolution { let t, p, q: Double; let types: [Character]; var length: Double { t + p + q } }
++
++private func dubinsLSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp0 = d + sin(a) - sin(b)
++    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))
++    guard p2 >= 0 else { return nil }
++    let tmp1 = atan2(cos(b) - cos(a), tmp0)
++    return DubinsSolution(t: mod2pi(-a + tmp1), p: sqrt(p2), q: mod2pi(b - tmp1), types: ["L","S","L"])
++}
++private func dubinsRSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp0 = d - sin(a) + sin(b)
++    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))
++    guard p2 >= 0 else { return nil }
++    let tmp1 = atan2(cos(a) - cos(b), tmp0)
++    return DubinsSolution(t: mod2pi(a - tmp1), p: sqrt(p2), q: mod2pi(-b + tmp1), types: ["R","S","R"])
++}
++private func dubinsLSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let p2 = -2 + d * d + 2 * cos(a - b) + 2 * d * (sin(a) + sin(b))
++    guard p2 >= 0 else { return nil }
++    let p = sqrt(p2)
++    let tmp1 = atan2(-cos(a) - cos(b), d + sin(a) + sin(b)) - atan2(-2, p)
++    return DubinsSolution(t: mod2pi(-a + tmp1), p: p, q: mod2pi(-mod2pi(b) + tmp1), types: ["L","S","R"])
++}
++private func dubinsRSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let p2 = d * d - 2 + 2 * cos(a - b) - 2 * d * (sin(a) + sin(b))
++    guard p2 >= 0 else { return nil }
++    let p = sqrt(p2)
++    let tmp1 = atan2(cos(a) + cos(b), d - sin(a) - sin(b)) - atan2(2, p)
++    return DubinsSolution(t: mod2pi(a - tmp1), p: p, q: mod2pi(b - tmp1), types: ["R","S","L"])
++}
++private func dubinsRLR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))) / 8
++    guard abs(tmp) <= 1 else { return nil }
++    let p = mod2pi(2 * .pi - acos(tmp))
++    let t = mod2pi(a - atan2(cos(a) - cos(b), d - sin(a) + sin(b)) + p / 2)
++    return DubinsSolution(t: t, p: p, q: mod2pi(a - b - t + p), types: ["R","L","R"])
++}
++private func dubinsLRL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))) / 8
++    guard abs(tmp) <= 1 else { return nil }
++    let p = mod2pi(2 * .pi - acos(tmp))
++    let t = mod2pi(-a + atan2(-cos(a) + cos(b), d + sin(a) - sin(b)) + p / 2)
++    return DubinsSolution(t: t, p: p, q: mod2pi(mod2pi(b) - a - t + p), types: ["L","R","L"])
++}
++
++private func planPath(x0: Double, y0: Double, th0: Double,
++                      x1: Double, y1: Double, th1: Double,
++                      R: Double, endVisualHeading: Double,
++                      targetPoint: CGPoint) -> PlannedPath {
++    if let p = planDubins(x0: x0, y0: y0, th0: th0, x1: x1, y1: y1, th1: th1,
++                          R: R, endVisualHeading: endVisualHeading, targetPoint: targetPoint) {
++        return p
++    }
++    let D = max(1, hypot(x1 - x0, y1 - y0))
++    return PlannedPath(kind: .linear, length: D, endVisualHeading: endVisualHeading,
++                       targetPoint: targetPoint, x0: x0, y0: y0, th0: th0, R: R,
++                       seg1: 0, seg2: 0, seg3: 0, types: [], x1: x1, y1: y1, th1: th1)
++}
++
++private func planDubins(x0: Double, y0: Double, th0: Double,
++                        x1: Double, y1: Double, th1: Double,
++                        R: Double, endVisualHeading: Double,
++                        targetPoint: CGPoint) -> PlannedPath? {
++    let dx = x1 - x0, dy = y1 - y0, D = hypot(dx, dy)
++    guard D > 0.5 else { return nil }
++    let d = D / R, theta = mod2pi(atan2(dy, dx))
++    let a = mod2pi(th0 - theta), b = mod2pi(th1 - theta)
++    let solvers: [(Double, Double, Double) -> DubinsSolution?] = [
++        dubinsLSL, dubinsRSR, dubinsLSR, dubinsRSL, dubinsRLR, dubinsLRL,
++    ]
++    var best: DubinsSolution?; var bestLen = Double.infinity
++    for s in solvers {
++        if let sol = s(d, a, b), sol.length.isFinite, sol.length >= 0, sol.length < bestLen {
++            bestLen = sol.length; best = sol
++        }
++    }
++    guard let b = best else { return nil }
++    return PlannedPath(kind: .dubins, length: (b.t + b.p + b.q) * R,
++                       endVisualHeading: endVisualHeading, targetPoint: targetPoint,
++                       x0: x0, y0: y0, th0: th0, R: R,
++                       seg1: b.t, seg2: b.p, seg3: b.q, types: b.types,
++                       x1: x1, y1: y1, th1: th1)
++}

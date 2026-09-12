@@ -25,7 +25,12 @@ the production feed.
 
 ## Toolchain
 
-Use Node 24 for repeatable release evidence. Node 22.19.0 or newer is supported for development.
+Use Node 24 and npm 11.16.0 or newer for contributor and release work. npm's
+per-dependency script controls keep the included computer helper's upstream
+installer from running; the checked-in packaging lane builds and signs it.
+The application's Node runtime minimum remains 22.19.0. The included computer
+helper requires macOS 14 or later; other tools remain available on the app's
+supported systems.
 
 ```bash
 npm ci
@@ -51,6 +56,13 @@ signature, hardened runtime, notarization staple, Gatekeeper acceptance, and
 packaged assets, and leaves the full updater/distribution proof to the slower
 distribution lane. Electron Builder's unpacked `--dir` output has no updater
 metadata, so it cannot prove update discovery or installation.
+
+Keep the source tree unchanged while packaging. Before signing, the build
+verifies every ASAR file and block hash against the assembled bytes, including
+unpacked files. Packaged verification repeats those checks afterward, excluding
+only unpacked Mach-O binaries whose signatures legitimately changed their bytes;
+the existing code-signature checks verify those binaries. This catches source
+size changes that otherwise leave a validly signed but unreadable archive.
 
 The signed candidate uses the normal work-fold name, bundle identity, and
 application-data profile even outside `/Applications`. It looks like the

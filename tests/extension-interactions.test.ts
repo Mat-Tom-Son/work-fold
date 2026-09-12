@@ -134,7 +134,7 @@ test("real Pi Extensions ask in fold and Space Chats; reconnect, exact-owner web
       pi.registerCommand("late-question", { description: "Exercise old asynchronous work", handler: async (_, ctx) => {
         const released = new Promise((resolve) => { const off = pi.events.on("release-old-question", () => { off(); resolve(); }); });
         void released.then(async () => {
-          const later = await ctx.ui.input("Old turn must not ask in a new turn");
+          const later = await ctx.ui.input("Session transport asks after its opening turn");
           await appendFile(${JSON.stringify(resultsPath)}, JSON.stringify({ lateCancelled: later === undefined }) + "\\n");
         });
       }});
@@ -222,9 +222,12 @@ test("real Pi Extensions ask in fold and Space Chats; reconnect, exact-owner web
   const old = await api.actFacade.manageSend({ content: "/late-question", newConversation: true });
   await until(async () => (await api.actFacade.manageTurnStatus({ taskId: old.taskId })).task.state !== "running");
   const next = await api.actFacade.manageSend({ conversationId: old.conversationId, content: "/choose" });
-  await until(async () => (await readFile(resultsPath, "utf8")).includes('"lateCancelled":true'));
-  await until(() => [...pending.values()].filter((item) => item.conversationId === next.conversationId).length === 2);
-  assert.ok([...pending.values()].every((item) => item.taskId === next.taskId && item.title !== "Old turn must not ask in a new turn"));
+  await until(() => [...pending.values()].filter((item) => item.conversationId === next.conversationId).length === 3);
+  const sessionQuestion = [...pending.values()].find((item) => item.title === "Session transport asks after its opening turn")!;
+  assert.equal(sessionQuestion.taskId, undefined, "a long-lived transport loses stale attribution instead of borrowing the next turn");
+  assert.ok([...pending.values()].filter((item) => item.id !== sessionQuestion.id).every((item) => item.taskId === next.taskId));
+  bridge.respond(sessionQuestion.id, { value: "Session answer" });
+  await until(async () => (await readFile(resultsPath, "utf8")).includes('"lateCancelled":false'));
   await api.actFacade.manageStop({ taskId: next.taskId });
 
   let neverStarted = false;

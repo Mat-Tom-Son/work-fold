@@ -1,0 +1,1337 @@
+diff --git a/docs/EMBEDDED-HOST.md b/docs/EMBEDDED-HOST.md
+new file mode 100644
+--- /dev/null
++++ b/docs/EMBEDDED-HOST.md
+@@ -0,0 +1,107 @@
++# Embedded-host integration patch
++
++Based on upstream pi-chrome 0.15.51 at commit
++4811ee616d2bbd5ead669a7e2f33a0bb14bd43ef. This patch is a maintained integration,
++not a claim that these changes were accepted upstream. Upstream MIT license
++continues to apply. Native tools, schemas, observations, background-target
++selection and tab ownership remain the upstream implementation.
++
++```ts
++import { createChromeExtension, probeChromeConnection } from "./index.ts";
++export default createChromeExtension({
++  embedded: true,
++  companionPath: "/stable/machine-local/Pi Chrome Connector",
++});
++```
++
++`embedded: true` registers the native tools for every Pi session, including
++catalog-only loads. It uses installation as authority, without `/chrome
++authorize` prompts. The standalone default retains upstream authorization and
++background-mode behavior. User-facing host enable/disable stays with the native
++package/resource lifecycle; it must fence new sessions and dispose old sessions
++through Pi's lifecycle rather than attempting to fence arbitrary full-trust code.
++
++No bridge starts on embedded factory construction or `session_start`. Explicit
++first tool use or connection inspection starts it. A process-shared transport
++has per-session leases and no shared authorization. Session shutdown cancels its
++requests, attempts bounded cleanup of only its tracked creations/adoptions, and
++releases its transport lease; another embedded session keeps its own tools and
++connection. Reload preserves the session's browser targets. Existing user tabs
++are ungrouped when appropriate, never closed by cleanup; tests retain upstream
++ownership behavior.
++
++`probeChromeConnection({host?, port?, timeoutMs?})` is an explicit connection
++check which dispatches only `tab.version`. It never reads page content, creates a
++tab, groups a tab, navigates or runs JavaScript in a page. Factory/catalog loading
++must not call it. The upstream `/chrome doctor` command intentionally runs page
++probes; do not use doctor as automatic readiness inspection.
++
++## Companion distribution
++
++Ship the matching browser-extension folder at a stable path outside the versioned
++application bundle, retaining license/provenance. The person loads this folder
++once in their Chrome profile with Chrome's normal extension UI. Browser extension
++permission setup is not a model tool. Future updates must copy the matching
++companion to that same stable path and provide a user-accessible Reload/Check
++connection action. Never silently edit Chrome's profile or install an unrelated
++browser extension.
++
++Protocol 2 uses `/next-v2`, `/command-v2` and `/command-state-v2`. Poll requests
++carry the exact companion package version and protocol version; the broker
++rejects mismatches before dequeuing. A versioned endpoint makes old standalone
++brokers fail without executing requests whose extra fields they might ignore.
++Do not run the old companion against this bridge or claim it is ready. Old
++brokers occupying the port must be updated/stopped before this integration works.
++The companion no longer reloads itself after the host has already dequeued a
++command. Matching metadata from `tab.version` is required for readiness.
++
++## Cancellation and uncertainty
++
++Queued requests are withdrawn on cancellation. Forwarded HTTP request disconnects
++cancel the owner's queue entry. A dispatched request loses its command lease on
++Stop, timeout or owner loss; the worker checks the lease before dispatch and every
++200ms while working, stops further Chrome calls, and detaches only targets touched
++by that command. The worker does not begin another command until its previous
++JavaScript dispatcher has drained. User cancellation of the debugger withdraws the
++current command too.
++
++Already-submitted browser effects cannot be undone by AbortSignal. Results say
++that the outcome may be unknown and require inspection before deciding to repeat
++an action. Broker owner promotion never repeats the failed request. CDP recovery
++retries only a precise pre-dispatch `Debugger is not attached` failure; ambiguous
++detach/closed-target failures never replay input or evaluation.
++
++There is no continuous desktop capture. Page-load feedback instrumentation runs
++only for the active command's resolved tab, not on every navigation in the user's
++profile. Native screenshot output and model feedback behavior remain unchanged.
++
++## Verification
++
++`npm test` runs the existing upstream suites plus embedded-host acceptance. The
++additional tests use the real maintained factory/broker, loopback HTTP with a fake
++companion, and the real worker functions with mocked Chrome APIs. They exercise
++catalog-before-two-sessions, lazy/ref-counted startup, owner shutdown, protocol
++mismatch, forwarded and delivered cancellation, unknown effects without replay,
++worker drain, touched-target cleanup, setup probes, startup/Stop races and idle
++navigation. No real Chrome profile or user tab is modified by this lane.
++
++These tests establish integration behavior, not packaged Chrome readiness. The
++host release must still verify stable companion loading, real user-tab preservation,
++two concurrent Chats, live model feedback and cancellation through its signed app.
++
++Embedded hosts provide `getCompanionToken`, a lazy reader for a 32-byte hex credential
++held in host-owned state. Catalog creation never reads or creates credentials or opens
++ports. The materialized companion's `host-config.json` is `{version:1, mode:"embedded",
++token:...}`; ordinary upstream companions retain `{version:1, mode:"standalone"}`.
++All embedded companion endpoints authenticate `x-pi-chrome-companion`; embedded
++HTTP command ingress is disabled even with that credential. Tools send in process.
++An occupied port fails without forwarding. Commands, lease checks and results carry
++a bridge epoch; automation ownership also includes that epoch, so a fresh host cannot
++inherit prior-launch targets. Neither credentials nor epochs are authorization prompts.
++Credentials must stay outside project folders and model/renderer context.
++
++In embedded mode `chrome_screenshot` returns native image blocks and capture
++provenance. It does not write a project screenshot file unless the caller supplies
++an output path. Full-page captures return at most 16 tiles and 16 MiB of decoded
++image data; explicit exports retain image results. Native Pi session persistence
++still records the model's tool-result images according to its normal session policy.
+diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.js b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
+--- a/extensions/chrome-profile-bridge/browser-extension/service_worker.js
++++ b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
+@@ -1,6 +1,49 @@
+ const BRIDGE_URL = "http://127.0.0.1:17318";
++let companionConfig;
++function loadCompanionConfig() {
++  return companionConfig ??= fetch(chrome.runtime.getURL("host-config.json"))
++  .then(async response => {
++    if (!response.ok) throw new Error("Missing Chrome companion configuration. Reload the matching companion.");
++    const config = await response.json();
++    if (config?.version !== 1 || !["standalone", "embedded"].includes(config.mode)) throw new Error("Invalid Chrome companion configuration.");
++    if (config.mode === "embedded" && !/^[a-f0-9]{64}$/.test(config.token ?? "")) throw new Error("Chrome companion setup is incomplete.");
++    return config;
++  });
++}
++async function companionHeaders() {
++  const config = await loadCompanionConfig();
++  return config.mode === "embedded" ? { "x-pi-chrome-companion": config.token } : {};
++}
+ const CLIENT_NAME = `Pi Chrome Connector ${chrome.runtime.id}`;
+ const POLL_ERROR_BACKOFF_MS = 2000;
++const BRIDGE_PROTOCOL_VERSION = 2;
++let activeCommand;
++
++function assertCommandActive() {
++  if (activeCommand?.cancelled) throw new Error("Chrome command cancelled. Already-dispatched effects are unknown; inspect before retrying.");
++}
++function checkedChromeCall(operation) {
++  assertCommandActive();
++  if (activeCommand) activeCommand.effectDispatched = true;
++  return operation();
++}
++async function commandStillActive(command) {
++  const controller = new AbortController();
++  const timeout = setTimeout(() => controller.abort(), 2000);
++  try {
++    const response = await fetch(`${BRIDGE_URL}/command-state-v2?id=${encodeURIComponent(command.id)}&epoch=${encodeURIComponent(command.bridgeEpoch ?? "")}`, { cache: "no-store", headers: await companionHeaders(), signal: controller.signal });
++    if (!response.ok) return false;
++    const state = await response.json();
++    return state.protocolVersion === BRIDGE_PROTOCOL_VERSION && state.active === true && (!command.bridgeEpoch || state.bridgeEpoch === command.bridgeEpoch);
++  } catch { return false; }
++  finally { clearTimeout(timeout); }
++}
++async function cancelCommand(context) {
++  if (activeCommand !== context) return;
++  context.cancelled = true;
++  // Only this command's touched targets, never all sessions' cached debuggers.
++  await Promise.all([...context.tabs].map(detachDebugger));
++}
+ const DEFAULT_GROUP_COLOR = "blue";
+ const PI_GROUP_RE = /^Pi(\b|\s*-)/i;
+ const VALID_GROUP_COLORS = new Set(["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]);
+@@ -124,10 +167,10 @@
+     try {
+       const tab = await chrome.tabs.get(tabId).catch(() => null);
+       if (tab && record.created) {
+-        await chrome.tabs.remove(tabId);
++        await checkedChromeCall(() => chrome.tabs.remove(tabId));
+         closedCreatedTabs++;
+       } else if (tab && tab.groupId === record.groupId) {
+-        await chrome.tabs.ungroup(tabId);
++        await checkedChromeCall(() => chrome.tabs.ungroup(tabId));
+         ungroupedAdoptedTabs++;
+       }
+       tabs.delete(tabId);
+@@ -173,14 +216,14 @@
+ async function createAutomationTarget(sessionKey, groupTitle) {
+   const existingGroup = groupTitle ? await findGroupRecordByTitle(groupTitle) : null;
+   if (existingGroup && typeof existingGroup.windowId === "number") {
+-    const tab = await chrome.tabs.create({ url: "about:blank", active: false, windowId: existingGroup.windowId });
++    const tab = await checkedChromeCall(() => chrome.tabs.create({ url: "about:blank", active: false, windowId: existingGroup.windowId }));
+     automationTargets.set(sessionKey, { windowId: undefined, tabId: typeof tab.id === "number" ? tab.id : undefined });
+     await persistAutomationTargets();
+     return tab;
+   }
+   if (chrome.windows && typeof chrome.windows.create === "function") {
+     try {
+-      const win = await chrome.windows.create({ url: "about:blank", focused: false });
++      const win = await checkedChromeCall(() => chrome.windows.create({ url: "about:blank", focused: false }));
+       const created = win && Array.isArray(win.tabs) ? win.tabs[0] : undefined;
+       if (created && typeof created.id === "number") {
+         automationTargets.set(sessionKey, { windowId: typeof win.id === "number" ? win.id : undefined, tabId: created.id });
+@@ -193,7 +236,7 @@
+   }
+   // Tab fallback: the tab lives in a pre-existing (user/shared) window we did NOT create, so we
+   // must leave windowId unset — cleanup then closes only our tab, never the user's window.
+-  const tab = await chrome.tabs.create({ url: "about:blank", active: false });
++  const tab = await checkedChromeCall(() => chrome.tabs.create({ url: "about:blank", active: false }));
+   automationTargets.set(sessionKey, { windowId: undefined, tabId: typeof tab.id === "number" ? tab.id : undefined });
+   await persistAutomationTargets();
+   return tab;
+@@ -230,7 +273,7 @@
+     try {
+       // Never remove a whole window: users/other sessions can add tabs even between a
+       // contents check and removal. Chrome closes empty windows when their last tab closes.
+-      await chrome.tabs.remove(t.tabId);
++      await checkedChromeCall(() => chrome.tabs.remove(t.tabId));
+       result.closedTabId = t.tabId;
+     } catch {
+       return result; // Keep ownership so cleanup can retry.
+@@ -295,7 +338,7 @@
+ async function debuggerAttachRaw(tabId, preferredDebuggee) {
+   const debuggee = preferredDebuggee || { tabId };
+   await withTimeout(
+-    chrome.debugger.attach(debuggee, CDP_VERSION),
++    checkedChromeCall(() => chrome.debugger.attach(debuggee, CDP_VERSION)),
+     ATTACH_TIMEOUT_MS,
+     `Chrome debugger attach to tab ${tabId}`,
+     async () => {
+@@ -307,6 +350,8 @@
+ }
+ 
+ async function attachDebugger(tabId) {
++  assertCommandActive();
++  activeCommand?.tabs.add(tabId);
+   if (!chrome.debugger) throw new Error("chrome.debugger API unavailable; reload the extension to grant the new permission");
+   if (attachedTabs.has(tabId)) {
+     const entry = attachedTabs.get(tabId);
+@@ -421,7 +466,8 @@
+   chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
+     if (tabId !== undefined) attachedTabs.delete(tabId);
+     if (reason === "canceled_by_user") {
+-      console.warn(`[pi-chrome] debugger canceled by user on tab ${tabId}; Chrome input will reattach on next call`);
++      if (activeCommand?.tabs.has(tabId)) void cancelCommand(activeCommand);
++      console.warn(`[pi-chrome] debugger canceled by user on tab ${tabId}; current command cancelled`);
+     }
+   });
+ }
+@@ -436,12 +482,14 @@
+ }, 5000);
+ 
+ function cdpRaw(tabId, method, params) {
++  assertCommandActive();
++  activeCommand?.tabs.add(tabId);
+   const debuggee = attachedTabs.get(tabId)?.debuggee || { tabId };
+   return withTimeout(new Promise((resolve, reject) => {
+-    chrome.debugger.sendCommand(debuggee, method, params || {}, (result) => {
++    checkedChromeCall(() => chrome.debugger.sendCommand(debuggee, method, params || {}, (result) => {
+       if (chrome.runtime.lastError) reject(new Error(`${method}: ${chrome.runtime.lastError.message}`));
+       else resolve(result);
+-    });
++    }));
+   }), CDP_COMMAND_TIMEOUT_MS, `CDP ${method}`, async () => {
+     attachedTabs.delete(tabId);
+     try { await chrome.debugger.detach(debuggee); } catch {}
+@@ -449,7 +497,7 @@
+ }
+ 
+ function executeScriptTimed(options, label) {
+-  return withTimeout(chrome.scripting.executeScript(options), SCRIPTING_TIMEOUT_MS, label || "chrome.scripting.executeScript");
++  return withTimeout(checkedChromeCall(() => chrome.scripting.executeScript(options)), SCRIPTING_TIMEOUT_MS, label || "chrome.scripting.executeScript");
+ }
+ 
+ // Wraps cdpRaw with one auto-recover on detached/closed sessions:
+@@ -499,7 +547,12 @@
+     return await cdpRaw(tabId, method, params);
+   } catch (error) {
+     const msg = String(error?.message || error);
+-    const isStale = /Debugger is not attached|Detached while|Target closed|No tab with id/i.test(msg);
++    // Only a precise pre-dispatch rejection establishes nonexecution. A detach
++    // during input/evaluation can follow a successful submission/navigation.
++    const isStale = /Debugger is not attached/i.test(msg);
++    if (/Detached while|Target closed|No tab with id/i.test(msg)) {
++      throw new Error(`${msg}. The Chrome action may already have happened; inspect before retrying.`);
++    }
+     const isForeignExtBlock = /Cannot access a chrome-extension:\/\/ URL of different extension/i.test(msg);
+     if (isForeignExtBlock && /Input\./.test(method)) {
+       // Foreign chrome-extension popup (autofill, password manager) is hijacking input.
+@@ -1138,17 +1191,11 @@
+   polling = true;
+   try {
+     while (true) {
+-      const response = await fetch(`${BRIDGE_URL}/next?name=${encodeURIComponent(CLIENT_NAME)}`, {
++      const response = await fetch(`${BRIDGE_URL}/next-v2?name=${encodeURIComponent(CLIENT_NAME)}&protocol=${BRIDGE_PROTOCOL_VERSION}&version=${encodeURIComponent(chrome.runtime.getManifest().version)}`, {
+         cache: "no-store",
++        headers: await companionHeaders(),
+       });
+       if (!response.ok) throw new Error(`bridge /next HTTP ${response.status}`);
+-      const expected = response.headers.get("x-pi-chrome-version");
+-      const ours = chrome.runtime.getManifest().version;
+-      if (expected && expected !== ours && isVersionOlder(ours, expected)) {
+-        console.warn(`[pi-chrome] extension v${ours} behind pi-chrome v${expected}; reloading extension`);
+-        try { chrome.runtime.reload(); } catch {}
+-        return;
+-      }
+       const payload = await response.json();
+       if (payload.type === "command") await handleCommand(payload.command);
+     }
+@@ -1160,23 +1207,41 @@
+ }
+ 
+ async function handleCommand(command) {
++  // A mismatched companion or an expired command must fail before any Chrome effect.
++  if (command.protocolVersion !== BRIDGE_PROTOCOL_VERSION || !(await commandStillActive(command))) {
++    await postResult({ id: command.id, bridgeEpoch: command.bridgeEpoch, ok: false, error: "Chrome command was not dispatched: companion protocol mismatch or expired request." });
++    return;
++  }
++  const context = { id: command.id, cancelled: false, effectDispatched: false, tabs: new Set() };
++  activeCommand = context;
++  let checking = false;
++  const monitor = setInterval(async () => {
++    if (checking || context.cancelled) return;
++    checking = true;
++    try { if (!(await commandStillActive(command))) await cancelCommand(context); }
++    finally { checking = false; }
++  }, 200);
++  const operation = Promise.resolve().then(() => dispatch(command.action, command.params ?? {}));
+   try {
+-    const result = await withTimeout(
+-      dispatch(command.action, command.params ?? {}),
+-      COMMAND_TIMEOUT_MS,
+-      command.action || "Chrome command",
+-      () => detachAll(),
+-    );
+-    await postResult({ id: command.id, ok: true, result });
++    const result = await withTimeout(operation, COMMAND_TIMEOUT_MS, command.action || "Chrome command", () => cancelCommand(context));
++    assertCommandActive();
++    await postResult({ id: command.id, bridgeEpoch: command.bridgeEpoch, ok: true, result });
+   } catch (error) {
+-    await postResult({ id: command.id, ok: false, error: error?.message ?? String(error) });
++    const uncertainty = context.effectDispatched ? " The action may already have happened. Inspect before retrying; do not automatically repeat it." : " The action was not dispatched.";
++    await postResult({ id: command.id, bridgeEpoch: command.bridgeEpoch, ok: false, error: (error?.message ?? String(error)) + uncertainty }).catch(() => {});
++  } finally {
++    // A timeout does not kill JavaScript. Keep the command lane occupied while the
++    // cancelled dispatcher drains so its callbacks cannot inherit the next owner.
++    await operation.catch(() => {});
++    clearInterval(monitor);
++    if (activeCommand === context) activeCommand = undefined;
+   }
+ }
+ 
+ async function postResult(result) {
+   await fetch(`${BRIDGE_URL}/result`, {
+     method: "POST",
+-    headers: { "content-type": "application/json" },
++    headers: { "content-type": "application/json", ...await companionHeaders() },
+     body: JSON.stringify(result),
+   });
+ }
+@@ -1246,10 +1311,10 @@
+   if (typeof groupId !== "number" || groupId < 0) {
+     const existing = await findGroupByTitle(tab.windowId, groupTitle);
+     groupId = existing !== null
+-      ? await chrome.tabs.group({ groupId: existing, tabIds: [tab.id] })
+-      : await chrome.tabs.group({ tabIds: [tab.id] });
+-  }
+-  await chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false });
++      ? await checkedChromeCall(() => chrome.tabs.group({ groupId: existing, tabIds: [tab.id] }))
++      : await checkedChromeCall(() => chrome.tabs.group({ tabIds: [tab.id] }));
++  }
++  await checkedChromeCall(() => chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false }));
+   const grouped = await chrome.tabs.get(tab.id);
+   return { tab: await formatTab(grouped), group: await groupRecord(groupId) };
+ }
+@@ -1262,7 +1327,7 @@
+         extensionVersion: chrome.runtime.getManifest().version,
+         bridgeUrl: BRIDGE_URL,
+         userAgent: navigator.userAgent,
+-        capabilities: { hardBackground: true },
++        capabilities: { hardBackground: true, cancellation: true, protocolVersion: BRIDGE_PROTOCOL_VERSION },
+       };
+     case "tab.list": {
+       const tabs = await chrome.tabs.query({});
+@@ -1281,13 +1346,13 @@
+       const existingGroup = await findGroupRecordByTitle(groupTitle);
+       const createParams = { url: params.url || "about:blank", active: foregroundRequested(params) };
+       if (existingGroup && typeof existingGroup.windowId === "number") createParams.windowId = existingGroup.windowId;
+-      const tab = await chrome.tabs.create(createParams);
++      const tab = await checkedChromeCall(() => chrome.tabs.create(createParams));
+       await trackSessionTab(sessionKeyOf(params), tab.id, true);
+       try {
+         await bringToFront(tab, params);
+         return await groupTab(tab, groupTitle, params.groupColor);
+       } catch (error) {
+-        if (typeof tab.id === "number") await chrome.tabs.remove(tab.id).catch(() => {});
++        if (typeof tab.id === "number") await checkedChromeCall(() => chrome.tabs.remove(tab.id)).catch(() => {});
+         throw error;
+       }
+     }
+@@ -1309,12 +1374,12 @@
+     }
+     case "tab.ungroup": {
+       const tab = await getTabByParams(params, { createOwnedTarget: false });
+-      if (typeof tab.groupId === "number" && tab.groupId >= 0) await chrome.tabs.ungroup(tab.id);
++      if (typeof tab.groupId === "number" && tab.groupId >= 0) await checkedChromeCall(() => chrome.tabs.ungroup(tab.id));
+       return formatTab(await chrome.tabs.get(tab.id));
+     }
+     case "tab.close": {
+       const tab = await getTabByParams(params, { createOwnedTarget: false });
+-      await chrome.tabs.remove(tab.id);
++      await checkedChromeCall(() => chrome.tabs.remove(tab.id));
+       return { closed: tab.id };
+     }
+     case "page.snapshot":
+@@ -1385,7 +1450,7 @@
+         await registerInitScript(tab.id, params.initScript);
+       }
+       const wait = params.waitUntilLoad !== false ? waitForTabComplete(tab.id, params.timeoutMs || 15000) : Promise.resolve(undefined);
+-      const updated = await chrome.tabs.update(tab.id, { url: params.url });
++      const updated = await checkedChromeCall(() => chrome.tabs.update(tab.id, { url: params.url }));
+       try {
+         await wait;
+       } finally {
+@@ -1483,6 +1548,8 @@
+     }
+   }
+   if (!tab?.id) throw new Error("No matching Chrome tab found");
++  assertCommandActive();
++  activeCommand?.tabs.add(tab.id);
+   const url = tab.url || "";
+   if (url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
+     throw new Error(`Chrome blocks extension automation on protected URL: tab=${tab.id} url=${url}`);
+@@ -1750,21 +1817,21 @@
+   await cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier }).catch(() => undefined);
+ }
+ 
+-// Always inject early console/network capture at document_start on every navigation.
++// Capture page-load feedback only for the active command's resolved target.
+ // Catches console messages, errors, and network requests that fire during page load,
+ // before chrome_snapshot or chrome_evaluate install the instrumentation normally.
+ // The function installEarlyCapture sets __piChromeWrapped flags so the post-hoc
+ // installPiChromeInstrumentation() call is idempotent.
+ if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
+   chrome.webNavigation.onCommitted.addListener((details) => {
+-    if (details.frameId !== 0) return;
+-    chrome.scripting.executeScript({
++    if (details.frameId !== 0 || !activeCommand || activeCommand.cancelled || !activeCommand.tabs.has(details.tabId)) return;
++    checkedChromeCall(() => chrome.scripting.executeScript({
+       target: { tabId: details.tabId, frameIds: [0] },
+       world: "MAIN",
+       injectImmediately: true,
+       func: installEarlyCapture,
+       args: [],
+-    }).catch(() => undefined);
++    })).catch(() => undefined);
+   });
+ }
+ 
+@@ -1775,8 +1842,8 @@
+ 
+ async function bringToFront(tab, params) {
+   if (!foregroundRequested(params)) return tab;
+-  await chrome.windows.update(tab.windowId, { focused: true });
+-  return chrome.tabs.update(tab.id, { active: true });
++  await checkedChromeCall(() => chrome.windows.update(tab.windowId, { focused: true }));
++  return checkedChromeCall(() => chrome.tabs.update(tab.id, { active: true }));
+ }
+ 
+ function waitForTabComplete(tabId, timeoutMs) {
+diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profile-bridge/index.ts
+--- a/extensions/chrome-profile-bridge/index.ts
++++ b/extensions/chrome-profile-bridge/index.ts
+@@ -1,5 +1,6 @@
+ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+ import { Type } from "typebox";
++import { randomUUID, timingSafeEqual } from "node:crypto";
+ import { existsSync, readFileSync, statSync } from "node:fs";
+ import { mkdir, writeFile } from "node:fs/promises";
+ import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+@@ -20,7 +21,7 @@
+ type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+ 
+ type ToolTextResult = {
+-	content: Array<{ type: "text"; text: string }>;
++	content: Array<{ type: "text"; text: string } | { type: "image"; mimeType: string; data: string }>;
+ 	details?: Record<string, unknown>;
+ };
+ 
+@@ -40,6 +41,7 @@
+ 
+ type BridgeResult = {
+ 	id: string;
++	bridgeEpoch?: string;
+ 	ok: boolean;
+ 	result?: unknown;
+ 	error?: string;
+@@ -62,6 +64,8 @@
+ const DEFAULT_HOST = process.env.PI_CHROME_BRIDGE_HOST ?? "127.0.0.1";
+ const DEFAULT_PORT = Number(process.env.PI_CHROME_BRIDGE_PORT ?? "17318");
+ const DEFAULT_TIMEOUT_MS = 30_000;
++const BRIDGE_PROTOCOL_VERSION = 2;
++const UNCERTAIN_EFFECT = "The Chrome action may already have happened. Inspect the target before deciding what to do next; do not automatically repeat this action.";
+ const MAX_TEXT_CHARS = 30_000;
+ const MAX_ELEMENTS = 80;
+ const BACKGROUND_PARAM_DESCRIPTION = "If true, avoid explicit Chrome focus/tab activation for this call. /chrome background on (default) enforces this for every call and ignores false. Ask the user to run /chrome background off to allow foreground work.";
+@@ -259,7 +263,12 @@
+ function readRequestBody(request: IncomingMessage): Promise<string> {
+ 	return new Promise((resolveBody, rejectBody) => {
+ 		const chunks: Buffer[] = [];
+-		request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
++		let bytes = 0;
++		request.on("data", (chunk) => {
++			bytes += Buffer.byteLength(chunk);
++			if (bytes > 24 * 1024 * 1024) { rejectBody(new Error("Chrome response exceeded 24 MiB.")); request.destroy(); return; }
++			chunks.push(Buffer.from(chunk));
++		});
+ 		request.on("end", () => resolveBody(Buffer.concat(chunks).toString("utf8")));
+ 		request.on("error", rejectBody);
+ 	});
+@@ -271,7 +280,7 @@
+ 	return {
+ 		"access-control-allow-origin": origin,
+ 		"access-control-allow-methods": "GET,POST,OPTIONS",
+-		"access-control-allow-headers": "content-type",
++		"access-control-allow-headers": "content-type,x-pi-chrome-companion",
+ 		"access-control-expose-headers": "x-pi-chrome-version",
+ 		"vary": "origin",
+ 	};
+@@ -305,10 +314,14 @@
+ 	private lastSeenAt: number | undefined;
+ 	private clientName: string | undefined;
+ 	private mode: "server" | "client" | undefined;
++	private starting: Promise<void> | undefined;
++	private stopped = false;
++	private readonly epoch = randomUUID();
+ 
+ 	constructor(
+ 		private readonly host: string,
+ 		private readonly port: number,
++		private readonly companionToken?: string,
+ 	) {}
+ 
+ 	get url(): string {
+@@ -325,6 +338,8 @@
+ 	status(): Record<string, unknown> {
+ 		return {
+ 			url: this.url,
++			protocolVersion: BRIDGE_PROTOCOL_VERSION,
++			version: PI_CHROME_VERSION,
+ 			mode: this.mode ?? "starting",
+ 			connected: this.connected,
+ 			lastSeenAt: this.lastSeenAt,
+@@ -335,8 +350,10 @@
+ 	}
+ 
+ 	async start(): Promise<void> {
++		if (this.stopped) throw new Error("Chrome bridge has stopped.");
+ 		if (this.server || this.mode === "client") return;
+-		await this.bindServerOrClient();
++		if (!this.starting) this.starting = this.bindServerOrClient().finally(() => { this.starting = undefined; });
++		await this.starting;
+ 	}
+ 
+ 	// Try to own the bridge port. On success we are the server; on EADDRINUSE another Pi
+@@ -355,11 +372,13 @@
+ 					resolveStart();
+ 				});
+ 			});
++			if (this.stopped) { server.close(); throw new Error("Chrome bridge has stopped."); }
+ 			this.server = server;
+ 			this.mode = "server";
+ 		} catch (error) {
+ 			server.close();
+ 			if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
++			if (this.companionToken) throw new Error("The Chrome connection port belongs to another process. Close that connection before starting this one; no command was forwarded.");
+ 			// Another Pi session already owns the bridge port. Use it as the shared
+ 			// machine-local broker so multiple Pi sessions can control Chrome at once.
+ 			this.mode = "client";
+@@ -377,13 +396,14 @@
+ 	}
+ 
+ 	stop(): void {
++		this.stopped = true;
+ 		if (this.mode === "client") {
+ 			this.mode = undefined;
+ 			return;
+ 		}
+ 		for (const pending of this.pending.values()) {
+ 			clearTimeout(pending.timer);
+-			pending.reject(new Error("Chrome profile bridge stopped"));
++			pending.reject(new Error(`Chrome profile bridge stopped. ${pending.deliveredAt ? UNCERTAIN_EFFECT : "The command was not dispatched."}`));
+ 		}
+ 		this.pending.clear();
+ 		this.queue = [];
+@@ -394,28 +414,42 @@
+ 		this.mode = undefined;
+ 	}
+ 
+-	send(action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> {
++	async send(action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> {
++		if (signal?.aborted) throw new Error("Chrome command cancelled before dispatch.");
++		await this.start();
+ 		if (this.mode === "client") return this.sendViaOwner(action, params, timeoutMs, signal);
+ 		return this.sendLocal(action, params, timeoutMs, signal);
+ 	}
+ 
++	cancelSession(sessionKey: string): void {
++		for (const [id, pending] of this.pending) {
++			if (pending.command.params.sessionKey !== (this.companionToken ? `${this.epoch}:${sessionKey}` : sessionKey)) continue;
++			clearTimeout(pending.timer);
++			this.pending.delete(id);
++			this.queue = this.queue.filter((command) => command.id !== id);
++			pending.reject(new Error(`Chrome session ended. ${pending.deliveredAt ? UNCERTAIN_EFFECT : "The command was not dispatched."}`));
++		}
++	}
++
+ 	private sendLocal(action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> {
+-		const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+-		const command = { id, action, params };
++		const id = randomUUID();
++		const wireParams = this.companionToken && typeof params.sessionKey === "string" ? { ...params, sessionKey: `${this.epoch}:${params.sessionKey}` } : params;
++		const command = { id, action, params: wireParams };
+ 		return new Promise((resolveCommand, rejectCommand) => {
+ 			if (signal?.aborted) {
+-				rejectCommand(new Error("Chrome command aborted"));
++				rejectCommand(new Error("Chrome command cancelled. The command was not dispatched."));
+ 				return;
+ 			}
+ 			const cleanupAbort = () => {
+ 				if (signal) signal.removeEventListener("abort", onAbort);
+ 			};
+ 			const onAbort = () => {
++				const entry = this.pending.get(id);
+ 				clearTimeout(timer);
+ 				this.pending.delete(id);
+ 				this.queue = this.queue.filter((queued) => queued.id !== id);
+ 				cleanupAbort();
+-				rejectCommand(new Error("Chrome command aborted"));
++				rejectCommand(new Error(`Chrome command cancelled. ${entry?.deliveredAt ? UNCERTAIN_EFFECT : "The command was not dispatched."}`));
+ 			};
+ 			const timer = setTimeout(() => {
+ 				const entry = this.pending.get(id);
+@@ -442,7 +476,7 @@
+ 	private timeoutMessage(entry: PendingCommand | undefined, timeoutMs: number): string {
+ 		const pollAgeMs = this.lastSeenAt === undefined ? undefined : Date.now() - this.lastSeenAt;
+ 		if (entry?.deliveredAt) {
+-			return `Timed out after ${timeoutMs}ms: the Chrome extension received the command but never returned a result. The action may be long-running, or the result post failed. Run /chrome doctor; if it persists, reload 'Pi Chrome Connector' at chrome://extensions.`;
++			return `Timed out after ${timeoutMs}ms: the Chrome extension received the command but never returned a result. ${UNCERTAIN_EFFECT} Run /chrome doctor to check connectivity.`;
+ 		}
+ 		if (pollAgeMs === undefined || pollAgeMs > 60_000) {
+ 			return `Timed out after ${timeoutMs}ms: the Chrome extension is not polling (last seen ${pollAgeMs === undefined ? "never" : Math.round(pollAgeMs / 1000) + "s ago"}). Run /chrome onboard, then load the bundled browser-extension folder in your normal Chrome profile and keep that Chrome window open.`;
+@@ -459,10 +493,10 @@
+ 			else signal.addEventListener("abort", forwardAbort, { once: true });
+ 		}
+ 		try {
+-			const response = await fetch(`${this.url}/command`, {
++			const response = await fetch(`${this.url}/command-v2`, {
+ 				method: "POST",
+ 				headers: { "content-type": "application/json" },
+-				body: JSON.stringify({ action, params, timeoutMs }),
++				body: JSON.stringify({ action, params, timeoutMs, protocolVersion: BRIDGE_PROTOCOL_VERSION }),
+ 				signal: controller.signal,
+ 			});
+ 			const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; error?: string };
+@@ -475,18 +509,14 @@
+ 			return payload.result;
+ 		} catch (error) {
+ 			if ((error as Error).name === "AbortError") {
+-				if (signal?.aborted) throw new Error("Chrome command aborted");
+-				throw new Error(`Timed out waiting for shared Chrome bridge owner after ${timeoutMs}ms`);
+-			}
+-			// `fetch failed` / ECONNREFUSED means the Pi session that owned the bridge port is gone.
+-			// Try to take over the port ourselves and re-run the command locally instead of staying
+-			// stuck as a client pointed at a dead owner.
++				if (signal?.aborted) throw new Error(`Chrome command cancelled. ${UNCERTAIN_EFFECT}`);
++				throw new Error(`Timed out waiting for shared Chrome bridge owner after ${timeoutMs}ms. ${UNCERTAIN_EFFECT}`);
++			}
++			// A socket can close after Chrome performed a mutation. Promotion repairs the
++			// next request only; this request is never replayed after an uncertain send.
+ 			if (this.isOwnerUnreachable(error)) {
+-				const promoted = await this.tryPromoteToServer().catch(() => false);
+-				if (promoted) return this.sendLocal(action, params, timeoutMs, signal);
+-				throw new Error(
+-					"The Pi session that owned the Chrome bridge is unreachable and this session could not take over the bridge port. Restart this Pi session, or run /chrome doctor.",
+-				);
++				await this.tryPromoteToServer().catch(() => false);
++				throw new Error(`The shared Chrome bridge disconnected. ${UNCERTAIN_EFFECT}`);
+ 			}
+ 			throw error;
+ 		} finally {
+@@ -525,11 +555,19 @@
+ 			sendJson(response, 200, { ok: true }, corsHeaders);
+ 			return;
+ 		}
++		if (this.companionToken) {
++			// Embedded native tools call send() in process. HTTP never admits commands.
++			if (url.pathname === "/command-v2") { sendJson(response, 403, { ok: false, error: "External Chrome commands are disabled." }); return; }
++			const token = request.headers["x-pi-chrome-companion"];
++			if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token) || !timingSafeEqual(Buffer.from(token), Buffer.from(this.companionToken))) {
++				sendJson(response, 403, { ok: false, error: "Chrome companion authentication required." }); return;
++			}
++		}
+ 		if (request.method === "GET" && url.pathname === "/status") {
+ 			sendJson(response, 200, this.status());
+ 			return;
+ 		}
+-		if (request.method === "POST" && url.pathname === "/command") {
++		if (request.method === "POST" && url.pathname === "/command-v2") {
+ 			if (!isLocalProcessRequest(request)) {
+ 				sendJson(response, 403, { ok: false, error: "Chrome commands are accepted only from local Pi processes" });
+ 				return;
+@@ -538,22 +576,43 @@
+ 				action?: string;
+ 				params?: Record<string, unknown>;
+ 				timeoutMs?: number;
++				protocolVersion?: number;
+ 			};
++			if (body.protocolVersion !== BRIDGE_PROTOCOL_VERSION) {
++				sendJson(response, 409, { ok: false, error: "Chrome bridge protocol mismatch. Update/reload the companion and restart older Pi bridge sessions." });
++				return;
++			}
+ 			if (!body.action) {
+ 				sendJson(response, 400, { ok: false, error: "Missing command action" });
+ 				return;
+ 			}
++			const controller = new AbortController();
++			const disconnected = () => { if (!response.writableEnded) controller.abort(); };
++			response.once("close", disconnected);
+ 			try {
+-				const result = await this.sendLocal(body.action, body.params ?? {}, body.timeoutMs ?? DEFAULT_TIMEOUT_MS);
++				const result = await this.sendLocal(body.action, body.params ?? {}, body.timeoutMs ?? DEFAULT_TIMEOUT_MS, controller.signal);
+ 				sendJson(response, 200, { ok: true, result });
+ 			} catch (error) {
+ 				sendJson(response, 504, { ok: false, error: (error as Error).message });
++			} finally {
++				response.off("close", disconnected);
+ 			}
+ 			return;
+ 		}
+-		if (request.method === "GET" && url.pathname === "/next") {
++		if (request.method === "GET" && url.pathname === "/command-state-v2") {
++			if (!isBrowserOriginAllowed(request)) { sendJson(response, 403, { ok: false }, corsHeaders); return; }
++			const entry = this.pending.get(url.searchParams.get("id") ?? "");
++			sendJson(response, 200, { protocolVersion: BRIDGE_PROTOCOL_VERSION, active: Boolean(entry?.deliveredAt) && (!this.companionToken || url.searchParams.get("epoch") === this.epoch), ...(this.companionToken ? { bridgeEpoch: this.epoch } : {}) }, corsHeaders);
++			return;
++		}
++		if (request.method === "GET" && url.pathname === "/next-v2") {
+ 			if (!isBrowserOriginAllowed(request)) {
+ 				sendJson(response, 403, { ok: false, error: "browser origin not allowed" });
++				return;
++			}
++			// Negotiate before dequeuing: an old companion must never receive a mutation.
++			if (url.searchParams.get("protocol") !== String(BRIDGE_PROTOCOL_VERSION) || url.searchParams.get("version") !== readPiChromeVersion()) {
++				sendJson(response, 409, { ok: false, protocolVersion: BRIDGE_PROTOCOL_VERSION, expectedExtensionVersion: readPiChromeVersion(), error: "Chrome companion update required" }, corsHeaders);
+ 				return;
+ 			}
+ 			this.lastSeenAt = Date.now();
+@@ -573,9 +632,10 @@
+ 			if (aborted) {
+ 				// Long-poll connection died before we could deliver. Requeue any command we pulled
+ 				// so the next live /next picks it up instead of dropping it on the floor.
+-				if (command) this.queue.unshift(command);
++				if (command && this.pending.has(command.id)) this.queue.unshift(command);
+ 				return;
+ 			}
++			if (command && !this.pending.has(command.id)) command = undefined;
+ 			// Mark the command as delivered so a later timeout can distinguish "extension never
+ 			// picked it up" from "extension is running it / failed to post a result".
+ 			if (command) {
+@@ -588,7 +648,7 @@
+ 				response,
+ 				200,
+ 				command
+-					? { type: "command", command, expectedExtensionVersion: currentVersion }
++					? { type: "command", command: { ...command, protocolVersion: BRIDGE_PROTOCOL_VERSION, ...(this.companionToken ? { bridgeEpoch: this.epoch } : {}) }, expectedExtensionVersion: currentVersion }
+ 					: { type: "none", expectedExtensionVersion: currentVersion },
+ 				{ ...corsHeaders, "x-pi-chrome-version": currentVersion },
+ 			);
+@@ -601,6 +661,7 @@
+ 			}
+ 			this.lastSeenAt = Date.now();
+ 			const result = JSON.parse(await readRequestBody(request)) as BridgeResult;
++			if (this.companionToken && result.bridgeEpoch !== this.epoch) { sendJson(response, 409, { ok: false, error: "Expired Chrome bridge ownership." }, corsHeaders); return; }
+ 			const pending = this.pending.get(result.id);
+ 			if (!pending) {
+ 				sendJson(response, 404, { ok: false, error: "unknown command id" }, corsHeaders);
+@@ -635,6 +696,86 @@
+ 		});
+ 	}
+ }
++
++// Embedders share only transport. Catalog construction acquires no lease and opens no port.
++const SHARED_BRIDGE_KEY = Symbol.for("pi-chrome.shared-transport.v2");
++type SharedTransport = { bridge: ChromeProfileBridge; leases: Set<symbol>; companionToken?: string };
++function sharedBridge(host: string, port: number, getCompanionToken?: () => Promise<string | undefined>) {
++	const state = globalThis as typeof globalThis & { [SHARED_BRIDGE_KEY]?: Map<string, SharedTransport> };
++	const transports = state[SHARED_BRIDGE_KEY] ??= new Map();
++	const key = `${host}:${port}`;
++	const token = Symbol("pi-chrome-session");
++	let transport: SharedTransport | undefined;
++	let ended = false;
++	const requests = new Map<AbortController, string | undefined>();
++	const acquire = async () => {
++		if (ended) throw new Error("Chrome session has ended.");
++		if (!transport) {
++			const companionToken = await getCompanionToken?.();
++			if (getCompanionToken && !/^[a-f0-9]{64}$/.test(companionToken ?? "")) throw new Error("Set up the Chrome companion in Skills & Extensions before using Chrome tools.");
++			if (ended) throw new Error("Chrome session has ended.");
++			transport = transports.get(key);
++			if (transport && transport.companionToken !== companionToken) throw new Error("This Chrome connection belongs to another profile.");
++			if (!transport) { transport = { bridge: new ChromeProfileBridge(host, port, companionToken), leases: new Set(), companionToken }; transports.set(key, transport); }
++			transport.leases.add(token);
++		}
++		await transport.bridge.start();
++		if (ended) throw new Error("Chrome session has ended.");
++		return transport.bridge;
++	};
++	return {
++		get url() { return `http://${host}:${port}`; },
++		get connected() { return transport?.bridge.connected ?? false; },
++		get started() { return Boolean(transport); },
++		status: () => transport?.bridge.status() ?? { url: `http://${host}:${port}`, mode: "idle", connected: false },
++		start: async () => { await acquire(); },
++		send: async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal) => {
++			if (signal?.aborted) throw new Error("Chrome command cancelled before dispatch.");
++			const controller = new AbortController();
++			const abort = () => controller.abort();
++			if (signal?.aborted) controller.abort();
++			else signal?.addEventListener("abort", abort, { once: true });
++			requests.set(controller, typeof params.sessionKey === "string" ? params.sessionKey : undefined);
++			try { return await (await acquire()).send(action, params, timeoutMs, controller.signal); }
++			finally { requests.delete(controller); signal?.removeEventListener("abort", abort); }
++		},
++		cancelSession: (sessionKey: string) => {
++			for (const [controller, owner] of requests) if (owner === sessionKey) controller.abort();
++			transport?.bridge.cancelSession(sessionKey);
++		},
++		stop: () => {
++			ended = true;
++			for (const controller of requests.keys()) controller.abort();
++			if (!transport) return;
++			transport.leases.delete(token);
++			if (!transport.leases.size) { transport.bridge.stop(); transports.delete(key); }
++			transport = undefined;
++		},
++	};
++}
++
++export type ChromeExtensionOptions = { embedded?: boolean; host?: string; port?: number; companionPath?: string; getCompanionToken?: () => Promise<string | undefined> };
++
++/** Explicit, content-free connection check. Never creates, groups, or inspects a tab. */
++export async function probeChromeConnection(options: { host?: string; port?: number; timeoutMs?: number; getCompanionToken?: () => Promise<string | undefined> } = {}) {
++	const bridge = sharedBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT, options.getCompanionToken);
++	try {
++		const result = await bridge.send("tab.version", {}, options.timeoutMs ?? 2500) as {
++			extensionVersion?: string; capabilities?: { protocolVersion?: number; cancellation?: boolean };
++		};
++		if (result.extensionVersion !== PI_CHROME_VERSION || result.capabilities?.protocolVersion !== BRIDGE_PROTOCOL_VERSION || result.capabilities?.cancellation !== true) {
++			return { state: "setup_required" as const, reason: "Reload the matching Chrome companion in chrome://extensions.", version: result.extensionVersion };
++		}
++		return { state: "ready" as const, reason: "Chrome companion is connected.", version: result.extensionVersion, protocolVersion: BRIDGE_PROTOCOL_VERSION };
++	} catch (error) {
++		return { state: "setup_required" as const, reason: `Connect the Chrome companion: ${(error as Error).message}` };
++	} finally { bridge.stop(); }
++}
++
++export function createChromeExtension(options: ChromeExtensionOptions = {}) {
++	return (pi: ExtensionAPI): void => registerChromeExtension(pi, options);
++}
++export default createChromeExtension();
+ 
+ const tabActionValues = ["list", "new", "activate", "close", "group", "ungroup", "version"] as const;
+ const imageFormatValues = ["png", "jpeg"] as const;
+@@ -666,7 +807,8 @@
+ 	return Type.Union(values.map((value) => Type.Literal(value)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]);
+ }
+ 
+-export default function (pi: ExtensionAPI): void {
++function registerChromeExtension(pi: ExtensionAPI, options: ChromeExtensionOptions): void {
++	const embedded = options.embedded === true;
+ 	const instanceToken = Symbol("pi-chrome-instance");
+ 	const currentRoot = extensionRoot();
+ 	const globalState = globalThis as typeof globalThis & {
+@@ -674,7 +816,7 @@
+ 		[PI_CHROME_AUTH_KEY]?: { until: number | "indefinite" };
+ 	};
+ 	const alreadyLoaded = globalState[PI_CHROME_GLOBAL_KEY];
+-	if (alreadyLoaded?.token || (alreadyLoaded && alreadyLoaded.root !== currentRoot)) {
++	if (!embedded && (alreadyLoaded?.token || (alreadyLoaded && alreadyLoaded.root !== currentRoot))) {
+ 		console.warn(
+ 			`pi-chrome already loaded from ${alreadyLoaded.root} (v${alreadyLoaded.version}); skipping duplicate from ${currentRoot}.`,
+ 		);
+@@ -683,13 +825,14 @@
+ 	// pi-chrome <=0.15.19 set the singleton flag but did not clear it on reload.
+ 	// If the stale flag points at this same extension root, replace it instead of
+ 	// skipping the freshly reloaded extension.
+-	globalState[PI_CHROME_GLOBAL_KEY] = { version: PI_CHROME_VERSION, root: currentRoot, token: instanceToken };
+-
+-	const bridge = new ChromeProfileBridge(DEFAULT_HOST, DEFAULT_PORT);
++	if (!embedded) globalState[PI_CHROME_GLOBAL_KEY] = { version: PI_CHROME_VERSION, root: currentRoot, token: instanceToken };
++
++	const bridge = embedded ? sharedBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT, options.getCompanionToken ?? (async () => undefined)) : new ChromeProfileBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT);
++	const companionPath = () => options.companionPath ?? browserExtensionPath();
+ 	let backgroundEnabled = true;
+-	let chromeAuthorizedUntil: number | "indefinite" | undefined;
++	let chromeAuthorizedUntil: number | "indefinite" | undefined = embedded ? "indefinite" : undefined;
+ 	// Restore an authorization that survived a /reload. Drop it if it already expired.
+-	const persistedAuth = globalState[PI_CHROME_AUTH_KEY];
++	const persistedAuth = embedded ? undefined : globalState[PI_CHROME_AUTH_KEY];
+ 	if (persistedAuth) {
+ 		if (persistedAuth.until === "indefinite" || persistedAuth.until > Date.now()) {
+ 			chromeAuthorizedUntil = persistedAuth.until;
+@@ -698,6 +841,7 @@
+ 		}
+ 	}
+ 	const persistAuth = (): void => {
++		if (embedded) return;
+ 		if (chromeAuthorizedUntil === undefined) delete globalState[PI_CHROME_AUTH_KEY];
+ 		else globalState[PI_CHROME_AUTH_KEY] = { until: chromeAuthorizedUntil };
+ 	};
+@@ -764,6 +908,7 @@
+ 	// this in the background; shutdown must wait before tearing down the bridge.
+ 	const cleanupAutomationTargetBestEffort = async (timeoutMs = 2_000): Promise<void> => {
+ 		const sessionKey = sessionKeyFor(sessionCtx);
++		if (embedded && !("started" in bridge && bridge.started)) return;
+ 		if (sessionKey === undefined) return; // Never clean up an unscoped/default session.
+ 		const controller = new AbortController();
+ 		let timer: ReturnType<typeof setTimeout> | undefined;
+@@ -795,6 +940,7 @@
+ 	};
+ 
+ 	const authSummary = (): string => {
++		if (embedded) return "enabled by installation";
+ 		if (chromeAuthorizedUntil === "indefinite") return "authorized indefinitely";
+ 		if (typeof chromeAuthorizedUntil === "number") {
+ 			const remainingMs = chromeAuthorizedUntil - Date.now();
+@@ -884,6 +1030,7 @@
+ 
+ 	const authorizedBridgeSend = async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> => {
+ 		requireChromeControlAuthorized();
++		if (sessionKeyFor(sessionCtx) === undefined) throw new Error("Chrome needs an active Pi session before use.");
+ 		// Background on is a session policy, not a default that tool arguments can override.
+ 		// Apply it here so tab.new, chrome_launch(url), and tools without a background parameter
+ 		// cannot bypass it. Background off still permits per-call background:true.
+@@ -931,7 +1078,7 @@
+ 
+ 	pi.on("session_start", async (_event, ctx) => {
+ 		sessionCtx = ctx;
+-		await bridge.start();
++		if (!embedded) await bridge.start();
+ 		// Reestablish in-memory state after a /reload restored chromeAuthorizedUntil from globalThis.
+ 		if (chromeControlAuthorized()) {
+ 			activateChromeTools();
+@@ -948,11 +1095,13 @@
+ 	pi.on("session_shutdown", async (event) => {
+ 		clearAuthExpiryTimer();
+ 		clearCountdownInterval();
++		const sessionKey = sessionKeyFor(sessionCtx);
++		if (sessionKey) bridge.cancelSession(sessionKey);
+ 		// /reload continues the same session. On exit, give Chrome a bounded opportunity to
+ 		// close this session's created tabs and ungroup adopted tabs before stopping the broker.
+ 		if (event?.reason !== "reload") await cleanupAutomationTargetBestEffort();
+ 		bridge.stop();
+-		if (globalState[PI_CHROME_GLOBAL_KEY]?.token === instanceToken) {
++		if (!embedded && globalState[PI_CHROME_GLOBAL_KEY]?.token === instanceToken) {
+ 			delete globalState[PI_CHROME_GLOBAL_KEY];
+ 		}
+ 	});
+@@ -986,7 +1135,7 @@
+ 7. If you hit a native file-picker or privileged browser prompt gate, tell the user; generic clicks/typing/CSP gates are handled by Chrome input.
+ 8. Run /chrome doctor when in doubt about connectivity or capabilities.
+ </chrome-profile-bridge>`;
+-		return { systemPrompt: event.systemPrompt + primer };
++		return { systemPrompt: event.systemPrompt + (embedded ? primer.replace(/1\. If a chrome_\* tool says Chrome control is locked[^\n]*/, "1. Chrome tools are enabled by installation. Missing companion setup is reported explicitly.") : primer) };
+ 	});
+ 
+ 	// Shared handlers, dispatched by the unified /chrome command below.
+@@ -1113,6 +1262,7 @@
+ 	};
+ 
+ 	const authorizeHandler = async (ctx: ExtensionContext, args: string) => {
++		if (embedded) { ctx.ui.notify("Chrome tools are enabled by installation. Use Skills & Extensions to disable them.", "info"); return; }
+ 		const grant = parseAuthorizeArg(args);
+ 		if (!grant) {
+ 			ctx.ui.notify("Unknown authorize duration. Use minutes (15m, 30m, 45) or indefinite.", "warning");
+@@ -1122,13 +1272,14 @@
+ 	};
+ 
+ 	const revokeHandler = (ctx: ExtensionContext) => {
++		if (embedded) { ctx.ui.notify("Use Skills & Extensions to disable Chrome tools.", "info"); return; }
+ 		lockChromeControl("revoked");
+ 		ctx.ui.notify("Chrome control locked. Run /chrome authorize to allow chrome_* tools again.", "info");
+ 		updateChromeStatus(ctx);
+ 	};
+ 
+ 	const onboardHandler = async (ctx: ExtensionContext) => {
+-		const extensionPath = browserExtensionPath();
++		const extensionPath = companionPath();
+ 		const proceed = await ctx.ui.confirm(
+ 			"Install the pi-chrome Chrome extension?",
+ 			`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
+@@ -1293,6 +1444,8 @@
+ 		},
+ 	});
+ 
++	if (embedded) registerChromeTools(pi);
++
+ 	function registerChromeTools(pi: ExtensionAPI): void {
+ 		if (chromeToolsRegistered) return;
+ 		chromeToolsRegistered = true;
+@@ -1311,6 +1464,8 @@
+ 			headless: Type.Optional(Type.Boolean({ description: "Ignored." })),
+ 		}),
+ 		async execute(_id, params, signal, _onUpdate, ctx): Promise<ToolTextResult> {
++			if (signal?.aborted) throw new Error("Chrome setup cancelled before startup.");
++			await bridge.start();
+ 			if (params.url && bridge.connected) {
+ 				const result = await authorizedBridgeSend("tab.new", { url: params.url }, DEFAULT_TIMEOUT_MS, signal);
+ 				return { content: [{ type: "text", text: `Chrome bridge connected; opened ${params.url}` }], details: { status: bridge.status(), result } };
+@@ -1325,11 +1480,11 @@
+ 							`1. Open chrome://extensions in the Chrome profile you normally use.\n` +
+ 							`2. Enable Developer mode.\n` +
+ 							`3. Click “Load unpacked”.\n` +
+-							`4. Select: ${browserExtensionPath()}\n\n` +
++							`4. Select: ${companionPath()}\n\n` +
+ 							`Status: ${bridge.connected ? "connected" : "waiting for extension"}.`,
+ 					},
+ 				],
+-				details: { status: bridge.status(), extensionPath: browserExtensionPath() },
++				details: { status: bridge.status(), extensionPath: companionPath() },
+ 			};
+ 		},
+ 	});
+@@ -1743,10 +1898,10 @@
+ 		name: "chrome_screenshot",
+ 		label: "Chrome Screenshot",
+ 		description:
+-			"Capture a screenshot of a Chrome tab via CDP and save it to disk without activating background tabs. Requires debugger access; failures never fall back to activating a tab. Background mode (default) ignores background=false; /chrome background off allows foreground/watch mode.",
+-		promptSnippet: "Capture Chrome screenshots and save them under .pi/chrome-screenshots by default.",
++			(embedded ? "Capture a Chrome screenshot and return the image directly for visual inspection. Save only when an output path is explicitly supplied. " : "") + "Capture a screenshot of a Chrome tab via CDP and save it to disk without activating background tabs. Requires debugger access; failures never fall back to activating a tab. Background mode (default) ignores background=false; /chrome background off allows foreground/watch mode.",
++		promptSnippet: embedded ? "Observe Chrome visually with native image results; saving to a file is optional." : "Capture Chrome screenshots and save them under .pi/chrome-screenshots by default.",
+ 		parameters: Type.Object({
+-			path: Type.Optional(Type.String({ description: "Output path. Defaults to .pi/chrome-screenshots/<timestamp>.<format>." })),
++			path: Type.Optional(Type.String({ description: embedded ? "Optional explicit output path. Omit to return images without saving files." : "Output path. Defaults to .pi/chrome-screenshots/<timestamp>.<format>." })),
+ 			format: Type.Optional(StringEnum(imageFormatValues)),
+ 			quality: Type.Optional(Type.Number({ minimum: 0, maximum: 100, description: "JPEG quality 0-100." })),
+ 			fullPage: Type.Optional(Type.Boolean({ description: "Capture full-page tiles plus a JSON manifest. Temporarily scrolls the target page; does not activate background tabs." })),
+@@ -1770,7 +1925,32 @@
+ 				dimensions?: { width: number; height: number; viewportHeight: number; dpr: number };
+ 				tiles?: Array<{ y: number; dataUrl: string }>;
+ 			};
+-			await mkdir(dirname(outputPath), { recursive: true });
++			if (embedded) {
++                signal?.throwIfAborted();
++                const tiles = result.fullPage && result.tiles ? result.tiles : [{ y: 0, dataUrl: result.dataUrl }];
++                if (!tiles.length || tiles.length > 16) throw new Error("Screenshot returned too many tiles. Request a viewport capture.");
++                let bytes = 0;
++                const images = tiles.map((tile) => {
++                    const match = typeof tile.dataUrl === "string" && /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/]+={0,2})$/.exec(tile.dataUrl);
++                    if (!match) throw new Error("Chrome returned an invalid screenshot.");
++                    bytes += Buffer.byteLength(match[2], "base64");
++                    if (bytes > 16 * 1024 * 1024) throw new Error("Screenshot images exceeded 16 MiB. Request a viewport capture.");
++                    return { type: "image" as const, mimeType: match[1], data: match[2] };
++                });
++                const capture = { id: randomUUID(), capturedAt: new Date().toISOString(), source: "chrome", tab: result.tab, method: result.method, dimensions: result.dimensions, tiles: tiles.map((tile) => ({ y: tile.y })) };
++                if (!params.path) return { content: [{ type: "text", text: `Chrome screenshot${tiles.length > 1 ? ` (${tiles.length} tiles)` : ""}. Capture ${capture.id}.` }, ...images], details: { capture } };
++                // Explicit exports keep the native file contract and still return the observation.
++                await mkdir(dirname(outputPath), { recursive: true });
++                const exported = [];
++                for (const [index, image] of images.entries()) {
++                    const file = images.length === 1 ? outputPath : outputPath.replace(/(\.[^./]+)?$/, `-tile${index}$1`);
++                    signal?.throwIfAborted();
++                    await writeFile(file, Buffer.from(image.data, "base64")); exported.push({ path: file, y: tiles[index].y });
++                }
++                if (images.length > 1) await writeFile(outputPath + ".json", JSON.stringify({ ...capture, tiles: exported }, null, 2));
++                return { content: [{ type: "text", text: `Saved Chrome screenshot to ${outputPath}${images.length > 1 ? ".json" : ""}. Capture ${capture.id}.` }, ...images], details: { capture, exports: exported } };
++            }
++            await mkdir(dirname(outputPath), { recursive: true });
+ 			if (result.fullPage && result.tiles && result.dimensions) {
+ 				// Stitch via PNG if format is png; otherwise we fall back to writing tile files and a
+ 				// manifest. We avoid pulling in an image library by writing each tile next to the main
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+ 	"name": "pi-chrome",
+ 	"version": "0.15.51",
+ 	"scripts": {
+-		"test": "node test-suite/unit/csp-eval.test.mjs && node test-suite/unit/automation-target.test.mjs && node test-suite/unit/session-cleanup.test.mjs && node test-suite/unit/background-policy.test.mjs && node test-suite/unit/input-reliability.test.mjs && node test-suite/unit/chrome-command.test.mjs",
++		"test": "node test-suite/unit/csp-eval.test.mjs && node test-suite/unit/automation-target.test.mjs && node test-suite/unit/session-cleanup.test.mjs && node test-suite/unit/background-policy.test.mjs && node test-suite/unit/input-reliability.test.mjs && node test-suite/unit/chrome-command.test.mjs && node --test test-suite/unit/embedded-host.test.mjs",
+ 		"version": "node scripts/sync-manifest-version.js",
+ 		"prepublishOnly": "node scripts/sync-manifest-version.js"
+ 	},
+diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/background-policy.test.mjs
+--- a/test-suite/unit/background-policy.test.mjs
++++ b/test-suite/unit/background-policy.test.mjs
+@@ -24,7 +24,7 @@
+   let authorized = true;
+   const ctx = { key: `session:${session}`, title: `Pi Session: ${session}`, cwd: "/fixture", ui: { notify: (...args) => notices.push(args) } };
+   const bridge = {
+-    connected: true, status: () => ({}),
++    connected: true, status: () => ({}), start: async () => {},
+     async send(action, params, timeout, signal) {
+       calls.push({ action, params: clone(params), timeout, signal });
+       if (signal?.aborted) throw new Error("Chrome command aborted");
+@@ -37,7 +37,7 @@
+   };
+   const Type = new Proxy({}, { get: () => (value = {}) => value });
+   const sandbox = {
+-    console, Buffer, Type,
++    console, Buffer, Type, embedded: false, options: {}, browserExtensionPath: () => "/fixture/companion",
+     Date,
+     DEFAULT_HOST: "127.0.0.1", DEFAULT_PORT: 17318, DEFAULT_TIMEOUT_MS: 30000, MAX_ELEMENTS: 80,
+     BACKGROUND_PARAM_DESCRIPTION: "background policy",
+@@ -53,7 +53,7 @@
+   };
+   const registrations = indexSource.slice(indexSource.indexOf("function registerChromeTools(pi:"), indexSource.lastIndexOf("\n}"));
+   vm.runInNewContext(stripTypeScriptTypes([
+-    section("const bridge = new ChromeProfileBridge(", "\n\tlet chromeAuthorizedUntil:"),
++    section("const bridge = embedded ?", "\n\tlet chromeAuthorizedUntil:"),
+     section("const authorizedBridgeSend =", '\n\tpi.on("session_start",'),
+     section("const BACKGROUND_DESC:", "\n\tconst authorizeFor ="),
+     registrations,
+diff --git a/test-suite/unit/chrome-command.test.mjs b/test-suite/unit/chrome-command.test.mjs
+--- a/test-suite/unit/chrome-command.test.mjs
++++ b/test-suite/unit/chrome-command.test.mjs
+@@ -41,7 +41,7 @@
+     },
+   };
+   const sandbox = {
+-    Date: { now: () => now }, PI_CHROME_VERSION: version,
++    Date: { now: () => now }, PI_CHROME_VERSION: version, embedded: false,
+     chromeAuthorizedUntil: until, backgroundEnabled: background,
+     hostnameOf: (url) => new URL(url).hostname,
+     bridge: {
+diff --git a/test-suite/unit/embedded-host.test.mjs b/test-suite/unit/embedded-host.test.mjs
+new file mode 100644
+--- /dev/null
++++ b/test-suite/unit/embedded-host.test.mjs
+@@ -0,0 +1,185 @@
++// Actual maintained factory and broker; fake Pi and an HTTP companion, never real Chrome.
++import assert from 'node:assert/strict';
++import fs from 'node:fs';
++import fsp from 'node:fs/promises';
++import path from 'node:path';
++import vm from 'node:vm';
++import { createServer } from 'node:http';
++import { randomUUID, timingSafeEqual } from 'node:crypto';
++import { stripTypeScriptTypes } from 'node:module';
++import { test } from 'node:test';
++const directory=path.resolve(import.meta.dirname,'../../extensions/chrome-profile-bridge');
++const source=fs.readFileSync(path.join(directory,'index.ts'),'utf8');
++const worker=fs.readFileSync(path.join(directory,'browser-extension/service_worker.js'),'utf8');
++const version=JSON.parse(fs.readFileSync(path.resolve(directory,'../../package.json'),'utf8')).version;
++const TOKEN="b".repeat(64);
++const companionFetch=(url,options={})=>fetch(url,{...options,headers:{...options.headers,"x-pi-chrome-companion":TOKEN}});
++const pause=ms=>new Promise(r=>setTimeout(r,ms));
++async function until(fn){for(let i=0;i<100;i++){if(await fn())return;await pause(5);}assert.fail('condition did not settle');}
++function moduleHarness(fetchImpl=fetch){
++ let starts=0;
++ const sandbox={console,Buffer,randomUUID,timingSafeEqual,URL,Symbol,Map,Set,Promise,AbortController,setTimeout,clearTimeout,setInterval,clearInterval,
++  process:{env:{},platform:process.platform},__dirname:directory,
++  Type:new Proxy({},{get:()=>value=>value}),...path,...fs,mkdir:fsp.mkdir,writeFile:fsp.writeFile,
++  createServer(...a){starts++;return createServer(...a);},fetch:fetchImpl};
++ const javascript=stripTypeScriptTypes(source,{mode:'transform'}).replace(/^import .*;\n/gm,'').replace('export default createChromeExtension();','').replaceAll('export function ','function ').replaceAll('export async function ','async function ');
++ vm.runInNewContext(javascript+'\nglobalThis.factory=createChromeExtension; globalThis.Bridge=ChromeProfileBridge;globalThis.probe=probeChromeConnection;',sandbox);
++ return {sandbox,create:sandbox.factory,Bridge:sandbox.Bridge,starts:()=>starts};
++}
++function piHarness(){
++ const tools=new Map(),events=new Map(),commands=new Map(),notices=[];let active=[];
++ const pi={registerTool:t=>tools.set(t.name,t),on:(n,f)=>events.set(n,f),registerCommand:(n,c)=>commands.set(n,c),getActiveTools:()=>active,setActiveTools:t=>{active=t;},sendMessage(){},exec(){throw Error('unexpected process launch');}};
++ const ctx=id=>({sessionManager:{getSessionId:()=>id,getSessionName:()=>id},ui:{theme:{fg:(_,s)=>s},setStatus(){},notify:s=>notices.push(s)}});
++ return {pi,tools,events,commands,notices,ctx,call:(name,params={},signal)=>tools.get(name).execute('fixture',params,signal,undefined,{})};
++}
++async function freePort(){const server=createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const p=server.address().port;await new Promise(r=>server.close(r));return p;}
++async function next(url){const r=await companionFetch(`${url}/next-v2?protocol=2&version=${version}&name=fixture`);assert.equal(r.status,200);return (await r.json()).command;}
++async function reply(url,c,result={}){const r=await companionFetch(`${url}/result`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:c.id,bridgeEpoch:c.bridgeEpoch,ok:true,result})});assert.equal(r.status,200);}
++
++test('catalog first, two sessions: independent tools/auth, lazy one broker, one shutdown preserves the other',async()=>{
++ const h=moduleHarness(),port=await freePort(),url=`http://127.0.0.1:${port}`;
++ const catalog=piHarness(),a=piHarness(),b=piHarness();
++ for(const x of [catalog,a,b]) h.create({embedded:true,port,getCompanionToken:async()=>TOKEN})(x.pi);
++ assert.equal(a.tools.size,21);assert.equal(b.tools.size,21);assert.equal(catalog.tools.size,21);assert.equal(h.starts(),0);
++ await a.events.get('session_start')({},a.ctx('a'));await b.events.get('session_start')({},b.ctx('b'));assert.equal(h.starts(),0);
++ assert.equal(h.sandbox.__piChromeProfileBridgeAuth__,undefined);assert.equal(h.sandbox.__piChromeProfileBridgeLoaded__,undefined);
++ const first=a.call('chrome_tab',{action:'list'});await until(()=>h.starts()===1);
++ const bad=await companionFetch(`${url}/next-v2?protocol=1&version=${version}`);assert.equal(bad.status,409);
++ const queued=await (await companionFetch(url+'/status')).json();assert.equal(queued.queuedCommands,1);
++ let c=await next(url);assert.equal(c.params.sessionKey,`${c.bridgeEpoch}:session:a`);await reply(url,c,[]);await first;
++ const second=b.call('chrome_tab',{action:'list'});c=await next(url);assert.equal(c.params.sessionKey,`${c.bridgeEpoch}:session:b`);await reply(url,c,[]);await second;assert.equal(h.starts(),1);
++ const closeA=a.events.get('session_shutdown')({reason:'exit'});c=await next(url);assert.equal(c.action,'automation.cleanup');assert.equal(c.params.sessionKey,`${c.bridgeEpoch}:session:a`);await reply(url,c);await closeA;
++ const again=b.call('chrome_tab',{action:'list'});c=await next(url);assert.equal(c.params.sessionKey,`${c.bridgeEpoch}:session:b`);await reply(url,c,[]);await again;assert.equal(h.starts(),1);
++ const closeB=b.events.get('session_shutdown')({reason:'exit'});c=await next(url);assert.equal(c.params.sessionKey,`${c.bridgeEpoch}:session:b`);await reply(url,c);await closeB;
++ await assert.rejects(fetch(url+'/status'));
++});
++
++test('queued and delivered cancellation differ and expire companion leases',async()=>{
++ const h=moduleHarness(),port=await freePort(),url=`http://127.0.0.1:${port}`,bridge=new h.Bridge('127.0.0.1',port);await bridge.start();
++ try{
++  const a=new AbortController();const queued=bridge.send('page.click',{sessionKey:'A'},1000,a.signal);a.abort();await assert.rejects(queued,/not dispatched/);assert.equal(bridge.queue.length,0);
++  const b=new AbortController();const sent=bridge.send('page.click',{sessionKey:'A'},1000,b.signal);const c=await next(url);b.abort();await assert.rejects(sent,/may already have happened/);
++  const lease=await (await companionFetch(`${url}/command-state-v2?id=${c.id}`)).json();assert.equal(lease.active,false);assert.equal(bridge.queue.length,0);
++ }finally{bridge.stop();}
++});
++
++test('forwarded cancellation withdraws an owner queue rather than leaving effects after Stop',async()=>{
++ const h=moduleHarness(),port=await freePort(),owner=new h.Bridge('127.0.0.1',port),client=new h.Bridge('127.0.0.1',port);await owner.start();await client.start();
++ try{const abort=new AbortController();const sent=client.send('page.click',{sessionKey:'A'},1000,abort.signal);await until(()=>owner.pending.size===1);abort.abort();await assert.rejects(sent,/may already have happened/);await until(()=>owner.pending.size===0);assert.equal(owner.queue.length,0);}
++ finally{client.stop();owner.stop();}
++});
++
++test('owner socket loss promotes only for the next request and never replays a mutation',async()=>{
++ let requests=0,replays=0;
++ const h=moduleHarness(async()=>{requests++;const e=new TypeError('fetch failed');e.cause={code:'ECONNRESET'};throw e;});
++ const bridge=new h.Bridge('127.0.0.1',1);bridge.mode='client';bridge.tryPromoteToServer=async()=>true;bridge.sendLocal=async()=>{replays++;};
++ await assert.rejects(bridge.send('page.click',{sessionKey:'A'}),/may already have happened/);assert.equal(requests,1);assert.equal(replays,0);
++});
++
++function section(s,a,b){const start=s.indexOf(a),end=s.indexOf(b,start);assert(start>=0&&end>start);return s.slice(start,end);}
++function workerHarness({dispatch,active=true,timeout=15}={}){
++ const results=[],detached=[];const context={console,URL,AbortController,setTimeout,clearTimeout,setInterval,clearInterval,Promise,encodeURIComponent,
++  BRIDGE_URL:'http://fixture',COMMAND_TIMEOUT_MS:timeout,companionHeaders:async()=>({}),
++  fetch:async()=>({ok:true,json:async()=>({protocolVersion:2,active})}),
++  detachDebugger:async id=>detached.push(id),postResult:async result=>results.push(result),dispatch};
++ vm.runInNewContext(section(worker,'const BRIDGE_PROTOCOL_VERSION','const DEFAULT_GROUP_COLOR')+'\n'+section(worker,'function withTimeout(','// =================== Chrome input')+'\n'+section(worker,'async function handleCommand(','\nasync function postResult(')+'\nglobalThis.run=handleCommand;globalThis.effect=checkedChromeCall;globalThis.touch=id=>activeCommand.tabs.add(id);',context);
++ return {context,results,detached,setActive:value=>{active=value;}};
++}
++
++test('companion rejects incompatible or expired commands before dispatch',async()=>{
++ let calls=0;for(const [protocol,active] of [[1,true],[2,false]]){const h=workerHarness({active,dispatch:async()=>{calls++;}});await h.context.run({id:'A',protocolVersion:protocol,action:'page.click'});assert.equal(h.results[0].ok,false);}assert.equal(calls,0);
++});
++
++test('timeout leaves unknown effects, stops later effects, detaches only touched targets, and drains',async()=>{
++ let effects=0,drained=false;let h;
++ h=workerHarness({dispatch:async()=>{h.context.touch(44);h.context.effect(()=>effects++);await pause(35);try{h.context.effect(()=>effects++);}finally{drained=true;}}});
++ const running=h.context.run({id:'A',protocolVersion:2,action:'page.click'});await pause(25);assert.equal(drained,false);assert.equal(h.results[0].ok,false);assert.match(h.results[0].error,/may already have happened/);await running;assert.equal(drained,true);assert.equal(effects,1);assert.deepEqual(h.detached,[44]);
++});
++
++
++test('explicit readiness uses only tab.version and leaves active session broker intact', async()=>{
++ const h=moduleHarness(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness();h.create({embedded:true,port,getCompanionToken:async()=>TOKEN})(a.pi);await a.events.get('session_start')({},a.ctx('ready'));
++ const task=a.call('chrome_tab',{action:'list'});await until(()=>h.starts()===1);let c=await next(url);await reply(url,c,[]);await task;
++ const probe=h.sandbox.probe({port,timeoutMs:1000,getCompanionToken:async()=>TOKEN});c=await next(url);assert.equal(c.action,'tab.version');assert.deepEqual(Object.keys(c.params),[]);await reply(url,c,{extensionVersion:version,capabilities:{protocolVersion:2,cancellation:true}});assert.equal((await probe).state,'ready');
++ assert.equal((await companionFetch(url+'/status')).status,200);
++ const shutdown=a.events.get('session_shutdown')({reason:'exit'});c=await next(url);await reply(url,c);await shutdown;
++});
++
++
++test('lease withdrawal during a multi-step command stops later Chrome effects',async()=>{
++ let effects=0,h;h=workerHarness({timeout:1000,dispatch:async()=>{h.context.effect(()=>effects++);await pause(250);h.context.effect(()=>effects++);}});
++ const running=h.context.run({id:'A',protocolVersion:2,action:'page.type'});await pause(20);h.setActive(false);await running;assert.equal(effects,1);assert.equal(h.results[0].ok,false);assert.match(h.results[0].error,/may already have happened/);
++});
++
++test('stopping while lazy transport binds cannot leave an orphan server',async()=>{
++ const h=moduleHarness(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness();h.create({embedded:true,port,getCompanionToken:async()=>TOKEN})(a.pi);await a.events.get('session_start')({},a.ctx('start-stop'));
++ const operation=a.call('chrome_tab',{action:'list'}).catch(error=>error.message);await a.events.get('session_shutdown')({reason:'reload'});await operation;await assert.rejects(fetch(url+'/status'));
++});
++
++
++test('navigation feedback never instruments unrelated tabs or idle browsing',async()=>{
++ let listener,executions=0;
++ const sandbox={activeCommand:undefined,installEarlyCapture(){},checkedChromeCall:fn=>fn(),chrome:{webNavigation:{onCommitted:{addListener:fn=>{listener=fn;}}},scripting:{executeScript:async()=>{executions++;}}}};
++ vm.runInNewContext(section(worker,'if (chrome.webNavigation && chrome.webNavigation.onCommitted)', '\nfunction foregroundRequested'),sandbox);
++ listener({frameId:0,tabId:5});assert.equal(executions,0);
++ sandbox.activeCommand={cancelled:false,tabs:new Set([5])};listener({frameId:0,tabId:6});assert.equal(executions,0);listener({frameId:0,tabId:5});assert.equal(executions,1);
++ sandbox.activeCommand.cancelled=true;listener({frameId:0,tabId:5});assert.equal(executions,1);
++});
++
++test('CDP does not replay navigation/submission after an ambiguous detach',async()=>{
++ for(const message of ['Detached while handling command','Target closed','No tab with id 3']){
++  let calls=0,attachments=0;const sandbox={attachedTabs:new Map(),attachDebugger:async()=>{attachments++;},cdpRaw:async()=>{calls++;throw Error(message);}};
++  vm.runInNewContext(section(worker,'async function cdp(tabId, method, params)', '\n// cdpEval:'),sandbox);
++  await assert.rejects(sandbox.cdp(3,'Runtime.evaluate',{expression:'submit()'}),/may already have happened/);assert.equal(calls,1);assert.equal(attachments,0);
++ }
++});
++
++test('embedded bridge refuses broker traffic, spoofed origins, unauthorized reads/results and all HTTP command ingress',async()=>{
++ const h=moduleHarness(),port=await freePort(),url=`http://127.0.0.1:${port}`,bridge=new h.Bridge('127.0.0.1',port,TOKEN);await bridge.start();
++ try{
++  const task=bridge.send('page.click',{sessionKey:'A'},1000);
++  for(const path of ['/status','/next-v2?protocol=2&version='+version,'/command-state-v2?id=guessed']){
++   assert.equal((await fetch(url+path)).status,403);
++   assert.equal((await fetch(url+path,{headers:{origin:'chrome-extension://spoof'}})).status,403);
++   assert.equal((await fetch(url+path,{headers:{'x-pi-chrome-companion':'c'.repeat(64)}})).status,403);
++  }
++  for(const headers of [{},{'x-pi-chrome-companion':TOKEN}])assert.equal((await fetch(url+'/command-v2',{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify({action:'page.evaluate',params:{expression:'submit()'},protocolVersion:2})})).status,403);
++  assert.equal(bridge.queue.length,1);
++  const c=await next(url);assert.ok(c.bridgeEpoch);assert.equal(c.params.sessionKey,`${c.bridgeEpoch}:A`);
++  const forged=await fetch(url+'/result',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:c.id,bridgeEpoch:c.bridgeEpoch,ok:true,result:'forged'})});assert.equal(forged.status,403);assert.equal(bridge.pending.size,1);
++  const stale=await companionFetch(url+'/result',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:c.id,bridgeEpoch:'old-host',ok:true})});assert.equal(stale.status,409);assert.equal(bridge.pending.size,1);
++  assert.equal((await(await companionFetch(`${url}/command-state-v2?id=${c.id}&epoch=old-host`)).json()).active,false);
++  assert.equal((await(await companionFetch(`${url}/command-state-v2?id=${c.id}&epoch=${c.bridgeEpoch}`)).json()).active,true);
++  await reply(url,c,{accepted:true});assert.equal((await task).accepted,true);
++  assert.ok(!JSON.stringify(bridge.status()).includes(TOKEN));
++ }finally{bridge.stop();}
++});
++
++test('embedded bridge never attaches to or forwards commands through an unowned port',async()=>{
++ let forwarded=0;const h=moduleHarness(async()=>{forwarded++;throw Error('must not forward');}),port=await freePort();
++ const occupied=createServer((_req,res)=>res.end('{}'));await new Promise(r=>occupied.listen(port,'127.0.0.1',r));
++ const bridge=new h.Bridge('127.0.0.1',port,TOKEN);
++ try{await assert.rejects(bridge.send('page.click',{}),/belongs to another process/);assert.equal(forwarded,0);assert.equal(bridge.mode,undefined);}
++ finally{bridge.stop();await new Promise(r=>occupied.close(r));}
++});
++
++test('new launch rejects old results and never inherits a prior launch session owner',async()=>{
++ const h=moduleHarness(),port=await freePort(),url=`http://127.0.0.1:${port}`;
++ const old=new h.Bridge('127.0.0.1',port,TOKEN);await old.start();const oldTask=old.send('tab.list',{sessionKey:'same'}).catch(()=>undefined),oldCommand=await next(url);old.stop();await oldTask;
++ const current=new h.Bridge('127.0.0.1',port,TOKEN);await current.start();
++ try{const task=current.send('tab.list',{sessionKey:'same'});const c=await next(url);assert.notEqual(c.bridgeEpoch,oldCommand.bridgeEpoch);assert.notEqual(c.params.sessionKey,oldCommand.params.sessionKey);
++ const result=await companionFetch(url+'/result',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:c.id,bridgeEpoch:oldCommand.bridgeEpoch,ok:true,result:[]})});assert.equal(result.status,409);await reply(url,c,[]);await task;
++ }finally{current.stop();}
++});
++
++test('embedded screenshots deliver image blocks and capture provenance without writing Space files',async()=>{
++ const scratch=await fsp.mkdtemp('/tmp/pi-chrome-inline-'),h=moduleHarness(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness();
++ h.sandbox.process.cwd=()=>scratch;h.create({embedded:true,port,getCompanionToken:async()=>TOKEN})(a.pi);await a.events.get('session_start')({},a.ctx('images'));
++ const data='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZ1sAAAAASUVORK5CYII=';
++ try{
++  const task=a.tools.get('chrome_screenshot').execute('image',{targetId:'42'},undefined,undefined,{cwd:scratch});await until(()=>h.starts()===1);let c=await next(url);await reply(url,c,{dataUrl:'data:image/png;base64,'+data,method:'cdp',tab:{id:'42',url:'https://fixture.test/',title:'Fixture'}});const result=await task;
++  assert.equal(result.content.find(x=>x.type==='image').data,data);assert.equal(result.content.find(x=>x.type==='image').mimeType,'image/png');assert.equal(result.details.capture.tab.id,'42');assert.ok(result.details.capture.id);assert.ok(result.details.capture.capturedAt);assert.deepEqual(await fsp.readdir(scratch),[]);assert.ok(!JSON.stringify(result).includes(TOKEN));
++  const exported=a.tools.get('chrome_screenshot').execute('export',{targetId:'42',path:'explicit.png'},undefined,undefined,{cwd:scratch});c=await next(url);await reply(url,c,{dataUrl:'data:image/png;base64,'+data,method:'cdp',tab:{id:'42'}});assert.ok((await exported).content.some(x=>x.type==='image'));assert.equal((await fsp.readFile(path.join(scratch,'explicit.png'))).toString('base64'),data);
++  const shutdown=a.events.get('session_shutdown')({reason:'exit'});c=await next(url);await reply(url,c);await shutdown;
++ }finally{await fsp.rm(scratch,{recursive:true,force:true});}
++});
+diff --git a/test-suite/unit/session-cleanup.test.mjs b/test-suite/unit/session-cleanup.test.mjs
+--- a/test-suite/unit/session-cleanup.test.mjs
++++ b/test-suite/unit/session-cleanup.test.mjs
+@@ -24,7 +24,8 @@
+     AbortController, Promise,
+     setTimeout(fn, ms) { const key = Symbol(); timers.set(key, { fn, ms }); return key; },
+     clearTimeout(key) { timers.delete(key); },
+-    bridge: { send(...args) { events.push("send"); return send(...args); }, stop() { events.push("stop"); } },
++    embedded: false,
++    bridge: { cancelSession() {}, send(...args) { events.push("send"); return send(...args); }, stop() { events.push("stop"); } },
+     sessionCtx: {}, sessionKeyFor: () => sessionKey ?? undefined,
+     clearAuthExpiryTimer() {}, clearCountdownInterval() {},
+     globalState, PI_CHROME_GLOBAL_KEY: "loaded", instanceToken: token,
+diff --git a/extensions/chrome-profile-bridge/browser-extension/host-config.json b/extensions/chrome-profile-bridge/browser-extension/host-config.json
+new file mode 100644
+--- /dev/null
++++ b/extensions/chrome-profile-bridge/browser-extension/host-config.json
+@@ -0,0 +1 @@
++{"version":1,"mode":"standalone"}

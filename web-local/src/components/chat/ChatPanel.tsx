@@ -31,7 +31,6 @@ import { spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../
 import type { AgentCatalog, AgentCommand, AgentStatus, AssistantComposerState, ChatContextPathRequest,
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
 import { ExtensionQuestions } from "./ExtensionQuestions";
-import { InspectContextButton, ModelContextInspector } from "./ModelContextInspector";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
 import { RuntimeContextPreview } from "./activity";
@@ -145,7 +144,6 @@ export function ChatPanel({
   fixtureTreeEntries?: TreeEntry[];
 }) {
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
-  const [inspectingContext, setInspectingContext] = useState(false);
   const workState = useWorkRequest(!fixtureMode && conversation ? `/api/spaces/${encodeURIComponent(space.id)}/conversations/${encodeURIComponent(conversation.id)}/work` : null);
   const requestBusy = Boolean(workState.work?.canStop && workState.work.state !== "waiting");
   const activeRef = useRef(active);
@@ -1836,7 +1834,6 @@ export function ChatPanel({
               : configuredAssistant?.configured && assistantComposer?.model
                 ? <ConfiguredAssistantModel model={assistantComposer.model} spaceName={space.name} onOpenModelSettings={onOpenModelSettings} />
                 : null}
-            <InspectContextButton compact onClick={() => setInspectingContext(true)} />
             {configuredAssistant?.configured && (conversationRuntime ?? assistantComposer)
               ? (
                 <ThinkingLevelControl
@@ -1859,7 +1856,6 @@ export function ChatPanel({
         </div>
       </form>
       {appProposal ? <RestrictedAppAddedNotice proposal={appProposal} busy={appProposalBusy} onOpen={appProposal.installedApp && onRestrictedAppInstalled ? () => { onRestrictedAppInstalled(appProposal.installedApp!); setAppProposal(null); } : undefined} onRetry={() => void retryAppProposal()} onDismiss={() => void dismissAppProposal()} /> : null}
-      {inspectingContext && active ? <ModelContextInspector spaceId={space.id} conversationId={conversation?.id} scopeLabel={conversation ? `${space.name} · ${conversation.title}` : `${space.name} · all Chats`} fixtureMode={fixtureMode} onClose={() => setInspectingContext(false)} /> : null}
     </section>
   );
 }

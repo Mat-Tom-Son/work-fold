@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, listPackage } from "@electron/asar";
 import electronFuses from "@electron/fuses";
+import { verifyAsarFileIntegrity } from "./asar-integrity.mjs";
 
 const { FuseV1Options, getCurrentFuseWire } = electronFuses;
 
@@ -57,6 +58,31 @@ if (packagedPlatform === "win32") {
 } else if (packagedPlatform === "darwin") {
   assertPath(join(binDir, `${identity.cliCommand}-cli.jxa.js`), `${identity.productName} CLI macOS helper`);
   assertPath(join(resourcesDir, "icon.icns"), "macOS application icon");
+  const computerHelper = join(resourcesDir, "computer-helper", "work-fold Computer.app", "Contents");
+  assertPath(join(computerHelper, "MacOS", "bridge"), "included computer helper");
+  assertPath(join(computerHelper, "Info.plist"), "computer helper identity");
+  assertPath(join(computerHelper, "Resources", "LICENSE.pi-computer-use"), "computer helper license");
+  assertPath(join(computerHelper, "Resources", "source.json"), "computer helper provenance");
+  try {
+    const expected = JSON.parse(readFileSync(join(rootDir, "patches", "included-tools", "manifest.json"), "utf8"))
+      .find((entry) => entry.package === "@injaneity/pi-computer-use");
+    const source = JSON.parse(readFileSync(join(computerHelper, "Resources", "source.json"), "utf8"));
+    if (source.schema !== "work-fold.computer-helper-source.v1" || source.package !== expected.package
+      || source.version !== expected.version || source.integrationPatchSha256 !== expected.sha256
+      || source.source !== (expected.sourceURL || expected.source) || source.license !== expected.license
+      || source.protocolVersion !== 7 || source.target !== "arm64-apple-macosx14.0") {
+      failures.push("Computer helper provenance does not match the reviewed integration source.");
+    }
+    const paths = ["scripts/build-native.mjs", "native/macos/request_lifecycle.swift", "native/macos/agent_cursor.swift", "native/macos/agent_cursor_motion.swift", "native/macos/bridge.swift"];
+    if (!Array.isArray(source.sources) || source.sources.length !== paths.length || paths.some((path) =>
+      source.sources.find((item) => item.path === path)?.sha256 !== expected.files.find((item) => item.path === path)?.after)) {
+      failures.push("Computer helper build inputs do not match the reviewed source hashes.");
+    }
+    const plist = readFileSync(join(computerHelper, "Info.plist"), "utf8");
+    for (const [key, value] of [["CFBundleIdentifier", "com.work-fold.desktop.computer"], ["CFBundleExecutable", "bridge"], ["CFBundleDisplayName", "work-fold Computer"]]) {
+      if (!plist.includes(`<key>${key}</key><string>${value}</string>`)) failures.push(`Computer helper has an unexpected ${key}.`);
+    }
+  } catch (error) { failures.push(`Could not verify computer helper provenance: ${formatError(error)}`); }
   if (existsSync(join(binDir, identity.cliCommand)) && !(statSync(join(binDir, identity.cliCommand)).mode & 0o111)) {
     failures.push(`${identity.productName} CLI shell shim is not executable.`);
   }
@@ -89,6 +115,8 @@ if (existsSync(executablePath) && (packagedPlatform === "win32" || packagedPlatf
 }
 
 if (existsSync(asarPath)) {
+  try { verifyAsarFileIntegrity(asarPath); }
+  catch (error) { failures.push(formatError(error)); }
   const entries = new Set(listPackage(asarPath).map(normalizeAsarPath));
   for (const required of [
     "/package.json",
@@ -101,6 +129,14 @@ if (existsSync(asarPath)) {
     "/node_modules/@earendil-works/pi-coding-agent/package.json",
     "/node_modules/electron-updater/package.json",
     "/node_modules/jszip/package.json",
+    "/resources/included-tools/host.ts",
+    ...["computer", "chrome", "web", "mcp", "documents"].map((id) => `/resources/included-tools/${id}/index.ts`),
+    "/resources/included-tools/documents/runtime.mjs",
+    "/resources/included-tools/documents/worker.mjs",
+    "/resources/included-tools/documents/skills/documents/SKILL.md",
+    ...["@injaneity/pi-computer-use", "pi-chrome", "pi-web-access", "pi-mcp-adapter", "jiti", "typebox", "docx", "exceljs", "pptxgenjs", "pdf-lib", "pdfjs-dist", "@napi-rs/canvas"].map((name) => `/node_modules/${name}/package.json`),
+    "/node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/service_worker.js",
+    "/node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/host-config.json",
   ]) {
     if (!entries.has(required)) failures.push(`app.asar is missing ${required}.`);
   }

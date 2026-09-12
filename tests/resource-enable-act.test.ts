@@ -1,0 +1,33 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { prepareResourceEnable, resourceEnableAdapter } from "../src/local/agent/resource-enable-act.js";
+import { listNativeResources } from "../src/local/agent/resource-lifecycle.js";
+import { prepareFoldAct } from "../src/local/fold-prepared-acts.js";
+
+test("resource enablement refuses changed source and settings before effect", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-enable-pin-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const agentDir = join(root, "pi"), space = join(root, "space");
+  await mkdir(join(agentDir, "extensions"), { recursive: true }); await mkdir(space);
+  const path = join(agentDir, "extensions", "fixture.ts");
+  await writeFile(path, "export default function() {}");
+  const provider = { resolveRuntime: async () => ({ agentDir, projectTrust: { override: true } }) };
+  const input = { path, kind: "extensions" as const, enabled: false, scope: "personal" as const };
+  const adapter = resourceEnableAdapter(async () => space, provider);
+  const sourceAct = await prepareResourceEnable(space, input, provider);
+  await writeFile(path, "export default function() { /* changed */ }");
+  assert.match((await adapter.recheckPins(sourceAct))!, /changed/);
+  await assert.rejects(adapter.execute(sourceAct), /changed/);
+  const settingsAct = await prepareResourceEnable(space, input, provider);
+  await writeFile(join(agentDir, "settings.json"), JSON.stringify({ theme: "light" }));
+  assert.match((await adapter.recheckPins(settingsAct))!, /changed/);
+  assert.equal((await listNativeResources(space, provider)).find((item) => item.path === path)?.enabled, true);
+  const current = await prepareResourceEnable(space, input, provider);
+  assert.equal(await adapter.recheckPins(current), null);
+  await adapter.execute(current);
+  assert.equal((await listNativeResources(space, provider)).find((item) => item.path === path)?.enabled, false);
+  assert.throws(() => prepareFoldAct({ ...current, parameters: { ...current.parameters, scope: "space" }, pins: { ...current.pins, scope: "space" } }), /spaceId/);
+});

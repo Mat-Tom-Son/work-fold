@@ -1341,6 +1341,11 @@ export interface WorkFoldActFacade {
     skillNames?: string[];
     bundlePath?: string;
   }>;
+  toolsSetEnabled(input: {
+    scope: "personal" | "space"; space?: string; path: string;
+    kind: "extensions" | "skills" | "prompts" | "themes"; enabled: boolean;
+    parentTaskId?: string; requestId?: string;
+  }): Promise<{ scope: "personal" | "space"; space?: WorkFoldActSpaceRef; path: string; enabled: boolean }>;
   /** Updates a Pi package to the exact inspected next version. */
   toolsUpdate(input: {
     scope: "personal" | "space";

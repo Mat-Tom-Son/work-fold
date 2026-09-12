@@ -1,0 +1,11 @@
+{
+  "name": "work-fold-included-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "pi": {
+    "extensions": ["chrome/index.ts", "computer/index.ts", "web/index.ts", "mcp/index.ts", "documents/index.ts"],
+    "skills": ["documents/skills"]
+  }
+}

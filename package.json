@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.4.28",
+  "version": "0.4.29",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",
@@ -20,7 +20,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "postinstall": "node scripts/normalize-pi-dependencies.mjs",
+    "postinstall": "node scripts/normalize-pi-dependencies.mjs && node scripts/prepare-included-tools.mjs",
     "build": "npm run desktop:prepare",
     "check": "npm run repo:check && npm run local:check && npm run desktop:check",
     "repo:check": "node scripts/check-repository.mjs",
@@ -37,7 +37,7 @@
     "desktop:icons": "node scripts/generate-desktop-icons.mjs && node scripts/generate-dmg-background.mjs",
     "desktop:check": "tsc --noEmit -p tsconfig.desktop.json",
     "desktop:compile": "node scripts/clean-desktop-dist.mjs && tsc -p tsconfig.desktop.json",
-    "desktop:prepare": "npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:preload:smoke && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
+    "desktop:prepare": "npm run desktop:computer-helper && npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:preload:smoke && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
     "desktop:package": "npm run desktop:prepare && electron-forge package && node scripts/verify-packaged-app-assets.mjs --package-dir out/work-fold-win32-x64",
     "desktop:package:smoke": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win --x64 --dir --publish never && npm run desktop:verify:packaged-assets -- --package-dir out/builder/win-unpacked",
     "desktop:make": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win nsis --x64 --publish never && npm run desktop:verify:release",
@@ -60,17 +60,30 @@
     "desktop:preload:smoke": "electron scripts/desktop-preload-electron-smoke.mjs",
     "desktop:verify:packaged-assets": "node scripts/verify-packaged-app-assets.mjs",
     "desktop:verify:release": "node scripts/verify-windows-release.mjs",
-    "desktop:verify:release:mac": "node scripts/verify-mac-release.mjs"
+    "desktop:verify:release:mac": "node scripts/verify-mac-release.mjs",
+    "desktop:computer-helper": "node scripts/build-computer-helper.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.6",
     "@earendil-works/pi-coding-agent": "0.80.6",
+    "@injaneity/pi-computer-use": "0.5.1",
+    "@napi-rs/canvas": "1.0.9",
     "brace-expansion": "5.0.9",
+    "docx": "9.7.1",
     "electron-updater": "6.8.9",
+    "exceljs": "4.4.0",
+    "jiti": "2.7.0",
     "jszip": "^3.10.1",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.3.289",
+    "pi-chrome": "0.15.51",
+    "pi-mcp-adapter": "2.33.0",
+    "pi-web-access": "0.29.0",
+    "pptxgenjs": "4.0.1",
     "protobufjs": "7.6.5",
     "undici-pi-reviewed": "npm:undici@8.10.0",
-    "ws": "^8.21.2"
+    "ws": "^8.21.2",
+    "acorn": "8.16.0"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
@@ -120,9 +133,26 @@
     },
     "node-gyp": {
       "undici": "6.28.0"
+    },
+    "pi-mcp-adapter": {
+      "@earendil-works/pi-ai": "$@earendil-works/pi-ai"
+    },
+    "smol-toml": "1.7.1",
+    "exceljs": {
+      "uuid": "11.1.1"
     }
   },
   "config": {
     "forge": "./desktop/forge.config.cjs"
+  },
+  "allowScripts": {
+    "@injaneity/pi-computer-use": false
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": ">=11.16.0",
+      "onFail": "error"
+    }
   }
 }

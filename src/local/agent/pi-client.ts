@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { installModelContextInspection } from "./model-context-inspector.js";
+import { includedResourceOptions } from "./included-tools.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -167,6 +168,7 @@ export interface PiConversationHostCapabilities {
 interface PiTurnOwner {
   taskId?: string;
   cancelled: boolean;
+  settled?: boolean;
 }
 
 /** Stop settles the request promptly; its native tool may still be unwinding. */
@@ -303,7 +305,7 @@ export class PiConversationClient extends EventEmitter {
       return this.assistantText() || "Command completed.";
     } finally {
       this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
-      owner.cancelled = true;
+      owner.settled = true;
       this.activeExtensionTurn = null;
       if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
       this.promptInFlight = false;
@@ -615,6 +617,7 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
+          ...await includedResourceOptions(options.cwd, runtime, "session"),
           // Space instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendSpaceOperationsGuide(
@@ -713,13 +716,27 @@ export class PiConversationClient extends EventEmitter {
         purpose: call?.purpose && call.purpose !== "assistant" ? call.purpose
           : session.isCompacting ? "compaction" : call?.purpose ?? "unknown",
       };
-    });
+    }, () => ({
+      piVersion: PI_SDK_VERSION,
+      runtime: { cwd: this.spaceRoot, agentDir: this.resolvedRuntime?.agentDir },
+      contextFiles: session.resourceLoader.getAgentsFiles().agentsFiles.map((file) => ({
+        path: file.path, sha256: createHash("sha256").update(file.content).digest("hex"), bytes: Buffer.byteLength(file.content),
+      })),
+      // Hash the actual loaded strings, never re-read a possibly edited file at dispatch.
+      appendedInstructions: session.resourceLoader.getAppendSystemPrompt().map((text, index) => ({
+        index, source: "Pi resource loader append system prompt", sha256: createHash("sha256").update(text).digest("hex"), bytes: Buffer.byteLength(text),
+      })),
+      hostInstructionSources: ["src/local/agent/pi-runtime-config.ts", "src/local/agent/space-operations-guide.ts", "src/local/agent/tool-feedback-guide.ts"],
+      skills: session.resourceLoader.getSkills().skills.map((skill) => ({ name: skill.name, path: skill.filePath, source: skill.sourceInfo })),
+      extensions: session.resourceLoader.getExtensions().extensions.map((extension) => ({ path: extension.path, resolvedPath: extension.resolvedPath, source: extension.sourceInfo })),
+      tools: session.getAllTools().map((tool) => ({ name: tool.name, active: session.getActiveToolNames().includes(tool.name), source: tool.sourceInfo })),
+    }));
     this.unsubscribeSession = session.subscribe((event) => {
       // Native event persistence remains Pi-owned. Only its UI projection is
       // suppressed: a stopped turn cannot repaint the Chat as active or done.
       if (this.runtimeHost?.session !== session) return;
       const owner = this.extensionTurn.getStore() ?? this.nativePrompt?.owner;
-      if (owner?.cancelled) return;
+      if (owner?.cancelled || owner?.settled) return;
       this.handleSessionEvent(event);
     });
     const resolved = this.resolvedRuntime;
@@ -728,8 +745,20 @@ export class PiConversationClient extends EventEmitter {
     await session.bindExtensions({
       mode: "rpc",
       uiContext: createExtensionUiContext(bridge, scope, {
-        isCancelled: () => this.extensionTurn.getStore()?.cancelled === true || this.activeExtensionTurn?.cancelled === true || this.runtimeHost?.session !== session,
-        taskId: () => this.extensionTurn.getStore()?.taskId,
+        isCancelled: () => {
+          const owner = this.extensionTurn.getStore();
+          // Stop cancels the prompt while it drains. A surviving session
+          // transport can ask new questions after that prompt has finished.
+          return (owner?.cancelled === true && this.nativePrompt?.owner === owner)
+            || this.activeExtensionTurn?.cancelled === true || this.runtimeHost?.session !== session;
+        },
+        // Long-lived transports can inherit the context in which they were
+        // opened. Settlement ends that attribution, not the native session.
+        // Never borrow whichever newer turn happens to be active.
+        taskId: () => {
+          const owner = this.extensionTurn.getStore();
+          return owner?.settled || (owner?.cancelled && this.nativePrompt?.owner !== owner) ? undefined : owner?.taskId;
+        },
       }),
       abortHandler: () => {
         void this.abort("Agent turn cancelled by an extension.");

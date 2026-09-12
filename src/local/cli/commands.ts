@@ -449,6 +449,7 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "",
       `Usage: ${executable} tools import-skill --scope <personal|space> [--space <id-or-name>] --from <skill-path> [--json]`,
       `       ${executable} tools install --scope <personal|space> [--space <id-or-name>] (--id <catalog-id> | --source <package-source>) [--json]`,
+      `       ${executable} tools enable|disable --scope <personal|space> [--space <id-or-name>] --kind <extensions|skills|prompts|themes> --path <resource-path> [--json]`,
       `       ${executable} tools update --scope <personal|space> [--space <id-or-name>] --source <package-source> [--json]`,
       `       ${executable} tools remove --scope <personal|space> [--space <id-or-name>] --source <package-source> [--json]`,
       "",

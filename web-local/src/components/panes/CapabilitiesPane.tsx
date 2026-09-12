@@ -1,3 +1,5 @@
+import type { IncludedToolDefinition } from "../../../../src/shared/included-tools";
+import { IncludedToolSetup } from "./IncludedToolSetup";
 import {
   useEffect,
   useMemo,
@@ -77,6 +79,8 @@ interface InstalledCapability {
   tools: string[];
   commands: string[];
   flags: string[];
+  configurable?: boolean;
+  included?: IncludedToolDefinition;
 }
 
 type PendingInstall = {
@@ -405,6 +409,25 @@ export function CapabilitiesPane({
     }
   }
 
+  async function toggleResource(item: InstalledCapability) {
+    const operation = operationGateRef.current.capture();
+    setBusy(true);
+    try {
+      if (!fixtureMode) {
+        await api("/api/agent/resources/enabled", { method: "POST", body: {
+          spaceId: operation.spaceId, path: item.path, kind: item.kind === "skill" ? "skills" : "extensions", scope: item.scope, enabled: !item.enabled,
+        } });
+        if (!operationGateRef.current.isCurrent(operation)) return;
+        await loadCatalog(operation);
+      }
+      if (operationGateRef.current.isCurrent(operation)) setSelectedCapability(null);
+    } catch (caught) {
+      if (operationGateRef.current.isCurrent(operation)) onError(errorText(caught));
+    } finally {
+      if (operationGateRef.current.isCurrent(operation)) setBusy(false);
+    }
+  }
+
   return (
     <div className="space-pane-content capabilities-pane assistant-tools-pane professional-surface professional-assistant">
       {!status.configured ? (
@@ -541,9 +564,11 @@ export function CapabilitiesPane({
       {selectedCapability ? (
         <CapabilityDetailsDialog
           item={selectedCapability}
+          spaceId={space.id}
           busy={busy}
           onClose={() => { if (!busy) setSelectedCapability(null); }}
           {...(canRemoveSkill(selectedCapability) ? { onRemove: () => void removeSkill(selectedCapability) } : {})}
+          {...(selectedCapability.configurable ? { onToggle: () => void toggleResource(selectedCapability) } : {})}
         />
       ) : null}
     </div>
@@ -835,14 +860,15 @@ function InstallReviewDialog({ pending, spaceName, busy, onClose, onScopeChange,
   );
 }
 
-function CapabilityDetailsDialog({ item, busy, onClose, onRemove }: { item: InstalledCapability; busy: boolean; onClose: () => void; onRemove?: () => void }) {
+function CapabilityDetailsDialog({ item, spaceId, busy, onClose, onRemove, onToggle }: { item: InstalledCapability; spaceId: string; busy: boolean; onClose: () => void; onRemove?: () => void; onToggle?: () => void }) {
   const dialogRef = useModalDialog({ onClose, blocked: busy });
   return (
     <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="capability-dialog capability-details-dialog" role="dialog" aria-modal="true" aria-labelledby="capability-details-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title"><div><h2 id="capability-details-title">{item.name}</h2><p>{item.kind === "skill" ? "Skill" : "Extension"} · {scopeLabel(item.scope)} · {statusLabel(item.status)}</p></div><button className="minimal-icon-button" type="button" onClick={onClose} aria-label="Close details"><Dismiss20Regular /></button></div>
-        <div className="capability-dialog-body"><p className="capability-details-summary">{item.description}</p><dl className="capability-review-facts"><div><dt>Comes from</dt><dd>{provenanceLabel(item)}</dd></div><div><dt>Path</dt><dd>{item.path}</dd></div>{item.kind === "skill" ? <div><dt>Invocation</dt><dd>{item.disableModelInvocation ? "Only when explicitly requested" : "Available to the Assistant when relevant"}</dd></div> : null}</dl>{item.diagnostics.length ? <div className="professional-diagnostics">{item.diagnostics.map((diagnostic, index) => <span className={diagnostic.type} key={`${diagnostic.message}:${index}`}>{diagnostic.message}</span>)}</div> : null}{item.kind === "skill" && item.content ? <div className="markdown-preview capability-skill-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{stripSkillFrontmatter(item.content)}</ReactMarkdown></div> : null}{item.kind === "extension" ? <div className="capability-extension-details"><CapabilityStringList title="Tools" items={item.tools} /><CapabilityStringList title="Commands" items={item.commands} /><CapabilityStringList title="Flags" items={item.flags} /><div className="capability-code-warning danger"><ShieldCheckmark20Regular /><div><strong>Executable capability</strong><p>Extensions run with the same operating-system access as work-fold. Tool and command names are not a complete permissions inventory.</p></div></div></div> : null}</div>
+        <div className="capability-dialog-body"><p className="capability-details-summary">{item.description}</p>{item.included ? <IncludedToolSetup key={`${spaceId}:${item.included.id}`} spaceId={spaceId} tool={item.included} enabled={item.enabled} /> : null}<dl className="capability-review-facts"><div><dt>Comes from</dt><dd>{provenanceLabel(item)}</dd></div><div><dt>Path</dt><dd>{item.path}</dd></div>{item.kind === "skill" ? <div><dt>Invocation</dt><dd>{item.disableModelInvocation ? "Only when explicitly requested" : "Available to the Assistant when relevant"}</dd></div> : null}</dl>{item.diagnostics.length ? <div className="professional-diagnostics">{item.diagnostics.map((diagnostic, index) => <span className={diagnostic.type} key={`${diagnostic.message}:${index}`}>{diagnostic.message}</span>)}</div> : null}{item.kind === "skill" && item.content ? <div className="markdown-preview capability-skill-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{stripSkillFrontmatter(item.content)}</ReactMarkdown></div> : null}{item.kind === "extension" ? <div className="capability-extension-details"><CapabilityStringList title="Tools" items={item.tools} /><CapabilityStringList title="Commands" items={item.commands} /><CapabilityStringList title="Flags" items={item.flags} /><div className="capability-code-warning danger"><ShieldCheckmark20Regular /><div><strong>Executable capability</strong><p>Extensions run with the same operating-system access as work-fold. Tool and command names are not a complete permissions inventory.</p></div></div></div> : null}</div>
         <div className="capability-dialog-footer">
+          {onToggle ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onToggle}>{item.enabled ? "Turn off" : "Turn on"}</button> : null}
           {onRemove ? <button className="professional-button professional-button-danger capability-details-remove" type="button" disabled={busy} onClick={onRemove}>{busy ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}Remove Skill</button> : null}
           <button className="professional-button professional-button-primary" type="button" onClick={onClose} disabled={busy}>Done</button>
         </div>
@@ -917,7 +943,27 @@ function CapabilityEmpty({ title, detail }: { title: string; detail: string }) {
 function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
   const fromSkills = catalog.skills.map((item) => normalizeSkill(item, catalog.diagnostics));
   const fromExtensions = catalog.extensions.map((item) => normalizeExtension(item, catalog.diagnostics));
-  return [...fromSkills, ...fromExtensions];
+  const items = [...fromSkills, ...fromExtensions];
+  for (const resource of catalog.resources ?? []) {
+    if (resource.kind !== "skills" && resource.kind !== "extensions") continue;
+    const current = items.find((item) => item.path === resource.path);
+    if (current) {
+      current.configurable = true;
+      if (resource.included) Object.assign(current, { included: resource.included, name: resource.kind === "extensions" ? resource.included.title : current.name, description: resource.kind === "extensions" ? resource.included.description : current.description, scope: "global", source: `${resource.included.package} ${resource.included.version} · Included with work-fold`, origin: "top-level" });
+      continue;
+    }
+    const source = resource.metadata;
+    const name = resource.path.split(/[\\/]/).filter(Boolean).at(-1)?.replace(/\.[^.]+$/, "") ?? resource.path;
+    items.push({
+      id: `${resource.kind}:${source.scope}:${resource.path}`, kind: resource.kind === "skills" ? "skill" : "extension",
+      ...(resource.included ? { included: resource.included } : {}),
+      name: resource.included?.title ?? name, description: resource.included?.description ?? (resource.enabled ? "Could not load. Open details for diagnostics." : "Turn on to make this available to the Assistant."),
+      path: resource.path, source: source.source, origin: source.origin, scope: productScope(source.scope),
+      enabled: resource.enabled, loaded: false, status: resource.enabled ? "error" : "disabled", configurable: true,
+      diagnostics: resourceDiagnostics(resource.path, undefined, catalog.diagnostics), tools: [], commands: [], flags: [],
+    });
+  }
+  return items;
 }
 
 function normalizeSkill(item: AgentSkill, catalogDiagnostics: AgentDiagnostic[]): InstalledCapability {

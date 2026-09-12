@@ -165,9 +165,23 @@ work-fold chat answer --space "Home" --question <question-id> --answer "Q3." --j
 work-fold chat handoff --space "Home" --task <own-task-id> --to-space "Vendor Audits" --message "Review the filed invoices." --file "Invoices/2026-09.pdf" --json
 work-fold requests list --json
 work-fold requests show --request <request-id> --json
+work-fold tools disable --path <resource-path> --kind extensions --scope personal --json
+work-fold tools enable --path <resource-path> --kind extensions --scope space --space "Home" --json
 work-fold trash list --json
 work-fold trash restore --entry <recently-deleted-id> --json
 ```
+
+`tools enable|disable` uses Pi's resource filters for `extensions`, `skills`,
+`prompts` and `themes`. The desktop and CLI share the prepared
+`capability.resource.enabled` operation: resolve the exact catalog resource
+and scope, pin resource bytes and settings, journal, recheck under the existing
+capability fence, then write one native filter. Included resources use this
+same path. Unrelated package defaults and filters are preserved; active work
+refuses the mutation rather than being interrupted. Native single-file package
+sources do not support filtering and return that limitation. Connection
+readiness is separate from enablement: included MCP/browser/OS secret setup
+stays local and has no act or paired-web operation. See
+[Extensions and computer work](extension-foundation.md).
 
 The four collaboration verbs ([the collaboration contract](collaboration-contract.md),
 F27) are Space-scoped, receipted, and host-delivered: `chat report` attaches

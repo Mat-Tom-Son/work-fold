@@ -10,8 +10,12 @@ so we can discuss the approach as you work.
 
 ## First run
 
-Use **Node 24** and Git. The root `.nvmrc` records the recommended Node major;
-run `nvm use` if you use nvm. The package's minimum remains Node 22.19.0.
+Use **Node 24**, **npm 11.16.0 or newer**, and Git. The root `.nvmrc` records
+the recommended Node major; run `nvm use` if you use nvm. Check `npm --version`
+after selecting Node: its bundled npm version varies. The contributor install
+requires npm's per-dependency script controls so the computer helper is built by
+our packaging lane, rather than installed by a dependency hook. The package's
+minimum runtime remains Node 22.19.0.
 
 ```sh
 git clone https://github.com/Mat-Tom-Son/work-fold.git

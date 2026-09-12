@@ -16,6 +16,7 @@ import "./professional-shell.css";
 import "./professional-surfaces.css";
 import "./professional-customization.css";
 import { App } from "./App";
+import { ModelContextInspector } from "./components/chat/ModelContextInspector";
 
 const platform = window.workFoldDesktop?.app.platform;
 if (platform) document.documentElement.dataset.platform = platform;
@@ -32,6 +33,8 @@ if (windowMaterial === "mica" || windowMaterial === "vibrancy") {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    {new URLSearchParams(window.location.search).has("dev-context")
+      ? <ModelContextInspector onClose={() => { window.location.search = ""; }} />
+      : <App />}
   </React.StrictMode>,
 );

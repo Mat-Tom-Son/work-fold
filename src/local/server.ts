@@ -1,7 +1,12 @@
+import { createIncludedMcpSetup } from "./agent/included-mcp-setup.js";
+import { prepareResourceEnable, resourceEnableAdapter } from "./agent/resource-enable-act.js";
+import { listIncludedToolStatus, setupIncludedTool, shutdownIncludedToolHost, type IncludedSetupAction } from "./agent/included-tool-setup.js";
+import { includedToolDefinitions, type IncludedToolId } from "../shared/included-tools.js";
 import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, type RestrictedAppAssistantActivity } from "./agent/restricted-app-tasks.js";
 import { RestrictedAppInferenceService, RestrictedAppInferenceError, type RestrictedAppInferenceActivity } from "./agent/restricted-app-inference.js";
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
 import { ModelContextInspector } from "./agent/model-context-inspector.js";
+import { type NativeResourceKind } from "./agent/resource-lifecycle.js";
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
 import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-preview.js";
 import { turnFileChanges } from "./agent/turn-file-changes.js";
@@ -111,6 +116,7 @@ import {
   removePiPackage,
   refreshPiModelCatalog,
   savePiApiKey,
+  resolvePiRuntime,
   setPiDefaultModel,
   setPiDefaultThinkingLevel,
   setPiAssistantInstructions,
@@ -1218,6 +1224,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     close: async () => {
       state.acceptingTurns = false;
       state.modelContextInspector.setEnabled(false);
+      await closeMcpSetups(state);
       const browserActionsClosed = state.browserAppActions.close();
       unsubscribeAppCatalog();
       state.appAssistantTasks.off("changed", appTasksChanged);
@@ -1243,6 +1250,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await state.requestSettleChain.catch(() => undefined);
       await Promise.allSettled([...state.clients.values()].map((client) => client.stop()));
       await Promise.allSettled([...state.activeTurnPromises]);
+      await shutdownIncludedToolHost(workFoldManagementRoot(), state.runtimeProvider).catch((error) => console.warn("Computer helper shutdown:", errorMessage(error)));
       await state.requestSettleChain.catch(() => undefined);
       await flushAllTurnCheckpoints(state);
       await state.turnStore.flush();
@@ -2643,6 +2651,122 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       return { kind: "package" as const, item, source: installSource! };
     });
     sendJson(res, { installed }, 201);
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/mcp-setup") {
+    const body = await readJsonBody<{ spaceId?: string; sessionId?: string; operation?: string; scope?: "global" | "project"; name?: string; definition?: unknown; token?: string; jobId?: string; expectedRevision?: string; enabled?: unknown }>(state, req);
+    if (!body.spaceId || !body.operation) throw badRequest("A Space and setup operation are required.");
+    let sessions = mcpSetupSessions.get(state);
+    if (!sessions) { sessions = new Map(); mcpSetupSessions.set(state, sessions); }
+    if (body.operation === "close") {
+      const entry = body.sessionId ? sessions.get(body.sessionId) : undefined;
+      if (!entry || entry.spaceId !== body.spaceId) { sendJson(res, { closed: true }); return; }
+      clearTimeout(entry.timer); sessions.delete(body.sessionId!); await entry.service.dispose(); sendJson(res, { closed: true }); return;
+    }
+    const space = await getSpace(body.spaceId);
+    if (body.operation === "open") {
+      const runtime = await resolvePiRuntime(space.spaceRoot, state.runtimeProvider, { requestProjectTrust: false });
+      if (!runtime.config.includedTools) throw badRequest("Included service connections are unavailable in this host.");
+      if (sessions.size >= 16) throw httpError(409, "Close another service setup before opening one.");
+      const id = randomUUID();
+      const assertCurrentOwner = async () => {
+        const current = await getSpace(space.id);
+        if (current.spaceRoot !== space.spaceRoot) throw badRequest("This Space moved. Open connection setup again.");
+        const currentRuntime = await resolvePiRuntime(current.spaceRoot, state.runtimeProvider, { requestProjectTrust: false });
+        if (currentRuntime.agentDir !== runtime.agentDir || !currentRuntime.projectTrust.trusted) throw badRequest("The Assistant resource scope changed. Open connection setup again.");
+      };
+      const service = createIncludedMcpSetup({ agentDir: runtime.agentDir, ...(runtime.projectTrust.trusted ? { cwd: space.spaceRoot } : {}),
+        openAuthorizationUrl: async (url) => {
+          await assertCurrentOwner();
+          const parsed = new URL(url);
+          if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname))) throw badRequest("This service returned an unsupported authorization URL.");
+          if (!state.piOAuthHooks) throw badRequest("Open this setup in the desktop app to sign in.");
+          await state.piOAuthHooks.openUrl({ url });
+        },
+        withMutation: async (selection, operation) => {
+          const mutation = await runDesktopSettingsAct(state, "tools.connection.configure", async () => ({
+            value: await runCapabilityMutation(state, space, selection.scope, async () => { await assertCurrentOwner(); return operation(); }), detail: `Updated service connection ${selection.name} (${selection.scope}).`,
+          }));
+          return mutation.value;
+        },
+      });
+      const entry = { spaceId: space.id, service, timer: setTimeout(() => undefined, 0) };
+      sessions.set(id, entry); resetMcpSetupExpiry(state, id, entry);
+      try { sendJson(res, { sessionId: id, servers: await service.list() }); }
+      catch (error) { clearTimeout(entry.timer); sessions.delete(id); await service.dispose().catch(() => undefined); throw error; }
+      return;
+    }
+    const entry = body.sessionId ? sessions.get(body.sessionId) : undefined;
+    if (!entry || entry.spaceId !== space.id) throw badRequest("This connection setup has closed. Open it again.");
+    resetMcpSetupExpiry(state, body.sessionId!, entry);
+    if (body.operation === "list") { sendJson(res, { servers: await entry.service.list({ inspectCredentials: true }) }); return; }
+    if (body.operation === "oauth-status") { sendJson(res, { job: entry.service.oauthStatus(body.jobId ?? "") }); return; }
+    if (body.operation === "oauth-cancel") { await entry.service.cancelOAuth(body.jobId ?? ""); sendJson(res, { cancelled: true }); return; }
+    if (!body.name || !["global", "project"].includes(body.scope ?? "")) throw badRequest("Choose a service and scope.");
+    if (["check", "remove", "enabled", "bearer", "disconnect", "oauth"].includes(body.operation) && !body.expectedRevision) throw badRequest("Refresh service setup before changing this connection.");
+    if (body.expectedRevision !== undefined && (typeof body.expectedRevision !== "string" || !/^[a-f0-9]{64}$/.test(body.expectedRevision))) throw badRequest("Invalid service configuration revision.");
+    const selection = { name: body.name, scope: body.scope!, ...(body.expectedRevision ? { expectedRevision: body.expectedRevision } : {}) };
+    switch (body.operation) {
+      case "check": {
+        const controller = new AbortController();
+        const close = () => { if (!res.writableEnded) controller.abort(); };
+        res.once("close", close);
+        try { sendJson(res, { probe: await entry.service.probe(selection, { signal: controller.signal }) }); }
+        finally { res.off("close", close); }
+        return;
+      }
+      case "save": await entry.service.saveServer({ ...selection, definition: body.definition as never }); break;
+      case "enabled": {
+        if (typeof body.enabled !== "boolean") throw badRequest("Choose whether the service is enabled.");
+        await entry.service.setEnabled(selection, body.enabled); break;
+      }
+      case "remove": await entry.service.removeServer(selection); break;
+      case "bearer": await entry.service.saveBearer({ ...selection, token: body.token! }); break;
+      case "disconnect": await entry.service.disconnect(selection); break;
+      case "oauth": sendJson(res, { job: await entry.service.startOAuth(selection) }); return;
+      default: throw badRequest("Unknown service setup operation.");
+    }
+    sendJson(res, { servers: await entry.service.list({ inspectCredentials: true }) }); return;
+  }
+  if (method === "GET" && url.pathname === "/api/agent/included-tools") {
+    const spaceId = url.searchParams.get("spaceId");
+    if (!spaceId) throw badRequest("A Space is required.");
+    const space = await getSpace(spaceId);
+    sendJson(res, { tools: await listIncludedToolStatus(space.spaceRoot, state.runtimeProvider) });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/included-tools/setup") {
+    const body = await readJsonBody<{ spaceId?: string; id?: IncludedToolId; action?: IncludedSetupAction; secret?: string }>(state, req);
+    if (!body.spaceId || !includedToolDefinitions.some((item) => item.id === body.id) || typeof body.action !== "string") throw badRequest("A Space, included tool, and setup action are required.");
+    if (body.secret !== undefined && typeof body.secret !== "string") throw badRequest("The connection key must be text.");
+    const space = await getSpace(body.spaceId);
+    const signal = new AbortController();
+    const closed = () => { if (!res.writableEnded) signal.abort(); };
+    res.once("close", closed);
+    try {
+      const operation = () => setupIncludedTool(space.spaceRoot, body.id!, body.action!, { secret: body.secret }, state.runtimeProvider, signal.signal);
+      // A recheck may restart the physical helper. Never interrupt an accepted turn.
+      const result = body.action === "check" && body.id !== "computer" ? await operation() : await runCapabilityMutation(state, space, "global", operation);
+      sendJson(res, result);
+    } finally { res.off("close", closed); }
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/resources/enabled") {
+    const body = await readJsonBody<{ spaceId?: string; path?: string; kind?: NativeResourceKind; enabled?: boolean; scope?: "global" | "project" }>(state, req);
+    if (!body.spaceId || !body.path || !body.kind || !["extensions", "skills", "prompts", "themes"].includes(body.kind)
+      || typeof body.enabled !== "boolean" || !["global", "project"].includes(body.scope ?? "")) {
+      throw badRequest("A Space, resource, kind, enabled state, and scope are required.");
+    }
+    const space = await getSpace(body.spaceId);
+    const scope = capabilityScope(body.scope);
+    const result = await runDesktopSettingsAct(state, "tools.enabled", async (requestId) => {
+      const value = await createWorkFoldActFacade(state).toolsSetEnabled({
+        path: body.path!, kind: body.kind!, enabled: body.enabled!, scope: scope === "project" ? "space" : "personal",
+        ...(scope === "project" ? { space: space.id } : {}), requestId,
+      });
+      return { value, detail: `Turned ${body.enabled ? "on" : "off"} ${body.kind} resource ${body.path}.` };
+    });
+    sendJson(res, { ...result.value, requestId: result.requestId });
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/packages/install") {
@@ -6937,6 +7061,16 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         capabilityResourceSummary(details),
       );
     },
+    async toolsSetEnabled(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = input.scope === "space" ? await resolveSpace(input.space ?? "") : undefined;
+      const root = space?.spaceRoot ?? workFoldManagementRoot();
+      if (space) await assertSpaceCapabilityTrust(space);
+      const act = await prepareResourceEnable(root, { path: input.path, kind: input.kind, enabled: input.enabled, scope: input.scope, ...(space ? { spaceId: space.id } : {}) }, state.runtimeProvider);
+      await runPreparedAct({ ...act, requestId: input.requestId });
+      await recordFacadeAction(state, input.parentTaskId, { command: input.enabled ? "tools.enable" : "tools.disable", ...(space ? { space } : {}) });
+      return { scope: input.scope, ...(space ? { space: toActSpaceRef(space) } : {}), path: String(act.parameters.path), enabled: input.enabled };
+    },
     async toolsUpdate(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = input.scope === "space" ? await resolveSpace(input.space ?? "") : undefined;
@@ -9568,6 +9702,18 @@ async function beginDesktopSettingsAct<T>(
   return { requestId, result };
 }
 
+type McpSetupSession = { spaceId: string; service: ReturnType<typeof createIncludedMcpSetup>; timer: ReturnType<typeof setTimeout> };
+const mcpSetupSessions = new WeakMap<LocalApiState, Map<string, McpSetupSession>>();
+function resetMcpSetupExpiry(state: LocalApiState, id: string, entry: McpSetupSession): void {
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => { mcpSetupSessions.get(state)?.delete(id); void entry.service.dispose().catch(() => undefined); }, 15 * 60_000);
+  entry.timer.unref();
+}
+async function closeMcpSetups(state: LocalApiState): Promise<void> {
+  const entries = mcpSetupSessions.get(state); mcpSetupSessions.delete(state);
+  await Promise.allSettled([...(entries?.values() ?? [])].map(async (entry) => { clearTimeout(entry.timer); await entry.service.dispose(); }));
+}
+
 async function runDesktopSettingsAct<T>(
   state: LocalApiState,
   command: string,
@@ -10336,7 +10482,7 @@ async function runAgentTurn(
     const durable = state.turnStore.get(taskId);
     let failureResultPreserved = false;
     if (!cancelled) {
-      console.warn(`Assistant turn failed in ${spaceId}/${conversationId}: ${errorMessage(error)}`);
+      console.warn(`Assistant turn failed in ${spaceId}/${conversationId}: ${providerCreditFailureDetail(error) ?? errorMessage(error)}`);
     }
     const publicDetail = cancelled
       ? "The Assistant was stopped before it completed this response."
@@ -10574,6 +10720,10 @@ function throwIfTurnCancelled(state: LocalApiState, taskId: string): void {
 function assistantTurnFailureMessage(error: unknown, partialResponsePreserved: boolean): string {
   if (isPiTurnCancelledError(error)) return "Assistant turn cancelled.";
   if (!(error instanceof PiTurnFailure)) return assistantFailurePublicDetail(error);
+  const creditFailure = providerCreditFailureDetail(error);
+  if (creditFailure) return partialResponsePreserved
+    ? `${creditFailure} work-fold saved the partial response and completed activity below.`
+    : `${creditFailure} work-fold could not save the partial response.`;
   const retrySummary = error.retryAttempts > 0
     ? ` after ${error.retryAttempts} automatic ${error.retryAttempts === 1 ? "retry" : "retries"}`
     : "";
@@ -10590,7 +10740,7 @@ function assistantFailureReason(error: unknown): "provider_error" | "setup_error
 function assistantFailureTranscriptContent(error: unknown, checkpointText = "", cancelled = false): string {
   const checkpoint = checkpointText.trim();
   if (error instanceof PiTurnFailure) {
-    return error.partialText || checkpoint || "The model stopped responding before it could finish a response.";
+    return error.partialText || checkpoint || providerCreditFailureDetail(error) || "The model stopped responding before it could finish a response.";
   }
   if (checkpoint) return checkpoint;
   if (cancelled) return "The Assistant was stopped before it completed a response.";
@@ -10599,6 +10749,8 @@ function assistantFailureTranscriptContent(error: unknown, checkpointText = "", 
 
 function assistantFailurePublicDetail(error: unknown): string {
   if (error instanceof PiTurnDrainingError) return error.message;
+  const creditFailure = providerCreditFailureDetail(error);
+  if (creditFailure) return creditFailure;
   if (error instanceof PiTurnFailure) {
     const retrySummary = error.retryAttempts > 0
       ? ` after ${error.retryAttempts} automatic ${error.retryAttempts === 1 ? "retry" : "retries"}`
@@ -10615,6 +10767,15 @@ function assistantFailurePublicDetail(error: unknown): string {
     return "The Assistant took too long to respond. Try again when you’re ready.";
   }
   return "The Assistant couldn’t complete this request. Try again. If it keeps happening, check Settings → Assistant.";
+}
+
+/** Preserve the actionable provider status without echoing its raw body, URLs or account data. */
+function providerCreditFailureDetail(error: unknown): string | null {
+  const message = errorMessage(error);
+  const paymentRequired = /^\s*(?:HTTP(?:\/[\d.]+)?\s+)?402\b/i.test(message)
+    || /"(?:code|status|statusCode)"\s*:\s*402\b/.test(message);
+  if (!paymentRequired) return null;
+  return "The model provider reported a credit or billing limit (HTTP 402). Check its available credit or reduce the maximum response length before trying again.";
 }
 
 function isAssistantSetupError(error: unknown): boolean {
@@ -11401,6 +11562,7 @@ function createFoldActAdapters(state: LocalApiState): FoldPreparedActAdapters {
     "capability.skills.import": createSkillImportAdapter(state),
     "capability.package.install": createCapabilityPackageAdapter(state, "install"),
     "capability.package.update": createCapabilityPackageAdapter(state, "update"),
+    "capability.resource.enabled": resourceEnableAdapter(async (act) => act.parameters.scope === "space" ? (await getSpace(String(act.parameters.spaceId))).spaceRoot : workFoldManagementRoot(), state.runtimeProvider),
     "app.connection.save": createAppConnectionSaveAdapter(state),
     "app.data.purge": createAppDataPurgeAdapter(state),
     "app.storage.clear": createAppStorageClearAdapter(state),

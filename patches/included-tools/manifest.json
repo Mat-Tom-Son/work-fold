@@ -1,0 +1,262 @@
+[
+  {
+    "package": "pi-chrome",
+    "version": "0.15.51",
+    "source": "https://github.com/tianrendong/pi-chrome/tree/4811ee616d2bbd5ead669a7e2f33a0bb14bd43ef",
+    "license": "MIT",
+    "patch": "pi-chrome-0.15.51.patch",
+    "sha256": "25bd3cf6370134c2690bd1c03c6f65795b6ca3acde492b32d98af65ea355c6f7",
+    "files": [
+      {
+        "path": "docs/EMBEDDED-HOST.md",
+        "before": null,
+        "after": "5319a9c2024f89c2ac315476bdb68faeb5d50344d107560ff4217a6b2a117274"
+      },
+      {
+        "path": "extensions/chrome-profile-bridge/browser-extension/service_worker.js",
+        "before": "ac1e346d88aaa684d1998b17f899c4b50077d27f01eeb1a3393649013643ee3f",
+        "after": "c1700b8726864103f100554f1d3ae37f3ed38b6bfc50ec8df469ed7d38d6c399"
+      },
+      {
+        "path": "extensions/chrome-profile-bridge/index.ts",
+        "before": "fc38900ea5f9d8e7bb8b1988ff6e172d49c24e50213f9c8905d689187728d187",
+        "after": "a9af3b69b3c3bffaea7980e01c739946805df56be1f87a4edbf01c00ac510a42"
+      },
+      {
+        "path": "package.json",
+        "before": "59a873404fede3a95a70edbe297c9fe64fcd6d03e75862f0e3542be61656e16c",
+        "after": "652d891546dbf55683b54e9a60047407d46792204b39e2343104c5b7b8754d7f"
+      },
+      {
+        "path": "test-suite/unit/background-policy.test.mjs",
+        "before": "a1718cf6536685165ed126163df30cf012303fd3c825ccb1c618b6dcd5d847fa",
+        "after": "c47ca559a953ad3ca1fa88a3dba71b9daaf9bb0a166271f22ddb7a8f68d6a057"
+      },
+      {
+        "path": "test-suite/unit/chrome-command.test.mjs",
+        "before": "d7dee056db789e12a5f887b176dc469cf32675bcc880921309d47246d9bbabed",
+        "after": "c6d2ff6c1b93c65d41cc4a1709b8f8b1b77ec52fbaa28c9404cd604d07a7469f"
+      },
+      {
+        "path": "test-suite/unit/embedded-host.test.mjs",
+        "before": null,
+        "after": "c7c97433b3580f16ae5ab886e88c1e79b69cab29cd946acb732f21f98fbb1734"
+      },
+      {
+        "path": "test-suite/unit/session-cleanup.test.mjs",
+        "before": "a19b3d47dfbb7415c973132017bc36d79a859373a561de6cb62080af797ccc87",
+        "after": "364f8737e6c71d80a300c2611316631fb8749bb66a7f605c46aabb1363ef8ae1"
+      },
+      {
+        "path": "extensions/chrome-profile-bridge/browser-extension/host-config.json",
+        "before": null,
+        "after": "8d778d2f9e23a0cfa8416c70a55e36397c8fcae664e477219f7858aa250e8d51"
+      }
+    ]
+  },
+  {
+    "package": "@injaneity/pi-computer-use",
+    "version": "0.5.1",
+    "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
+    "license": "MIT",
+    "patch": "pi-computer-use-0.5.1.patch",
+    "sha256": "b9f4a750a5964c20b13d09d568c51814bddc124b563976eae939477ddeaf882c",
+    "files": [
+      {
+        "path": "extensions/computer-use.ts",
+        "before": "1ed753c7b9bd4f11e36225e3358f827c2349d3a0fb71bbb18f8e4de38c5a9420",
+        "after": "0ee64cb01e6c71df7a862bd9b017e3ffd15111b0d6a5d91fd1186c738c499a3f"
+      },
+      {
+        "path": "native/macos/bridge.swift",
+        "before": "adb5a4eb6ada931a5cbc16761fec7dbe27a290900326a4142bd7f4097865a7ba",
+        "after": "a027d78bf413fd7007ae0b0032eac0f7899a334000c6826981b0ab9db3d12171"
+      },
+      {
+        "path": "native/macos/request_lifecycle.swift",
+        "before": null,
+        "after": "a36a170d5e36476c97a2447fe62a88a7e89b25301288e4cf0dbec68ac240f9a1"
+      },
+      {
+        "path": "native/macos/request_lifecycle_tests.swift",
+        "before": null,
+        "after": "aa54d768634c36c58a6ca7d2065bcc7f1cd08a1af3c8a4673d376ecdcfaf6ca7"
+      },
+      {
+        "path": "package.json",
+        "before": "009d7e870f82837a7b8e2d69e89b0d5ed522b4514bec9206e68afbb0243ff152",
+        "after": "9cdbde5586b2cad89a95d7deeff9911f0488bf926ab01978fc37cabae7efe0e3"
+      },
+      {
+        "path": "scripts/build-native.mjs",
+        "before": "990ebcfb0ecef1e4718ae2e2187a314c2580b5fdd638d974c2651dd067bbc66e",
+        "after": "9d83a3fa384a79ddce1016c702a8f77e40cf6fb0733c4b6bf7cea75fddb20b91"
+      },
+      {
+        "path": "scripts/check-embedded.mjs",
+        "before": null,
+        "after": "7001d0666ca2d800b74cdf0142404c241c218d3507e0b623ae380a7e53ac0c23"
+      },
+      {
+        "path": "scripts/check-helper-cancellation.mjs",
+        "before": null,
+        "after": "c5e0c82dd33058a3a7bf360f48d71559fa4f81e10808dd3eca017d69276e17fb"
+      },
+      {
+        "path": "scripts/setup-helper.mjs",
+        "before": "4595a69a0eea88e73fb09bb5ff9066b1c3b5632c1a173d36e5200ccd50fe21f4",
+        "after": "6a04735d79a8afdc6ec45f4cb83fd7284c6bcaa1083801568a66962d623311d9"
+      },
+      {
+        "path": "src/bridge.ts",
+        "before": "4a206d8e714e910e00f83746524f8ffefaa72219966da89c3dde5af48213f34b",
+        "after": "ededa9d1b250576ee9c32704861dd1b4780992029cc4b88125f61732a2658b50"
+      },
+      {
+        "path": "src/config.ts",
+        "before": "f453b7572cadcb6f3a84d0641e1b35112156458b77adfa290ca94a0155f6c5f9",
+        "after": "ed13c79f4afd97169f474205642d729dc40a1008ae10989d6cf9450439d82742"
+      },
+      {
+        "path": "src/output.ts",
+        "before": "42c2075e8e42e27a203a356f962ba5ed2c656cc08108c9923513289a04a12d94",
+        "after": "0a8a95d5723c49cb86c9818ca5042856b9bb51ecfb5ce26db8f952b8e51fadad"
+      },
+      {
+        "path": "src/platform/macos/helper.ts",
+        "before": "4c344d4396a61f58cba7334f67e17108f40d9950c24940ce470f8d640a75eff3",
+        "after": "2e27003192ad0d5853cc1ce70505370b3af07c671ebe05b8e97f0e06ea3c599e"
+      },
+      {
+        "path": "src/platform/macos/permissions.ts",
+        "before": "ee453e77162fb49fae1a63d851e1c14b2e69d065af378348bc592c04b247c814",
+        "after": "f3bbae7e51697c0cfb08120b431db07e74bc0050bb8991db80de76ffe34fcd3c"
+      },
+      {
+        "path": "src/runtime.ts",
+        "before": "dd2c969de1e9de8b3424404b70334f5356d4f9147c598517e2e09f00ded1510a",
+        "after": "a558744904e41a61e73884d34e45553f874be84bbf8f26197680548a1b7f393d"
+      },
+      {
+        "path": "native/macos/agent_cursor.swift",
+        "before": null,
+        "after": "96017adbf4b851cd034c195f2215122e1de8ad6f7454857b47706f4ba6a83687"
+      },
+      {
+        "path": "native/macos/agent_cursor_motion.swift",
+        "before": null,
+        "after": "bbe26e29317ecf1dc9dace61e37e2054147d3bc47f9b424dfcc76c3e5bca4b52"
+      }
+    ]
+  },
+  {
+    "package": "pi-mcp-adapter",
+    "version": "2.33.0",
+    "source": "https://github.com/nicobailon/pi-mcp-adapter/tree/32b67f916745b31a30a80371a86f00f70ba0a561",
+    "license": "MIT",
+    "patch": "pi-mcp-adapter-2.33.0.patch",
+    "sha256": "d7f9f53af9fb38a353a7899f375941b6c3a768c9c6d3a7c76d7a9862e057ec8c",
+    "files": [
+      {
+        "path": "index.ts",
+        "before": "67b83a87a5e61e502a484fb465f82af4e7720decf8049eb3b431ee0d8b32cb9f",
+        "after": "56e9a223cf00baa4fcb7b5ef7c86e05c51361d66d4e43629b198cf94675754d5"
+      },
+      {
+        "path": "types.ts",
+        "before": "78275c7139c17963ac7895ea1bb6c0a2309ce1e0152b67581c37a9ac35b00d21",
+        "after": "dcbd37d9542c65921beac3d67bec1eab9816bc871c91e581e83530c95eb50a77"
+      },
+      {
+        "path": "init.ts",
+        "before": "bec3e033607461a57a3eb62a287c387655e7cb61b0bfb7e39cfca588a40f6d86",
+        "after": "359eeca3af4798b285224aab6191fc75bc2f75b82d7736fefc9d152e27efd104"
+      },
+      {
+        "path": "direct-tools.ts",
+        "before": "315dbe7557ae044194dcc939dcbc969a812394d55813d71c4fc1a2939ca1947a",
+        "after": "6d9bfe741ebd99cc04d79eec5d88e3032be4be882c04c93881c0df1bde0650fe"
+      },
+      {
+        "path": "config.ts",
+        "before": "de8a57dda4f80fcbaa2d0dfca8c37bddf6e1b2f97ecfae5fb53f848856617845",
+        "after": "ce1e7098bdc2a62fe3c3658854bb8b3d6e2576469f5d0a8fd743a2008fb56b28"
+      },
+      {
+        "path": "setup.ts",
+        "before": null,
+        "after": "54c7c58d9e199fd0ca74b936e98ec4a885069960324bfabd4418090a64102594"
+      },
+      {
+        "path": "package.json",
+        "before": "271f7a11108f4cc7067f0c24572057aa1fdfb0664aae8ecb5aeeb8a76a5a2b21",
+        "after": "38e5fadebac3d43270a6416dfceede2f517c77401a8c163ff382acb8cc6e8c2d"
+      },
+      {
+        "path": "agent-dir.ts",
+        "before": "72af0c49eb6acc34282d97975bd358501b46b598a0b153d32c21ef5929461614",
+        "after": "fb20f891c9ca7c51de6a4a04b46c79e9dd0fe3336982e2a869f4b1fb8714bd33"
+      },
+      {
+        "path": "server-manager.ts",
+        "before": "30372c3452d329378987edac18beb7508c8cf17fd40b987f6a0d45d055ce507d",
+        "after": "2d6c7e20c38ac83c1e1f8f40e87aef207f4ab01a81f8e84eacb7d725bc585124"
+      },
+      {
+        "path": "metadata-cache.ts",
+        "before": "0193223df5431268374015f60d5c3b732eac2adb3e26a6d096590832ade2bbd2",
+        "after": "34a713b76837ef1cba3635b7e0f475f22364cac85ee95ef64d30e6bc49a1dadc"
+      },
+      {
+        "path": "mcp-auth-flow.ts",
+        "before": "5b2eb08aa297e054469692eb70d5fb7348db65a4be370143359b054ebd297dc9",
+        "after": "1bda0c6e38bc1518f84b8dba398e1b804e13d572f61bb9bbb8917af575947c49"
+      },
+      {
+        "path": "mcp-oauth-provider.ts",
+        "before": "d3fa197bc3d2a6a6ede65d3baf23babf8fb963b76fa0249f825f5322007d4338",
+        "after": "813bac4ddf41abe486eb7fc04afc171c101603e2d41eeff9c540ec0177d32aa8"
+      },
+      {
+        "path": "mcp-auth.ts",
+        "before": "3509e617f8c500a7af57d67cd893612139fff910729a34cdcbc75bd6b2273fac",
+        "after": "c3be34a14670d869b64655fe7faf3781ec7486c510172aa3f6971259e82bda7d"
+      }
+    ]
+  },
+  {
+    "package": "pi-web-access",
+    "version": "0.29.0",
+    "source": "https://www.npmjs.com/package/pi-web-access/v/0.29.0",
+    "license": "MIT",
+    "patch": "pi-web-access-0.29.0.patch",
+    "sha256": "4cbd0d7ebf7ee7c0e35f5bf7c1b98f2b2be30befa50ab284557973855046ec8c",
+    "files": [
+      {
+        "path": "brave.ts",
+        "before": "e7afb66ef2a502af66a65363d23fa66ee39eb07712656a9c231f9bec66c84ea2",
+        "after": "a49744b1a4e9a1aac6e568a51d249a9b89d0a62428653db9e6e5da010d606f90"
+      },
+      {
+        "path": "duckduckgo.ts",
+        "before": "d1d2a22d4f56ce98573638acd149ded0b3e5f379fcbf8620a9c41dd858eb667d",
+        "after": "60fd3bf1af25c8ddbf46af4582aa284f7e74ebc6709f51eac4e063b35cdb8398"
+      },
+      {
+        "path": "utils.ts",
+        "before": "2b73d3b07494ee26a7c301439b001c375d9380f98e33817895620b17e61b9e26",
+        "after": "7793b416e1f5a40ec7b6e77e4e3cdb1c20d48cc6b18ebaf5cb64660ca069afd3"
+      },
+      {
+        "path": "extract.ts",
+        "before": "034ab96f0725adf29eefc395d5519841e13c0b6e4b4d12012ed49942ea8692c6",
+        "after": "34c5a9b0292517cb7651d634518ee1d14e2fa40d1858fbe9129f69fe497d3ccf"
+      },
+      {
+        "path": "embedded.ts",
+        "before": null,
+        "after": "b7659b60fb02b21d2b3454af34738f93b20b081a1df7644c829b7a98829f7c32"
+      }
+    ]
+  }
+]

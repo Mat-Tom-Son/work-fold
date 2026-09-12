@@ -1,0 +1,536 @@
+diff --git a/index.ts b/index.ts
+index f655b4f..799bc2f 100644
+--- a/index.ts
++++ b/index.ts
+@@ -1,3 +1,4 @@
++import { withAgentDir, scopeExtensionApi } from "./agent-dir.ts";
+ import { withFileMutationQueue, type AgentToolUpdateCallback, type ExtensionAPI, type ExtensionContext, type ToolInfo } from "@earendil-works/pi-coding-agent";
+ import { resolve } from "node:path";
+ import type { McpExtensionState } from "./state.ts";
+@@ -152,6 +153,7 @@ function resolveNamespaceEnvOverride(
+ }
+ 
+ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
++  const hostSetupMessage = options.hostSetupMessage ?? "Configure MCP connections in your host application's Extension settings.";
+   const sessionConfig = options.config !== undefined ? cloneMcpConfig(options.config) : undefined;
+   const programmaticConfig = sessionConfig !== undefined;
+   let state: McpExtensionState | null = null;
+@@ -668,6 +670,9 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+   function startInitialization(ctx: ExtensionContext, owner: McpRuntimeOwner, oauthRuntime: McpOAuthRuntime, generation: number, staleReason: string): Promise<void> {
+     owner.addCleanup(() => cleanupMaterializedBinaryResources(owner.signal));
+     const promise = initializeMcp(pi, ctx, owner, {
++      bootstrapLazyServers: options.bootstrapLazyServers,
++      hostSetupOnly: options.hostSetupOnly,
++      hostSetupMessage,
+       ...(programmaticConfig || options.configPath !== undefined
+         ? {
+             ...(earlyConfigPath !== undefined ? { configPath: earlyConfigPath } : {}),
+@@ -745,6 +750,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+   }
+ 
+   function startLoadTimeInitialization(): void {
++    if (options.initializeAtLoad === false) return;
+     const hasStartupServer = Object.values(earlyConfig.mcpServers).some((definition) => {
+       if (definition.disabled === true) return false;
+       return definition.lifecycle === "eager" || definition.lifecycle === "keep-alive";
+@@ -777,6 +783,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+   });
+ 
+   pi.on("session_start", async (_event, ctx) => {
++    if (options.initializeOnSessionStart === false) return;
+     const generation = ++lifecycleGeneration;
+     const previousState = state;
+     const previousOwner = currentOwner;
+@@ -933,6 +940,10 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+       return servers.length > 0 ? servers : null;
+     },
+     handler: async (args, ctx) => {
++      if (options.hostSetupOnly && /^(setup|token|logout)(\s|$)/.test(args?.trim() ?? "")) {
++        ctx.ui?.notify(hostSetupMessage, "info");
++        return;
++      }
+       const commandOwner = currentOwner;
+       const commandReload = typeof ctx.reload === "function" ? ctx.reload.bind(ctx) : async () => {};
+       const commandHasUI = ctx.hasUI;
+@@ -1072,6 +1083,10 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+   pi.registerCommand("mcp-auth", {
+     description: "Authenticate with an MCP server (OAuth)",
+     handler: async (args, ctx) => {
++      if (options.hostSetupOnly) {
++        ctx.ui?.notify(hostSetupMessage, "info");
++        return;
++      }
+       const commandOwner = currentOwner;
+       const commandHasUI = ctx.hasUI;
+       const commandCtx = {
+@@ -1401,7 +1416,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+         limit: optionalNumber({ minimum: 1, description: "Maximum search results to return (default: 12)" }),
+         offset: optionalNumber({ minimum: 0, description: "Search result offset (default: 0)" }),
+         server: Type.Optional(Type.String({ description: "Server name (filters/disambiguates calls and optionally names an install)" })),
+-        action: Type.Optional(Type.String({ description: "Action: 'install', 'ui-messages', 'auth-start', or 'auth-complete'" })),
++        action: Type.Optional(Type.String({ description: options.hostSetupOnly ? "Action: 'ui-messages'. Connection setup uses the host settings." : "Action: 'install', 'ui-messages', 'auth-start', or 'auth-complete'" })),
+         url: Type.Optional(Type.String({ description: "MCP endpoint URL for action: 'install'" })),
+         target: Type.Optional(Type.String({ description: "Install target: 'global' (default) or 'project'" })),
+       }),
+@@ -1422,6 +1437,9 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+         url?: string;
+         target?: string;
+       }, signal: AbortSignal | undefined, _onUpdate: AgentToolUpdateCallback<Record<string, unknown>> | undefined, _ctx: ExtensionContext) {
++        if (options.hostSetupOnly && (params.action === "auth-start" || params.action === "auth-complete" || params.action === "install")) {
++          return { content: [{ type: "text" as const, text: hostSetupMessage }], details: { error: "host_setup_required" } };
++        }
+         let executeOwner = currentOwner;
+         const parseArgs = (value: string | Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+           if (value === undefined || value === "") return undefined;
+@@ -1584,7 +1602,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+       || missingConfiguredDirectToolServers.length > 0;
+ 
+     if (shouldRegisterProxyTool) {
+-      const description = buildProxyDescription(config);
++      const description = buildProxyDescription(config, options.hostSetupOnly ? hostSetupMessage : undefined);
+       if (!proxyToolRegistered || proxyToolDescription !== description) {
+         registerProxyTool(description);
+         return;
+@@ -1622,10 +1640,23 @@ export function createMcpAdapter(options: McpAdapterOptions = {}) {
+     ? normalizeProgrammaticConfig(cloneMcpConfig(options.config))
+     : undefined;
+   return function mcpAdapter(pi: ExtensionAPI) {
+-    installMcpAdapter(pi, {
++    const scopedPi = options.agentDir ? scopeExtensionApi(pi, options.agentDir) : pi;
++    withAgentDir(options.agentDir, () => installMcpAdapter(scopedPi, {
++      initializeAtLoad: options.initializeAtLoad,
++      initializeOnSessionStart: options.initializeOnSessionStart,
++      bootstrapLazyServers: options.bootstrapLazyServers,
++      hostSetupOnly: options.hostSetupOnly,
++      hostSetupMessage: options.hostSetupMessage,
+       ...(options.configPath !== undefined ? { configPath: options.configPath } : {}),
+       ...(factoryConfig !== undefined ? { config: cloneMcpConfig(factoryConfig) } : {}),
+-    });
++    }));
++    // Public registration APIs continue to accept the original native Pi object.
++    if (scopedPi !== pi) {
++      const register = runtimeRegistrars.get(scopedPi);
++      const snapshot = runtimeSnapshotters.get(scopedPi);
++      if (register) runtimeRegistrars.set(pi, (name, definition) => withAgentDir(options.agentDir, () => register(name, definition)));
++      if (snapshot) runtimeSnapshotters.set(pi, name => withAgentDir(options.agentDir, () => snapshot(name)));
++    }
+   };
+ }
+ 
+diff --git a/types.ts b/types.ts
+index 023ee64..7dfdac6 100644
+--- a/types.ts
++++ b/types.ts
+@@ -424,6 +424,8 @@ export interface HttpRequestHeadersCommand {
+ 
+ // Server configuration
+ export interface ServerEntry {
++  /** Optional secure-store identity, independent from the displayed server name. */
++  credentialId?: string;
+   command?: string;
+   args?: string[];
+   /** Explicit rmcp-mux Unix-domain socket path. Mutually exclusive with command and url. */
+@@ -667,8 +669,20 @@ export interface McpConfig {
+ }
+ 
+ export interface McpAdapterOptions {
++  /** Explicit native Pi agent directory for this factory, including its caches and setup state. */
++  agentDir?: string;
+   config?: McpConfig;
+   configPath?: string;
++  /** Initialize eager servers before session_start. Disable for hosts that also load Extensions for catalog inspection. */
++  initializeAtLoad?: boolean;
++  /** Skip session_start initialization for inspection-only host sessions. Tool calls still initialize on demand. */
++  initializeOnSessionStart?: boolean;
++  /** Discover all configured servers when no metadata cache exists. Disable to keep lazy servers lazy on a fresh installation. */
++  bootstrapLazyServers?: boolean;
++  /** Keep credentials and OAuth on a trusted host setup surface instead of model tools or transient Pi UI. */
++  hostSetupOnly?: boolean;
++  /** Instruction for reaching that host's MCP setup surface. */
++  hostSetupMessage?: string;
+ }
+ 
+ // Alias for clarity
+diff --git a/init.ts b/init.ts
+index 6766d0e..86811ac 100644
+--- a/init.ts
++++ b/init.ts
+@@ -141,6 +141,10 @@ export async function initializeMcp(
+   const config = options.config !== undefined
+     ? resolveConfiguredClaudePluginMcp(cloneMcpConfig(options.config), cwd)
+     : loadMcpConfig(configPath, cwd);
++  if (options.hostSetupOnly) {
++    config.settings = { ...config.settings, autoAuth: false,
++      authRequiredMessage: options.hostSetupMessage ?? "Configure MCP connections in your host application's Extension settings." };
++  }
+   const authStorageOptions = getAuthStorageOptions(config.settings?.oauthDir, cwd);
+ 
+   const ownsOAuthRuntime = options.oauthRuntime === undefined;
+@@ -280,7 +284,7 @@ export async function initializeMcp(
+   let bootstrapAll = false;
+ 
+   if (!cacheFileExists) {
+-    bootstrapAll = true;
++    bootstrapAll = options.bootstrapLazyServers !== false;
+     saveMetadataCache({ version: 1, servers: {} });
+   } else if (!cache) {
+     cache = { version: 1, servers: {} };
+@@ -436,7 +440,7 @@ export async function initializeMcp(
+   }
+ 
+   const envDirect = process.env.MCP_DIRECT_TOOLS;
+-  if (envDirect !== "__none__") {
++  if (envDirect !== "__none__" && options.bootstrapLazyServers !== false) {
+     const currentCache = loadMetadataCache();
+     const envDirectToolOverride = envDirect?.split(",").map(selector => selector.trim()).filter(Boolean);
+     const missingCacheServers = getMissingConfiguredDirectToolServers(config, currentCache, envDirectToolOverride);
+diff --git a/direct-tools.ts b/direct-tools.ts
+index f8e68c4..ee7322d 100644
+--- a/direct-tools.ts
++++ b/direct-tools.ts
+@@ -308,7 +308,7 @@ export function resolveDirectTools(
+  * Live counts/status belong to `mcp({ })`, full instructions to
+  * `mcp({ instructions })`.
+  */
+-export function buildProxyDescription(config: McpConfig): string {
++export function buildProxyDescription(config: McpConfig, hostSetupMessage?: string): string {
+   let desc = `MCP gateway — URL installation, server status, tool search/describe, auth, and single MCP tool calls. When a user supplies an MCP endpoint URL, install it with the install action. When one request needs several MCP calls with logic between them, use mcpScript. Non-MCP Pi tools should be called directly, not through mcp.\n`;
+ 
+   const serverNames = Object.keys(config.mcpServers)
+@@ -336,7 +336,7 @@ export function buildProxyDescription(config: McpConfig): string {
+   }
+ 
+   desc += `\nUsage:\n`;
+-  desc += `  mcp({ action: "install", url: "https://example.com/mcp" }) → Install, connect, and authenticate an MCP URL\n`;
++  if (!hostSetupMessage) desc += `  mcp({ action: "install", url: "https://example.com/mcp" }) → Install, connect, and authenticate an MCP URL\n`;
+   desc += `  mcp({ })                              → Show server status and tool counts\n`;
+   desc += `  mcp({ server: "name" })               → List tools from server\n`;
+   desc += `  mcp({ search: "query" })              → Search MCP tools by name/description\n`;
+@@ -345,8 +345,12 @@ export function buildProxyDescription(config: McpConfig): string {
+   desc += `  mcp({ connect: "server-name" })       → Connect to a server and refresh metadata\n`;
+   desc += `  mcp({ tool: "name", args: { key: "value" } })         → Call a tool (object args; JSON string also accepted)\n`;
+   desc += `  mcp({ action: "ui-messages" })        → Retrieve accumulated messages from completed UI sessions\n`;
+-  desc += `  mcp({ action: "auth-start", server: "name" })      → Open OAuth and watch for completion\n`;
+-  desc += `  mcp({ action: "auth-complete", server: "name", args: { redirectUrl: "..." } }) → Complete manual OAuth\n`;
++  if (!hostSetupMessage) {
++    desc += `  mcp({ action: "auth-start", server: "name" })      → Open OAuth and watch for completion\n`;
++    desc += `  mcp({ action: "auth-complete", server: "name", args: { redirectUrl: "..." } }) → Complete manual OAuth\n`;
++  } else {
++    desc += `\nConnection setup: ${hostSetupMessage}\n`;
++  }
+   desc += `\nMode: action > tool (call) > connect > describe > instructions > search > server (list) > nothing (status)`;
+ 
+   return desc;
+diff --git a/config.ts b/config.ts
+index b143030..b5c292b 100644
+--- a/config.ts
++++ b/config.ts
+@@ -345,6 +345,29 @@ export function loadMcpConfig(overridePath?: string, cwd = process.cwd()): McpCo
+   return mergeClaudePluginMcpDefaults(config.claudePlugins, higherPrecedenceConfig, cwd);
+ }
+ 
++/** Read only the supplied native config files, in precedence order. No discovery, imports, plugin loading or environment-dependent source selection. */
++export function loadMcpConfigFromFiles(paths: readonly string[]): McpConfig {
++  let config: McpConfig = { mcpServers: {} };
++  for (const path of paths) {
++    if (!existsSync(path)) continue;
++    const raw = parseJsonWithComments(readFileSync(path, "utf-8"));
++    if (!isRecord(raw)) throw new Error(`MCP config must be an object: ${path}`);
++    const loaded = validateConfig(raw);
++    config = mergeConfigs(config, { mcpServers: loaded.mcpServers, ...(loaded.settings ? { settings: loaded.settings } : {}) });
++  }
++  return config;
++}
++
++/** Remove one explicit native server definition without touching unrelated configuration. */
++export function removeSharedServerEntry(filePath: string, serverName: string): string {
++  const raw = readRawConfigObject(filePath);
++  const servers = getServersObject(raw);
++  delete servers[serverName];
++  setServersObject(raw, servers);
++  writeRawConfigObject(filePath, raw);
++  return filePath;
++}
++
+ export function resolveConfiguredClaudePluginMcp(config: McpConfig, cwd = process.cwd()): McpConfig {
+   return mergeClaudePluginMcpDefaults(config.claudePlugins, config, cwd);
+ }
+@@ -533,7 +556,7 @@ function isExclusiveConfigMode(): boolean {
+   return process.env.PI_MCP_CONFIG_MODE?.trim().toLowerCase() === "exclusive";
+ }
+ 
+-function mergeConfigs(base: McpConfig, next: McpConfig): McpConfig {
++export function mergeConfigs(base: McpConfig, next: McpConfig): McpConfig {
+   const imports = mergeImports(base.imports, next.imports);
+   const settings = next.settings ? { ...base.settings, ...next.settings } : base.settings;
+   const claudePlugins = next.claudePlugins ?? base.claudePlugins;
+@@ -550,7 +573,7 @@ function mergeConfigs(base: McpConfig, next: McpConfig): McpConfig {
+ // different url, these MUST NOT be inherited from the lower-precedence entry —
+ // otherwise the original endpoint's credentials would be shipped to the new
+ // url. See the SECURITY note in mergeServerMaps.
+-const URL_BOUND_AUTH_FIELDS = ["headers", "bearerToken", "bearerTokenEnv", "bearerTokenStore", "requestHeadersCommand", "caFile"] as const;
++const URL_BOUND_AUTH_FIELDS = ["credentialId", "headers", "bearerToken", "bearerTokenEnv", "bearerTokenStore", "requestHeadersCommand", "caFile"] as const;
+ 
+ function mergeServerMaps(
+   base: Record<string, ServerEntry>,
+diff --git a/setup.ts b/setup.ts
+new file mode 100644
+index 0000000..ad6428b
+--- /dev/null
++++ b/setup.ts
+@@ -0,0 +1,29 @@
++/** Supported setup functions for trusted non-terminal hosts; never a model tool. */
++export {
++  authenticate,
++  createOAuthRuntime,
++  getAuthStatus,
++  hasPendingAuth,
++  removeAuth,
++  shutdownOAuth,
++  type AuthenticateOptions,
++  type McpOAuthRuntime,
++} from "./mcp-auth-flow.ts";
++export { getAuthStorageOptions, type AuthStorageOptions } from "./mcp-auth.ts";
++export {
++  inspectBearerTokenForUrl,
++  saveBearerTokenForUrl,
++  removeBearerToken,
++  type BearerCredentialStatus,
++} from "./mcp-bearer-store.ts";
++export { mergeConfigs as mergeMcpConfigs, loadMcpConfigFromFiles, writeSharedServerEntry, removeSharedServerEntry } from "./config.ts";
++import { inspectAuthForUrl, type AuthStorageOptions } from "./mcp-auth.ts";
++/** Content-free URL-bound setup status; never exposes token records. */
++export function inspectOAuthForUrl(name: string, url: string, options?: AuthStorageOptions): { status: "present" | "expired" | "missing" | "unavailable"; message?: string } {
++  const result = inspectAuthForUrl(name, url, options);
++  if (result.status === "unavailable") return result;
++  if (result.status === "absent" || !result.entry.tokens) return { status: "missing" };
++  return { status: result.entry.tokens.expiresAt && result.entry.tokens.expiresAt < Date.now() / 1000 ? "expired" : "present" };
++}
++export { withAgentDir } from "./agent-dir.ts";
++export { McpServerManager } from "./server-manager.ts";
+diff --git a/package.json b/package.json
+index 644f032..fb4ab22 100644
+--- a/package.json
++++ b/package.json
+@@ -20,6 +20,11 @@
+       "import": "./oauth.ts",
+       "default": "./oauth.ts"
+     },
++    "./setup": {
++      "types": "./setup.ts",
++      "import": "./setup.ts",
++      "default": "./setup.ts"
++    },
+     "./config": {
+       "types": "./dist/config.d.ts",
+       "import": "./dist/config.js",
+@@ -137,6 +142,7 @@
+     "npx-resolver.ts",
+     "oauth-handler.ts",
+     "oauth.ts",
++    "setup.ts",
+     "mcp-auth.ts",
+     "mcp-bearer-store.ts",
+     "mcp-keyring-helper.cjs",
+diff --git a/agent-dir.ts b/agent-dir.ts
+index 089da2c..f03ad30 100644
+--- a/agent-dir.ts
++++ b/agent-dir.ts
+@@ -1,3 +1,5 @@
++import { AsyncLocalStorage } from "node:async_hooks";
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ import { readFileSync } from "node:fs";
+ import { homedir } from "node:os";
+ import { join, resolve } from "node:path";
+@@ -7,7 +9,34 @@ export function getConfigDirName(): string {
+   return typeof configDir === "string" && configDir.trim() ? configDir.trim() : ".pi";
+ }
+ 
++const scopedAgentDir = new AsyncLocalStorage<string>();
++/** Bind native adapter caches to the host's explicit Pi scope without changing process environment. */
++export function withAgentDir<T>(agentDir: string | undefined, operation: () => T): T {
++  return agentDir ? scopedAgentDir.run(resolve(agentDir), operation) : operation();
++}
++export function scopeExtensionApi(pi: ExtensionAPI, agentDir: string): ExtensionAPI {
++  const wrap = (callback: (...args: any[]) => any) => function(this: unknown, ...args: any[]) {
++    return withAgentDir(agentDir, () => callback.apply(this, args));
++  };
++  const wrapDefinition = (definition: Record<string, any>) => Object.fromEntries(Object.entries(definition).map(([key, value]) => [key, typeof value === "function" ? wrap(value) : value]));
++  const events = new Proxy(pi.events, { get(target, key) {
++    if (key === "on") return (event: string, callback: (...args: any[]) => any) => target.on(event, wrap(callback));
++    const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
++  } });
++  return new Proxy(pi, { get(target, key) {
++    if (key === "events") return events;
++    if (key === "on") return (event: any, callback: (...args: any[]) => any) => (target.on as any)(event, wrap(callback));
++    if (key === "registerTool") return (definition: any) => target.registerTool(wrapDefinition(definition) as any);
++    if (key === "registerCommand") return (name: string, definition: any) => target.registerCommand(name, wrapDefinition(definition) as any);
++    const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
++  } });
++}
++
++export function getScopedAgentDir(): string | undefined { return scopedAgentDir.getStore(); }
++
+ export function getAgentDir(): string {
++  const scoped = scopedAgentDir.getStore();
++  if (scoped) return scoped;
+   const piConfig = readPiConfig();
+   const name = piConfig?.name;
+   const appName = typeof name === "string" && name.trim() ? name.trim() : "pi";
+diff --git a/server-manager.ts b/server-manager.ts
+index 94154fd..83b47cc 100644
+--- a/server-manager.ts
++++ b/server-manager.ts
+@@ -1229,6 +1229,7 @@ export class McpServerManager {
+   ): Promise<{ client: Client; transport: Transport; status: "connected" | "needs-auth"; credentialsInvalidated: boolean }> {
+     throwIfAborted(signal);
+     const serverUrl = resolveServerUrl(definition)!;
++    const credentialId = definition.credentialId ?? serverName;
+     const url = new URL(serverUrl);
+ 
+     // Resolve secret commands only for this connection attempt, without
+@@ -1253,7 +1254,7 @@ export class McpServerManager {
+         ? resolveCommandSecret(commandBearer, `MCP server "${serverName}" HTTP bearer token`)
+         : resolveBearerToken(definition)
+           ?? (definition.bearerToken === undefined && definition.bearerTokenEnv === undefined && definition.bearerTokenStore === true
+-            ? getBearerTokenForUrl(serverName, serverUrl)
++            ? getBearerTokenForUrl(credentialId, serverUrl)
+             : undefined);
+       if (token) headers["Authorization"] = `Bearer ${token}`;
+     }
+@@ -1274,7 +1275,7 @@ export class McpServerManager {
+     try {
+     const createAuthProvider = (): McpOAuthProvider => {
+       const provider = new McpOAuthProvider(
+-        serverName,
++        credentialId,
+         serverUrl,
+         extractOAuthConfig(definition),
+         { onRedirect: async () => {} },
+@@ -1294,7 +1295,7 @@ export class McpServerManager {
+     let implicitStoredAuth: ReturnType<typeof inspectAuthForUrl> | undefined;
+     if (definition.auth === undefined && supportsOAuth(definition)) {
+       try {
+-        implicitStoredAuth = inspectAuthForUrl(serverName, serverUrl, this.authStorageOptions);
++        implicitStoredAuth = inspectAuthForUrl(credentialId, serverUrl, this.authStorageOptions);
+       } catch {
+         // Implicit preflight is opportunistic; malformed records must not block
+         // an otherwise anonymous-capable server from connecting.
+@@ -1302,7 +1303,7 @@ export class McpServerManager {
+     }
+     const hasImplicitStoredTokens = implicitStoredAuth?.status === "present"
+       && implicitStoredAuth.entry.tokens !== undefined;
+-    if (hasImplicitStoredTokens) invalidateAuthEntryCache(serverName);
++    if (hasImplicitStoredTokens) invalidateAuthEntryCache(credentialId);
+     let authState: HttpAuthProviderState = supportsOAuth(definition)
+       ? definition.auth === undefined
+         ? hasImplicitStoredTokens
+@@ -1417,7 +1418,7 @@ export class McpServerManager {
+       if (isUnauthorizedHttpError(result.error)) {
+         if (supportsOAuth(definition)) {
+           if (!invalidated) {
+-            invalidateAuthEntryCache(serverName);
++            invalidateAuthEntryCache(credentialId);
+             invalidated = true;
+           }
+           return {
+diff --git a/metadata-cache.ts b/metadata-cache.ts
+index 269b4db..7068c9f 100644
+--- a/metadata-cache.ts
++++ b/metadata-cache.ts
+@@ -101,6 +101,7 @@ export function computeServerHash(definition: ServerEntry, environment: NodeJS.P
+         }
+       : undefined,
+     auth: definition.auth,
++    credentialId: definition.credentialId,
+     protocolVersion: definition.protocolVersion,
+     bearerToken: resolveBearerToken(definition, environment),
+     bearerTokenEnv: definition.bearerTokenEnv,
+diff --git a/mcp-auth-flow.ts b/mcp-auth-flow.ts
+index 1f1e1be..436240d 100644
+--- a/mcp-auth-flow.ts
++++ b/mcp-auth-flow.ts
+@@ -53,6 +53,8 @@ export interface McpOAuthRuntime {
+ }
+ 
+ export interface AuthenticateOptions {
++  /** Trusted host may pin configuration and hold its mutation fence around the token commit. */
++  withSaveTokens?: (persist: () => void) => void | Promise<void>
+   onAuthorizationUrl?: (authorizationUrl: string) => void | Promise<void>
+   openAuthorizationUrl?: (authorizationUrl: string) => void | Promise<void>
+   onAuthorizationInput?: (
+@@ -428,6 +430,7 @@ export async function startAuth(
+     }, signal)
+ 
+     const authProvider = new McpOAuthProvider(serverName, serverUrl, config, {
++      ...(options.withSaveTokens ? { withSaveTokens: options.withSaveTokens } : {}),
+       onRedirect: async () => {
+         throw new Error("Browser redirect is not used for client_credentials flow")
+       },
+@@ -491,6 +494,7 @@ export async function startAuth(
+ 
+   let capturedUrl: URL | undefined
+   const authProvider = new McpOAuthProvider(serverName, serverUrl, config, {
++      ...(options.withSaveTokens ? { withSaveTokens: options.withSaveTokens } : {}),
+     onRedirect: async (url) => {
+       capturedUrl = url
+     },
+@@ -1057,6 +1061,7 @@ export async function getValidToken(
+       const config = options.definition ? extractOAuthConfig(options.definition) : {}
+       const fetchFn = createOAuthFetch(serverUrl, oauthHeaderResolver(options.definition?.headers), signal)
+       const authProvider = new McpOAuthProvider(serverName, serverUrl, config, {
++      ...(options.withSaveTokens ? { withSaveTokens: options.withSaveTokens } : {}),
+         onRedirect: async () => {},
+       }, authStorageOptions, runtime.signal)
+ 
+diff --git a/mcp-oauth-provider.ts b/mcp-oauth-provider.ts
+index 0d34d2d..e16727c 100644
+--- a/mcp-oauth-provider.ts
++++ b/mcp-oauth-provider.ts
+@@ -169,6 +169,7 @@ function addAuthorizationParams(authorizationUrl: URL, params: Record<string, st
+ 
+ /** Callbacks for OAuth flow interactions */
+ export interface McpOAuthCallbacks {
++  withSaveTokens?: (persist: () => void) => void | Promise<void>
+   onRedirect: (url: URL) => void | Promise<void>
+ }
+ 
+@@ -598,12 +599,17 @@ export class McpOAuthProvider implements OAuthClientProvider {
+     // A refresh may have rotated remotely before cancellation was observed.
+     // Persist its response while the transaction still owns the credential lock.
+     if (!this.authTransaction.getStore()?.active) this.throwIfInactive()
++    const persist = () => {
++      if (!this.authTransaction.getStore()?.active) this.throwIfInactive()
+     const entry = getAuthForUrl(this.serverName, this.serverUrl, this.storageOptions) ?? {}
+     saveAuthEntry(this.serverName, {
+       ...entry,
+       tokens: storedTokens,
+       ...(this.flowClientInfo ? { clientInfo: this.flowClientInfo } : {}),
+     }, this.serverUrl, this.storageOptions)
++    }
++    if (this.callbacks.withSaveTokens) await this.callbacks.withSaveTokens(persist)
++    else persist()
+     this.invalidatedAccessToken = undefined
+     this.lastSavedAccessToken = storedTokens.accessToken
+     // Discovery must survive the browser redirect so the callback can verify
+diff --git a/mcp-auth.ts b/mcp-auth.ts
+index 6a45941..f8e52bb 100644
+--- a/mcp-auth.ts
++++ b/mcp-auth.ts
+@@ -17,7 +17,7 @@ import { createRequire } from 'module';
+ import { readFileSync, existsSync, rmSync } from 'fs';
+ import { dirname, join } from 'path';
+ import { fileURLToPath } from 'url';
+-import { getAgentPath } from './agent-dir.ts';
++import { getScopedAgentDir, getAgentPath } from './agent-dir.ts';
+ import { resolveConfiguredOAuthDir } from './config.ts';
+ import { sharedRefreshLockRoot, withRefreshLock } from './mcp-refresh-lock.ts';
+ 
+@@ -416,6 +416,7 @@ export function getAuthStorageOptions(oauthDir: unknown, cwd = process.cwd()): A
+ }
+ 
+ export function getAuthBaseDir(options: AuthStorageOptions = {}): string {
++  if (getScopedAgentDir()) return options.baseDir ?? getAgentPath('mcp-oauth');
+   const override = process.env.MCP_OAUTH_DIR?.trim();
+   if (override) return override;
+   return options.baseDir ?? getAgentPath('mcp-oauth');

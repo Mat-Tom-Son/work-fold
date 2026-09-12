@@ -3,6 +3,7 @@ import {
   type ProgressEvent,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
+import type { IncludedToolsConfiguration } from "../../src/local/agent/included-tools.js";
 
 import {
   createPersistentPiAuthStorage,
@@ -39,6 +40,7 @@ import {
 } from "../../src/local/agent/pi-runtime-config.js";
 
 export interface PackagedPiRuntimeOptions {
+  includedTools?: IncludedToolsConfiguration;
   /** Pi config, packages, models, and session root outside registered Spaces. */
   agentDir: string;
   /** Optional Electron-safeStorage implementation; native auth.json is the fallback. */
@@ -89,6 +91,7 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
     const openRouterCatalog = await this.openRouterCatalog.load().catch(() => undefined);
     const preferredModel = this.options.preferredModel ?? scopedPreferredModel;
     return {
+      ...(this.options.includedTools ? { includedTools: this.options.includedTools } : {}),
       agentDir: this.options.agentDir,
       authStorage: auth.authStorage,
       flushAuthStorage: () => auth.flush(),

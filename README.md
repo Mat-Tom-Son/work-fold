@@ -72,16 +72,20 @@ saved work.
 
 The fold popover’s **Chats** view reopens saved conversations and preserves unsent drafts while switching. The paired web client keeps questions inside Chats and offers Space browsing with Files, Apps, and read-only previews. **Ask the fold** prepares an unsent Space or file reference. See [Collaboration experience](docs/collaboration-experience.md).
 
-The development branch also brings ordinary Pi Extension questions into their
-owning Chats across these surfaces. These live callbacks cancel on Stop or
-session end; durable Assistant questions retain their separate continuation
-contract. [Extensions and computer work](docs/extension-foundation.md) records
-the design and remaining work for included computer, Chrome, web, document,
-and MCP capabilities.
+Ordinary Pi Extension questions appear in their owning Chats. These live
+callbacks cancel on Stop or session end; durable Assistant questions retain
+their separate continuation contract. **Skills & Extensions** manages native
+resource enablement, package updates and removal, and setup for the included
+Computer control, Chrome, Web, Documents and MCP service connections. Included
+tools use the same native Pi formats and tool loop as user-added Extensions.
+Computer permissions, the Chrome companion and service credentials are explicit
+setup; web search and the document runtime work without those connections.
+See [Extensions and computer work](docs/extension-foundation.md) for supported
+jobs, dependencies, reviewed patches and release acceptance requirements.
 
-Development builds also include **Inspect context** in Chats, the fold and
-Settings → Assistant. Optional recording shows the assembled model context and
-provider payloads where available, including host auxiliary model calls. It
-stays in bounded local memory and starts off. The shared
+Developers can inspect future model calls through the local `?dev-context`
+diagnostic route. Optional recording includes assembled context, available
+provider payloads and loaded-source provenance, in bounded local memory. It
+starts off and has no normal Chat or Settings entry. The shared
 [feedback contract](docs/tool-feedback.md) preserves Pi's tool loop for text,
-data and visual work; included backends remain separate integration work.
+data and selected images without continuous screen recording.

@@ -283,3 +283,25 @@ test("transport and hook receivers and native synchronous errors survive observa
   assert.throws(() => failing.agent.streamFn(model, context), (error: unknown) => error === transportError);
   assert.equal(inspector.list()[0]!.status, "dispatch_error");
 });
+
+
+test("runtime provenance is captured only while recording and remains bounded, detached, and absent from summaries", () => {
+  const inspector = new ModelContextInspector({ limits: { recordBytes: 12000, payloadSamples: 1 } });
+  let reads = 0;
+  const provenance = { extensions: [{ path: "/tool.ts", digest: "old" }], large: "x".repeat(30000) };
+  const session = fakeSession(() => undefined);
+  installModelContextInspection(session, inspector, () => owner, () => { reads++; return provenance; });
+  session.agent.streamFn(model, context);
+  assert.equal(reads, 0);
+  inspector.setEnabled(true);
+  session.agent.streamFn(model, context);
+  assert.equal(reads, 1);
+  provenance.extensions[0]!.digest = "changed";
+  const summary = inspector.list()[0]!;
+  const detail = inspector.get(summary.id)!;
+  assert.equal("provenance" in summary, false);
+  assert.equal((detail.provenance!.value as any).extensions[0].digest, "old");
+  assert.ok(detail.provenance!.truncated);
+  assert.ok(detail.bytes <= 12000);
+  inspector.setEnabled(false);
+});

@@ -795,6 +795,7 @@ export type RestrictedAppCredential =
   | { kind: "bearer"; token: string }
   | { kind: "basic"; username: string; password: string };
 export interface AgentCatalog {
+  resources?: import("../../src/local/agent/resource-lifecycle").NativeResource[];
   skills: AgentSkill[];
   extensions: AgentExtension[];
   packages: AgentPackage[];

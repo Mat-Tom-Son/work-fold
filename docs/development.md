@@ -5,7 +5,9 @@ contributor rules; this guide explains how to run and navigate the checkout.
 
 ## Choose a development surface
 
-Run commands from the repository root with Node 24 (`.nvmrc`). `npm ci` uses the
+Run commands from the repository root with Node 24 (`.nvmrc`) and npm 11.16.0
+or newer. The install requirement and dependency-script policy are explained
+in [Contributing](../CONTRIBUTING.md#first-run). `npm ci` uses the
 committed lockfile. Git, Node, and npm are enough to run the repository checks;
 model credentials, Apple signing credentials, and Railway access are separate.
 
@@ -62,12 +64,16 @@ can use a chosen agent directory; it is not an offline unit test. See
 
 ## Inspect a model request
 
-Open **Inspect context** beside a Chat's model controls or in the fold header.
-For requests across the desktop, including titles, Checks and app inference,
-use **Settings → Assistant → Inspect context**. Enable **Record model context**,
-reproduce the behavior, then refresh and choose the request. Search or copy its
-assembled context and compare the provider payload when the adapter exposes it.
-Inspection itself never starts a model request.
+Open the local renderer with `?dev-context` (for example,
+`http://localhost:5173/?dev-context` when Vite uses its default port). This is a
+developer diagnostic route, with no normal Chat, fold or Settings entry. Enable
+**Record model context**, reproduce the behavior in the app, then refresh and
+choose the request. The all-request view includes Assistant turns, titles,
+Checks, app inference and compaction. Search or copy assembled context, compare
+provider payloads where the adapter exposes them, and inspect provenance from
+the loaded runtime: source paths, instruction digests, Skills, Extensions and
+tools. These facts are captured at dispatch, not reconstructed from later file
+contents. Inspection itself never starts a model request.
 
 Recording starts off, covers future calls through work-fold's native Pi
 transport, and keeps bounded snapshots in memory for up to 30 minutes. Images

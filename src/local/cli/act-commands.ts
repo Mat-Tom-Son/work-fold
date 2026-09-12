@@ -103,6 +103,8 @@ export type WorkFoldCliActCommandName =
   | "tools.import-skill"
   | "tools.install"
   | "tools.update"
+  | "tools.enable"
+  | "tools.disable"
   | "tools.remove"
   | "apps.list"
   | "apps.invoke"
@@ -199,6 +201,7 @@ export interface WorkFoldCliActParsedCommand {
   /** New Library folder name for library.folder.create. */
   folderName?: string;
   toolsScope?: "personal" | "space";
+  resourceKind?: "extensions" | "skills" | "prompts" | "themes";
   catalogId?: string;
   source?: string;
   /** Restricted-app proposal id (apps.* commands; checks enable carries proposalPath instead). */
@@ -461,6 +464,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     throw usageError(`--attach cannot be used with '${command || "(none)"}'.`);
   }
   const pathCommands = new Set([
+    "tools enable", "tools disable",
     "spaces register",
     "files rename",
     "files delete",
@@ -653,6 +657,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "tools import-skill",
     "tools install",
     "tools update",
+    "tools enable",
+    "tools disable",
     "tools remove",
     "apps proposals dismiss",
     "apps install-proposal",
@@ -1342,6 +1348,13 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(source !== undefined ? { source } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    }
+    case "tools enable":
+    case "tools disable": {
+      allowOnlyFlags("--path", "--kind", "--scope", "--space", "--parent-task");
+      const kind = requireBoundedFlag("--kind", "resource-kind");
+      if (!["extensions", "skills", "prompts", "themes"].includes(kind)) throw usageError("--kind must be extensions, skills, prompts, or themes.");
+      return { name: command === "tools enable" ? "tools.enable" : "tools.disable", output, ...requireToolsScope(), path: requireSinglePath("resource-path"), resourceKind: kind as WorkFoldCliActParsedCommand["resourceKind"], ...(parentTaskId ? { parentTaskId } : {}) };
     }
     case "tools update":
       allowOnlyFlags("--source", "--scope", "--space", "--parent-task");
@@ -2360,6 +2373,13 @@ async function runActCommand(
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
+    case "tools.enable":
+    case "tools.disable":
+      return toChecksJson(await facade.toolsSetEnabled({
+        scope: command.toolsScope!, ...(command.space ? { space: command.space } : {}),
+        path: command.path!, kind: command.resourceKind!, enabled: command.name === "tools.enable",
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}), requestId: request.id,
+      }));
     case "tools.update":
       return toChecksJson(await facade.toolsUpdate({
         scope: command.toolsScope!,
@@ -3246,6 +3266,9 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return Array.isArray(record.skillNames)
         ? `Imported ${skillNameList(record.skillNames)} (${terminalText(record.scope)} scope).\n`
         : `Installed ${terminalText(record.packageId)} ${terminalText(record.version)} (${terminalText(record.scope)} scope).\n`;
+    case "tools.enable":
+    case "tools.disable":
+      return `Turned ${record.enabled ? "on" : "off"} ${terminalText(record.path)} (${terminalText(record.scope)} scope).\n`;
     case "tools.update":
       return `Updated ${terminalText(record.packageId)} to ${terminalText(record.version)} (${terminalText(record.scope)} scope).\n`;
     case "apps.install-proposal":
@@ -3745,6 +3768,7 @@ function receiptDetails(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
 function actReceiptDetail(
   name: WorkFoldCliActCommandName,
   record: {
+    enabled?: unknown;
     created?: unknown;
     scope?: unknown;
     path?: unknown;
@@ -3897,6 +3921,9 @@ function actReceiptDetail(
       return typeof record.contentDigest === "string"
         ? `capability.skills.import; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; digest ${record.contentDigest}`
         : `capability.package.install; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; version ${String(record.version)}`;
+    case "tools.enable":
+    case "tools.disable":
+      return `capability.resource.enabled; scope ${String(record.scope)}; enabled ${String(record.enabled)}; path ${boundedReceiptText(String(record.path))}`;
     case "tools.update":
       return `capability.package.update; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; version ${String(record.version)}`;
     case "apps.install-proposal":

@@ -204,6 +204,8 @@ export const workFoldRequestActionCommands = [
   "tools.import-skill",
   "tools.install",
   "tools.update",
+  "tools.enable",
+  "tools.disable",
   "tools.remove",
   "apps.proposals.dismiss",
   "apps.install-proposal",

@@ -1,6 +1,6 @@
 # Security
 
-The development native Extension UI adapter scopes pending callbacks and
+The native Extension UI adapter scopes pending callbacks and
 extension-managed editor text to a root and conversation, validates response
 types and selection membership, bounds text and pending counts, and cancels
 callbacks on Stop/session disposal. Its paired-web response operation requires
@@ -36,10 +36,50 @@ work-fold is local first, but local does not mean that every action is sandboxed
 
 work-fold intentionally treats successful Space creation or registration as the project-runtime grant and removes the redundant trust prompt. Native Pi Extensions in that folder can execute with the current user's permissions during catalog loading, and later local, source-control, or synchronization changes to `.pi` do not trigger another prompt. Removing the Space revokes work-fold's exact-root override; it does not rewrite Pi's independent trust store for other Pi clients.
 
+### Included native integrations
+
+Computer control, Chrome, Web, Documents and MCP use ordinary Pi Extensions
+and the same full-user authority as other native tools. The reviewed source,
+package versions, licenses and before/after patch digests are pinned in
+[the integration manifest](patches/included-tools/manifest.json). Preparation
+refuses unknown or partially patched input. The computer helper is built from
+reviewed source and included in the app's signing lane; normal installation
+does not run upstream helper downloads. These checks establish provenance,
+not a sandbox or proof that every external action is safe.
+
+Native resource enable/disable preserves Pi's filters and scopes, pins the
+resource and settings identity, journals before effect, and refuses changes
+while affected work is active. It is a lifecycle control, not a way to revoke
+a hostile full-trust process. Included factories do not start connections,
+watchers or setup work during catalog inspection. Native third-party code can
+still execute its own factory during Pi loading.
+
+Chrome's prepared companion uses a local authentication secret and explicit
+connection checks; unauthenticated socket reachability is not readiness.
+Computer setup names the actual helper identity for macOS permissions. Both
+return requested observations through Pi; neither provides continuous screen
+recording. External effects may survive Stop and are not made reversible by
+receipts. Document scripts run full trust in a terminable worker, with bounded
+helper outputs; independent child processes created by a script are outside
+that worker's cancellation boundary. See the reviewed dependency mitigations
+in [the integration notes](patches/included-tools/README.md).
+
+MCP setup is a trusted local operation bound to an open setup session and an
+exact registered Space/runtime. Credential writes and OAuth token commits
+recheck the selected configuration revision inside the same capability fence.
+Closing setup cancels OAuth and probes; restart does not resume them. Saved
+secrets are not returned in status, native config errors omit source snippets,
+and neither the CLI nor paired browser can enter these secrets. Native HTTP
+and stdio transports remain upstream-owned; only the configured Pi files are
+loaded, automatic other-app imports are disabled, and MCP sampling is disabled.
+A Chat-owned question from a reused connection must not adopt a newer task's
+identity or become available to an unrelated paired browser.
+
 ### Model context inspection (development)
 
-The model-context inspector is an opt-in, memory-only local diagnostic
-surface. Its routes require the existing renderer authentication; Chat filters
+The model-context inspector is an opt-in, memory-only local developer
+surface reached explicitly through `?dev-context`, with no normal Chat, fold
+or Settings entry. Its routes require the existing renderer authentication; Chat filters
 check exact scope and conversation identity. It has no remote, CLI or
 restricted-app operation. Capture excludes authentication options, headers and
 environment, bounds snapshots and replaces image bytes with metadata, but

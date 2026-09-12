@@ -1,10 +1,10 @@
 # Feedback during Assistant work
 
-Status: design reviewed; shared foundation implemented, 2026-09-11. This extends
+Status: shared foundation and included integrations implemented in the development tree, 2026-09-11. This extends
 [Extensions and computer work](extension-foundation.md). It applies to every
 kind of Assistant work, including text, calculations, service operations,
-files, generated artifacts, browsers, and desktop applications. It does not
-claim that the planned document or computer integrations are installed.
+files, generated artifacts, browsers, and desktop applications. Exact-build
+release acceptance is separate from implementation and fixture evidence.
 
 ## Decision
 
@@ -109,12 +109,13 @@ shell output, or automatically open every artifact a tool mentions. An
 integration that can return an image directly should do so when useful; a
 standard tool that returns a path remains usable through Pi's built-in read.
 
-Temporary renders and captures use machine-local task storage with declared
-size, pixel/page, duration and retention bounds when those integrations are
-built. Do not invent new generic numeric limits before exercising the backend;
-reuse existing Pi and work-fold limits where they already apply. A selected
-deliverable remains an ordinary file in the requested destination. Filesystem
-cleanup must never delete a delivered artifact or another Chat's evidence.
+Each integration owns its capture and artifact lifetime. Included document
+helpers bound source size, pixels/pages, image bytes, logs and runtime; rendered
+PNGs use an explicit normal output directory and remain there until deliberately
+removed. Selected native tool results can also persist in Pi's machine-local
+session history. Neither is an ambient screenshot archive. Do not invent a
+universal retention mechanism or claim a file is temporary without a cleanup
+owner. Cleanup must never delete a delivered artifact or another Chat's evidence.
 
 Native Pi session evidence and work-fold's portable Chat are distinct. The
 existing compact tool trail is a presentation projection, not the source of
@@ -134,8 +135,9 @@ integration conventions are not a sandbox against arbitrary extensions.
 
 ## Inspect model context
 
-The local desktop provides **Inspect context** from Chats and an all-request
-view in Settings → Assistant. Changing models remains a separate action.
+The local `?dev-context` route provides an all-request **Inspect context**
+view for developers. Normal Chats, the fold and Settings have no inspector
+entry. Changing models remains a separate action.
 Recording is explicitly enabled for the current app run and starts with the
 next model call; inspection itself only reads retained records. It never
 initializes a Pi session, loads an Extension, invokes a model or regenerates
@@ -162,6 +164,13 @@ more than once; bounded samples remain attached to that call without pretending
 to count all HTTP retries. Automatic compaction is labeled separately using
 Pi's lifecycle context where available; unknown purpose stays unknown.
 
+Provenance comes from the loaded runtime at dispatch: Pi version, runtime
+paths, context-file paths and loaded-content digests, appended instruction
+digests, Skill/Extension origins and active tool sources. It never reconstructs
+past context from files that may since have changed. Image metadata records
+available identity and bounded digests of encoded content without retaining
+image bytes. Missing or truncated provenance remains explicit.
+
 Recording is bounded per request and across the app, lives only in memory,
 and has an age limit. The UI shows omissions, evictions and absent capture
 stages without claiming complete context. Image bytes are represented by
@@ -177,47 +186,38 @@ exact prefix and an explicit omission marker; accounting includes JSON escapes
 and UTF-8 bytes. The per-request, total-memory, nesting, node and retention
 bounds remain in force and never constrain what Pi sends to the model.
 
-All-request inspection is a trusted local Settings operation. A Chat entry
-filters by exact scope and Chat identity; detail reads enforce that filter.
+Inspection is a trusted local diagnostic operation. Optional request filters
+use exact scope and Chat identity; detail reads enforce the same filter.
 No raw context enters portable Chat files, activity events, SSE replay, CLI
 read snapshots, paired-browser operations or ordinary logs. Reconnect reads
 existing captures. No new remote or restricted-app observation authority is
 introduced.
 
-## First implementation slice
+## Implemented path and verification
 
-1. Prove the native path through the actual embedded work-fold client using an
-   isolated deterministic provider: a third-party tool returns text and an
-   image; the next model request receives both. Also exercise a generated image
-   consumed by built-in `read`, non-image evidence, errors, and cancellation.
-   Assert that compact UI events do not become a second model context. Use a
-   native provider serializer with a local HTTP fixture to verify actual
-   non-vision and `blockImages` handling separately from assembled context.
-2. Add concise shared Assistant guidance for choosing observations, verifying
-   the requested outcome, stating coverage and uncertainty, and stopping when
-   further progress needs input. Apply it to fold and Space sessions through
-   the existing Pi prompt assembly, preserving native instructions and Skills.
-3. Add the read-only local context inspector and prove capture-stage fidelity,
-   native hook preservation, auxiliary-call attribution, bounded retention,
-   recording revocation, no capture side effects and exact-owner filtering.
-   Fix the reviewed cancellation seam: native work may drain after Stop, but
-   its late events cannot revive UI or overlap reuse of that session.
-4. Use those fixtures as compatibility acceptance for each included integration.
-   Implement the first real rendering and computer backends through native
-   tools, adding only host facilities their actual behavior requires.
+The shared foundation preserves native text/image results into the next Pi
+request, built-in image reads, provider conversion and `blockImages` behavior.
+A concise shared prompt appendix teaches useful verification across fold and
+Space sessions. A stopped tool may drain, but late UI events cannot revive its
+turn or permit overlapping reuse. The local inspector observes Assistant,
+title, Check, app inference and compaction calls without changing their hooks
+or source-pinned Check authority.
 
-The first slice establishes a tested extension path and common behavior. It
-does not bundle document runtimes, add an all-purpose observation tool, promise
-autonomous correction by every model, or change the request-result envelope.
+Included Computer, Chrome and Web tools use native observations and source
+identities. Documents adds ordinary bundled libraries and a cancellable
+JavaScript worker, with PDF text/render helpers and deliberately selected PNG
+emission. Its render evidence pins captured source bytes, page, scale,
+renderer, dimensions and digests. Office files can be structurally inspected
+with those libraries; visual inspection uses existing compatible applications,
+and spreadsheet formulas are not recalculated. MCP keeps upstream transport,
+discovery, schemas and cancellation; configured servers follow their native lifecycle, with lazy connections
+starting on use. See [the integration contract](extension-foundation.md) and
+[document-work Skill](../resources/included-tools/documents/skills/documents/SKILL.md)
+for supported paths and exact limits.
 
-The shared foundation now includes the native-provider feedback fixtures,
-the shared prompt appendix, cancellation draining, and the local inspector in
-Space Chats, the fold and Settings → Assistant. The inspector uses the same
-native transport for Assistant, title, Check, app inference and compaction
-requests. Diagnostic attribution leaves the source-pinned Check implementation
-and its enablement digest unchanged. Backend integration remains step 4;
-its acceptance criteria below still apply before claiming a renderer or
-computer integration is ready.
+Native provider fixtures, integration fixtures and actual Electron dependency
+fixtures cover these mechanisms. Live model judgment, real OS/companion setup
+and signed candidate behavior require their own release acceptance evidence.
 
 ## Adversarial review and acceptance
 

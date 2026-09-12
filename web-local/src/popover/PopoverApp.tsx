@@ -1,5 +1,4 @@
 import { ExtensionQuestions } from "../components/chat/ExtensionQuestions";
-import { InspectContextButton, ModelContextInspector } from "../components/chat/ModelContextInspector";
 import { WorkRequest } from "../components/chat/WorkRequest";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -132,7 +131,6 @@ const popoverFixtureComposer: AssistantComposerState = {
 };
 
 export function PopoverApp() {
-  const [inspectingContext, setInspectingContext] = useState(popoverFixtureRequested && new URLSearchParams(window.location.search).get("context") === "1");
   const bridge = window.workFoldDesktop;
   const [available, setAvailable] = useState<boolean | null>(popoverFixtureRequested ? true : null);
   const [unavailableReason, setUnavailableReason] = useState<string>("");
@@ -539,7 +537,6 @@ export function PopoverApp() {
     const onKeyDown = (event: KeyboardEvent) => {
       // Cancelling an IME composition must not dismiss the surface.
       if (event.isComposing) return;
-      if (inspectingContext) return;
       if (event.key === "Escape") {
         if (historyOpen) { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }
         else bridge?.management?.hide();
@@ -552,7 +549,7 @@ export function PopoverApp() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge, startNewChat, historyOpen, inspectingContext]);
+  }, [bridge, startNewChat, historyOpen]);
 
   const stop = useCallback(async () => {
     const current = requestRef.current;
@@ -704,7 +701,6 @@ export function PopoverApp() {
       <header className="popover-header">
         <button className="popover-open-app" type="button" onClick={() => { void bridge?.management?.openMainWindow(); }}>Open app</button>
         <div className="popover-header-actions">
-          <InspectContextButton compact onClick={() => setInspectingContext(true)} />
           <button className="popover-new-chat" type="button" aria-expanded={historyOpen} aria-controls="fold-chat-history"
             onClick={() => { setHistoryOpen((open) => !open); void refreshConversation(); }}>
             <History aria-hidden="true" /><span>Chats</span>
@@ -901,7 +897,6 @@ export function PopoverApp() {
           <span>Files, folders, or links</span>
         </div>
       ) : null}
-      {inspectingContext ? <ModelContextInspector spaceId="work-fold-management" conversationId={conversationId ?? undefined} scopeLabel={conversationId ? `The fold · ${chatTitle}` : "The fold · all Chats"} fixtureMode={popoverFixtureRequested} onClose={() => setInspectingContext(false)} /> : null}
     </div>
   );
 }

@@ -18,9 +18,9 @@ const deletion = () => prepareFoldAct({
 });
 
 test("prepareFoldAct refuses unknown kinds, unknown or malformed fields, and mismatched identities", () => {
-  // The closed vocabulary: the fourteen kinds behind every verb that installs
+  // The closed vocabulary: the fifteen kinds behind every verb that installs
   // code, widens a power, or destroys data; permanent file deletion is gone.
-  assert.equal(FOLD_PREPARED_ACT_KINDS.length, 14);
+  assert.equal(FOLD_PREPARED_ACT_KINDS.length, 15);
   assert.equal((FOLD_PREPARED_ACT_KINDS as readonly string[]).includes("files.destroy"), false);
   assert.equal((FOLD_PREPARED_ACT_KINDS as readonly string[]).includes("app.review.install"), true);
 

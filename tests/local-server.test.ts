@@ -847,6 +847,54 @@ test("chat streams snapshot running state and survive a throwing desktop activit
   }
 });
 
+test("provider HTTP 402 explains credit limits without leaking the body or retrying the request", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-provider-credit-test-"));
+  let requestCount = 0;
+  let permitted = false;
+  const providerServer = createServer((_request, response) => {
+    requestCount += 1;
+    if (!permitted) {
+      response.writeHead(402, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { code: 402, message: "This request requires more credits, or fewer max_tokens. account-private-value / billing.invalid/private" } }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "close" });
+    response.end(`data: ${JSON.stringify({ id: "recovered", object: "chat.completion.chunk", created: 1, model: "credit-model", choices: [{ index: 0, delta: { role: "assistant", content: "Continued after adjusting the limit." }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+  });
+  await new Promise<void>((resolve, reject) => { providerServer.once("error", reject); providerServer.listen(0, "127.0.0.1", resolve); });
+  const port = (providerServer.address() as AddressInfo).port;
+  const agentDir = join(sandbox, "agent");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await writeFile(join(agentDir, "extensions", "credit-provider.ts"), `export default function(pi){pi.registerProvider("credit-provider",{api:"openai-completions",baseUrl:"http://127.0.0.1:${port}/v1",apiKey:"test-key",models:[{id:"credit-model",name:"Credit Model",reasoning:false,input:["text"],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:4096,maxTokens:1024}]});}`);
+  const settingsManager = SettingsManager.inMemory({ defaultProvider: "credit-provider", defaultModel: "credit-model", defaultThinkingLevel: "off", retry: { enabled: true, maxRetries: 1, baseDelayMs: 1, provider: { maxRetries: 0 } } });
+  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, piRuntimeProvider: { async resolveRuntime() { return { agentDir, settingsManager }; } } });
+  try {
+    const created = await json(`${api.origin}/api/spaces`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Credit Test" }) }) as { space: { id: string } };
+    const conversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    const url = `${api.origin}/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+    assert.equal((await fetch(`${url}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "A bounded test request." }) })).status, 202);
+    await waitForAsync(async () => {
+      const transcript = await json(url) as any;
+      const tasks = await api.kernel.getTasks({ kind: "system" });
+      return transcript.messages.some((message: any) => message.interruption?.reason === "provider_error") && !tasks.tasks.some((task) => task.kind === "assistant_turn");
+    });
+    const transcript = await json(url) as any;
+    const failure = transcript.messages.find((message: any) => message.interruption?.reason === "provider_error");
+    assert.match(failure.content, /credit or billing limit \(HTTP 402\)/);
+    assert.match(failure.interruption.message, /reduce the maximum response length/);
+    assert.doesNotMatch(JSON.stringify(transcript), /account-private-value|billing\.invalid|stopped responding/);
+    assert.equal(failure.interruption.retryAttempts, 0);
+    assert.equal(requestCount, 1, "HTTP 402 is actionable and must not enter the transient retry path");
+    permitted = true;
+    assert.equal((await fetch(`${url}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Continue after adjusting the limit." }) })).status, 202);
+    await waitForAsync(async () => (await json(url) as any).messages.some((message: any) => message.content === "Continued after adjusting the limit."));
+  } finally {
+    await api.close();
+    await new Promise<void>((resolve, reject) => providerServer.close((error) => error ? reject(error) : resolve()));
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("terminal provider failures persist partial output and leave the Chat resumable", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-provider-failure-test-"));
   let requestCount = 0;

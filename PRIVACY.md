@@ -1,12 +1,12 @@
 # Privacy
 
-Last updated: September 7, 2026
+Last updated: September 11, 2026
 
 work-fold is a local-first desktop application. Core Space use does not require a work-fold account; a person may optionally create a private work-fold Remote access address. The current application does not include first-party analytics, advertising, or usage telemetry.
 
 This document describes the behavior of the open-source work-fold application. Model providers, GitHub, package hosts, cloud-sync software, and third-party Skills or Extensions have their own privacy terms.
 
-In development, live Pi Extension questions and answers pass through the local
+Live Pi Extension questions and answers pass through the local
 UI adapter without being written to a transcript or its event replay log.
 Pending callbacks and bounded answer drafts stay in memory; the latter are
 not saved to browser storage. Extensions remain full-trust and may themselves
@@ -43,12 +43,14 @@ legacy product data.
 
 ## Optional local context diagnostics
 
-Development builds include optional **Record model context** diagnostics,
-available from **Inspect context** in Chats and Settings → Assistant. Recording
+The local `?dev-context` developer route includes optional **Record model
+context** diagnostics, with no normal Chat, fold or Settings entry. Recording
 starts off and retains future request snapshots only in app memory: at most
 24 requests, 2 MiB per record, 16 MiB total and 30 minutes. Text fields and
 snapshot depth/size have additional disclosed limits. Images are represented
-by metadata, not retained image bytes. Disabling, clearing or quitting discards
+by metadata and bounded digests, not retained image bytes. Loaded-source
+provenance includes local source paths, instruction hashes, Skills, Extensions
+and tool identities at dispatch. Disabling, clearing or quitting discards
 the recordings. Opening the inspector does not invoke a model.
 
 Captures may include private instructions, messages, file text, tool results
@@ -60,6 +62,38 @@ portable-transcript or paired-web path. Copying displayed JSON to the clipboard
 is an explicit action. The inspector distinguishes assembled context from
 observed provider payloads, which are not proof of network delivery; calls an
 Extension makes through its own independent transport are outside coverage.
+
+## Included native tools
+
+Included tools are full-trust Pi Extensions. They observe during requested
+work, not through continuous desktop recording. Selected screenshots, page
+text and document renders can enter the selected model's context as ordinary
+native tool results. Pi's machine-local sessions can retain those results;
+the compact portable Chat trail and memory-only developer inspector are
+separate projections. Created documents and chosen page renders remain normal
+files where the script writes them until deliberately removed.
+
+Web sends search terms to DuckDuckGo by default, or Brave when that connection
+is selected by saved setup, and fetches explicitly requested URLs. The included
+baseline does not import browser cookies, initialize media services or call a
+second model. Chrome operates the connected signed-in profile through an
+explicitly prepared companion; account content and external actions carry
+that profile's normal permissions. Computer control captures selected native
+observations using macOS permissions granted to its helper.
+
+The Chrome companion's local authentication material stays under work-fold's
+application-data directory. Optional Brave credentials use the existing
+machine-local Pi AuthStorage. Native MCP definitions use the configured Pi
+agent directory's `mcp.json` and a registered Space's `.pi/mcp.json`; project
+configuration can travel with its folder. Host-entered bearer and OAuth
+credentials use the upstream OS keyring with identities bound to scope and
+endpoint, and are not returned by setup status. Manually authored native
+configuration may itself contain environment or header values: it remains
+executable, full-trust configuration, not a secret-free portable data format.
+MCP contacts configured servers according to their native lifecycle; the
+default lazy connections start on use. HTTP sends their protocol
+messages and stdio launches the configured local command. Other applications'
+MCP settings are not automatically imported. MCP sampling is disabled.
 
 ## When data leaves this computer
 

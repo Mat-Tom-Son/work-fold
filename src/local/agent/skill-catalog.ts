@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { resolveNativeResources, type NativeResource } from "./resource-lifecycle.js";
+import { includedResourceOptions } from "./included-tools.js";
 
 import {
   SessionManager,
@@ -65,6 +67,7 @@ export interface PiSkillCatalogItem {
 export interface PiExtensionCatalogItem {
   path: string;
   resolvedPath: string;
+  name?: string;
   source: PiCatalogSource;
   tools: string[];
   commands: string[];
@@ -104,6 +107,8 @@ export interface PiCatalogDiagnostic {
 }
 
 export interface PiResourceCatalog {
+  /** Pi-resolved resources, including disabled entries; resolving never imports them. */
+  resources?: NativeResource[];
   projectTrust: ResolvedPiRuntime["projectTrust"];
   packages: ReturnType<ResolvedPiRuntime["settingsManager"]["getPackages"]>;
   toolManagement: PiToolManagement;
@@ -136,7 +141,7 @@ export async function loadAgentSkillCatalog(
     authStorage: runtime.authStorage,
     settingsManager: runtime.settingsManager,
     modelRegistry: runtime.modelRegistry,
-    resourceLoaderOptions: additionalResourceOptions(runtime),
+    resourceLoaderOptions: await additionalResourceOptions(spaceRoot, runtime),
   });
   const result = await createAgentSessionFromServices({
     services,
@@ -170,6 +175,11 @@ export async function buildPiResourceCatalog(
   const promptsResult = loader.getPrompts();
   const themesResult = loader.getThemes();
   const activeTools = new Set(session.getActiveToolNames());
+  const resources = await resolveNativeResources(session.sessionManager.getCwd(), runtime);
+  const sourceFor = (source: SourceInfo) => {
+    const included = resources.find((item) => item.included && (item.path === source.path));
+    return included ? { ...catalogSource(source), ...included.metadata, path: included.path } : catalogSource(source);
+  };
 
   const skills = await Promise.all(skillsResult.skills.map(async (skill) => ({
     name: skill.name,
@@ -178,13 +188,14 @@ export async function buildPiResourceCatalog(
     baseDir: skill.baseDir,
     disableModelInvocation: skill.disableModelInvocation,
     ...(await readOptionalText(skill.filePath).then((content) => content === undefined ? {} : { content })),
-    source: catalogSource(skill.sourceInfo),
+    source: sourceFor(skill.sourceInfo),
   })));
 
   const extensions = extensionResult.extensions.map((extension) => ({
     path: extension.path,
     resolvedPath: extension.resolvedPath,
-    source: catalogSource(extension.sourceInfo),
+    name: resources.find((item) => item.path === extension.path)?.included?.title,
+    source: sourceFor(extension.sourceInfo),
     tools: [...extension.tools.keys()].sort(),
     commands: [...extension.commands.keys()].sort(),
     flags: [...extension.flags.keys()].sort(),
@@ -202,7 +213,7 @@ export async function buildPiResourceCatalog(
       core,
       configurable: false as const,
       configurationScope: "chat" as const,
-      source: catalogSource(tool.sourceInfo),
+      source: sourceFor(tool.sourceInfo),
     };
   }).sort((left, right) => left.name.localeCompare(right.name));
 
@@ -244,6 +255,7 @@ export async function buildPiResourceCatalog(
   ].sort((left, right) => left.name.localeCompare(right.name));
 
   return {
+    resources,
     projectTrust: runtime.projectTrust,
     packages: runtime.settingsManager.getPackages(),
     toolManagement: {
@@ -296,12 +308,13 @@ export const builtInPiCommands: PiCommandCatalogItem[] = [
   ["quit", "Quit work-fold"],
 ].map(([name, description]) => ({ name, description, source: "builtin" }));
 
-function additionalResourceOptions(runtime: ResolvedPiRuntime) {
+async function additionalResourceOptions(cwd: string, runtime: ResolvedPiRuntime) {
   return {
     additionalExtensionPaths: runtime.config.additionalExtensionPaths,
     additionalSkillPaths: runtime.config.additionalSkillPaths,
     additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
     additionalThemePaths: runtime.config.additionalThemePaths,
+    ...await includedResourceOptions(cwd, runtime, "catalog"),
   };
 }
 

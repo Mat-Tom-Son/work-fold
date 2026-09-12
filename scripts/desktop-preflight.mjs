@@ -33,6 +33,8 @@ if (desktopReleasePlatform() === "darwin") {
   assertPath("desktop/assets/icon.icns");
   assertPath("out/generated-assets/dmg-background.png");
   assertPath("desktop/cli/work-fold-cli.jxa.js");
+  assertPath("out/included-tools/computer-helper/work-fold Computer.app/Contents/MacOS/bridge");
+  assertPath("out/included-tools/computer-helper/work-fold Computer.app/Contents/Resources/source.json");
 }
 
 verifyPiDependencyNormalization();
