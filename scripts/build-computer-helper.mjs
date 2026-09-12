@@ -46,6 +46,7 @@ async function build() {
 <key>CFBundleName</key><string>work-fold Computer</string>
 <key>CFBundleDisplayName</key><string>work-fold Computer</string>
 <key>CFBundleExecutable</key><string>bridge</string>
+<key>CFBundleIconFile</key><string>icon.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>${entry.version}</string>
 <key>CFBundleShortVersionString</key><string>${entry.version}</string>
@@ -56,6 +57,7 @@ async function build() {
 <key>NSAccessibilityUsageDescription</key><string>Let work-fold interact with the applications you ask your Assistant to use.</string>
 </dict></plist>
 `);
+    await copyFile(join(root, "desktop", "assets", "icon.icns"), join(resources, "icon.icns"));
     await copyFile(join(packageRoot, "LICENSE"), join(resources, "LICENSE.pi-computer-use"));
     await writeFile(join(resources, "source.json"), `${JSON.stringify({
       schema: "work-fold.computer-helper-source.v1", package: entry.package, version: entry.version,

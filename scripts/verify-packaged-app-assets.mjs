@@ -61,6 +61,7 @@ if (packagedPlatform === "win32") {
   const computerHelper = join(resourcesDir, "computer-helper", "work-fold Computer.app", "Contents");
   assertPath(join(computerHelper, "MacOS", "bridge"), "included computer helper");
   assertPath(join(computerHelper, "Info.plist"), "computer helper identity");
+  assertPath(join(computerHelper, "Resources", "icon.icns"), "computer helper icon");
   assertPath(join(computerHelper, "Resources", "LICENSE.pi-computer-use"), "computer helper license");
   assertPath(join(computerHelper, "Resources", "source.json"), "computer helper provenance");
   try {
@@ -79,8 +80,11 @@ if (packagedPlatform === "win32") {
       failures.push("Computer helper build inputs do not match the reviewed source hashes.");
     }
     const plist = readFileSync(join(computerHelper, "Info.plist"), "utf8");
-    for (const [key, value] of [["CFBundleIdentifier", "com.work-fold.desktop.computer"], ["CFBundleExecutable", "bridge"], ["CFBundleDisplayName", "work-fold Computer"]]) {
+    for (const [key, value] of [["CFBundleIdentifier", "com.work-fold.desktop.computer"], ["CFBundleExecutable", "bridge"], ["CFBundleDisplayName", "work-fold Computer"], ["CFBundleIconFile", "icon.icns"]]) {
       if (!plist.includes(`<key>${key}</key><string>${value}</string>`)) failures.push(`Computer helper has an unexpected ${key}.`);
+    }
+    if (!readFileSync(join(computerHelper, "Resources", "icon.icns")).equals(readFileSync(join(rootDir, "desktop", "assets", "icon.icns")))) {
+      failures.push("Computer helper icon does not match the work-fold application icon.");
     }
   } catch (error) { failures.push(`Could not verify computer helper provenance: ${formatError(error)}`); }
   if (existsSync(join(binDir, identity.cliCommand)) && !(statSync(join(binDir, identity.cliCommand)).mode & 0o111)) {

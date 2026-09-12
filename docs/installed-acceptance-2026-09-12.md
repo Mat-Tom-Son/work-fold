@@ -289,7 +289,7 @@ the user's 0.4.29 client and are not claims that the remaining live journeys pas
   interrupted closes that error path. The API regression separately checks three
   visible calls and six audit events; 22 focused service/API tests passed.
 
-## Final integrated verification
+## Integrated verification before release preparation
 
 - `npm run check`: passed on the integrated source.
 - `npm test`: 1,478 passed, zero failed, one Windows-only skip. Earlier full runs
@@ -310,3 +310,24 @@ These commits have not been packaged, installed over 0.4.29, or published. A06
 and A07 await the person's browser/helper setup. The new build must repeat A04's
 UI answer, A09's simultaneous worker cancellation, and A10's receipt presentation
 before release acceptance; the installed failures remain recorded above.
+
+## Release preparation, September 12
+
+- **S16 — Included-tool readiness:** Installed cards presented native Extension
+  loading as operational readiness. The cards now use the existing setup status
+  service and keep native load state in technical details. Per-tool revisions
+  discard superseded probes in both host and renderer; starting a failed recheck
+  invalidates an old Ready result. Catalog inspection remains passive.
+- **S17 — Malformed image parser loops:** the dependency audit identified
+  GHSA-w3rx-r6r6-pgpr and GHSA-5p2g-fcmc-qvqq in the bundled image-size dependency
+  used by PptxGenJS. The reviewed dependency patch adds bounded traversal and
+  preserves the image formats. Malformed inputs, real valid-format fixtures and
+  generated PNG/JPEG presentations are checked separately. The upstream package
+  version remains unchanged, so npm audit still reports the two version-based
+  findings; patched source and archive verification are the remediation evidence.
+
+The bridge's 55 tests passed and Railway deployment
+`d34d5924-90a9-4f85-8cf5-24c3a9410a3d` reached SUCCESS. The public
+`https://www.work-fold.com/health` reported ready, and fetched app.js/app.css
+SHA-256 values matched the local deployment sources. This is bridge deployment
+evidence only; desktop candidate acceptance and publication remain pending.
