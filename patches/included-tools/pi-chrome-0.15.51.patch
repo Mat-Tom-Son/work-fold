@@ -506,7 +506,7 @@ index 8ba0e2d..89a01c3 100644
  
  function waitForTabComplete(tabId, timeoutMs) {
 diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profile-bridge/index.ts
-index 1917956..ddc226c 100644
+index 1917956..1a79306 100644
 --- a/extensions/chrome-profile-bridge/index.ts
 +++ b/extensions/chrome-profile-bridge/index.ts
 @@ -1,5 +1,6 @@
@@ -1081,10 +1081,13 @@ index 1917956..ddc226c 100644
  		if (chromeAuthorizedUntil === "indefinite") return "authorized indefinitely";
  		if (typeof chromeAuthorizedUntil === "number") {
  			const remainingMs = chromeAuthorizedUntil - Date.now();
-@@ -884,6 +1083,13 @@ export default function (pi: ExtensionAPI): void {
+@@ -884,14 +1083,20 @@ export default function (pi: ExtensionAPI): void {
  
  	const authorizedBridgeSend = async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> => {
  		requireChromeControlAuthorized();
+-		// Background on is a session policy, not a default that tool arguments can override.
+-		// Apply it here so tab.new, chrome_launch(url), and tools without a background parameter
+-		// cannot bypass it. Background off still permits per-call background:true.
 +        if (options.getConnection) {
 +            const connection = await options.getConnection();
 +            if (!connection) throw new Error("Connect Chrome in Skills & Extensions before using Chrome tools.");
@@ -1092,10 +1095,20 @@ index 1917956..ddc226c 100644
 +            if (!releaseWork) { releaseWork = options.beginWork?.(connection.connectionId) ?? (() => {}); workConnectionId = connection.connectionId; }
 +        }
 +		if (sessionKeyFor(sessionCtx) === undefined) throw new Error("Chrome needs an active Pi session before use.");
- 		// Background on is a session policy, not a default that tool arguments can override.
- 		// Apply it here so tab.new, chrome_launch(url), and tools without a background parameter
- 		// cannot bypass it. Background off still permits per-call background:true.
-@@ -931,7 +1137,7 @@ export default function (pi: ExtensionAPI): void {
++		// Standalone Pi retains its session preference. Embedded calls use per-call
++		// focus intent: omitted stays background; tab.activate requests foreground.
+ 		const typed = params as { background?: boolean; foreground?: boolean };
+-		const requestedBackground = typed.background ?? (typed.foreground !== undefined ? !typed.foreground : false);
+-		const background = backgroundEnabled || requestedBackground;
++		const requestedBackground = typed.background ?? (typed.foreground !== undefined ? !typed.foreground : embedded && action !== "tab.activate");
++		const background = (!embedded && backgroundEnabled) || requestedBackground;
+ 		if (action === "tab.activate" && background) {
+-			throw new Error("Tab activation is blocked by background mode. Ask the user to run /chrome background off to allow foreground work.");
++			throw new Error(embedded ? "Tab activation requires foreground input. Omit background or set it to false." : "Tab activation is blocked by background mode. Ask the user to run /chrome background off to allow foreground work.");
+ 		}
+ 		// Scope every action to this session's dedicated automation target and tab group.
+ 		const sessionKey = sessionKeyFor(sessionCtx);
+@@ -931,7 +1136,7 @@ export default function (pi: ExtensionAPI): void {
  
  	pi.on("session_start", async (_event, ctx) => {
  		sessionCtx = ctx;
@@ -1104,7 +1117,7 @@ index 1917956..ddc226c 100644
  		// Reestablish in-memory state after a /reload restored chromeAuthorizedUntil from globalThis.
  		if (chromeControlAuthorized()) {
  			activateChromeTools();
-@@ -948,11 +1154,14 @@ export default function (pi: ExtensionAPI): void {
+@@ -948,11 +1153,14 @@ export default function (pi: ExtensionAPI): void {
  	pi.on("session_shutdown", async (event) => {
  		clearAuthExpiryTimer();
  		clearCountdownInterval();
@@ -1120,12 +1133,12 @@ index 1917956..ddc226c 100644
  			delete globalState[PI_CHROME_GLOBAL_KEY];
  		}
  	});
-@@ -986,11 +1195,15 @@ Usage rules:
+@@ -986,11 +1194,15 @@ Usage rules:
  7. If you hit a native file-picker or privileged browser prompt gate, tell the user; generic clicks/typing/CSP gates are handled by Chrome input.
  8. Run /chrome doctor when in doubt about connectivity or capabilities.
  </chrome-profile-bridge>`;
 -		return { systemPrompt: event.systemPrompt + primer };
-+		return { systemPrompt: event.systemPrompt + (embedded ? primer.replace(/1\. If a chrome_\* tool says Chrome control is locked[^\n]*/, "1. Chrome tools are enabled by installation. Missing companion setup is reported explicitly.").replace(/7\. If you hit a native file-picker[^\n]*/, "7. When browser scripting cannot reach a surface, consider available native Computer tools using fresh observations and the user’s authorization and constraints. A technical limitation differs from a permission or policy denial; respect actual denials and never blindly replay uncertain effects.") : primer) };
++		return { systemPrompt: event.systemPrompt + (embedded ? primer.replace(/1\. If a chrome_\* tool says Chrome control is locked[^\n]*/, "1. Chrome tools are enabled by installation. Missing companion setup is reported explicitly.").replace(/6\. \/chrome background on[^\n]*/, "6. Calls stay in the background by default. Explicit background=false or chrome_tab activate brings the target forward when needed, including composition with native Computer tools. Choose per call within the user’s task and constraints; no mode switch is needed. Screenshots never fall back to tab activation after a capture failure.").replace(/7\. If you hit a native file-picker[^\n]*/, "7. When browser scripting cannot reach a surface, consider available native Computer tools using fresh observations and the user’s authorization and constraints. A technical limitation differs from a permission or policy denial; respect actual denials and never blindly replay uncertain effects.") : primer) };
  	});
  
  	// Shared handlers, dispatched by the unified /chrome command below.
@@ -1137,7 +1150,7 @@ index 1917956..ddc226c 100644
  			ctx.ui.notify("Checking pi-chrome…", "info");
  			const lines: string[] = [
  				`pi-chrome v${PI_CHROME_VERSION}`,
-@@ -1011,7 +1224,7 @@ Usage rules:
+@@ -1011,7 +1223,7 @@ Usage rules:
  				};
  				const latencyMs = Date.now() - started;
  				extensionAlive = true;
@@ -1146,7 +1159,7 @@ index 1917956..ddc226c 100644
  					versionMismatch = true;
  					lines.push(
  						`✗ The Chrome companion extension is on an old version (${version.extensionVersion}); this pi-chrome is ${PI_CHROME_VERSION}.`,
-@@ -1113,6 +1326,7 @@ Usage rules:
+@@ -1113,6 +1325,7 @@ Usage rules:
  	};
  
  	const authorizeHandler = async (ctx: ExtensionContext, args: string) => {
@@ -1154,7 +1167,7 @@ index 1917956..ddc226c 100644
  		const grant = parseAuthorizeArg(args);
  		if (!grant) {
  			ctx.ui.notify("Unknown authorize duration. Use minutes (15m, 30m, 45) or indefinite.", "warning");
-@@ -1122,13 +1336,15 @@ Usage rules:
+@@ -1122,13 +1335,15 @@ Usage rules:
  	};
  
  	const revokeHandler = (ctx: ExtensionContext) => {
@@ -1171,7 +1184,7 @@ index 1917956..ddc226c 100644
  		const proceed = await ctx.ui.confirm(
  			"Install the pi-chrome Chrome extension?",
  			`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
-@@ -1153,7 +1369,7 @@ Usage rules:
+@@ -1153,7 +1368,7 @@ Usage rules:
  		const parts: string[] = [];
  		try {
  			const version = (await bridge.send("tab.version", {}, 5_000)) as { extensionVersion?: string };
@@ -1180,7 +1193,39 @@ index 1917956..ddc226c 100644
  				parts.push(`⚠ Chrome extension v${version.extensionVersion} (pi-chrome v${PI_CHROME_VERSION}, reload extension)`);
  			} else {
  				parts.push(`✓ Chrome connected`);
-@@ -1293,6 +1509,8 @@ Usage rules:
+@@ -1222,9 +1437,16 @@ Usage rules:
+ 	};
+ 
+ 	pi.registerCommand("chrome", {
+-		description:
++		description: embedded ? "Chrome connection status and setup. /chrome doctor | /chrome onboard." :
+ 			"All pi-chrome controls in one place.\n  /chrome authorize [15m|30m|<minutes>|indefinite] — allow this Pi session to use chrome_* tools.\n  /chrome revoke   — lock Chrome control.\n  /chrome doctor   — full health check plus authorization and background state.\n  /chrome onboard  — install the Chrome companion extension.\n  /chrome background [on|off|status|toggle] — enforce no explicit focus/tab activation, or allow foreground/watch mode.\nRun with no arguments for an interactive picker that shows current state.",
+ 		getArgumentCompletions: (prefix) => {
++            if (embedded) {
++                const candidates = [
++                    { value: "doctor", label: "doctor", description: "Check the Chrome connection." },
++                    { value: "onboard", label: "onboard", description: "Connect Chrome." },
++                ].filter(item => item.value.startsWith(prefix.trimStart().toLowerCase()));
++                return candidates.length ? candidates : null;
++            }
+ 			const raw = prefix;
+ 			const trimmedRight = raw.replace(/\s+$/, "");
+ 			const tokens = trimmedRight ? trimmedRight.split(/\s+/) : [];
+@@ -1266,6 +1488,13 @@ Usage rules:
+ 			return filtered.map((c) => ({ value: c.fullValue, label: c.label, description: c.description }));
+ 		},
+ 		handler: async (args, ctx) => {
++            if (embedded) {
++                const subcommand = args.trim();
++                if (!subcommand || subcommand === "doctor") return doctorHandler(ctx);
++                if (subcommand === "onboard") return onboardHandler(ctx);
++                ctx.ui.notify("That command is not available here. Use /chrome doctor or /chrome onboard.", "info");
++                return;
++            }
+ 			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
+ 			if (tokens.length === 0) {
+ 				await openCommandMenu(ctx);
+@@ -1293,28 +1522,42 @@ Usage rules:
  		},
  	});
  
@@ -1189,7 +1234,14 @@ index 1917956..ddc226c 100644
  	function registerChromeTools(pi: ExtensionAPI): void {
  		if (chromeToolsRegistered) return;
  		chromeToolsRegistered = true;
-@@ -1300,8 +1518,9 @@ Usage rules:
+ 
++        const backgroundDescription = embedded
++            ? "Calls stay in the background by default. Set false to bring the targeted tab forward for this call."
++            : BACKGROUND_PARAM_DESCRIPTION;
++        const backgroundBehavior = embedded
++            ? "Calls stay in the background by default; background=false explicitly brings the target forward."
++            : "Background mode (default) blocks explicit focus/tab activation even with background=false; /chrome background off allows foreground/watch mode.";
++
  	pi.registerTool({
  		name: "chrome_launch",
  		label: "Chrome Bridge Setup",
@@ -1201,21 +1253,25 @@ index 1917956..ddc226c 100644
  		promptSnippet: "Show instructions for connecting Pi to the user's existing Chrome profile via the companion extension.",
  		parameters: Type.Object({
  			port: Type.Optional(Type.Number({ description: "Ignored. The bundled Chrome extension polls 127.0.0.1:17318." })),
-@@ -1311,10 +1530,13 @@ Usage rules:
+ 			url: Type.Optional(Type.String({ description: "Optional URL to open in the existing Chrome profile after the extension is connected." })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			userDataDir: Type.Optional(Type.String({ description: "Ignored. This bridge intentionally uses the user's existing Chrome profile through the companion extension." })),
+ 			useDefaultProfile: Type.Optional(Type.Boolean({ description: "Ignored; existing-profile access comes from the companion Chrome extension." })),
  			headless: Type.Optional(Type.Boolean({ description: "Ignored." })),
  		}),
  		async execute(_id, params, signal, _onUpdate, ctx): Promise<ToolTextResult> {
 +			if (signal?.aborted) throw new Error("Chrome setup cancelled before startup.");
 +			await bridge.start();
  			if (params.url && bridge.connected) {
- 				const result = await authorizedBridgeSend("tab.new", { url: params.url }, DEFAULT_TIMEOUT_MS, signal);
+-				const result = await authorizedBridgeSend("tab.new", { url: params.url }, DEFAULT_TIMEOUT_MS, signal);
++				const result = await authorizedBridgeSend("tab.new", { url: params.url, background: params.background }, DEFAULT_TIMEOUT_MS, signal);
  				return { content: [{ type: "text", text: `Chrome bridge connected; opened ${params.url}` }], details: { status: bridge.status(), result } };
  			}
 +        if (options.getConnection) return { content: [{ type: "text", text: bridge.connected ? "Chrome is connected." : "Choose Connect in the Chrome extension." }], details: { status: bridge.status() } };
  			return {
  				content: [
  					{
-@@ -1325,11 +1547,11 @@ Usage rules:
+@@ -1325,11 +1568,11 @@ Usage rules:
  							`1. Open chrome://extensions in the Chrome profile you normally use.\n` +
  							`2. Enable Developer mode.\n` +
  							`3. Click “Load unpacked”.\n` +
@@ -1229,7 +1285,76 @@ index 1917956..ddc226c 100644
  			};
  		},
  	});
-@@ -1494,7 +1716,8 @@ Usage rules:
+@@ -1337,7 +1580,7 @@ Usage rules:
+ 	pi.registerTool({
+ 		name: "chrome_tab",
+ 		label: "Chrome Tab",
+-		description: "List, create, activate, close, group, ungroup, or inspect tabs in the user's existing Chrome profile via the companion extension. New/grouped tabs always use this session's Pi tab group. Background mode keeps new tabs inactive and blocks activate; ask the user to run /chrome background off for foreground/watch mode. activate/close/group/ungroup require a target (targetId/urlIncludes/titleIncludes); with no target they act on this session's pi-chrome automation tab if one exists, and otherwise error rather than touching the user's active tab.",
++		description: "List, create, activate, close, group, ungroup, or inspect tabs in the user's existing Chrome profile via the companion extension. New/grouped tabs always use this session's Pi tab group. " + (embedded ? "New tabs stay in the background by default; activate explicitly brings the target forward." : "Background mode keeps new tabs inactive and blocks activate; ask the user to run /chrome background off for foreground/watch mode.") + " activate/close/group/ungroup require a target (targetId/urlIncludes/titleIncludes); with no target they act on this session's pi-chrome automation tab if one exists, and otherwise error rather than touching the user's active tab.",
+ 		promptSnippet: "List/open/activate/close/group existing Chrome tabs through the companion extension.",
+ 		parameters: Type.Object({
+ 			action: StringEnum(tabActionValues),
+@@ -1348,6 +1591,7 @@ Usage rules:
+ 			group: Type.Optional(Type.Boolean({ description: "Deprecated; ignored. Pi-created tabs always join this session's own tab group." })),
+ 			groupTitle: Type.Optional(Type.String({ description: "Deprecated for action=new/group; ignored so one Pi session uses one tab group ('Pi Session: <name-or-id>')." })),
+ 			groupColor: Type.Optional(Type.String({ description: "Tab group color for action=group/new: grey, blue, red, yellow, green, pink, purple, cyan, or orange. Defaults to blue." })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1373,7 +1617,7 @@ Usage rules:
+ 		name: "chrome_snapshot",
+ 		label: "Chrome Snapshot",
+ 		description:
+-			"Inspect a page in the user's existing Chrome profile. Default output is a concise, agent-friendly observation with structural layout/context, stable uids, visible actions, form fields, page hints, and changes since the previous snapshot. Use mode/query/nearUid to zoom instead of dumping the whole page. Background mode (default) blocks explicit focus/tab activation even with background=false. Ask the user to run /chrome background off for foreground/watch mode.",
++			"Inspect a page in the user's existing Chrome profile. Default output is a concise, agent-friendly observation with structural layout/context, stable uids, visible actions, form fields, page hints, and changes since the previous snapshot. Use mode/query/nearUid to zoom instead of dumping the whole page. " + backgroundBehavior,
+ 		promptSnippet: "Observe the current Chrome page: concise summary, structural layout, visible actions, forms, page map, query matches, and stable uids.",
+ 		parameters: Type.Object({
+ 			targetId: Type.Optional(Type.String()),
+@@ -1386,7 +1630,7 @@ Usage rules:
+ 			containingText: Type.Optional(Type.String({ description: "Only return elements whose label/text contains this string (case-insensitive). Useful when the page has many controls." })),
+ 			roleFilter: Type.Optional(Type.String({ description: "Only return elements matching this ARIA role or tag name (case-insensitive). e.g. 'button', 'link', 'textbox'." })),
+ 			nearUid: Type.Optional(Type.String({ description: "Sort elements by proximity to this snapshot uid. Useful for finding controls near a known anchor." })),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1414,7 +1658,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1442,7 +1686,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1478,7 +1722,7 @@ Usage rules:
+ 		name: "chrome_navigate",
+ 		label: "Chrome Navigate",
+ 		description:
+-			"Navigate a Chrome tab to a URL via the companion extension. With no target, navigation goes to pi-chrome's own dedicated automation window/tab — it never replaces the user's active tab. Pass targetId/urlIncludes/titleIncludes only to act on a specific existing tab. Background mode (default) blocks explicit focus/tab activation even with background=false; /chrome background off allows foreground/watch mode. Optionally waits for load completion.",
++			"Navigate a Chrome tab to a URL via the companion extension. With no target, navigation goes to pi-chrome's own dedicated automation window/tab — it never replaces the user's active tab. Pass targetId/urlIncludes/titleIncludes only to act on a specific existing tab. " + backgroundBehavior + " Optionally waits for load completion.",
+ 		promptSnippet: "Navigate a Chrome tab in the user's existing profile.",
+ 		parameters: Type.Object({
+ 			url: Type.String(),
+@@ -1488,13 +1732,14 @@ Usage rules:
+ 			waitUntilLoad: Type.Optional(Type.Boolean({ default: true })),
+ 			timeoutMs: Type.Optional(Type.Number({ default: 15_000 })),
+ 			initScript: Type.Optional(Type.String({ description: "Optional JavaScript source to run in MAIN world at document_start of the next navigation. Useful for seeding localStorage, stubbing Date.now(), or defining navigator.webdriver=undefined. Requires the companion extension's webNavigation permission." })),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.navigate", params, (params.timeoutMs ?? 15_000) + 2_000, signal);
@@ -1239,13 +1364,103 @@ index 1917956..ddc226c 100644
  		},
  	});
  
-@@ -1743,10 +1966,10 @@ Usage rules:
+@@ -1502,7 +1747,7 @@ Usage rules:
+ 		name: "chrome_evaluate",
+ 		label: "Chrome Evaluate",
+ 		description:
+-			"Evaluate JavaScript in an existing Chrome tab through the companion extension. Runs in the page context and returns JSON-serializable values when possible. Background mode (default) blocks explicit focus/tab activation even with background=false; /chrome background off allows foreground/watch mode.",
++			"Evaluate JavaScript in an existing Chrome tab through the companion extension. Runs in the page context and returns JSON-serializable values when possible. " + backgroundBehavior,
+ 		promptSnippet: "Evaluate JavaScript in the active Chrome tab through the companion extension.",
+ 		parameters: Type.Object({
+ 			expression: Type.String(),
+@@ -1510,7 +1755,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1542,7 +1787,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1573,7 +1818,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1606,7 +1851,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1625,7 +1870,7 @@ Usage rules:
+ 		name: "chrome_key",
+ 		label: "Chrome Key",
+ 		description:
+-			"Send a keyboard key to an existing Chrome tab (Enter, Escape, Tab, Backspace, Delete, ArrowUp/Down/Left/Right, or one character). Background mode (default) blocks explicit focus/tab activation even with background=false; /chrome background off allows foreground/watch mode. Pass includeSnapshot=true to verify after the keypress.",
++			"Send a keyboard key to an existing Chrome tab (Enter, Escape, Tab, Backspace, Delete, ArrowUp/Down/Left/Right, or one character). " + backgroundBehavior + " Pass includeSnapshot=true to verify after the keypress.",
+ 		promptSnippet: "Press keys in Chrome through the companion extension.",
+ 		parameters: Type.Object({
+ 			key: Type.String(),
+@@ -1640,7 +1885,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1687,7 +1932,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1709,7 +1954,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1729,7 +1974,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1743,17 +1988,17 @@ Usage rules:
  		name: "chrome_screenshot",
  		label: "Chrome Screenshot",
  		description:
 -			"Capture a screenshot of a Chrome tab via CDP and save it to disk without activating background tabs. Requires debugger access; failures never fall back to activating a tab. Background mode (default) ignores background=false; /chrome background off allows foreground/watch mode.",
 -		promptSnippet: "Capture Chrome screenshots and save them under .pi/chrome-screenshots by default.",
-+			(embedded ? "Capture a Chrome screenshot and return the image directly for visual inspection. Save only when an output path is explicitly supplied. " : "") + "Capture a screenshot of a Chrome tab via CDP and save it to disk without activating background tabs. Requires debugger access; failures never fall back to activating a tab. Background mode (default) ignores background=false; /chrome background off allows foreground/watch mode.",
++			(embedded ? "Capture a Chrome screenshot and return the image directly for visual inspection. Save only when an output path is explicitly supplied. " : "") + "Capture a screenshot of a Chrome tab via CDP and save it to disk without activating background tabs. Requires debugger access; failures never fall back to activating a tab. " + backgroundBehavior,
 +		promptSnippet: embedded ? "Observe Chrome visually with native image results; saving to a file is optional." : "Capture Chrome screenshots and save them under .pi/chrome-screenshots by default.",
  		parameters: Type.Object({
 -			path: Type.Optional(Type.String({ description: "Output path. Defaults to .pi/chrome-screenshots/<timestamp>.<format>." })),
@@ -1253,7 +1468,15 @@ index 1917956..ddc226c 100644
  			format: Type.Optional(StringEnum(imageFormatValues)),
  			quality: Type.Optional(Type.Number({ minimum: 0, maximum: 100, description: "JPEG quality 0-100." })),
  			fullPage: Type.Optional(Type.Boolean({ description: "Capture full-page tiles plus a JSON manifest. Temporarily scrolls the target page; does not activate background tabs." })),
-@@ -1770,7 +1993,32 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 			host: Type.Optional(Type.String()),
+ 			port: Type.Optional(Type.Number()),
+ 		}),
+@@ -1770,7 +2015,32 @@ Usage rules:
  				dimensions?: { width: number; height: number; viewportHeight: number; dpr: number };
  				tiles?: Array<{ y: number; dataUrl: string }>;
  			};
@@ -1287,6 +1510,51 @@ index 1917956..ddc226c 100644
  			if (result.fullPage && result.tiles && result.dimensions) {
  				// Stitch via PNG if format is png; otherwise we fall back to writing tile files and a
  				// manifest. We avoid pulling in an image library by writing each tile next to the main
+@@ -1810,7 +2080,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 		}),
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.hover", params, DEFAULT_TIMEOUT_MS, signal);
+@@ -1836,7 +2106,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 		}),
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.drag", params, DEFAULT_TIMEOUT_MS, signal);
+@@ -1858,7 +2128,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 		}),
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.tap", params, DEFAULT_TIMEOUT_MS, signal);
+@@ -1881,7 +2151,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 		}),
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.scroll", params, DEFAULT_TIMEOUT_MS, signal);
+@@ -1901,7 +2171,7 @@ Usage rules:
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
+-			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
++			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
+ 		}),
+ 		async execute(_id, params, signal, _onUpdate, ctx): Promise<ToolTextResult> {
+ 			const cwd = workspaceCwd(ctx);
 diff --git a/package.json b/package.json
 index 9f0af8c..186b8b1 100644
 --- a/package.json
@@ -1301,10 +1569,16 @@ index 9f0af8c..186b8b1 100644
  		"prepublishOnly": "node scripts/sync-manifest-version.js"
  	},
 diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/background-policy.test.mjs
-index e78fa49..5503c77 100644
+index e78fa49..8a2e1e8 100644
 --- a/test-suite/unit/background-policy.test.mjs
 +++ b/test-suite/unit/background-policy.test.mjs
-@@ -24,7 +24,7 @@ function piHarness({ session = "alpha", send } = {}) {
+@@ -19,12 +19,12 @@ function section(start, end) {
+ 
+ // Load the shipped policy, existing command handler, and actual tool registrations. Only the
+ // bridge/Pi UI/typebox/formatting/filesystem boundaries are replaced; no live server is opened.
+-function piHarness({ session = "alpha", send } = {}) {
++function piHarness({ session = "alpha", send, embedded = false } = {}) {
+   const calls = [], tools = new Map(), notices = [], writes = [];
    let authorized = true;
    const ctx = { key: `session:${session}`, title: `Pi Session: ${session}`, cwd: "/fixture", ui: { notify: (...args) => notices.push(args) } };
    const bridge = {
@@ -1313,15 +1587,20 @@ index e78fa49..5503c77 100644
      async send(action, params, timeout, signal) {
        calls.push({ action, params: clone(params), timeout, signal });
        if (signal?.aborted) throw new Error("Chrome command aborted");
-@@ -37,7 +37,7 @@ function piHarness({ session = "alpha", send } = {}) {
+@@ -37,11 +37,11 @@ function piHarness({ session = "alpha", send } = {}) {
    };
    const Type = new Proxy({}, { get: () => (value = {}) => value });
    const sandbox = {
 -    console, Buffer, Type,
-+    console, Buffer, Type, embedded: false, options: {}, browserExtensionPath: () => "/fixture/companion",
++    console, Buffer, Type, embedded, options: {}, browserExtensionPath: () => "/fixture/companion",
      Date,
      DEFAULT_HOST: "127.0.0.1", DEFAULT_PORT: 17318, DEFAULT_TIMEOUT_MS: 30000, MAX_ELEMENTS: 80,
      BACKGROUND_PARAM_DESCRIPTION: "background policy",
+-    ChromeProfileBridge: function () { return bridge; },
++    ChromeProfileBridge: function () { return bridge; }, sharedBridge: () => bridge,
+     requireChromeControlAuthorized() { if (!authorized) throw new Error("Chrome control locked"); },
+     sessionCtx: ctx, sessionKeyFor: (c) => c?.key, sessionGroupTitle: (c) => c.title,
+     chromeToolsRegistered: false, StringEnum: () => ({}),
 @@ -53,7 +53,7 @@ function piHarness({ session = "alpha", send } = {}) {
    };
    const registrations = indexSource.slice(indexSource.indexOf("function registerChromeTools(pi:"), indexSource.lastIndexOf("\n}"));
@@ -1331,6 +1610,41 @@ index e78fa49..5503c77 100644
      section("const authorizedBridgeSend =", '\n\tpi.on("session_start",'),
      section("const BACKGROUND_DESC:", "\n\tconst authorizeFor ="),
      registrations,
+@@ -300,6 +300,34 @@ function assertNoFocus(h) {
+   assert.ok(!h.calls.some((c) => c.action === "windows.update" || c.action === "captureVisibleTab" || (c.action === "tabs.update" && c.params.active) || (c.action === "tabs.create" && c.params.active)));
+ }
+ 
++test("embedded defaults stay background while explicit foreground composes with native controls", async () => {
++  const worker = workerHarness();
++  const pi = piHarness({ embedded: true, send: (action, params) => worker.w.dispatch(action, params) });
++  const first = await pi.tool("chrome_navigate", { url: "https://fixture.test/", waitUntilLoad: false });
++  const owned = first.details.result;
++  assert.notEqual(owned.id, 1); assertNoFocus(worker);
++  const second = await pi.tool("chrome_navigate", { url: "https://fixture.test/next", waitUntilLoad: false, background: false });
++  assert.equal(second.details.result.id, owned.id);
++  assert.equal(worker.focusedWindow(), owned.windowId);
++  assert.ok(worker.calls.some(c => c.action === "windows.update" && c.id === owned.windowId && c.params.focused));
++  const beforeActivation = worker.calls.length;
++  await assert.rejects(pi.tool("chrome_tab", { action: "activate", targetId: String(owned.id), background: true }), /requires foreground input/);
++  assert.equal(worker.calls.length, beforeActivation, "An incompatible per-call request produces no browser effect");
++  const active = await pi.tool("chrome_tab", { action: "activate", targetId: String(owned.id) });
++  assert.equal(active.details.result.id, owned.id); assert.equal(active.details.result.active, true);
++  const count = worker.calls.length;
++  await pi.tool("chrome_navigate", { url: "https://fixture.test/background", waitUntilLoad: false, background: true });
++  assert.equal(pi.calls.at(-1).params.foreground, false);
++  assert.ok(!worker.calls.slice(count).some(c => c.action === "windows.update" || c.action === "tabs.update" && c.params.active));
++  const created = await pi.tool("chrome_tab", { action: "new", url: "https://fixture.test/new" });
++  assert.equal(created.details.result.tab.active, false, "Foreground work does not change the next call's background default");
++  const frontTab = await pi.tool("chrome_tab", { action: "new", url: "https://fixture.test/front", background: false });
++  assert.equal(frontTab.details.result.tab.active, true);
++  const launched = await pi.tool("chrome_launch", { url: "https://fixture.test/launch", background: false });
++  assert.equal(launched.details.result.tab.active, true);
++
++});
++
+ test("Pi-to-worker background aliases preserve grouping, screenshot output, and ownership-aware cleanup", async () => {
+   const h = workerHarness();
+   const pi = piHarness({ send: (action, params) => h.w.dispatch(action, params) });
 diff --git a/test-suite/unit/chrome-command.test.mjs b/test-suite/unit/chrome-command.test.mjs
 index 3fb4462..b009496 100644
 --- a/test-suite/unit/chrome-command.test.mjs
@@ -1346,10 +1660,10 @@ index 3fb4462..b009496 100644
      bridge: {
 diff --git a/test-suite/unit/embedded-host.test.mjs b/test-suite/unit/embedded-host.test.mjs
 new file mode 100644
-index 0000000..8c35c46
+index 0000000..21f771b
 --- /dev/null
 +++ b/test-suite/unit/embedded-host.test.mjs
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,240 @@
 +// Actual maintained factory and broker; fake Pi and an HTTP companion, never real Chrome.
 +import assert from 'node:assert/strict';
 +import fs from 'node:fs';
@@ -1578,6 +1892,11 @@ index 0000000..8c35c46
 +test('native host setup and primer teach production connection and composable observations, never manual loading',async()=>{
 + const h=moduleHarness(),f=storeFacilities(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness();h.create({embedded:true,port,...f.options})(a.pi);await a.events.get('session_start')({},a.ctx('guidance'));
 + const primer=a.events.get('before_agent_start')({systemPrompt:'base'}).systemPrompt;
++ assert.doesNotMatch(primer,/\/chrome background|mode switch.*user|ask the user.*foreground/i);
++ for(const tool of a.tools.values()){assert.doesNotMatch(tool.description,/\/chrome background/);assert.doesNotMatch(JSON.stringify(tool.parameters),/\/chrome background/);}
++ const command=a.commands.get('chrome');assert.deepEqual(Array.from(command.getArgumentCompletions(''),item=>item.value),['doctor','onboard']);assert.equal(command.getArgumentCompletions('background '),null);
++ await command.handler('background on',a.ctx('guidance'));assert.match(a.notices.at(-1),/not available/);
++ await command.handler('settings background on',a.ctx('guidance'));assert.match(a.notices.at(-1),/not available/);
 + assert.match(primer,/native Computer tools using fresh observations/);assert.match(primer,/respect actual denials/);assert.match(primer,/never blindly replay uncertain effects/);
 + assert.doesNotMatch(a.tools.get('chrome_launch').description,/unpacked|Developer mode/);
 + await a.commands.get('chrome').handler('onboard',a.ctx('guidance'));assert.match(a.notices.at(-1),/Connect Chrome in Skills & Extensions/);assert.doesNotMatch(a.notices.join(' '),/unpacked|Developer mode/);

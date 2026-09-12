@@ -71,6 +71,7 @@ try {
     const requested = "https://fixture.test/start", resolved = "https://fixture.test/redirected";
     const navigate = call(owner, "chrome_navigate", { url: requested }); command = await next();
     assert.equal(command.action, "page.navigate"); assert.equal(command.params.targetId, undefined);
+    assert.equal(command.params.background, true); assert.equal(command.params.foreground, false);
     const tab = { id: tabId, url: resolved, title: "Shared destination", group: { id: tabId + 100, title: "Owned fixture group" } };
     await reply(command, tab);
     const navigation = await navigate;
@@ -84,6 +85,23 @@ try {
     assert.equal(command.action, "page.evaluate"); assert.equal(command.params.targetId, String(tabId));
     await reply(command, resolved); await inspect;
   }
+  const activate = call(a.session, "chrome_tab", { action: "activate", targetId: "4101" });
+  command = await next(); assert.equal(command.action, "tab.activate");
+  assert.equal(command.params.foreground, true); assert.equal(command.params.targetId, "4101");
+  await reply(command, { id: 4101, active: true }); await activate;
+  const chromeCommand = a.session.extensionRunner.getCommand("chrome");
+  assert.deepEqual(chromeCommand.getArgumentCompletions("").map((item: any) => item.value), ["doctor", "onboard"]);
+  assert.equal(chromeCommand.getArgumentCompletions("background "), null);
+  assert.doesNotMatch(chromeCommand.description, /background|authorize|revoke/);
+  await a.session.prompt("/chrome background on");
+  await a.session.prompt("/chrome settings background on");
+  await a.session.extensionRunner.emit({ type: "agent_end", messages: [] });
+  const perCall = call(a.session, "chrome_navigate", { url: "https://fixture.test/foreground", targetId: "4101", background: false });
+  command = await next(); assert.equal(command.params.foreground, true); assert.equal(command.params.targetId, "4101");
+  await reply(command, { id: 4101, url: "https://fixture.test/foreground" }); await perCall;
+  const independent = call(b.session, "chrome_tab", { action: "activate", targetId: "4102" });
+  command = await next(); assert.equal(command.params.foreground, true); assert.equal(command.params.targetId, "4102");
+  await reply(command, { id: 4102, active: true }); await independent;
   for (const route of ["/status", "/next-v2?protocol=2&version=0.15.51", "/command-state-v2?id=made-up"]) assert.equal((await fetch(url + route)).status, 403);
   const { RestrictedAppNetworkBroker } = await import("../../../src/local/agent/restricted-app-connections.ts");
   const { parseRestrictedAppManifest } = await import("../../../src/local/agent/restricted-app-manifest.ts");

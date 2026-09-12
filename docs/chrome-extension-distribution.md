@@ -24,8 +24,14 @@ facility, not the production onboarding path.
 
 ## Bootstrap and ownership
 
-The maintained pi-chrome 0.15.51 adapter preserves native tools, schemas,
-observations, background behavior, cancellation, and session-owned tab cleanup.
+The maintained pi-chrome 0.15.51 adapter preserves native tools, observations,
+cancellation, and session-owned tab cleanup. In work-fold, ordinary calls stay
+in the background; `background: false` or `chrome_tab activate` explicitly brings
+the target forward when needed. Focus is chosen per call within the person's
+task and constraints, with no user-selectable background mode. The embedded
+`/chrome` command offers connection check/setup only. Standalone Pi retains its
+native session background preference.
+
 Store bootstrap is a separate packaged script. Native Messaging is used only
 to connect/resume/disconnect/query status or explicitly open the app; commands
 and images retain the existing loopback HTTP path at `127.0.0.1:17318`.
