@@ -261,10 +261,10 @@ test("every referenced elevation and radius token is defined", () => {
 
 test("every used P0 pane class has a CSS selector", () => {
   const p0Classes = [
-    "assistant-setup-card",
+    "assistant-settings-section",
     "assistant-scope-control",
     "assistant-refresh-models",
-    "setup-grid",
+    "assistant-form-fields",
     "security-note",
     "trust-banner",
     "install-panel",

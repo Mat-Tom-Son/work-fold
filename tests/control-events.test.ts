@@ -27,9 +27,9 @@ test("control hints share one visible connection and requery after hiding/reopen
   try {
     await settle();
     assert.equal(connections.length, 1);
-    connections[0]!.controller.enqueue(new TextEncoder().encode('data: {"type":"reset"}\n\ndata: {"type":"apps"}\n\ndata: {"type":"spaces"}\n\ndata: {"type":"unknown"}\n\n'));
+    connections[0]!.controller.enqueue(new TextEncoder().encode('data: {"type":"reset"}\n\ndata: {"type":"apps"}\n\ndata: {"type":"spaces"}\n\ndata: {"type":"assistant"}\n\ndata: {"type":"unknown"}\n\n'));
     await settle();
-    assert.deepEqual(first, ["reset", "apps", "spaces"]);
+    assert.deepEqual(first, ["reset", "apps", "spaces", "assistant"]);
     assert.deepEqual(second, first);
     document.visibilityState = "hidden";
     document.dispatchEvent(new Event("visibilitychange"));
@@ -43,12 +43,13 @@ test("control hints share one visible connection and requery after hiding/reopen
     // just another unknown type and never reaches a listener.
     connections[1]!.controller.enqueue(new TextEncoder().encode('data: {"type":"decisions"}\n\ndata: {"type":"apps"}\n\n'));
     await settle();
-    assert.deepEqual(first, ["reset", "apps", "spaces"]);
-    assert.deepEqual(second, ["reset", "apps", "spaces", "apps"]);
+    assert.deepEqual(first, ["reset", "apps", "spaces", "assistant"]);
+    assert.deepEqual(second, ["reset", "apps", "spaces", "assistant", "apps"]);
     unsubscribeSecond();
     assert.equal(connections[1]!.signal.aborted, true);
   } finally {
     unsubscribeFirst(); unsubscribeSecond();
+    await settle(); // Let stream cleanup release its inactivity timer before restoring window.
     globalThis.fetch = previous.fetch;
     Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: previous.window });
     Object.defineProperty(globalThis, "document", { configurable: true, writable: true, value: previous.document });

@@ -672,64 +672,169 @@
   padding: 16px;
 }
 
-.professional-assistant .assistant-setup-card {
-  width: min(720px, 100%);
-  display: grid;
-  gap: 14px;
-  margin: 0 auto;
-  padding: 16px;
+.professional-assistant {
+  min-width: 0;
+  container-type: inline-size;
 }
 
 .professional-assistant .assistant-scope-control {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 4px;
-  border: 1px solid var(--ui-border);
-  border-radius: 10px;
-  background: var(--ui-surface-muted);
-}
-
-.professional-assistant .assistant-scope-control button {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
   min-width: 0;
-  display: grid;
-  gap: 2px;
-  padding: 8px 10px;
+  margin: 0;
+  padding: 0 0 22px;
   border: 0;
-  border-radius: 7px;
+}
+
+.professional-assistant .assistant-scope-control legend {
+  padding: 0 0 12px;
   color: var(--ui-text-muted);
-  background: transparent;
-  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.professional-assistant .assistant-scope-control button.active {
-  color: var(--ui-text);
-  background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-menu);
+.professional-assistant .assistant-scope-control label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  cursor: pointer;
 }
 
-.professional-assistant .assistant-scope-control button:only-child {
-  grid-column: 1 / -1;
+.professional-assistant .assistant-scope-control input {
+  margin: 3px 0 0;
+  accent-color: var(--ui-accent);
 }
 
 .professional-assistant .assistant-scope-control span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--ui-text);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .professional-assistant .assistant-scope-control small {
   overflow: hidden;
   color: var(--ui-text-muted);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.professional-assistant .setup-grid {
+.professional-assistant .assistant-settings-section {
   min-width: 0;
+  padding: 22px 0;
+  border-top: 1px solid var(--ui-border);
+}
+
+.professional-assistant .assistant-section-heading {
+  margin-bottom: 16px;
+}
+
+.professional-assistant .assistant-section-heading h3 {
+  margin: 0 0 6px;
+  font-family: var(--work-fold-ui-font);
+  color: var(--ui-text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.professional-assistant .assistant-section-heading p,
+.professional-assistant .assistant-connection-row p,
+.professional-assistant .assistant-provider-note {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.professional-assistant .assistant-form-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.3fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.professional-assistant .assistant-form-fields > .professional-field > .professional-field-label {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+}
+
+.professional-assistant .assistant-form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 14px;
+}
+
+.professional-assistant .assistant-form-actions .professional-button {
+  flex-shrink: 0;
+}
+
+.professional-assistant .assistant-operation-status {
+  min-height: 19px;
+  min-width: 0;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.professional-assistant .assistant-operation-status.error {
+  color: var(--ui-danger);
+}
+
+.professional-assistant .assistant-connection-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
+  margin-bottom: 14px;
+}
+
+.professional-assistant .assistant-connection-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.professional-assistant .assistant-connection-row strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.professional-assistant .assistant-provider-note {
+  margin-top: 10px;
+}
+
+.professional-assistant .assistant-external-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-bottom: 16px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+}
+
+.professional-assistant select {
+  text-overflow: ellipsis;
+}
+
+@container (max-width: 460px) {
+  .professional-assistant .assistant-form-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .professional-field {

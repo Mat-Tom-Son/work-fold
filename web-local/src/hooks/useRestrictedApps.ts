@@ -2,17 +2,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { listRestrictedApps } from "../lib/restricted-apps";
 import { subscribeControlEvents } from "../lib/control-events";
-import type { RestrictedAppInstalled } from "../types";
+import type { RestrictedAppInstalled, SpaceSummary } from "../types";
 
 const emptyRestrictedAppFixtures: Record<string, RestrictedAppInstalled[]> = {};
 
 export function useRestrictedApps({
   activeSpaceId,
+  spaces,
   fixtureMode = false,
   fixtureApps = emptyRestrictedAppFixtures,
   onError,
 }: {
   activeSpaceId: string;
+  spaces?: readonly Pick<SpaceSummary, "id">[];
   fixtureMode?: boolean;
   fixtureApps?: Record<string, RestrictedAppInstalled[]>;
   onError: (error: unknown) => void;
@@ -21,24 +23,32 @@ export function useRestrictedApps({
   const [knownSpaceIds, setKnownSpaceIds] = useState<Set<string>>(() => new Set(Object.keys(fixtureApps)));
   const [loadingSpaceIds, setLoadingSpaceIds] = useState<Set<string>>(() => new Set());
   const requestVersionsRef = useRef(new Map<string, number>());
+  const nextRequestRef = useRef(0);
+  const registeredIdsRef = useRef<Set<string> | null>(null);
+  registeredIdsRef.current = spaces ? new Set(spaces.map((space) => space.id)) : null;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; requestVersionsRef.current.clear(); };
+  }, []);
 
   const refresh = useCallback(async (spaceId: string) => {
-    if (!spaceId) return;
+    if (!spaceId || !mountedRef.current || (registeredIdsRef.current && !registeredIdsRef.current.has(spaceId))) return;
     if (fixtureMode) {
       setAppsBySpace((current) => ({ ...current, [spaceId]: fixtureApps[spaceId] ?? current[spaceId] ?? [] }));
       setKnownSpaceIds((current) => new Set(current).add(spaceId));
       return;
     }
-    const requestVersion = (requestVersionsRef.current.get(spaceId) ?? 0) + 1;
+    const requestVersion = ++nextRequestRef.current;
     requestVersionsRef.current.set(spaceId, requestVersion);
     setLoadingSpaceIds((current) => new Set(current).add(spaceId));
     try {
       const apps = await listRestrictedApps(spaceId);
-      if (requestVersionsRef.current.get(spaceId) !== requestVersion) return;
+      if (!mountedRef.current || (registeredIdsRef.current && !registeredIdsRef.current.has(spaceId)) || requestVersionsRef.current.get(spaceId) !== requestVersion) return;
       setAppsBySpace((current) => ({ ...current, [spaceId]: apps }));
       setKnownSpaceIds((current) => new Set(current).add(spaceId));
     } catch (caught) {
-      if (requestVersionsRef.current.get(spaceId) === requestVersion) onError(caught);
+      if (mountedRef.current && (!registeredIdsRef.current || registeredIdsRef.current.has(spaceId)) && requestVersionsRef.current.get(spaceId) === requestVersion) onError(caught);
     } finally {
       if (requestVersionsRef.current.get(spaceId) === requestVersion) {
         setLoadingSpaceIds((current) => {
@@ -56,12 +66,26 @@ export function useRestrictedApps({
       setKnownSpaceIds(new Set([...Object.keys(fixtureApps), activeSpaceId]));
       return;
     }
-    void refresh(activeSpaceId);
-  }, [activeSpaceId, fixtureApps, fixtureMode, refresh]);
+    const registered = registeredIdsRef.current;
+    if (registered) {
+      for (const id of requestVersionsRef.current.keys()) if (!registered.has(id)) requestVersionsRef.current.delete(id);
+      setAppsBySpace((current) => Object.fromEntries(Object.entries(current).filter(([id]) => registered.has(id))));
+      setKnownSpaceIds((current) => new Set([...current].filter((id) => registered.has(id))));
+      setLoadingSpaceIds((current) => new Set([...current].filter((id) => registered.has(id))));
+    }
+    for (const id of new Set([...requestVersionsRef.current.keys(), activeSpaceId])) void refresh(id);
+  }, [activeSpaceId, spaces, fixtureApps, fixtureMode, refresh]);
 
   useEffect(() => {
     if (fixtureMode) return;
-    return subscribeControlEvents(() => {
+    return subscribeControlEvents((hint) => {
+      if (hint === "spaces" || hint === "reset") {
+        // App re-reads the registry first. Invalidate pending old reads now;
+        // its new spaces prop will refresh only the surviving registrations.
+        for (const [id, version] of requestVersionsRef.current) requestVersionsRef.current.set(id, version + 1);
+        return;
+      }
+      if (hint !== "apps") return;
       const ids = new Set([...requestVersionsRef.current.keys(), activeSpaceId]);
       for (const id of ids) void refresh(id);
     });

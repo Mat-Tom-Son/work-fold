@@ -111,8 +111,10 @@ standard tool that returns a path remains usable through Pi's built-in read.
 
 Each integration owns its capture and artifact lifetime. Included document
 helpers bound source size, pixels/pages, image bytes, logs and runtime; rendered
-PNGs use an explicit normal output directory and remain there until deliberately
-removed. Selected native tool results can also persist in Pi's machine-local
+PNGs are temporary by default: the document worker removes its private preview
+directory after assembling the bounded native image result, including failure
+cleanup. An explicitly supplied `outputDir` keeps requested PNG artifacts in
+that ordinary directory until deliberately removed. Selected native tool results can also persist in Pi's machine-local
 session history. Neither is an ambient screenshot archive. Do not invent a
 universal retention mechanism or claim a file is temporary without a cleanup
 owner. Cleanup must never delete a delivered artifact or another Chat's evidence.

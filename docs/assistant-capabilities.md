@@ -227,6 +227,6 @@ For every new Assistant capability, keep these answers visible in code and UI:
 6. Is it enabled, loaded, ready, missing setup, or failing diagnostics?
 7. How can the person update, disable, remove, or revoke it?
 
-The current Pi catalog and import/install surfaces expose provenance, scope, status, diagnostics, and package update/removal. Fine-grained permissions and per-resource enable/disable for full-trust Pi resources, direct-import receipts/removal, and named Anthropic-pack selection remain lifecycle work to complete. Restricted Space apps already have their separate per-destination, file, notification, connection, and per-automation authority model.
+The current Pi catalog and import/install surfaces expose provenance, scope, status, diagnostics, package update/removal, native per-resource enable/disable, and direct-import receipts/removal. Full-trust Pi resources retain Pi's authority model. Named Anthropic-pack selection remains lifecycle work to complete. Restricted Space apps already have their separate per-destination, file, notification, connection, and per-automation authority model.
 
 Management adapters must preserve that checklist. Inventory is not authorization: seeing a capability through the kernel or CLI does not grant it to a Chat or permit another actor to mutate it.

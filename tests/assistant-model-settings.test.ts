@@ -209,6 +209,23 @@ test("Assistant API saves independent Space and fold models", async (t) => {
   assert.equal(foldModels.status.model, "fold-model");
   assert.equal(foldModels.instructions, null);
 
+  const streamAbort = new AbortController();
+  const streamTimeout = setTimeout(() => streamAbort.abort(), 10_000);
+  try {
+    const stream = await fetch(`${api.origin}/api/management/control-events`, { signal: streamAbort.signal });
+    const reader = stream.body!.getReader();
+    assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"type":"reset"}\n\n');
+    await api.actFacade.assistantSetModel({ space: created.space.id, provider: "scoped", model: "fold-model" });
+    assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"type":"assistant"}\n\n');
+    const composer = await requestJson(`${api.origin}/api/agent/composer?scope=space&spaceId=${created.space.id}`) as { composer: { model: { id: string } } };
+    assert.equal(composer.composer.model.id, "fold-model");
+    await requestJson(`${api.origin}/api/agent/configure`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "space", spaceId: created.space.id, provider: "scoped", model: "space-model" }),
+    });
+    assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: {"type":"assistant"}\n\n');
+  } finally { clearTimeout(streamTimeout); streamAbort.abort(); }
+
   const invalid = await fetch(`${api.origin}/api/agent/instructions`, {
     method: "POST",
     headers: { "content-type": "application/json" },

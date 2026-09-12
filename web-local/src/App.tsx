@@ -39,6 +39,8 @@ import { FileContextMenu } from "./components/tree/FileContextMenu";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
 import type { SpaceUiFixture } from "./fixtures/space-fixture";
 import { usePaneResize } from "./hooks/usePaneResize";
+import { useAssistantConfigurationRevision } from "./hooks/useAssistantConfigurationRevision";
+import { useBootstrapRefresh } from "./hooks/useBootstrapRefresh";
 import { useChatActivity } from "./hooks/useChatActivity";
 import { useRestrictedApps } from "./hooks/useRestrictedApps";
 import { useSurfaceTabs } from "./hooks/useSurfaceTabs";
@@ -100,7 +102,7 @@ export function App() {
   const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("appearance");
   const [settingsAssistantScope, setSettingsAssistantScope] = useState<AssistantModelScope | undefined>(undefined);
   const [settingsFocusAssistantModel, setSettingsFocusAssistantModel] = useState(false);
-  const [assistantConfigurationRevision, setAssistantConfigurationRevision] = useState(0);
+  const [assistantConfigurationRevision, assistantConfigurationChanged] = useAssistantConfigurationRevision(!fixtureRequested);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const activeChecksControlRef = useRef<SpaceChecksControl | null>(null);
@@ -133,14 +135,10 @@ export function App() {
   useScrollbarActivity();
   useDesktopAccentColor();
 
-  const refreshBootstrap = useCallback(async () => {
-    if (fixtureRequested) return;
-    try {
-      const result = await api<BootstrapResponse>("/api/bootstrap");
-      setBoot(result);
-      setActiveSpaceId((current) => result.spaces.some((item) => item.id === current) ? current : result.spaces[0]?.id ?? "");
-    } catch (caught) { setError(errorText(caught)); }
-  }, []);
+  const refreshBootstrap = useBootstrapRefresh(!fixtureRequested, (result) => {
+    setBoot(result);
+    setActiveSpaceId((current) => result.spaces.some((item) => item.id === current) ? current : result.spaces[0]?.id ?? "");
+  }, setError);
 
   useEffect(() => {
     if (fixtureRequested) return;
@@ -174,10 +172,22 @@ export function App() {
   }, [refreshBootstrap]);
 
   const activeSpace = useMemo(() => boot?.spaces.find((item) => item.id === activeSpaceId) ?? boot?.spaces[0] ?? null, [activeSpaceId, boot]);
-  useEffect(() => { if (activeSpace) { if (!fixtureRequested) localStorage.setItem("work-fold.space.active", activeSpace.id); setActiveSpaceId(activeSpace.id); } }, [activeSpace?.id]);
+  useEffect(() => {
+    if (!fixtureRequested && boot) {
+      if (activeSpace) localStorage.setItem("work-fold.space.active", activeSpace.id);
+      else localStorage.removeItem("work-fold.space.active");
+    }
+    if (activeSpace) setActiveSpaceId(activeSpace.id);
+  }, [activeSpace?.id, Boolean(boot)]);
   useEffect(() => {
     if (fixtureRequested) return;
-    void window.workFoldDesktop?.space.setActiveSpace?.(activeSpace?.id ?? null).catch((caught) => setError(errorText(caught)));
+    let cancelled = false;
+    void window.workFoldDesktop?.space.setActiveSpace?.(activeSpace?.id ?? null).catch(async (caught) => {
+      if (cancelled) return;
+      const current = await refreshBootstrap();
+      if (!cancelled && (!activeSpace || !current || current.spaces.some((item) => item.id === activeSpace.id))) setError(errorText(caught));
+    });
+    return () => { cancelled = true; };
   }, [activeSpace?.id, activeSpace?.name, activeSpace?.spaceRoot]);
   useEffect(() => {
     const desktopSpace = window.workFoldDesktop?.space;
@@ -285,7 +295,7 @@ export function App() {
     {activeSpace ? <SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} assistantConfigurationRevision={assistantConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
-    {settingsOpen ? <DesktopSettingsModal theme={theme} themePreference={themePreference} onThemePreferenceChange={setThemePreference} typography={typography} onTypographyChange={setTypography} space={activeSpace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={() => setAssistantConfigurationRevision((current) => current + 1)} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
+    {settingsOpen ? <DesktopSettingsModal theme={theme} themePreference={themePreference} onThemePreferenceChange={setThemePreference} typography={typography} onTypographyChange={setTypography} space={activeSpace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
     {shortcutsOpen ? <KeyboardShortcutsModal onClose={closeKeyboardShortcuts} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
@@ -304,7 +314,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   onThemePreferenceChange: (theme: AppThemePreference) => void;
   onUpdateAction: () => void;
   onSwitchSpace: (space: SpaceSummary) => void;
-  onRefreshBootstrap: () => Promise<void>;
+  onRefreshBootstrap: () => Promise<unknown>;
   onCreateSpace: () => void;
   onOpenFolder: () => void;
   onChecksControlChange: (control: SpaceChecksControl | null) => void;
@@ -406,6 +416,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   }, [spaces, tabs.openFileSurfaceTab]);
   const restrictedAppsState = useRestrictedApps({
     activeSpaceId: space.id,
+    spaces,
     fixtureMode: Boolean(fixture),
     onError: handleRestrictedAppError,
   });
@@ -542,6 +553,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     }).catch((caught) => {
       if (surfaceCatalogRequestRef.current === requestId) onError(errorText(caught));
     });
+    return () => { surfaceCatalogRequestRef.current += 1; };
   }, [fixture, space.id]);
   useEffect(() => {
     if (!surfaceCatalogKnown || !restrictedAppCatalogKnown || !activeSurfaceKey || activeSurface) return;

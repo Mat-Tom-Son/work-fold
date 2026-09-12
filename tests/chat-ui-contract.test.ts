@@ -13,7 +13,7 @@ const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes
   read("web-local/src/components/chat/messages.tsx"),
   read("web-local/src/lib/chat-work-trail.ts"),
   read("web-local/src/components/chat/activity.tsx"),
-  read("web-local/src/components/panes/spacePanes.tsx"),
+  Promise.all([read("web-local/src/components/panes/spacePanes.tsx"), read("web-local/src/components/panes/AssistantSetupPane.tsx")]).then((sources) => sources.join("\n")),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
   read("web-local/src/components/panes/spaceChrome.tsx"),
   read("web-local/src/styles.css"),
@@ -254,7 +254,7 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /onClick=\{onOpenModelSettings\}/);
   assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("assistant", "space", true\)\}/);
   assert.match(settingsModal, /initialScope=\{initialAssistantScope\} focusModelOnOpen=\{focusAssistantModel\}/);
-  assert.match(panes, /<select id="assistant-model" autoFocus=\{focusModelOnOpen\}/);
+  assert.match(panes, /<select id="assistant-model" ref=\{modelSelect\}/);
 
   // Thinking is text-only and calls the real per-conversation endpoint. The
   // control appears only when the current model reports an actual choice.

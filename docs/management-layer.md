@@ -11,12 +11,18 @@
 
 The development desktop also exposes the authenticated renderer-only
 `GET /api/management/control-events` SSE endpoint. Its closed `reset`, `apps`,
-and `spaces` hints contain no content or authority and are not remote act
+`spaces`, and `assistant` hints contain no content or authority and are not remote act
 verbs. Visible renderers share one connection and re-read the relevant service
 after a hint; reconnect sends reset without replay. The host caps connections,
 sends heartbeats, and disconnects backpressured clients instead of queuing
 unbounded updates. This keeps CLI-created Spaces and installed-app catalogs
 current in the existing UI; it is not a file watcher or workflow event bus.
+Successful Assistant configuration mutations emit `assistant` after idle-client
+invalidation, whether initiated by Settings or the CLI. Empty Chat composers
+re-read the saved default; existing Pi sessions keep their own model. Settings
+refreshes clean forms while preserving unsaved edits. Space hints first reconcile
+the registry, then refresh catalogs only for surviving registrations; obsolete
+requests cannot restore a removed Space or report a late error from its surface.
 
 App act commands accepting `--app` resolve a unique manifest id or an exact
 `featureInstallationId`. Ambiguous names refuse and list exact choices. The

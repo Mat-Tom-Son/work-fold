@@ -3,7 +3,6 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FormEvent,
   type ReactNode,
 } from "react";
 import {
@@ -25,18 +24,13 @@ import {
   History16Regular,
   History20Regular,
   Library20Regular,
-  ShieldCheckmark16Regular,
   MoreHorizontal16Regular,
 } from "@fluentui/react-icons";
 import { api, apiForm, errorText } from "../../lib/api";
-import { resolveAssistantModelSelection } from "../../lib/assistant-model-selection";
 import { aggregateChatActivityStatus, chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
 import { formatChatListTime, formatItemCount } from "../../lib/format";
 import { spaceIdentityFor, spaceIdentityStyle } from "../../lib/space-identity";
 import type {
-  AgentModel,
-  AgentModelCatalog,
-  AgentStatus,
   ChatActivityStatus,
   ChatLifecycleView,
   ConversationSummary,
@@ -669,255 +663,7 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   );
 }
 
-export type AssistantModelScope = "space" | "management";
-
-export function AssistantSetupPane({ space, status, fixtureMode = false, embedded = false, initialScope, focusModelOnOpen = false, onConfigured, onAssistantChanged }: { space: SpaceSummary | null; status: AgentStatus; fixtureMode?: boolean; embedded?: boolean; initialScope?: AssistantModelScope; focusModelOnOpen?: boolean; onConfigured: (status: AgentStatus) => void; onAssistantChanged?: (scope: AssistantModelScope, status: AgentStatus) => void }) {
-  const resolvedInitialScope = initialScope === "management" || (initialScope === "space" && space)
-    ? initialScope
-    : space ? "space" : "management";
-  const [scope, setScope] = useState<AssistantModelScope>(resolvedInitialScope);
-  const [scopeStatus, setScopeStatus] = useState<AgentStatus>(status);
-  const [models, setModels] = useState<AgentModel[]>([]);
-  const [catalogs, setCatalogs] = useState<AgentModelCatalog[]>([]);
-  const [provider, setProvider] = useState(status.provider ?? "openrouter");
-  const [model, setModel] = useState(status.model ?? "");
-  const [apiKey, setApiKey] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [savedInstructions, setSavedInstructions] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [savingInstructions, setSavingInstructions] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [instructionsNotice, setInstructionsNotice] = useState<string | null>(null);
-
-  useEffect(() => {
-    setScope(initialScope === "management" || (initialScope === "space" && space)
-      ? initialScope
-      : space ? "space" : "management");
-  }, [initialScope, space?.id]);
-
-  useEffect(() => {
-    if (fixtureMode) {
-      setModels([{ provider: "openrouter", id: "anthropic/claude-sonnet-4", name: "Claude Sonnet", authConfigured: true, oauthSupported: false }]);
-      setCatalogs([{ provider: "openrouter", refreshable: true, source: "live", refreshedAt: new Date().toISOString(), modelCount: 1 }]);
-      setProvider("openrouter");
-      setModel("anthropic/claude-sonnet-4");
-      setScopeStatus({ ...status, configured: true, provider: "openrouter", model: "anthropic/claude-sonnet-4" });
-      setInstructions(scope === "space" ? "Keep answers concise and test changes in this Space." : "");
-      setSavedInstructions(scope === "space" ? "Keep answers concise and test changes in this Space." : "");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    setNotice(null);
-    setInstructionsNotice(null);
-    const params = assistantScopeParams(scope, space);
-    void api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null }>(`/api/agent/models?${params}`)
-      .then((result) => {
-        setModels(result.models);
-        setCatalogs(result.catalogs);
-        setScopeStatus(result.status);
-        setInstructions(result.instructions ?? "");
-        setSavedInstructions(result.instructions ?? "");
-        const first = result.models.find((item) => item.provider === result.status.provider)
-          ?? result.models.find((item) => item.provider === "openrouter")
-          ?? result.models[0];
-        if (first) {
-          setProvider(first.provider);
-          setModel(resolveAssistantModelSelection(result.models, first.provider, result.status.model || ""));
-        }
-      })
-      .catch((caught) => setError(errorText(caught)))
-      .finally(() => setLoading(false));
-  }, [fixtureMode, scope, space?.id]);
-
-  const providers = unique(models.map((item) => item.provider)).sort((left, right) =>
-    providerDisplayName(models, left).localeCompare(providerDisplayName(models, right)));
-  const providerModels = models.filter((item) => item.provider === provider);
-  const oauthSupported = providerModels.some((item) => item.oauthSupported);
-  const accountOnly = providerAccountOnly(provider);
-  const authConfigured = providerModels.some((item) => item.authConfigured);
-  const providerAuth = providerModels.find((item) => item.authConfigured);
-  const removableAuth = providerAuth?.authSource === "stored";
-  const removeCredentialLabel = providerAuth?.authType === "oauth" ? "Disconnect account" : "Remove API key";
-  const credentialStatus = assistantCredentialStatus(providerAuth);
-  const setupChanged = !scopeStatus.configured || provider !== scopeStatus.provider || model !== scopeStatus.model || Boolean(apiKey.trim());
-  const subscriptionNote = oauthSupported ? providerSubscriptionNote(provider) : null;
-  const catalog = catalogs.find((item) => item.provider === provider);
-  const scopeLabel = scope === "management" ? "The fold" : space?.name ?? "This Space";
-
-  useEffect(() => {
-    if (!models.length) return;
-    setModel((current) => resolveAssistantModelSelection(models, provider, current));
-  }, [models, provider]);
-
-  async function configure(oauth = false) {
-    if (fixtureMode) {
-      const next = { ...scopeStatus, configured: true, provider, model };
-      setScopeStatus(next);
-      if (scope === "space") onConfigured(next);
-      onAssistantChanged?.(scope, next);
-      setNotice(oauth ? "Account connected" : "Setup saved");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const submittedApiKey = apiKey.trim();
-      const result = await api<{ status: AgentStatus }>(oauth ? "/api/agent/oauth" : "/api/agent/configure", {
-        method: "POST",
-        body: { ...assistantScopeBody(scope, space), provider, model, ...(oauth ? {} : { apiKey: submittedApiKey || undefined }) },
-      });
-      if (oauth || submittedApiKey) {
-        setModels((current) => current.map((item) => item.provider === provider ? {
-          ...item,
-          authConfigured: true,
-          authSource: "stored",
-          authType: oauth ? "oauth" : "api_key",
-        } : item));
-      }
-      setApiKey("");
-      setScopeStatus(result.status);
-      if (scope === "space") onConfigured(result.status);
-      onAssistantChanged?.(scope, result.status);
-      setNotice(oauth ? "Account connected" : "Model saved");
-    } catch (caught) { setError(errorText(caught)); }
-    finally { setSaving(false); }
-  }
-
-  async function removeCredential() {
-    if (fixtureMode || !removableAuth || saving) return;
-    setSaving(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api<{ models: AgentModel[]; status: AgentStatus }>("/api/agent/auth", {
-        method: "DELETE",
-        body: { ...assistantScopeBody(scope, space), provider },
-      });
-      setModels(result.models);
-      setApiKey("");
-      setScopeStatus(result.status);
-      if (scope === "space") onConfigured(result.status);
-      onAssistantChanged?.(scope, result.status);
-      setNotice(providerAuth?.authType === "oauth" ? "Account disconnected" : "API key removed");
-    } catch (caught) { setError(errorText(caught)); }
-    finally { setSaving(false); }
-  }
-
-  async function refreshModels() {
-    if (fixtureMode) {
-      setNotice("1 model refreshed from OpenRouter");
-      return;
-    }
-    setRefreshing(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; refresh: { modelCount: number } }>("/api/agent/models/refresh", {
-        method: "POST",
-        body: { ...assistantScopeBody(scope, space), provider },
-      });
-      setModels(result.models);
-      setCatalogs(result.catalogs);
-      setScopeStatus(result.status);
-      setModel((current) => resolveAssistantModelSelection(result.models, provider, current));
-      onAssistantChanged?.(scope, result.status);
-      setNotice(`${result.refresh.modelCount} models refreshed from OpenRouter`);
-    } catch (caught) { setError(errorText(caught)); }
-    finally { setRefreshing(false); }
-  }
-
-  async function saveInstructions() {
-    if (scope !== "space" || !space || savingInstructions) return;
-    if (fixtureMode) {
-      setSavedInstructions(instructions.trim());
-      setInstructions(instructions.trim());
-      setInstructionsNotice("Instructions saved");
-      return;
-    }
-    setSavingInstructions(true);
-    setError(null);
-    setInstructionsNotice(null);
-    try {
-      const result = await api<{ instructions: string }>("/api/agent/instructions", {
-        method: "POST",
-        body: { scope: "space", spaceId: space.id, instructions },
-      });
-      setInstructions(result.instructions);
-      setSavedInstructions(result.instructions);
-      setInstructionsNotice("Instructions saved");
-    } catch (caught) { setError(errorText(caught)); }
-    finally { setSavingInstructions(false); }
-  }
-
-  function submitSetup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void configure();
-  }
-
-  return (
-    <div className={embedded ? "assistant-settings-panel professional-assistant" : "space-pane-content assistant-pane professional-surface professional-assistant"}>
-      <section className="assistant-setup-card professional-card" aria-label="Assistant model settings">
-        <div className="assistant-scope-control" role="radiogroup" aria-label="Use this model for">
-          {space ? <button className={scope === "space" ? "active" : ""} type="button" role="radio" aria-checked={scope === "space"} onClick={() => setScope("space")}><span>This Space</span><small>{space.name}</small></button> : null}
-          <button className={scope === "management" ? "active" : ""} type="button" role="radio" aria-checked={scope === "management"} onClick={() => setScope("management")}><span>The fold</span><small>Menu bar and web</small></button>
-        </div>
-        {loading ? <LoadingRow label="Loading Pi models" /> : (
-          <form className="setup-grid" onSubmit={submitSetup}>
-            {error ? <div className="inline-error" role="alert">{error}</div> : null}
-            <label className="professional-field">
-              <span className="professional-field-label">Provider</span>
-              <select value={provider} onChange={(event) => { setProvider(event.target.value); setApiKey(""); setError(null); setNotice(null); }}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
-            </label>
-            <div className="professional-field">
-              <div className="assistant-model-field-heading">
-                <label className="professional-field-label" htmlFor="assistant-model">Model</label>
-                {catalog?.refreshable ? <button className="assistant-refresh-models" type="button" disabled={saving || refreshing || !authConfigured} title={authConfigured ? "Refresh OpenRouter models" : "Connect OpenRouter before refreshing"} onClick={() => void refreshModels()}><ArrowSync16Regular className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing" : "Refresh"}</button> : null}
-              </div>
-              <select id="assistant-model" autoFocus={focusModelOnOpen} value={model} onChange={(event) => { setModel(event.target.value); setError(null); setNotice(null); }}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
-              {catalog?.source === "live" && catalog.refreshedAt ? <span className="professional-field-hint">OpenRouter list updated {formatCatalogDate(catalog.refreshedAt)}</span> : null}
-            </div>
-            {scope === "space" ? <>
-              <label className="professional-field professional-field-wide assistant-instructions-field">
-                <span className="professional-field-label">Space instructions</span>
-                <textarea value={instructions} maxLength={8000} rows={6} onChange={(event) => { setInstructions(event.target.value); setError(null); setInstructionsNotice(null); }} placeholder="How should the Assistant work in this Space?" />
-              </label>
-              <div className="professional-actions professional-field-wide assistant-instructions-actions">
-                <button className="professional-button professional-button-secondary" type="button" disabled={savingInstructions || instructions.trim() === savedInstructions} onClick={() => void saveInstructions()}>
-                  {savingInstructions ? <ArrowSync16Regular className="spin" /> : <Checkmark16Regular />}Save instructions
-                </button>
-                {instructionsNotice ? <span className="professional-field-hint">{instructionsNotice}</span> : null}
-              </div>
-            </> : null}
-            {!accountOnly ? <div className="professional-field professional-field-wide">
-              <label className="professional-field-label" htmlFor="assistant-api-key">API key</label>
-              <span className="professional-field-hint" id="assistant-api-key-hint">{credentialStatus ?? "Stored securely on this computer"}</span>
-              <div className="assistant-credential-control">
-                <input id="assistant-api-key" type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setError(null); setNotice(null); }} placeholder={authConfigured ? "••••••••••••••••" : "Paste a key"} autoComplete="off" disabled={saving || authConfigured} aria-describedby="assistant-api-key-hint" />
-                {removableAuth ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void removeCredential()} disabled={saving}>{removeCredentialLabel}</button> : null}
-              </div>
-            </div> : null}
-            <div className="professional-actions professional-field-wide">
-              <button className="professional-button professional-button-primary" type="submit" disabled={saving || !model || !setupChanged || (!authConfigured && !apiKey.trim())}>
-                {saving ? <ArrowSync16Regular className="spin" /> : <Checkmark16Regular />}Save model
-              </button>
-              {oauthSupported ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void configure(true)} disabled={saving}>{assistantAccountAction(provider, providerAuth?.authType === "oauth")}</button> : null}
-              {accountOnly && removableAuth ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void removeCredential()} disabled={saving}>{removeCredentialLabel}</button> : null}
-              {notice ? <span className="professional-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
-            </div>
-            {subscriptionNote ? <p className="security-note professional-field-wide"><ShieldCheckmark16Regular />{subscriptionNote}</p> : null}
-            <p className="assistant-scope-summary professional-field-wide">Saved for {scopeLabel}. Provider connections are shared on this computer.</p>
-          </form>
-        )}
-      </section>
-    </div>
-  );
-}
+export { AssistantSetupPane, type AssistantModelScope } from "./AssistantSetupPane";
 
 function LibraryTree({ entries, selected, onSelect, disabled = false, level = 0 }: { entries: TreeEntry[]; selected: string | null; onSelect: (path: string) => void; disabled?: boolean; level?: number }) {
   return (
@@ -948,42 +694,6 @@ function LoadingRow({ label }: { label: string }) {
   return <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />{label}</div>;
 }
 
-function unique<T>(items: T[]) { return [...new Set(items)]; }
-function providerDisplayName(models: AgentModel[], provider: string) { return models.find((item) => item.provider === provider)?.providerName || provider; }
-function assistantCredentialStatus(model: AgentModel | undefined) {
-  if (!model?.authConfigured) return null;
-  if (model.authSource === "stored") return model.authType === "oauth" ? "Provider account connected on this computer" : "API key saved on this computer";
-  if (model.authSource === "environment") return `API key supplied by ${model.authLabel || "the app environment"}`;
-  if (model.authSource === "models_json_key" || model.authSource === "models_json_command") return "Credential configured in Pi models settings";
-  return "Credential supplied outside work-fold";
-}
-function providerAccountOnly(provider: string) {
-  return provider === "openai-codex" || provider === "github-copilot";
-}
-function assistantAccountAction(provider: string, configured: boolean) {
-  if (configured) return "Reconnect account";
-  if (provider === "openai-codex") return "Sign in with ChatGPT";
-  if (provider === "github-copilot") return "Sign in with GitHub";
-  if (provider === "anthropic") return "Connect Anthropic account";
-  return "Connect account";
-}
-function providerSubscriptionNote(provider: string) {
-  if (provider === "openai-codex") return "Connects to OpenAI’s Codex subscription service. Eligibility and limits follow your ChatGPT plan; OpenAI API usage is a separate connection under the OpenAI provider.";
-  if (provider === "github-copilot") return "Connects through GitHub OAuth. GitHub controls account eligibility, available models, and billing.";
-  if (provider === "anthropic") return "Anthropic recommends API-key authentication for third-party tools. A Claude subscription may not cover work-fold; usage credits and current account terms can apply.";
-  return "Availability and limits follow the provider’s current account terms.";
-}
-function assistantScopeParams(scope: AssistantModelScope, space: SpaceSummary | null) {
-  const params = new URLSearchParams({ scope });
-  if (scope === "space" && space) params.set("spaceId", space.id);
-  return params.toString();
-}
-function assistantScopeBody(scope: AssistantModelScope, space: SpaceSummary | null) {
-  return scope === "management" ? { scope } : { scope, spaceId: space?.id };
-}
-function formatCatalogDate(value: string) {
-  return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
 function libraryDestinationLabel(space: SpaceSummary, spaces: SpaceSummary[]) {
   const duplicateName = spaces.some((item) => item.id !== space.id && item.name.localeCompare(space.name, undefined, { sensitivity: "base" }) === 0);
   return duplicateName ? `${space.name} — ${space.spaceRoot}` : space.name;

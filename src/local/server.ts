@@ -10917,6 +10917,7 @@ async function runCapabilityMutation<T>(
     const result = await operation();
     if (scope === "global") await invalidateAllClients(state);
     else await invalidateWorkFoldClients(state, space.id);
+    publishControlHint(state, "assistant");
     return result;
   } finally {
     state.capabilityMutations.delete(key);
@@ -13445,7 +13446,7 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
 }
 
 /** Content-free hints only. Reconnect always sends reset; no events are replayed. */
-function publishControlHint(state: LocalApiState, type: "apps" | "spaces"): void {
+function publishControlHint(state: LocalApiState, type: "apps" | "spaces" | "assistant"): void {
   for (const response of state.controlStreams) {
     if (response.destroyed || response.writableEnded) continue;
     // A slow renderer must reconnect and requery instead of accumulating a queue.

@@ -49,6 +49,7 @@ export function useSpaceTree(space: SpaceSummary, onError: (message: string | nu
   };
 
   useEffect(() => {
+    activeSpaceIdRef.current = space.id;
     const saved = fixtureTree ? { selectedPath: null, collapsedPaths: new Set<string>() } : readTreeState(space.id);
     requestRef.current += 1;
     setSelectedPathState(saved.selectedPath);
@@ -70,6 +71,11 @@ export function useSpaceTree(space: SpaceSummary, onError: (message: string | nu
     setTreeState(cached ?? []);
     setStatus(cached?.length ? "refreshing" : "loading");
     void refresh(false, { baseTree: cached });
+    return () => {
+      requestRef.current += 1;
+      activeSpaceIdRef.current = "";
+      clearScheduledRefresh();
+    };
   }, [space.id, fixtureTree]);
 
   useEffect(() => {

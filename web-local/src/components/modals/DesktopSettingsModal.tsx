@@ -4,10 +4,13 @@ import {
   ArrowClockwise20Regular,
   Checkmark16Regular,
   Dismiss20Regular,
+  Info20Regular,
   Laptop20Regular,
+  PaintBrush20Regular,
   Power20Regular,
-  Settings20Regular,
+  Sparkle20Regular,
   Subtract20Regular,
+  Window20Regular,
   WeatherMoon20Regular,
   WeatherSunny20Regular,
 } from "@fluentui/react-icons";
@@ -18,7 +21,7 @@ import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-naviga
 import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference, DesktopUpdateStatus, SpaceSummary } from "../../types";
 import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contract";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
-import { AssistantSetupPane, type AssistantModelScope } from "../panes/spacePanes";
+import { AssistantSetupPane, type AssistantModelScope } from "../panes/AssistantSetupPane";
 import { FoldLimitsPane } from "./FoldLimitsPane";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
@@ -45,7 +48,10 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   onUpdateAction?: () => void;
 }) {
   const typographyFontOptions = typographyFontOptionsForPlatform(window.workFoldDesktop?.app.platform);
+  const [narrowNavigation, setNarrowNavigation] = useState(() => window.matchMedia("(max-width: 700px)").matches);
   const [page, setPage] = useState<SettingsPage>(initialPage);
+  const [assistantVisited, setAssistantVisited] = useState(initialPage === "assistant");
+  const contentRef = useRef<HTMLDivElement>(null);
   const [foldSection, setFoldSection] = useState<FoldSettingsSection>("access");
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
@@ -56,6 +62,17 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   const dialogRef = useModalDialog({ onClose, initialFocusRef: closeRef });
 
   useEffect(() => { setPage(initialPage); }, [initialPage]);
+  useEffect(() => {
+    if (page === "assistant") setAssistantVisited(true);
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [page, foldSection]);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 700px)");
+    const update = () => setNarrowNavigation(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     const desktopWindow = window.workFoldDesktop?.window;
@@ -84,26 +101,26 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
     }
   }
 
-  const tabs: Array<{ id: SettingsPage; label: string }> = [
-    { id: "appearance", label: "Appearance" },
-    { id: "assistant", label: "Assistant" },
-    { id: "remote", label: "The fold" },
-    { id: "desktop", label: "Desktop" },
-    { id: "about", label: "About" },
+  const tabs: Array<{ id: SettingsPage; label: string; icon: React.ReactNode; description: string }> = [
+    { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular />, description: "Make work-fold comfortable to read and use." },
+    { id: "assistant", label: "Assistant", icon: <Sparkle20Regular />, description: "Choose models, connect providers, and set Space instructions." },
+    { id: "remote", label: "The fold", icon: <Window20Regular />, description: "Manage web access, shared work, and recovery across your Spaces." },
+    { id: "desktop", label: "Desktop", icon: <Laptop20Regular />, description: "Keep work-fold up to date and manage desktop behavior." },
+    { id: "about", label: "About", icon: <Info20Regular />, description: "Version and application information." },
   ];
+  const selectedPage = tabs.find((tab) => tab.id === page)!;
 
   return (
     <div className="modal-backdrop settings-backdrop" role="presentation" onMouseDown={onClose}>
-      <section ref={dialogRef} tabIndex={-1} className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} tabIndex={-1} className="settings-modal settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title settings-title">
           <div className="settings-title-copy">
-            <span className="settings-title-mark" aria-hidden="true"><Settings20Regular /></span>
             <div><h2 id="settings-title">Settings</h2></div>
           </div>
           <button ref={closeRef} className="minimal-icon-button settings-close-button" type="button" onClick={onClose} aria-label="Close settings"><Dismiss20Regular /></button>
         </div>
         <div className="settings-form" onKeyDown={settingsRovingKeyDown}>
-          <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+          <div className="settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation={narrowNavigation ? "horizontal" : "vertical"}>
             {tabs.map((tab) => (
               <button
                 className={page === tab.id ? "settings-tab active" : "settings-tab"}
@@ -112,14 +129,17 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                 role="tab"
                 aria-selected={page === tab.id}
                 aria-controls={`settings-panel-${tab.id}`}
+                tabIndex={page === tab.id ? 0 : -1}
                 key={tab.id}
+                onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
                 onClick={() => setPage(tab.id)}
               >
-                <span>{tab.label}</span>
+                <span className="settings-nav-icon" aria-hidden="true">{tab.icon}</span><span>{tab.label}</span>
               </button>
             ))}
           </div>
-          <div className="settings-content">
+          <div className="settings-content" ref={contentRef}>
+            <header className="settings-page-heading"><h2>{selectedPage.label}</h2><p>{selectedPage.description}</p></header>
             {page === "appearance" ? (
               <div className="settings-tab-panel" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
                 <p className="settings-save-status settings-appearance-status" role="status">{appearanceNotice ? <><Checkmark16Regular />{appearanceNotice}</> : "Changes save automatically"}</p>
@@ -127,13 +147,13 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                   <section className="settings-section" aria-labelledby="appearance-theme-title">
                     <div className="settings-section-heading"><h3 id="appearance-theme-title">Theme</h3></div>
                     <div className="theme-segmented-control" role="radiogroup" aria-label="Color mode">
-                      <button className={themePreference === "system" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "system"} aria-label={`Device setting, currently ${theme}`} onClick={() => { onThemePreferenceChange("system"); setAppearanceNotice("Saved"); }}>
+                      <button className={themePreference === "system" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "system"} tabIndex={themePreference === "system" ? 0 : -1} aria-label={`Device setting, currently ${theme}`} onClick={() => { onThemePreferenceChange("system"); setAppearanceNotice("Saved"); }}>
                         <Laptop20Regular /><span className="theme-choice-copy"><span>Device setting</span></span>
                       </button>
-                      <button className={themePreference === "light" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "light"} onClick={() => { onThemePreferenceChange("light"); setAppearanceNotice("Saved"); }}>
+                      <button className={themePreference === "light" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "light"} tabIndex={themePreference === "light" ? 0 : -1} onClick={() => { onThemePreferenceChange("light"); setAppearanceNotice("Saved"); }}>
                         <WeatherSunny20Regular /><span className="theme-choice-copy"><span>Light</span></span>
                       </button>
-                      <button className={themePreference === "dark" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "dark"} onClick={() => { onThemePreferenceChange("dark"); setAppearanceNotice("Saved"); }}>
+                      <button className={themePreference === "dark" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "dark"} tabIndex={themePreference === "dark" ? 0 : -1} onClick={() => { onThemePreferenceChange("dark"); setAppearanceNotice("Saved"); }}>
                         <WeatherMoon20Regular /><span className="theme-choice-copy"><span>Dark</span></span>
                       </button>
                     </div>
@@ -144,7 +164,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                       <span className="settings-choice-label">Font</span>
                       <div className="font-choice-grid" role="radiogroup" aria-label="App font">
                         {typographyFontOptions.map((option) => (
-                          <button className={typography.font === option.value ? "font-choice-button active" : "font-choice-button"} data-font-option={option.value} type="button" key={option.value} role="radio" aria-checked={typography.font === option.value} onClick={() => { onTypographyChange({ font: option.value }); setAppearanceNotice("Saved"); }}>
+                          <button className={typography.font === option.value ? "font-choice-button active" : "font-choice-button"} data-font-option={option.value} type="button" key={option.value} role="radio" aria-checked={typography.font === option.value} tabIndex={typography.font === option.value ? 0 : -1} onClick={() => { onTypographyChange({ font: option.value }); setAppearanceNotice("Saved"); }}>
                             <span className="font-choice-sample" aria-hidden="true">Aa</span><span className="font-choice-copy"><strong>{option.label}</strong></span>
                           </button>
                         ))}
@@ -154,7 +174,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                       <span className="settings-choice-label">Text size</span>
                       <div className="text-size-segmented-control" role="radiogroup" aria-label="Text size">
                         {textSizeOptions.map((option) => (
-                          <button className={typography.textSize === option.value ? "active" : ""} type="button" key={option.value} role="radio" aria-checked={typography.textSize === option.value} onClick={() => { onTypographyChange({ textSize: option.value }); setAppearanceNotice("Saved"); }}>
+                          <button className={typography.textSize === option.value ? "active" : ""} type="button" key={option.value} role="radio" aria-checked={typography.textSize === option.value} tabIndex={typography.textSize === option.value ? 0 : -1} onClick={() => { onTypographyChange({ textSize: option.value }); setAppearanceNotice("Saved"); }}>
                             <span>{option.label}</span><small>{option.detail}</small>
                           </button>
                         ))}
@@ -164,9 +184,9 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                 </div>
               </div>
             ) : null}
-            {page === "assistant" ? (
-              <div className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
+            {page === "assistant" || assistantVisited ? (
+              <div hidden={page !== "assistant"} className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
+                <AssistantSetupPane active={page === "assistant"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
               </div>
             ) : null}
             {page === "remote" ? (
@@ -188,14 +208,16 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                     "limits",
                     "Limits",
                   ]] as Array<[FoldSettingsSection, string]>).map(([id, label]) => (
-                    <button className={foldSection === id ? "active" : ""} type="button" role="tab" aria-selected={foldSection === id} key={id} onClick={() => setFoldSection(id)}>{label}</button>
+                    <button className={foldSection === id ? "active" : ""} type="button" role="tab" aria-selected={foldSection === id} tabIndex={foldSection === id ? 0 : -1} id={`fold-settings-tab-${id}`} aria-controls={`fold-settings-panel-${id}`} key={id} onClick={() => setFoldSection(id)}>{label}</button>
                   ))}
                 </div>
+                <div id={`fold-settings-panel-${foldSection}`} role="tabpanel" aria-labelledby={`fold-settings-tab-${foldSection}`} className="settings-fold-panel">
                 {foldSection === "access" ? <RemoteAccessPane /> : null}
                 {foldSection === "pages" ? <FoldPublicationsPane /> : null}
                 {foldSection === "routings" ? <FoldRoutingsPane /> : null}
                 {foldSection === "deleted" ? <FoldRecentlyDeletedPane /> : null}
                 {foldSection === "limits" ? <FoldLimitsPane onOpenRecentlyDeleted={() => setFoldSection("deleted")} /> : null}
+                </div>
               </div>
             ) : null}
             {page === "desktop" ? (
@@ -204,10 +226,10 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                   <section className="settings-section" aria-labelledby="window-close-settings-title">
                     <div className="settings-section-heading"><h3 id="window-close-settings-title">Closing the window</h3>{closeToTrayBusy ? <span><ArrowClockwise20Regular className="spin" /> Updating</span> : closeToTrayNotice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{closeToTrayNotice}</span> : null}</div>
                     <div className="theme-segmented-control two-options" role="radiogroup" aria-label="Close button behavior">
-                      <button className={closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={closeToTray.enabled} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(true)}>
+                      <button className={closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={closeToTray.enabled} tabIndex={closeToTray.enabled ? 0 : -1} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(true)}>
                         <Subtract20Regular /><span className="theme-choice-copy"><span>Keep work-fold running</span><small>Hide to the system tray so active work can continue</small></span>
                       </button>
-                      <button className={!closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={!closeToTray.enabled} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(false)}>
+                      <button className={!closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={!closeToTray.enabled} tabIndex={!closeToTray.enabled ? 0 : -1} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(false)}>
                         <Power20Regular /><span className="theme-choice-copy"><span>Quit work-fold</span><small>Stop the app when its window closes</small></span>
                       </button>
                     </div>
@@ -714,7 +736,7 @@ function settingsRovingKeyDown(event: React.KeyboardEvent<HTMLElement>) {
   if (!(focused instanceof HTMLElement)) return;
   const group = focused.closest<HTMLElement>('[role="tablist"], [role="radiogroup"]');
   if (!group || !event.currentTarget.contains(group)) return;
-  const items = Array.from(group.querySelectorAll<HTMLElement>('[role="tab"], [role="radio"]')).filter((item) => !item.hasAttribute("disabled"));
+  const items = Array.from(group.querySelectorAll<HTMLElement>('[role="tab"], [role="radio"]')).filter((item) => !item.hasAttribute("disabled") && item.closest('[role="tablist"], [role="radiogroup"]') === group);
   const next = nextMenuItemIndex(items.indexOf(focused), items.length, key);
   if (next === null) return;
   event.preventDefault();

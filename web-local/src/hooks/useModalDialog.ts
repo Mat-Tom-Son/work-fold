@@ -125,6 +125,8 @@ function focusDialogEntry(dialog: HTMLElement, initialFocusRef?: RefObject<HTMLE
 function dialogFocusableElements(dialog: HTMLElement): HTMLElement[] {
   return Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter((element) => (
     element.tabIndex >= 0
+    && !element.matches(":disabled")
+    && !element.closest("[inert]")
     && !element.hidden
     && element.getAttribute("aria-hidden") !== "true"
     && !element.closest("[hidden], [aria-hidden=\"true\"]")

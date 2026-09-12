@@ -9,7 +9,7 @@ import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
 import { createSpaceOperationGate } from "../web-local/src/lib/space-operation-gate.js";
 
 const root = process.cwd();
-const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, app, _retiredNeedsYou, glancePanel, assistantPanes, ...desktopDialogs] = await Promise.all([
+const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, app, _retiredNeedsYou, glancePanel, ...desktopDialogs] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/modals/TextInputModal.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
@@ -19,7 +19,6 @@ const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, a
   read("web-local/src/App.tsx"),
   Promise.resolve(""),
   read("web-local/src/components/chrome/GlancePanel.tsx"),
-  read("web-local/src/components/panes/spacePanes.tsx"),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
   read("web-local/src/components/modals/KeyboardShortcutsModal.tsx"),
   read("web-local/src/components/modals/CreateSpaceModal.tsx"),
@@ -52,13 +51,10 @@ test("in-tree dialogs are wired to the shared dialog contract", () => {
   }
 });
 
-test("Settings makes saved state explicit and locks configured credentials", () => {
+test("Settings keeps automatic-save and explicit remote-setup copy", () => {
   const settings = desktopDialogs[0] ?? "";
-  assert.match(assistantPanes, /disabled=\{saving \|\| authConfigured\}/);
-  assert.match(assistantPanes, /removableAuth[\s\S]*?Remove API key/);
-  assert.match(assistantPanes, /!setupChanged/);
-  assert.match(assistantPanes, /\/api\/agent\/auth[\s\S]*?method:\s*"DELETE"/);
-  assert.match(assistantPanes, /professional-save-status" role="status"/);
+  // Credential visibility, removal, saves and stale responses are exercised
+  // against the real form in assistant-settings-ui.test.ts.
   assert.match(settings, /Changes save automatically/);
   assert.match(settings, /settings-close-button/);
   assert.match(settings, /setCloseToTrayNotice\("Saved"\)/);

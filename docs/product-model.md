@@ -92,6 +92,16 @@ collision handling require a later explicit design.
 
 The user should always be able to reveal a Space in the operating system, open its files with other applications, back it up normally, or synchronize it with a desktop sync tool. A Google Drive for desktop folder works because it is a local folder; that is not the same as direct Google Drive API integration.
 
+Settings uses one preferences window with Appearance, Assistant, The fold,
+Desktop and About navigation. The navigation becomes a single horizontally
+scrollable row in narrow windows; keyboard selection brings the selected item
+into view. Assistant settings separate model defaults, shared provider
+connections, and Space instructions. Unsaved model/instruction drafts survive
+page and scope changes while that window stays open; credentials are not cached
+across scope changes. Accepted saves retain their completion ownership if the
+window closes, so reopening waits for their result. External settings changes
+refresh clean forms and offer an explicit reload when drafts are present.
+
 ## Context is explicit
 
 Registering a folder is also the host authorization for its existing local Pi configuration. Assistant context, new package installation, restricted-app permissions, and external connections remain separate states:
@@ -132,20 +142,21 @@ This separation is a core product rail. “Available,” “in this Space,” �
 
 work-fold hosts Pi instead of recreating an agent framework. Pi owns model/provider behavior, built-in tools, standard resource discovery, packages, Skills, Extensions, and project trust mechanics. work-fold supplies the desktop experience: setup, catalog surfaces, secure credential persistence, folder selection, the registered-Space authorization override, extension UI bridges, and clear execution/permission explanations.
 
-In development, supported native Extension questions stay inline in their
-owning Chat, including the fold, with transient reconnect recovery and Stop.
-They are live Pi callbacks rather than durable Assistant questions. Planned
-included capabilities use this same native Extension path; inclusion describes
-work-fold's maintenance responsibility, not another trust or runtime tier.
+Supported native Extension questions stay inline in their owning Chat,
+including the fold, with transient reconnect recovery and Stop. They are live
+Pi callbacks rather than durable Assistant questions. Included capabilities
+use this same native Extension path; inclusion describes work-fold's
+maintenance responsibility, not another trust or runtime tier.
 See [Extensions and computer work](extension-foundation.md) for the design,
 compatibility requirements, and work still required before inclusion.
 
-The development [tool feedback contract](tool-feedback.md) applies across
-general computer work: native tools return observations, and the Assistant
-uses Pi's ordinary loop to verify or correct its result. **Inspect context**
-is a local diagnostic action from Chats and Settings → Assistant, with optional
-memory-only recording of assembled model context and observable provider
-payloads. It does not add a new navigation concept or execution framework.
+The [tool feedback contract](tool-feedback.md) applies across general computer
+work: native tools return observations, and the Assistant uses Pi's ordinary
+loop to verify or correct its result. Context inspection is a developer-only
+local diagnostic at `?dev-context`, outside ordinary Chats and Settings. Its
+optional memory-only recording captures assembled model context and observable
+provider payloads with provenance; recording is off by default. It does not
+add a new navigation concept or execution framework.
 
 There are two capability scopes:
 
@@ -329,10 +340,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
   preserving the current per-Feature authority boundary.
 - Make Space location, storage ownership, History coverage, and executable capability class easier to inspect at a glance.
 - Add Library organization controls such as rename, move, delete, reveal, and bulk operations.
-- Add per-resource enable/disable and package filtering controls without confusing availability with activation.
-- Add receipts and safe removal for directly imported Skills, independently from package lifecycle.
 - Add named-pack selection for Anthropic marketplace bundles instead of importing every discovered Skill in an archive.
-- Extend the Chat's current attachment, command, Skill, model, and context visibility into a complete “what this Chat can see and use” inspector.
 - Extend the shipped personal act lane with Chat-scoped grants, confirmation and revocation ceremonies, and headless execution, if the surface ever outgrows the per-launch single-user token.
 - Extend the shipped fold and bounded Routing triggers only through deliberate contracts for any new event source, handoff condition, or recovery behavior. Cross-Space coordination stays in the fold; Space Chats remain local to their own work.
 - Add restricted-app remote subscriptions and arbitrary push adapters, finer web-runtime resource controls, and a verified Space-service registry backed by a trusted launcher, per-instance challenge, and process-generation lifecycle. Raw numeric loopback grants remain useful for development but do not prove which process owns a port.

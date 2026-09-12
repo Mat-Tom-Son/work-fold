@@ -82,6 +82,25 @@ test("Escape closes an idle dialog and is ignored while the dialog is blocked", 
   assert.equal(closes, 1, "Escape cannot abandon a dialog that is mid-operation");
 });
 
+test("focus wrap skips disabled radios with explicit tabIndex and inert descendants", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  function PendingSettings() {
+    const ref = useModalDialog({ onClose: () => {} });
+    return createElement("section", { ref, role: "dialog", tabIndex: -1 },
+      createElement("button", { id: "close-settings" }, "Close"),
+      createElement("button", { id: "settings-nav" }, "Desktop"),
+      createElement("button", { role: "radio", disabled: true, tabIndex: 0 }, "Saving"),
+      createElement("fieldset", { disabled: true }, createElement("input", { tabIndex: 0 })),
+      createElement("div", { inert: true }, createElement("button", { tabIndex: 0 }, "Unavailable")));
+  }
+  await dom.render(createElement(PendingSettings));
+  await dom.press("Tab", { shiftKey: true });
+  assert.equal(document.activeElement?.id, "settings-nav");
+  await dom.press("Tab");
+  assert.equal(document.activeElement?.id, "close-settings");
+});
+
 test("an open dialog hides the background and restores it on close", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
