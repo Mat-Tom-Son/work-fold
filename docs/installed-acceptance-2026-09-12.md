@@ -447,6 +447,12 @@ keyboard action. Unknown results are not replayed. Maintained-patch digests,
 focused regression tests, the full suite and desktop preparation passed; the
 signed live retest is still required.
 
+Adversarial review led to `3ec5b00`: native HID input now requires the pinned
+application and observed window to have focus before input. A failed focus
+preflight sends no keys; preserve-focus verifies without raising. Strict AX-only
+mode rejects raw keyboard input, and explicit delivery policies have accurate
+diagnostics. Six focused native tests and the independent reread passed.
+
 **S20 — Chrome setup status.** Native Chrome controls installed the frozen Store
 bundle `1.0.0` and connected it successfully. The desktop's explicit Check still
 said Not connected even while native Chrome tools worked. The connection check
@@ -473,6 +479,15 @@ with "Chrome is not connected. Open Chrome and check its work-fold extension."
 The model made a second read-only list attempt with the same failure. The fixture
 remained at one submission. Recovery is failed and requires repair; it is not
 covered by the successful first connection or S20's status correction.
+
+Commit `6090017` fixes the reproduced cause in the desktop transport. Its old
+HTTP listener retained an active keep-alive socket after Disconnect, so Chrome
+continued sending the new connection's requests to the revoked handler and
+receiving 403 responses. Shutdown now closes that listener's existing sockets.
+The regression uses the frozen Store worker/bootstrap, real service and retained
+native Pi session; it fails before the repair and reconnects afterward. Twenty
+focused tests and independent review passed. Store extension `1.0.0` is unchanged;
+the signed live recovery retest remains required.
 
 The separate developer inspector exposed the actual Chat, provider, model,
 runtime folder, Pi version, system-prompt digest and dispatched tool names for
