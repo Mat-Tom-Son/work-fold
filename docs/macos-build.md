@@ -32,6 +32,27 @@ The application's Node runtime minimum remains 22.19.0. The included computer
 helper requires macOS 14 or later; other tools remain available on the app's
 supported systems.
 
+`desktop:prepare` builds the Computer app and Chrome Native Messaging bootstrap
+from reviewed source. The signing hook signs both with the app's Developer ID
+before the outer bundle is sealed. The Computer app retains its product icon
+and `com.work-fold.desktop.computer` identity. After signing, a bounded packaging
+probe uses the archived installation code to verify a standalone copy in a
+temporary private directory, without launching it or requesting permissions;
+it also verifies the Chrome bootstrap rejects an unowned origin with one
+bounded protocol frame.
+
+The Chrome bootstrap embeds the exact item ID from
+`src/shared/chrome-distribution.json`; a release build refuses a missing ID.
+An ordinary development build can produce an inert bootstrap while Store setup
+is unavailable. Explicit Chrome setup copies the verified signed executable to
+a private versioned path and registers only that exact extension origin in the
+user's Google Chrome NativeMessagingHosts directory. Development, Local Smoke
+and custom-data-profile hosts cannot replace that registration. The helper
+reads only its sibling per-launch descriptor and forwards bounded setup
+requests; it does not own connection state or execute browser operations.
+Automatic startup may update an owned registration, but a removed or changed
+registration requires explicit Connect to repair. No profile files are read.
+
 ```bash
 npm ci
 npm run check

@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { basename, delimiter, isAbsolute, join, normalize, relative, resolve } from "node:path";
@@ -65,6 +66,12 @@ import { ManagementPopover, type ManagementPopoverStagedItem } from "./managemen
 import { ModelContextWindow } from "./model-context-window.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
 import { includedToolsRoot } from "../../src/local/agent/included-tools.js";
+import { IncludedChromeConnectionService } from "../../src/local/agent/included-chrome-connection.js";
+import type { ChromeHostFacilities } from "../../src/shared/chrome-connection.js";
+import chromeDistribution from "../../src/shared/chrome-distribution.json" with { type: "json" };
+import { ChromeNativeHostRegistration } from "./chrome-native-host.js";
+import { ComputerHelperInstallation } from "./computer-helper-installation.js";
+import { createJiti } from "jiti";
 import { applyLoginShellEnvironment, formatLoginShellEnvironmentResult, type LoginShellEnvironmentResult } from "./shell-environment.js";
 import { createRestrictedAppConnectionStore } from "./restricted-app-connections.js";
 import { createRestrictedAppOAuthClient } from "./restricted-app-oauth.js";
@@ -384,6 +391,7 @@ interface DesktopHost {
   cli: WorkFoldDesktopCliHost;
   restrictedApps: RestrictedAppService;
   restrictedAppHost: RestrictedAppHost;
+  chromeConnection: IncludedChromeConnectionService;
   /**
    * The one in-process settle seam (docs/fold-routings.md): the host's Check
    * and restricted-app services publish into this exact instance, and the
@@ -511,12 +519,40 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       else if (event.method === "openSettings") mainWindow?.webContents.send("work-fold:agent:open-settings");
       else if (event.method === "quit") app.quit();
       });
+      const nativeJiti = createJiti(import.meta.url, { moduleCache: true });
+      const loadChromeConnection = () => nativeJiti.import<{
+        startIncludedChromeConnection(facilities: ChromeHostFacilities): Promise<{ close(): void }>;
+        probeIncludedChromeConnection(facilities: ChromeHostFacilities): Promise<unknown>;
+      }>(join(includedToolsRoot(), "chrome", "index.ts"));
+      const chromeRegistration = new ChromeNativeHostRegistration({
+        stateRoot: join(userData, "assistant-tools"), distribution: chromeDistribution,
+        sourceDirectory: app.isPackaged ? join(process.resourcesPath, "chrome-native-host") : join(app.getAppPath(), "out/included-tools/chrome-native-host"),
+        // An isolated/dev host must not replace the normal Chrome registration.
+        enabled: process.platform === "darwin" && app.isPackaged && !localMacSmokeBuild && !workFoldDesktopStateOverride(process.env),
+      });
+      const chromeConnection = await IncludedChromeConnectionService.create({
+        stateRoot: join(userData, "assistant-tools"), distribution: chromeDistribution,
+        registerNativeHost: (explicit) => chromeRegistration.register(explicit),
+        openStore: async () => {
+          if (!chromeDistribution.storeId || !/^[a-p]{32}$/.test(chromeDistribution.storeId)) throw new Error("Chrome connection is not available yet.");
+          await new Promise<void>((resolveOpen, rejectOpen) => execFile("/usr/bin/open", ["-a", "Google Chrome", `https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`], error => error ? rejectOpen(new Error("Google Chrome could not open the work-fold listing.")) : resolveOpen()));
+        },
+        startTransport: async (facilities) => (await loadChromeConnection()).startIncludedChromeConnection(facilities),
+        probe: async () => { await (await loadChromeConnection()).probeIncludedChromeConnection(chromeConnection); },
+      });
+      const bundledComputerHelper = app.isPackaged
+        ? join(process.resourcesPath, "computer-helper", "work-fold Computer.app")
+        : join(app.getAppPath(), "out", "included-tools", "computer-helper", "work-fold Computer.app");
+      const computerHelper = process.platform === "darwin" && app.isPackaged
+        ? await ComputerHelperInstallation.create({ sourceAppPath: bundledComputerHelper, stateRoot: join(userData, "assistant-tools") })
+        : undefined;
       const runtime = new PackagedPiRuntimeProvider({
         includedTools: {
           rootPath: includedToolsRoot(), stateRoot: join(userData, "assistant-tools"),
-          helperAppPath: app.isPackaged
-            ? join(process.resourcesPath, "computer-helper", "work-fold Computer.app")
-            : join(app.getAppPath(), "out", "included-tools", "computer-helper", "work-fold Computer.app"),
+          chromeConnection,
+          helperAppPath: computerHelper?.helperAppPath ?? bundledComputerHelper,
+          prepareComputerHelper: computerHelper?.prepare,
+          repairComputerHelper: computerHelper?.repair,
         },
         agentDir: defaultAgentSdkDir(),
         authStorageHost: settings,
@@ -549,7 +585,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       await cli.initialize();
       secureSettings = settings;
       piRuntime = runtime;
-      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime, settleSignal };
+      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime, settleSignal, chromeConnection };
     } catch (error) {
       await restrictedApps.close();
       throw error;
@@ -568,7 +604,8 @@ async function startInteractiveApp(): Promise<void> {
   interactiveRequested = true;
   if (interactiveStartupPromise) return interactiveStartupPromise;
   interactiveStartupPromise = (async () => {
-    await ensureDesktopHost();
+    const host = await ensureDesktopHost();
+    await host.chromeConnection.startIfEnabled().catch(() => console.warn("Chrome connection startup requires setup."));
     const api = await ensureInteractiveLocalApi();
     loadDesktopPreferences();
     registerRendererProtocol();
@@ -603,6 +640,7 @@ async function quitAfterCliRequest(): Promise<void> {
     return;
   }
   await host.restrictedApps.close();
+  await host.chromeConnection.close();
   await host.checks.close();
   // A headless boot proves no interactive app holds the single-instance lock,
   // so any act-token file on disk is stale crash residue; removing it lets
@@ -1961,12 +1999,14 @@ async function shutdown(): Promise<void> {
   piRuntime = null;
   const restrictedApps = desktopHostPromise?.then((host) => host.restrictedApps.close()) ?? Promise.resolve();
   const checks = desktopHostPromise?.then((host) => host.checks.close()) ?? Promise.resolve();
+  const chrome = desktopHostPromise?.then((host) => host.chromeConnection.close()) ?? Promise.resolve();
   shutdownPromise = (async () => {
     const outcomes = await Promise.allSettled([
       withShutdownTimeout(localApiLifetime.close(), "local API"),
       withShutdownTimeout(runtime?.flush() ?? Promise.resolve(), "Pi state"),
       withShutdownTimeout(restrictedApps, "restricted apps"),
       withShutdownTimeout(checks, "Checks"),
+      withShutdownTimeout(chrome, "Chrome connection"),
       withShutdownTimeout(removeWorkFoldCliActTokenFile(app.getPath("userData")), "CLI act token"),
     ]);
     for (const outcome of outcomes) {

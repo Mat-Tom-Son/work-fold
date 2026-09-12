@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { release, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJiti } from "jiti";
 const root = await mkdtemp(join(tmpdir(), "workfold-computer-native-"));
 const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
 const computer = await jiti.import<any>(new URL("../../../resources/included-tools/computer/index.ts", import.meta.url).pathname);
-const config = { stateRoot: root, helperAppPath: join(root, "Missing Helper.app") };
+let prepared = 0;
+const config = { stateRoot: root, helperAppPath: join(root, "Missing Helper.app"), prepareComputerHelper: async () => { prepared++; throw new Error("Synthetic preparation boundary"); } };
 const created: any[] = [];
 try {
   const piFixture = (mode: string) => {
@@ -28,9 +29,19 @@ try {
     assert.equal((await computer.setupIncludedComputer(config, "request-permissions")).status, "unavailable");
   }
   const result = await computer.probeIncludedComputer(config, { launch: false });
+  assert.equal(prepared, 0, "catalog, session startup and non-launching probe never materialize the helper");
   assert.ok(["not_running", "unavailable"].includes(result.status), JSON.stringify(result));
   assert.equal(result.helper?.appPath ?? config.helperAppPath, config.helperAppPath);
   await assert.rejects(() => computer.probeIncludedComputer({ ...config, stateRoot: join(root, "other") }, { launch: false }), /another work-fold profile/);
+  if (process.platform === "darwin" && Number.parseInt(release(), 10) >= 23) {
+    await assert.rejects(() => computer.probeIncludedComputer(config, { launch: true }), /Synthetic preparation boundary/);
+    assert.equal(prepared, 1);
+    const aborted = new AbortController(); aborted.abort();
+    await assert.rejects(() => created[1].tools.get("find_roots").execute("cancelled", {}, aborted.signal), /abort/i);
+    assert.equal(prepared, 1, "cancelled tools never materialize or launch");
+    await assert.rejects(() => created[1].tools.get("find_roots").execute("explicit", {}), /Synthetic preparation boundary/);
+    assert.equal(prepared, 2, "native execution waits for the verified helper before effects");
+  }
   console.log("PASS computer wrapper: catalog and session startup without helper, private native factories, read-only missing-helper probe, immutable host identity");
 } finally {
   for (const pi of created) await pi.handlers.get("session_shutdown")?.();

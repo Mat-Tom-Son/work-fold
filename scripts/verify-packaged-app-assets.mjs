@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, listPackage } from "@electron/asar";
@@ -87,6 +88,19 @@ if (packagedPlatform === "win32") {
       failures.push("Computer helper icon does not match the work-fold application icon.");
     }
   } catch (error) { failures.push(`Could not verify computer helper provenance: ${formatError(error)}`); }
+  const chromeHost = join(resourcesDir, "chrome-native-host");
+  assertPath(join(chromeHost, "work-fold-chrome-host"), "Chrome native bootstrap");
+  assertPath(join(chromeHost, "source.json"), "Chrome native bootstrap provenance");
+  try {
+    const distribution = JSON.parse(readFileSync(join(rootDir, "src/shared/chrome-distribution.json"), "utf8"));
+    const provenance = JSON.parse(readFileSync(join(chromeHost, "source.json"), "utf8"));
+    const expectedOrigin = distribution.storeId ? `chrome-extension://${distribution.storeId}/` : "";
+    if (provenance.schema !== "work-fold.chrome-native-host-source.v1" || provenance.origin !== expectedOrigin
+      || provenance.nativeHostName !== distribution.nativeHostName || provenance.bootstrapVersion !== distribution.bootstrapVersion
+      || provenance.target !== "arm64-apple-macosx12.0"
+      || provenance.sourceSha256 !== createHash("sha256").update(readFileSync(join(rootDir, "desktop/native/chrome-bootstrap.swift"))).digest("hex")
+      || provenance.distributionSha256 !== createHash("sha256").update(JSON.stringify(distribution)).digest("hex")) failures.push("Chrome native bootstrap does not match the reviewed source and Store identity.");
+  } catch (error) { failures.push(`Could not verify Chrome native bootstrap: ${formatError(error)}`); }
   if (existsSync(join(binDir, identity.cliCommand)) && !(statSync(join(binDir, identity.cliCommand)).mode & 0o111)) {
     failures.push(`${identity.productName} CLI shell shim is not executable.`);
   }
@@ -126,6 +140,10 @@ if (existsSync(asarPath)) {
     "/package.json",
     "/LICENSE",
     "/dist/desktop/desktop/src/main.js",
+    "/dist/desktop/desktop/src/chrome-native-host.js",
+    "/dist/desktop/desktop/src/computer-helper-installation.js",
+    "/dist/desktop/src/local/agent/included-chrome-connection.js",
+    "/dist/desktop/src/shared/chrome-distribution.json",
     "/dist/desktop/desktop/src/preload.cjs",
     "/dist/desktop/desktop/src/model-context-preload.cjs",
     "/dist/desktop/desktop/src/model-context-window.js",

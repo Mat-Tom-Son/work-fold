@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 import { extractFile } from "@electron/asar";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -61,6 +62,38 @@ export async function verifyPackagedNativeTools(archivePath) {
       child.once("close", code => { clearTimeout(timer); code === 0 && text.includes("PASS full built-ASAR native tools") ? resolveOutput(text) : reject(new Error(`Packaged native tool smoke ${timedOut ? "timed out" : "failed"}:\n${text}`)); });
     });
     return `${security}\n${output}`;
+  } finally { await rm(temporary, { recursive: true, force: true }); }
+}
+
+/** Verify the signed helper's actual materialization path without starting it or
+ * requesting OS permissions. The implementation comes from the built archive. */
+export async function verifyPackagedNativeHelpers(resourcesPath) {
+  const temporary = await mkdtemp(join(tmpdir(), "workfold-built-native-helpers-"));
+  try {
+    const implementation = extractFile(join(resourcesPath, "app.asar"), "dist/desktop/desktop/src/computer-helper-installation.js");
+    const modulePath = join(temporary, "installation.mjs"); await writeFile(modulePath, implementation);
+    const { ComputerHelperInstallation } = await import(pathToFileURL(modulePath).href);
+    const sourceAppPath = join(resourcesPath, "computer-helper", "work-fold Computer.app");
+    const installation = await ComputerHelperInstallation.create({ sourceAppPath, stateRoot: join(temporary, "state") });
+    await installation.prepare();
+    if (!installation.helperAppPath.startsWith(join(temporary, "state", "native-helpers", "computer"))) throw new Error("Packaged Computer helper did not materialize outside the app bundle.");
+    const binary = join(resourcesPath, "chrome-native-host", "work-fold-chrome-host");
+    const reply = await new Promise((resolveReply, reject) => {
+      const child = spawn(binary, ["chrome-extension://invalid-origin/"], { stdio: ["pipe", "pipe", "pipe"] });
+      const chunks = []; let size = 0, stderr = "";
+      const timeout = setTimeout(() => child.kill("SIGKILL"), 5_000);
+      child.stdout.on("data", data => { size += data.length; if (size > 65_540) child.kill("SIGKILL"); else chunks.push(data); });
+      child.stderr.on("data", data => { stderr += data; if (stderr.length > 4096) child.kill("SIGKILL"); });
+      child.stdin.on("error", () => {}); child.stdin.end();
+      child.once("error", error => { clearTimeout(timeout); reject(error); });
+      child.once("close", code => {
+        clearTimeout(timeout); const bytes = Buffer.concat(chunks);
+        if (code !== 0 || stderr || bytes.length < 5 || bytes.readUInt32LE() !== bytes.length - 4) { reject(new Error("Packaged Chrome bootstrap did not fail closed with one bounded protocol frame.")); return; }
+        try { resolveReply(JSON.parse(bytes.subarray(4).toString("utf8"))); } catch (error) { reject(error); }
+      });
+    });
+    if (reply.version !== 1 || reply.state !== "status" || !["connection_error", "store_unavailable"].includes(reply.status?.state)) throw new Error("Packaged Chrome bootstrap admitted an unowned origin.");
+    return "PASS signed native helpers: exact standalone Computer copy and Chrome bootstrap origin/frame rejection; no Computer launch or permissions";
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

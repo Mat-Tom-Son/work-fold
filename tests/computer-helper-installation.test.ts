@@ -1,0 +1,55 @@
+import assert from "node:assert/strict";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { ComputerHelperInstallation } from "../desktop/src/computer-helper-installation.js";
+
+test("Computer helper configuration is cold and explicit first use copies one exact standalone version", { skip: process.platform !== "darwin" }, async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-computer-materialize-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sourceAppPath = join(root, "work-fold.app/Contents/Resources/work-fold Computer.app"), stateRoot = join(root, "private-state");
+  await mkdir(join(sourceAppPath, "Contents/MacOS"), { recursive: true });
+  await mkdir(join(sourceAppPath, "Contents/Resources"));
+  await writeFile(join(sourceAppPath, "Contents/MacOS/bridge"), "synthetic executable", { mode: 0o755 });
+  await writeFile(join(sourceAppPath, "Contents/Info.plist"), "synthetic unchanged identity");
+  await writeFile(join(sourceAppPath, "Contents/Resources/icon.icns"), "synthetic icon");
+  const options = { sourceAppPath, stateRoot, verifySignature: false };
+  const first = await ComputerHelperInstallation.create(options);
+  await assert.rejects(access(stateRoot), { code: "ENOENT" });
+  assert.ok(first.helperAppPath.startsWith(join(stateRoot, "native-helpers/computer")));
+  assert.ok(!first.helperAppPath.startsWith(join(root, "work-fold.app")));
+  await Promise.all([first.prepare(), first.prepare()]);
+  assert.equal(await readFile(join(first.helperAppPath, "Contents/MacOS/bridge"), "utf8"), "synthetic executable");
+  assert.equal(await readFile(join(first.helperAppPath, "Contents/Resources/icon.icns"), "utf8"), "synthetic icon");
+  const same = await ComputerHelperInstallation.create(options); await same.prepare();
+  assert.equal(same.helperAppPath, first.helperAppPath);
+  await writeFile(join(sourceAppPath, "Contents/MacOS/bridge"), "synthetic update");
+  const next = await ComputerHelperInstallation.create(options); await next.prepare();
+  assert.notEqual(next.helperAppPath, first.helperAppPath);
+  assert.equal(await readFile(join(first.helperAppPath, "Contents/MacOS/bridge"), "utf8"), "synthetic executable", "an update never replaces the running helper version");
+  await writeFile(join(next.helperAppPath, "Contents/MacOS/bridge"), "altered installed copy");
+  await assert.rejects(() => next.prepare(), /differs from the signed copy/, "the same host revalidates each execution");
+  let stopped = 0;
+  await assert.rejects(() => next.repair(async () => { throw new Error("active work refuses repair"); }), /active work/);
+  assert.equal(await readFile(join(next.helperAppPath, "Contents/MacOS/bridge"), "utf8"), "altered installed copy");
+  await next.repair(async () => { stopped++; });
+  assert.equal(stopped, 1);
+  assert.equal(await readFile(join(next.helperAppPath, "Contents/MacOS/bridge"), "utf8"), "synthetic update");
+  await rm(join(next.helperAppPath, "Contents/MacOS/bridge"));
+  await next.repair(async () => { stopped++; });
+  assert.equal(stopped, 2, "partial missing bundle repair also stops the idle helper first");
+  await chmod(join(sourceAppPath, "Contents/MacOS/bridge"), 0o700);
+  const modeChanged = await ComputerHelperInstallation.create(options);
+  assert.notEqual(modeChanged.helperAppPath, next.helperAppPath);
+});
+
+test("Computer helper materialization rejects symlinks before creating private output", async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-computer-link-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sourceAppPath = join(root, "helper.app"), stateRoot = join(root, "state");
+  await mkdir(sourceAppPath); await writeFile(join(root, "outside"), "unowned");
+  await symlink(join(root, "outside"), join(sourceAppPath, "unexpected"));
+  await assert.rejects(() => ComputerHelperInstallation.create({ sourceAppPath, stateRoot }), /Unexpected/);
+  await assert.rejects(access(stateRoot), { code: "ENOENT" });
+});

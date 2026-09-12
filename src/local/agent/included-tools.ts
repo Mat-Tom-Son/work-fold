@@ -7,11 +7,15 @@ import type { ResolvedPiRuntime } from "./pi-runtime-config.js";
 import type { NativeResource } from "./resource-lifecycle.js";
 
 import { includedToolDefinitions } from "../../shared/included-tools.js";
+import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
 export { includedToolDefinitions, type IncludedToolId } from "../../shared/included-tools.js";
 export interface IncludedToolsConfiguration {
   rootPath: string;
   stateRoot: string;
   helperAppPath?: string;
+  prepareComputerHelper?: () => Promise<void>;
+  repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void>;
+  chromeConnection?: IncludedChromeConnectionHost;
 }
 
 export function includedToolsRoot(): string {
@@ -53,7 +57,14 @@ export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRu
     Reflect.set(value, "context", {
       version: 1, mode, cwd: resolve(cwd), agentDir: runtime.agentDir, stateRoot: config.stateRoot,
       helperAppPath: config.helperAppPath,
+      prepareComputerHelper: config.prepareComputerHelper,
       companionPath: join(config.stateRoot, "chrome-companion"),
+      ...(config.chromeConnection ? {
+        getChromeConnection: config.chromeConnection.getChromeConnection,
+        onChromeConnectionRevoked: config.chromeConnection.onChromeConnectionRevoked,
+        reportChromeConnectionObservation: config.chromeConnection.reportChromeConnectionObservation,
+        beginChromeWork: config.chromeConnection.beginChromeWork,
+      } : {}),
       getMcpConfig: () => loadIncludedMcpConfig({ agentDir: runtime.agentDir, ...(runtime.projectTrust.trusted ? { cwd: resolve(cwd) } : {}) }),
       // Credentials are read only when an operation actually needs them.
       getSearchConfig: async () => {

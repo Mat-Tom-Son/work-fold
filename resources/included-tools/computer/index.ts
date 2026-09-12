@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hostContext } from "../host.ts";
 
-export type IncludedComputerConfig = { helperAppPath: string; stateRoot: string };
+export type IncludedComputerConfig = { helperAppPath: string; stateRoot: string; prepareComputerHelper?: () => Promise<void>; repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void> };
 export type IncludedComputerSetupAction = "request-permissions" | "accessibility" | "screen-recording" | "recheck";
 
 type NativeModules = {
@@ -62,14 +62,38 @@ function runtime(config: IncludedComputerConfig): HostRuntime {
 }
 
 export async function probeIncludedComputer(config: IncludedComputerConfig, options: { launch?: boolean; signal?: AbortSignal } = {}) {
+  options.signal?.throwIfAborted();
+  if (options.launch && supportsIncludedComputer()) await prepareForSetup(config, options.signal);
+  options.signal?.throwIfAborted();
   const { permissions } = await runtime(config).native;
   return permissions.probeMacosComputerUse(options);
 }
 
 export async function setupIncludedComputer(config: IncludedComputerConfig, action: IncludedComputerSetupAction, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (supportsIncludedComputer()) await prepareForSetup(config, signal);
+  signal?.throwIfAborted();
   const { permissions } = await runtime(config).native;
   if (!supportsIncludedComputer()) return permissions.probeMacosComputerUse({ signal });
   return permissions.setupMacosComputerUse(action, signal);
+}
+
+async function prepareForSetup(config: IncludedComputerConfig, signal?: AbortSignal) {
+  if (!config.repairComputerHelper) { await config.prepareComputerHelper?.(); return; }
+  // These exported setup functions are called by the trusted host under its
+  // global capability mutation fence. Native model tools receive no repair callback.
+  await config.repairComputerHelper(async () => {
+    signal?.throwIfAborted();
+    const { helper } = await runtime(config).native;
+    try {
+      await helper.macosHelper.daemonCommand("shutdown", {}, 2_000, signal);
+      // The native shutdown acknowledgement precedes its scheduled exit by 200ms.
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (error) {
+      if (!/ENOENT|ECONNREFUSED/.test(String((error as Error).message))) throw new Error("Quit work-fold and reopen it before repairing the computer helper.");
+    }
+    signal?.throwIfAborted();
+  });
 }
 
 /** Called after host sessions stop. Never launches a helper just to shut it down. */
@@ -90,14 +114,22 @@ export default async function includedComputer(pi: ExtensionAPI) {
   const native = await runtime({ helperAppPath: context.helperAppPath, stateRoot: context.stateRoot }).native;
   // Each factory owns its states, handles, output references and cancellation.
   // Only scheduling of the shared physical computer crosses Chat boundaries.
-  const api = supportsIncludedComputer() ? pi : new Proxy(pi, {
+  const api = new Proxy(pi, {
     get(target, key, receiver) {
       if (key !== "registerTool") return Reflect.get(target, key, receiver);
-      return (tool: Parameters<ExtensionAPI["registerTool"]>[0]) => pi.registerTool({ ...tool, execute: async () => ({
+      return (tool: Parameters<ExtensionAPI["registerTool"]>[0]) => pi.registerTool({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => {
+        if (supportsIncludedComputer()) {
+          args[2]?.throwIfAborted();
+          await context.prepareComputerHelper?.();
+          args[2]?.throwIfAborted();
+          return tool.execute(...args);
+        }
+        return {
         isError: true,
         content: [{ type: "text" as const, text: "Included computer control requires macOS 14 or later. This computer can still use the other Assistant tools." }],
         details: { error: "unsupported_platform", supportedOS: false },
-      }) });
+        };
+      } });
     },
   });
   return native.factory(api, {
