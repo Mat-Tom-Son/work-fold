@@ -32,7 +32,7 @@ human setup are separate evidence.
 | A04 | Community Outreach + fold | Delegate an invitation draft from a workshop handoff; ask for missing time; answer once | Selected file reaches target; question and one continuation; no unrelated transcript leakage; fold gets result | Earlier graph/isolation passed; 0.4.30 candidate UI-first answer passed in 888 ms with one native continuation |
 | A05 | Tool Lab / MCP | Query local supply inventory, calculate shortages, handle disconnect and recovery | Native discovery/invocation, correct 4/40/8 shortages, useful failure, successful fresh retry | Passed: native discovery/invocation, 4/40/8 shortages, one failed call during synthetic outage, fresh successful retry after recovery |
 | A06 | Tool Lab / Chrome | Edit a synthetic registration form in a dedicated browser tab; verify final state; reconnect | Native Chrome observation/action, correct isolated tab, no duplicate submit on recovery | Store bundle 1.0.0: submission passed on 3186a09; repaired candidate 323e8b2 passed restart, Check, Disconnect/Connect, retained-Chat recovery and two-Chat implicit target isolation |
-| A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Candidate 323e8b2 passed native edit/save and image return; the composed browser picker exposed S23 and still needs a fresh retest |
+| A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Candidate 2b5afc9 passed UI-only edit/save/image and foreground picker opening; nested modal keyboard focus exposed S24 and needs repair/retest |
 | A08 | Tool Lab / documents | Detect and fix a deliberately clipped PDF heading and overlapping footer | Model receives images if supported; two renders; final source/image provenance matches; previews cleaned | Passed after manual recovery and evidence correction: two image paths, readable corrected PDF, matching hashes; initial allocation failure retained |
 | A09 | Two Chats | Run independent document jobs, stop one, switch tabs and reopen app | Stopped worker has no late write; sibling completes; files and task states survive restart without replay | 0.4.30 candidate overlap/Stop/sibling and restart passed; earlier failures retained |
 | A10 | Tool Lab / Space app | Build a small workshop notes app with a bounded inference action | App installs, saves a record, invokes app-owned inference, displays result and receipt | 0.4.30 candidate: one new inference, two Answered rows, zero Running; notes/summary survived restart without another call |
@@ -524,6 +524,31 @@ shell read against the task's UI-only constraint, so it is a partial result,
 not a clean end-to-end pass. Native calls, output, image count and final file
 hash are in ignored
 `out/installed-acceptance/computer-candidate-323e8b2-attempt2.json`.
+
+Commit `2b5afc9` removes the inherited hard background mode from embedded Chrome.
+Ordinary calls stay in the background; the Assistant can explicitly bring its
+target forward per call. There is no user-selectable mode or instruction to
+switch modes. Standalone Pi keeps its terminal behavior. Independent review,
+native callback/worker tests, clean installation, source checks, the full suite
+(1,516 passed, one platform skip), packaged probes, signing and notarization
+passed. The frozen Store ZIP remains unchanged.
+
+**S24 — Nested native modal focus.** The fresh `2b5afc9` journey used only Computer
+and Chrome tools. It opened the note, edited and saved 12:15 PM / Tripod and water /
+18 people, and returned a native image. Chrome created an inactive owned tab,
+then the Assistant explicitly activated it; Choose File opened the native picker.
+Command-Shift-G opened its nested GoToWindow sheet. Return on the focused path
+field was rejected before input because the helper compared the outer observed
+sheet directly to the application's focused window. Fresh observations and
+activation did not repair this false negative. The root stopped the attempt;
+the fixture retained zero uploads. Independent native CUA performed the same
+sequence successfully, then cancelled without attaching and closed its diagnostic
+tab. Evidence is in ignored
+`out/installed-acceptance/computer-chrome-candidate-2b5afc9.json`.
+
+Physical takeover and queued native-input cancellation have focused automated
+coverage; this record does not claim a separate live takeover/queue stress test.
+The document-worker Stop journey above verifies its own cancellation boundary.
 
 The separate developer inspector exposed the actual Chat, provider, model,
 runtime folder, Pi version, system-prompt digest and dispatched tool names for
