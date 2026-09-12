@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 for (const [path, marker] of [
   ["./fixtures/included-tools/chrome-native.mts", "PASS native Chrome"],
+  ["./fixtures/included-tools/chrome-readiness.mts", "PASS Chrome readiness"],
   ["../node_modules/pi-chrome/test-suite/unit/embedded-host.test.mjs", "# fail 0"],
 ]) test(`included Chrome native boundary: ${path}`, { timeout: 45_000 }, async () => {
   const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL(path, import.meta.url))], { env: { ...process.env, NODE_TEST_CONTEXT: undefined }, stdio: ["ignore", "pipe", "pipe"] });

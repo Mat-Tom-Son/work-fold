@@ -62,8 +62,17 @@ export async function startIncludedChromeConnection(host: ChromeHostFacilities) 
 }
 
 export async function probeIncludedChromeConnection(host: ChromeHostFacilities) {
+  const connection = await host.getChromeConnection();
   const result = await probeChromeConnection({ ...connectionOptions(host), timeoutMs: 5_000 });
   if (result.state !== "ready") throw new Error(result.reason);
+  if (!connection || (await host.getChromeConnection())?.connectionId !== connection.connectionId) {
+    throw new Error("Chrome connection changed while checking setup.");
+  }
+  // A previously opened long poll can answer this check without opening a new
+  // poll. Publish the validated reply too, pinned to its original connection.
+  host.reportChromeConnectionObservation({ connectionId: connection.connectionId, state: "connected",
+    ...(typeof result.version === "string" ? { extensionVersion: result.version } : {}),
+  });
   return result;
 }
 

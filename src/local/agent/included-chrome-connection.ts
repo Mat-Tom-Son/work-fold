@@ -159,8 +159,14 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
   async check(): Promise<ChromeConnectionSummary> {
     return this.#track((async () => {
       if (!this.#origin || this.#closed || !this.#saved.selected) return this.status();
+      const connectionId = (await this.getChromeConnection())?.connectionId;
+      if (!connectionId || connectionId !== this.#lease?.connectionId) return this.status();
       this.#observation = undefined;
-      try { await this.#options.probe(); } catch { return this.#summary(this.#closed ? "app_not_running" : "connection_error"); }
+      try { await this.#options.probe(); } catch {
+        // A disconnected or replaced connection owns its current state; an
+        // earlier probe must not label that new state as a connection failure.
+        return this.#closed || connectionId !== this.#lease?.connectionId ? this.status() : this.#summary("connection_error");
+      }
       return this.status();
     })());
   }
