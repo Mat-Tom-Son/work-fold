@@ -8,6 +8,16 @@ import { parentPort, workerData } from "node:worker_threads";
 const { limits } = workerData;
 const bundledUrl = import.meta.url.replace(/\.asar\.unpacked\//, ".asar/");
 const require = createRequire(bundledUrl);
+const archivePrefix = bundledUrl.match(/^.*?\.asar\//)?.[0];
+function bundledOrigin(specifier, url) {
+  if (archivePrefix && !url.startsWith(archivePrefix)) throw new Error(`Bundled document dependency ${specifier} resolved outside the application archive. Reinstall work-fold to repair its bundled libraries.`);
+  return url;
+}
+function bundledResolve(specifier) {
+  const path = require.resolve(specifier);
+  bundledOrigin(specifier, pathToFileURL(path).href);
+  return path;
+}
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const bare = (specifier) => !specifier.startsWith(".") && !specifier.startsWith("/") && !specifier.includes(":");
 
@@ -16,8 +26,17 @@ const bare = (specifier) => !specifier.startsWith(".") && !specifier.startsWith(
 // relative imports keep the real script's normal location and Node semantics.
 const scriptUrl = workerData.script ? pathToFileURL(workerData.script.path).href : undefined;
 let entryFormat;
+const libraryOrigins = {};
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    // The real worker lives outside app.asar. Resolving its own dependencies
+    // there first can escape into an ancestor checkout's node_modules. Pin
+    // host libraries to the archive; only user scripts use project-first lookup.
+    if (bare(specifier) && context.parentURL === import.meta.url) {
+      const resolved = nextResolve(specifier, { ...context, parentURL: bundledUrl });
+      libraryOrigins[specifier] = bundledOrigin(specifier, resolved.url);
+      return resolved;
+    }
     try { return nextResolve(specifier, context); }
     catch (error) {
       if (error.code !== "ERR_MODULE_NOT_FOUND" && error.code !== "MODULE_NOT_FOUND") throw error;
@@ -51,16 +70,24 @@ async function main() {
   // PptxGenJS uses image-size 1.x. Its archived ICNS/JXL/HEIF readers have known
   // malformed-input loops; disable those optional types before importing it.
   // Resolve from PptxGenJS so a nested dependency cannot bypass this setting.
-  const pptxRequire = createRequire(require.resolve("pptxgenjs"));
-  const imageSize = pptxRequire("image-size");
+  const pptxRequire = createRequire(bundledResolve("pptxgenjs"));
+  const imageSizePath = pptxRequire.resolve("image-size");
+  bundledOrigin("image-size", pathToFileURL(imageSizePath).href);
+  const imageSize = pptxRequire(imageSizePath);
   imageSize.disableTypes(["icns", "jxl", "jxl-stream", "heif"]);
-  const [docx, exceljs, pptxgenjs, pdfLib, pdfjs, canvas, zip] = await Promise.all([
+  // PDF.js also requires canvas. Load its native binding once before concurrent
+  // ESM imports so a binding failure keeps its original error and code instead
+  // of Node's secondary CJS-cache assertion during a competing import.
+  const canvasPath = bundledResolve("@napi-rs/canvas");
+  const canvas = require(canvasPath);
+  libraryOrigins["@napi-rs/canvas"] = pathToFileURL(canvasPath).href;
+  const [docx, exceljs, pptxgenjs, pdfLib, pdfjs, zip] = await Promise.all([
     import("docx"), import("exceljs"), import("pptxgenjs"), import("pdf-lib"),
-    import("pdfjs-dist/legacy/build/pdf.mjs"), import("@napi-rs/canvas"), import("jszip"),
+    import("pdfjs-dist/legacy/build/pdf.mjs"), import("jszip"),
   ]);
   const versions = {};
   for (const name of ["docx", "exceljs", "pptxgenjs", "pdf-lib", "pdfjs-dist", "@napi-rs/canvas", "jszip"]) {
-    let directory = dirname(require.resolve(name));
+    let directory = dirname(bundledResolve(name));
     for (;;) {
       try {
         const metadata = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
@@ -71,7 +98,7 @@ async function main() {
       directory = parent;
     }
   }
-  const runtime = { node: process.versions.node, electron: process.versions.electron ?? null };
+  const runtime = { node: process.versions.node, electron: process.versions.electron ?? null, libraryOrigins };
   const canvasCheck = canvas.createCanvas(2, 2).toBuffer("image/png");
   if (!canvasCheck.length) throw new Error("The bundled canvas could not encode PNG.");
   if (workerData.mode === "probe") return { versions, runtime };
@@ -81,7 +108,7 @@ async function main() {
   const images = [];
   let imageBytes = 0;
   const absolute = (path) => resolve(cwd, path);
-  const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
+  const pdfRoot = dirname(bundledResolve("pdfjs-dist/package.json"));
 
   async function withPdf(path, options, callback) {
     const sourcePath = absolute(path);
@@ -208,5 +235,16 @@ catch (error) {
       }
     }
   }
-  parentPort.postMessage({ error: Buffer.from(message).subarray(0, limits.textBytes).toString("utf8") });
+  const frames = typeof error?.stack === "string" ? error.stack.split("\n")
+    .filter((line) => /^\s+at\s/.test(line)).slice(0, 10).map((line) => line.trim().slice(0, 400)) : [];
+  // Preserve bounded engine diagnostics, never environment variables, arbitrary
+  // Error properties, or the stack's repeated message/source preamble.
+  parentPort.postMessage({ error: {
+    message: Buffer.from(message).subarray(0, limits.textBytes).toString("utf8"),
+    diagnostic: {
+      name: error instanceof Error ? error.name.slice(0, 80) : "Error",
+      ...(typeof error?.code === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(error.code) ? { code: error.code } : {}),
+      frames,
+    },
+  } });
 }

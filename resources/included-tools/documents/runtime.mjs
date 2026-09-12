@@ -60,7 +60,19 @@ function runWorker(data, { signal, timeoutMs = DOCUMENT_LIMITS.timeoutMs } = {})
     const stop = () => void finish(new Error("Document run stopped. Files already written may remain; inspect them before retrying."));
     const timer = setTimeout(() => void finish(new Error(`Document run exceeded ${timeoutMs} ms and was stopped. Files already written may remain; inspect them before retrying.`)), timeoutMs);
     signal?.addEventListener("abort", stop, { once: true });
-    worker.once("message", (message) => void finish(message.error ? new Error(message.error) : undefined, message.result));
+    worker.once("message", (message) => {
+      let error;
+      if (message.error) {
+        error = new Error(message.error.message ?? String(message.error));
+        if (message.error.diagnostic) {
+          error.diagnostic = message.error.diagnostic;
+          error.name = error.diagnostic.name;
+          if (error.diagnostic.code) error.code = error.diagnostic.code;
+          error.stack = `${error.name}: ${error.message}\n${error.diagnostic.frames.join("\n")}`;
+        }
+      }
+      void finish(error, message.result);
+    });
     worker.once("error", (error) => void finish(error));
     worker.once("exit", (code) => { if (!settled) void finish(new Error(`Document worker exited (${code}) without a result. Inspect output files before retrying.`)); });
     if (signal?.aborted) stop();
@@ -88,6 +100,6 @@ export async function probeIncludedDocuments({ signal } = {}) {
     const result = await runWorker({ mode: "probe" }, { signal, timeoutMs: 20_000 });
     return { state: "ready", reason: "Document libraries and PDF rendering are ready.", versions: result.versions, runtime: result.runtime };
   } catch (error) {
-    return { state: "unavailable", reason: error instanceof Error ? error.message : String(error) };
+    return { state: "unavailable", reason: error instanceof Error ? error.message : String(error), ...(error?.diagnostic ? { diagnostic: error.diagnostic } : {}) };
   }
 }

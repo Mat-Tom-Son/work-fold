@@ -64,6 +64,15 @@ only unpacked Mach-O binaries whose signatures legitimately changed their bytes;
 the existing code-signature checks verify those binaries. This catches source
 size changes that otherwise leave a validly signed but unreadable archive.
 
+Before signing or contacting Apple, the macOS packager also runs a bounded
+native-tool smoke against an isolated clone of the complete built archive.
+Development Electron loads that archive's compiled Chat runtime and its own Pi
+and Jiti dependencies, checks all five included tools in two Chats, invokes a
+local synthetic MCP service, and creates and renders documents through native
+tool calls. No model or credentials are used. Poisoned ancestor packages and
+reported library origins prove document runtime dependencies stay in the app;
+the smoke never launches the production app or changes the candidate bytes.
+
 The signed candidate uses the normal work-fold name, bundle identity, and
 application-data profile even outside `/Applications`. It looks like the
 installed app and shares its single-instance lock. Quit it before opening the

@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hostContext } from "../host.ts";
-import { runDocumentScript, probeIncludedDocuments } from "./runtime.mjs";
+import { runDocumentScript, probeIncludedDocuments, DOCUMENT_LIMITS } from "./runtime.mjs";
 
 export { probeIncludedDocuments };
 
@@ -43,6 +43,14 @@ export default function documents(pi: ExtensionAPI) {
           ],
           details: { script: result.script, cwd: result.cwd, libraries: result.versions, runtime: result.runtime, observations },
         };
+      } catch (error) {
+        // Native Pi marks thrown tool errors as failures and persists their
+        // message. Keep engine diagnostics inspectable through that same lane.
+        if (error instanceof Error && "diagnostic" in error) {
+          const diagnostic = `\nDocument diagnostic: ${JSON.stringify(error.diagnostic)}`;
+          error.message = Buffer.from(error.message).subarray(0, DOCUMENT_LIMITS.textBytes - Buffer.byteLength(diagnostic)).toString("utf8") + diagnostic;
+        }
+        throw error;
       } finally { active.delete(controller); signal?.removeEventListener("abort", stop); markSettled(); }
     },
   });

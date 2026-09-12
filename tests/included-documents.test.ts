@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -80,6 +80,29 @@ test("ordinary CommonJS require uses bundled fallback and local relative helpers
   await writeFile(join(setup.cwd, "local.cjs"), "module.exports=7;");
   const result = await runDocumentScript({ ...setup, args: ["x"] });
   assert.deepEqual(JSON.parse(result.value), { pdf: "function", value: 7, args: ["x"] });
+});
+
+test("script imports prefer project packages while host libraries keep their bundled origins", async (t) => {
+  const setup = await fixture(t, "import {marker} from 'docx';export default({libraries})=>({marker,bundledDocument:typeof libraries.docx.Document});");
+  const local = join(setup.cwd, "node_modules", "docx");
+  await mkdir(local, { recursive: true });
+  await writeFile(join(local, "package.json"), JSON.stringify({ name: "docx", type: "module", exports: "./index.mjs" }));
+  await writeFile(join(local, "index.mjs"), "export const marker='project version';");
+  const result = await runDocumentScript(setup);
+  assert.deepEqual(JSON.parse(result.value), { marker: "project version", bundledDocument: "function" });
+  assert.ok(!result.runtime.libraryOrigins.docx.includes(setup.cwd));
+});
+
+test("worker failures preserve bounded code and stack frames without arbitrary error properties", async (t) => {
+  const setup = await fixture(t, "export default()=>{const error=new Error('Fixture failed');error.code='ERR_DOCUMENT_FIXTURE';error.secret='MUST_NOT_BE_SERIALIZED';error.stack+='\\nnot a frame: MUST_NOT_BE_SERIALIZED';throw error;};");
+  await assert.rejects(runDocumentScript(setup), (error: Error & { code?: string; diagnostic?: unknown }) => {
+    assert.equal(error.message, "Fixture failed");
+    assert.equal(error.code, "ERR_DOCUMENT_FIXTURE");
+    assert.match(error.stack!, /script\.mjs:1:/);
+    assert.doesNotMatch(JSON.stringify(error.diagnostic), /MUST_NOT_BE_SERIALIZED/);
+    assert.ok(JSON.stringify(error.diagnostic).length < 4200);
+    return true;
+  });
 });
 
 test("native script syntax failures include a bounded source location without external tools", async (t) => {

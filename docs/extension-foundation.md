@@ -94,6 +94,9 @@ when an operation needs them. The document worker imports its libraries on
 requested execution or an explicit health check.
 
 Documents run full trust in a worker so Stop can terminate a synchronous loop.
+Its provided libraries resolve from the shipped bundle; a script's own imports
+retain ordinary project-first resolution. Run metadata records library origins
+and versions, and failed tools retain bounded engine diagnostics.
 They are not sandboxed and independent child processes are outside the worker's
 cancellation boundary. The helper bounds scripts, time, logs, PDF source size,
 page/pixel count and selected PNGs, with omissions reported in the result.

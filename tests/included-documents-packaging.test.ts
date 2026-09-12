@@ -52,6 +52,13 @@ test("packaged document worker uses Electron's Node and archived libraries with 
   }
   for (const name of ["docx", "exceljs", "pptxgenjs", "pdf-lib", "pdfjs-dist", "@napi-rs/canvas", "jszip", "acorn"]) await addPackage(name);
 
+  // A release candidate can live underneath a contributor checkout. The
+  // unpacked worker must never satisfy its own imports from that ancestor.
+  const ancestor = join(temporary, "node_modules", "docx");
+  await mkdir(ancestor, { recursive: true });
+  await writeFile(join(ancestor, "package.json"), JSON.stringify({ name: "docx", type: "module", exports: "./index.mjs" }));
+  await writeFile(join(ancestor, "index.mjs"), "throw new Error('ANCESTOR_LIBRARY_MUST_NOT_LOAD');");
+
   const output = join(temporary, "outputs");
   await mkdir(output);
   await writeFile(join(output, "bad.mjs"), 'export default async () => {\n const label = "Keep "Photos" Safe";\n};');
@@ -83,9 +90,22 @@ test("packaged document worker uses Electron's Node and archived libraries with 
   const result = JSON.parse(stdout.trim());
   assert.equal(result.readiness.state, "ready");
   assert.ok(result.readiness.runtime.electron);
+  assert.equal(Object.keys(result.readiness.runtime.libraryOrigins).length, 7);
+  for (const origin of Object.values(result.readiness.runtime.libraryOrigins)) assert.ok(String(origin).includes("/app.asar/node_modules/"), String(origin));
   assert.match(result.text, /Launch plan/);
   assert.match(result.diagnostic, /bad\.mjs:2:\d+/);
   assert.equal(result.images.length, 1);
   for (const path of result.files) assert.ok((await readFile(path)).length > 100);
   assert.equal(result.images[0].renderer, "pdfjs-dist@6.3.289");
+
+  // An incomplete release must report its missing bundled dependency, even if
+  // a same-named package can be resolved from the surrounding machine.
+  await rm(join(stage, "node_modules", "docx"), { recursive: true });
+  const incomplete = join(temporary, "incomplete.asar");
+  await createPackageWithOptions(stage, incomplete, { unpack: `{${config.asarUnpack.map((path: string) => `**/${path}`).join(",")}}` });
+  await assert.rejects(promisify(execFile)(require("electron"), [incomplete], { env, timeout: 15_000 }), (error: Error & { stderr?: string }) => {
+    assert.match(error.stderr ?? "", /docx resolved outside the application archive/);
+    assert.doesNotMatch(error.stderr ?? "", /ANCESTOR_LIBRARY_MUST_NOT_LOAD/);
+    return true;
+  });
 });

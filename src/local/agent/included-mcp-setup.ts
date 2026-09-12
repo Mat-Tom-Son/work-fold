@@ -72,12 +72,21 @@ async function upstream(): Promise<SetupApi> {
     const require = createRequire(import.meta.url);
     const piRequire = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
     const { createJiti } = piRequire("jiti") as { createJiti(path: string, options: object): { import<T>(path: string): Promise<T> } };
-    return createJiti(import.meta.url, { interopDefault: false }).import<SetupApi>(require.resolve("pi-mcp-adapter/setup"));
+    // Preserve Jiti's native default-import interoperability, as Pi's loader
+    // does. Disabling it makes archived ESM dependencies such as
+    // strip-json-comments become namespace objects in packaged Electron.
+    return createJiti(import.meta.url, { interopDefault: true }).import<SetupApi>(require.resolve("pi-mcp-adapter/setup"));
   })();
 }
 function readConfig(api: SetupApi, paths: readonly string[]): McpConfig {
   try { return api.loadMcpConfigFromFiles(paths); }
-  catch { throw new Error("The native MCP configuration could not be read. Check the mcp.json file's JSON format and file permissions."); }
+  catch (error) {
+    // Keep runtime failure categories visible without echoing parser snippets,
+    // configuration text, headers or credentials into Chat/setup errors.
+    const category = error instanceof Error && ["TypeError", "ReferenceError", "RangeError"].includes(error.name)
+      ? ` (${error.name})` : "";
+    throw new Error(`The native MCP configuration could not be read${category}. Check its JSON format, file permissions, and the installed integration.`);
+  }
 }
 function writeEntry(api: SetupApi, path: string, name: string, definition: ServerEntry): void {
   try { api.writeSharedServerEntry(path, name, definition); }
