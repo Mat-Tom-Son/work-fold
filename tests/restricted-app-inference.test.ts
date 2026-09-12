@@ -16,6 +16,7 @@ import {
 } from "../src/local/agent/restricted-app-inference.js";
 import { restrictedAppTaskAuthorityDigest, RestrictedAppTaskError } from "../src/local/agent/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-inference.js";
+import { inferenceReceiptOutcomeLabel } from "../web-local/src/components/panes/RestrictedAppInferenceReceipts.js";
 
 const scope: RestrictedAppInferenceScope = {
   spaceId: "space-one",
@@ -252,8 +253,10 @@ test("receipts survive a restart, list newest first for the installation, and a 
   await f.service.infer(scope, "view", { instructions: "Two", input: "2" });
   await f.restart();
   const listed = await f.service.list(scope);
-  assert.equal(listed.length, 4, "an accepted and a terminal line per call");
+  assert.equal(listed.length, 2, "one current row per call");
   assert.equal(listed[0].outcome, "ok");
+  assert.equal(new Set(listed.map((receipt) => receipt.id)).size, 2);
+  assert.equal((await f.lines()).length, 4, "accepted and terminal events remain in the audit journal");
   assert.equal(new Date(listed[0].at) >= new Date(listed.at(-1)!.at), true, "newest first");
 
   // A code change hides the earlier revision's receipts from the bridge but
@@ -261,7 +264,7 @@ test("receipts survive a restart, list newest first for the installation, and a 
   const changed = { ...scope, digest: "c".repeat(64) };
   f.changeScope(changed);
   assert.equal((await f.service.list(changed)).length, 0);
-  assert.equal((await f.service.list(changed, { ownership: "installation" })).length, 4);
+  assert.equal((await f.service.list(changed, { ownership: "installation" })).length, 2);
 
   await f.service.flush();
   await writeFile(f.path, "{\"v\":1,\"id\":\"not-a-uuid\"}\n", "utf8");
@@ -269,6 +272,71 @@ test("receipts survive a restart, list newest first for the installation, and a 
   assert.equal((await f.service.list(changed, { ownership: "installation" })).length, 0);
   const after = await f.service.infer(changed, "view", { instructions: "Three", input: "3" });
   assert.equal("text" in after, true, "attribution damage never disables the lane");
+});
+
+test("the latest owned invocation replaces Running and list limits count calls, not events", async (t) => {
+  const f = await fixture(t, { listItems: 2 });
+  const first = await f.service.infer(scope, "view", { instructions: "One", input: "1" });
+  f.behave("hold");
+  const controller = new AbortController();
+  const pending = f.service.infer(scope, "worker", { instructions: "Two", input: "2" }, { signal: controller.signal }).catch((error) => error);
+  await waitUntil(() => f.calls.length === 2);
+  const running = await f.service.list(scope);
+  assert.deepEqual(running.map((receipt) => receipt.outcome), ["accepted", "ok"]);
+  assert.equal(inferenceReceiptOutcomeLabel(running[0]), "Running");
+  assert.equal(running[1].id, first.receiptId);
+  controller.abort();
+  assert.equal(codeOf(await pending), "INFER_INTERRUPTED");
+  const stopped = await f.service.list(scope);
+  assert.deepEqual(stopped.map((receipt) => receipt.outcome), ["error", "ok"]);
+  assert.equal(stopped[0].id, running[0].id);
+  assert.equal(inferenceReceiptOutcomeLabel(stopped[0]), "Interrupted");
+  assert.deepEqual((await f.service.list(scope, { limit: 1 })).map((receipt) => receipt.id), [running[0].id]);
+  assert.equal((await f.lines()).length, 4);
+});
+
+test("startup records interruption once for an acceptance without completion and never replays it", async (t) => {
+  const f = await fixture(t);
+  await f.service.infer(scope, "view", { instructions: "One", input: "1" });
+  const acceptance = (await f.lines())[0];
+  // Model a process exit after durable acceptance, before any completion event.
+  await writeFile(f.path, `${JSON.stringify(acceptance)}\n`, "utf8");
+  f.advance(10_000);
+  await f.restart();
+  const listed = await f.service.list(scope);
+  assert.equal(f.calls.length, 1, "startup never calls the provider");
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, acceptance.id);
+  assert.equal(listed[0].errorCode, "INFER_INTERRUPTED");
+  assert.equal(listed[0].usage, undefined, "unknown provider usage is not invented");
+  assert.equal(listed[0].durationMs, undefined, "a crash cannot establish provider completion time");
+  assert.equal(inferenceReceiptOutcomeLabel(listed[0]), "Interrupted");
+  const recovered = await f.lines();
+  assert.deepEqual(recovered[0], acceptance, "the original acceptance remains unchanged");
+  assert.deepEqual(recovered.map((receipt) => receipt.outcome), ["accepted", "error"]);
+  await f.restart();
+  assert.deepEqual(await f.lines(), recovered, "reconciliation does not repeat on the next launch");
+  assert.equal(f.calls.length, 1);
+});
+
+test("projection preserves revision and ownership pins even when journal IDs collide", async (t) => {
+  const f = await fixture(t);
+  await f.service.infer(scope, "view", { instructions: "One", input: "1" });
+  const [accepted, ok] = await f.lines();
+  const changed = { ...scope, digest: "b".repeat(64) };
+  const rows = [accepted, ok,
+    { ...accepted, digest: changed.digest }, { ...ok, digest: changed.digest, outcome: "error", errorCode: "INFER_FAILED" },
+    { ...ok, spaceId: "another-space" }, { ...ok, appId: "another-app" }, { ...ok, featureInstallationId: "another-installation" }];
+  await writeFile(f.path, rows.map((row) => JSON.stringify(row)).join("\n") + "\n", "utf8");
+  f.changeScope(changed);
+  await f.restart();
+  const revision = await f.service.list(changed);
+  assert.deepEqual(revision.map((receipt) => [receipt.digest, receipt.outcome]), [[changed.digest, "error"]]);
+  const installation = await f.service.list(changed, { ownership: "installation" });
+  assert.deepEqual(installation.map((receipt) => [receipt.digest, receipt.outcome]), [[changed.digest, "error"], [scope.digest, "ok"]]);
+  for (const row of installation) assert.deepEqual([row.spaceId, row.appId, row.featureInstallationId], [scope.spaceId, scope.appId, scope.featureInstallationId]);
+  installation[0].outcome = "accepted";
+  assert.equal((await f.service.list(changed))[0].outcome, "error", "callers cannot mutate the projection");
 });
 
 test("the limiter releases exactly once and reports its own occupancy", async (t) => {

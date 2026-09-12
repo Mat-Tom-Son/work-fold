@@ -412,7 +412,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
     }
   }
 
-  /** Newest first. The Apps tab reads the whole installation; the bridge never reads at all. */
+  /** One current row per call, newest first. The bridge never reads this list. */
   async list(
     scope: RestrictedAppInferenceScope,
     options: { ownership?: RestrictedAppInferenceOwnership; limit?: number } = {},
@@ -420,13 +420,12 @@ export class RestrictedAppInferenceService extends EventEmitter {
     await this.#pin(scope);
     const ownership = options.ownership ?? "revision";
     const limit = Math.min(options.limit ?? this.#limits.listItems, this.#limits.listItems);
-    return this.#receipts
+    return latestInferenceReceipts(this.#receipts
       .filter((receipt) => receipt.spaceId === scope.spaceId
         && receipt.appId === scope.appId
         && receipt.featureInstallationId === scope.featureInstallationId
-        && (ownership === "installation" || receipt.digest === scope.digest))
-      .slice(-limit)
-      .reverse()
+        && (ownership === "installation" || receipt.digest === scope.digest)))
+      .slice(0, limit)
       .map((receipt) => structuredClone(receipt));
   }
 
@@ -475,6 +474,13 @@ export class RestrictedAppInferenceService extends EventEmitter {
       this.#bytes = Buffer.byteLength(text, "utf8");
     } catch {
       await this.#quarantine();
+    }
+    // No provider call survives this host. Keep the acceptance as audit evidence
+    // and append an interruption, without guessing whether the provider finished
+    // or making another call. Later launches see the terminal row and do nothing.
+    for (const receipt of latestInferenceReceipts(this.#receipts).filter((item) => item.outcome === "accepted")) {
+      await this.#append({ ...receipt, at: this.#now().toISOString(), outcome: "error", errorCode: "INFER_INTERRUPTED" })
+        .catch(() => undefined);
     }
   }
 
@@ -535,6 +541,20 @@ export class RestrictedAppInferenceService extends EventEmitter {
       await rm(temp, { force: true });
     }
   }
+}
+
+/** Journal order wins even if the clock changes. Preserve every ownership pin. */
+function latestInferenceReceipts(receipts: RestrictedAppInferenceReceipt[]): RestrictedAppInferenceReceipt[] {
+  const seen = new Set<string>();
+  const current: RestrictedAppInferenceReceipt[] = [];
+  for (let index = receipts.length - 1; index >= 0; index--) {
+    const receipt = receipts[index]!;
+    const key = JSON.stringify([receipt.spaceId, receipt.appId, receipt.featureInstallationId, receipt.digest, receipt.id]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    current.push(receipt);
+  }
+  return current;
 }
 
 function toInferenceError(error: unknown): RestrictedAppInferenceError {

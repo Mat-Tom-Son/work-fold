@@ -24,6 +24,7 @@ function formatBytes(bytes: number): string {
 export function inferenceReceiptOutcomeLabel(receipt: RestrictedAppInferenceReceipt): string {
   if (receipt.outcome === "ok") return "Answered";
   if (receipt.outcome === "accepted") return "Running";
+  if (receipt.errorCode === "INFER_INTERRUPTED") return "Interrupted";
   return receipt.errorCode ? `Stopped · ${receipt.errorCode}` : "Stopped";
 }
 
@@ -60,7 +61,7 @@ export function RestrictedAppInferenceReceipts({ app, disabled }: {
   return <section className="restricted-app-connections restricted-app-inference-receipts" aria-label="Short answers">
     <div className="restricted-app-connections-heading"><h3>Short answers</h3></div>
     {error ? <p role="alert">{error}</p> : null}
-    {receipts.map((receipt) => <article className="restricted-app-destination-card" key={receipt.id}>
+    {receipts.map((receipt) => <article className="restricted-app-destination-card" key={`${receipt.digest}:${receipt.id}`}>
       <div className="restricted-app-destination-heading">
         <div>
           <strong>{new Date(receipt.at).toLocaleString()}</strong>

@@ -30,7 +30,7 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   assert.doesNotMatch(dom.container.textContent!, /Sign-in required|Sign in required/);
   await dom.act(() => button("Turn off").click());
   await dom.waitFor(() => dom.container.textContent?.includes("Turned off") === true);
-  assert.equal(button("Check connection").disabled, true);
+  assert.equal(button("Check").disabled, true);
   assert.equal(button("Sign in").disabled, true);
   assert.deepEqual(calls.at(-1), { scope: "project", name: server.name, expectedRevision: "a".repeat(64), enabled: false, spaceId: "space-fixture", sessionId: "setup-fixture", operation: "enabled" });
   server = { ...server, revision: "c".repeat(64) };
@@ -39,12 +39,12 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   assert.match(dom.container.querySelector('[role="alert"]')!.textContent!, /service changed/);
   assert.equal(server.disabled, true);
   assert.equal(calls.at(-1).expectedRevision, "b".repeat(64));
-  await dom.act(() => button("Refresh connections").click());
+  await dom.act(() => button("Refresh").click());
   await dom.waitFor(() => !dom.container.querySelector('[role="alert"]'));
   await dom.act(() => button("Turn on").click());
   await dom.waitFor(() => dom.container.textContent?.includes("Turn off") === true);
   assert.equal(calls.at(-1).expectedRevision, "c".repeat(64)); assert.equal(calls.at(-1).enabled, true);
-  assert.equal(button("Check connection").disabled, false);
+  assert.equal(button("Check").disabled, false);
   assert.match(dom.container.textContent!, /Not signed in/);
   await dom.render(createElement(IncludedMcpSetup, { spaceId: "space-fixture", enabled: false }));
   assert.equal(button("Turn off").disabled, true, "a disabled Extension cannot change its native connection");

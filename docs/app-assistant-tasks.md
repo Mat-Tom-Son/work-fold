@@ -254,7 +254,9 @@ Every refusal names what it hit: `INFER_INVALID`, `INFER_INPUT_TOO_LARGE`,
 Each call appends an accepted line and then an `ok` or `error` line to the
 machine-local `restricted-apps/inference-receipts.jsonl` journal, recording the
 surface, byte sizes, the effective model, and its usage — never the app's
-content. The Apps tab lists an installation's receipts across code changes. An
+content. The Apps tab lists the latest event for each call across code changes,
+with its limit applied to calls rather than journal lines. On startup, acceptance-only records receive an
+`INFER_INTERRUPTED` event without replay or a claim about provider completion. An
 unreadable journal is moved aside and a fresh one starts: lost attribution
 never stops an app from working.
 

@@ -67,7 +67,7 @@ export type RestrictedAppInferenceResult =
   | { text: string; truncated: boolean; receiptId: string; model: RestrictedAppInferenceModelRef; usage: RestrictedAppInferenceUsage }
   | { json: unknown; receiptId: string; model: RestrictedAppInferenceModelRef; usage: RestrictedAppInferenceUsage };
 
-/** One line of the inference receipt journal; the Apps tab lists these. */
+/** One journal event; the Apps tab lists the latest event per owned invocation. */
 export interface RestrictedAppInferenceReceipt {
   v: 1;
   id: string;
