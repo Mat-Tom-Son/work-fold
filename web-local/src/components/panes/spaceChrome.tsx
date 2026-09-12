@@ -211,10 +211,9 @@ function SpaceModeRail({
             </button>
             {addOpen ? (
               <div ref={addMenuRef} id="space-add-menu" className="space-rail-add-menu" role="menu" aria-label="Add or manage" onKeyDown={handleAddMenuKeyDown}>
-                <span className="space-rail-add-menu-heading">Add or manage</span>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenLibrary)}><strong>Your Library</strong><span>Files you reuse across Spaces</span></button>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onOpenAssistantTools("installed"))}><strong>Skills &amp; Extensions</strong><span>What the Assistant can use, here and everywhere</span></button>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenApps)}><strong>Apps</strong><span>Visual tools built for this Space</span></button>
+                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenLibrary)}><strong>Your Library</strong></button>
+                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onOpenAssistantTools("installed"))}><strong>Skills &amp; Extensions</strong></button>
+                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenApps)}><strong>Apps</strong></button>
               </div>
             ) : null}
           </div>
