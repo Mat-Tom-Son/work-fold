@@ -39,7 +39,6 @@ export function SpaceAppsPane({
         <div>
           <span className="professional-kicker">Apps</span>
           <h1>Apps in {space.name}</h1>
-          <p>Apps have their own screens and start with the access they declare. Manage their connections, access, and automations here.</p>
         </div>
         <div className="space-apps-actions">
           <button className="professional-button professional-button-primary" type="button" onClick={onBuildApp}><Add16Regular />Build with Assistant</button>

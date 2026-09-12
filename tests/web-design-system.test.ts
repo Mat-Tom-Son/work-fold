@@ -99,7 +99,7 @@ test("Library opens from Add as a persistent Space-owned work tab", () => {
   assert.doesNotMatch(spacePanesSource, /const \[tree, setTree\]/);
   assert.match(spacePanesSource, /Personal · available across Spaces/);
   assert.match(spacePanesSource, /Add a copy to[\s\S]*?spaces\.map/);
-  assert.match(spacePanesSource, /Copies go to <strong>From Library<\/strong>\. Your Library stays unchanged, and the copy is not added to Chat context/);
+  assert.match(spacePanesSource, /Copies to <strong>From Library<\/strong>; not added to Chat\./);
   assert.match(spacePanesSource, /targetFolderPath", ""/);
   assert.match(spacePanesSource, /parentPath: ""/);
   assert.match(surfacesCss, /\.space-surface-body:has\(> \.library-pane\)[\s\S]*?container-type:\s*inline-size/);
@@ -154,7 +154,8 @@ test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab
   assert.doesNotMatch(capabilitiesSource, /<section className="professional-card capabilities-add-panel"/);
   assert.match(capabilitiesSource, /<CoreToolsSection tools=\{catalog\.tools\} management=\{catalog\.toolManagement\}/);
   assert.match(capabilitiesSource, /tool\.core === true \|\| tool\.kind === "core"/);
-  assert.match(capabilitiesSource, /These tools ship with Pi\. New Chats start with the defaults below/);
+  assert.match(capabilitiesSource, /On in new Chats/);
+  assert.match(capabilitiesSource, /Available to Chats/);
   assert.match(capabilitiesSource, /On in new Chats[\s\S]*Available to Chats/);
   assert.doesNotMatch(capabilitiesSource, /active\s*·[\s\S]*available tools/i);
   assert.match(capabilitiesSource, /setTypeFilter\("all"\);[\s\S]*selectView\("installed"\)/);

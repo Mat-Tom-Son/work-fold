@@ -170,13 +170,10 @@ function FileVersionHistoryModal({
             ))
           ) : (
             <div className="readiness-rail-empty">
-              No saved versions of this file yet. Versions are saved when the Assistant edits a file and whenever a restore point is created.
+              No saved versions.
             </div>
           )}
         </div>
-        <p className="file-history-footnote">
-          If the file is open in Word, Excel, or PowerPoint, close and reopen it to see the restored version.
-        </p>
       </section>
     </div>
   );

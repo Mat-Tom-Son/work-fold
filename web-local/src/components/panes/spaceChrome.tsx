@@ -27,7 +27,6 @@ import {
   ImageAdd20Regular,
   Keyboard24Regular,
   Search20Regular,
-  ShieldCheckmark20Regular,
   Warning20Regular,
 } from "@fluentui/react-icons";
 import {
@@ -718,7 +717,6 @@ function SpaceAppearancePanel({
   }, [spaceId, identity.iconName]);
 
   const appearancePasses = identity.resolved.passes;
-  const uncertified = identity.resolved.uncertified.length > 0;
 
   async function handleBannerFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
@@ -831,17 +829,9 @@ function SpaceAppearancePanel({
           </div>
         ))}
       </div>
-      <div className={appearancePasses ? "space-appearance-audit passes" : "space-appearance-audit warning"}>
-        {appearancePasses ? <ShieldCheckmark20Regular aria-hidden="true" /> : <Warning20Regular aria-hidden="true" />}
-        <span>
-          <strong>{appearancePasses ? "Readable in light and dark" : "Some roles need attention"}</strong>
-          <small>
-            {appearancePasses
-              ? `${activeLook ? `${activeLook.name} is pre-checked. ` : ""}The generated text, icon, active-border, and marker roles meet their contrast targets.${uncertified ? " Decorative banners stay advisory." : ""}`
-              : "Choose a different accent to restore readable text and controls."}
-          </small>
-        </span>
-      </div>
+      {!appearancePasses ? <div className="space-appearance-audit warning" role="status">
+        <Warning20Regular aria-hidden="true" /><span>Choose a higher-contrast accent.</span>
+      </div> : null}
       <div className="space-appearance-row looks">
         <span className="space-appearance-label">
           <strong>Looks</strong>
@@ -861,14 +851,14 @@ function SpaceAppearancePanel({
                   bannerName: look.bannerName,
                   bannerImage: undefined,
                 })}
-                aria-label={`Use ${look.name} look: ${look.hint}`}
+                aria-label={`Use ${look.name} look`}
                 aria-pressed={active}
-                title={`${look.name} · ${look.hint}`}
+                title={look.name}
               >
                 <span className={["space-look-swatch", "space-banner-surface", `banner-${look.bannerName}`].join(" ")} aria-hidden="true">
                   {active ? <Checkmark16Regular /> : null}
                 </span>
-                <span className="space-look-copy"><strong>{look.name}</strong><small>{look.hint}</small></span>
+                <span className="space-look-copy"><strong>{look.name}</strong></span>
               </button>
             );
           })}

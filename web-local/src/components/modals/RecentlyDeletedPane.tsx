@@ -172,7 +172,6 @@ export function FoldRecentlyDeletedPane() {
         <h3 id="fold-recently-deleted-title">{recentlyDeletedSettings.heading}</h3>
         {data ? <span>{entries.length} waiting</span> : null}
       </div>
-      <p>{recentlyDeletedSettings.intro}</p>
       <div className="settings-actions">
         <label htmlFor="fold-recently-deleted-retention">{recentlyDeletedSettings.retentionLabel}</label>
         <input

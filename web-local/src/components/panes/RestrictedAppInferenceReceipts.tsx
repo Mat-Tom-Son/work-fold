@@ -56,11 +56,11 @@ export function RestrictedAppInferenceReceipts({ app, disabled }: {
     return () => { alive = false; unsubscribe(); window.clearInterval(timer); };
   }, [app, disabled]);
 
+  if (!receipts.length && !error) return null;
   return <section className="restricted-app-connections restricted-app-inference-receipts" aria-label="Short answers">
     <div className="restricted-app-connections-heading"><h3>Short answers</h3></div>
-    <p>One-shot answers this app asked for, with no tools and no Chat. Nothing here waited on you.</p>
     {error ? <p role="alert">{error}</p> : null}
-    {!receipts.length ? <p>No short answers yet.</p> : receipts.map((receipt) => <article className="restricted-app-destination-card" key={receipt.id}>
+    {receipts.map((receipt) => <article className="restricted-app-destination-card" key={receipt.id}>
       <div className="restricted-app-destination-heading">
         <div>
           <strong>{new Date(receipt.at).toLocaleString()}</strong>

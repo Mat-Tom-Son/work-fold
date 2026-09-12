@@ -14,7 +14,6 @@ import {
   Delete16Regular,
   Dismiss16Regular,
   Edit16Regular,
-  Info16Regular,
   ShieldCheckmark16Regular,
 } from "@fluentui/react-icons";
 
@@ -408,8 +407,8 @@ export function AppStudioPane({
     const confirmed = await requestConfirm({
       title: `Uninstall ${instance.presentation.title} from ${targetName}?`,
       body: retained
-        ? "The App and its authority will be removed. Its local data will stay on this device until you purge it."
-        : "The App loses authority immediately. Its local data will be permanently removed from this device; interrupted cleanup retries automatically.",
+        ? "Uninstalls the app and keeps its data on this device."
+        : "Uninstalls the app and moves its data to Recently deleted.",
       confirmLabel: retained ? "Uninstall & retain data" : "Uninstall & purge data",
       tone: "danger",
     });
@@ -448,7 +447,7 @@ export function AppStudioPane({
   async function purgeRetainedData(item: LocalAppRetainedData): Promise<void> {
     const confirmed = await requestConfirm({
       title: `Purge retained data for ${item.featureId}?`,
-      body: "This detaches the retained namespace immediately and permanently removes its data from this device. Interrupted cleanup retries automatically.",
+      body: "Moves this app’s retained data to Recently deleted.",
       confirmLabel: "Purge data",
       tone: "danger",
     });
@@ -546,7 +545,6 @@ export function AppStudioPane({
                 <StageHeader
                   titleId={`${ids}-build-title`}
                   title="Build"
-                  description="Apps reviewed in this Space make up the development preview."
                   status={`${studio?.previews.length ?? 0} preview${studio?.previews.length === 1 ? "" : "s"}`}
                 />
                 {studio?.previews.length ? (
@@ -559,7 +557,7 @@ export function AppStudioPane({
                             <strong>{preview.manifest.title}</strong>
                             <span className="professional-status-badge enabled">Local preview</span>
                           </div>
-                          <p>{preview.manifest.description ?? "Ready for a local Release."}</p>
+                          {preview.manifest.description ? <p>{preview.manifest.description}</p> : null}
                           <small>{preview.manifest.id} · package {preview.version} · reviewed digest {shortDigest(preview.digest)}</small>
                         </div>
                       </article>
@@ -568,7 +566,7 @@ export function AppStudioPane({
                 ) : (
                   <div className="app-studio-empty-row">
                     <Box16Regular aria-hidden="true" />
-                    <div><strong>No development previews</strong><p>Build an app in this Space’s Apps tab before preparing a Release.</p></div>
+                    <div><strong>No development previews</strong><p>Build an app from the Apps tab.</p></div>
                   </div>
                 )}
                 <form className="app-studio-release-form" onSubmit={(event) => void prepareRelease(event)}>
@@ -587,7 +585,6 @@ export function AppStudioPane({
                   <button className="professional-button professional-button-primary" type="submit" disabled={Boolean(busyKey) || !releaseVersion.trim() || !studio?.previews.length}>
                     {busyKey === "release:prepare" ? <ArrowSync16Regular className="spin" /> : null}Prepare Release
                   </button>
-                  <p><Info16Regular aria-hidden="true" />Preparing freezes the exact reviewed preview. You will review it again before publishing locally.</p>
                 </form>
               </div>
             </section>
@@ -598,7 +595,6 @@ export function AppStudioPane({
                 <StageHeader
                   titleId={`${ids}-releases-title`}
                   title="Releases"
-                  description="Immutable local versions. Publishing makes a Release available to install; it does not activate anything."
                   status={`${studio?.releases.length ?? 0} total`}
                 />
                 <div className="app-studio-target-bar">
@@ -615,16 +611,16 @@ export function AppStudioPane({
                     <label htmlFor={`${ids}-continuity`}>
                       <span>Update access</span>
                       <select id={`${ids}-continuity`} value={continuityPolicy} onChange={(event) => setContinuityPolicy(event.target.value as ContinuityPolicy)} disabled={Boolean(busyKey)}>
-                        <option value="eligible">Keep only eligible access</option>
-                        <option value="reset">Reset all access</option>
+                        <option value="eligible">Keep current choices</option>
+                        <option value="reset">Use install defaults</option>
                       </select>
                     </label>
                   ) : null}
                   <p>{!hasInstallTarget
-                    ? "Add or register a Space to install this App."
+                    ? "Choose a Space to install in."
                     : selectedInstance
                       ? `${selectedInstance.presentation.title} ${selectedInstance.displayVersion} is active in ${targetName}.`
-                      : `No installed App Instance in ${targetName}. A new install starts with fresh data and all powers off.`}</p>
+                      : `No app installed in ${targetName}.`}</p>
                 </div>
                 {studio?.releases.length ? (
                   <div className="app-studio-release-list">
@@ -688,7 +684,7 @@ export function AppStudioPane({
                                   <div><dt>Features</dt><dd>{release.featureIds.join(", ")}</dd></div>
                                   <div><dt>Release digest</dt><dd><code>{release.releaseDigest}</code></dd></div>
                                 </dl>
-                                <p><ShieldCheckmark16Regular aria-hidden="true" />Publishing records this immutable Release locally. It grants no access and starts no automation.</p>
+                                <p><ShieldCheckmark16Regular aria-hidden="true" />Available for local installation only.</p>
                                 <button className="professional-button professional-button-primary" type="button" disabled={Boolean(busyKey)} onClick={() => void publishRelease(release)}>
                                   {busyKey === `release:publish:${release.releaseDigest}` ? <ArrowSync16Regular className="spin" /> : null}Publish locally
                                 </button>
@@ -700,7 +696,7 @@ export function AppStudioPane({
                     })}
                   </div>
                 ) : (
-                  <div className="app-studio-empty-row"><Box16Regular aria-hidden="true" /><div><strong>No Releases yet</strong><p>Prepare a version from the reviewed development preview above.</p></div></div>
+                  <div className="app-studio-empty-row"><Box16Regular aria-hidden="true" /><div><strong>No Releases yet</strong></div></div>
                 )}
               </div>
             </section>
@@ -711,7 +707,6 @@ export function AppStudioPane({
                 <StageHeader
                   titleId={`${ids}-installations-title`}
                   title="Installations"
-                  description="Each Space gets an independent App Instance, authority, automations, and local data."
                   status={`${studio?.instances.length ?? 0} installed`}
                 />
 
@@ -731,9 +726,7 @@ export function AppStudioPane({
                       />
                     ))}
                   </div>
-                ) : (
-                  <p className="app-studio-no-review"><Checkmark16Regular aria-hidden="true" />No activation reviews are waiting. Preparing an install, update, or rollback creates one here.</p>
-                )}
+                ) : null}
 
                 {studio?.instances.length ? (
                   <div className="app-studio-installation-list" aria-label="Installed App Instances">
@@ -776,11 +769,11 @@ export function AppStudioPane({
                     })}
                   </div>
                 ) : (
-                  <div className="app-studio-empty-row"><Apps24Regular aria-hidden="true" /><div><strong>No App Instances</strong><p>{hasInstallTarget ? "Choose a published Release and a target Space above, then review the install before activating it." : "Add or register a Space, then return here to review a local install."}</p></div></div>
+                  <div className="app-studio-empty-row"><Apps24Regular aria-hidden="true" /><div><strong>No installed apps</strong></div></div>
                 )}
 
                 <div className="app-studio-retained-heading">
-                  <div><h3>Detached local data</h3><p>Data without active Feature authority stays inert on this device until you purge it.</p></div>
+                  <div><h3>Retained data</h3></div>
                   <span>{studio?.retainedData.length ?? 0}</span>
                 </div>
                 {studio?.retainedData.length ? (
@@ -789,7 +782,7 @@ export function AppStudioPane({
                       <article className="app-studio-retained-row" key={item.retainedDataId}>
                         <div>
                           <strong>{item.featureId}</strong>
-                          <p>No active Feature authority · Data on this device</p>
+                          <p>Stored on this device</p>
                           <small>Retained {formatTimestamp(item.removedAt)} · Release {shortDigest(item.releaseDigest)}</small>
                         </div>
                         <div className="app-studio-retained-actions"><button className="professional-button professional-button-secondary" type="button" disabled={fixtureMode || Boolean(busyKey)} onClick={() => void exportRetainedData(item)}>Export data</button>
@@ -847,7 +840,7 @@ function ProjectEditor({
           <textarea id={`${ids}-project-description`} value={description} onChange={(event) => onDescriptionChange(event.target.value)} maxLength={280} rows={3} disabled={busy} />
         </label>
         <div className="app-studio-project-icon wide">
-          <span className="app-studio-project-icon-label">Icon <small>Shown in the rail</small></span>
+          <span className="app-studio-project-icon-label">Icon</span>
           <AppIconPicker value={icon} disabled={busy} onChange={onIconChange} />
         </div>
         <div className="app-studio-project-form-actions">
@@ -895,10 +888,10 @@ function StageNumber({ value }: { value: string }) {
   return <span className="app-studio-stage-number" aria-hidden="true">{value}</span>;
 }
 
-function StageHeader({ titleId, title, description, status }: { titleId: string; title: string; description: string; status: string }) {
+function StageHeader({ titleId, title, status }: { titleId: string; title: string; status: string }) {
   return (
     <header className="app-studio-stage-header">
-      <div><h2 id={titleId}>{title}</h2><p>{description}</p></div>
+      <div><h2 id={titleId}>{title}</h2></div>
       <span>{status}</span>
     </header>
   );
@@ -940,18 +933,18 @@ function OperationReview({
         <div>
           <span className="app-studio-operation-eyebrow">Activation review</span>
           <h3 id={titleDomId}>{label} {release?.displayVersion ?? "Release"} in {targetName}</h3>
-          <p>Prepared {formatTimestamp(operation.preparedAt)} · You can leave App Studio and resume this review later.</p>
+          <p>Prepared {formatTimestamp(operation.preparedAt)}</p>
         </div>
         <span className={canActivate ? "professional-status-badge enabled" : "professional-status-badge error"}>{canActivate ? "Ready" : "Blocked"}</span>
       </header>
       <dl className="app-studio-facts compact">
         <div><dt>Target Space</dt><dd>{targetName}</dd></div>
         <div><dt>Release</dt><dd>{release?.displayVersion ?? shortDigest(operation.releaseDigest)}</dd></div>
-        <div><dt>Local data</dt><dd>{operation.kind === "install" ? "Fresh namespace" : "Per plan below"}</dd></div>
-        <div><dt>Authority</dt><dd>{operation.kind === "install" ? "All powers off" : operation.continuityPolicy === "eligible" ? "Eligible only" : "Reset all"}</dd></div>
+        <div><dt>Local data</dt><dd>{operation.kind === "install" ? "Fresh data" : "Per plan below"}</dd></div>
+        <div><dt>Authority</dt><dd>{operation.kind === "install" ? "Declared access enabled" : operation.continuityPolicy === "eligible" ? "Keep current choices" : "Install defaults"}</dd></div>
       </dl>
       {operation.kind === "install" ? (
-        <p className="app-studio-authority-note"><ShieldCheckmark16Regular aria-hidden="true" />A new App Instance will be created. File access, network access, connections, notifications, and every named automation start off.</p>
+        <p className="app-studio-authority-note"><ShieldCheckmark16Regular aria-hidden="true" />Enables declared network destinations, whole-Space directory access, notifications, and automations. Connections and individual files need setup.</p>
       ) : (
         <UpdatePlan operation={operation} />
       )}
@@ -1000,7 +993,7 @@ function UpdatePlan({ operation }: { operation: LocalAppUpdateOperation }) {
           {operation.plan.blockedReasons.map((reason) => <p key={reason}>{reason}</p>)}
         </div>
       ) : (
-        <p className="app-studio-authority-note"><ShieldCheckmark16Regular aria-hidden="true" />Exact eligible grants, connections, and jobs are listed by Feature. Anything marked Reset starts off in the target Release.</p>
+        <p className="app-studio-authority-note"><ShieldCheckmark16Regular aria-hidden="true" />Exact eligible grants, connections, and jobs are listed by Feature. Anything marked Reset uses the install defaults.</p>
       )}
     </div>
   );

@@ -67,10 +67,11 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
     finally { setBusy(false); }
   }
   const unavailable = disabled || busy;
+  if (!tasks.length && !error) return null;
   return <section className="restricted-app-connections restricted-app-assistant-tasks" aria-label="Assistant requests">
     <div className="restricted-app-connections-heading"><h3>Assistant requests</h3></div>
     {error ? <p role="alert">{error}</p> : null}
-    {!tasks.length ? <p>No requests yet.</p> : tasks.map((task) => <article className="restricted-app-destination-card" key={task.id} tabIndex={-1}>
+    {tasks.map((task) => <article className="restricted-app-destination-card" key={task.id} tabIndex={-1}>
       <div className="restricted-app-task-heading"><strong>{task.title}</strong><span className="professional-status-badge">{restrictedAppAssistantTaskStatusLabel(task)}</span></div>
       {task.result ? <div className="restricted-app-task-result">
         <p className="work-result-summary" aria-label="Assistant result">{task.result.summary}{task.result.truncated ? restrictedAppAssistantResultTrimNote : ""}</p>

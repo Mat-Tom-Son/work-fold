@@ -470,7 +470,6 @@ export function LibraryPane({
         <div>
           <span className="professional-kicker">Personal · available across Spaces</span>
           <h1>Library</h1>
-          <p>Keep reusable files here once, then choose any registered Space when you need a copy.</p>
         </div>
         <div className="library-tab-actions">
           <button className="professional-button professional-button-primary" type="button" disabled={busy || fixtureMode} onClick={() => uploadRef.current?.click()}><ArrowUpload16Regular />Add files to Library</button>
@@ -509,7 +508,7 @@ export function LibraryPane({
                   <select value={destinationSpace.id} disabled={busy} onChange={(event) => { setDestinationSpaceId(event.target.value); setNotice(""); }}>
                     {spaces.map((item) => <option value={item.id} key={item.id}>{libraryDestinationLabel(item, spaces)}</option>)}
                   </select>
-                  <span className="professional-field-hint">Copies go to <strong>From Library</strong>. Your Library stays unchanged, and the copy is not added to Chat context.</span>
+                  <span className="professional-field-hint">Copies to <strong>From Library</strong>; not added to Chat.</span>
                 </label>
                 <div className="professional-actions">
                   <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void copyToSpace()}>
@@ -524,7 +523,7 @@ export function LibraryPane({
           </div>
         </div>
       )}
-      {folderDialogOpen ? <TextInputModal title="New Library folder" description="Create a folder at the top level of your Library." label="Folder name" confirmLabel="Create folder" onSubmit={createFolder} onClose={() => setFolderDialogOpen(false)} /> : null}
+      {folderDialogOpen ? <TextInputModal title="New Library folder" label="Folder name" confirmLabel="Create folder" onSubmit={createFolder} onClose={() => setFolderDialogOpen(false)} /> : null}
     </div>
   );
 }
@@ -620,7 +619,6 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
     return <div className="space-pane-content history-pane professional-surface professional-history">
       <h1>{selected?.label || "Review restore point"}</h1>
       {notice ? <p role="status">{notice}</p> : null}
-      <p>{preview?.scope === "targeted" ? "Undo only the file changes recorded by this action." : "Review the effects of restoring this Space's captured files."}</p>
       {previewError ? <p role="alert">{previewError}</p> : null}
       {!preview && !previewError ? <p role="status">Inspecting current files…</p> : null}
       {preview ? <>
@@ -633,7 +631,6 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
           <h2>{title} · {paths.length}</h2>
           {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul> : <p>None</p>}
         </section>)}
-        <p>work-fold rechecks ownership and recovery coverage before applying these changes.</p>
         <button className="professional-button professional-button-primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0 || (preview.restoreFiles.length + preview.removePaths.length + preview.moves.length === 0)} onClick={() => selected && void restore(selected)}>
           {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo these changes" : "Restore these files"}
         </button>

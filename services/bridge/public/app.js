@@ -368,7 +368,6 @@ async function startPairing() {
     return renderAuth({
       eyebrow: "Desktop offline",
       headline: `Open <span class="nobr">work-fold</span> to continue.`,
-      supporting: "The desktop app holds your conversation and pairs new browsers.",
       panel: `<button id="retry" class="primary">Try again</button>`,
     }, () => {
       const retry = document.querySelector("#retry");
@@ -423,7 +422,6 @@ function renderPairing(error = "") {
   renderAuth({
     eyebrow: "Confirm this browser once",
     headline: `Match the code in <span class="nobr">work-fold</span>.`,
-    supporting: "Once paired, this browser stays signed in until you remove it.",
     panel: `
       <h2>Confirm ${escapeHtml(browserLabel())}</h2>
       <p>Confirm that the same six digits appear in the desktop prompt.</p>
@@ -692,12 +690,11 @@ function renderApplication() {
                   <h1 id="space-title" tabindex="-1">Spaces</h1>
                   <button id="refresh-space" type="button" class="space-refresh" title="Refresh files and apps" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6a8 8 0 0 1 13.2 3M4.7 15a8 8 0 0 0 13.2 3" /></svg><span>Refresh</span></button>
                 </div>
-                <p id="space-description">Browse files and apps from your desktop.</p>
               </header>
               <div id="space-directory" class="space-directory"></div>
               <div id="workspace-pane" class="workspace-pane" hidden>
                 <nav class="space-views" aria-label="Space view"><button type="button" data-space-view="files" aria-pressed="true">Files</button><button type="button" data-space-view="apps" aria-pressed="false">Apps</button></nav>
-                <div id="space-files" class="space-files"><div id="file-tree" class="file-tree" aria-label="Space files"></div><div id="space-preview" class="space-preview"><p id="space-preview-empty">Select a file to preview it here.</p></div></div>
+                <div id="space-files" class="space-files"><div id="file-tree" class="file-tree" aria-label="Space files"></div><div id="space-preview" class="space-preview"><p id="space-preview-empty">Select a file</p></div></div>
                 <section id="space-apps" class="space-apps" aria-label="Space apps" hidden></section>
               </div>
             </div>
@@ -1781,10 +1778,9 @@ function renderWorkspace() {
   document.querySelector("#spaces-back").hidden = !hasSpace;
   document.querySelector("#refresh-space").hidden = !hasSpace;
   document.querySelector("#space-title").textContent = selected?.name ?? "Spaces";
-  document.querySelector("#space-description").textContent = hasSpace ? "Files and apps in this Space. Ask the fold to work with them." : "Browse files and apps from your desktop.";
   if (!hasSpace) {
     directory.setAttribute("aria-busy", String(!state.spacesLoaded));
-    replaceHtmlIfChanged(directory, state.spaces.length ? state.spaces.map((space) => `<button type="button" class="space-directory-row" data-explore-space="${escapeAttribute(space.id)}">${fileGlyph("folder")}<span>${escapeHtml(space.name)}</span><span aria-hidden="true">›</span></button>`).join("") : `<p class="file-empty">${state.spacesLoaded ? "Your Spaces will appear here when you add them on your desktop." : "Loading Spaces…"}</p>`);
+    replaceHtmlIfChanged(directory, state.spaces.length ? state.spaces.map((space) => `<button type="button" class="space-directory-row" data-explore-space="${escapeAttribute(space.id)}">${fileGlyph("folder")}<span>${escapeHtml(space.name)}</span><span aria-hidden="true">›</span></button>`).join("") : `<p class="file-empty">${state.spacesLoaded ? "No Spaces. Add one in the desktop app." : "Loading Spaces…"}</p>`);
     return;
   }
   document.querySelector("#space-files").hidden = state.explorerTab !== "files";
@@ -1795,7 +1791,7 @@ function renderWorkspace() {
   tree.setAttribute("aria-busy", String(state.treeStatus.get(`${spaceId}:`) === "loading"));
   const apps = state.spaceApps.get(spaceId);
   const appsPane = document.querySelector("#space-apps");
-  const appsStatus = !fixtureName && !state.appViewsAvailable ? "Update work-fold on your desktop to browse apps here." : apps === undefined ? "Loading apps…" : apps === null ? "Couldn’t load apps. Try Refresh." : "No apps in this Space yet. Ask the fold to help you build one.";
+  const appsStatus = !fixtureName && !state.appViewsAvailable ? "Update work-fold on your desktop to browse apps here." : apps === undefined ? "Loading apps…" : apps === null ? "Couldn’t load apps. Try Refresh." : "No apps in this Space.";
   if (replaceHtmlIfChanged(appsPane, apps?.length ? apps.map((app) => `<button type="button" class="space-app-row" data-open-app="${escapeAttribute(app.featureInstallationId)}"><span>${escapeHtml(app.title)}</span><small>${app.webView ? app.preview ? "Preview" : "Open app" : "Desktop only"}</small></button>`).join("") : `<p class="file-empty">${appsStatus}</p>`)) {
     for (const button of appsPane.querySelectorAll("[data-open-app]")) button.addEventListener("click", () => openBrowserApp(spaceId, button.dataset.openApp));
   }
@@ -2345,13 +2341,13 @@ function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
   browserApp?.destroy(); browserApp = null; state.spaceApps.clear();
   app.innerHTML = `<main class="auth-shell">
     <header class="auth-top"><span class="brand" role="img" aria-label="work-fold"><img class="brand-lockup brand-lockup-black" src="/brand-lockup-black.png" alt="" /><img class="brand-lockup brand-lockup-white" src="/brand-lockup-white.png" alt="" /></span></header>
-    <section class="auth-stage"><div class="auth-copy"><p class="eyebrow">${eyebrow}</p><h1>${headline}</h1><p>${supporting}</p></div><div class="auth-panel">${panel}</div></section>
+    <section class="auth-stage"><div class="auth-copy"><p class="eyebrow">${eyebrow}</p><h1>${headline}</h1>${supporting ? `<p>${supporting}</p>` : ""}</div><div class="auth-panel">${panel}</div></section>
   </main>`;
   afterRender?.();
 }
 
 function renderFatal(message) {
-  renderAuth({ eyebrow: "Could not connect", headline: `<span class="nobr">work-fold</span> is unavailable.`, supporting: "Your local files and conversation have not moved.", panel: `<p class="form-error">${escapeHtml(message)}</p><button id="fatal-retry" class="primary">Try again</button>` }, () => {
+  renderAuth({ eyebrow: "Could not connect", headline: `<span class="nobr">work-fold</span> is unavailable.`, panel: `<p class="form-error">${escapeHtml(message)}</p><button id="fatal-retry" class="primary">Try again</button>` }, () => {
     document.querySelector("#fatal-retry")?.addEventListener("click", () => location.reload());
   });
 }

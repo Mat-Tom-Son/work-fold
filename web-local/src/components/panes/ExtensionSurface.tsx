@@ -38,7 +38,6 @@ export function ExtensionSurfacePane({
           </button>
         ))}
       </nav>
-      <p className="extension-surface-pane-footnote">The visible blocks are host-rendered, but the owning Pi Extension runs with your user permissions.</p>
     </div>
   );
 }
@@ -63,7 +62,7 @@ export function ExtensionSurfaceView({
       <div className="extension-surface-blocks">
         {view.blocks.length
           ? view.blocks.map((block, index) => <SurfaceBlock block={block} key={`${block.type}:${index}`} />)
-          : <div className="extension-surface-empty"><h2>Blank canvas</h2><p>Edit this view’s <code>surface.json</code> to add content.</p></div>}
+          : <div className="extension-surface-empty"><h2>No content</h2></div>}
       </div>
     </article>
   );

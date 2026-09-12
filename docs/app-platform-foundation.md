@@ -99,8 +99,11 @@ The complete definitions and journey tests live in
    effective Principal context. A renderer, worker, client, or copied manifest
    cannot choose its authority scope.
 4. **Review, publication, installation, and authority remain separate acts.** A
-   declaration requests a maximum. Installation starts destinations, resources,
-   notifications, connections, and every named automation off.
+   declaration requests a maximum. Local installation enables declared network
+   destinations, whole-Space directory access, notifications, and automations
+   ([Receipts, not gates](receipts-not-gates.md), F21). Connections require setup;
+   individual-file access requires a chosen file. The person can revoke or
+   narrow these defaults in Apps.
 5. **Immutable bytes and live policy remain separate.** The App Release digest
    covers its closed executable and evidence graph. Review, signature, scan,
    registry, delisting, block-launch, and incident records are append-only
@@ -195,25 +198,29 @@ The desktop implements the first complete local Project-to-Instance journey:
 5. Installation preparation durably reserves the operation, Runtime Instance,
    Feature Installation, and Data Namespace identities. Activation re-verifies
    and stages the exact published closure before one registry commit makes the
-   new App Instance live in the chosen registered Space. Every external power
-   starts off and no Development grant, connection, job, or data transfers.
+   new App Instance live in the chosen registered Space. Declared powers use
+   the install defaults above; a Check slot binds when the Space has exactly
+   one Check. No Development grant, connection, job, or data transfers.
    The target may be the source Space: one installed App may coexist with that
    same Project's Development preview, with separate installation/data identities
    and exact management selectors. Another Project cannot contribute the same
    Feature id there. Reviewing a preview does not update the installed Release.
 6. Update and rollback target another published Release from the same Project.
-   The deterministic plan is persisted and recomputed before activation. Exact
-   unchanged Feature content may retain eligible grants, instance-owned
-   connections, jobs, and data; changed content retains the existing Feature
-   Installation/Data Namespace but resets grants, connections, and jobs. A
-   stricter reset policy is always available.
+   The deterministic plan is persisted and recomputed before activation. The
+   default continuity carries granted and revoked choices by declaration id,
+   compatible selected paths and Check slots, automation states, and run receipts.
+   Connections carry forward only when the destination declaration is byte-identical.
+   Changed content retains the Feature Installation/Data Namespace; new declarations
+   use install defaults. An explicit reset discards those choices and connections
+   and uses install defaults again, including enabled declared powers.
 7. The current local runtime accepts only version-2 restricted-app Features with
    no declared data schema or migrations. It rejects schema-bearing Releases and
    migration execution instead of approximating the transition.
 8. Uninstall fences the whole App Instance and requires `retain` or `purge` for
    its local data. Retained namespaces have no live installation authority and
-   can be purged later. Source files and separately granted ordinary Space files
-   are never removed.
+   can be purged later. Both uninstall-with-purge and retained-data purge save
+   recoverable exports in Recently deleted before removing live data. Source
+   files and separately granted ordinary Space files are never removed.
 
 The app supports complete active/retained namespace export and
 same-installation, exact-revision recovery through the host's Apps management

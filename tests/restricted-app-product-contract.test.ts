@@ -39,12 +39,12 @@ test("adding an app states what it adds and that every declared power is on, wit
   assert.match(apps, /"Add app"/);
   assert.match(apps, /"Update app"/);
   assert.match(apps, /every declared destination, folder, notification, and automation on/);
-  assert.match(apps, /Each is on when added and can be turned off in Apps/);
+  assert.match(apps, /Turn any of them off in Apps/);
   assert.match(apps, /Unchanged connections, automation settings, and run history carry over/);
   assert.match(apps, /restricted-app-authority-list/);
   assert.match(apps, /On when added/);
   assert.doesNotMatch(apps, /Off when added|access off|approve|Reviewed|Unrestricted|staged/);
-  assert.match(apps, /Each request starts a Chat in this Space; open or stop it in Apps/);
+  assert.match(apps, /Starts a Chat in this Space/);
   // The reviewed viewer declaration (docs/fold-publishing.md, rung 3) is part
   // of review copy and the install decision: the group shows the viewer entry
   // and the complete viewer-readable surface, states that exposure is its own
@@ -84,17 +84,15 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Replace connection/);
   assert.match(apps, /Disconnect/);
   assert.match(apps, /Space files/);
-  assert.match(apps, /App writes create History checkpoints/);
   assert.match(apps, /Automations/);
   assert.match(apps, /Local app data/);
   assert.match(apps, /App access overview/);
-  assert.match(apps, /Each permission and automation is controlled separately/);
-  assert.match(apps, /Schedules are on when the app is added\. Turn any off here; Run now is a one-off\./);
+  assert.match(apps, /onEnabledChange=\{\(enabled\) => void changeAutomation\(automation, enabled\)\}/);
   assert.match(apps, /"Whole Space"/);
   assert.match(apps, /Limit to folder/);
   // Removing a preview takes its data with it, and F20 makes that recoverable:
   // the confirm and the toast both say so rather than implying finality.
-  assert.match(apps, /A copy of its data goes to Recently deleted, so you can bring it back\./);
+  assert.match(apps, /moves app data to Recently deleted\./);
   assert.match(apps, /preview removed\. Its data is in Recently deleted\./);
   // An editable path needs a control that applies it, for a file as for a folder.
   assert.match(apps, /grant && rootChanged \?/);

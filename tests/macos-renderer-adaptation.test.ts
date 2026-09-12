@@ -112,7 +112,7 @@ test("Darwin file-tree context menus use native command IDs while Windows keeps 
 
 test("restricted-app notification copy is platform-neutral", () => {
   assert.match(restrictedApps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
-  assert.match(restrictedApps, /System notification settings can still suppress it/);
+  assert.match(restrictedApps, /Allow notifications/);
   assert.doesNotMatch(restrictedApps, /Windows notifications|Windows notification settings/);
 });
 

@@ -51,11 +51,11 @@ test("in-tree dialogs are wired to the shared dialog contract", () => {
   }
 });
 
-test("Settings keeps automatic-save and explicit remote-setup copy", async () => {
+test("Settings preserves save feedback and explicit remote setup", async () => {
   const settings = desktopDialogs[0] ?? "";
   // Credential visibility, removal, saves and stale responses are exercised
   // against the real form in assistant-settings-ui.test.ts.
-  assert.match(await read("web-local/src/components/modals/AppearanceSettingsPane.tsx"), /Changes save on this device/);
+  assert.match(await read("web-local/src/components/modals/AppearanceSettingsPane.tsx"), /role="status">\{appearance\.error \?\? appearance\.notice/);
   assert.match(settings, /settings-close-button/);
   assert.match(settings, /setCloseToTrayNotice\("Saved"\)/);
   assert.match(settings, /Private address created/);
@@ -98,9 +98,8 @@ test("the publications Settings section reveals links transiently and only narro
   assert.match(settings, /\/snapshot-off`/);
   assert.doesNotMatch(settings, /snapshot-on/);
   // The retention choice stays labeled: opted-in pages carry the explicit
-  // relay-copy label, everything else the widening hint.
+  // relay-copy label; no unconfigured feature needs a standing explanation.
   assert.match(settings, /publication\.snapshotEnabled \?[\s\S]{0,200}foldPublicationsSettings\.snapshotLabel/);
-  assert.match(settings, /foldPublicationsSettings\.snapshotWidenHint/);
   // Hosted-app rows (kind "app") render the exposure's pinned identities —
   // App Instance id, short Release digest, viewer entry, the complete
   // viewer-readable surface — never the page-only relativePath line, and the

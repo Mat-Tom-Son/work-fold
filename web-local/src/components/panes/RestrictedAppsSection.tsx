@@ -161,8 +161,7 @@ export function RestrictedAppsSection({
   async function remove(app: RestrictedAppInstalled) {
     const confirmed = await requestConfirm({
       title: `Remove ${app.manifest.title} preview?`,
-      body: "work-fold will stop this Development preview and remove its reviewed snapshot, saved credentials, grants, schedules, and local preview data. "
-        + "A copy of its data goes to Recently deleted, so you can bring it back. Files in the Space are left unchanged.",
+      body: "Removes the preview, access, and connections; moves app data to Recently deleted. Space files remain.",
       confirmLabel: "Remove preview",
       tone: "danger",
     });
@@ -191,7 +190,6 @@ export function RestrictedAppsSection({
       {presentation === "section" ? <div className="restricted-apps-heading">
         <div>
           <div className="restricted-apps-title-line"><h3 id="restricted-apps-title">Apps in this Space</h3><span>{filtered ? `${apps.length}/${totalApps}` : apps.length}</span></div>
-          <p>{apps.length ? `Interactive tools exclusive to ${space.name}. Review each app to manage its access, connections, and automations.` : "No apps installed. Build one with the Assistant, or add a reviewed local preview."}</p>
         </div>
         <div className="restricted-apps-heading-actions"><button className="professional-button professional-button-quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(space.id)}>App Studio</button><button className={apps.length ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy} onClick={onBuildApp}><Add16Regular />{apps.length ? "Build app" : "Build with Assistant"}</button></div>
       </div> : null}
@@ -203,8 +201,8 @@ export function RestrictedAppsSection({
             return <article className="restricted-app-card" key={app.featureInstallationId}>
               <div className="restricted-app-card-copy">
                 <div className="restricted-app-card-title"><strong>{app.manifest.title}</strong><span>{app.runtimeInstanceKind === "development" ? "Local preview" : "Installed App Feature"}</span></div>
-                <p>{app.manifest.description || "An app built for this Space."}</p>
-                <div className="restricted-app-card-meta"><span>{app.runtimeInstanceKind === "development" ? "Previewing in this Space" : "Installed in this Space · Data on this device"}</span><span>{app.packageName} {app.version}</span><span>App screen</span></div>
+                {app.manifest.description ? <p>{app.manifest.description}</p> : null}
+                <div className="restricted-app-card-meta"><span>{app.runtimeInstanceKind === "development" ? "Previewing in this Space" : "Installed in this Space · Data on this device"}</span><span>{app.packageName} {app.version}</span></div>
                 <small>{app.manifest.tools.length} {app.manifest.tools.length === 1 ? "action" : "actions"} · {app.networkGrants.length}/{app.manifest.permissions.network.length} network · {app.fileGrants.length}/{app.manifest.permissions.files.length} files · {app.notificationGrants.length}/{app.manifest.permissions.notifications.length} notifications{app.manifest.automations.length ? ` · ${app.automations.filter((automation) => automation.enabled).length}/${app.manifest.automations.length} automations on` : ""}</small>
               </div>
               <div className="restricted-app-card-actions"><span className={access.enabled ? "professional-status-badge enabled" : "professional-status-badge"}>{access.label}</span>{onChangeApp ? <button className="professional-button professional-button-quiet" type="button" disabled={busy || fixtureMode} onClick={() => void changeApp(app)}>Change this app</button> : null}<button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSelectedInstallationId(app.featureInstallationId)}>{access.total ? "Review access" : "Details"}</button></div>
@@ -212,7 +210,7 @@ export function RestrictedAppsSection({
           })}
         </div>
       ) : null}
-      {presentation === "section" ? <details className="restricted-app-advanced"><summary>Advanced local preview</summary><p>Review a restricted app package folder that already exists in this Space.</p><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSourceOpen(true)}>Add local preview…</button></details> : null}
+      {presentation === "section" ? <details className="restricted-app-advanced"><summary>Advanced local preview</summary><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSourceOpen(true)}>Add local preview…</button></details> : null}
 
       {sourceOpen ? <RestrictedAppSourceDialog sourcePath={sourcePath} busy={busy} onSourcePathChange={setSourcePath} onSubmit={inspect} onClose={() => { if (!busy) setSourceOpen(false); }} /> : null}
       {review ? <RestrictedAppReviewDialog review={review.value} sourcePath={review.sourcePath} updating={apps.some((app) => app.runtimeInstanceKind === "development" && app.manifest.id === review.value.manifest.id)} busy={busy} onInstall={() => void install()} onClose={() => { if (!busy) setReview(null); }} /> : null}
@@ -248,11 +246,10 @@ function RestrictedAppSourceDialog({ sourcePath, busy, onSourcePathChange, onSub
   const dialogRef = useModalDialog({ onClose, blocked: busy, initialFocusRef: inputRef });
   return <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
     <section ref={dialogRef} tabIndex={-1} className="capability-dialog restricted-app-source-dialog" role="dialog" aria-modal="true" aria-labelledby="restricted-app-source-title" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-title"><div><h2 id="restricted-app-source-title">Add local preview package</h2><p>Enter a package folder that already exists inside this Space.</p></div><button className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close local preview setup"><Dismiss20Regular /></button></div>
+      <div className="modal-title"><div><h2 id="restricted-app-source-title">Add local preview package</h2></div><button className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close local preview setup"><Dismiss20Regular /></button></div>
       <form onSubmit={onSubmit}>
         <div className="capability-dialog-body restricted-app-source-body">
-          <label><strong>Package path</strong><span>Enter a path relative to the root of this Space. work-fold inspects it without running package code.</span><input ref={inputRef} value={sourcePath} onChange={(event) => onSourcePathChange(event.target.value)} placeholder="apps/connected-inbox" aria-label="Space-relative app package folder" autoComplete="off" spellCheck={false} /></label>
-          <aside className="capability-code-warning"><ShieldCheckmark20Regular aria-hidden="true" /><div><strong>Fixed to This Space</strong><p>Sandboxed previews belong to this Space's Development Instance. Their receipts, permissions, and credentials stay machine-local.</p></div></aside>
+          <label><strong>Package path in this Space</strong><input ref={inputRef} value={sourcePath} onChange={(event) => onSourcePathChange(event.target.value)} placeholder="apps/connected-inbox" aria-label="Space-relative app package folder" autoComplete="off" spellCheck={false} /></label>
         </div>
         <div className="capability-dialog-footer"><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="professional-button professional-button-primary" type="submit" disabled={busy || !sourcePath.trim()}>{busy ? <ArrowSync16Regular className="spin" /> : null}Review app</button></div>
       </form>
@@ -280,14 +277,14 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
     + review.manifest.automations.length;
   return <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
     <section ref={dialogRef} tabIndex={-1} className="capability-dialog restricted-app-review-dialog" role="dialog" aria-modal="true" aria-labelledby="restricted-app-review-title" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-title"><div><h2 id="restricted-app-review-title">Add {review.manifest.title}</h2><p>Confirm what this app adds and what it can do.</p></div><button className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close app review"><Dismiss20Regular /></button></div>
+      <div className="modal-title"><div><h2 id="restricted-app-review-title">Add {review.manifest.title}</h2></div><button className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close app review"><Dismiss20Regular /></button></div>
       <div className="capability-dialog-body">
         <div className="restricted-app-review-summary">
           <span className="restricted-app-review-icon" aria-hidden="true"><PlugConnected20Regular /></span>
           <div>
             <span>{updating ? "Updated app" : "New app"}</span>
             <strong>{review.manifest.title}</strong>
-            <p>{review.manifest.description || "An interactive app for this Space."}</p>
+            {review.manifest.description ? <p>{review.manifest.description}</p> : null}
           </div>
           <span className="professional-status-badge enabled">On when added</span>
         </div>
@@ -297,7 +294,7 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
           <div><strong>Added now</strong><p>An app destination and work tabs{review.manifest.tools.length ? ` · ${review.manifest.tools.length} Assistant ${review.manifest.tools.length === 1 ? "action" : "actions"}` : ""}</p></div>
           <span className="professional-status-badge enabled">Included</span>
         </div>
-        <div className="restricted-app-review-heading"><div><h3>What this app can do</h3><p>{requestedAuthorityCount ? `${requestedAuthorityCount} ${requestedAuthorityCount === 1 ? "permission or automation is" : "permissions or automations are"} declared. Each is on when added and can be turned off in Apps.` : "This app declares no external access or automation."}</p></div><span>{requestedAuthorityCount} declared</span></div>
+        <div className="restricted-app-review-heading"><div><h3>What this app can do</h3></div><span>{requestedAuthorityCount} declared</span></div>
         <ReviewDeclarations review={review} />
         <details className="restricted-app-package-details"><summary>Package details</summary><dl className="capability-review-facts"><div><dt>Source</dt><dd>{sourcePath}</dd></div><div><dt>Package</dt><dd>{review.packageName} {review.version}</dd></div><div><dt>Files</dt><dd>{review.fileCount} · {formatBytes(review.totalBytes)}</dd></div><div><dt>Browser entry</dt><dd>{review.manifest.runtime.entry}</dd></div><div><dt>Revision</dt><dd><code>{shortDigest(review.digest)}</code></dd></div></dl></details>
         {updating ? <aside className="capability-code-warning"><Info20Regular aria-hidden="true" /><div><strong>This replaces the current preview</strong><p>Connections whose destination is unchanged, automation settings, and run history carry over. A changed destination needs its secret entered again.</p></div></aside> : null}
@@ -310,7 +307,7 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
 function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
   return <div className="restricted-app-authority-list">
     {review.manifest.assistantActions?.length ? <section className="restricted-app-authority-group">
-      <h4>Assistant requests</h4><p>Each request starts a Chat in this Space; open or stop it in Apps.</p>
+      <h4>Assistant requests</h4><p>Starts a Chat in this Space.</p>
       <div className="restricted-app-authority-items">{review.manifest.assistantActions.map((action) => <details key={action.id}><summary>{action.title}</summary><pre className="restricted-app-task-declaration">{action.instructions}</pre></details>)}</div>
     </section> : null}
     <ReviewAuthorityGroup icon={<PlugConnected20Regular />} title="Network & connections" summary={review.manifest.permissions.network.length ? `${review.manifest.permissions.network.length} ${review.manifest.permissions.network.length === 1 ? "destination" : "destinations"} declared` : "None requested"} state={review.manifest.permissions.network.length ? "on" : "included"}>
@@ -653,15 +650,15 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
         <section className="restricted-app-access-overview" aria-label="App access overview">
           <div className="restricted-app-access-overview-heading">
             <ShieldCheckmark20Regular aria-hidden="true" />
-            <div><strong>{access.enabled ? access.label : "Access is off"}</strong><p>Each permission and automation is controlled separately.</p></div>
+            <div><strong>{access.enabled ? access.label : "Access is off"}</strong></div>
           </div>
           <div className="restricted-app-access-overview-counts">
             {accessSummary.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.enabled}/{item.total}</strong></div>)}
           </div>
         </section>
-        <section className="restricted-app-connections" aria-labelledby="restricted-app-connections-title">
+        {app.manifest.permissions.network.length ? <section className="restricted-app-connections" aria-labelledby="restricted-app-connections-title">
           <div className="restricted-app-connections-heading"><div><PlugConnected20Regular aria-hidden="true" /><h3 id="restricted-app-connections-title">Access & connections</h3></div>{connectionLoading ? <span><ArrowSync16Regular className="spin" />Checking</span> : null}</div>
-          {!app.manifest.permissions.network.length ? <p>This app declares no network destinations.</p> : app.manifest.permissions.network.map((destination) => {
+          {app.manifest.permissions.network.map((destination) => {
             const status = connections.find((item) => item.destinationId === destination.id);
             const granted = app.networkGrants.includes(destination.id);
             return <DestinationCard
@@ -678,10 +675,10 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
               onDisconnect={() => void disconnect(destination)}
             />;
           })}
-        </section>
-        <section className="restricted-app-connections" aria-labelledby="restricted-app-files-title">
+        </section> : null}
+        {app.manifest.permissions.files.length ? <section className="restricted-app-connections" aria-labelledby="restricted-app-files-title">
           <div className="restricted-app-connections-heading"><div><ShieldCheckmark20Regular aria-hidden="true" /><h3 id="restricted-app-files-title">Space files</h3></div></div>
-          {!app.manifest.permissions.files.length ? <p>This app requests no Space files.</p> : app.manifest.permissions.files.map((permission) => <FilePermissionCard
+          {app.manifest.permissions.files.map((permission) => <FilePermissionCard
             key={permission.id}
             permission={permission}
             grant={app.fileGrants.find((item) => item.declarationId === permission.id)}
@@ -689,23 +686,21 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
             active={actionBusy === `file:${permission.id}`}
             onChange={(root, granted) => void changeFileGrant(permission, root, granted)}
           />)}
-        </section>
+        </section> : null}
         {app.manifest.permissions.checks?.length ? <RestrictedAppCheckAccess key={`${app.featureInstallationId}:${app.digest}`} app={app} busy={Boolean(actionBusy) || busy || fixtureMode} onAppChanged={onAppChanged} onError={onError} /> : null}
-        <section className="restricted-app-connections" aria-labelledby="restricted-app-notifications-title">
+        {app.manifest.permissions.notifications.length ? <section className="restricted-app-connections" aria-labelledby="restricted-app-notifications-title">
           <div className="restricted-app-connections-heading"><div><Alert20Regular aria-hidden="true" /><h3 id="restricted-app-notifications-title">Notifications</h3></div></div>
-          {!app.manifest.permissions.notifications.length ? <p>This app declares no notifications.</p> : app.manifest.permissions.notifications.map((permission) => {
+          {app.manifest.permissions.notifications.map((permission) => {
             const granted = app.notificationGrants.includes(permission.id);
             return <article className="restricted-app-destination-card" key={permission.id}>
               <div className="restricted-app-destination-heading"><div><strong>work-fold · {app.manifest.title} — {permission.title}</strong><span>{permission.description}</span></div><code>{permission.id}</code></div>
               <div className="restricted-app-destination-states"><span className={granted ? "enabled" : ""}>Access: <strong>{granted ? "Allowed" : "Off"}</strong></span><span>Copy: <strong>Fixed to this reviewed revision</strong></span></div>
               <div className="restricted-app-destination-actions"><button className={granted ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={Boolean(actionBusy)} onClick={() => void changeNotificationGrant(permission, !granted)}>{actionBusy === `notification:${permission.id}` ? <ArrowSync16Regular className="spin" /> : null}{granted ? "Revoke notifications" : "Allow notifications"}</button></div>
-              <p className="restricted-app-oauth-note">Shown only from an enabled automation while work-fold is running. System notification settings can still suppress it. Clicking opens this app in its owning Space.</p>
             </article>;
           })}
-        </section>
-        <section className="restricted-app-connections" aria-labelledby="restricted-app-automations-title">
+        </section> : null}
+        {app.manifest.automations.length ? <section className="restricted-app-connections" aria-labelledby="restricted-app-automations-title">
           <div className="restricted-app-connections-heading"><div><Clock20Regular aria-hidden="true" /><h3 id="restricted-app-automations-title">Automations</h3></div></div>
-          {app.manifest.automations.length ? <><p>Schedules are on when the app is added. Turn any off here; Run now is a one-off.</p>
           {app.manifest.automations.map((automation) => <AutomationCard
             key={automation.id}
             app={app}
@@ -719,8 +714,8 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
             onEnabledChange={(enabled) => void changeAutomation(automation, enabled)}
             onRun={() => void runAutomation(automation)}
             onLoadRuns={() => void loadAutomationRuns(automation)}
-          />)}</> : <p>This app declares no scheduled automations.</p>}
-        </section>
+          />)}
+        </section> : null}
         <section className="restricted-app-lifecycle"><div><h3>App data</h3><p>{storageUsage ? `${formatBytes(storageUsage.usageBytes)} · Saved on this computer` : "Checking usage…"}</p></div><div className="restricted-app-lifecycle-actions">
           <input ref={restoreInputRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void restoreData(file); }} />
           <button className="professional-button professional-button-secondary" type="button" disabled={fixtureMode || Boolean(actionBusy) || !storageUsage} onClick={() => void exportData()}>Export data</button>
@@ -751,8 +746,8 @@ function AutomationCard({ app, automation, state, runs, runsLoading, runsError, 
 }) {
   const enabled = state?.enabled ?? false;
   const notificationNote = automation.permissions.notifications.length
-    ? "Run now works while the schedule is off, but notifications remain available only when this automation is enabled."
-    : "Run now is available while the schedule is off and does not enable future runs.";
+    ? "Notifications require the schedule to be enabled."
+    : null;
   return <article className="restricted-app-destination-card">
     <div className="restricted-app-destination-heading"><div><strong>{automation.title}</strong><span>{automation.description || `Runs the ${automation.handler} worker handler.`}</span></div><code>{automation.id}</code></div>
     <div className="restricted-app-destination-states">
@@ -768,7 +763,7 @@ function AutomationCard({ app, automation, state, runs, runsLoading, runsError, 
       <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onRun}>{activeBusyKey === `automation-run:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}Run now</button>
       <button className={enabled ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy} onClick={() => onEnabledChange(!enabled)}>{activeBusyKey === `automation:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}{enabled ? "Disable" : "Enable"}</button>
     </div>
-    <p className="restricted-app-oauth-note">{notificationNote}</p>
+    {notificationNote ? <p className="restricted-app-oauth-note">{notificationNote}</p> : null}
     <details className="restricted-app-connect-details" onToggle={(event) => { if (event.currentTarget.open) onLoadRuns(); }}>
       <summary>Recent runs</summary>
       {runsLoading ? <p><ArrowSync16Regular className="spin" /> Loading run history…</p> : null}
@@ -802,7 +797,6 @@ function FilePermissionCard({ permission, grant, busy, active, onChange }: {
       {grant && rootChanged ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => onChange(root.trim(), true)}>{active ? <ArrowSync16Regular className="spin" /> : null}{permission.target === "directory" ? wholeSpace ? "Limit to folder" : "Change folder" : "Change file"}</button> : null}
       <button className={grant ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy || (!grant && !root.trim())} onClick={() => onChange(grant?.root ?? root.trim(), !grant)}>{active && !rootChanged ? <ArrowSync16Regular className="spin" /> : null}{grant ? "Revoke access" : "Allow access"}</button>
     </div>
-    <p className="restricted-app-oauth-note">Links, work-fold metadata, Pi configuration, and paths outside this Space are always blocked. App writes create History checkpoints.</p>
   </article>;
 }
 
@@ -829,11 +823,9 @@ function DestinationCard({ destination, granted, status, loading, busy, activeBu
     {status?.diagnostics?.length ? <aside className="restricted-app-oauth-diagnostics" role="status">
       <strong>Provider compatibility {status.diagnostics.length === 1 ? "note" : "notes"}</strong>
       <ul>{status.diagnostics.map((diagnostic) => <li key={diagnostic.code}>{diagnostic.message}</li>)}</ul>
-      <span>work-fold enforces these requirements directly; the connection completed successfully.</span>
     </aside> : null}
     <div className="restricted-app-destination-actions"><button className={granted ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy || loading} onClick={() => onGrantChange(!granted)}>{activeBusyKey === `grant:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}{granted ? "Revoke access" : "Allow access"}</button>{!loading && oauth ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onOAuth}>{activeBusyKey === `oauth:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}{status?.kind === "oauth2-pkce" ? "Reconnect in browser" : "Connect in browser"}</button> : null}{!loading && status?.configured && status.kind !== "none" ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onDisconnect}>{activeBusyKey === `credential:${destination.id}` || activeBusyKey === `oauth:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}Disconnect</button> : null}</div>
     {!loading && supportedAuth.length ? <details className="restricted-app-connect-details"><summary>{status?.configured ? "Replace connection" : "Connect"}</summary><CredentialForm destination={destination} supportedAuth={supportedAuth} configuredKind={status?.kind} busy={busy} onSave={onSave} /></details> : null}
-    {oauth ? <p className="restricted-app-oauth-note">Uses the system browser with PKCE. The package supplies a public native-client ID; work-fold keeps callback state and tokens in the encrypted host.</p> : null}
     {unsupportedOnly ? <p className="restricted-app-oauth-note">{destination.auth.map(authLabel).join(" or ")} is not supported by this work-fold version.</p> : null}
     {destination.target.kind === "loopback-http" ? <p className="restricted-app-oauth-note">Local process ownership is not verified. Allow this only while you recognize the service listening on this port.</p> : null}
   </article>;
@@ -870,7 +862,7 @@ function CredentialForm({ destination, supportedAuth, configuredKind, busy, onSa
   return <form className="restricted-app-credential-form" onSubmit={(event) => void submit(event)} autoComplete="off">
     <div className="restricted-app-credential-heading"><strong>{configuredKind ? "Replace connection" : "Connect"}</strong>{supportedAuth.length > 1 ? <label><span className="sr-only">Authentication type</span><select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setSecret(""); setUsername(""); setPassword(""); }}>{supportedAuth.map((auth) => <option key={auth.kind} value={auth.kind}>{authLabel(auth)}</option>)}</select></label> : <span>{authLabel(selected)}</span>}</div>
     {kind === "basic" ? <div className="restricted-app-credential-fields"><label><span>Username</span><input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="off" /></label><label><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label></div> : <label className="restricted-app-secret-field"><span>{kind === "api-key" ? `API key · ${selected.kind === "api-key" ? selected.header : "manifest header"}` : "Bearer token"}</span><input type="password" value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="new-password" /></label>}
-    <div><button className="professional-button professional-button-secondary" type="submit" disabled={busy || !ready}>{configuredKind ? "Replace connection" : "Connect"}</button><small>Saved values are encrypted by the desktop host and are never shown again.</small></div>
+    <div><button className="professional-button professional-button-secondary" type="submit" disabled={busy || !ready}>{configuredKind ? "Replace connection" : "Connect"}</button></div>
   </form>;
 }
 

@@ -37,15 +37,13 @@ test("remote client keeps the load-bearing copy exact", async () => {
   // Desktop-offline gate: it says the situation once, not four times.
   assert.ok(app.includes('eyebrow: "Desktop offline"'));
   assert.ok(app.includes('Open <span class="nobr">work-fold</span> to continue.'));
-  assert.ok(app.includes("The desktop app holds your conversation and pairs new browsers."));
   assert.equal(app.includes("Nothing can be read or sent"), false);
 
-  // Pairing copy: one instruction, and the one-time nature said once. It
+  // Pairing keeps the explicit code-matching instruction. It
   // says pair/confirm, never approve (docs/receipts-not-gates.md writing rule).
   assert.ok(app.includes('eyebrow: "Confirm this browser once"'));
   assert.ok(app.includes('Match the code in <span class="nobr">work-fold</span>.'));
   assert.ok(app.includes("Confirm that the same six digits appear in the desktop prompt."));
-  assert.ok(app.includes("Once paired, this browser stays signed in until you remove it."));
   assert.ok(app.includes("<span>Waiting for your desktop…</span>"));
 
   // The screens name themselves: the door asks the question, and Needs you

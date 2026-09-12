@@ -110,6 +110,6 @@ test("the desktop copy contract and the remote client never say approve or stage
   // Pairing copy names identity, not permission to work.
   const client = await read("services/bridge/public/app.js");
   assert.ok(client.includes('eyebrow: "Confirm this browser once"'));
-  assert.ok(client.includes("Once paired, this browser stays signed in until you remove it."));
+  assert.ok(client.includes("Confirm that the same six digits appear in the desktop prompt."));
   assert.ok(client.includes('throw new Error("This browser is not paired.");'));
 });

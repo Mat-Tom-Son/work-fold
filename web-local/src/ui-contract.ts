@@ -21,22 +21,17 @@ export const welcomeActions = {
  */
 export const foldPublicationsSettings = {
   heading: "Pages your fold serves",
-  intro: "Each page here is one file served live from this desktop at your fold's web address, for anyone holding its link. "
-    + "Ask the fold to share a page; it appears here with its receipt. Here you can reveal a link, tighten budgets, or stop sharing.",
-  linkMeaning: "Anyone with this link can read this page while your desktop is online. The link is the whole key — forwarding it forwards the access.",
+  linkMeaning: "Anyone with the link can read this page.",
   revealLink: "Show link",
   hideLink: "Hide link",
   copyLink: "Copy link",
-  linkShownOnce: "Shown transiently — work-fold keeps no readable copy of this link outside secure settings.",
-  noAddress: "Set up your fold on the web before revealing links; pages have no address without it.",
-  snapshotLabel: "Keep an encrypted copy at the relay so this page stays readable while your desktop sleeps. "
-    + "The relay stores it encrypted and cannot read it; anyone with the link still can.",
+  noAddress: "Set up web access to show links.",
+  snapshotLabel: "An encrypted copy at the relay stays readable while your desktop sleeps.",
   snapshotOn: "Sleep copy on",
   snapshotOff: "Sleep copy off",
   turnSnapshotOff: "Turn off sleep copy",
-  snapshotWidenHint: "Turning the sleep copy on widens exposure, so ask the fold to share the page again with it on.",
   narrowBudgets: "Tighten budgets",
-  narrowHint: "Budgets can only shrink here. To raise one, ask the fold to share the page again.",
+  narrowHint: "To raise budgets, ask the fold to share again.",
   stopSharing: "Stop sharing",
   stopSharingConfirm: "Stop sharing this page? Every copy of its link stops working, and sharing again mints a new link.",
   empty: "No pages are shared. Ask the fold to share a page.",
@@ -49,8 +44,6 @@ export const foldPublicationsSettings = {
  */
 export const recentlyDeletedSettings = {
   heading: "Recently deleted",
-  intro: "Deleted files History could not keep a copy of, deleted Space folders, and app data that was cleared or purged "
-    + "wait here until the time below runs out. Everything here is on this computer only.",
   restore: "Restore",
   saveCopy: "Save a copy",
   deleteNow: "Delete now",
@@ -61,9 +54,8 @@ export const recentlyDeletedSettings = {
   retentionSaved: "Saved",
   retentionRange: "Choose between 1 and 365 days.",
   empty: "Nothing here.",
-  heldNote: "This folder holds records from the earlier Workspace product, which work-fold never erases. "
-    + "It stays here until you handle the folder yourself.",
-  damagedNote: "Some items could not be read. work-fold leaves them alone rather than removing them.",
+  heldNote: "Held: contains legacy Workspace records. Cannot be deleted here.",
+  damagedNote: "Some items could not be read.",
 } as const;
 
 /**
@@ -88,29 +80,17 @@ export const deleteFolderConfirm = {
  */
 export const foldLimitsSettings = {
   heading: "Limits",
-  intro: "These are the sizes and counts work-fold stops at. Nothing here waits for you: when work reaches one of these "
-    + "numbers, work-fold says which one it was. The counts and sizes below are fixed in this build.",
-  assistantHeading: "What an app can ask the Assistant",
-  assistantIntro: "An app in a Space can start a Chat with the full Assistant, and can ask for one short answer with no tools. "
-    + "Both leave a record under the app in Apps.",
-  requestsHeading: "Requests you start",
-  requestsIntro: "When you ask the fold for something, work-fold keeps one record of that request and everything it hands to "
-    + "a Space. These are the sizes and counts it stops at.",
-  continuationsHeading: "When work you handed out finishes",
-  continuationsIntro: "work-fold can return selected child results to the Assistant that asked, in the fold or a Space, "
-    + "including work an app requested. Each batch can start one follow-up turn within the request limit. "
-    + "Turn this off and results remain available in their request and Chat.",
+  assistantHeading: "App requests",
+  requestsHeading: "Requests",
+  continuationsHeading: "Continuations",
   continuationsLabel: "Continue requests when their child results arrive",
   continuationsSaved: "Saved",
   continuationsUnavailable: "This setting needs the work-fold app running.",
   routingsHeading: "Routings",
-  routingsIntro: "A routing is the deterministic glue that moves work between Spaces.",
   automationsHeading: "App automations",
-  automationsIntro: "Named automations an app declares, running on their own cadence.",
   deletedHeading: "Recently deleted",
   deletedLink: "Open Recently deleted",
-  deletedIntro: "How long a deleted item stays recoverable. Change it in Recently deleted.",
-  frozenNote: "These numbers are fixed in this version.",
+  frozenNote: "Fixed limits",
 } as const;
 
 /**
@@ -119,6 +99,5 @@ export const foldLimitsSettings = {
  * holds the fold's full authority (docs/receipts-not-gates.md).
  */
 export const remoteAccessSettings = {
-  pairedBrowserTrust: "Every new browser shows a six-digit code that you confirm on this desktop. Pairing is full trust: "
-    + "that browser may ask work-fold to read or change accessible files and run local commands.",
+  pairedBrowserTrust: "Paired browsers can read or change accessible files and run local commands.",
 } as const;

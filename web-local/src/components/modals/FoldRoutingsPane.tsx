@@ -398,7 +398,7 @@ export function FoldRoutingsPane() {
                   <h5>Watched folder</h5>
                   <p>{detail.trigger.watch.path}{detail.trigger.watch.recursive ? " and subfolders" : ""} · {detail.trigger.watch.extensions.join(", ")}</p>
                   <p>Observer: {detail.fileWatch?.state ?? "off"}{detail.fileWatch?.detail ? ` · ${detail.fileWatch.detail}` : ""}</p>
-                  <p>Changes are combined until stable. Observation pauses while any routing works and starts fresh after wake or restart. Changes during those pauses do not queue another run. Put all handoff steps in this routing.</p>
+                  <p>Changes during routing work, sleep, or restart are not replayed.</p>
                 </section> : null}
                 <dl className="fold-routing-facts">
                   <div><dt>Next</dt><dd>{detail.nextScheduledAt ? formatDateTime(detail.nextScheduledAt) : "—"}</dd></div>

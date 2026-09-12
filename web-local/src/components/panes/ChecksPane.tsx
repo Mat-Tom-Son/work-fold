@@ -465,7 +465,7 @@ export function ChecksPane({
       <section className="checks-section" aria-labelledby={`checks-expectations-${spaceId}`}>
         <div className="checks-section-heading"><div><h2 id={`checks-expectations-${spaceId}`}>Your Checks</h2></div></div>
         {overviewUnavailable ? (
-          <div className="checks-empty-config"><strong>Check configuration could not be refreshed.</strong><p>Try again to verify the currently designated targets and Check state.</p></div>
+          <div className="checks-empty-config"><strong>Could not refresh Check configuration.</strong></div>
         ) : overview?.checks.length ? (
           <div className="checks-definition-list">
             {overview.checks.map((check) => (
@@ -476,7 +476,6 @@ export function ChecksPane({
                 <button type="button" className="professional-button professional-button-secondary" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Turn off" : "Turn on"}</button>
                 <button type="button" className="professional-button professional-button-secondary" disabled={running || !check.digest} onClick={() => void tryCheck(check)}>Try it</button>
                 <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => void askFold(check)}>Change with fold</button>
-                <p>On request · Results in fold</p>
                 <div className="checks-target-list">
                   {check.targets.map((target, index) => (
                     <span key={`${target.role}:${target.path}:${index}`}>
@@ -490,7 +489,7 @@ export function ChecksPane({
             ))}
           </div>
         ) : overview ? (
-          <div className="checks-empty-config"><strong>No Checks are configured.</strong><p>Tell the fold what you want checked to get started.</p></div>
+          <div className="checks-empty-config"><strong>No Checks configured.</strong></div>
         ) : null}
       </section>
     </div>

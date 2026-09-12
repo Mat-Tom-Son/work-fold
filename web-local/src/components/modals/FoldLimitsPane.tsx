@@ -77,7 +77,6 @@ function ContinuationsSwitch() {
   return (
     <>
       <h4 id="fold-limits-continuations-title">{foldLimitsSettings.continuationsHeading}</h4>
-      <p>{foldLimitsSettings.continuationsIntro}</p>
       <div className="settings-actions">
         <label htmlFor="fold-limits-continuations">
           <input
@@ -138,10 +137,8 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
         <h3 id="fold-limits-title">{foldLimitsSettings.heading}</h3>
         <span>{foldLimitsSettings.frozenNote}</span>
       </div>
-      <p>{foldLimitsSettings.intro}</p>
 
       <h4 id="fold-limits-assistant-title">{foldLimitsSettings.assistantHeading}</h4>
-      <p>{foldLimitsSettings.assistantIntro}</p>
       <LimitRows
         rows={[
           ["Chat request instructions", kib(assistant.instructions)],
@@ -159,7 +156,6 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       />
 
       <h4>Live Extension questions</h4>
-      <p>Questions from an Extension stay with their Chat and end when its session closes.</p>
       <LimitRows rows={[
         ["Pending Extension questions per Chat", String(workFoldExtensionUiLimits.pendingPerChat)],
         ["Pending Extension questions on this computer", String(workFoldExtensionUiLimits.pendingTotal)],
@@ -169,7 +165,6 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       ]} />
 
       <h4 id="fold-limits-requests-title">{foldLimitsSettings.requestsHeading}</h4>
-      <p>{foldLimitsSettings.requestsIntro}</p>
       <LimitRows
         rows={[
           ["How long one request stays open", hours(requests.deadlineMs)],
@@ -193,7 +188,6 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       <ContinuationsSwitch />
 
       <h4 id="fold-limits-routings-title">{foldLimitsSettings.routingsHeading}</h4>
-      <p>{foldLimitsSettings.routingsIntro}</p>
       <LimitRows
         rows={[
           ["Steps in one routing", String(routing.maxSteps)],
@@ -207,11 +201,9 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       />
 
       <h4 id="fold-limits-automations-title">{foldLimitsSettings.automationsHeading}</h4>
-      <p>{foldLimitsSettings.automationsIntro}</p>
       <LimitRows rows={[["Automations running on this computer", String(workFoldAutomationDefaultConcurrency)]]} />
 
       <h4 id="fold-limits-deleted-title">{foldLimitsSettings.deletedHeading}</h4>
-      <p>{foldLimitsSettings.deletedIntro}</p>
       <LimitRows rows={[["Kept for", `${workFoldTrashDefaultRetentionDays} days unless you change it`]]} />
       {onOpenRecentlyDeleted ? (
         <div className="settings-actions">

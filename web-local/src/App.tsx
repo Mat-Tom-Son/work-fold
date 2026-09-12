@@ -1201,10 +1201,10 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
 
   const commands = useMemo<CommandPaletteCommand[]>(() => [
     ...(["files", "chats", "history"] as SpacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
-    { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", detail: "Reusable personal files", defaultVisible: true, run: () => openLibrary(space) },
-    { id: "go:space-apps", groupId: "go-to" as const, groupLabel: "Go to", label: "Apps", detail: "Apps built for this Space: access, connections, automations", defaultVisible: true, run: () => tabs.openSpaceAppsSurfaceTab(space) },
-    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Skills & Extensions", detail: "What the Assistant can use: installed Skills and Extensions", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(space, "installed") },
-    ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }]),
+    { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", defaultVisible: true, run: () => openLibrary(space) },
+    { id: "go:space-apps", groupId: "go-to" as const, groupLabel: "Go to", label: "Apps", defaultVisible: true, run: () => tabs.openSpaceAppsSurfaceTab(space) },
+    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Skills & Extensions", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(space, "installed") },
+    ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : undefined, defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }]),
     { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
     ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go to", label: restrictedAppRailLabel(app, restrictedApps), detail: "App · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId)) })),
@@ -1453,7 +1453,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
 }
 
 function SpaceSurfaceEmptyState({ space, identity, onNewChat }: { space: SpaceSummary; identity: ReturnType<typeof spaceIdentityFor>; onNewChat: () => void }) {
-  return <div className="space-surface-body space-surface-body-empty"><div className="space-surface-empty" style={spaceIdentityStyle(identity)}><span className="space-surface-empty-icon"><SpaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{space.name}</h2><p>Choose something from the left, or start a Chat.</p><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
+  return <div className="space-surface-body space-surface-body-empty"><div className="space-surface-empty" style={spaceIdentityStyle(identity)}><span className="space-surface-empty-icon"><SpaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{space.name}</h2><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
 }
 
 function applyFixtureChatLifecycle(

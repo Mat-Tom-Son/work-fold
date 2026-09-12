@@ -135,12 +135,12 @@ export function ChatActionsPopover({
           {lifecycleView === "snoozed" ? (
             <button type="button" disabled={busy} onClick={() => void handleLifecycle({ snoozedUntil: null })}>
               <RotateCcw size={14} />
-              <span><strong>Resume now</strong><small>Return this Chat to Active</small></span>
+              <span><strong>Resume now</strong></span>
             </button>
           ) : lifecycleView !== "archived" ? (
             <button type="button" disabled={busy} onClick={() => setView("snooze")}>
               <Clock3 size={14} />
-              <span><strong>Snooze</strong><small>Hide it until later</small></span>
+              <span><strong>Snooze</strong></span>
             </button>
           ) : null}
           <button
@@ -152,7 +152,6 @@ export function ChatActionsPopover({
             {lifecycleView === "archived" ? <RotateCcw size={14} /> : <Archive size={14} />}
             <span>
               <strong>{lifecycleView === "archived" ? "Restore to Active" : "Archive"}</strong>
-              <small>{lifecycleView === "archived" ? "Return this Chat to the main list" : "Move it out of active work"}</small>
             </span>
           </button>
         </div>

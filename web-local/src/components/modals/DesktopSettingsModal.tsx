@@ -95,12 +95,12 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
     }
   }
 
-  const tabs: Array<{ id: SettingsPage; label: string; icon: React.ReactNode; description: string }> = [
-    { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular />, description: "Make work-fold comfortable to read and use." },
-    { id: "assistant", label: "Assistant", icon: <Sparkle20Regular />, description: "Choose models, connect providers, and set Space instructions." },
-    { id: "remote", label: "The fold", icon: <Window20Regular />, description: "Manage web access, shared work, and recovery across your Spaces." },
-    { id: "desktop", label: "Desktop", icon: <Laptop20Regular />, description: "Keep work-fold up to date and manage desktop behavior." },
-    { id: "about", label: "About", icon: <Info20Regular />, description: "Version and application information." },
+  const tabs: Array<{ id: SettingsPage; label: string; icon: React.ReactNode }> = [
+    { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
+    { id: "assistant", label: "Assistant", icon: <Sparkle20Regular /> },
+    { id: "remote", label: "The fold", icon: <Window20Regular /> },
+    { id: "desktop", label: "Desktop", icon: <Laptop20Regular /> },
+    { id: "about", label: "About", icon: <Info20Regular /> },
   ];
   const selectedPage = tabs.find((tab) => tab.id === page)!;
 
@@ -133,7 +133,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
             ))}
           </div>
           <div className="settings-content" ref={contentRef}>
-            <header className="settings-page-heading"><h2>{selectedPage.label}</h2><p>{selectedPage.description}</p></header>
+            <header className="settings-page-heading"><h2>{selectedPage.label}</h2></header>
             {page === "appearance" ? (
               <div className="settings-tab-panel" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
                 <AppearanceSettingsPane appearance={appearance} space={space} onCustomizeSpace={onCustomizeSpace} />
@@ -182,17 +182,17 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                     <div className="settings-section-heading"><h3 id="window-close-settings-title">Closing the window</h3>{closeToTrayBusy ? <span><ArrowClockwise20Regular className="spin" /> Updating</span> : closeToTrayNotice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{closeToTrayNotice}</span> : null}</div>
                     <div className="theme-segmented-control two-options" role="radiogroup" aria-label="Close button behavior">
                       <button className={closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={closeToTray.enabled} tabIndex={closeToTray.enabled ? 0 : -1} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(true)}>
-                        <Subtract20Regular /><span className="theme-choice-copy"><span>Keep work-fold running</span><small>Hide to the system tray so active work can continue</small></span>
+                        <Subtract20Regular /><span className="theme-choice-copy"><span>Keep work-fold running</span></span>
                       </button>
                       <button className={!closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={!closeToTray.enabled} tabIndex={!closeToTray.enabled ? 0 : -1} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(false)}>
-                        <Power20Regular /><span className="theme-choice-copy"><span>Quit work-fold</span><small>Stop the app when its window closes</small></span>
+                        <Power20Regular /><span className="theme-choice-copy"><span>Quit work-fold</span></span>
                       </button>
                     </div>
                     {closeToTrayError ? <span className="settings-inline-error" role="alert">{closeToTrayError}</span> : null}
                   </section>
                 ) : null}
                 <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
-                  <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Update status is available in the installed desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
+                  <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
                   {onUpdateAction && updateStatus?.supported ? <button className="secondary-button" type="button" disabled={updateStatus.phase === "checking" || updateStatus.phase === "downloading" || updateStatus.phase === "installing"} onClick={onUpdateAction}><ArrowClockwise20Regular className={updateStatus.phase === "checking" || updateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(updateStatus)}</button> : null}
                 </section>
               </div>
@@ -295,7 +295,7 @@ function RemoteAccessPane() {
     return (
       <section className="settings-section" aria-labelledby="remote-access-title">
         <div className="settings-section-heading"><h3 id="remote-access-title">Your fold on the web</h3></div>
-        <p>Your fold on the web is set up from the installed desktop app.</p>
+        <p>Set up web access in the desktop app.</p>
       </section>
     );
   }
@@ -321,7 +321,6 @@ function RemoteAccessPane() {
           <h3 id="remote-access-title">Your private web address</h3>
           <span className={`remote-access-state ${status?.connection ?? "stopped"}`}>{connectionLabel}</span>
         </div>
-        <p>Private alpha. Your fold — the same conversation your menu bar opens — from any browser you pair. Content is application-encrypted in transit, but the hosted work-fold client is part of the trusted authority boundary.</p>
         {status?.url ? <code className="remote-access-url">{status.url}</code> : null}
         <div className="remote-access-actions">
           {status?.configured ? <button className="secondary-button" type="button" disabled={Boolean(busy) || !status.enabled} onClick={() => void run("open", async () => remote.open())}>Open address</button> : null}
@@ -517,8 +516,6 @@ function FoldPublicationsPane() {
         <h3 id="fold-publications-title">{foldPublicationsSettings.heading}</h3>
         {data ? <span>{data.status.activeCount} shared</span> : null}
       </div>
-      <p>{foldPublicationsSettings.intro}</p>
-      <p>{foldPublicationsSettings.linkMeaning}</p>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {data?.status.damaged ? (
         <span className="settings-inline-error" role="alert">
@@ -630,7 +627,7 @@ function FoldPublicationsPane() {
                       {foldPublicationsSettings.copyLink}
                     </button>
                   </div>
-                  <small>{foldPublicationsSettings.linkShownOnce}</small>
+                  <small>{foldPublicationsSettings.linkMeaning}</small>
                 </div>
               ) : null}
               {narrowing?.publicationId === publication.publicationId ? (
@@ -670,9 +667,6 @@ function FoldPublicationsPane() {
                   retention label nor a widening hint that has no act. */}
               {publication.kind === "page" && publication.state === "active" && publication.snapshotEnabled ? (
                 <small className="fold-publication-snapshot-label">{foldPublicationsSettings.snapshotLabel}</small>
-              ) : null}
-              {publication.kind === "page" && publication.state === "active" && !publication.snapshotEnabled ? (
-                <small className="fold-publication-snapshot-label">{foldPublicationsSettings.snapshotWidenHint}</small>
               ) : null}
             </div>
           ))}

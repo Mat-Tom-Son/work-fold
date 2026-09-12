@@ -392,7 +392,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   return <>
     {externalChange ? <div className="assistant-external-change"><span>Saved settings have changed.</span><button className="assistant-refresh-models" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload saved settings</button></div> : null}
     <section className="assistant-settings-section" aria-labelledby="assistant-model-heading">
-      <div className="assistant-section-heading"><h3 id="assistant-model-heading">Model</h3><p>New Chats in {scope === "management" ? "the fold" : scopeLabel} use this model. Existing Chats keep theirs.</p></div>
+      <div className="assistant-section-heading"><h3 id="assistant-model-heading">Model</h3><p>For new Chats</p></div>
       <form onSubmit={(event) => { event.preventDefault(); void configure("model"); }}>
         <div className="assistant-form-fields">
           <label className="professional-field"><span className="professional-field-label">Provider</span>
@@ -408,12 +408,12 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         </div>
         <div className="assistant-form-actions">
           <button className="professional-button professional-button-primary" type="submit" disabled={operationBusy || !model || !modelChanged || !authConfigured}>{saving === "model" ? "Saving…" : "Save model"}</button>
-          <AssistantOperationStatus feedback={modelFeedback} hint={!models.length ? "No models are available in the current Pi configuration." : !authConfigured ? "Connect this provider below to save its model." : undefined} />
+          <AssistantOperationStatus feedback={modelFeedback} hint={!models.length ? "No models available." : !authConfigured ? "Connect this provider first." : undefined} />
         </div>
       </form>
     </section>
     <section className="assistant-settings-section" aria-labelledby="assistant-connection-heading">
-      <div className="assistant-section-heading"><h3 id="assistant-connection-heading">Connection</h3><p>Provider connections are shared across this computer.</p></div>
+      <div className="assistant-section-heading"><h3 id="assistant-connection-heading">Connection</h3><p>Shared on this computer</p></div>
       <div className="assistant-connection-row">
         <div><strong>{providerName || "Choose a provider"}</strong><p>{assistantCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
         {removableAuth ? <button className="professional-button professional-button-secondary" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect account" : "Remove API key"}</button> : null}
@@ -428,9 +428,9 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       {subscriptionNote ? <p className="assistant-provider-note">{subscriptionNote}</p> : null}
     </section>
     {scope === "space" ? <section className="assistant-settings-section" aria-labelledby="assistant-instructions-heading">
-      <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Space instructions</h3><p>Guidance for {scopeLabel}. Applies to subsequent turns, including existing Chats.</p></div>
+      <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Space instructions</h3></div>
       <form onSubmit={(event) => void saveInstructions(event)}>
-        <label className="professional-field assistant-instructions-field"><span className="sr-only">Space instructions</span><textarea value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }} placeholder="How should the Assistant work in this Space?" /></label>
+        <label className="professional-field assistant-instructions-field"><span className="sr-only">Space instructions</span><textarea value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
         <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save instructions"}</button><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /></div>
       </form>
     </section> : null}
