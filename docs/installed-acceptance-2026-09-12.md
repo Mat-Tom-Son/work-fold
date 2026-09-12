@@ -1,7 +1,7 @@
 # Installed-client acceptance, Settings and appearance
 
-This is the working test plan for the installed macOS 0.4.29 client and the
-subsequent Settings improvement. Results are recorded against the version that
+This records the installed macOS 0.4.29 tests, the subsequent Settings work and
+the signed 0.4.30 candidate retests. Results are recorded against the version that
 actually ran. Source checks, simulated integration tests, live model work and
 human setup are separate evidence.
 
@@ -29,13 +29,13 @@ human setup are separate evidence.
 | A01 | Installed app | Verify 0.4.28 → 0.4.29 update and cold launch | Installed signature/feed/version; cached ZIP matches public digest; saved app opens | Passed: installed signature/feed and cached ZIP digest; cold launch |
 | A02 | Space management | Delete old demo Spaces; create three fresh Spaces | Five reversible deletion receipts, empty registry, three visible new Spaces | Passed: all five old Spaces in Recently deleted; three new Spaces visible |
 | A03 | Neighborhood Workshop | Plan a 16-person photo workshop using supplied brief and price list | Correct budget totals, assumptions labeled, editable workbook and one-page PDF linked in Chat | Passed after funding: correct workbook formulas/caches, three linked files, independently rendered one-page PDF |
-| A04 | Community Outreach + fold | Delegate an invitation draft from a workshop handoff; ask for missing time; answer once | Selected file reaches target; question and one continuation; no unrelated transcript leakage; fold gets result | Graph/isolation passed on retry; UI answer was delayed by S12 and needs re-verification |
+| A04 | Community Outreach + fold | Delegate an invitation draft from a workshop handoff; ask for missing time; answer once | Selected file reaches target; question and one continuation; no unrelated transcript leakage; fold gets result | Earlier graph/isolation passed; 0.4.30 candidate UI-first answer passed in 888 ms with one native continuation |
 | A05 | Tool Lab / MCP | Query local supply inventory, calculate shortages, handle disconnect and recovery | Native discovery/invocation, correct 4/40/8 shortages, useful failure, successful fresh retry | Passed: native discovery/invocation, 4/40/8 shortages, one failed call during synthetic outage, fresh successful retry after recovery |
 | A06 | Tool Lab / Chrome | Edit a synthetic registration form in a dedicated browser tab; verify final state; reconnect | Native Chrome observation/action, correct isolated tab, no duplicate submit on recovery | Setup needed: installed readiness check confirms companion is not connected |
 | A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Setup needed: installed helper reports Accessibility and Screen Recording not verified |
 | A08 | Tool Lab / documents | Detect and fix a deliberately clipped PDF heading and overlapping footer | Model receives images if supported; two renders; final source/image provenance matches; previews cleaned | Passed after manual recovery and evidence correction: two image paths, readable corrected PDF, matching hashes; initial allocation failure retained |
-| A09 | Two Chats | Run independent document jobs, stop one, switch tabs and reopen app | Stopped worker has no late write; sibling completes; files and task states survive restart without replay | Failed in 0.4.29: UI admission/Stop delayed by S12; source fix and fresh retest in progress |
-| A10 | Tool Lab / Space app | Build a small workshop notes app with a bounded inference action | App installs, saves a record, invokes app-owned inference, displays result and receipt | Persistence and one-call inference passed; trusted receipt UI exposed duplicate Running row (S15, source fixed) |
+| A09 | Two Chats | Run independent document jobs, stop one, switch tabs and reopen app | Stopped worker has no late write; sibling completes; files and task states survive restart without replay | 0.4.30 candidate overlap/Stop/sibling passed; candidate restart remains pending; earlier failures retained |
+| A10 | Tool Lab / Space app | Build a small workshop notes app with a bounded inference action | App installs, saves a record, invokes app-owned inference, displays result and receipt | 0.4.30 candidate: one new inference, two Answered rows, zero Running; saved notes restored on panel reopen |
 | A11 | Settings | Change scoped model, inspect connection, edit instructions, navigate every page | Scope correct after async loads/saves; credentials protected; no stale responses, clear errors | Passed in source DOM tests and native development app; see verification below |
 | A12 | Settings | Keyboard, narrow window, light/dark, long model names and save/error states | No clipping or horizontal overflow; visible focus; correct tab navigation and focus return | Passed: CUA light/dark, 320/390/700/940 widths, keyboard focus and scrolling |
 
@@ -306,10 +306,10 @@ the user's 0.4.29 client and are not claims that the remaining live journeys pas
   plus $0.0002625 for the separately journaled app inference. This is usage
   evidence, not an independently verified provider-account balance.
 
-These commits have not been packaged, installed over 0.4.29, or published. A06
-and A07 await the person's browser/helper setup. The new build must repeat A04's
-UI answer, A09's simultaneous worker cancellation, and A10's receipt presentation
-before release acceptance; the installed failures remain recorded above.
+At this checkpoint the commits were not yet packaged, installed over 0.4.29, or
+published. A04's UI answer, A09's simultaneous worker cancellation and A10's
+receipt presentation required candidate retesting; those results follow below.
+The installed failures remain recorded above.
 
 ## Release preparation, September 12
 
@@ -331,3 +331,67 @@ The bridge's 55 tests passed and Railway deployment
 `https://www.work-fold.com/health` reported ready, and fetched app.js/app.css
 SHA-256 values matched the local deployment sources. This is bridge deployment
 evidence only; desktop candidate acceptance and publication remain pending.
+
+## Signed 0.4.30 candidate retests
+
+These tests ran from `out/mac-rc/mac-arm64/work-fold.app`, built from frozen
+source commit `8108655`, using the existing production data profile. They did
+not run from `/Applications/work-fold.app`. The pre-candidate source run had
+1,488 tests: 1,487 passed, zero failed and one skipped; `npm run check` passed.
+The candidate build passed preparation, full built-ASAR native-tool probes,
+signing, app notarization and packaged verification. A separate read-only check
+confirmed version 0.4.30, a valid deep/strict signature and Gatekeeper acceptance
+as Notarized Developer ID. This app-only candidate is not a published update.
+
+**A04 — UI-first answer.** The main-window answer form retired 888 ms after the
+click. Act receipt `work-ui:45fe0c91-79b0-41b4-9465-bf73a03dc34a` records
+`chat.answer` accepted and completed with `surface: main-window`, linked to
+request `req-20260912150339-b1b9eb9c`. Question
+`q-20260912150343-c61f0327` has one answer and one continuation task,
+`turn-ce3ea35e-571a-404a-9874-0e76f70b4836`. The native Pi journal contains
+exactly one `document_run` invocation of `answer-ui-3.mjs`, carrying the supplied
+11:15 AM answer. Its script digest, completion marker and selected confirmation
+file match the filesystem. The tool's library origins point inside this
+candidate's ASAR. The continuation's turn-journal `actorKind: cli` describes the
+shared launch path; the act receipt establishes the actual answer surface.
+This retest verifies the UI failure's repair; the earlier handoff, restore-point
+and transcript-isolation evidence remains a separate result.
+
+**A09 — overlap and Stop.** With seven settled Chats mounted, the Tool Lab worker
+started at `1789225946170` and the independent Community Outreach worker at
+`1789225974916`. Both were running when Stop was clicked at `1789225985509`:
+10,593 ms of overlap preceded Stop. The UI acknowledged Stop in 878 ms. Native
+task `turn-c2bf05d3-c8e7-4da4-b00a-41ab64f4a168` is aborted and its sole
+`document_run` returned “Document run stopped.” Its normal-success completion
+marker was still absent 131,338 ms after worker start, beyond both the fixture's
+90-second deadline and the tool's 120-second timeout. A later independent
+read-only check also found it absent.
+
+The sibling task `turn-209f5f1b-4dd3-4b9f-8421-2be35eacd2a5` completed its sole
+native document run after 30,017 ms while the app was minimized. The delivered
+one-page PDF has SHA-256
+`1fd7cdf21e5cae16a7369477ab7a7635c7abfe7a724f1c67b2b3a3e3c8644a85`.
+Independent text extraction found the matching run id, and the root reviewer's
+Preview inspection confirmed a readable page with that id. This verifies
+concurrent execution, prompt Stop, sibling isolation and minimization; full app
+restart/no-replay verification for this candidate remains pending.
+
+**A10 — one call, one row.** One Summarize click added exactly two audit events,
+accepted and completed, for call `6321b97f-a523-47dd-a3f6-ac5ba52d149b`. It used
+`deepseek/deepseek-v4.1-flash` through OpenRouter, took 13,410 ms and recorded
+212 input tokens, 319 output tokens and $0.0002232 runtime usage. The journal now
+has four events for two distinct completed calls. The trusted UI showed two
+Answered rows and zero Running rows. Saved notes remained after closing and
+reopening the app panel, and a subsequent journal read found no additional
+inference. This is panel persistence, not a candidate restart test; runtime
+usage is not an independently checked provider-account balance.
+
+Consolidated evidence is in ignored
+`out/installed-acceptance/candidate-0430-verification.json`: source-log and ASAR
+hashes, main-window receipts, request/question records, native session and tool
+call ids, turn usage, fixture hashes and interval calculations. Root UI/Preview
+observations are labeled separately from independently checked native records.
+Earlier failed attempts remain intact. Subsequent Chrome onboarding and signed
+Computer-helper changes are outside frozen commit `8108655`; they require a
+new candidate and their own live acceptance. Final Chrome acceptance, full
+candidate restart verification and public desktop release are not claimed here.
