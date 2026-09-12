@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "9006de962c26b05d76c989d0043c93f570f03f225c0b86b3855c8d00988adba3",
+    "sha256": "31ee7d88dad61b1de2d2f5eceadad2f78e265593345338957573b56a67929109",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -80,17 +80,17 @@
       {
         "path": "native/macos/bridge.swift",
         "before": "adb5a4eb6ada931a5cbc16761fec7dbe27a290900326a4142bd7f4097865a7ba",
-        "after": "0ff1ee150b1504245907c018f6ae06b5924970065823a4c424801aaac82f390f"
+        "after": "1aaf538a02f073b5f86cf7ebd5e770dc2748e061a654c7b485e4ae2fb2890f9f"
       },
       {
         "path": "native/macos/request_lifecycle.swift",
         "before": null,
-        "after": "da097b782510be4c45eba30a54dad6997aeeb1041431981aa7dedb231ea246ea"
+        "after": "f8cecd597eb7c4b87292acda20879183c4858c7ca263072a5c61d7e23f6a0f46"
       },
       {
         "path": "native/macos/request_lifecycle_tests.swift",
         "before": null,
-        "after": "d07d78f14f4965afa3a7805abdf19e54cfa19f9b1676d7109efb4493c0baf59c"
+        "after": "93f573d7fd478daee6f18864899eb087d7028b079cb266c3a7e2ad925675a4b8"
       },
       {
         "path": "package.json",
@@ -165,7 +165,7 @@
       {
         "path": "docs/architecture.md",
         "before": "479a2b8870a6ef338f6a0771d52a29096f8baf1d66ac4b6753330a74f3e59101",
-        "after": "2600289b0b6ab8eaff5e32c05ca7d60ea6b0b77ab030cffb5a1619201c4ee0d3"
+        "after": "b7c5ffd4d17cc51df34f06ecd3a25118b5ee3b688bc68cea79888e286171b5db"
       }
     ]
   },

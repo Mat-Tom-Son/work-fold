@@ -57,7 +57,7 @@ index eec9992..5580d00 100644
  	});
  }
 diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
-index 0642385..b2ea75f 100644
+index 0642385..69da3de 100644
 --- a/native/macos/bridge.swift
 +++ b/native/macos/bridge.swift
 @@ -369,10 +369,12 @@ final class InputSuppressionGuard {
@@ -222,32 +222,88 @@ index 0642385..b2ea75f 100644
  			guard record.hasImage else {
  				throw BridgeFailure(message: "Coordinate targeting is unavailable for this outline-only root", code: "coordinate_unavailable_for_root")
  			}
-@@ -1942,17 +1954,34 @@ final class Bridge {
+@@ -1942,17 +1954,91 @@ final class Bridge {
  			Task { @MainActor in AgentCursor.shared.animate(to: point, above: record.windowId) }
  		}
  
 -		func focusTargetForPhysicalInput() {
-+		func focusTargetForPhysicalInput() throws {
-+			try checkRequestActive()
- 			guard delivery == "hid" else { return }
+-			guard delivery == "hid" else { return }
 -			if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
 -				performed["activated"] = app.activate()
--			}
++		func parentPath(from start: AXUIElement, through end: AXUIElement) -> [AXUIElement]? {
++			var current: AXUIElement? = start
++			var path: [AXUIElement] = []
++			for _ in 0..<32 {
++				guard let candidate = current,
++					!path.contains(where: { sameElement($0, candidate) }),
++					pidForElement(candidate) == pid
++				else { return nil }
++				path.append(candidate)
++				if sameElement(candidate, end) { return path }
++				current = pinnedParent(candidate)
++			}
++			return nil
++		}
++
++		func pinnedParent(_ candidate: AXUIElement) -> AXUIElement? {
++			guard pidForElement(candidate) == pid,
++				let parent = parentElement(candidate),
++				pidForElement(parent) == pid
++			else { return nil }
++			return parent
++		}
++
++		func isInputContainer(_ candidate: AXUIElement) -> Bool {
++			let role = stringAttribute(candidate, attribute: kAXRoleAttribute as CFString) ?? ""
++			return role == "AXSheet" || role == "AXWindow" || role == "AXDialog"
++		}
++
++		func inputTarget() -> (observedRoot: AXUIElement, container: AXUIElement)? {
++			guard record.windowId > 0,
++				pidForWindowId(record.windowId) == pid,
++				let observedRoot = windowElement(pid: pid, windowId: record.windowId),
++				pidForElement(observedRoot) == pid
++			else { return nil }
++			guard let element else { return (observedRoot, observedRoot) }
++			guard let ancestry = parentPath(from: element, through: observedRoot),
++				let container = ancestry.first(where: isInputContainer)
++			else { return nil }
++			return (observedRoot, container)
++		}
++
++		func requireInputTarget() throws {
++			guard inputTarget() != nil else {
++				throw BridgeFailure(message: "The target is no longer inside the observed root. Observe again.", code: "stale_target")
+ 			}
 -			if let window = windowElement(pid: pid, windowId: record.windowId) {
 -				_ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
 -				_ = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
 -				performed["raised"] = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
--			}
--			usleep(20_000)
++		}
++
++		func focusTargetForPhysicalInput() throws {
++			try checkRequestActive()
++			guard delivery == "hid" else { return }
 +			func selectedTargetWindow() -> Bool {
-+				guard record.windowId > 0,
-+					pidForWindowId(record.windowId) == pid,
++				guard let target = inputTarget(),
 +					NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-+					let window = windowElement(pid: pid, windowId: record.windowId),
-+					let focusedWindow = copyAttribute(AXUIElementCreateApplication(pid), attribute: kAXFocusedWindowAttribute as CFString).flatMap(asAXElement)
++					let focusedWindow = copyAttribute(AXUIElementCreateApplication(pid), attribute: kAXFocusedWindowAttribute as CFString).flatMap(asAXElement),
++					pidForElement(focusedWindow) == pid
 +				else { return false }
-+				return sameElement(focusedWindow, window)
-+			}
++				guard element != nil else { return sameElement(focusedWindow, target.observedRoot) }
++				let focusedUI = copyAttribute(AXUIElementCreateApplication(pid), attribute: kAXFocusedUIElementAttribute as CFString).flatMap(asAXElement)
++				if let focusedUI, pidForElement(focusedUI) != pid { return false }
++				return ForegroundInputFocusPath.permits(
++					observedRoot: target.observedRoot,
++					targetContainer: target.container,
++					focusedWindow: focusedWindow,
++					focusedUI: focusedUI,
++					parent: pinnedParent,
++					same: sameElement,
++					isInputContainer: isInputContainer
++				)
+ 			}
+-			usleep(20_000)
 +
 +			try ForegroundInputPreflight.require(
 +				preserveFocus: params["preserveFocus"] as? Bool ?? false,
@@ -256,10 +312,10 @@ index 0642385..b2ea75f 100644
 +					if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
 +						performed["activated"] = app.activate()
 +					}
-+					guard let window = windowElement(pid: pid, windowId: record.windowId) else { return }
-+					performed["setMain"] = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue) == .success
-+					performed["setFocused"] = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
-+					performed["raised"] = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
++					guard let target = inputTarget() else { return }
++					performed["setMain"] = AXUIElementSetAttributeValue(target.container, kAXMainAttribute as CFString, kCFBooleanTrue) == .success
++					performed["setFocused"] = AXUIElementSetAttributeValue(target.container, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
++					performed["raised"] = AXUIElementPerformAction(target.container, kAXRaiseAction as CFString) == .success
 +				},
 +				waitForFocus: { usleep(20_000) },
 +				checkRequestActive: checkRequestActive
@@ -267,7 +323,7 @@ index 0642385..b2ea75f 100644
  		}
  
  		func preflight(_ point: CGPoint) throws {
-@@ -1963,7 +1992,7 @@ final class Bridge {
+@@ -1963,7 +2049,7 @@ final class Bridge {
  				let role = stringAttribute(hit, attribute: kAXRoleAttribute as CFString) ?? ""
  				if role == "AXWindow" || role == "AXApplication" { preflightCapsUnknown = true; return }
  				if delivery == "hid" && attempt < 3 {
@@ -276,7 +332,7 @@ index 0642385..b2ea75f 100644
  					usleep(20_000)
  					continue
  				}
-@@ -1972,13 +2001,17 @@ final class Bridge {
+@@ -1972,13 +2058,17 @@ final class Bridge {
  		}
  
  		func executeCoordinates(_ point: CGPoint) throws {
@@ -295,7 +351,7 @@ index 0642385..b2ea75f 100644
  			if delivery == "hid" { try preflight(point) }
  			switch action {
  			case "press", "click":
-@@ -2028,8 +2061,10 @@ final class Bridge {
+@@ -2028,8 +2118,10 @@ final class Bridge {
  				}
  			} else if supportsAction(element, action: kAXPressAction as CFString) {
  				let cursorPoint = try? coordinatePoint()
@@ -306,7 +362,7 @@ index 0642385..b2ea75f 100644
  					status = AXUIElementPerformAction(refreshed, kAXPressAction as CFString)
  				}
  				if status == .success {
-@@ -2045,13 +2080,18 @@ final class Bridge {
+@@ -2045,13 +2137,18 @@ final class Bridge {
  		} else if let element, action == "setText" {
  			let text = params["text"] as? String ?? ""
  			if hasAncestorRole(element, role: "AXWebArea") {
@@ -328,7 +384,7 @@ index 0642385..b2ea75f 100644
  				} ?? false
  				if !selected {
  					try postKeyPress(keys: ["cmd", "a"], pid: pid, delivery: delivery)
-@@ -2067,9 +2107,11 @@ final class Bridge {
+@@ -2067,9 +2164,11 @@ final class Bridge {
  				return finish(["outcome": value == text ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]])
  			}
  			var targetElement = element
@@ -340,42 +396,49 @@ index 0642385..b2ea75f 100644
  				status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
  			}
  			if status == .success {
-@@ -2083,13 +2125,16 @@ final class Bridge {
+@@ -2083,13 +2182,18 @@ final class Bridge {
  			}
  			try executeCoordinates(coordinatePoint())
  		} else if action == "typeText" {
--			let preserveFocus = params["preserveFocus"] as? Bool ?? false
 +			guard policy != "ax_only" else {
 +				throw BridgeFailure(message: "Text entry requires raw input, which strict headless mode does not allow.", code: "background_input_unsupported")
 +			}
- 			if let element {
+ 			let preserveFocus = params["preserveFocus"] as? Bool ?? false
+-			if let element {
++			try requireInputTarget()
++			acquirePhysicalInputIfNeeded()
++			if delivery == "hid" { try focusTargetForPhysicalInput() }
++			if let element, !preserveFocus {
 +				try checkRequestActive()
  				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
  				if focused == .success { performed["focused"] = true }
  			}
- 			acquirePhysicalInputIfNeeded()
+-			acquirePhysicalInputIfNeeded()
 -			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
-+			if delivery == "hid" { try focusTargetForPhysicalInput() }
  			let text = params["text"] as? String ?? ""
  			try postUnicodeText(text, pid: pid, delivery: delivery)
  			performed["grounding"] = "coordinates"
-@@ -2100,11 +2145,14 @@ final class Bridge {
+@@ -2100,11 +2204,18 @@ final class Bridge {
  				return finish(["outcome": changed ? "worked" : "didnt", "performed": performed, "evidence": ["value": afterValue, "valueChanged": changed]])
  			}
  		} else if action == "keypress" {
--			let preserveFocus = params["preserveFocus"] as? Bool ?? false
 +			guard policy != "ax_only" else {
 +				throw BridgeFailure(message: "Keyboard input requires raw input, which strict headless mode does not allow.", code: "background_input_unsupported")
 +			}
+ 			let preserveFocus = params["preserveFocus"] as? Bool ?? false
  			guard let keys = params["keys"] as? [String], !keys.isEmpty else {
  				throw BridgeFailure(message: "keypress requires keys", code: "invalid_args")
  			}
- 			if let element {
+-			if let element {
++			try requireInputTarget()
++			acquirePhysicalInputIfNeeded()
++			if delivery == "hid" { try focusTargetForPhysicalInput() }
++			if let element, !preserveFocus {
 +				try checkRequestActive()
  				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
  				if focused == .success { performed["focused"] = true }
  				let normalizedKeys = keys.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-@@ -2114,7 +2162,8 @@ final class Bridge {
+@@ -2114,15 +2225,14 @@ final class Bridge {
  					let value = stringAttribute(element, attribute: kAXValueAttribute as CFString)
  				{
  					var range = CFRange(location: 0, length: (value as NSString).length)
@@ -385,16 +448,15 @@ index 0642385..b2ea75f 100644
  						AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, selection) == .success
  					{
  						performed["selectionGrounding"] = "ax"
-@@ -2122,7 +2171,7 @@ final class Bridge {
+ 					}
  				}
  			}
- 			acquirePhysicalInputIfNeeded()
+-			acquirePhysicalInputIfNeeded()
 -			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
-+			if delivery == "hid" { try focusTargetForPhysicalInput() }
  			try postKeyPress(keys: keys, pid: pid, delivery: delivery)
  			performed["grounding"] = "coordinates"
  		} else if let element, action == "scroll" {
-@@ -2186,6 +2235,7 @@ final class Bridge {
+@@ -2186,6 +2296,7 @@ final class Bridge {
  		var steps: [[String: Any]] = []
  		var stoppedAt: Int?
  		for (index, action) in actions.enumerated() {
@@ -402,7 +464,7 @@ index 0642385..b2ea75f 100644
  			var deferred = action
  			deferred["deferRootDelta"] = true
  			do {
-@@ -2193,6 +2243,7 @@ final class Bridge {
+@@ -2193,6 +2304,7 @@ final class Bridge {
  				steps.append(step)
  				if (step["outcome"] as? String) == "didnt" { stoppedAt = index; break }
  			} catch let failure as BridgeFailure {
@@ -410,7 +472,7 @@ index 0642385..b2ea75f 100644
  				steps.append(["outcome": "didnt", "error": ["code": failure.code, "message": failure.message]])
  				stoppedAt = index
  				break
-@@ -3123,6 +3174,7 @@ final class Bridge {
+@@ -3123,6 +3235,7 @@ final class Bridge {
  	}
  
  	private func captureWindow(windowId: UInt32) throws -> CapturedWindowImage {
@@ -418,7 +480,7 @@ index 0642385..b2ea75f 100644
  		if #available(macOS 14.0, *) {
  			let semaphore = DispatchSemaphore(value: 0)
  			let capturedImage = Box<CGImage?>(nil)
-@@ -3155,7 +3207,13 @@ final class Bridge {
+@@ -3155,7 +3268,13 @@ final class Bridge {
  				}
  			}
  
@@ -433,7 +495,7 @@ index 0642385..b2ea75f 100644
  				task.cancel()
  				if let payload = try cgWindowScreenshotFallback(windowId: windowId) {
  					return payload
-@@ -3308,23 +3366,17 @@ final class Bridge {
+@@ -3308,23 +3427,17 @@ final class Bridge {
  		optionalStringArg(request, "delivery") == "pid" ? "pid" : "hid"
  	}
  
@@ -464,7 +526,7 @@ index 0642385..b2ea75f 100644
  		event.post(tap: .cghidEventTap)
  	}
  
-@@ -3334,7 +3386,7 @@ final class Bridge {
+@@ -3334,7 +3447,7 @@ final class Bridge {
  		guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse move event", code: "input_failed")
  		}
@@ -473,7 +535,7 @@ index 0642385..b2ea75f 100644
  	}
  
  	private func mouseButton(_ name: String) -> CGMouseButton {
-@@ -3393,9 +3445,9 @@ final class Bridge {
+@@ -3393,9 +3506,9 @@ final class Bridge {
  			}
  			down.setIntegerValueField(.mouseEventClickState, value: Int64(index))
  			up.setIntegerValueField(.mouseEventClickState, value: Int64(index))
@@ -485,7 +547,7 @@ index 0642385..b2ea75f 100644
  			if index < clickCount {
  				usleep(70_000)
  			}
-@@ -3412,14 +3464,20 @@ final class Bridge {
+@@ -3412,14 +3525,20 @@ final class Bridge {
  		guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: first, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse down event", code: "input_failed")
  		}
@@ -508,7 +570,7 @@ index 0642385..b2ea75f 100644
  			usleep(8_000)
  		}
  
-@@ -3428,7 +3486,8 @@ final class Bridge {
+@@ -3428,7 +3547,8 @@ final class Bridge {
  		else {
  			throw BridgeFailure(message: "Failed to create mouse up event", code: "input_failed")
  		}
@@ -518,7 +580,7 @@ index 0642385..b2ea75f 100644
  	}
  
  	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, delivery: String = "hid") throws {
-@@ -3446,7 +3505,7 @@ final class Bridge {
+@@ -3446,7 +3566,7 @@ final class Bridge {
  			throw BridgeFailure(message: "Failed to create scroll event", code: "input_failed")
  		}
  		event.location = point
@@ -527,7 +589,7 @@ index 0642385..b2ea75f 100644
  	}
  
  	private func modifierFlag(_ key: String) -> CGEventFlags? {
-@@ -3536,8 +3595,8 @@ final class Bridge {
+@@ -3536,8 +3656,8 @@ final class Bridge {
  		}
  		down.flags = flags
  		up.flags = flags
@@ -538,7 +600,7 @@ index 0642385..b2ea75f 100644
  		usleep(8_000)
  	}
  
-@@ -3557,8 +3616,8 @@ final class Bridge {
+@@ -3557,8 +3677,8 @@ final class Bridge {
  			}
  			setUnicodeString(event: down, text: char)
  			setUnicodeString(event: up, text: char)
@@ -549,7 +611,7 @@ index 0642385..b2ea75f 100644
  			usleep(8_000)
  		}
  	}
-@@ -3571,9 +3630,9 @@ final class Bridge {
+@@ -3571,9 +3691,9 @@ final class Bridge {
  		else { throw BridgeFailure(message: "Failed to create unicode text event", code: "input_failed") }
  		setUnicodeString(event: down, text: text)
  		setUnicodeString(event: up, text: text)
@@ -563,13 +625,48 @@ index 0642385..b2ea75f 100644
  	/// Prefer physical key codes for characters represented by the US layout.
 diff --git a/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
 new file mode 100644
-index 0000000..2654bb6
+index 0000000..69726f2
 --- /dev/null
 +++ b/native/macos/request_lifecycle.swift
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,163 @@
 +import Foundation
 +import ApplicationServices
 +import Darwin
++
++/// A parent-focused window proves a nested input target only when the focused
++/// UI element is on that target's exact modal branch. This remains independent
++/// of AX so the edge cases can be tested without a live desktop.
++enum ForegroundInputFocusPath {
++    static func permits<Node>(
++        observedRoot: Node,
++        targetContainer: Node,
++        focusedWindow: Node,
++        focusedUI: Node?,
++        parent: (Node) -> Node?,
++        same: (Node, Node) -> Bool,
++        isInputContainer: (Node) -> Bool
++    ) -> Bool {
++        guard path(from: targetContainer, through: observedRoot, parent: parent, same: same) != nil else { return false }
++        guard same(focusedWindow, targetContainer) || path(from: observedRoot, through: focusedWindow, parent: parent, same: same) != nil else { return false }
++        guard let focusedUI else { return same(focusedWindow, targetContainer) }
++        guard let focusPath = path(from: focusedUI, through: observedRoot, parent: parent, same: same),
++            let focusedContainer = focusPath.first(where: isInputContainer)
++        else { return false }
++        return same(focusedContainer, targetContainer)
++    }
++
++    private static func path<Node>(from start: Node, through end: Node, parent: (Node) -> Node?, same: (Node, Node) -> Bool) -> [Node]? {
++        var current: Node? = start
++        var path: [Node] = []
++        for _ in 0..<32 {
++            guard let node = current, !path.contains(where: { same($0, node) }) else { return nil }
++            path.append(node)
++            if same(node, end) { return path }
++            current = parent(node)
++        }
++        return nil
++    }
++}
 +
 +/// Foreground HID input is safe to start only after the observed target is
 +/// still the selected window of the pinned process. The native bridge owns the
@@ -697,10 +794,10 @@ index 0000000..2654bb6
 +}
 diff --git a/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
 new file mode 100644
-index 0000000..6a939c2
+index 0000000..3035a8a
 --- /dev/null
 +++ b/native/macos/request_lifecycle_tests.swift
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,45 @@
 +import Foundation
 +import Darwin
 +struct BridgeFailure: Error { let message: String; let code: String }
@@ -730,7 +827,20 @@ index 0000000..6a939c2
 +  try ForegroundInputPreflight.require(preserveFocus:false,isSelectedTarget:{selected},focusTarget:{selected=true},waitForFocus:{},checkRequestActive:{})
 +  validFocusEvents+=1
 +  precondition(validFocusEvents==1)
-+  print("PASS closed-peer cancellation and human generation withdrawal; foreground focus preflight rejects unselected targets without screen capture or input")
++  func permits(_ parents:[String:String],_ observed:String,_ target:String,_ window:String,_ ui:String?)->Bool{ForegroundInputFocusPath.permits(observedRoot:observed,targetContainer:target,focusedWindow:window,focusedUI:ui,parent:{parents[$0]},same:==,isInputContainer:{["browser","open","go-to","other-modal","nested-modal"].contains($0)})}
++  let nestedParents=["field":"go-to","go-to":"open","open":"browser"]
++  precondition(permits(nestedParents,"open","go-to","browser","field"))
++  precondition(permits(nestedParents,"browser","browser","browser",nil))
++  let siblingParents=["target-field":"go-to","go-to":"open","other-field":"other-modal","other-modal":"open","open":"browser"]
++  precondition(!permits(siblingParents,"open","go-to","open","other-field"))
++  precondition(!permits(siblingParents,"open","go-to","other-modal","other-field"))
++  let nestedSiblingParents=["target-field":"go-to","go-to":"open","nested-field":"nested-modal","nested-modal":"go-to","open":"browser"]
++  precondition(!permits(nestedSiblingParents,"open","go-to","go-to","nested-field"))
++  let detachedParents=["field":"go-to","go-to":"other-window"]
++  precondition(!permits(detachedParents,"open","go-to","other-window","field"))
++  let cycleParents=["field":"go-to","go-to":"loop","loop":"go-to"]
++  precondition(!permits(cycleParents,"open","go-to","loop","field"))
++  print("PASS closed-peer cancellation and human generation withdrawal; foreground no-input failure and bounded nested-modal focus proof without screen capture or input")
 + }
 +}
 diff --git a/package.json b/package.json
@@ -2072,7 +2182,7 @@ index 0000000..c682942
 +                       x1: x1, y1: y1, th1: th1)
 +}
 diff --git a/docs/architecture.md b/docs/architecture.md
-index fd426dc..c1e2157 100644
+index fd426dc..941344b 100644
 --- a/docs/architecture.md
 +++ b/docs/architecture.md
 @@ -106,9 +106,9 @@ delivery alone is never treated as semantic success.
@@ -2083,7 +2193,7 @@ index fd426dc..c1e2157 100644
 +The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Clicks or presses on focusable controls establish foreground focus for following unscoped keyboard steps in the same transaction. In the normal interactive delivery mode, keypresses use one foreground HID delivery because application command handling belongs to the active key window and a pid-targeted event can be accepted without reaching it. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed AX value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
  
 -With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. With `headless: false` (the default), credible semantic activation may begin in the background, editable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
-+With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. Actions that require raw pointer or keyboard input fail before effect; direct AX value writes remain available where the platform supports them. With `headless: false` (the default), credible semantic activation may begin in the background, focusable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Normal interactive keypresses use foreground delivery directly and are never replayed after an `unknown` result. Before the first HID press, macOS confirms that the pinned process is frontmost and the selected native window still matches the observed window; failed focus fails before input. An explicit `PI_COMPUTER_USE_DELIVERY_POLICY=background` or `ax_only` retains that boundary and prohibits foreground escalation; `foreground` requests foreground delivery for the action. Focus-preserving native keyboard requests validate the selected window without raising or re-focusing it between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
++With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. Actions that require raw pointer or keyboard input fail before effect; direct AX value writes remain available where the platform supports them. With `headless: false` (the default), credible semantic activation may begin in the background, focusable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Normal interactive keypresses use foreground delivery directly and are never replayed after an `unknown` result. Before the first HID press, macOS confirms that the pinned process is frontmost and the selected native window still matches the observed window; a nested modal target must also have a bounded, same-process ancestry to that root, and a parent focused window requires the focused UI element to be inside the exact modal branch. Failed focus fails before input. An explicit `PI_COMPUTER_USE_DELIVERY_POLICY=background` or `ax_only` retains that boundary and prohibits foreground escalation; `foreground` requests foreground delivery for the action. Focus-preserving native keyboard requests validate the selected window without raising or re-focusing it between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
  
  The agent-facing `act_ui.headless` flag determines whether foreground execution is prohibited. Fallback-capable multi-action calls execute one checked action at a time, retain click-established focus, and stop on a checked `didnt`; strict-headless calls retain native transactional batching.
  
