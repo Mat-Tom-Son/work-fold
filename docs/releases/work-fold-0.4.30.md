@@ -25,6 +25,7 @@ carries the work-fold icon and recovers when macOS restarts it.
 Keyboard shortcuts verify the target window has focus before sending input.
 Chrome connection checks report the live state, and disconnecting closes the
 old connection so the same Chat can reconnect.
+The Chrome Store listing becomes available after Google's review and approval.
 
 Document workers contain accidental JavaScript allocation loops. Bundled image
 readers reject malformed ICNS, JXL and HEIF records without hanging. Registry read

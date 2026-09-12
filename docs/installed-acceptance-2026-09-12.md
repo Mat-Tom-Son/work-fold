@@ -19,8 +19,8 @@ human setup are separate evidence.
   recovery. Never erase the underlying folders directly.
 - Use synthetic content and local test services. No messages, purchases,
   bookings or new account connections to outside people/services.
-- Do not bypass protected Chrome extension-management controls. OS permission
-  changes and provider credit remain explicit setup; name any blocked test.
+- Use the available native controls for authorized browser and OS setup.
+  OS permissions and provider credit remain explicit setup; name any blocked test.
 
 ## Journeys and observable outcomes
 
@@ -31,8 +31,8 @@ human setup are separate evidence.
 | A03 | Neighborhood Workshop | Plan a 16-person photo workshop using supplied brief and price list | Correct budget totals, assumptions labeled, editable workbook and one-page PDF linked in Chat | Passed after funding: correct workbook formulas/caches, three linked files, independently rendered one-page PDF |
 | A04 | Community Outreach + fold | Delegate an invitation draft from a workshop handoff; ask for missing time; answer once | Selected file reaches target; question and one continuation; no unrelated transcript leakage; fold gets result | Earlier graph/isolation passed; 0.4.30 candidate UI-first answer passed in 888 ms with one native continuation |
 | A05 | Tool Lab / MCP | Query local supply inventory, calculate shortages, handle disconnect and recovery | Native discovery/invocation, correct 4/40/8 shortages, useful failure, successful fresh retry | Passed: native discovery/invocation, 4/40/8 shortages, one failed call during synthetic outage, fresh successful retry after recovery |
-| A06 | Tool Lab / Chrome | Edit a synthetic registration form in a dedicated browser tab; verify final state; reconnect | Native Chrome observation/action, correct isolated tab, no duplicate submit on recovery | Final Store bundle 1.0.0 connected; candidate 3186a09 submitted exactly once with matching receipt and screenshot; recovery remains under test |
-| A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Candidate 3186a09 reports Ready and emits screenshots; keyboard delivery failed the live document journey (S19) |
+| A06 | Tool Lab / Chrome | Edit a synthetic registration form in a dedicated browser tab; verify final state; reconnect | Native Chrome observation/action, correct isolated tab, no duplicate submit on recovery | Store bundle 1.0.0: submission passed on 3186a09; repaired candidate 323e8b2 passed restart, Check, Disconnect/Connect, retained-Chat recovery and two-Chat implicit target isolation |
+| A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Candidate 323e8b2 passed native edit/save and image return; the composed browser picker exposed S23 and still needs a fresh retest |
 | A08 | Tool Lab / documents | Detect and fix a deliberately clipped PDF heading and overlapping footer | Model receives images if supported; two renders; final source/image provenance matches; previews cleaned | Passed after manual recovery and evidence correction: two image paths, readable corrected PDF, matching hashes; initial allocation failure retained |
 | A09 | Two Chats | Run independent document jobs, stop one, switch tabs and reopen app | Stopped worker has no late write; sibling completes; files and task states survive restart without replay | 0.4.30 candidate overlap/Stop/sibling and restart passed; earlier failures retained |
 | A10 | Tool Lab / Space app | Build a small workshop notes app with a bounded inference action | App installs, saves a record, invokes app-owned inference, displays result and receipt | 0.4.30 candidate: one new inference, two Answered rows, zero Running; notes/summary survived restart without another call |
@@ -88,11 +88,12 @@ error after exactly one invocation. Removing the outage flag and requesting a
 fresh call returned the correct inventory again. Native tool results are retained
 in `out/installed-acceptance/mcp-recovery-verification.json`.
 
-Computer and Chrome readiness checks still require manual setup; no OS permissions
-or Chrome profile settings were changed. The installed Set up Chrome action
-successfully prepared the companion folder after the live tasks settled. The
-person has been asked to load that folder and grant the signed computer helper's
-Accessibility and Screen Recording permissions before A06/A07 can continue.
+The initial installed-client pass stopped at Computer and Chrome setup. Later,
+the person authorized the setup changes and the root used native controls to
+install and connect the frozen work-fold Store extension. The Computer helper's
+Accessibility and Screen Recording permissions are enabled. Developer loading
+proves the candidate integration; Google review and Store distribution are
+separate outstanding steps.
 
 A09 exposed S12: with multiple mounted Chats, the UI showed a second job as
 thinking although it had not been accepted, and Stop reached the first job too
@@ -488,6 +489,41 @@ The regression uses the frozen Store worker/bootstrap, real service and retained
 native Pi session; it fails before the repair and reconnects afterward. Twenty
 focused tests and independent review passed. Store extension `1.0.0` is unchanged;
 the signed live recovery retest remains required.
+
+**Repaired Chrome live acceptance.** Candidate `323e8b2` passed a clean install,
+source checks and the full suite (1,516 passed, zero failed, one platform skip),
+then packaged probes, signing, notarization and Gatekeeper verification. Chrome
+resumed after the application restart; both extension and desktop Check reported
+Connected. The same native Disconnect/Connect sequence then reached Connected,
+and the retained Chat successfully navigated and read the original receipt.
+Two separate Chats used implicit navigation and observation without target
+selectors: native results identified tabs `1299530771` and `1299530775`, in
+different groups, on cases A and B respectively. Counts remained A=1 and B=0.
+These are default-target isolation tests; native Pi's explicitly named-tab access
+remains full-trust behavior. Evidence is in ignored
+`out/installed-acceptance/chrome-candidate-323e8b2.json`.
+
+**S22 — Model-visible navigation identity.** Navigation returned the resolved tab
+id and URL only in diagnostic details; its model-visible text contained only the
+requested URL. Both real models used extra title probes to identify their target
+among duplicate pages. Commit `c7dc085` preserves the native result and also
+reports its actual id and returned URL to the model. The native callback test
+uses two implicit targets with the same redirected URL and verifies follow-up
+calls use the correct content-derived ids. This is a host formatter change;
+the frozen Store ZIP still has the original SHA-256.
+
+**S23 — Chrome foreground composition.** On candidate `323e8b2`, the native
+Computer tools opened TextEdit's Go to Folder sheet, selected the synthetic note,
+edited it, saved with Command-S and returned an image. Independently read bytes
+contained the requested 11:15 AM time, Camera and notebook, and confirmation for
+16 people. The model then attempted to attach that file through Chrome's native
+picker. Embedded Chrome inherited standalone Pi's hard background lock; explicit
+tab activation was refused and no picker appeared. The root stopped the loop.
+The upload fixture retained zero submissions. This attempt also began with a
+shell read against the task's UI-only constraint, so it is a partial result,
+not a clean end-to-end pass. Native calls, output, image count and final file
+hash are in ignored
+`out/installed-acceptance/computer-candidate-323e8b2-attempt2.json`.
 
 The separate developer inspector exposed the actual Chat, provider, model,
 runtime folder, Pi version, system-prompt digest and dispatched tool names for
