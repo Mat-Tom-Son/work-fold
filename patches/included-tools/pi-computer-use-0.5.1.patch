@@ -1048,6 +1048,7 @@ diff --git a/src/output.ts b/src/output.ts
 +
 +export const { applyOutputEnvelope, boundToolError, readStoredOutput, clearStoredOutputs } = createStoredOutputs();
 diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
+index 930d217..338c123 100644
 --- a/src/platform/macos/helper.ts
 +++ b/src/platform/macos/helper.ts
 @@ -1,3 +1,4 @@
@@ -1055,7 +1056,7 @@ diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
  import { spawn } from "node:child_process";
  import { constants as fsConstants } from "node:fs";
  import { access, mkdir, realpath } from "node:fs/promises";
-@@ -10,15 +11,15 @@
+@@ -10,15 +11,15 @@ import type { PlatformDiagnostics } from "../types.ts";
  import { resolveMacosHelperAppPath } from "./helper-path.mjs";
  
  const COMMAND_TIMEOUT_MS = 15_000;
@@ -1074,15 +1075,16 @@ diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
  
  const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
  const SETUP_HELPER_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "setup-helper.mjs");
-@@ -138,7 +139,6 @@
+@@ -137,8 +138,6 @@ export async function runProcess(
+ }
  
  export class MacosHelperClient {
- 	private daemonAvailable = false;
+-	private daemonAvailable = false;
 -	private requestSequence = 0;
  	private diagnosticsCache?: PlatformDiagnostics;
  
  	get diagnostics(): PlatformDiagnostics | undefined {
-@@ -154,6 +154,9 @@
+@@ -154,6 +153,9 @@ export class MacosHelperClient {
  			return;
  		}
  
@@ -1092,7 +1094,7 @@ diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
  		// Re-enter Electron and Bun standalone hosts as their JavaScript runtimes.
  		await runProcess(process.execPath, [SETUP_HELPER_SCRIPT, "--runtime"], HELPER_SETUP_TIMEOUT_MS, signal, {
  			...process.env,
-@@ -175,35 +178,68 @@
+@@ -175,48 +177,87 @@ export class MacosHelperClient {
  	}
  
  	async daemonCommand<T>(cmd: string, args: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
@@ -1184,11 +1186,36 @@ diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
 +  }
  
  	async ensureDaemon(signal?: AbortSignal): Promise<boolean> {
-+        throwIfAborted(signal);
- 		if (this.daemonAvailable) return true;
+-		if (this.daemonAvailable) return true;
++		throwIfAborted(signal);
++		// macOS permission changes can quit/reopen the helper between commands.
++		// Check liveness before dispatch, never trust a previous successful call.
  		try {
  			await this.daemonCommand("diagnostics", {}, 1_000, signal);
-@@ -224,6 +260,7 @@
+-			this.daemonAvailable = true;
+ 			return true;
+-		} catch {}
+-		await this.launchDaemon(signal).catch(() => undefined);
++		} catch (error) {
++			throwIfAborted(signal);
++			if (!(error instanceof HelperTransportError)) throw error;
++		}
++		// Only this read-only preflight may recover. Once command() dispatches
++		// an action, its existing uncertain-outcome path must never replay it.
++		await this.launchDaemon(signal).catch(() => { throwIfAborted(signal); });
+ 		for (let index = 0; index < 30; index += 1) {
+ 			try {
+ 				await this.daemonCommand("diagnostics", {}, 1_000, signal);
+-				this.daemonAvailable = true;
+ 				return true;
+-			} catch {
++			} catch (error) {
++				throwIfAborted(signal);
++				if (!(error instanceof HelperTransportError)) throw error;
+ 				await sleep(100, signal);
+ 			}
+ 		}
+@@ -224,6 +265,7 @@ export class MacosHelperClient {
  	}
  
  	async command<T>(cmd: string, args: Record<string, unknown> = {}, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
@@ -1196,6 +1223,29 @@ diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
  		const timeoutMs = options?.timeoutMs ?? COMMAND_TIMEOUT_MS;
  		if (!(await this.ensureDaemon(options?.signal))) {
  			throw new HelperTransportError(`pi-computer-use helper app daemon is unavailable at ${HELPER_APP_PATH}.`);
+@@ -231,14 +273,12 @@ export class MacosHelperClient {
+ 		try {
+ 			return await this.daemonCommand<T>(cmd, args, timeoutMs, options?.signal);
+ 		} catch (error) {
+-			this.daemonAvailable = false;
+ 			throw error instanceof Error ? error : new Error(String(error));
+ 		}
+ 	}
+ 
+ 	async restart(signal?: AbortSignal): Promise<void> {
+ 		await this.command("shutdown", {}, { signal, timeoutMs: 2_000 }).catch(() => undefined);
+-		this.daemonAvailable = false;
+ 		await sleep(400, signal);
+ 		if (!(await this.ensureDaemon(signal))) {
+ 			throw new Error(`pi-computer-use helper did not come back after restart. Helper app: ${HELPER_APP_PATH}`);
+@@ -279,7 +319,6 @@ export class MacosHelperClient {
+ 		diagnostics = await this.diagnosticsCommand(signal);
+ 		const relaunchedExecutableMatches = await isResolvedHelperExecutable(diagnostics.executablePath);
+ 		if (diagnostics.protocolVersion !== HELPER_PROTOCOL_VERSION || !relaunchedExecutableMatches) {
+-			this.daemonAvailable = false;
+ 			throw new Error(
+ 				`pi-computer-use helper mismatch after relaunch: expected protocol ${HELPER_PROTOCOL_VERSION} and executable ${HELPER_APP_EXECUTABLE_PATH}; got protocol ${diagnostics.protocolVersion} and executable ${diagnostics.executablePath ?? "unknown"}. Reinstall or rebuild the helper app at ${HELPER_APP_PATH}.`,
+ 			);
 diff --git a/src/platform/macos/permissions.ts b/src/platform/macos/permissions.ts
 --- a/src/platform/macos/permissions.ts
 +++ b/src/platform/macos/permissions.ts

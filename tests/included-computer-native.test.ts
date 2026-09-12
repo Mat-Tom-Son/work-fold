@@ -7,6 +7,7 @@ for (const [name, path, marker] of [
   ["native session ownership and quiet startup", "./fixtures/included-tools/computer-native.mts", "PASS computer wrapper"],
   ["unsupported hosts never enter native setup", "./fixtures/included-tools/computer-unsupported.mts", "PASS computer wrapper"],
   ["observation, output and scheduler isolation", "../node_modules/@injaneity/pi-computer-use/scripts/check-embedded.mjs", "PASS embedded"],
+  ["stale daemon recovery before dispatch and no action replay", "./fixtures/included-tools/computer-daemon-recovery.mts", "PASS stale daemon relaunch"],
   ["native transport cancellation and uncertain outcomes", "../node_modules/@injaneity/pi-computer-use/scripts/check-helper-cancellation.mjs", "PASS cancelled-before-dispatch"],
 ]) test(`included computer: ${name}`, { timeout: 45_000 }, async () => {
   const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL(path, import.meta.url))], { stdio: ["ignore", "pipe", "pipe"] });

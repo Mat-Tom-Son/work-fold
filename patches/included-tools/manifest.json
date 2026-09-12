@@ -60,7 +60,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "b9f4a750a5964c20b13d09d568c51814bddc124b563976eae939477ddeaf882c",
+    "sha256": "a5d45c4cf8a690e08ca0c0a0e8c59be217e399e3ee2265d11200df30fcc65511",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -125,7 +125,7 @@
       {
         "path": "src/platform/macos/helper.ts",
         "before": "4c344d4396a61f58cba7334f67e17108f40d9950c24940ce470f8d640a75eff3",
-        "after": "2e27003192ad0d5853cc1ce70505370b3af07c671ebe05b8e97f0e06ea3c599e"
+        "after": "974c5c4f2adcbf42d2b1ec8e4a33957a225719519693870cca0bfbfc09092593"
       },
       {
         "path": "src/platform/macos/permissions.ts",
