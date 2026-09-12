@@ -1,4 +1,5 @@
 diff --git a/extensions/computer-use.ts b/extensions/computer-use.ts
+index eec9992..5580d00 100644
 --- a/extensions/computer-use.ts
 +++ b/extensions/computer-use.ts
 @@ -1,6 +1,8 @@
@@ -10,7 +11,7 @@ diff --git a/extensions/computer-use.ts b/extensions/computer-use.ts
  	ensureComputerUseSetup,
  	executeAct,
  	executeEvaluateBrowser,
-@@ -179,8 +181,25 @@
+@@ -179,8 +181,25 @@ function formatConfigStatus(): string {
  	].join("\n");
  }
  
@@ -38,7 +39,7 @@ diff --git a/extensions/computer-use.ts b/extensions/computer-use.ts
  
  	pi.registerCommand("computer-use", {
  		description: "Show pi-computer-use configuration",
-@@ -192,12 +211,12 @@
+@@ -192,12 +211,12 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
  
  	pi.on("session_start", async (_event, ctx) => {
  		loadComputerUseConfig(ctx.cwd);
@@ -56,9 +57,10 @@ diff --git a/extensions/computer-use.ts b/extensions/computer-use.ts
  	});
  }
 diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
+index 0642385..180c16b 100644
 --- a/native/macos/bridge.swift
 +++ b/native/macos/bridge.swift
-@@ -369,10 +369,12 @@
+@@ -369,10 +369,12 @@ final class InputSuppressionGuard {
  }
  
  final class Bridge {
@@ -72,7 +74,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  	private let supportsAgentCursor = CommandLine.arguments.contains("serve")
  	private let browserBundleIds: Set<String> = [
  		"com.apple.Safari", "com.google.Chrome", "org.chromium.Chromium", "company.thebrowser.Browser", "com.brave.Browser", "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "net.imput.helium", "org.mozilla.firefox",
-@@ -388,8 +390,6 @@
+@@ -388,8 +390,6 @@ final class Bridge {
  	private let rootObserverLock = NSLock()
  	private var rootObservers: [Int32: RootAXObserverState] = [:]
  	private let maxRootObservers = 4
@@ -81,7 +83,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  	private let completedRequestLock = NSLock()
  	private var recentCompletedRequestIds: [String] = []
  
-@@ -440,7 +440,8 @@
+@@ -440,7 +440,8 @@ final class Bridge {
  		var address = sockaddr_un()
  		address.sun_family = sa_family_t(AF_UNIX)
  		let sunPathCapacity = MemoryLayout.size(ofValue: address.sun_path)
@@ -91,7 +93,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		withUnsafeMutablePointer(to: &address.sun_path) { pointer in
  			pointer.withMemoryRebound(to: CChar.self, capacity: sunPathCapacity) { dest in
  				for (index, byte) in bytes.enumerated() { dest[index] = CChar(bitPattern: byte) }
-@@ -450,6 +451,7 @@
+@@ -450,6 +451,7 @@ final class Bridge {
  			pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(server, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
  		}
  		if bindStatus != 0 || listen(server, 8) != 0 { close(server); close(lockFile); exit(1) }
@@ -99,7 +101,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		while true {
  			let client = accept(server, nil, nil)
  			if client < 0 { continue }
-@@ -508,6 +510,13 @@
+@@ -508,6 +510,13 @@ final class Bridge {
  			completionId = id
  
  			do {
@@ -113,7 +115,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  				let result = try handleRequest(object)
  				send([
  					"id": id,
-@@ -594,7 +603,11 @@
+@@ -594,7 +603,11 @@ final class Bridge {
  		return recentCompletedRequestIds
  	}
  
@@ -126,7 +128,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		let cmd = try stringArg(request, "cmd")
  
  		switch cmd {
-@@ -812,6 +825,8 @@
+@@ -812,6 +825,8 @@ final class Bridge {
  			"parentPid": Int(parentPid),
  			"executablePath": executable,
  			"macOS": ProcessInfo.processInfo.operatingSystemVersionString,
@@ -135,7 +137,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		]
  		if let parentPath = processPath(pid: parentPid) {
  			source["parentPath"] = parentPath
-@@ -820,7 +835,8 @@
+@@ -820,7 +835,8 @@ final class Bridge {
  			source["parentBundleId"] = parentBundleId
  		}
  		let attribution: String
@@ -145,7 +147,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			// Non-spoofable signals only: installed-bundle executable path +
  			// launchd parent (`open` handed us to LaunchServices). A dev
  			// binary or a directly-spawned copy fails closed to "caller".
-@@ -833,12 +849,6 @@
+@@ -833,12 +849,6 @@ final class Bridge {
  	}
  
  	private func checkPermissions() -> [String: Any] {
@@ -158,7 +160,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		let accessibility = AXIsProcessTrusted()
  		let screenRecordingPreflight: Bool
  		if #available(macOS 10.15, *) {
-@@ -846,7 +856,9 @@
+@@ -846,7 +856,9 @@ final class Bridge {
  		} else {
  			screenRecordingPreflight = true
  		}
@@ -169,7 +171,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		let result: [String: Any] = [
  			"accessibility": accessibility,
  			// The live probe is authoritative; the preflight boolean is kept
-@@ -857,15 +869,7 @@
+@@ -857,15 +869,7 @@ final class Bridge {
  			"screenRecordingCapturable": capturable,
  			"source": permissionSource(),
  		]
@@ -186,7 +188,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		return result
  	}
  
-@@ -1089,6 +1093,7 @@
+@@ -1089,6 +1093,7 @@ final class Bridge {
  	}
  
  	private func focusWindow(_ request: [String: Any]) throws -> [String: Any] {
@@ -194,7 +196,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		let pid = Int32(try intArg(request, "pid"))
  		let windowId = optionalIntArg(request, "windowId").map { UInt32($0) }
  		let windowRef = optionalStringArg(request, "windowRef")
-@@ -1856,11 +1861,15 @@
+@@ -1856,11 +1861,15 @@ final class Bridge {
  	}
  
  	private func act(_ request: [String: Any]) throws -> [String: Any] {
@@ -210,7 +212,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		let action = try stringArg(request, "action")
  		let target = request["target"] as? [String: Any] ?? [:]
  		let params = request["params"] as? [String: Any] ?? [:]
-@@ -1914,6 +1923,9 @@
+@@ -1914,6 +1923,9 @@ final class Bridge {
  			beforeValue = stringAttribute(stored, attribute: kAXValueAttribute as CFString)
  			beforeSelected = stringAttribute(stored, attribute: kAXSelectedTextAttribute as CFString)
  		} else if let xNumber = target["x"] as? NSNumber, let yNumber = target["y"] as? NSNumber {
@@ -220,7 +222,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			guard record.hasImage else {
  				throw BridgeFailure(message: "Coordinate targeting is unavailable for this outline-only root", code: "coordinate_unavailable_for_root")
  			}
-@@ -1942,14 +1954,18 @@
+@@ -1942,14 +1954,18 @@ final class Bridge {
  			Task { @MainActor in AgentCursor.shared.animate(to: point, above: record.windowId) }
  		}
  
@@ -240,7 +242,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  				performed["raised"] = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
  			}
  			usleep(20_000)
-@@ -1963,7 +1979,7 @@
+@@ -1963,7 +1979,7 @@ final class Bridge {
  				let role = stringAttribute(hit, attribute: kAXRoleAttribute as CFString) ?? ""
  				if role == "AXWindow" || role == "AXApplication" { preflightCapsUnknown = true; return }
  				if delivery == "hid" && attempt < 3 {
@@ -249,7 +251,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  					usleep(20_000)
  					continue
  				}
-@@ -1978,7 +1994,8 @@
+@@ -1978,7 +1994,8 @@ final class Bridge {
  			performed["grounding"] = "coordinates"
  			if delivery == "pid" { performed["verification"] = "caller_required" }
  			acquirePhysicalInputIfNeeded()
@@ -259,7 +261,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			if delivery == "hid" { try preflight(point) }
  			switch action {
  			case "press", "click":
-@@ -2028,8 +2045,10 @@
+@@ -2028,8 +2045,10 @@ final class Bridge {
  				}
  			} else if supportsAction(element, action: kAXPressAction as CFString) {
  				let cursorPoint = try? coordinatePoint()
@@ -270,7 +272,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  					status = AXUIElementPerformAction(refreshed, kAXPressAction as CFString)
  				}
  				if status == .success {
-@@ -2046,12 +2065,14 @@
+@@ -2046,12 +2065,14 @@ final class Bridge {
  			let text = params["text"] as? String ?? ""
  			if hasAncestorRole(element, role: "AXWebArea") {
  				acquirePhysicalInputIfNeeded()
@@ -288,7 +290,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  				} ?? false
  				if !selected {
  					try postKeyPress(keys: ["cmd", "a"], pid: pid, delivery: delivery)
-@@ -2067,9 +2088,11 @@
+@@ -2067,9 +2088,11 @@ final class Bridge {
  				return finish(["outcome": value == text ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]])
  			}
  			var targetElement = element
@@ -300,7 +302,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  				status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
  			}
  			if status == .success {
-@@ -2085,11 +2108,12 @@
+@@ -2085,11 +2108,12 @@ final class Bridge {
  		} else if action == "typeText" {
  			let preserveFocus = params["preserveFocus"] as? Bool ?? false
  			if let element {
@@ -314,7 +316,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			let text = params["text"] as? String ?? ""
  			try postUnicodeText(text, pid: pid, delivery: delivery)
  			performed["grounding"] = "coordinates"
-@@ -2105,6 +2129,7 @@
+@@ -2105,6 +2129,7 @@ final class Bridge {
  				throw BridgeFailure(message: "keypress requires keys", code: "invalid_args")
  			}
  			if let element {
@@ -322,7 +324,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
  				if focused == .success { performed["focused"] = true }
  				let normalizedKeys = keys.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-@@ -2114,7 +2139,8 @@
+@@ -2114,7 +2139,8 @@ final class Bridge {
  					let value = stringAttribute(element, attribute: kAXValueAttribute as CFString)
  				{
  					var range = CFRange(location: 0, length: (value as NSString).length)
@@ -332,7 +334,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  						AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, selection) == .success
  					{
  						performed["selectionGrounding"] = "ax"
-@@ -2122,7 +2148,7 @@
+@@ -2122,7 +2148,7 @@ final class Bridge {
  				}
  			}
  			acquirePhysicalInputIfNeeded()
@@ -341,7 +343,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			try postKeyPress(keys: keys, pid: pid, delivery: delivery)
  			performed["grounding"] = "coordinates"
  		} else if let element, action == "scroll" {
-@@ -2186,6 +2212,7 @@
+@@ -2186,6 +2212,7 @@ final class Bridge {
  		var steps: [[String: Any]] = []
  		var stoppedAt: Int?
  		for (index, action) in actions.enumerated() {
@@ -349,7 +351,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			var deferred = action
  			deferred["deferRootDelta"] = true
  			do {
-@@ -2193,6 +2220,7 @@
+@@ -2193,6 +2220,7 @@ final class Bridge {
  				steps.append(step)
  				if (step["outcome"] as? String) == "didnt" { stoppedAt = index; break }
  			} catch let failure as BridgeFailure {
@@ -357,7 +359,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  				steps.append(["outcome": "didnt", "error": ["code": failure.code, "message": failure.message]])
  				stoppedAt = index
  				break
-@@ -3123,6 +3151,7 @@
+@@ -3123,6 +3151,7 @@ final class Bridge {
  	}
  
  	private func captureWindow(windowId: UInt32) throws -> CapturedWindowImage {
@@ -365,7 +367,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		if #available(macOS 14.0, *) {
  			let semaphore = DispatchSemaphore(value: 0)
  			let capturedImage = Box<CGImage?>(nil)
-@@ -3155,7 +3184,13 @@
+@@ -3155,7 +3184,13 @@ final class Bridge {
  				}
  			}
  
@@ -380,7 +382,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  				task.cancel()
  				if let payload = try cgWindowScreenshotFallback(windowId: windowId) {
  					return payload
-@@ -3308,7 +3343,10 @@
+@@ -3308,7 +3343,10 @@ final class Bridge {
  		optionalStringArg(request, "delivery") == "pid" ? "pid" : "hid"
  	}
  
@@ -392,7 +394,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		if delivery == "pid" {
  			event.postToPid(pid)
  			return
-@@ -3317,7 +3355,7 @@
+@@ -3317,7 +3355,7 @@ final class Bridge {
  		// can ignore pid-targeted CGEvents even though postToPid reports success.
  		// Keep the target app frontmost so the HID event is delivered to the intended
  		// window, then post at the session event tap.
@@ -401,7 +403,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			if #available(macOS 14.0, *) {
  				_ = app.activate()
  			} else {
-@@ -3334,7 +3372,7 @@
+@@ -3334,7 +3372,7 @@ final class Bridge {
  		guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse move event", code: "input_failed")
  		}
@@ -410,7 +412,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  	}
  
  	private func mouseButton(_ name: String) -> CGMouseButton {
-@@ -3393,9 +3431,9 @@
+@@ -3393,9 +3431,9 @@ final class Bridge {
  			}
  			down.setIntegerValueField(.mouseEventClickState, value: Int64(index))
  			up.setIntegerValueField(.mouseEventClickState, value: Int64(index))
@@ -422,7 +424,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			if index < clickCount {
  				usleep(70_000)
  			}
-@@ -3412,14 +3450,20 @@
+@@ -3412,14 +3450,20 @@ final class Bridge {
  		guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: first, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse down event", code: "input_failed")
  		}
@@ -445,7 +447,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			usleep(8_000)
  		}
  
-@@ -3428,7 +3472,8 @@
+@@ -3428,7 +3472,8 @@ final class Bridge {
  		else {
  			throw BridgeFailure(message: "Failed to create mouse up event", code: "input_failed")
  		}
@@ -455,7 +457,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  	}
  
  	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, delivery: String = "hid") throws {
-@@ -3446,7 +3491,7 @@
+@@ -3446,7 +3491,7 @@ final class Bridge {
  			throw BridgeFailure(message: "Failed to create scroll event", code: "input_failed")
  		}
  		event.location = point
@@ -464,7 +466,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  	}
  
  	private func modifierFlag(_ key: String) -> CGEventFlags? {
-@@ -3536,8 +3581,8 @@
+@@ -3536,8 +3581,8 @@ final class Bridge {
  		}
  		down.flags = flags
  		up.flags = flags
@@ -475,7 +477,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  		usleep(8_000)
  	}
  
-@@ -3557,8 +3602,8 @@
+@@ -3557,8 +3602,8 @@ final class Bridge {
  			}
  			setUnicodeString(event: down, text: char)
  			setUnicodeString(event: up, text: char)
@@ -486,7 +488,7 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  			usleep(8_000)
  		}
  	}
-@@ -3571,9 +3616,9 @@
+@@ -3571,9 +3616,9 @@ final class Bridge {
  		else { throw BridgeFailure(message: "Failed to create unicode text event", code: "input_failed") }
  		setUnicodeString(event: down, text: text)
  		setUnicodeString(event: up, text: text)
@@ -498,8 +500,9 @@ diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
  	}
  
  	/// Prefer physical key codes for characters represented by the US layout.
-diff --git a/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
+diff --git a/Users/mat/Documents/dev/workspace/node_modules/@injaneity/pi-computer-use/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
 new file mode 100644
+index 0000000..beb87e8
 --- /dev/null
 +++ b/native/macos/request_lifecycle.swift
 @@ -0,0 +1,100 @@
@@ -603,8 +606,9 @@ new file mode 100644
 +        if Thread.isMainThread { remove() } else { DispatchQueue.main.sync(execute: remove) }
 +    }
 +}
-diff --git a/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
+diff --git a/Users/mat/Documents/dev/workspace/node_modules/@injaneity/pi-computer-use/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
 new file mode 100644
+index 0000000..043f535
 --- /dev/null
 +++ b/native/macos/request_lifecycle_tests.swift
 @@ -0,0 +1,16 @@
@@ -625,6 +629,7 @@ new file mode 100644
 + }
 +}
 diff --git a/package.json b/package.json
+index 030db98..79ffa45 100644
 --- a/package.json
 +++ b/package.json
 @@ -42,7 +42,10 @@
@@ -640,9 +645,10 @@ diff --git a/package.json b/package.json
  	"pi": {
  		"extensions": [
 diff --git a/scripts/build-native.mjs b/scripts/build-native.mjs
+index b9657a4..c442dd4 100755
 --- a/scripts/build-native.mjs
 +++ b/scripts/build-native.mjs
-@@ -8,7 +8,7 @@
+@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
  
  const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  const macosSourcePaths = [
@@ -651,11 +657,12 @@ diff --git a/scripts/build-native.mjs b/scripts/build-native.mjs
  	"agent_cursor_motion.swift",
  	"bridge.swift",
  ].map((file) => path.join(rootDir, "native", "macos", file));
-diff --git a/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
+diff --git a/Users/mat/Documents/dev/workspace/node_modules/@injaneity/pi-computer-use/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
 new file mode 100644
+index 0000000..b26ad74
 --- /dev/null
 +++ b/scripts/check-embedded.mjs
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,89 @@
 +import assert from 'node:assert/strict';
 +import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 +import os from 'node:os';
@@ -666,11 +673,13 @@ new file mode 100644
 +import { createStoredOutputs } from '../src/output.ts';
 +import { getComputerUseConfig, withComputerUseConfig } from '../src/config.ts';
 +import { parseLookResponse } from '../src/outline.ts';
++import { prepareAction } from '../src/actions.ts';
 +import extension from '../extensions/computer-use.ts';
 +const root = await mkdtemp(path.join(os.tmpdir(),'pi-cu-embedded-'));
 +const scheduler = new ResourceScheduler();
 +const original = {...backend};
 +let calls = 0;
++const inputCalls=[];
 +const seen=[];
 +const rootData = {windowId:1,pid:101,title:'Test',kind:'window',framePoints:{x:0,y:0,w:400,h:300},scaleFactor:1,isOnscreen:true,isMain:true,isFocused:true};
 +Object.assign(backend,{
@@ -678,6 +687,7 @@ new file mode 100644
 + listApps:async()=>[{pid:101,appName:'Fixture',bundleId:'test.fixture',isFrontmost:true}],
 + listRoots:async()=>[rootData],
 + observe:async()=>parseLookResponse({lookId:crypto.randomUUID(),capturedAt:Date.now()/1000,window:{...rootData,role:'AXWindow',subrole:'AXStandardWindow'},outline:{ref:'window',role:'AXWindow',children:[{ref:'value',role:'AXStaticText',value:'fixture evidence'}]},timings:{}}),
++ act:async(request)=>{inputCalls.push(request);return {outcome:'unknown',performed:{delivery:request.params.delivery,grounding:'fixture'}}},
 +});
 +try {
 + const context = {cwd:root,hasUI:false,sessionManager:{getBranch:()=>[]}};
@@ -707,10 +717,44 @@ new file mode 100644
 + for(const [name,value]of[['a',true],['b',false]]){const dir=path.join(root,name,'.pi');await mkdir(dir,{recursive:true});await writeFile(path.join(dir,'computer-use.json'),JSON.stringify({headless:value}));}
 + await Promise.all([withComputerUseConfig(path.join(root,'a'),async()=>{await new Promise(r=>setTimeout(r,10));seen.push(getComputerUseConfig().headless)}),withComputerUseConfig(path.join(root,'b'),async()=>{await new Promise(r=>setTimeout(r,5));seen.push(getComputerUseConfig().headless)})]);
 + assert.deepEqual(seen,[false,true],'one session must not change another active operation configuration');
-+ console.log('PASS embedded catalog, factory isolation, exact targets, state/output ownership, shared scheduler shutdown and concurrent configuration');
++ const focusable={ref:'focusable',wireRef:'fixture-focusable',role:'AXOutline',actions:[],canFocus:true,canSetValue:false,isTextInput:false,pictureOnly:false,children:[]};
++ const actionEnv={headless:false,image:{width:400,height:300},node:()=>focusable,center:()=>({x:10,y:10}),validatePoint:()=>{}};
++ assert.equal(prepareAction({action:'click',ref:'@e2'},{currentFocus:false},actionEnv).establishesFocus,true,'semantic clicks on focusable controls establish focus');
++ const focusedKeypress=prepareAction({action:'keypress',keys:['Meta','Shift','g']},{currentFocus:true},actionEnv);
++ assert.equal(focusedKeypress.usesCurrentFocus,true,'a focusable semantic click can support the following unscoped keyboard step');
++ assert.equal(focusedKeypress.needsForeground,true,'interactive keypresses require foreground delivery by default');
++
++ const inputRuntime=createComputerUseRuntime(opts);
++ const found=await inputRuntime.executeFind('input-find',{app:'Fixture'},undefined,undefined,context);
++ const inputObserve=await inputRuntime.executeObserve('input-observe',{root:found.details.windows[0].windowRef,mode:'semantic'},undefined,undefined,context);
++ const inputState=inputObserve.details.capture.stateId;
++ const previousPolicy=process.env.PI_COMPUTER_USE_DELIVERY_POLICY;
++ delete process.env.PI_COMPUTER_USE_DELIVERY_POLICY;
++ try {
++  inputCalls.length=0;
++  const foreground=await inputRuntime.executeAct('input-default',{stateId:inputState,actions:[{action:'keypress',ref:'@e2',keys:['Meta','Shift','g']}]},undefined,undefined,context);
++  assert.equal(inputCalls.length,1,'an unknown keyboard effect is never replayed');
++  assert.equal(inputCalls[0].policy,'foreground','default interactive keyboard input uses HID delivery');
++  assert.equal(inputCalls[0].params.delivery,'hid');
++  assert.equal(foreground.details.execution.steps[0].backgroundFirst,false);
++
++  inputCalls.length=0;
++  process.env.PI_COMPUTER_USE_DELIVERY_POLICY='background';
++  const background=await inputRuntime.executeAct('input-background',{stateId:foreground.details.capture.stateId,actions:[{action:'keypress',ref:'@e2',keys:['Meta','Shift','g']}]},undefined,undefined,context);
++  assert.equal(inputCalls.length,1,'explicit background keyboard input is delivered once');
++  assert.equal(inputCalls[0].policy,'background','explicit background policy is never widened to foreground');
++  assert.equal(inputCalls[0].params.delivery,'pid');
++  assert.equal(background.details.execution.escalatedToForeground,false);
++ } finally {
++  if (previousPolicy === undefined) delete process.env.PI_COMPUTER_USE_DELIVERY_POLICY;
++  else process.env.PI_COMPUTER_USE_DELIVERY_POLICY=previousPolicy;
++  await inputRuntime.shutdownComputerUseSession();
++ }
++ console.log('PASS embedded catalog, factory isolation, exact targets, state/output ownership, keyboard focus/delivery, shared scheduler shutdown and concurrent configuration');
 +}finally{Object.assign(backend,original);await scheduler.close();await rm(root,{recursive:true,force:true})}
-diff --git a/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
+diff --git a/Users/mat/Documents/dev/workspace/node_modules/@injaneity/pi-computer-use/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
 new file mode 100644
+index 0000000..22b3f4e
 --- /dev/null
 +++ b/scripts/check-helper-cancellation.mjs
 @@ -0,0 +1,18 @@
@@ -733,9 +777,10 @@ new file mode 100644
 + console.log('PASS cancelled-before-dispatch, uncertain dispatched outcome, drained socket closure, no replay, response identity and concurrent clients');
 +}finally{for(const socket of sockets)socket.destroy();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true})}
 diff --git a/scripts/setup-helper.mjs b/scripts/setup-helper.mjs
+index 12524b1..a248e6a 100755
 --- a/scripts/setup-helper.mjs
 +++ b/scripts/setup-helper.mjs
-@@ -21,7 +21,7 @@
+@@ -21,7 +21,7 @@ const windowsCrateDir = path.join(rootDir, "native", "windows", "bridge-rs");
  const windowsHelperDestPath = process.env.PI_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "windows-bridge.exe");
  const linuxCrateDir = path.join(rootDir, "native", "linux", "bridge-rs");
  const linuxHelperDestPath = process.env.PI_COMPUTER_USE_LINUX_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "linux-bridge");
@@ -744,10 +789,45 @@ diff --git a/scripts/setup-helper.mjs b/scripts/setup-helper.mjs
  	.map((file) => path.join(rootDir, "native", "macos", file));
  const packageJsonPath = path.join(rootDir, "package.json");
  const releaseRepo = "injaneity/pi-computer-use";
+diff --git a/src/actions.ts b/src/actions.ts
+index 27decd0..66bed7c 100644
+--- a/src/actions.ts
++++ b/src/actions.ts
+@@ -8,7 +8,7 @@ export type PreparedAction =
+ 	| { action: "press" | "click"; target: ActionTarget; params: { button?: MouseButtonName; clickCount?: number }; establishesFocus: boolean; usesCurrentFocus: false; needsForeground: boolean }
+ 	| { action: "setText"; target: ActionTarget; params: { text: string }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
+ 	| { action: "typeText"; target: ActionTarget; params: { text: string }; establishesFocus: false; usesCurrentFocus: boolean; needsForeground: false }
+-	| { action: "keypress"; target: ActionTarget; params: { keys: string[] }; establishesFocus: false; usesCurrentFocus: boolean; needsForeground: false }
++	| { action: "keypress"; target: ActionTarget; params: { keys: string[] }; establishesFocus: false; usesCurrentFocus: boolean; needsForeground: boolean }
+ 	| { action: "scroll"; target: ActionTarget; params: { scrollX: number; scrollY: number }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
+ 	| { action: "drag"; target: ActionTarget; params: { path: Array<{ x: number; y: number }> }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
+ 	| { action: "moveMouse"; target: ActionTarget; params: Record<string, never>; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
+@@ -94,7 +94,7 @@ export function prepareAction(action: UiAction, state: ActionState, env: ActionE
+ 	const operation = action.action;
+ 	const usesCurrentFocus = !env.headless && state.currentFocus && !action.ref && (operation === "typeText" || operation === "keypress");
+ 	const target = usesCurrentFocus ? focusedTarget(env) : nativeTarget(action, operation, env);
+-	const establishesFocus = !env.headless && Boolean(action.ref) && (operation === "click" || operation === "press") && containsEditable(env.node(action.ref!));
++	const establishesFocus = !env.headless && Boolean(action.ref) && (operation === "click" || operation === "press") && (env.node(action.ref!).canFocus || containsEditable(env.node(action.ref!)));
+ 	const needsForeground = !env.headless && (operation === "click" || operation === "press") && "x" in target;
+ 
+ 	switch (operation) {
+@@ -102,7 +102,10 @@ export function prepareAction(action: UiAction, state: ActionState, env: ActionE
+ 		case "click": return { action: operation, target, params: { button: mouseButton(action.button), clickCount: clickCount(action.clickCount) }, establishesFocus, usesCurrentFocus: false, needsForeground };
+ 		case "setText": return { action: operation, target, params: { text: action.text ?? "" }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
+ 		case "typeText": return { action: operation, target, params: { text: action.text ?? "" }, establishesFocus: false, usesCurrentFocus, needsForeground: false };
+-		case "keypress": return { action: operation, target, params: { keys: keys(action.keys) }, establishesFocus: false, usesCurrentFocus, needsForeground: false };
++		// App command handling belongs to the active key window. A pid-targeted
++		// CGEvent can be accepted without reaching that path, and a shortcut has
++		// no generally safe retry when its outcome is unknown.
++		case "keypress": return { action: operation, target, params: { keys: keys(action.keys) }, establishesFocus: false, usesCurrentFocus, needsForeground: !env.headless };
+ 		case "scroll": return { action: operation, target, params: { scrollX: scrollDelta(action.scrollX), scrollY: scrollDelta(action.scrollY) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
+ 		case "drag": return { action: operation, target, params: { path: path(action.path, env) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
+ 		case "moveMouse": return { action: operation, target, params: {}, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
 diff --git a/src/bridge.ts b/src/bridge.ts
+index a1f3a86..23bab3d 100644
 --- a/src/bridge.ts
 +++ b/src/bridge.ts
-@@ -8,10 +8,10 @@
+@@ -8,10 +8,10 @@ import path from "node:path";
  import type { AgentToolResult, AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
  import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, prepareAction, type ActionState, type PreparedAction } from "./actions.ts";
  import { cdpClickForContext, cdpDragForContext, cdpEvaluateForContext, cdpKeypressForContext, cdpMouseForContext, cdpNavigateContext, cdpScrollForContext, cdpSnapshotForContext, cdpTabForWindow, cdpTypeFocusedForContext, cdpTypeForContext, disconnectCdp, listCdpPageContexts, type CdpConsoleEntry, type CdpPageSnapshot } from "./cdp.ts";
@@ -760,7 +840,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
  import { toFiniteNumber } from "./platform/coerce.ts";
  import { currentPlatformBackend } from "./platform/index.ts";
-@@ -297,6 +297,23 @@
+@@ -297,6 +297,23 @@ const AUTO_IMAGE_MAX_DIMENSION = 900;
  const EXPLICIT_IMAGE_MAX_DIMENSION = 1_600;
  const BROWSER_TRANSACTION_ACTIONS = new Set<UiAction["action"]>(["press", "click", "setText", "typeText", "keypress", "scroll", "drag", "moveMouse"]);
  
@@ -784,7 +864,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  const runtimeState: RuntimeState = {
  	lastPermissionCheckAt: 0,
  	windowRefs: new Map(),
-@@ -307,7 +324,7 @@
+@@ -307,7 +324,7 @@ const runtimeState: RuntimeState = {
  };
  
  const savedStates = new SavedStates();
@@ -793,7 +873,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  
  function operationState(): OperationState {
  	return savedStates.current();
-@@ -325,10 +342,13 @@
+@@ -325,10 +342,13 @@ function persistOperation(state: OperationState): void {
  }
  
  /** Release handles and state owned by the current Pi session. */
@@ -811,7 +891,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  
  	const managedBrowser = runtimeState.managedBrowser;
  	runtimeState.managedBrowser = undefined;
-@@ -551,7 +571,7 @@
+@@ -551,7 +571,7 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
  
  	throwIfAborted(signal);
  	const ready = await currentPlatformBackend.ensureReady(
@@ -820,7 +900,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  		{
  			permissionStatus: runtimeState.permissionStatus,
  			lastPermissionCheckAt: runtimeState.lastPermissionCheckAt,
-@@ -559,12 +579,19 @@
+@@ -559,12 +579,19 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
  		},
  		signal,
  	);
@@ -841,7 +921,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  	await ensureReady(ctx, signal);
  }
  
-@@ -1067,7 +1094,7 @@
+@@ -1067,7 +1094,7 @@ async function buildToolResult(
  	// Console piggyback: when a CDP connection is active for this browser
  	// window, surface console output collected since the last tool result.
  	let consoleText = "";
@@ -850,7 +930,38 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  		const tab = await cdpTabForWindow(result.target.windowTitle, result.target.framePoints);
  		const entries = tab?.drainConsole() ?? [];
  		if (entries.length > 0) {
-@@ -1302,7 +1329,7 @@
+@@ -1170,16 +1197,18 @@ async function helperAct(
+ 	};
+ 	const textTimeout = "text" in action.params ? action.params.text.length * 25 + 4_000 : COMMAND_TIMEOUT_MS;
+ 	const timeoutMs = Math.max(COMMAND_TIMEOUT_MS, textTimeout);
+-	if ((action.usesCurrentFocus || action.needsForeground) && !headless) {
++	const requestedPolicy = currentDeliveryPolicy();
++	const foregroundAllowed = !headless && requestedPolicy === "default";
++	if (foregroundAllowed && (action.usesCurrentFocus || action.needsForeground)) {
+ 		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+ 		const trace = executionTraceFromAct(foreground, "foreground");
+ 		trace.backgroundFirst = false;
+ 		return trace;
+ 	}
+ 	try {
+-		const initialPolicy = headless ? "ax_only" : "background";
++		const initialPolicy: DeliveryPolicy = headless ? "ax_only" : requestedPolicy === "default" ? "background" : requestedPolicy;
+ 		const result = checked(await currentPlatformBackend.act(helperActRequest(target, action, initialPolicy), { signal, timeoutMs }));
+-		if (canRetryInForeground(action, result.outcome, headless)) {
++		if (foregroundAllowed && canRetryInForeground(action, result.outcome, headless)) {
+ 			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+ 			const trace = executionTraceFromAct(foreground, "foreground");
+ 			trace.backgroundFirst = true;
+@@ -1193,7 +1222,7 @@ async function helperAct(
+ 		return trace;
+ 	} catch (error) {
+ 		const code = (error as Error & { code?: string })?.code;
+-		if (code !== "foreground_required" || headless) throw error;
++		if (code !== "foreground_required" || !foregroundAllowed) throw error;
+ 		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+ 		const trace = executionTraceFromAct(foreground, "foreground");
+ 		trace.backgroundFirst = true;
+@@ -1302,7 +1331,7 @@ async function performListWindows(params: FindParams, signal?: AbortSignal): Pro
  	const config = getComputerUseConfig();
  	const desktopForest = await windowDetailsForFind(query, config, signal);
  	const includeBrowserPages = !query.pid && !query.bundleId && (!query.app || normalizeText(query.app) === "browser") && config.browser_use;
@@ -859,7 +970,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  		.map((page) => ({
  			app: "Browser",
  			pid: 0,
-@@ -2175,7 +2202,7 @@
+@@ -2175,7 +2204,7 @@ async function performLaunchBrowser(params: LaunchBrowserParams, signal?: AbortS
  	if (requestedUrl && !/^https?:\/\//i.test(requestedUrl)) throw new Error("launch_browser.url must be an absolute HTTP(S) URL.");
  	const url = requestedUrl ?? "about:blank";
  	const profileDir = path.join(os.tmpdir(), `pi-${browser}-cdp-${port}`);
@@ -868,7 +979,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
  	runtimeState.managedBrowser?.kill("SIGTERM");
  	const args = [
  		`--remote-debugging-port=${port}`,
-@@ -2276,27 +2303,41 @@
+@@ -2276,27 +2305,41 @@ function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: Abor
  		_onUpdate: AgentToolUpdateCallback<D> | undefined,
  		ctx: ExtensionContext,
  	): Promise<AgentToolResult<D>> => {
@@ -877,22 +988,6 @@ diff --git a/src/bridge.ts b/src/bridge.ts
 -		} catch (error) {
 -			throw boundToolError(tool, error);
 -		}
--	};
--}
--
--export const executeFind = makeToolExecutor("find_roots", performListWindows);
--export const executeReadText = makeToolExecutor("read_text", performReadText);
--export const executeWaitFor = makeToolExecutor("wait_for", performWaitFor);
--export const executeObserve = makeToolExecutor("observe_ui", performObserve);
--export const executeSearchUi = makeToolExecutor("search_ui", performSearchUi);
--export const executeExpandUi = makeToolExecutor("expand_ui", performExpandUi);
--export const executeInspectUi = makeToolExecutor("inspect_ui", performInspectUi);
--export const executeAct = makeToolExecutor<ActParams, ComputerUseDetails | TerminalDesktopActionDetails | BrowserObservationDetails>("act_ui", performAct);
--export const executeNavigateBrowser = makeToolExecutor("navigate_browser", performNavigateBrowser);
--export const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", performEvaluateBrowser);
--export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
--
--export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 +    if (closed) throw new Error("Computer-use session has ended. Start a fresh session and observe again.");
 +    if (options.enableCdp === false && ["launch_browser", "navigate_browser", "evaluate_browser"].includes(tool)) throw new Error("Use the installed browser integration for browser-page tools.");
 +    if (tool === "observe_ui" && options.requireExplicitRoot && !(params as { root?: string }).root) {
@@ -912,9 +1007,20 @@ diff --git a/src/bridge.ts b/src/bridge.ts
 +    });
 +    operations.add(operation);
 +    try { return await operation; } finally { operations.delete(operation); }
-+	};
-+}
-+
+ 	};
+ }
+ 
+-export const executeFind = makeToolExecutor("find_roots", performListWindows);
+-export const executeReadText = makeToolExecutor("read_text", performReadText);
+-export const executeWaitFor = makeToolExecutor("wait_for", performWaitFor);
+-export const executeObserve = makeToolExecutor("observe_ui", performObserve);
+-export const executeSearchUi = makeToolExecutor("search_ui", performSearchUi);
+-export const executeExpandUi = makeToolExecutor("expand_ui", performExpandUi);
+-export const executeInspectUi = makeToolExecutor("inspect_ui", performInspectUi);
+-export const executeAct = makeToolExecutor<ActParams, ComputerUseDetails | TerminalDesktopActionDetails | BrowserObservationDetails>("act_ui", performAct);
+-export const executeNavigateBrowser = makeToolExecutor("navigate_browser", performNavigateBrowser);
+-export const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", performEvaluateBrowser);
+-export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
 +const executeFind = makeToolExecutor("find_roots", performListWindows);
 +const executeReadText = makeToolExecutor("read_text", performReadText);
 +const executeWaitFor = makeToolExecutor("wait_for", performWaitFor);
@@ -926,12 +1032,13 @@ diff --git a/src/bridge.ts b/src/bridge.ts
 +const executeNavigateBrowser = makeToolExecutor("navigate_browser", performNavigateBrowser);
 +const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", performEvaluateBrowser);
 +const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
-+
+ 
+-export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 +function reconstructStateFromBranch(ctx: ExtensionContext): void {
  	savedStates.clear();
  	clearStoredOutputs();
  	runtimeState.windowRefs.clear();
-@@ -2403,3 +2444,9 @@
+@@ -2403,3 +2446,9 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
  		}
  	}
  }
@@ -942,6 +1049,7 @@ diff --git a/src/bridge.ts b/src/bridge.ts
 +// Keep the direct executor API available to existing native callers.
 +export const { executeFind, executeReadText, executeWaitFor, executeObserve, executeSearchUi, executeExpandUi, executeInspectUi, executeAct, executeNavigateBrowser, executeEvaluateBrowser, executeLaunchBrowser, ensureComputerUseSetup, reconstructStateFromBranch, shutdownComputerUseSession } = createComputerUseRuntime();
 diff --git a/src/config.ts b/src/config.ts
+index ea057ca..6d939d2 100644
 --- a/src/config.ts
 +++ b/src/config.ts
 @@ -1,3 +1,4 @@
@@ -949,16 +1057,16 @@ diff --git a/src/config.ts b/src/config.ts
  import { existsSync, readFileSync } from "node:fs";
  import path from "node:path";
  import { getAgentDir } from "@earendil-works/pi-coding-agent";
-@@ -28,6 +29,8 @@
- 	cursor_overlay: true,
+@@ -29,6 +30,8 @@ const DEFAULT_CONFIG: ComputerUseConfig = {
  	managed_browser: "chrome",
  };
-+
-+const configContext = new AsyncLocalStorage<LoadedComputerUseConfig>();
  
++const configContext = new AsyncLocalStorage<LoadedComputerUseConfig>();
++
  let activeConfig: ComputerUseConfig = { ...DEFAULT_CONFIG };
  let activeLoadedConfig: LoadedComputerUseConfig = { config: activeConfig, sources: [], env: {} };
-@@ -93,21 +96,27 @@
+ 
+@@ -93,21 +96,27 @@ export function loadComputerUseConfig(cwd: string): LoadedComputerUseConfig {
  	Object.assign(config, env);
  	activeConfig = config;
  	activeLoadedConfig = { config, sources, env };
@@ -984,17 +1092,18 @@ diff --git a/src/config.ts b/src/config.ts
  export function isBrowserUseEnabled(): boolean {
 -	return activeConfig.browser_use;
 +	return getComputerUseConfig().browser_use;
- }
++}
 +
 +/** Keep concurrent embedded sessions on their own project configuration. */
 +export function withComputerUseConfig<T>(cwd: string, work: () => T): T {
 +  const loaded = loadComputerUseConfig(cwd);
 +  return configContext.run(loaded, work);
-+}
+ }
 diff --git a/src/output.ts b/src/output.ts
+index 2cfa6b6..88b5563 100644
 --- a/src/output.ts
 +++ b/src/output.ts
-@@ -19,6 +19,7 @@
+@@ -19,6 +19,7 @@ interface StoredOutput {
  	complete: boolean;
  }
  
@@ -1002,7 +1111,7 @@ diff --git a/src/output.ts b/src/output.ts
  const outputs = new Map<string, StoredOutput>();
  let outputDirectory: string | undefined;
  let outputBytes = 0;
-@@ -66,7 +67,7 @@
+@@ -66,7 +67,7 @@ function refinementFor(tool: string): string {
  	return "request a smaller or more focused result";
  }
  
@@ -1011,7 +1120,7 @@ diff --git a/src/output.ts b/src/output.ts
  	const textParts = result.content.filter((part): part is Extract<(typeof result.content)[number], { type: "text" }> => part.type === "text");
  	const combined = textParts.map((part) => part.text).join("\n");
  	const bytes = new TextEncoder().encode(combined).byteLength;
-@@ -88,7 +89,7 @@
+@@ -88,7 +89,7 @@ export function applyOutputEnvelope<T>(tool: string, result: AgentToolResult<T>)
  	return { ...result, content: [{ type: "text", text: `${preview}\n\n${trailer}` }, ...images] };
  }
  
@@ -1020,7 +1129,7 @@ diff --git a/src/output.ts b/src/output.ts
  	const message = error instanceof Error ? error.message : String(error);
  	const bytes = new TextEncoder().encode(message).byteLength;
  	const lines = message.split("\n").length;
-@@ -100,7 +101,7 @@
+@@ -100,7 +101,7 @@ export function boundToolError(tool: string, error: unknown): Error {
  	return new Error(`${preview}\n\nerror truncated: returned ${returnedBytes} of ${entry.totalBytes} utf-8 bytes\nrefine: ${refinementFor(tool)}\ncontinue: read_text({ ref: "${entry.ref}", offset: ${returnedBytes} })${storageNote}`);
  }
  
@@ -1029,7 +1138,7 @@ diff --git a/src/output.ts b/src/output.ts
  	const entry = outputs.get(ref);
  	if (!entry) return undefined;
  	let offset = Math.min(entry.storedBytes, Math.max(0, Math.trunc(typeof offsetValue === "number" && Number.isFinite(offsetValue) ? offsetValue : 0)));
-@@ -123,7 +124,7 @@
+@@ -123,7 +124,7 @@ export function readStoredOutput(ref: string, offsetValue: unknown): { text: str
  	};
  }
  
@@ -1038,7 +1147,7 @@ diff --git a/src/output.ts b/src/output.ts
  	outputs.clear();
  	if (outputDirectory) {
  		try { rmSync(outputDirectory, { recursive: true, force: true }); } catch { /* best-effort session cleanup */ }
-@@ -132,3 +133,8 @@
+@@ -132,3 +133,8 @@ export function clearStoredOutputs(): void {
  	outputBytes = 0;
  	nextOutputId = 1;
  }
@@ -1247,6 +1356,7 @@ index 930d217..338c123 100644
  				`pi-computer-use helper mismatch after relaunch: expected protocol ${HELPER_PROTOCOL_VERSION} and executable ${HELPER_APP_EXECUTABLE_PATH}; got protocol ${diagnostics.protocolVersion} and executable ${diagnostics.executablePath ?? "unknown"}. Reinstall or rebuild the helper app at ${HELPER_APP_PATH}.`,
  			);
 diff --git a/src/platform/macos/permissions.ts b/src/platform/macos/permissions.ts
+index ea73a61..6f9e8a6 100644
 --- a/src/platform/macos/permissions.ts
 +++ b/src/platform/macos/permissions.ts
 @@ -1,12 +1,15 @@
@@ -1267,7 +1377,7 @@ diff --git a/src/platform/macos/permissions.ts b/src/platform/macos/permissions.
  	"Screen Recording lets the agent see the window; Accessibility lets it interact with the window.";
  
  const SIGNING_MIGRATION_WARNING =
-@@ -122,7 +125,9 @@
+@@ -122,7 +125,9 @@ export async function ensureMacosReady(
  			{
  				kinds: macosPermissionKinds,
  				copy: {
@@ -1278,7 +1388,7 @@ diff --git a/src/platform/macos/permissions.ts b/src/platform/macos/permissions.
  					prompt: permissionPrompt,
  					incompleteError: (helperPath) => `pi-computer-use setup is incomplete. ${GRANT_INSTRUCTIONS} Helper path: ${helperPath}`,
  					readyMessage: "pi-computer-use is ready.",
-@@ -144,3 +149,46 @@
+@@ -144,3 +149,46 @@ export async function ensureMacosReady(
  
  	return { permissionStatus, lastPermissionCheckAt, helperDiagnostics };
  }
@@ -1326,18 +1436,20 @@ diff --git a/src/platform/macos/permissions.ts b/src/platform/macos/permissions.
 +  return await probeMacosComputerUse({ signal });
 +}
 diff --git a/src/runtime.ts b/src/runtime.ts
+index b479f4f..65fa350 100644
 --- a/src/runtime.ts
 +++ b/src/runtime.ts
-@@ -17,8 +17,32 @@
+@@ -17,8 +17,32 @@ export class StaleResourceStateError extends Error {
  /** Bounded insertion-ordered store for immutable agent-facing observations. */
  export class StateStore<T> {
  	private readonly records = new Map<string, StoredState<T>>();
+-
+-	constructor(private readonly limit = 128) {}
 +  private readonly sizes = new Map<string, number>();
 +  private readonly expires = new Map<string, number>();
 +  private bytes = 0;
 +  private expiryTimer?: ReturnType<typeof setTimeout>;
- 
--	constructor(private readonly limit = 128) {}
++
 +	constructor(private readonly limit = 128, private readonly maxBytes = 32 * 1024 * 1024, private readonly maxAgeMs = 30 * 60_000) {}
 +
 +  private scheduleExpiry(): void {
@@ -1362,7 +1474,7 @@ diff --git a/src/runtime.ts b/src/runtime.ts
  
  	create(resourceKey: string, epoch: number, value: T): StoredState<T> {
  		const record = { stateId: randomUUID(), resourceKey, epoch, value };
-@@ -27,21 +51,30 @@
+@@ -27,21 +51,30 @@ export class StateStore<T> {
  	}
  
  	set(record: StoredState<T>): void {
@@ -1397,424 +1509,19 @@ diff --git a/src/runtime.ts b/src/runtime.ts
  	}
  
  	get size(): number {
-diff --git a/native/macos/agent_cursor.swift b/native/macos/agent_cursor.swift
-new file mode 100644
---- /dev/null
-+++ b/native/macos/agent_cursor.swift
-@@ -0,0 +1,159 @@
-+import AppKit
-+import SwiftUI
-+
-+/// Visual-only cursor; native action delivery remains authoritative.
-+@MainActor
-+final class AgentCursor {
-+    typealias IdleHideScheduler = @MainActor (@escaping @MainActor () -> Void) -> Task<Void, Never>
-+
-+    static let shared = AgentCursor(scheduleIdleHide: scheduleDefaultIdleHide)
-+
-+    private var overlay: AgentCursorOverlayWindow?
-+    private var idleHideTask: Task<Void, Never>?
-+    private var idleGeneration: UInt = 0
-+    private let scheduleIdleHide: IdleHideScheduler
-+
-+    init(scheduleIdleHide: @escaping IdleHideScheduler) {
-+        self.scheduleIdleHide = scheduleIdleHide
-+    }
-+
-+    func animate(to point: CGPoint, above windowId: UInt32) {
-+        idleHideTask?.cancel()
-+        idleHideTask = nil
-+        idleGeneration &+= 1
-+
-+        let window = ensureWindow()
-+        if !window.isVisible { window.orderFrontRegardless() }
-+        window.order(.above, relativeTo: Int(windowId))
-+
-+        let renderer = AgentCursorRenderer.shared
-+        if renderer.position.x < -100 {
-+            let frame = NSScreen.main?.frame ?? .zero
-+            renderer.setInitialPosition(CGPoint(
-+                x: min(max(point.x - 140, frame.minX + 2), frame.maxX - 2),
-+                y: min(max(point.y - 140, frame.minY + 2), frame.maxY - 2)
-+            ))
-+        }
-+        renderer.moveTo(point: point)
-+
-+        let generation = idleGeneration
-+        idleHideTask = scheduleIdleHide { [weak self, weak window] in
-+            guard let self, let window else { return }
-+            guard generation == idleGeneration, self.overlay === window else { return }
-+
-+            renderer.cancelAnimation()
-+            window.orderOut(nil)
-+            window.contentView = nil
-+            window.close()
-+            overlay = nil
-+            idleHideTask = nil
-+        }
-+    }
-+
-+    private static func scheduleDefaultIdleHide(_ hide: @escaping @MainActor () -> Void) -> Task<Void, Never> {
-+        Task { @MainActor in
-+            try? await Task.sleep(for: .seconds(8))
-+            guard !Task.isCancelled else { return }
-+            hide()
-+        }
-+    }
-+
-+    private func ensureWindow() -> AgentCursorOverlayWindow {
-+        if let overlay { return overlay }
-+        let window = AgentCursorOverlayWindow(
-+            contentRect: NSScreen.main?.frame ?? NSScreen.screens.first?.frame ?? .zero,
-+            styleMask: .borderless,
-+            backing: .buffered,
-+            defer: false
-+        )
-+        window.contentView = NSHostingView(rootView: AgentCursorView())
-+        overlay = window
-+        return window
-+    }
-+}
-+
-+/// Main-display-only, click-through overlay that can never take focus.
-+private final class AgentCursorOverlayWindow: NSWindow {
-+    override var canBecomeKey: Bool { false }
-+    override var canBecomeMain: Bool { false }
-+
-+    override init(contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
-+        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
-+        isOpaque = false
-+        backgroundColor = .clear
-+        hasShadow = false
-+        ignoresMouseEvents = true
-+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-+        isReleasedWhenClosed = false
-+        hidesOnDeactivate = false
-+    }
-+}
-+
-+@MainActor
-+private struct AgentCursorView: View {
-+    @Bindable private var renderer = AgentCursorRenderer.shared
-+
-+    var body: some View {
-+        TimelineView(.animation(minimumInterval: 1.0 / 120.0, paused: !renderer.isAnimating)) { context in
-+            Canvas { graphics, _ in
-+                renderer.tick(now: context.date.timeIntervalSinceReferenceDate)
-+                drawCursor(in: graphics)
-+            }
-+            .ignoresSafeArea()
-+            .allowsHitTesting(false)
-+        }
-+    }
-+
-+    private func drawCursor(in graphics: GraphicsContext) {
-+        let point = renderer.position
-+        guard point.x > -100 else { return }
-+
-+        let bloom = Color(nsColor: NSColor(red: 1, green: 0x78 / 255, blue: 0x18 / 255, alpha: 1))
-+        let radius: CGFloat = 22
-+        graphics.fill(
-+            Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)),
-+            with: .radialGradient(
-+                Gradient(colors: [bloom.opacity(0.55), bloom.opacity(0.15), bloom.opacity(0)]),
-+                center: point,
-+                startRadius: 0,
-+                endRadius: radius
-+            )
-+        )
-+
-+        let points = [
-+            CGPoint(x: 14, y: 0),
-+            CGPoint(x: -8, y: -9),
-+            CGPoint(x: -3, y: 0),
-+            CGPoint(x: -8, y: 9),
-+        ]
-+        var shape = Path()
-+        for index in points.indices {
-+            let previous = points[(index + points.count - 1) % points.count]
-+            let current = points[index]
-+            let next = points[(index + 1) % points.count]
-+            let entry = CGPoint(x: current.x + (previous.x - current.x) * 0.16, y: current.y + (previous.y - current.y) * 0.16)
-+            let exit = CGPoint(x: current.x + (next.x - current.x) * 0.16, y: current.y + (next.y - current.y) * 0.16)
-+            if index == points.startIndex { shape.move(to: entry) } else { shape.addLine(to: entry) }
-+            shape.addQuadCurve(to: exit, control: current)
-+        }
-+        shape.closeSubpath()
-+
-+        let transformed = shape.applying(
-+            CGAffineTransform(translationX: point.x, y: point.y)
-+                .rotated(by: CGFloat(renderer.heading + .pi))
-+        )
-+        graphics.fill(
-+            transformed,
-+            with: .linearGradient(
-+                Gradient(colors: [
-+                    Color(red: 1, green: 0xD0 / 255, blue: 0x76 / 255),
-+                    Color(red: 1, green: 0x78 / 255, blue: 0x18 / 255),
-+                    Color(red: 0xE8 / 255, green: 0x4A / 255, blue: 0x0C / 255),
-+                ]),
-+                startPoint: CGPoint(x: point.x + 14, y: point.y - 9),
-+                endPoint: CGPoint(x: point.x - 8, y: point.y + 9)
-+            )
-+        )
-+        graphics.stroke(transformed, with: .color(.white), lineWidth: 2)
-+    }
-+}
-diff --git a/native/macos/agent_cursor_motion.swift b/native/macos/agent_cursor_motion.swift
-new file mode 100644
---- /dev/null
-+++ b/native/macos/agent_cursor_motion.swift
-@@ -0,0 +1,252 @@
-+import CoreGraphics
-+import Foundation
-+import Observation
-+
-+/// Main-actor Dubins-path animation state consumed by the SwiftUI overlay.
-+@Observable
-+@MainActor
-+final class AgentCursorRenderer {
-+    static let shared = AgentCursorRenderer()
-+
-+    private(set) var position = CGPoint(x: -200, y: -200)
-+    private(set) var heading: Double = .pi / 4
-+    private(set) var isAnimating = false
-+
-+    private var path: PlannedPath?
-+    private var spring: Spring?
-+    private var distanceSoFar: Double = 0
-+    private var lastFrameTime: CFTimeInterval?
-+    private var springTarget: (point: CGPoint, heading: Double)?
-+
-+    func moveTo(point clickPoint: CGPoint) {
-+        let endAngle = Double.pi / 4
-+        let targetPoint = CGPoint(
-+            x: clickPoint.x + CGFloat(cos(endAngle) * 16),
-+            y: clickPoint.y + CGFloat(sin(endAngle) * 16)
-+        )
-+        path = planPath(
-+            x0: Double(position.x), y0: Double(position.y), th0: heading + .pi,
-+            x1: Double(targetPoint.x), y1: Double(targetPoint.y), th1: endAngle + .pi,
-+            R: 80, endVisualHeading: endAngle, targetPoint: targetPoint)
-+        spring = nil
-+        springTarget = nil
-+        distanceSoFar = 0
-+        lastFrameTime = nil
-+        isAnimating = true
-+    }
-+
-+    func setInitialPosition(_ point: CGPoint) {
-+        position = point
-+        cancelAnimation()
-+    }
-+
-+    func cancelAnimation() {
-+        path = nil
-+        spring = nil
-+        springTarget = nil
-+        distanceSoFar = 0
-+        lastFrameTime = nil
-+        isAnimating = false
-+    }
-+
-+    func tick(now: CFTimeInterval) {
-+        guard isAnimating else { return }
-+        let previous = lastFrameTime ?? now
-+        let dt = min(0.05, now - previous)
-+        lastFrameTime = now
-+
-+        if let path {
-+            let progress = min(1.0, distanceSoFar / max(path.length, 1))
-+            let profile = 16 * progress * progress * (1 - progress) * (1 - progress)
-+            let minimumSpeed = progress < 0.5 ? 300.0 : 200.0
-+            let speed = minimumSpeed + (900 - minimumSpeed) * profile
-+            distanceSoFar += speed * dt
-+
-+            if distanceSoFar >= path.length {
-+                let endState = path.sample(at: path.length)
-+                spring = Spring(
-+                    ox: 0,
-+                    oy: 0,
-+                    vx: cos(endState.heading) * speed * 0.8,
-+                    vy: sin(endState.heading) * speed * 0.8
-+                )
-+                springTarget = (path.targetPoint, path.endVisualHeading)
-+                position = path.targetPoint
-+                heading = path.endVisualHeading
-+                self.path = nil
-+                distanceSoFar = 0
-+            } else {
-+                let state = path.sample(at: distanceSoFar)
-+                position = CGPoint(x: state.x, y: state.y)
-+                heading = rotateToward(current: heading, desired: state.heading + .pi, maxStep: 14 * dt)
-+            }
-+        } else if var spring, let target = springTarget {
-+            let substep = dt / 4
-+            for _ in 0..<4 {
-+                spring.vx += (-400 * spring.ox - 17 * spring.vx) * substep
-+                spring.vy += (-400 * spring.oy - 17 * spring.vy) * substep
-+                spring.ox += spring.vx * substep
-+                spring.oy += spring.vy * substep
-+            }
-+            position = CGPoint(x: target.point.x + CGFloat(spring.ox), y: target.point.y + CGFloat(spring.oy))
-+            heading = target.heading
-+            if hypot(spring.ox, spring.oy) < 0.3 && hypot(spring.vx, spring.vy) < 2 {
-+                position = target.point
-+                self.spring = nil
-+                springTarget = nil
-+                lastFrameTime = nil
-+                isAnimating = false
-+            } else {
-+                self.spring = spring
-+            }
-+        }
-+    }
-+
-+    private func rotateToward(current: Double, desired: Double, maxStep: Double) -> Double {
-+        var difference = desired - current
-+        while difference > .pi { difference -= 2 * .pi }
-+        while difference < -.pi { difference += 2 * .pi }
-+        return current + max(-maxStep, min(maxStep, difference))
-+    }
-+}
-+
-+private struct Spring { var ox, oy, vx, vy: Double }
-+
-+struct DubinsPlannedPath {
-+    enum Kind { case dubins, linear }
-+    let kind: Kind
-+    let length: Double
-+    let endVisualHeading: Double
-+    let targetPoint: CGPoint
-+    let x0, y0, th0, R, seg1, seg2, seg3: Double
-+    let types: [Character]
-+    let x1, y1, th1: Double
-+
-+    struct State { let x, y, heading: Double }
-+
-+    func sample(at s: Double) -> State {
-+        switch kind { case .linear: return sampleLinear(s); case .dubins: return sampleDubins(s) }
-+    }
-+
-+    private func sampleLinear(_ s: Double) -> State {
-+        let u = max(0, min(1, s / length))
-+        var diff = th1 - th0
-+        while diff > .pi  { diff -= 2 * .pi }
-+        while diff < -.pi { diff += 2 * .pi }
-+        return State(x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u, heading: th0 + diff * u)
-+    }
-+
-+    private func sampleDubins(_ sIn: Double) -> State {
-+        guard sIn > 0 else { return State(x: x0, y: y0, heading: th0) }
-+        let L1 = seg1 * R, L2 = seg2 * R, L3 = seg3 * R
-+        let s = min(sIn, L1 + L2 + L3)
-+        var x = x0, y = y0, th = th0
-+
-+        func advance(length L: Double, type: Character) {
-+            if type == "S" { x += cos(th) * L; y += sin(th) * L }
-+            else {
-+                let dth = L / R * (type == "L" ? 1.0 : -1.0)
-+                let perp: Double = (type == "L") ? .pi / 2 : -.pi / 2
-+                let cx = x + cos(th + perp) * R, cy = y + sin(th + perp) * R
-+                let ang = atan2(y - cy, x - cx)
-+                x = cx + cos(ang + dth) * R; y = cy + sin(ang + dth) * R; th += dth
-+            }
-+        }
-+        if s <= L1 { advance(length: s, type: types[0]); return State(x: x, y: y, heading: th) }
-+        advance(length: L1, type: types[0])
-+        if s <= L1 + L2 { advance(length: s - L1, type: types[1]); return State(x: x, y: y, heading: th) }
-+        advance(length: L2, type: types[1])
-+        advance(length: s - L1 - L2, type: types[2])
-+        return State(x: x, y: y, heading: th)
-+    }
-+}
-+
-+private typealias PlannedPath = DubinsPlannedPath
-+
-+private func mod2pi(_ x: Double) -> Double {
-+    let tau = 2 * Double.pi; let r = x - tau * floor(x / tau); return r < 0 ? r + tau : r
-+}
-+
-+private struct DubinsSolution { let t, p, q: Double; let types: [Character]; var length: Double { t + p + q } }
-+
-+private func dubinsLSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let tmp0 = d + sin(a) - sin(b)
-+    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))
-+    guard p2 >= 0 else { return nil }
-+    let tmp1 = atan2(cos(b) - cos(a), tmp0)
-+    return DubinsSolution(t: mod2pi(-a + tmp1), p: sqrt(p2), q: mod2pi(b - tmp1), types: ["L","S","L"])
-+}
-+private func dubinsRSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let tmp0 = d - sin(a) + sin(b)
-+    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))
-+    guard p2 >= 0 else { return nil }
-+    let tmp1 = atan2(cos(a) - cos(b), tmp0)
-+    return DubinsSolution(t: mod2pi(a - tmp1), p: sqrt(p2), q: mod2pi(-b + tmp1), types: ["R","S","R"])
-+}
-+private func dubinsLSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let p2 = -2 + d * d + 2 * cos(a - b) + 2 * d * (sin(a) + sin(b))
-+    guard p2 >= 0 else { return nil }
-+    let p = sqrt(p2)
-+    let tmp1 = atan2(-cos(a) - cos(b), d + sin(a) + sin(b)) - atan2(-2, p)
-+    return DubinsSolution(t: mod2pi(-a + tmp1), p: p, q: mod2pi(-mod2pi(b) + tmp1), types: ["L","S","R"])
-+}
-+private func dubinsRSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let p2 = d * d - 2 + 2 * cos(a - b) - 2 * d * (sin(a) + sin(b))
-+    guard p2 >= 0 else { return nil }
-+    let p = sqrt(p2)
-+    let tmp1 = atan2(cos(a) + cos(b), d - sin(a) - sin(b)) - atan2(2, p)
-+    return DubinsSolution(t: mod2pi(a - tmp1), p: p, q: mod2pi(b - tmp1), types: ["R","S","L"])
-+}
-+private func dubinsRLR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))) / 8
-+    guard abs(tmp) <= 1 else { return nil }
-+    let p = mod2pi(2 * .pi - acos(tmp))
-+    let t = mod2pi(a - atan2(cos(a) - cos(b), d - sin(a) + sin(b)) + p / 2)
-+    return DubinsSolution(t: t, p: p, q: mod2pi(a - b - t + p), types: ["R","L","R"])
-+}
-+private func dubinsLRL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))) / 8
-+    guard abs(tmp) <= 1 else { return nil }
-+    let p = mod2pi(2 * .pi - acos(tmp))
-+    let t = mod2pi(-a + atan2(-cos(a) + cos(b), d + sin(a) - sin(b)) + p / 2)
-+    return DubinsSolution(t: t, p: p, q: mod2pi(mod2pi(b) - a - t + p), types: ["L","R","L"])
-+}
-+
-+private func planPath(x0: Double, y0: Double, th0: Double,
-+                      x1: Double, y1: Double, th1: Double,
-+                      R: Double, endVisualHeading: Double,
-+                      targetPoint: CGPoint) -> PlannedPath {
-+    if let p = planDubins(x0: x0, y0: y0, th0: th0, x1: x1, y1: y1, th1: th1,
-+                          R: R, endVisualHeading: endVisualHeading, targetPoint: targetPoint) {
-+        return p
-+    }
-+    let D = max(1, hypot(x1 - x0, y1 - y0))
-+    return PlannedPath(kind: .linear, length: D, endVisualHeading: endVisualHeading,
-+                       targetPoint: targetPoint, x0: x0, y0: y0, th0: th0, R: R,
-+                       seg1: 0, seg2: 0, seg3: 0, types: [], x1: x1, y1: y1, th1: th1)
-+}
-+
-+private func planDubins(x0: Double, y0: Double, th0: Double,
-+                        x1: Double, y1: Double, th1: Double,
-+                        R: Double, endVisualHeading: Double,
-+                        targetPoint: CGPoint) -> PlannedPath? {
-+    let dx = x1 - x0, dy = y1 - y0, D = hypot(dx, dy)
-+    guard D > 0.5 else { return nil }
-+    let d = D / R, theta = mod2pi(atan2(dy, dx))
-+    let a = mod2pi(th0 - theta), b = mod2pi(th1 - theta)
-+    let solvers: [(Double, Double, Double) -> DubinsSolution?] = [
-+        dubinsLSL, dubinsRSR, dubinsLSR, dubinsRSL, dubinsRLR, dubinsLRL,
-+    ]
-+    var best: DubinsSolution?; var bestLen = Double.infinity
-+    for s in solvers {
-+        if let sol = s(d, a, b), sol.length.isFinite, sol.length >= 0, sol.length < bestLen {
-+            bestLen = sol.length; best = sol
-+        }
-+    }
-+    guard let b = best else { return nil }
-+    return PlannedPath(kind: .dubins, length: (b.t + b.p + b.q) * R,
-+                       endVisualHeading: endVisualHeading, targetPoint: targetPoint,
-+                       x0: x0, y0: y0, th0: th0, R: R,
-+                       seg1: b.t, seg2: b.p, seg3: b.q, types: b.types,
-+                       x1: x1, y1: y1, th1: th1)
-+}
+diff --git a/docs/architecture.md b/docs/architecture.md
+index fd426dc..04437d3 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -106,9 +106,9 @@ delivery alone is never treated as semantic success.
+ 
+ One action is represented by an array of length one. A multi-action transaction is appropriate only when no intermediate observation is needed. The runtime validates one base state, acquires one resource lane, and sends the steps as one native helper transaction. The helper captures one pre-transaction root baseline, executes and verifies steps in order, and stops on the first failed or invalidated step. Partial results include `stoppedAt`, so callers know the exact checked boundary and must re-observe before continuing. The helper performs one final root-delta settle and the bridge produces one final observation. There is no alternate sequential protocol. This is not a mechanism for parallel actions within one UI resource.
+ 
+-The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Editable-region clicks establish foreground focus for following unscoped keyboard steps in the same transaction. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed AX value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
++The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Clicks or presses on focusable controls establish foreground focus for following unscoped keyboard steps in the same transaction. In the normal interactive delivery mode, keypresses use one foreground HID delivery because application command handling belongs to the active key window and a pid-targeted event can be accepted without reaching it. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed AX value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
+ 
+-With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. With `headless: false` (the default), credible semantic activation may begin in the background, editable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
++With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. With `headless: false` (the default), credible semantic activation may begin in the background, focusable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Normal interactive keypresses use foreground delivery directly and are never replayed after an `unknown` result. An explicit `PI_COMPUTER_USE_DELIVERY_POLICY=background` or `ax_only` retains that boundary and prohibits foreground escalation; `foreground` requests foreground delivery for the action. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
+ 
+ The agent-facing `act_ui.headless` flag determines whether foreground execution is prohibited. Fallback-capable multi-action calls execute one checked action at a time, retain click-established focus, and stop on a checked `didnt`; strict-headless calls retain native transactional batching.
+ 

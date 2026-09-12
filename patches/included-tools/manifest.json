@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "a5d45c4cf8a690e08ca0c0a0e8c59be217e399e3ee2265d11200df30fcc65511",
+    "sha256": "64619ea5885732363528a98cbb03bafc6e3681bf2dfeaadad9c85dc8123c384c",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -105,7 +105,7 @@
       {
         "path": "scripts/check-embedded.mjs",
         "before": null,
-        "after": "7001d0666ca2d800b74cdf0142404c241c218d3507e0b623ae380a7e53ac0c23"
+        "after": "ab5998a83d1117055a0bb01051ab1cf712da312b1171d67ac9651236507c014e"
       },
       {
         "path": "scripts/check-helper-cancellation.mjs",
@@ -118,9 +118,14 @@
         "after": "6a04735d79a8afdc6ec45f4cb83fd7284c6bcaa1083801568a66962d623311d9"
       },
       {
+        "path": "src/actions.ts",
+        "before": "1f6aaf9a1cc51ee9ac640f2cb2c31426c522f90cc8b338f5c9dde1ed462de0bb",
+        "after": "37d883fd1e2ab32a43b08e8c4c790de25761cff2a950e9e896593ff42cae5745"
+      },
+      {
         "path": "src/bridge.ts",
         "before": "4a206d8e714e910e00f83746524f8ffefaa72219966da89c3dde5af48213f34b",
-        "after": "ededa9d1b250576ee9c32704861dd1b4780992029cc4b88125f61732a2658b50"
+        "after": "e534c3124d6cb06f7205b848475658954f23b7ff4c1db3f625dc9bde6099cac7"
       },
       {
         "path": "src/config.ts",
@@ -156,6 +161,11 @@
         "path": "native/macos/agent_cursor_motion.swift",
         "before": null,
         "after": "bbe26e29317ecf1dc9dace61e37e2054147d3bc47f9b424dfcc76c3e5bca4b52"
+      },
+      {
+        "path": "docs/architecture.md",
+        "before": "479a2b8870a6ef338f6a0771d52a29096f8baf1d66ac4b6753330a74f3e59101",
+        "after": "393ab5487640c56e7e7bcd3eac41f69812f2314144bc7c0af42914cc8a7feb0d"
       }
     ]
   },
