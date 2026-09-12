@@ -5,7 +5,7 @@
     "source": "https://github.com/tianrendong/pi-chrome/tree/4811ee616d2bbd5ead669a7e2f33a0bb14bd43ef",
     "license": "MIT",
     "patch": "pi-chrome-0.15.51.patch",
-    "sha256": "a42fd1af9e90030bb3c0f4513b2a623fa7b721f3a2a7f837d0ef27b7130a7d08",
+    "sha256": "81a48465c537dc7b84105bebc7acfaf5f8a1a529bcb1ef1021119d2269570240",
     "files": [
       {
         "path": "docs/EMBEDDED-HOST.md",
@@ -35,7 +35,7 @@
       {
         "path": "extensions/chrome-profile-bridge/index.ts",
         "before": "fc38900ea5f9d8e7bb8b1988ff6e172d49c24e50213f9c8905d689187728d187",
-        "after": "b97744b48ab1a73153d0a95a6cdd7bbd50956905ae853974b9a6a3fe319c1e2d"
+        "after": "91eeaf28f2910ad27752013321ab7f739ff7244f21682b7ce1fd8a4302ee3d36"
       },
       {
         "path": "package.json",

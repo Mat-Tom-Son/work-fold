@@ -506,7 +506,7 @@ index 8ba0e2d..89a01c3 100644
  
  function waitForTabComplete(tabId, timeoutMs) {
 diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profile-bridge/index.ts
-index 1917956..484bec3 100644
+index 1917956..ddc226c 100644
 --- a/extensions/chrome-profile-bridge/index.ts
 +++ b/extensions/chrome-profile-bridge/index.ts
 @@ -1,5 +1,6 @@
@@ -1229,7 +1229,17 @@ index 1917956..484bec3 100644
  			};
  		},
  	});
-@@ -1743,10 +1965,10 @@ Usage rules:
+@@ -1494,7 +1716,8 @@ Usage rules:
+ 		}),
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.navigate", params, (params.timeoutMs ?? 15_000) + 2_000, signal);
+-			return { content: [{ type: "text", text: `Navigated to ${params.url}${params.initScript ? " (with initScript)" : ""}` }], details: { result: result as Json } };
++			const tab = result as { id: number; url: string };
++			return { content: [{ type: "text", text: `Navigated tab ${tab.id} to ${tab.url}${params.initScript ? " (with initScript)" : ""}` }], details: { result: result as Json } };
+ 		},
+ 	});
+ 
+@@ -1743,10 +1966,10 @@ Usage rules:
  		name: "chrome_screenshot",
  		label: "Chrome Screenshot",
  		description:
@@ -1243,7 +1253,7 @@ index 1917956..484bec3 100644
  			format: Type.Optional(StringEnum(imageFormatValues)),
  			quality: Type.Optional(Type.Number({ minimum: 0, maximum: 100, description: "JPEG quality 0-100." })),
  			fullPage: Type.Optional(Type.Boolean({ description: "Capture full-page tiles plus a JSON manifest. Temporarily scrolls the target page; does not activate background tabs." })),
-@@ -1770,7 +1992,32 @@ Usage rules:
+@@ -1770,7 +1993,32 @@ Usage rules:
  				dimensions?: { width: number; height: number; viewportHeight: number; dpr: number };
  				tiles?: Array<{ y: number; dataUrl: string }>;
  			};

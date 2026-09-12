@@ -65,6 +65,25 @@ try {
   assert.equal((await bootstrap).state, "ready");
   await assert.rejects(fetch(url + "/status"));
   const list = call(a.session, "chrome_tab", { action: "list" }); let command = await next(); await reply(command, []); await list;
+  // Two implicit navigations can share a destination while resolving to different
+  // owned tabs. The model receives content, not Pi's diagnostic details.
+  for (const [owner, tabId] of [[a.session, 4101], [b.session, 4102]] as const) {
+    const requested = "https://fixture.test/start", resolved = "https://fixture.test/redirected";
+    const navigate = call(owner, "chrome_navigate", { url: requested }); command = await next();
+    assert.equal(command.action, "page.navigate"); assert.equal(command.params.targetId, undefined);
+    const tab = { id: tabId, url: resolved, title: "Shared destination", group: { id: tabId + 100, title: "Owned fixture group" } };
+    await reply(command, tab);
+    const navigation = await navigate;
+    assert.deepEqual(navigation.details, { result: tab });
+    const text = navigation.content.find((item: any) => item.type === "text")?.text ?? "";
+    assert.ok(text.includes(resolved), "Navigation must report the returned URL after a redirect");
+    assert.ok(!text.includes(requested), "The requested URL is not evidence of the final location");
+    const target = text.match(/Navigated tab (\d+) to /)?.[1];
+    assert.equal(target, String(tabId), "The model must receive the actual target without inspecting other tabs");
+    const inspect = call(owner, "chrome_evaluate", { expression: "document.URL", targetId: target }); command = await next();
+    assert.equal(command.action, "page.evaluate"); assert.equal(command.params.targetId, String(tabId));
+    await reply(command, resolved); await inspect;
+  }
   for (const route of ["/status", "/next-v2?protocol=2&version=0.15.51", "/command-state-v2?id=made-up"]) assert.equal((await fetch(url + route)).status, 403);
   const { RestrictedAppNetworkBroker } = await import("../../../src/local/agent/restricted-app-connections.ts");
   const { parseRestrictedAppManifest } = await import("../../../src/local/agent/restricted-app-manifest.ts");
