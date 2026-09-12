@@ -17,10 +17,11 @@ settled transcripts. App inference history shows one current result per call;
 interrupted calls and failed receipt writes no longer leave phantom running work.
 
 Included tools distinguish loaded code from setup and connection readiness.
-Chrome uses the bundled Pi Chrome Connector, loaded once through Chrome's
-**Load unpacked** control. Computer control uses the signed helper and macOS
-Accessibility and Screen Recording permissions. The helper carries the work-fold
-icon in macOS Settings.
+Chrome connects through the work-fold Chrome extension and a signed native
+helper, with one selected browser profile and separate tabs for each Chat.
+Computer control uses a verified helper outside the main app bundle so macOS
+attributes Accessibility and Screen Recording permissions correctly. The helper
+carries the work-fold icon and recovers when macOS restarts it.
 
 Document workers contain accidental JavaScript allocation loops. Bundled image
 readers reject malformed ICNS, JXL and HEIF records without hanging. Registry read
