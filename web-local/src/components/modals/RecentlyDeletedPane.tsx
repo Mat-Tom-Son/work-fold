@@ -20,6 +20,7 @@ export interface RecentlyDeletedEntry {
   kind: RecentlyDeletedKind;
   reason:
     | "files.delete"
+    | "management.chat.delete"
     | "spaces.delete"
     | "apps.remove"
     | "apps.space.removed"
@@ -207,7 +208,7 @@ export function FoldRecentlyDeletedPane() {
                 <div>
                   <strong>{entry.name}</strong>
                   <small>
-                    {kindLabels[entry.kind]} from {entry.spaceName ?? entry.spaceId} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
+                    {entry.reason === "management.chat.delete" ? "Chat" : kindLabels[entry.kind]} from {entry.spaceName ?? entry.spaceId} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
                   </small>
                   <small>
                     Deleted {new Date(entry.deletedAt).toLocaleString()} · Kept until {new Date(entry.restoreBy).toLocaleDateString()}

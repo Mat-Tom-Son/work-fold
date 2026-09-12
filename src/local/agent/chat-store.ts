@@ -352,7 +352,7 @@ interface ConversationIndexEntry {
 
 // Bump whenever conversationSummary title or lifecycle semantics change so a
 // structurally valid cache cannot preserve an obsolete derived result.
-const conversationIndexVersion = 4;
+const conversationIndexVersion = 5;
 
 function conversationIndexFile(spaceRoot: string): string {
   return join(spaceStateDir(spaceRoot), "conversation-index.json");
@@ -681,31 +681,16 @@ function remoteConversationTitleRenameIndex(
 }
 
 function generatedConversationTitle(messages: ChatMessage[]): string | null {
-  const firstUser = messages.find((message) => message.role === "user")?.content;
-  const legacyFallback = legacyFirstMessageConversationTitle(firstUser);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message.role === "system" && message.kind === "conversation_title" && message.titleSource === "generated") {
       const title = normalizeConversationTitle(message.content);
-      const hasRecordedAttempt = messages.slice(0, index).some((candidate) =>
-        candidate.kind === "conversation_title" && candidate.titleSource === "attempted");
-      if (title && title === legacyFallback && !hasRecordedAttempt) continue;
       if (title) return title;
     }
     const title = message.landing?.conversationTitle?.replace(/\s+/g, " ").trim();
     if (title) return title.slice(0, 80);
   }
   return null;
-}
-
-function legacyFirstMessageConversationTitle(content: string | null | undefined): string | null {
-  const normalized = content?.replace(/\s+/g, " ").trim() ?? "";
-  if (!normalized) return null;
-  if (normalized.length <= 60) return normalized;
-  const prefix = normalized.slice(0, 60);
-  const wordBoundary = prefix.search(/\s+\S*$/);
-  const trimmed = (wordBoundary > 0 ? prefix.slice(0, wordBoundary) : prefix).trim();
-  return `${trimmed || prefix.trim()}...`;
 }
 
 function normalizeLifecyclePatch(patch: ConversationLifecyclePatch): ConversationLifecyclePatch {

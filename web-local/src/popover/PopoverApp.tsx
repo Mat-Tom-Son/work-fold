@@ -3,7 +3,7 @@ import { WorkRequest } from "../components/chat/WorkRequest";
 import { useApplicationAppearance } from "../hooks/useApplicationAppearance";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, ChevronRight, File, History, Link2, Search, Square, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, ChevronRight, File, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -149,6 +149,8 @@ export function PopoverApp() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyError, setHistoryError] = useState("");
+  const [chatAction, setChatAction] = useState<{ id: string; mode: "menu" | "rename"; title: string } | null>(null);
+  const [savingChat, setSavingChat] = useState(false);
   const [loadingChat, setLoadingChat] = useState(false);
   const workState = useWorkRequest(!popoverFixtureRequested && conversationId && !startingNewChat ? `/api/management/conversations/${encodeURIComponent(conversationId)}/work` : null);
   const [stopping, setStopping] = useState(false);
@@ -506,7 +508,7 @@ export function PopoverApp() {
   }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant]);
 
   const selectChat = useCallback((id: string | null) => {
-    if (sending || stopping || workState.busy) return;
+    if (sending || stopping || workState.busy || savingChat) return;
     setHistoryOpen(false);
     setHistoryQuery("");
     if (id === selectionRef.current && (id || startingNewChatRef.current)) {
@@ -534,7 +536,51 @@ export function PopoverApp() {
     setBanner("");
     void refreshConversation();
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [sending, stopping, workState.busy, text, staged, chats, refreshConversation, replaceStreamingAssistant]);
+  }, [sending, stopping, workState.busy, savingChat, text, staged, chats, refreshConversation, replaceStreamingAssistant]);
+  async function changeChat(action: "rename" | "delete") {
+    if (!chatAction || savingChat) return;
+    const { id } = chatAction;
+    const title = chatAction.title.replace(/\s+/g, " ").trim();
+    if (action === "rename" && !title) return;
+    setSavingChat(true);
+    setHistoryError("");
+    // Invalidate reads started before this mutation so they cannot restore an old title/list.
+    refreshGeneration.current++;
+    try {
+      if (!popoverFixtureRequested) await api(`/api/management/conversations/${encodeURIComponent(id)}${action === "rename" ? "/title" : ""}`, {
+        method: action === "rename" ? "POST" : "DELETE",
+        ...(action === "rename" ? { body: { title } } : {}),
+      });
+      if (action === "rename") {
+        setChats((current) => current.map((chat) => chat.id === id ? { ...chat, title } : chat));
+        if (selectionRef.current === id) setChatTitle(title);
+      } else {
+        setChats((current) => current.filter((chat) => chat.id !== id));
+        draftsRef.current.delete(id);
+        if (selectionRef.current === id) {
+          selectionRef.current = null;
+          startingNewChatRef.current = true;
+          setStartingNewChat(true);
+          setConversationId(null);
+          setChatTitle("New chat");
+          setMessages([]);
+          setRequest(null);
+          requestRef.current = null;
+          setConversationRuntime(null);
+          setText(draftsRef.current.get("new")?.text ?? "");
+          setStaged(draftsRef.current.get("new")?.staged ?? []);
+          replaceStreamingAssistant("");
+        }
+      }
+      setChatAction(null);
+      await refreshConversation();
+      window.requestAnimationFrame(() => {
+        if (action === "delete") searchRef.current?.focus();
+        else [...document.querySelectorAll<HTMLButtonElement>("[data-chat-actions]")].find((button) => button.dataset.chatActions === id)?.focus();
+      });
+    } catch (error) { setHistoryError(errorText(error)); }
+    finally { setSavingChat(false); }
+  }
   const startNewChat = useCallback(() => selectChat(null), [selectChat]);
 
   useEffect(() => {
@@ -546,7 +592,8 @@ export function PopoverApp() {
       // Cancelling an IME composition must not dismiss the surface.
       if (event.isComposing) return;
       if (event.key === "Escape") {
-        if (historyOpen) { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }
+        if (chatAction) { if (!savingChat) setChatAction(null); }
+        else if (historyOpen) { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }
         else bridge?.management?.hide();
       }
       // ⌘N/Ctrl+N mirrors the direct header action.
@@ -557,7 +604,7 @@ export function PopoverApp() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge, startNewChat, historyOpen]);
+  }, [bridge, startNewChat, historyOpen, chatAction, savingChat]);
 
   const stop = useCallback(async () => {
     const current = requestRef.current;
@@ -675,7 +722,7 @@ export function PopoverApp() {
   const backgroundChats = chats.filter((chat) => chat.id !== conversationId && (chat.requestState === "working" || chat.requestState === "handed_off"));
   const filteredChats = chats.filter((chat) => chat.title.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()));
   const chatsByRecency = groupChatsByRecency(filteredChats);
-  const navigationBusy = sending || stopping || workState.busy;
+  const navigationBusy = sending || stopping || workState.busy || savingChat;
 
   const changeThinkingLevel = async (level: string) => {
     if (requestRunning || loadingChat || level === composerThinking?.thinkingLevel) return;
@@ -747,10 +794,20 @@ export function PopoverApp() {
             {chatsByRecency.map(([label, groupedChats]) => <section className="fold-chat-group" key={label} aria-label={label}>
               <h2>{label}</h2>
               {groupedChats.map((chat) => (
-                <button key={chat.id} className="fold-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
+                <div key={chat.id} className="fold-chat-item">
+                <button className="fold-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
                   <span>{chat.title || "Untitled chat"}</span>
                   <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.needsAnswer ? <em>Needs your answer</em> : chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
                 </button>
+                <button className="fold-chat-options" data-chat-actions={chat.id} type="button" aria-label={`Actions for ${chat.title}`} aria-expanded={chatAction?.id === chat.id} disabled={navigationBusy || chat.requestState === "working" || chat.requestState === "handed_off"} onClick={() => setChatAction(chatAction?.id === chat.id ? null : { id: chat.id, mode: "menu", title: chat.title })}><MoreHorizontal aria-hidden="true" /></button>
+                {chatAction?.id === chat.id ? <div className="fold-chat-actions">
+                  {chatAction.mode === "rename" ? <form onSubmit={(event) => { event.preventDefault(); void changeChat("rename"); }}>
+                    <input aria-label="Chat title" autoFocus maxLength={80} value={chatAction.title} disabled={savingChat} onChange={(event) => setChatAction({ ...chatAction, title: event.target.value })} />
+                    <button type="submit" disabled={savingChat || !chatAction.title.trim()}>Save</button>
+                    <button type="button" disabled={savingChat} onClick={() => setChatAction(null)}>Cancel</button>
+                  </form> : <><button type="button" onClick={() => setChatAction({ ...chatAction, mode: "rename" })}>Rename</button><button type="button" onClick={() => void changeChat("delete")}>Delete</button></>}
+                </div> : null}
+                </div>
               ))}
             </section>)}
             {!filteredChats.length ? <p className="fold-history-empty">{historyQuery ? "No chats match your search." : "Your chats will appear here after you send a message."}</p> : null}

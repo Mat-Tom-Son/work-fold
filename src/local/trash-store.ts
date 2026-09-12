@@ -91,6 +91,8 @@ export type WorkFoldTrashKind = "file" | "folder" | "space" | "app-storage" | "a
 
 export type WorkFoldTrashReason =
   | "files.delete"
+  /** Deleting a work-fold agent Chat keeps its transcript recoverable. */
+  | "management.chat.delete"
   | "spaces.delete"
   /** Removing a Development preview, which takes its namespace with it. */
   | "apps.remove"
@@ -145,6 +147,8 @@ export interface WorkFoldTrashManifest {
   spaceId: string;
   /** Display and Space re-registration. */
   spaceName?: string;
+  /** Person-facing label; the payload name remains the recovery identity. */
+  displayName?: string;
   /** file/folder: Space-relative path. space: absolute managed folder path. app-*: `<appId>/<dataNamespaceId>`. */
   originalPath: string;
   sizeBytes: number;
@@ -220,6 +224,8 @@ export interface WorkFoldTrashTreeInput {
   sourcePath: string;
   spaceId: string;
   spaceName?: string;
+  /** Optional Recently deleted label; it never affects the restore path. */
+  displayName?: string;
   /** Space-relative path (file/folder) or the absolute original root (space). Its basename names the payload. */
   originalPath: string;
   receiptId: string | null;
@@ -262,13 +268,13 @@ export interface WorkFoldTrashPurgeResult {
 
 const TRASH_KINDS: readonly WorkFoldTrashKind[] = ["file", "folder", "space", "app-storage", "app-retained"];
 const TRASH_REASONS: readonly WorkFoldTrashReason[] = [
-  "files.delete", "spaces.delete", "apps.remove", "apps.space.removed",
+  "files.delete", "management.chat.delete", "spaces.delete", "apps.remove", "apps.space.removed",
   "apps.storage.clear", "apps.retained.purge", "apps.uninstall.purge",
 ];
 const UNCOVERED_REASONS: readonly WorkFoldTrashUncoveredPath["reason"][] = ["too_large", "unreadable", "symbolic_link", "excluded"];
 const HOLD_REASONS: readonly WorkFoldTrashHold["reason"][] = ["legacy-metadata", "unreadable"];
 const MANIFEST_KEYS = new Set([
-  "version", "id", "kind", "reason", "spaceId", "spaceName", "originalPath", "sizeBytes", "sizeApproximate",
+  "version", "id", "kind", "reason", "spaceId", "spaceName", "displayName", "originalPath", "sizeBytes", "sizeApproximate",
   "deletedAt", "restoreBy", "receiptId", "payload", "complete", "uncovered", "held", "stateDir",
 ]);
 const APP_DATA_IDENTITY_KEYS = new Set([
@@ -388,6 +394,7 @@ export class WorkFoldTrashStore {
     assertReason(input.reason);
     const spaceId = requireText(input.spaceId, "Space id", 160);
     const spaceName = input.spaceName === undefined ? undefined : requireText(input.spaceName, "Space name", 200);
+    const displayName = input.displayName === undefined ? undefined : requireText(input.displayName, "Display name", 200);
     const originalPath = requireText(input.originalPath, "The original path", MAX_TEXT_LENGTH);
     const receiptId = requireReceiptId(input.receiptId);
     const uncovered = normalizeUncovered(input.uncovered);
@@ -419,6 +426,7 @@ export class WorkFoldTrashStore {
         reason: input.reason,
         spaceId,
         ...(spaceName === undefined ? {} : { spaceName }),
+        ...(displayName === undefined ? {} : { displayName }),
         originalPath,
         sizeBytes: 0,
         deletedAt,
@@ -1031,6 +1039,7 @@ function parseManifest(value: unknown): WorkFoldTrashManifest {
   if (!TRASH_REASONS.includes(raw.reason as WorkFoldTrashReason)) throw new Error("invalid reason");
   if (typeof raw.spaceId !== "string" || !raw.spaceId.trim()) throw new Error("invalid spaceId");
   if (raw.spaceName !== undefined && (typeof raw.spaceName !== "string" || !raw.spaceName.trim())) throw new Error("invalid spaceName");
+  if (raw.displayName !== undefined && (typeof raw.displayName !== "string" || !raw.displayName.trim())) throw new Error("invalid displayName");
   if (typeof raw.originalPath !== "string" || !raw.originalPath.trim()) throw new Error("invalid originalPath");
   if (!Number.isSafeInteger(raw.sizeBytes) || (raw.sizeBytes as number) < 0) throw new Error("invalid sizeBytes");
   if (raw.sizeApproximate !== undefined && raw.sizeApproximate !== true) throw new Error("invalid sizeApproximate");
@@ -1056,6 +1065,7 @@ function parseManifest(value: unknown): WorkFoldTrashManifest {
     complete: raw.complete,
   };
   if (raw.spaceName !== undefined) manifest.spaceName = raw.spaceName as string;
+  if (raw.displayName !== undefined) manifest.displayName = raw.displayName as string;
   if (raw.sizeApproximate === true) manifest.sizeApproximate = true;
   if (raw.stateDir === true) {
     if (manifest.kind !== "space") throw new Error("only a Space entry carries state");

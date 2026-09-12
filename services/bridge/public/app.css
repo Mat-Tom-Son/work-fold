@@ -570,6 +570,8 @@ body.drawer-locked { overflow: hidden; }
 .conversation-title-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .conversation-title-button:disabled { cursor: default; }
 .conversation-title-button:disabled svg { opacity: 0; }
+.conversation-delete-button { color: var(--danger); }
+.conversation-delete-button:hover:not(:disabled) { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .conversation-title-form { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px; align-items: center; gap: 5px; }
 .conversation-title-form[hidden] { display: none; }
 .conversation-title-form input { min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; outline: 0; background: var(--paper); color: var(--ink); font-size: 14px; font-weight: 620; text-align: center; }

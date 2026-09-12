@@ -247,7 +247,7 @@ Those two app-owned resources are required, not an optional enhancement. If work
 
 Be precise about its authority: the management conversation is a **full-trust Assistant, taught rather than caged**. Like every work-fold Assistant it keeps Pi's ordinary read/bash/edit/write tools, which accept absolute paths anywhere this user can reach. The materialized instructions teach it to prefer the `work-fold` read and act commands for anything that touches Spaces — those carry the trust grants, restore points, receipts, and conflict rules — but that preference is instruction, not an enforced authority boundary. An enforced CLI-only management agent would be a different, deliberate design (per-session tool restriction) that this personal, local product has not adopted.
 
-Without `--conversation`, manage commands target the most recent active management conversation, `manage send` creates it on first use, and `--new` deliberately allows additional threads while the default stays a single conversation; management turns appear in `work-fold tasks list` under the management scope id. The menu-bar and remote browser surfaces expose the same choice as **New chat**: the view becomes a clean slate immediately, the first send creates the new machine-local transcript, and the previous transcript remains saved rather than being cleared or rewritten.
+Without `--conversation`, manage commands target the most recent active management conversation, `manage send` creates it on first use, and `--new` deliberately allows additional threads while the default stays a single conversation; management turns appear in `work-fold tasks list` under the management scope id. The menu-bar and remote browser surfaces expose the same choice as **New chat**: the view becomes a clean slate immediately, the first send creates the new machine-local transcript, and the previous transcript remains saved rather than being cleared or rewritten. A person may rename or delete an idle management Chat from either surface; deletion moves its exact transcript into **Recently deleted** under its Chat title and restoration preserves that Chat identity. Running, compacting, or unsettled Chats refuse deletion.
 
 ### Management attachments, request lineage, and the popover surface
 
@@ -439,6 +439,9 @@ signed request id, and participate in the same active-turn, stop, transcript, an
 rules as the desktop management surface. `management.rename` records the same
 provenance on an append-only manual-title event, is retry-idempotent within that
 exact browser grant, and refuses to race an active turn or Chat compaction. Each
+`management.delete` is capability-advertised for older desktops and is retry-idempotent
+within its exact browser grant: it journals before moving only the validated,
+idle transcript into Recently deleted, where it remains restorable.
 accepted remote request records
 both its browser identity and exact grant. Direct task-scoped request status and
 stop calls reject every other browser or replacement grant, and cross-grant

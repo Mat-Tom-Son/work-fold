@@ -29,7 +29,7 @@ const maximumRememberedResponses = 256;
 const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1.4);
 const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
-  "management.summary", "management.chats", "management.transcript", "management.rename", "management.send", "management.request",
+  "management.summary", "management.chats", "management.transcript", "management.rename", "management.delete", "management.send", "management.request",
   "management.stop", "management.watch", "management.glance", "management.glanceSeen",
   "management.work", "management.answer", "management.continue", "management.extensionAnswer",
   "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",

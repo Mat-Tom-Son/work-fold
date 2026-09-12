@@ -491,3 +491,13 @@ button.primary:not(:disabled):active { filter: brightness(0.92); }
 .fold-background-work > span:not(.spinner) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .fold-background-work > svg { width: 14px; height: 14px; flex: none; }
 @media (prefers-reduced-motion: reduce) { .fold-chat-row { transition: none; } }
+
+.fold-chat-item { display: flex; flex-wrap: wrap; align-items: center; }
+.fold-chat-item > .fold-chat-row { flex: 1; min-width: 0; width: auto; }
+.fold-chat-options { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 5px; border: 0; border-radius: 6px; background: transparent; color: var(--pop-text-muted); }
+.fold-chat-options:hover, .fold-chat-options[aria-expanded="true"] { background: var(--pop-surface-2); }
+.fold-chat-options svg { width: 18px; height: 18px; }
+.fold-chat-actions { flex-basis: 100%; display: flex; gap: 6px; padding: 4px 10px 10px; }
+.fold-chat-actions button { border: 0; border-radius: 5px; padding: 6px 9px; background: var(--pop-surface-2); font-size: 12px; }
+.fold-chat-actions form { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.fold-chat-actions input { flex: 1 1 100%; min-width: 0; padding: 7px; border: 1px solid var(--pop-border); border-radius: 5px; background: var(--pop-surface-2); color: inherit; }

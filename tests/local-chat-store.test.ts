@@ -313,7 +313,7 @@ test("a model title may legitimately match the first user message after the requ
   assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), false);
 });
 
-test("the old first-message fallback is eligible for one real model title", async (t) => {
+test("legacy generated first-message titles remain visible and authoritative", async (t) => {
   const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-legacy-title-fallback-"));
   t.after(() => rm(spaceRoot, { recursive: true, force: true }));
 
@@ -329,9 +329,9 @@ test("the old first-message fallback is eligible for one real model title", asyn
     createdAt: "2026-01-01T00:00:02Z",
   });
 
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "New Chat");
-  assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), true);
-  assert.equal((await setGeneratedConversationTitle(spaceRoot, created.id, "Tic Tac Flow Game Review")).title, "Tic Tac Flow Game Review");
+  assert.equal((await listConversations(spaceRoot))[0]?.title, "hey, what's up what do you think of my game here in this...");
+  assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), false);
+  assert.equal((await setGeneratedConversationTitle(spaceRoot, created.id, "Tic Tac Flow Game Review")).title, "hey, what's up what do you think of my game here in this...");
 });
 
 test("chat store manual conversation title overrides generated landing title", async (t) => {
@@ -503,7 +503,7 @@ test("chat listing ignores cache records that do not describe their own transcri
   const indexFile = join(spaceStateDir(spaceRoot), "conversation-index.json");
   const transcript = await stat(join(conversationsDir(spaceRoot), "chat-guarded.jsonl"));
   await writeFile(indexFile, `${JSON.stringify({
-    version: 4,
+    version: 5,
     entries: {
       "chat-guarded": {
         sizeBytes: transcript.size,
@@ -530,7 +530,7 @@ test("chat listing rebuilds a previous-version cache after title semantics chang
   const indexFile = join(spaceStateDir(spaceRoot), "conversation-index.json");
   await mkdir(spaceStateDir(spaceRoot), { recursive: true });
   await writeFile(indexFile, `${JSON.stringify({
-    version: 2,
+    version: 4,
     entries: {
       [created.id]: {
         sizeBytes: transcript.size,
@@ -551,7 +551,7 @@ test("chat listing rebuilds a previous-version cache after title semantics chang
   })}\n`, "utf8");
 
   assert.equal((await listConversations(spaceRoot))[0]?.title, "New Chat");
-  assert.equal(JSON.parse(await readFile(indexFile, "utf8")).version, 4);
+  assert.equal(JSON.parse(await readFile(indexFile, "utf8")).version, 5);
 });
 
 test("listing a Space never deletes a Chat that is still being started", async (t) => {

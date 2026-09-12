@@ -8,6 +8,7 @@ import WebSocket from "ws";
 
 import { BridgeDatabase, canonicalizeJson } from "./database.mjs";
 import { shouldSubmitComposerKey } from "./public/composer.js";
+import { canDeleteChat, removeDeletedChat } from "./public/chat-delete.js";
 import { renderMarkdown } from "./public/markdown.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./public/rendering.js";
 import { parseViewerLocation, viewerPageAad, viewerSlugFromHost } from "./public/viewer/viewer.js";
@@ -75,6 +76,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /id="new-chat"/);
   assert.match(applicationSource, /<h1 id="conversation-title"><\/h1>/);
   assert.match(applicationSource, /id="rename-chat"/);
+  assert.match(applicationSource, /id="delete-chat"/);
   assert.match(applicationSource, /id="rename-chat-input" maxlength="80"/);
   assert.match(applicationSource, /id="chats"/);
   assert.match(applicationSource, /id="workspace-pane"/);
@@ -82,6 +84,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /newConversation: true/);
   assert.match(applicationSource, /management\.chats/);
   assert.match(applicationSource, /management\.rename/);
+  assert.match(applicationSource, /management\.delete/);
   // The request trail accounts for the Space-free Library disposition; it
   // renders without the Space-name guard the placed/registered lines need.
   assert.match(applicationSource, /to the Library<\/strong>|<\/strong> to the Library/);
@@ -246,6 +249,45 @@ test("the live watch is capability-gated, single, and falls back to polling", as
   // The watch's status-poll fallback idles at ten seconds; completion arrives
   // over the event stream.
   assert.match(applicationSource, /fallbackIntervalMs: 10_000,/);
+});
+
+test("chat deletion is capability-gated and guarded while work is active", async () => {
+  const applicationSource = await readFile(new URL("./public/app.js", import.meta.url), "utf8");
+  assert.match(applicationSource, /state\.summary\?\.capabilities\?\.delete !== true/);
+  assert.match(applicationSource, /state\.activeTasks\.has\(conversationId\)/);
+  assert.doesNotMatch(applicationSource, /window\.confirm/);
+  assert.match(applicationSource, /removeDeletedChat\(state, conversationId\)/);
+  assert.match(applicationSource, /state\.selectedConversationId = next/);
+  assert.match(applicationSource, /state\.deleteSaving = true/);
+});
+
+test("chat deletion state transition removes only the settled chat and its draft", async () => {
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM('<button id="delete-chat" aria-label="Delete chat"></button>');
+  const state = {
+    conversations: [{ id: "chat-a", title: "A", state: "idle" }, { id: "chat-b", title: "B", state: "idle" }],
+    composerDrafts: new Map([["chat:chat-a", { content: "draft" }], ["chat:chat-b", { content: "keep" }]]),
+    activeTasks: new Map(), deleteSaving: false, renameSaving: false,
+  };
+  let calls = 0;
+  dom.window.document.querySelector("#delete-chat").addEventListener("click", () => {
+    if (state.deleteSaving) return;
+    state.deleteSaving = true; calls += 1;
+    removeDeletedChat(state, "chat-a");
+  });
+  dom.window.document.querySelector("#delete-chat").click();
+  dom.window.document.querySelector("#delete-chat").click();
+  assert.equal(calls, 1);
+  assert.deepEqual(state.conversations.map(({ id }) => id), ["chat-b"]);
+  assert.equal(state.composerDrafts.has("chat:chat-a"), false);
+  assert.equal(state.composerDrafts.has("chat:chat-b"), true);
+  state.deleteSaving = false;
+  state.conversations = [{ id: "chat-b", title: "B", state: "running" }];
+  assert.equal(canDeleteChat(state, "chat-b"), false);
+  // A background list refresh can make the post-request list stale; the
+  // settled mutation still removes the exact id that the backend accepted.
+  state.conversations = [{ id: "chat-c", title: "C", state: "idle" }];
+  assert.deepEqual(removeDeletedChat(state, "chat-b"), { nextConversationId: "chat-c" });
 });
 
 test("the running control replaces Send inside the composer", async () => {

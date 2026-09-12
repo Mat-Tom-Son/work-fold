@@ -42,6 +42,7 @@ export interface WorkFoldActTrashEntry {
   kind: "file" | "folder" | "space" | "app-storage" | "app-retained";
   reason:
     | "files.delete"
+    | "management.chat.delete"
     | "spaces.delete"
     | "apps.remove"
     | "apps.space.removed"

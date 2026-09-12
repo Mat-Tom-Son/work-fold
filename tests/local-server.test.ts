@@ -1081,6 +1081,93 @@ test("terminal provider failures persist partial output and leave the Chat resum
   }
 });
 
+test("automatic titles and later manual renames persist for Folder and management Chats", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-chat-title-settlement-test-"));
+  const stateBase = join(sandbox, "state");
+  const spaceBase = join(sandbox, "content");
+  const agentDir = join(sandbox, "agent");
+  let requestCount = 0;
+  const providerServer = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString()) as { messages?: unknown[]; model?: string };
+    requestCount += 1;
+    const title = JSON.stringify(body.messages).includes("Write a specific 3 to 7 word title")
+      ? "Generated conversation title"
+      : "Completed the requested work.";
+    response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "close" });
+    response.end(`data: ${JSON.stringify({
+      id: `title-settlement-${requestCount}`,
+      object: "chat.completion.chunk",
+      created: 1,
+      model: body.model,
+      choices: [{ index: 0, delta: { role: "assistant", content: title }, finish_reason: "stop" }],
+    })}\n\ndata: [DONE]\n\n`);
+  });
+  await new Promise<void>((resolve, reject) => {
+    providerServer.once("error", reject);
+    providerServer.listen(0, "127.0.0.1", resolve);
+  });
+  const port = (providerServer.address() as AddressInfo).port;
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await writeFile(join(agentDir, "extensions", "title-settlement-provider.ts"), `export default function (pi) {
+    pi.registerProvider("title-settlement", {
+      api: "openai-completions", baseUrl: "http://127.0.0.1:${port}/v1", apiKey: "test-key",
+      models: [{ id: "title-settlement", name: "Title settlement", reasoning: false, input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 1024 }],
+    });
+  }\n`, "utf8");
+  const settingsManager = SettingsManager.inMemory({
+    defaultProvider: "title-settlement",
+    defaultModel: "title-settlement",
+    defaultThinkingLevel: "off",
+    retry: { enabled: false },
+  });
+  const runtimeProvider = { async resolveRuntime() { return { agentDir, settingsManager }; } };
+  let api = await startLocalApi({ port: 0, stateBase, spaceBase, loadEnv: false, piRuntimeProvider: runtimeProvider });
+  try {
+    const created = await json(`${api.origin}/api/spaces`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Title settlement" }),
+    }) as { space: { id: string } };
+    const folderConversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    const folderUrl = `${api.origin}/api/spaces/${created.space.id}/conversations/${folderConversation.conversation.id}`;
+    const folderAccepted = await json(`${folderUrl}/messages`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Name this Folder Chat." }),
+    }) as { taskId: string };
+    await waitForAsync(async () => (await json(folderUrl) as { messages: Array<{ titleSource?: string; content: string }> }).messages
+      .some((message) => message.titleSource === "generated" && message.content === "Generated conversation title"));
+    await waitForAsync(async () => (await api.actFacade.turnStatus({ space: created.space.id, taskId: folderAccepted.taskId })).task.state !== "running");
+    const folderRenamed = await json(folderUrl, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Folder manual title" }),
+    }) as { conversation: { title: string } };
+    assert.equal(folderRenamed.conversation.title, "Folder manual title");
+
+    const managementAccepted = await json(`${api.origin}/api/management/messages`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Name this management Chat.", newConversation: true }),
+    }) as { conversationId: string; taskId: string };
+    const managementUrl = `${api.origin}/api/management/conversations/${managementAccepted.conversationId}`;
+    await waitForAsync(async () => (await json(managementUrl) as { messages: Array<{ titleSource?: string; content: string }> }).messages
+      .some((message) => message.titleSource === "generated" && message.content === "Generated conversation title"));
+    await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: managementAccepted.taskId })).task.state !== "running");
+    const managementRenamed = await json(`${managementUrl}/title`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Management manual title" }),
+    }) as { conversation: { title: string } };
+    assert.equal(managementRenamed.conversation.title, "Management manual title");
+    assert.equal(requestCount, 4, "each first successful Chat turn makes one answer and one title request");
+
+    await api.close();
+    api = await startLocalApi({ port: 0, stateBase, spaceBase, loadEnv: false, piRuntimeProvider: runtimeProvider });
+    const folderList = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`) as { conversations: Array<{ id: string; title: string }> };
+    assert.equal(folderList.conversations.find((item) => item.id === folderConversation.conversation.id)?.title, "Folder manual title");
+    const managementList = await json(`${api.origin}/api/management/conversations`) as { conversations: Array<{ id: string; title: string }> };
+    assert.equal(managementList.conversations.find((item) => item.id === managementAccepted.conversationId)?.title, "Management manual title");
+  } finally {
+    await api.close();
+    await new Promise<void>((resolve, reject) => providerServer.close((error) => error ? reject(error) : resolve()));
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("Assistant setup failures are sanitized, persisted, and survive an API restart", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-assistant-setup-failure-test-"));
   const stateBase = join(sandbox, "state");

@@ -84,11 +84,18 @@ tabs, restarts, and machines. The title request uses the same authenticated Pi
 model transport as the turn, including live provider catalogs. If that one
 bounded request fails, the Chat remains **New Chat** rather than presenting its
 first message as though it were a generated title; naming can never fail the
-otherwise successful turn, and the failed attempt is not repeated. An explicit
+otherwise successful turn, and the failed attempt is not repeated. Previously saved titles remain authoritative, including titles made by older
+versions; rebuilding a cache must not replace them with **New Chat**. An explicit
 person-authored rename always wins, including an intentional rename to
 **New Chat**. Title and lifecycle summaries may be cached in machine-local
 application state, but those caches are disposable and versioned independently
 from the portable append-only transcript.
+
+The work-fold agent's menu-bar chat history offers **Rename** and **Delete** in
+each chat's actions. The paired web chat offers those actions beside its title.
+Deleting an idle chat moves its transcript to **Recently deleted**; restoring it
+returns it to the chat list. Chats with outstanding work must be stopped or
+finished before deletion.
 
 Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 

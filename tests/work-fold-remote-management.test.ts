@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { appendMessage, createConversation, readConversationSummary } from "../src/local/agent/chat-store.js";
 import { startLocalApi } from "../src/local/server.js";
 import type { WorkFoldRemotePrincipal } from "../src/local/remote-management.js";
+import { workFoldManagementRoot } from "../src/local/state-paths.js";
 
 // The remote wave of the fold surfaces (docs/fold-glance.md §The remote
 // client home): management.glance and management.glanceSeen serve the digest
@@ -107,6 +109,80 @@ test("the summary advertises the live-watch capability and watch validates its c
       () => api.remoteFacade.watch!({ conversationId: "missing-conversation" }, principal, () => {}),
       /Conversation not found/,
     );
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("management Chats can be renamed locally and deleted only into recoverable trash", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-management-chat-delete-test-"));
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+  });
+  const principal: WorkFoldRemotePrincipal = { browserId: "browser-delete", grantId: "grant-delete", requestId: "request-delete" };
+  const addChat = async (content: string) => {
+    const conversation = await createConversation(workFoldManagementRoot());
+    await appendMessage(workFoldManagementRoot(), conversation.id, {
+      id: `message-${conversation.id}`,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString(),
+    });
+    return conversation.id;
+  };
+  try {
+    const localConversationId = await addChat("Keep this transcript recoverable.");
+    const renamed = await fetch(`${api.origin}/api/management/conversations/${localConversationId}/title`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "  Local management notes  " }),
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal((await renamed.json() as { conversation: { title: string } }).conversation.title, "Local management notes");
+
+    const removed = await fetch(`${api.origin}/api/management/conversations/${localConversationId}`, { method: "DELETE" });
+    assert.equal(removed.status, 200);
+    const localDeleted = await removed.json() as { deleted: { conversationId: string; trash: { entryId: string } } };
+    assert.equal(localDeleted.deleted.conversationId, localConversationId);
+    assert.equal(await readConversationSummary(workFoldManagementRoot(), localConversationId), null);
+    const trash = await api.actFacade.trashList();
+    const localTrashEntry = trash.entries.find((entry) => entry.id === localDeleted.deleted.trash.entryId);
+    assert.equal(localTrashEntry?.reason, "management.chat.delete");
+    assert.equal(localTrashEntry?.name, "Local management notes", "Recently deleted identifies a Chat by its title, never its transcript UUID");
+    await createConversation(workFoldManagementRoot(), "Replacement", localConversationId);
+    await assert.rejects(
+      () => api.actFacade.trashRestore({ entry: localDeleted.deleted.trash.entryId }),
+      /identity already exists/,
+      "a restore never collision-renames a transcript into a different Chat identity",
+    );
+    await rm(join(workFoldManagementRoot(), ".work-fold", "conversations", `${localConversationId}.jsonl`));
+    await api.actFacade.trashRestore({ entry: localDeleted.deleted.trash.entryId });
+    assert.equal((await readConversationSummary(workFoldManagementRoot(), localConversationId))?.title, "Local management notes");
+
+    const remoteConversationId = await addChat("Delete me from a paired browser.");
+    const summary = await api.remoteFacade.execute("management.summary", { conversationId: remoteConversationId }, principal) as {
+      capabilities?: { delete?: boolean };
+    };
+    assert.equal(summary.capabilities?.delete, true);
+    const remoteDeleted = await api.remoteFacade.execute("management.delete", { conversationId: remoteConversationId }, principal) as {
+      deleted: { conversationId: string; trash: { entryId: string } };
+    };
+    assert.equal(remoteDeleted.deleted.conversationId, remoteConversationId);
+    assert.ok(remoteDeleted.deleted.trash.entryId);
+    const remoteDeleteReplay = await api.remoteFacade.execute("management.delete", { conversationId: remoteConversationId }, principal) as {
+      deleted: { conversationId: string; trash: { entryId: string } };
+    };
+    assert.deepEqual(remoteDeleteReplay, remoteDeleted, "a dropped remote delete response replays its original recovery receipt");
+    assert.equal(await readConversationSummary(workFoldManagementRoot(), remoteConversationId), null);
+    await api.actFacade.trashRestore({ entry: remoteDeleted.deleted.trash.entryId });
+    assert.ok(await readConversationSummary(workFoldManagementRoot(), remoteConversationId));
+    const replayAfterRestore = await api.remoteFacade.execute("management.delete", { conversationId: remoteConversationId }, principal) as typeof remoteDeleted;
+    assert.deepEqual(replayAfterRestore, remoteDeleted, "a durable remote receipt prevents a restored Chat from being deleted again by the same request");
+    assert.ok(await readConversationSummary(workFoldManagementRoot(), remoteConversationId));
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

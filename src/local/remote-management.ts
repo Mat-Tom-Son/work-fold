@@ -5,6 +5,7 @@ export type WorkFoldRemoteOperation =
   | "management.chats"
   | "management.transcript"
   | "management.rename"
+  | "management.delete"
   | "management.send"
   | "management.request"
   | "management.work"

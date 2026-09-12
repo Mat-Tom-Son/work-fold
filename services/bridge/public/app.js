@@ -14,6 +14,7 @@ import { requestResultLinks } from "./request-results.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
 import { groupConversationsByDate } from "./date-groups.js";
+import { canDeleteChat, removeDeletedChat } from "./chat-delete.js";
 
 const app = document.querySelector("#app");
 const encoder = new TextEncoder();
@@ -98,6 +99,7 @@ const state = {
   startingNewChat: false,
   renamingConversationId: null,
   renameSaving: false,
+  deleteSaving: false,
   conversationsLoaded: false,
   spacesLoaded: false,
   filePreviewAvailable: false,
@@ -158,7 +160,7 @@ function openSpaceFile(spaceId, path) {
 }
 function draftSpaceQuestion(spaceId, path = null) {
   const space = state.spaces.find((item) => item.id === spaceId);
-  if (!space || state.sending || state.renameSaving) return;
+  if (!space || state.sending || state.renameSaving || state.deleteSaving) return;
   startNewChat();
   const prompt = document.querySelector("#prompt");
   if (!prompt) return;
@@ -566,7 +568,7 @@ function onPopState() {
   const requested = parseLocationHash();
   if (requested.context === "chat" && requested.conversationId
     && requested.conversationId !== state.selectedConversationId
-    && !state.sending && !state.renameSaving) {
+    && !state.sending && !state.renameSaving && !state.deleteSaving) {
     releaseConversationWatch();
     saveComposerDraft();
     cancelChatRename({ restoreFocus: false });
@@ -653,6 +655,7 @@ function renderApplication() {
                 <button id="rename-chat" class="conversation-title-button" type="button" aria-label="Rename chat" title="Rename chat">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
                 </button>
+                <button id="delete-chat" class="conversation-title-button conversation-delete-button" type="button" aria-label="Delete chat" title="Delete chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2m-7 0 1 13h8l1-13M10 11v5m4-5v5" /></svg></button>
               </div>
               <form id="rename-chat-form" class="conversation-title-form" hidden>
                 <label class="sr-only" for="rename-chat-input">Chat title</label>
@@ -809,6 +812,7 @@ function renderApplication() {
     resumeLiveConnection();
   });
   document.querySelector("#rename-chat")?.addEventListener("click", beginChatRename);
+  document.querySelector("#delete-chat")?.addEventListener("click", () => void deleteSelectedChat());
   document.querySelector("#rename-chat-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void saveChatRename();
@@ -1326,7 +1330,7 @@ async function sendPrompt() {
   const input = document.querySelector("#prompt");
   const content = input.value.trim();
   const selectedTaskRunning = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
-  if (!content || state.sending || state.renameSaving || selectedTaskRunning) return;
+  if (!content || state.sending || state.renameSaving || state.deleteSaving || selectedTaskRunning) return;
   cancelChatRename({ restoreFocus: false });
   state.sending = true;
   state.liveAssistantText = "";
@@ -1404,7 +1408,7 @@ async function sendPrompt() {
 }
 
 function startNewChat() {
-  if (state.sending || state.renameSaving) return;
+  if (state.sending || state.renameSaving || state.deleteSaving) return;
   // Already opening a new chat elsewhere in the app: this is navigation back
   // to the door, not a second reset that would discard the draft.
   if (state.startingNewChat) {
@@ -1503,7 +1507,7 @@ function syncComposer() {
   const running = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
   button.hidden = running;
   stop.hidden = !running || state.contextName !== "chat";
-  button.disabled = state.sending || state.renameSaving || unavailable || running || !input.value.trim();
+  button.disabled = state.sending || state.renameSaving || state.deleteSaving || unavailable || running || !input.value.trim();
   button.dataset.sending = String(state.sending);
   button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : "Send message");
   button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : "Send message";
@@ -1511,7 +1515,7 @@ function syncComposer() {
   for (const newChatButton of document.querySelectorAll("#new-chat, #top-new-chat")) {
     // New chat stays reachable from every other screen while a new chat is
     // being started; only the screen it leads to disables it.
-    newChatButton.disabled = state.sending || state.renameSaving || state.contextName === "new";
+    newChatButton.disabled = state.sending || state.renameSaving || state.deleteSaving || state.contextName === "new";
   }
   renderComposerContext();
 }
@@ -1589,7 +1593,7 @@ function renderConversations() {
   const list = document.querySelector("#chats");
   if (!list) return;
   const groups = groupConversations(state.conversations);
-  const busy = state.sending || state.renameSaving;
+  const busy = state.sending || state.renameSaving || state.deleteSaving;
   const rows = groups.map((group) => `
     <li class="chat-group" role="presentation"><span class="chat-group-heading">${escapeHtml(group.label)}</span></li>
     ${group.conversations.map((conversation) => {
@@ -1618,7 +1622,7 @@ function groupConversations(conversations) {
 }
 
 async function selectConversation(conversationId) {
-  if (state.sending || state.renameSaving || !conversationId) return;
+  if (state.sending || state.renameSaving || state.deleteSaving || !conversationId) return;
   releaseConversationWatch();
   saveComposerDraft();
   cancelChatRename({ restoreFocus: false });
@@ -1674,6 +1678,7 @@ function renderConversationChrome() {
   const title = document.querySelector("#conversation-title");
   const titleView = document.querySelector("#conversation-title-view");
   const titleButton = document.querySelector("#rename-chat");
+  const deleteButton = document.querySelector("#delete-chat");
   const renameForm = document.querySelector("#rename-chat-form");
   const renameInput = document.querySelector("#rename-chat-input");
   const prompt = document.querySelector("#prompt");
@@ -1683,11 +1688,15 @@ function renderConversationChrome() {
   if (title) title.textContent = state.startingNewChat || !selected ? "New chat" : selected.title;
   if (titleView) titleView.hidden = editing;
   if (titleButton) {
-    titleButton.disabled = state.startingNewChat || !selected || chatBusy || state.renameSaving;
+    titleButton.disabled = state.startingNewChat || !selected || chatBusy || state.renameSaving || state.deleteSaving;
+  }
+  if (deleteButton) {
+    deleteButton.hidden = state.startingNewChat || !selected || state.summary?.capabilities?.delete !== true;
+    deleteButton.disabled = state.startingNewChat || !selected || chatBusy || state.activeTasks.has(selected.id) || state.renameSaving || state.deleteSaving;
   }
   if (renameForm) renameForm.hidden = !editing;
-  if (renameInput) renameInput.disabled = state.renameSaving;
-  for (const button of renameForm?.querySelectorAll("button") ?? []) button.disabled = state.renameSaving;
+  if (renameInput) renameInput.disabled = state.renameSaving || state.deleteSaving;
+  for (const button of renameForm?.querySelectorAll("button") ?? []) button.disabled = state.renameSaving || state.deleteSaving;
   if (prompt) prompt.placeholder = "Message work-fold agent";
   const stop = document.querySelector("#stop-task");
   const send = document.querySelector(".send-button:not(.stop-button)");
@@ -1698,7 +1707,7 @@ function renderConversationChrome() {
 
 function beginChatRename() {
   const selected = state.conversations.find((conversation) => conversation.id === state.selectedConversationId);
-  if (!selected || state.startingNewChat || state.renameSaving || selected.state !== "idle") return;
+  if (!selected || state.startingNewChat || state.renameSaving || state.deleteSaving || selected.state !== "idle") return;
   const input = document.querySelector("#rename-chat-input");
   if (!input) return;
   state.renamingConversationId = selected.id;
@@ -1716,7 +1725,7 @@ async function saveChatRename() {
   const conversationId = state.renamingConversationId;
   const input = document.querySelector("#rename-chat-input");
   const selected = state.conversations.find((conversation) => conversation.id === conversationId);
-  if (!conversationId || !input || !selected || state.renameSaving) return;
+  if (!conversationId || !input || !selected || state.renameSaving || state.deleteSaving) return;
   const title = normalizeChatTitle(input.value);
   if (!title) {
     state.banner = "Enter a Chat title.";
@@ -1764,6 +1773,48 @@ function cancelChatRename({ restoreFocus = true } = {}) {
   renderConversationChrome();
   if (restoreFocus && wasEditing) {
     requestAnimationFrame(() => document.querySelector("#rename-chat")?.focus({ preventScroll: true }));
+  }
+}
+
+async function deleteSelectedChat() {
+  const conversationId = state.selectedConversationId;
+  const selected = state.conversations.find((conversation) => conversation.id === conversationId);
+  const chatBusy = selected?.state === "running" || selected?.state === "compacting" || state.activeTasks.has(conversationId);
+  if (state.startingNewChat || !canDeleteChat(state, conversationId) || chatBusy || state.summary?.capabilities?.delete !== true) return;
+  let next = null;
+  saveComposerDraft();
+  state.deleteSaving = true;
+  state.banner = "";
+  renderConversationChrome();
+  renderConversations();
+  syncComposer();
+  try {
+    await remote("management.delete", { conversationId });
+    state.conversationListRequestVersion += 1;
+    next = removeDeletedChat(state, conversationId).nextConversationId;
+    state.conversationRefreshVersion += 1;
+    state.selectedConversationId = next;
+    state.startingNewChat = !next;
+    state.transcriptConversationId = null;
+    state.messages = [];
+    state.summary = null;
+    state.banner = "";
+    const status = document.querySelector("#chat-status");
+    if (status) status.textContent = "Chat deleted.";
+    restoreComposerDraft();
+    renderConversations();
+    renderConversationChrome();
+    if (next) await refreshConversation();
+    else { showContext("new", { moveFocus: false }); renderConversationChrome(); renderMessages(); }
+  } catch (error) {
+    state.banner = errorText(error);
+    renderBanner();
+  } finally {
+    state.deleteSaving = false;
+    renderConversationChrome();
+    renderConversations();
+    syncComposer();
+    if (state.selectedConversationId === next) document.querySelector("#delete-chat")?.focus({ preventScroll: true });
   }
 }
 

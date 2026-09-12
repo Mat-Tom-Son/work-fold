@@ -3186,6 +3186,28 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { messages: await readConversation(workFoldManagementRoot(), managementConversationMatch[1]) });
     return;
   }
+  const managementConversationTitleMatch = match(url.pathname, /^\/api\/management\/conversations\/([^/]+)\/title$/);
+  if (managementConversationTitleMatch && method === "POST") {
+    assertManagementReadyForRoutes(state);
+    const conversationId = managementConversationTitleMatch[1];
+    const body = await readJsonBody<{ title?: unknown }>(state, req);
+    if (typeof body.title !== "string") throw badRequest("Chat title must be text.");
+    const title = normalizeConversationTitle(body.title);
+    if (!title) throw badRequest("Enter a Chat title.");
+    const conversation = await renameManagementConversation(state, conversationId, title);
+    state.clients.get(clientKey(workFoldManagementScopeId, conversationId))?.setSessionName(conversation.title);
+    sendJson(res, {
+      conversation: toActConversationRef(conversation),
+      state: conversationRuntimeState(state, workFoldManagementScopeId, conversationId),
+    });
+    return;
+  }
+  if (managementConversationMatch && method === "DELETE") {
+    assertManagementReadyForRoutes(state);
+    const deleted = await deleteManagementConversation(state, managementConversationMatch[1], { receiptId: null });
+    sendJson(res, { deleted });
+    return;
+  }
   const managementRuntimeMatch = match(url.pathname, /^\/api\/management\/conversations\/([^/]+)\/runtime$/);
   if (managementRuntimeMatch && method === "GET") {
     assertManagementReadyForRoutes(state);
@@ -4064,7 +4086,7 @@ async function trashEntryView(
     spaceId: entry.spaceId,
     ...(entry.spaceName === undefined ? {} : { spaceName: entry.spaceName }),
     originalPath: entry.originalPath,
-    name: entry.payload.kind === "tree" ? entry.payload.name : entry.payload.appId,
+    name: entry.displayName ?? (entry.payload.kind === "tree" ? entry.payload.name : entry.payload.appId),
     sizeBytes: entry.sizeBytes,
     ...(entry.sizeApproximate ? { sizeApproximate: true as const } : {}),
     deletedAt: entry.deletedAt,
@@ -4075,6 +4097,7 @@ async function trashEntryView(
     restorable: "in-place",
   };
   if (entry.kind === "file" || entry.kind === "folder") {
+    if (isManagementConversationTrashEntry(entry)) return base;
     const present = registered ? registered.has(entry.spaceId) : Boolean(await getSpace(entry.spaceId).catch(() => null));
     // A file or folder goes back into its own Space or nowhere: work-fold
     // never guesses another Space for someone's content.
@@ -4124,6 +4147,7 @@ async function restoreTrashEntry(
     throw new WorkFoldCliError("usage", "'--to' saves a copy of app data; files, folders, and Spaces go back where they came from.");
   }
   if (entry.kind === "space") return restoreTrashSpace(state, entry);
+  if (isManagementConversationTrashEntry(entry)) return restoreManagementConversationTrashEntry(state, entry);
   const space = await getSpace(entry.spaceId).catch(() => null);
   if (!space) {
     throw new WorkFoldCliError(
@@ -4156,6 +4180,42 @@ async function restoreTrashEntry(
     path: relativePath,
     renamed: restored.renamed,
     safetyCheckpointId: safety?.checkpointId ?? null,
+  };
+}
+
+function isManagementConversationTrashEntry(entry: WorkFoldTrashEntry): boolean {
+  return entry.kind === "file"
+    && entry.reason === "management.chat.delete"
+    && entry.spaceId === workFoldManagementScopeId
+    && /^\.work-fold\/conversations\/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.jsonl$/.test(entry.originalPath);
+}
+
+async function restoreManagementConversationTrashEntry(
+  state: LocalApiState,
+  entry: WorkFoldTrashEntry,
+): Promise<WorkFoldTrashRestoreResult> {
+  const root = workFoldManagementRoot();
+  const destination = resolve(root, entry.originalPath);
+  if (!pathContainsPath(root, destination)) {
+    throw new WorkFoldCliError("failure", "This management Chat recovery item has an invalid destination.");
+  }
+  // A transcript filename is the Chat identity. Unlike ordinary Folder files,
+  // collision-renaming it would create an invalid or different conversation,
+  // so leave the recovery item intact until the current Chat is removed.
+  if (existsSync(destination)) {
+    throw new WorkFoldCliError("conflict", "A Chat with this identity already exists. Remove that Chat before restoring this one.");
+  }
+  const restored = await state.trash.restoreTree(entry.id, { absolutePath: destination }).catch((error: unknown) => {
+    throw trashCliError(error);
+  });
+  return {
+    kind: "file",
+    entryId: entry.id,
+    space: { id: workFoldManagementScopeId, name: "work-fold agent", spaceRoot: root },
+    path: `.work-fold/conversations/${basename(restored.restoredPath)}`,
+    renamed: restored.renamed,
+    // Management Chats are machine-local and never belong to Folder History.
+    safetyCheckpointId: null,
   };
 }
 
@@ -4674,7 +4734,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             // Capability advertisement: the browser starts a live watch only
             // after seeing this, so an older desktop is never asked for an
             // operation it cannot answer.
-            capabilities: { watch: true, work: true, extensionUi: true },
+            capabilities: { watch: true, work: true, extensionUi: true, delete: true },
             extensionRequests: owned && latest ? remoteExtensionRequests(state, latest) : [],
           };
         }
@@ -4708,6 +4768,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           assertRemoteKeys(input, ["conversationId", "title"]);
           assertManagementReadyForRoutes(state);
           const conversationId = remoteStableId(input.conversationId, "conversation id", 160);
+          const key = clientKey(workFoldManagementScopeId, conversationId);
           const title = remoteConversationTitle(input.title);
           const provenance = {
             source: "remote_web" as const,
@@ -4720,24 +4781,56 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             conversationId,
             provenance,
           );
-          const key = clientKey(workFoldManagementScopeId, conversationId);
-          if (!replay && remoteManagementConversationState(state, conversationId) === "running") {
-            throw httpError(409, "Wait for the current Assistant turn to finish.");
-          }
-          if (!replay && state.compactingConversations.has(key)) {
-            throw httpError(409, "Wait for the current Chat compaction to finish.");
-          }
-          const conversation = replay ?? await renameConversation(
-            workFoldManagementRoot(),
-            conversationId,
-            title,
-            provenance,
-          );
+          const conversation = replay ?? await renameManagementConversation(state, conversationId, title, provenance);
           if (!replay) state.clients.get(key)?.setSessionName(conversation.title);
           return {
             conversation: toActConversationRef(conversation),
             state: conversationRuntimeState(state, workFoldManagementScopeId, conversationId),
           };
+        }
+        case "management.delete": {
+          assertRemoteKeys(input, ["conversationId"]);
+          assertManagementReadyForRoutes(state);
+          const conversationId = remoteStableId(input.conversationId, "conversation id", 160);
+          const receiptId = remoteManagementDeleteReceiptId(principal);
+          const replay = await findRemoteManagementDeleteReplay(state, conversationId, receiptId);
+          if (replay) return { deleted: replay };
+          if (!await state.actReceipts.append({
+            requestId: receiptId,
+            command: "management.delete",
+            conversationId,
+            outcome: "accepted",
+            surface: "remote_web",
+            browserId: principal.browserId,
+            grantId: principal.grantId,
+          })) throw httpError(503, "Could not record this deletion. Please try again.");
+          let deleted: { conversationId: string; trash: { entryId: string; restoreBy: string } };
+          try {
+            deleted = await deleteManagementConversation(state, conversationId, { receiptId });
+          } catch (error) {
+            await state.actReceipts.append({
+              requestId: receiptId,
+              command: "management.delete",
+              conversationId,
+              outcome: "error",
+              detail: errorMessage(error),
+              surface: "remote_web",
+              browserId: principal.browserId,
+              grantId: principal.grantId,
+            }).catch(() => false);
+            throw error;
+          }
+          await state.actReceipts.append({
+            requestId: receiptId,
+            command: "management.delete",
+            conversationId,
+            outcome: "ok",
+            detail: JSON.stringify(deleted),
+            surface: "remote_web",
+            browserId: principal.browserId,
+            grantId: principal.grantId,
+          }).catch(() => false);
+          return { deleted };
         }
         case "management.send": {
           assertRemoteKeys(input, ["content", "conversationId", "newConversation", "attachments"]);
@@ -8051,6 +8144,140 @@ async function resolveManagementConversation(create: boolean): Promise<Conversat
   if (active) return active;
   if (!create) throw new WorkFoldCliError("notFound", "No management conversation exists yet. Send a message to start one.");
   return createConversation(scope.rootPath);
+}
+
+/**
+ * The management transcript lives outside every Folder, so it has no History
+ * checkpoint to hold it. Its only deletion path moves the exact validated
+ * transcript into Recently deleted. It deliberately never accepts a path.
+ */
+async function deleteManagementConversation(
+  state: LocalApiState,
+  conversationId: string,
+  context: { receiptId: string | null },
+): Promise<{ conversationId: string; trash: { entryId: string; restoreBy: string } }> {
+  const root = workFoldManagementRoot();
+  const key = clientKey(workFoldManagementScopeId, conversationId);
+  assertManagementConversationMutable(state, conversationId);
+  // This reservation uses the same conflict fence as compaction because a
+  // transcript move must not race a new turn, rename, or real compaction.
+  state.compactingConversations.add(key);
+  try {
+    const summary = await readConversationSummary(root, conversationId).catch((error) => {
+      throw badRequest(errorMessage(error));
+    });
+    if (!summary) throw notFound("Conversation not found.");
+    if (state.requests.list().some((request) =>
+      request.owner.spaceId === undefined
+      && request.owner.conversationId === conversationId
+      && !isWorkFoldRequestTerminalState(request.state))) {
+      throw httpError(409, "Finish or stop this Chat's outstanding work before deleting it.");
+    }
+    // An idle client can still hold the Pi session and extension callbacks.
+    // Stop disposes that session before its transcript leaves the live root.
+    await state.clients.get(key)?.stop();
+    // `readConversationSummary` validated the id before this join. The source
+    // remains a single known transcript below the app-owned management root.
+    const relativePath = `.work-fold/conversations/${conversationId}.jsonl`;
+    const sourcePath = join(root, relativePath);
+    let entry: WorkFoldTrashEntry;
+    try {
+      entry = await state.trash.trashTree({
+        kind: "file",
+        reason: "management.chat.delete",
+        sourcePath,
+        spaceId: workFoldManagementScopeId,
+        spaceName: "work-fold agent",
+        displayName: summary.title,
+        originalPath: relativePath,
+        receiptId: context.receiptId,
+      });
+    } catch (error) {
+      throw new WorkFoldCliError(
+        "failure",
+        `work-fold could not move this Chat to Recently deleted: ${errorMessage(error)}. Nothing was deleted.`,
+        { cause: error },
+      );
+    }
+    state.clients.delete(key);
+    return { conversationId, trash: { entryId: entry.id, restoreBy: entry.restoreBy } };
+  } finally {
+    state.compactingConversations.delete(key);
+  }
+}
+
+function assertManagementConversationMutable(state: LocalApiState, conversationId: string): void {
+  const key = clientKey(workFoldManagementScopeId, conversationId);
+  if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current Assistant turn to finish.");
+  if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
+}
+
+async function renameManagementConversation(
+  state: LocalApiState,
+  conversationId: string,
+  title: string,
+  provenance?: Parameters<typeof renameConversation>[3],
+): Promise<ConversationSummary> {
+  const key = clientKey(workFoldManagementScopeId, conversationId);
+  assertManagementConversationMutable(state, conversationId);
+  // Renaming appends a transcript event, so reserve the same fence deletion
+  // and compaction use before awaiting that write.
+  state.compactingConversations.add(key);
+  try {
+    return await renameConversation(workFoldManagementRoot(), conversationId, title, provenance);
+  } finally {
+    state.compactingConversations.delete(key);
+  }
+}
+
+function remoteManagementDeleteReceiptId(principal: WorkFoldRemotePrincipal): string {
+  // Trash receipts accept bounded plain text, while the three remote ids can
+  // each be 160 characters. The digest preserves exact principal/request
+  // identity without ever exposing it in the recovery listing.
+  return `remote-management-delete:${createHash("sha256")
+    .update(`${principal.browserId}\0${principal.grantId}\0${principal.requestId}`)
+    .digest("hex")}`;
+}
+
+async function findRemoteManagementDeleteReplay(
+  state: LocalApiState,
+  conversationId: string,
+  receiptId: string,
+): Promise<{ conversationId: string; trash: { entryId: string; restoreBy: string } } | null> {
+  const receipts = await readActReceiptJournal(state);
+  const prior = receipts.filter((record) => record.requestId === receiptId && record.command === "management.delete");
+  const completed = [...prior].reverse().find((record) => record.outcome === "ok");
+  if (completed) {
+    const deleted = parseRemoteManagementDeleteReceipt(completed.detail);
+    if (!deleted || deleted.conversationId !== conversationId) {
+      throw httpError(409, "This remote request id was already used to delete another Chat.");
+    }
+    return deleted;
+  }
+  if (prior.some((record) => record.outcome === "accepted")) {
+    throw httpError(409, "This remote deletion was already accepted, but its result is unavailable. Start a new delete request if the Chat is still present.");
+  }
+  const listing = await state.trash.list();
+  const entry = listing.entries.find((candidate) => candidate.receiptId === receiptId);
+  if (!entry) return null;
+  const expectedPath = `.work-fold/conversations/${conversationId}.jsonl`;
+  if (!isManagementConversationTrashEntry(entry) || entry.originalPath !== expectedPath) {
+    throw httpError(409, "This remote request id was already used to delete another Chat.");
+  }
+  return { conversationId, trash: { entryId: entry.id, restoreBy: entry.restoreBy } };
+}
+
+function parseRemoteManagementDeleteReceipt(value: string | undefined): { conversationId: string; trash: { entryId: string; restoreBy: string } } | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { conversationId?: unknown; trash?: { entryId?: unknown; restoreBy?: unknown } };
+    if (typeof parsed.conversationId !== "string"
+      || typeof parsed.trash?.entryId !== "string"
+      || typeof parsed.trash.restoreBy !== "string") return null;
+    return { conversationId: parsed.conversationId, trash: { entryId: parsed.trash.entryId, restoreBy: parsed.trash.restoreBy } };
+  } catch {
+    return null;
+  }
 }
 
 async function classifyActManagementAttachments(raw: string[], cwd: string | undefined): Promise<ManagementAttachmentRef[]> {
