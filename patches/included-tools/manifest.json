@@ -258,5 +258,25 @@
         "after": "b7659b60fb02b21d2b3454af34738f93b20b081a1df7644c829b7a98829f7c32"
       }
     ]
+  },
+  {
+    "package": "image-size",
+    "version": "1.2.1",
+    "source": "https://www.npmjs.com/package/image-size/v/1.2.1",
+    "license": "MIT",
+    "patch": "image-size-1.2.1.patch",
+    "sha256": "af6ffb890342b17cd81849f317bd961851c708cd2198f7f80e1c6a4ea93d168c",
+    "files": [
+      {
+        "path": "dist/types/utils.js",
+        "before": "e9faf86abcc962a5fc2488a4c3c9d8dc915aa22a0dd6a7bad6556cd9a326c349",
+        "after": "571099a4c2dc71bb2af01bd3e72af378f43795860a539a7b83a9521ba2d71177"
+      },
+      {
+        "path": "dist/types/icns.js",
+        "before": "5e6a097fca237b0bb3b68a1be920e39a3846c0018d8917658b5ed88590a710e8",
+        "after": "1ce9480d8cf4433957edb828aa7b8e81653e0cb091e07f3d270afb96cee008d1"
+      }
+    ]
   }
 ]

@@ -269,12 +269,13 @@ test("worker termination rejection settles the caller deterministically", async 
   finally { Worker.prototype.terminate = original; }
 });
 
-test("PowerPoint image parser rejects vulnerable optional types while PNG and JPEG work", async (t) => {
+test("PowerPoint image parser rejects malformed headers while PNG and JPEG work", async (t) => {
   const setup = await fixture(t, `import{createRequire}from'node:module';const require=createRequire(import.meta.url);export default({libraries})=>{
     const parser=require('image-size');const malformed=[Buffer.from('icns0000'),Buffer.from([0,0,0,12,74,88,76,32,13,10,135,10,0,0,0,12,102,116,121,112,106,120,108,32]),Buffer.from([0,0,0,0,102,116,121,112,104,101,105,99,0,0,0,0])];
     const errors=malformed.map(bytes=>{try{return parser(bytes)}catch(e){return e.message}});
     const surface=libraries.canvas.createCanvas(15,20);return{errors,png:parser(surface.toBuffer('image/png')),jpeg:parser(surface.toBuffer('image/jpeg'))};};`);
   const result = JSON.parse((await runDocumentScript(setup)).value);
-  assert.deepEqual(result.errors, ["disabled file type: icns", "disabled file type: jxl", "disabled file type: heif"]);
+  assert.equal(result.errors.length, 3);
+  for (const error of result.errors) { assert.equal(typeof error, "string"); assert.doesNotMatch(error, /disabled file type/); }
   assert.equal(result.png.width, 15); assert.equal(result.jpeg.height, 20);
 });

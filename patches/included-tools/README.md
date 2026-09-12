@@ -32,18 +32,35 @@ that API and fixes the [buffer-bounds advisory](https://github.com/advisories/GH
 `tests/included-document-dependencies.test.ts` writes and reopens a real workbook
 with that extended format. No formula recalculation is implied by the test.
 
-PptxGenJS 4.0.1 depends on image-size 1.2.1. There is no patched image-size
-release for the [ICNS loop](https://github.com/advisories/GHSA-w3rx-r6r6-pgpr) or
-[JXL/HEIF loops](https://github.com/advisories/GHSA-5p2g-fcmc-qvqq). The included
-document worker disables the `icns`, `jxl`, `jxl-stream` and `heif` parsers in
-PptxGenJS's resolved image-size module before loading the library. PNG and JPEG
-remain supported. Tests pass malformed type signatures through that same
-module, exercise ordinary image creation, and verify synchronous worker
-termination. This is a reviewed mitigation, not an upstream fix: raw `npm audit`
-still reports image-size and its PptxGenJS dependent. Independently imported
-full-trust libraries outside this worker do not inherit the mitigation. Do not
-replace the current document library with npm audit's obsolete PptxGenJS
-1.1.5 downgrade or claim a clean audit.
+PptxGenJS 4.0.1 depends on image-size 1.2.1. As of 2026-09-12, neither the
+legacy 1.2.1 nor latest 2.0.2 release fixes
+[GHSA-w3rx-r6r6-pgpr (ICNS)](https://github.com/advisories/GHSA-w3rx-r6r6-pgpr) or
+[GHSA-5p2g-fcmc-qvqq (JXL/HEIF)](https://github.com/advisories/GHSA-5p2g-fcmc-qvqq).
+The manifest's `image-size-1.2.1.patch` fixes the installed CommonJS parsers:
+ICNS file and entry headers must be complete; each entry advances at least
+eight bytes within the declared file length. Shared JXL/HEIF box traversal
+requires a complete eight-byte header and an explicit size between eight bytes
+and the remaining input length. Matching boxes obey that bound too, closing
+the partial-JXL zero-size loop. Unsupported zero/extended-size boxes reject
+rather than claiming a parsed size. Bounded ICNS header-only file probing is
+preserved; this remains dimension detection, not full image validation.
+
+The source patch replaces the former worker-only format disabling, so ordinary
+imports of the bundled dependency receive the fix as well. The normal install
+lane verifies patch, upstream version and before/after file hashes; packaged
+verification requires the same patched bytes in the archive. Regression tests
+run malformed entry/box lengths in a worker with a deadline and memory bound,
+verify real upstream ICNS, JXL container/codestream, AVIF and HEIC fixtures, and
+write a PowerPoint containing actual PNG/JPEG bytes. The document worker keeps
+its separate execution timeout and Stop cleanup.
+
+Package metadata is unchanged. Raw `npm audit` still reports the two upstream
+advisories and their PptxGenJS dependency path because it checks version ranges,
+not the verified source patch. This is a local remediation with explicit
+source evidence, not a clean upstream audit or a guarantee for separately
+installed copies. Do not suppress the advisories or apply npm audit's obsolete
+PptxGenJS 1.1.5 downgrade. Remove the patch only after a reviewed upstream fix
+passes the same compatibility and packaged checks.
 
 Pi 0.80.6 carries a shrinkwrap. The checked normalizer replaces only the
 reviewed nested brace-expansion 5.0.9, protobufjs 7.6.5 and undici 8.10.0 entries;

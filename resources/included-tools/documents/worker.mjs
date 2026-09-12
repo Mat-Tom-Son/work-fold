@@ -67,14 +67,12 @@ async function boundedRead(path, limit) {
 }
 
 async function main() {
-  // PptxGenJS uses image-size 1.x. Its archived ICNS/JXL/HEIF readers have known
-  // malformed-input loops; disable those optional types before importing it.
-  // Resolve from PptxGenJS so a nested dependency cannot bypass this setting.
+  // The build verifies image-size's reviewed parser-bounds patch. Resolve the
+  // actual PptxGenJS dependency here so provenance also covers its image reader.
   const pptxRequire = createRequire(bundledResolve("pptxgenjs"));
   const imageSizePath = pptxRequire.resolve("image-size");
   bundledOrigin("image-size", pathToFileURL(imageSizePath).href);
   const imageSize = pptxRequire(imageSizePath);
-  imageSize.disableTypes(["icns", "jxl", "jxl-stream", "heif"]);
   // PDF.js also requires canvas. Load its native binding once before concurrent
   // ESM imports so a binding failure keeps its original error and code instead
   // of Node's secondary CJS-cache assertion during a competing import.

@@ -11,7 +11,7 @@ The runtime is full trust, like Pi's shell. Its separate worker makes Stop effec
 
 ## Libraries and paths
 
-The provided `libraries` contains `docx` (Word creation), `ExcelJS` (spreadsheet reading/writing), `PptxGenJS` (PowerPoint creation), `pdfLib` (PDF creation/modification), `pdfjs` (PDF reading/rendering), `canvas` (PNG/image rendering), and `JSZip` (Office archive inspection). These are the ordinary upstream libraries. Use their published APIs; do not construct document formats by hand. ICNS, JXL and HEIF image-size detection is disabled in the PowerPoint library because its archived readers have known malformed-input loops; use PNG or JPEG images.
+The provided `libraries` contains `docx` (Word creation), `ExcelJS` (spreadsheet reading/writing), `PptxGenJS` (PowerPoint creation), `pdfLib` (PDF creation/modification), `pdfjs` (PDF reading/rendering), `canvas` (PNG/image rendering), and `JSZip` (Office archive inspection). These are the ordinary upstream libraries. Use their published APIs; do not construct document formats by hand. Prefer PNG or JPEG images for Office compatibility.
 
 Use `resolve("relative/file")` for every input/output path that belongs in the current Chat's folder. `cwd` is that folder; `process.cwd()` remains the desktop process's directory. `args` is the string array supplied to the tool. Creating a file does not automatically attach it or send it to a model.
 
