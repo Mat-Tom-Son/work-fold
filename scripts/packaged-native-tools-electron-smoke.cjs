@@ -21,6 +21,8 @@ app.dock?.hide();
   try {
     const nativeRequire = createRequire(join(archive, "package.json"));
     assert.ok(nativeRequire.resolve("jiti").startsWith(`${archive}/node_modules/`), "Jiti must come from the built archive");
+    const pptxRequire = createRequire(nativeRequire.resolve("pptxgenjs"));
+    assert.equal(pptxRequire.resolve("image-size/package.json"), join(archive, "node_modules/image-size/package.json"), "PptxGenJS must resolve the hash-verified archived image parser, with no nested or ancestor replacement");
     const sdkPath = join(archive, "node_modules/@earendil-works/pi-coding-agent/dist/index.js");
     await fs.access(sdkPath);
     const { AuthStorage, ModelRegistry, SettingsManager } = await import(pathToFileURL(sdkPath).href);
