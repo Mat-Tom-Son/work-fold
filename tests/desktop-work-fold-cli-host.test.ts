@@ -244,6 +244,7 @@ test("desktop main wires one settle seam, one receipts ledger, and routing sleep
   assert.ok(hostStart >= 0);
   const hostBody = main.slice(hostStart, main.indexOf("\nasync function processWorkFoldCliRequest", hostStart));
   assert.match(hostBody, /const settleSignal = new WorkFoldSettleSignal\(\);/);
+  assert.equal([...hostBody.matchAll(/\bnew WorkFoldSettleSignal\(/g)].length, 1, "the desktop host constructs exactly one settle authority");
   const restrictedCreate = hostBody.slice(hostBody.indexOf("RestrictedAppService.create({"), hostBody.indexOf("})", hostBody.indexOf("RestrictedAppService.create({")));
   assert.match(restrictedCreate, /settleSignal,/, "the restricted-app service publishes into the shared signal");
   // The shared Check service takes the kernel, the same settle signal, and
@@ -257,7 +258,20 @@ test("desktop main wires one settle seam, one receipts ledger, and routing sleep
   assert.match(checkCreate, /getLocalApi: ensureInteractiveLocalApi,/, "the shared Check service uses the fold model transport");
   assert.match(checkCreate, /onResultChanged: \(event\) => restrictedRuntime\.publishCheckResultsChanged\(event\),/, "Check result changes reach app views as ids-only hints");
   assert.doesNotMatch(checkCreate, /onResultChanged:[^\n]*settleSignal/, "the hint never routes through the settle signal");
-  assert.match(hostBody, /settleSignal \};\s*$/m);
+  // Inspect the returned value, not property order: adding another host service
+  // must not weaken the assertion that consumers receive this exact signal.
+  const { default: ts } = await import("typescript");
+  const source = ts.createSourceFile("desktop-host.ts", hostBody, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const returnedHosts: import("typescript").ObjectLiteralExpression[] = [];
+  const visit = (node: import("typescript").Node): void => {
+    if (ts.isReturnStatement(node) && node.expression && ts.isObjectLiteralExpression(node.expression)
+      && node.expression.properties.some(property => ts.isShorthandPropertyAssignment(property) && property.name.text === "runtimeProvider")) returnedHosts.push(node.expression);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.equal(returnedHosts.length, 1, "one desktop host value exposes the runtime and services");
+  const signalProperty = returnedHosts[0]!.properties.find(property => property.name && ts.isIdentifier(property.name) && property.name.text === "settleSignal");
+  assert.ok(signalProperty && ts.isShorthandPropertyAssignment(signalProperty), "the returned host retains the same settleSignal binding shared by Checks and apps");
 
   const apiStart = main.indexOf("function ensureInteractiveLocalApi");
   const apiBody = main.slice(apiStart, main.indexOf("\nasync function ensureRemoteAccessClient", apiStart));
