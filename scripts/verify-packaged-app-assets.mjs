@@ -123,6 +123,8 @@ if (existsSync(asarPath)) {
     "/LICENSE",
     "/dist/desktop/desktop/src/main.js",
     "/dist/desktop/desktop/src/preload.cjs",
+    "/dist/desktop/desktop/src/model-context-preload.cjs",
+    "/dist/desktop/desktop/src/model-context-window.js",
     "/dist/desktop/desktop/src/management-popover-preload.cjs",
     "/dist/desktop/desktop/src/restricted-app-host.js",
     "/dist/desktop/desktop/src/restricted-app-preload.cjs",

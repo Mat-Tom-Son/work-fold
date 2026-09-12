@@ -81,6 +81,31 @@ test("opening the inspector is read-only, recording is explicit, and failed chan
   assert.ok(calls.every(({ url }) => url.startsWith("/api/model-context")), "the inspector never creates a Chat, session, or model request");
 });
 
+test("installed inspector uses only the diagnostic bridge and closes its own window", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const { ModelContextInspector, createModelContextFixture } = await import("../web-local/src/components/chat/ModelContextInspector.js");
+  const state = { ...createModelContextFixture().state, enabled: false, records: [] };
+  const calls: Array<{ path: string; body?: unknown }> = [];
+  let closed = 0;
+  let navigated = 0;
+  window.workFoldDiagnostics = {
+    request: async (input) => { calls.push(input); return state; },
+    close: async () => { closed++; },
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("The installed inspector must not request an API credential or use fetch."); };
+  const inspectorWindow = window;
+  t.after(() => { globalThis.fetch = originalFetch; delete inspectorWindow.workFoldDiagnostics; });
+  await dom.render(createElement(ModelContextInspector, { onClose() { navigated++; } }));
+  assert.deepEqual(calls, [{ path: "/api/model-context" }]);
+  assert.match(dom.container.textContent!, /Recording is off/);
+  await dom.act(() => dom.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  assert.deepEqual(calls[1], { path: "/api/model-context", body: { enabled: true } });
+  await dom.press("Escape");
+  assert.equal(closed, 1);
+  assert.equal(navigated, 0);
+});
+
 test("context inspection isolates a late snapshot from the next Chat and renders untrusted content as text", async (t) => {
   const dom = await createDomHarness(); t.after(() => dom.cleanup());
   const { ModelContextInspector, createModelContextFixture } = await import("../web-local/src/components/chat/ModelContextInspector.js");

@@ -58,9 +58,11 @@ import {
   WorkFoldDesktopCliHost,
   workFoldCliInstanceData,
   workFoldCliRequestIdFromArgv,
+  workFoldInspectContextFromArgv,
   workFoldSecondInstanceIntent,
 } from "./work-fold-cli-host.js";
 import { ManagementPopover, type ManagementPopoverStagedItem } from "./management-popover.js";
+import { ModelContextWindow } from "./model-context-window.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
 import { includedToolsRoot } from "../../src/local/agent/included-tools.js";
 import { applyLoginShellEnvironment, formatLoginShellEnvironmentResult, type LoginShellEnvironmentResult } from "./shell-environment.js";
@@ -172,6 +174,7 @@ let mainWindow: BrowserWindow | null = null;
 let railTooltipOverlay: RailTooltipOverlay | null = null;
 let tray: Tray | null = null;
 let managementPopover: ManagementPopover | null = null;
+let modelContextWindow: ModelContextWindow | null = null;
 const localApiLifetime = new AppLifetimeResource<Awaited<ReturnType<typeof startLocalApi>>>();
 let piRuntime: PackagedPiRuntimeProvider | null = null;
 let secureSettings: SecureSettingsStore | null = null;
@@ -275,7 +278,8 @@ try {
   initialCliArgumentError = error;
 }
 interactiveRequested = initialCliRequestId === null && initialCliArgumentError === null;
-const ownsInstance = app.requestSingleInstanceLock(workFoldCliInstanceData(initialCliRequestId));
+const initialInspectContext = interactiveRequested && workFoldInspectContextFromArgv(process.argv);
+const ownsInstance = app.requestSingleInstanceLock(workFoldCliInstanceData(initialCliRequestId, initialInspectContext));
 if (!ownsInstance) app.quit();
 
 if (ownsInstance && process.platform === "darwin") {
@@ -311,6 +315,10 @@ if (ownsInstance) {
       });
       return;
     }
+    if (intent.kind === "inspect-context") {
+      void startInteractiveApp().then(openModelContextWindow).catch(reportStartupError);
+      return;
+    }
     interactiveRequested = true;
     void startInteractiveApp().then(showWindow).catch(reportStartupError);
   });
@@ -328,6 +336,7 @@ if (ownsInstance) {
       }
     }
     await startInteractiveApp();
+    if (initialInspectContext) await openModelContextWindow();
   }).catch(reportStartupError);
 }
 
@@ -1066,9 +1075,44 @@ function fetchProtocolFile(rootDir: string, requestedPath: string, method: strin
   return net.fetch(pathToFileURL(candidate).href);
 }
 
+async function openModelContextWindow(): Promise<void> {
+  if (quitting) return;
+  if (!modelContextWindow) {
+    const api = await ensureInteractiveLocalApi();
+    if (quitting) return;
+    modelContextWindow ??= new ModelContextWindow({
+      url: `${appProtocol}://app/index.html?dev-context`,
+      title: `Inspect context — ${productName}`,
+      preload: join(dirnameFromFile(currentFile), "model-context-preload.cjs"),
+      createWindow: (options) => new BrowserWindow(options),
+      request: async ({ path, method, body }) => {
+        const response = await fetch(`${api.origin}${path}`, {
+          method,
+          headers: { "x-work-fold-session": apiSessionToken, ...(body ? { "content-type": "application/json" } : {}) },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+          signal: AbortSignal.timeout(10_000),
+          redirect: "error",
+        });
+        const result = await response.json() as { error?: unknown };
+        if (!response.ok) throw new Error(typeof result.error === "string" ? result.error : "Context inspection is unavailable.");
+        return result;
+      },
+    });
+  }
+  await modelContextWindow.open();
+}
+
 function registerIpc(): void {
   if (ipcRegistered) return;
   ipcRegistered = true;
+  ipcMain.handle("work-fold:diagnostics:request", (event, input: unknown) => {
+    if (!modelContextWindow) throw new Error("The developer inspector is not open.");
+    return modelContextWindow.request(event, input);
+  });
+  ipcMain.handle("work-fold:diagnostics:close", (event) => {
+    if (!modelContextWindow) throw new Error("The developer inspector is not open.");
+    modelContextWindow.closeFrom(event);
+  });
   ipcMain.handle("work-fold:api:session-headers", (event) => {
     assertTrustedRenderer(event);
     return { "x-work-fold-session": apiSessionToken };
@@ -1561,6 +1605,7 @@ function menuPopupPoint(value: unknown): { x: number; y: number } {
 }
 
 function sendRendererMenuCommand(command: RendererMenuCommand): void {
+  if (modelContextWindow?.handleMenuCommand(command)) return;
   const window = mainWindow;
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
     if (app.isReady() && !quitting && !quittingForUpdate) {
@@ -1902,6 +1947,7 @@ async function openExternal(value: string): Promise<void> {
 
 async function shutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
+  modelContextWindow?.dispose();
   if (rendererRecoveryTimer) clearTimeout(rendererRecoveryTimer);
   rendererRecoveryTimer = null;
   // Queued act requests must answer unavailable instead of racing a closing
@@ -2329,6 +2375,7 @@ function buildSelectionContextMenuTemplate(params: ContextMenuParams): MenuItemC
 }
 
 function assertTrustedRenderer(event: IpcMainInvokeEvent | IpcMainEvent): void {
+  if (modelContextWindow?.owns(event.sender)) throw new Error("The developer inspector has diagnostics-only access.");
   if (!event.senderFrame || !isTrustedRendererUrl(event.senderFrame.url)) throw new Error("Untrusted renderer IPC request.");
 }
 

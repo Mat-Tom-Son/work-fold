@@ -89,6 +89,7 @@ export class WorkFoldDesktopCliHost {
 export type WorkFoldSecondInstanceIntent =
   | { kind: "cli"; requestId: string }
   | { kind: "cli-invalid"; reason: string }
+  | { kind: "inspect-context" }
   | { kind: "gui" };
 
 /**
@@ -113,7 +114,15 @@ export function workFoldSecondInstanceIntent(
   if (isCliShapedLaunch(argv, additionalData)) {
     return { kind: "cli-invalid", reason: "The CLI launch carried no usable request id." };
   }
+  if (workFoldInspectContextFromArgv(argv) || (additionalData && typeof additionalData === "object"
+    && (additionalData as Record<string, unknown>).kind === "work-fold-inspect-context")) {
+    return { kind: "inspect-context" };
+  }
   return { kind: "gui" };
+}
+
+export function workFoldInspectContextFromArgv(argv: readonly string[]): boolean {
+  return argv.includes("--work-fold-inspect-context");
 }
 
 function isCliShapedLaunch(argv: readonly string[], additionalData: unknown): boolean {
@@ -149,8 +158,8 @@ export function workFoldCliRequestIdFromInstanceData(value: unknown): string | n
   return normalizeWorkFoldCliRequestId(record.requestId);
 }
 
-export function workFoldCliInstanceData(requestId: string | null): WorkFoldCliInstanceData | { kind: "work-fold-gui" } {
+export function workFoldCliInstanceData(requestId: string | null, inspectContext = false): WorkFoldCliInstanceData | { kind: "work-fold-gui" | "work-fold-inspect-context" } {
   return requestId
     ? { kind: "work-fold-cli", requestId: normalizeWorkFoldCliRequestId(requestId) }
-    : { kind: "work-fold-gui" };
+    : { kind: inspectContext ? "work-fold-inspect-context" : "work-fold-gui" };
 }

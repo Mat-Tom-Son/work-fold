@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const productIdentity = JSON.parse(await readFile(join(rootDir, "src", "shared", "product-identity.json"), "utf8"));
@@ -28,6 +28,48 @@ void app.whenReady()
 async function runSmoke() {
   await verifyPreload("preload.cjs", false);
   await verifyPreload("management-popover-preload.cjs", true);
+  await verifyDiagnosticPreload();
+}
+
+async function verifyDiagnosticPreload() {
+  const requests = [];
+  let closed = false;
+  const errors = [];
+  const window = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      preload: join(rootDir, "dist", "desktop", "desktop", "src", "model-context-preload.cjs"),
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
+    },
+  });
+  ipcMain.handle("work-fold:diagnostics:request", (event, input) => {
+    assert.equal(event.sender, window.webContents);
+    requests.push(input);
+    return { enabled: false, records: [] };
+  });
+  ipcMain.handle("work-fold:diagnostics:close", () => { closed = true; });
+  window.webContents.on("console-message", (details) => {
+    if (details.level === "warning" || details.level === "error") errors.push(details.message);
+  });
+  try {
+    await window.loadURL(`data:text/html,${encodeURIComponent('<meta http-equiv="Content-Security-Policy" content="default-src \'none\'">')}`);
+    assert.deepEqual(await window.webContents.executeJavaScript(`({
+      keys: Object.keys(window.workFoldDiagnostics).sort(),
+      desktop: typeof window.workFoldDesktop,
+      node: typeof window.require,
+      process: typeof window.process,
+    })`), { keys: ["close", "request"], desktop: "undefined", node: "undefined", process: "undefined" });
+    assert.deepEqual(requests, [], "loading the developer preload must not enable recording");
+    assert.deepEqual(await window.webContents.executeJavaScript('window.workFoldDiagnostics.request({path:"/api/model-context"})'), { enabled: false, records: [] });
+    assert.deepEqual(requests, [{ path: "/api/model-context" }]);
+    await window.webContents.executeJavaScript("window.workFoldDiagnostics.close()");
+    assert.equal(closed, true);
+    assert.deepEqual(errors, []);
+  } finally {
+    ipcMain.removeHandler("work-fold:diagnostics:request");
+    ipcMain.removeHandler("work-fold:diagnostics:close");
+    window.destroy();
+  }
 }
 
 async function verifyPreload(filename, managementOnly) {

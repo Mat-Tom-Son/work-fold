@@ -138,8 +138,22 @@ integration conventions are not a sandbox against arbitrary extensions.
 ## Inspect model context
 
 The local `?dev-context` route provides an all-request **Inspect context**
-view for developers. Normal Chats, the fold and Settings have no inspector
-entry. Changing models remains a separate action.
+view for developers. On an installed Mac build, open its separate developer
+window from Terminal:
+
+```sh
+open -n -a /Applications/work-fold.app --args --work-fold-inspect-context
+```
+
+This works whether work-fold is closed or already running. `-n` forwards the
+explicit launch request through the existing single-instance host; it does not
+start a second app runtime. Repeating it focuses the existing inspector. The
+window has a sandboxed, diagnostics-only preload: the local API credential
+stays in the host, and ordinary desktop/settings IPC is unavailable. Opening
+the inspector does not enable recording. **Close** or Escape closes only that
+window; it does not turn recording off. Disable recording before closing when
+capture is no longer needed. Normal Chats, the fold and Settings have no
+inspector entry. Changing models remains a separate action.
 Recording is explicitly enabled for the current app run and starts with the
 next model call; inspection itself only reads retained records. It never
 initializes a Pi session, loads an Extension, invokes a model or regenerates

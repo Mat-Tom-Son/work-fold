@@ -64,9 +64,19 @@ can use a chosen agent directory; it is not an offline unit test. See
 
 ## Inspect a model request
 
-Open the local renderer with `?dev-context` (for example,
-`http://localhost:5173/?dev-context` when Vite uses its default port). This is a
-developer diagnostic route, with no normal Chat, fold or Settings entry. Enable
+For an installed Mac build, run:
+
+```sh
+open -n -a /Applications/work-fold.app --args --work-fold-inspect-context
+```
+
+The same command opens or focuses a separate inspector when work-fold is
+already running. It uses the existing single-instance host and never enables
+recording automatically. Close or Escape closes just the inspector window;
+turn recording off explicitly when finished, or quit work-fold to discard it.
+During browser development, open the local renderer with `?dev-context`
+(for example, `http://localhost:5173/?dev-context` at Vite's default port).
+This is a developer diagnostic route, with no normal Chat, fold or Settings entry. Enable
 **Record model context**, reproduce the behavior in the app, then refresh and
 choose the request. The all-request view includes Assistant turns, titles,
 Checks, app inference and compaction. Search or copy assembled context, compare

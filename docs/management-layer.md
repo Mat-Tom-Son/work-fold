@@ -56,8 +56,10 @@ filters pin the exact owner. A conversation filter requires a Space filter.
 `POST /api/model-context` accepts either `{ enabled: boolean }` or
 `{ clear: true }`. These use the existing local renderer authentication, have
 no CLI or paired-browser operation, never create a client or Pi session, and
-cannot influence execution. All-request access is a trusted local Settings
-view. Disabling, clearing, expiry and shutdown discard the memory-only records.
+cannot influence execution. All-request access is a developer diagnostic view,
+opened in the installed app through an explicit launch argument and its own
+diagnostics-only sandboxed window, never an ordinary Settings entry.
+Disabling, clearing, expiry and shutdown discard the memory-only records.
 See [model context inspection](tool-feedback.md#inspect-model-context).
 
 ## Why it exists

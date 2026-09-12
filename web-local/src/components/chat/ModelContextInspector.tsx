@@ -15,7 +15,11 @@ interface InspectorProps {
 
 /** Scope changes remount the inspector: a late response can never enter another Chat. */
 export function ModelContextInspector(props: InspectorProps) {
-  return <ContextInspector key={JSON.stringify([props.spaceId ?? null, props.conversationId ?? null, props.fixtureMode ?? false])} {...props} />;
+  const onClose = useCallback(() => {
+    if (window.workFoldDiagnostics) void window.workFoldDiagnostics.close();
+    else props.onClose();
+  }, [props.onClose]);
+  return <ContextInspector key={JSON.stringify([props.spaceId ?? null, props.conversationId ?? null, props.fixtureMode ?? false])} {...props} onClose={onClose} />;
 }
 
 export function InspectContextButton({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
@@ -68,7 +72,14 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
   const request = useCallback(async <T,>(path: string, body?: unknown): Promise<T> => {
     const controller = new AbortController();
     controllers.current.add(controller);
-    try { return await api<T>(path, { ...(body === undefined ? {} : { method: "POST", body }), signal: controller.signal }); }
+    try {
+      if (window.workFoldDiagnostics) {
+        const result = await window.workFoldDiagnostics.request({ path, ...(body === undefined ? {} : { body }) });
+        controller.signal.throwIfAborted();
+        return result as T;
+      }
+      return await api<T>(path, { ...(body === undefined ? {} : { method: "POST", body }), signal: controller.signal });
+    }
     finally { controllers.current.delete(controller); }
   }, []);
 
