@@ -283,3 +283,30 @@ the user's 0.4.29 client and are not claims that the remaining live journeys pas
   limit. Startup records unfinished calls as interrupted once, without replay or
   invented usage. The exact live journal pair was reproduced in disposable
   storage; 34 focused receipt/MCP tests passed without changing production data.
+  A further adversarial review found that a failed journal append could publish
+  a phantom Running row. Publishing only after the serialized write succeeds,
+  tracking active invocation ownership, and projecting abandoned acceptances as
+  interrupted closes that error path. The API regression separately checks three
+  visible calls and six audit events; 22 focused service/API tests passed.
+
+## Final integrated verification
+
+- `npm run check`: passed on the integrated source.
+- `npm test`: 1,478 passed, zero failed, one Windows-only skip. Earlier full runs
+  exposed two stale UI/API assertions after the label and receipt-projection
+  changes; the final run includes their corrected behavioral assertions.
+- `npm run desktop:prepare`: passed, including native preload, restricted-app
+  sandbox, and desktop preflight probes. The final receipt-write correction was
+  then compiled again with `npm run desktop:compile`, which passed.
+- Final CUA inspection of the source Settings preview confirmed concise
+  Appearance, Assistant, Desktop and About panels. At 360 px, all five Settings
+  tabs share the same top coordinate; Home/End navigation selects About and
+  scrolls it entirely into view. The viewport override was reset afterward.
+- Recorded native runtime usage for the resumed tests is approximately $0.27,
+  plus $0.0002625 for the separately journaled app inference. This is usage
+  evidence, not an independently verified provider-account balance.
+
+These commits have not been packaged, installed over 0.4.29, or published. A06
+and A07 await the person's browser/helper setup. The new build must repeat A04's
+UI answer, A09's simultaneous worker cancellation, and A10's receipt presentation
+before release acceptance; the installed failures remain recorded above.
