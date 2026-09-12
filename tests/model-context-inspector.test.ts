@@ -88,9 +88,9 @@ test("clear and disable invalidate pending payload hooks and never repopulate cl
 });
 
 test("snapshot bounds redact credential fields and replace native/provider images without evaluating getters or proxies", async () => {
-  const inspector = enable({ limits: { stringBytes: 128, depth: 5, nodes: 80, digestBytes: 32 } });
+  const inspector = enable({ limits: { depth: 5, nodes: 80, digestBytes: 32 } });
   let getters = 0;
-  const nested: any = { text: "x".repeat(10_000), api_key: "HIDDEN", accessToken: "HIDDEN", images: [
+  const nested: any = { api_key: "HIDDEN", accessToken: "HIDDEN", images: [
     { type: "image", mimeType: "image/png", data: "abc" },
     { source: { type: "base64", media_type: "image/png", data: "x".repeat(5000) } },
     { image_url: { url: `data:image/png;base64,${"x".repeat(5000)}` } },
@@ -134,6 +134,32 @@ test("retention, record, sample and total memory bounds evict only diagnostic co
   assert.match(JSON.stringify(inspector.get(records[0]!.id)), /Additional provider payload samples/);
   now += 101;
   assert.equal(inspector.list().length, 0);
+});
+
+test("long instruction strings remain exact while oversized escaped Unicode text uses the snapshot budget", () => {
+  const inspector = enable();
+  const session = fakeSession(() => ({}));
+  installModelContextInspection(session, inspector, () => owner);
+  const systemPrompt = "Instructions: " + "ordinary context\n".repeat(6000) + "FINAL_HOST_INSTRUCTIONS";
+  session.agent.streamFn(model, { systemPrompt });
+  const record = inspector.get(inspector.list()[0]!.id)!;
+  assert.equal((record.assembled.value as any).systemPrompt, systemPrompt);
+  assert.equal(record.truncated, false);
+
+  const bounded = enable({ limits: { recordBytes: 8192 } });
+  const smallSession = fakeSession(() => ({}));
+  installModelContextInspection(smallSession, bounded, () => owner);
+  const text = "🦊\"\\\n".repeat(10000);
+  smallSession.agent.streamFn(model, { text });
+  const limited = bounded.get(bounded.list()[0]!.id)!;
+  const captured = (limited.assembled.value as any).text as string;
+  const marker = captured.indexOf("\n[Omitted:");
+  assert.ok(marker > 0, "retain a useful exact prefix, not just an omission marker");
+  assert.equal(captured.slice(0, marker), text.slice(0, marker));
+  assert.doesNotMatch(captured, /\uFFFD/);
+  assert.equal(limited.truncated, true);
+  assert.ok(limited.bytes <= 8192);
+  assert.match(captured, /Snapshot byte limit/);
 });
 
 test("observation failures never fail native work; native hook/dispatch errors retain their identity", async () => {

@@ -167,7 +167,6 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
         ["Captured requests on this computer", kib(workFoldModelContextLimits.totalBytes)],
         ["Capture retention", `${workFoldModelContextLimits.retentionMs / 60_000} minutes`],
         ["Provider payload samples per request", String(workFoldModelContextLimits.payloadSamples)],
-        ["One captured text field", kib(workFoldModelContextLimits.stringBytes)],
         ["Capture nesting depth", String(workFoldModelContextLimits.depth)],
         ["Values in one snapshot", String(workFoldModelContextLimits.nodes)],
         ["Image data hashed per snapshot", kib(workFoldModelContextLimits.digestBytes)],

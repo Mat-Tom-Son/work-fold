@@ -276,13 +276,23 @@ function captureValue(value: unknown, limits: ModelContextInspectionLimits, byte
         return comma >= 0 ? image(input, dataImage[1]!, comma + 1)
           : charge(omit("Image data URL header exceeds inspection limit."));
       }
-      // Limit before encoding: no full pass over arbitrarily large strings.
-      const prefixText = input.slice(0, Math.min(limits.stringBytes, available));
-      const encoded = Buffer.from(prefixText);
-      const allowance = Math.max(0, Math.min(limits.stringBytes, available - 96));
-      const clipped = encoded.subarray(0, allowance).toString("utf8");
-      return charge(input.length > prefixText.length || encoded.length > allowance
-        ? `${clipped}\n${omit("String limit reached; remaining text omitted.")}` : clipped);
+      // A system prompt may be one large string. Let it use the remaining
+      // snapshot budget instead of imposing a second, much smaller text cap.
+      // Bound before encoding and account for JSON escapes and UTF-8 bytes.
+      const prefixText = input.slice(0, available);
+      if (prefixText.length === input.length && Buffer.byteLength(JSON.stringify(prefixText)) <= available) return charge(prefixText);
+      const suffix = `\n${omit("Snapshot byte limit reached; remaining text omitted.")}`;
+      const allowance = Math.max(0, available - Buffer.byteLength(JSON.stringify(suffix)));
+      let low = 0;
+      let high = prefixText.length;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        if (Buffer.byteLength(JSON.stringify(prefixText.slice(0, middle))) <= allowance) low = middle;
+        else high = middle - 1;
+      }
+      // Never replace half a source code point with a different character.
+      if (low > 0 && /[\uD800-\uDBFF]/u.test(prefixText[low - 1]!)) low -= 1;
+      return charge(prefixText.slice(0, low) + suffix);
     }
     if (typeof input !== "object") return charge(omit(`Unsupported ${typeof input} value.`));
     if (types.isProxy(input)) return charge(omit("Proxy object not inspected."));

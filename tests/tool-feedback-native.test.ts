@@ -12,7 +12,7 @@ import { ModelContextInspector } from "../src/local/agent/model-context-inspecto
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 /** A real Pi serializer talks only to this local deterministic provider. */
-async function fixture(t: test.TestContext, options: { vision?: boolean; blockImages?: boolean; tool?: string } = {}) {
+async function fixture(t: test.TestContext, options: { vision?: boolean; blockImages?: boolean; tool?: string; instructions?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "work-fold-native-feedback-"));
   const agentDir = join(root, "pi");
   const spaceRoot = join(root, "space");
@@ -84,7 +84,7 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
   const client = new PiConversationClient("feedback-chat", spaceRoot, {
     async resolveRuntime() {
       return { agentDir, authStorage, modelRegistry, modelContextInspector: inspector,
-        assistantInstructions: "PERSONAL_INSTRUCTIONS_SURVIVE",
+        assistantInstructions: options.instructions ?? "PERSONAL_INSTRUCTIONS_SURVIVE",
         preferredModel: { provider: "feedback-test", id: "fixture" },
         settingsManager: SettingsManager.inMemory({ images: { blockImages: options.blockImages ?? false }, retry: { enabled: false }, defaultThinkingLevel: "off" }),
       };
@@ -129,6 +129,19 @@ test("Pi's built-in read composes image inspection through the same native provi
   assert.equal(requests.length, 2);
   assert.match(JSON.stringify(requests[1]), /Read image file/);
   assert.match(JSON.stringify(requests[1]), /data:image\/png;base64,/);
+});
+
+test("the inspector retains the full native system prompt beyond 32 KiB without changing provider input", async (t) => {
+  const instructions = "Project guidance\n".repeat(4000) + "FINAL_PROJECT_INSTRUCTION";
+  const { client, requests, inspector } = await fixture(t, { instructions });
+  await client.prompt("Inspect the fixture with a long project guide.");
+  const first = inspector.list().at(-1)!;
+  const detail = inspector.get(first.id)!;
+  const prompt = (detail.assembled.value as any).systemPrompt;
+  assert.ok(Buffer.byteLength(prompt) > 32 * 1024);
+  assert.ok(prompt.includes(instructions));
+  assert.equal(requests[0].messages.find((message: any) => message.role === "system").content, prompt);
+  assert.equal((detail.payloads[0]!.value as any).messages.find((message: any) => message.role === "system").content, prompt);
 });
 
 test("Pi's native image blocking remains authoritative for vision-capable models", async (t) => {

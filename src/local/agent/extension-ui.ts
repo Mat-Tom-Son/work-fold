@@ -219,7 +219,7 @@ export class RoutedPiExtensionUiBridge extends EventEmitter implements PiExtensi
 
   cancelScope(scope: PiExtensionUiScope): void {
     for (const [id, pending] of [...this.pending]) {
-      if (scopeKey(pending.request) === scopeKey(scope)) this.cancel(id);
+      if (scopeKey(pending.request) === scopeKey(scope) && (!scope.taskId || pending.request.taskId === scope.taskId)) this.cancel(id);
     }
   }
 

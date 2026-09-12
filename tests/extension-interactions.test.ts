@@ -50,6 +50,69 @@ test("native Pi dialog cancellation works without a caller-supplied signal, incl
   assert.equal(await ui.select("Late question", ["yes"]), undefined);
 });
 
+test("turn settlement leaves session questions alive while Stop still cancels the whole Chat", async () => {
+  const bridge = new RoutedPiExtensionUiBridge();
+  const session = bridge.request(question("session"));
+  const turn = bridge.request({ ...question("turn"), taskId: "task-1" });
+  bridge.cancelScope({ ...scope, taskId: "task-1" });
+  assert.deepEqual(await turn, { cancelled: true });
+  assert.equal(bridge.respond("session", { value: "A" }), true);
+  assert.deepEqual(await session, { value: "A" });
+});
+
+test("native session-start timers and helper callbacks remain usable across turns and reload", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-session-callbacks-"));
+  const agentDir = join(root, "pi");
+  const resultsPath = join(root, "results.jsonl");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await writeFile(join(agentDir, "extensions", "session.ts"), `
+    import { appendFile } from "node:fs/promises";
+    import { spawn } from "node:child_process";
+    export default function(pi) {
+      let timer, child, armed = false;
+      pi.on("session_start", (_, ctx) => {
+        const ask = async (kind) => {
+          const answer = await ctx.ui.confirm(kind, "Session-owned question");
+          await appendFile(${JSON.stringify(resultsPath)}, JSON.stringify({ kind, answer }) + "\\n");
+        };
+        timer = setInterval(() => { if (armed) { armed = false; void ask("Timer"); } }, 10);
+        child = spawn(process.execPath, ["-e", "process.stdin.on('data', () => process.stdout.write('question\\\\n'))"], { stdio: ["pipe", "pipe", "ignore"] });
+        child.stdout.on("data", () => { ctx.ui.notify("Session helper is ready"); void ask("Helper"); });
+      });
+      pi.on("session_shutdown", () => { clearInterval(timer); child?.kill(); });
+      pi.registerCommand("first", { description: "Initialize only", handler: async () => {} });
+      pi.registerCommand("arm", { description: "Request new work through session callbacks", handler: async () => {
+        armed = true; child.stdin.write("ask\\n");
+      }});
+    }
+  `);
+  const bridge = new RoutedPiExtensionUiBridge();
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "content"), loadEnv: false,
+    extensionUiBridge: bridge, piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } } });
+  t.after(async () => { await api.close(); await rm(root, { recursive: true, force: true }); });
+  const pending = new Map<string, PiExtensionUiRequest>();
+  bridge.on("request", (request) => pending.set(request.id, request));
+  bridge.on("settled", ({ id }) => pending.delete(id));
+  const start = await api.actFacade.manageSend({ content: "/first", newConversation: true });
+  const settled = (taskId: string) => until(async () => (await api.actFacade.manageTurnStatus({ taskId })).task.state !== "running");
+  await settled(start.taskId);
+  for (const reload of [false, true]) {
+    if (reload) await settled((await api.actFacade.manageSend({ conversationId: start.conversationId, content: "/reload" })).taskId);
+    const arm = await api.actFacade.manageSend({ conversationId: start.conversationId, content: "/arm" });
+    await settled(arm.taskId);
+    await until(() => pending.size === 2);
+    assert.deepEqual([...pending.values()].map((request) => request.title).sort(), ["Helper", "Timer"]);
+    const projection = await fetch(`${api.origin}/api/management/conversations/${start.conversationId}/extension-ui`).then((response) => response.json()) as any;
+    assert.equal(projection.requests.length, 2, "session questions survive the triggering turn's settlement");
+    for (const request of pending.values()) {
+      assert.equal(request.taskId, undefined, "session callbacks never borrow a turn identity");
+      bridge.respond(request.id, { confirmed: true });
+    }
+    await until(async () => (await readFile(resultsPath, "utf8").catch(() => "")).trim().split("\n").length === (reload ? 4 : 2));
+  }
+  assert.ok((await readFile(resultsPath, "utf8")).trim().split("\n").every((line) => JSON.parse(line).answer === true));
+});
+
 test("real Pi Extensions ask in fold and Space Chats; reconnect, exact-owner web answers and Stop share the same callbacks", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-extension-interaction-"));
   const agentDir = join(root, "pi");
@@ -74,6 +137,10 @@ test("real Pi Extensions ask in fold and Space Chats; reconnect, exact-owner web
           const later = await ctx.ui.input("Old turn must not ask in a new turn");
           await appendFile(${JSON.stringify(resultsPath)}, JSON.stringify({ lateCancelled: later === undefined }) + "\\n");
         });
+      }});
+      pi.registerCommand("never", { description: "Non-cooperative command", handler: async (_, ctx) => {
+        ctx.ui.notify("Non-cooperative command started");
+        await new Promise(() => {});
       }});
     }
   `);
@@ -159,6 +226,16 @@ test("real Pi Extensions ask in fold and Space Chats; reconnect, exact-owner web
   await until(() => [...pending.values()].filter((item) => item.conversationId === next.conversationId).length === 2);
   assert.ok([...pending.values()].every((item) => item.taskId === next.taskId && item.title !== "Old turn must not ask in a new turn"));
   await api.actFacade.manageStop({ taskId: next.taskId });
+
+  let neverStarted = false;
+  bridge.on("event", (event) => { if (event.message === "Non-cooperative command started") neverStarted = true; });
+  const stuck = await api.actFacade.manageSend({ content: "/never", newConversation: true });
+  await until(() => neverStarted);
+  await api.actFacade.manageStop({ taskId: stuck.taskId });
+  await until(async () => (await api.actFacade.manageTurnStatus({ taskId: stuck.taskId })).task.state !== "running");
+  const recovered = await api.actFacade.manageSend({ conversationId: stuck.conversationId, content: "/late-question" });
+  await until(async () => (await api.actFacade.manageTurnStatus({ taskId: recovered.taskId })).task.state !== "running");
+  assert.equal((await api.actFacade.manageTurnStatus({ taskId: recovered.taskId })).task.state, "succeeded", "the host disposes cancelled sessions before it accepts another turn");
 });
 
 async function until(predicate: () => boolean | Promise<boolean>, timeoutMs = 10_000): Promise<void> {

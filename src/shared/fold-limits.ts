@@ -118,6 +118,5 @@ export const workFoldModelContextLimits = Object.freeze({
   payloadSamples: 2,
   depth: 12,
   nodes: 4000,
-  stringBytes: 32 * 1024,
   digestBytes: 256 * 1024,
 });

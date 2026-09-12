@@ -65,6 +65,12 @@ identity through async context. The router verifies it against the owning
 Chat; it never attributes a late callback to whichever turn is running now.
 Once its originating turn settles, delayed interactions from that context
 are cancelled even if a newer turn has started in the same session.
+Extension loading, `session_start`, and reload run outside the turn context.
+Their timers and helper-process callbacks belong to the session and do not
+borrow the first or currently active task. Their desktop questions survive
+ordinary turn completion; Stop and session disposal still cancel the whole
+Chat's pending callbacks. Unattributed session questions are not relayed to a
+paired browser, which requires an exact browser-owned task.
 
 The host bounds pending interactions and text. Live inputs and answers are
 not added to the portable transcript or replay journal by the UI adapter;
@@ -266,3 +272,12 @@ sandbox probes. The fold and web fixtures were visually inspected, and their
 inline answer controls dismissed the question while leaving the conversation
 and composer available. This verifies the interaction foundation, not live
 computer control, Chrome companion behavior, or a public release candidate.
+
+The subsequent Claude desktop review identified a real startup-callback
+regression. The corrected tests exercise a session-start timer and helper
+process after a later command, after that command settles, and after reload.
+They also preserve rejection of delayed turn-owned questions and exact remote
+ownership. The host's non-cooperative-command test confirms Stop disposes the
+old session before accepting another turn; direct client reuse additionally
+releases its disposed session's draining guard. This does not claim that
+arbitrary full-trust code can be forcibly stopped or its effects undone.

@@ -305,7 +305,7 @@ export class PiConversationClient extends EventEmitter {
       this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
       owner.cancelled = true;
       this.activeExtensionTurn = null;
-      this.resolvedRuntime?.config.extensionUi?.cancelScope?.(this.extensionUiScope());
+      if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
       this.promptInFlight = false;
     }
   }
@@ -364,7 +364,7 @@ export class PiConversationClient extends EventEmitter {
     if (this.promptInFlight) throw new Error("Wait for the Assistant to finish before reloading Pi resources.");
     this.assertNativePromptSettled();
     const session = await this.ensureSession();
-    await session.reload();
+    await this.withSessionLifetime(() => session.reload());
     if (this.resolvedRuntime) configurePiHttpTransport(this.resolvedRuntime.settingsManager);
     const catalog = await this.getCatalog();
     this.emitEvent({ type: "resources_changed", message: "Pi extensions, skills, prompts, themes, and tools reloaded." });
@@ -561,6 +561,9 @@ export class PiConversationClient extends EventEmitter {
     const runtime = this.runtimeHost;
     this.runtimeHost = null;
     this.resolvedRuntime = null;
+    // The guard belongs to the disposed session. Its late completion cannot
+    // clear a replacement prompt because promptWithTimeout compares identity.
+    this.nativePrompt = null;
     // The server snapshots the trail in the running turn's catch path after a
     // shutdown-triggered stop. Keep it alive until that settlement completes.
     if (!preserveActiveTurnTrail) this.resetTurnState();
@@ -573,6 +576,15 @@ export class PiConversationClient extends EventEmitter {
   }
 
   private async ensureSession(): Promise<AgentSession> {
+    return this.withSessionLifetime(() => this.createSessionIfNeeded());
+  }
+
+  /** Startup/reload callbacks belong to the session, not its first caller. */
+  private withSessionLifetime<T>(operation: () => T): T {
+    return this.extensionTurn.exit(() => this.modelCall.exit(operation));
+  }
+
+  private async createSessionIfNeeded(): Promise<AgentSession> {
     if (this.runtimeHost) return this.runtimeHost.session;
     const generation = this.runtimeGeneration;
 
@@ -662,7 +674,7 @@ export class PiConversationClient extends EventEmitter {
       throw error;
     }
     this.runtimeHost = runtimeHost;
-    runtimeHost.setRebindSession((session) => this.bindSession(session));
+    runtimeHost.setRebindSession((session) => this.withSessionLifetime(() => this.bindSession(session)));
     runtimeHost.setBeforeSessionInvalidate(() => {
       this.unsubscribeSession?.();
       this.unsubscribeSession = null;
@@ -716,7 +728,7 @@ export class PiConversationClient extends EventEmitter {
     await session.bindExtensions({
       mode: "rpc",
       uiContext: createExtensionUiContext(bridge, scope, {
-        isCancelled: () => this.extensionTurn.getStore()?.cancelled === true || this.runtimeHost?.session !== session,
+        isCancelled: () => this.extensionTurn.getStore()?.cancelled === true || this.activeExtensionTurn?.cancelled === true || this.runtimeHost?.session !== session,
         taskId: () => this.extensionTurn.getStore()?.taskId,
       }),
       abortHandler: () => {
@@ -729,7 +741,7 @@ export class PiConversationClient extends EventEmitter {
         navigateTree: async () => { throw new Error(hostSessionMutationUnavailableMessage); },
         switchSession: async () => { throw new Error(hostSessionMutationUnavailableMessage); },
         reload: async () => {
-          await this.session.reload();
+          await this.withSessionLifetime(() => this.session.reload());
           this.emitEvent({ type: "resources_changed", message: "Pi resources reloaded." });
         },
       },
@@ -965,7 +977,7 @@ export class PiConversationClient extends EventEmitter {
 
     switch (parsed.name) {
       case "reload":
-        await session.reload();
+        await this.withSessionLifetime(() => session.reload());
         this.emitEvent({ type: "resources_changed", message: "Pi resources reloaded." });
         return "Reloaded Pi extensions, skills, prompts, themes, context files, and tools.";
       case "compact":

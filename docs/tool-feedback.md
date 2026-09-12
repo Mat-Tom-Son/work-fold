@@ -171,6 +171,12 @@ collected. Known credential fields in observed payloads are redacted, but
 conversation text can itself contain secrets; the UI explains that recording
 contains private content and redaction is not comprehensive.
 
+Text uses the remaining snapshot byte budget, with no separate 32 KiB string
+cap that would cut off ordinary system prompts. Oversized text retains an
+exact prefix and an explicit omission marker; accounting includes JSON escapes
+and UTF-8 bytes. The per-request, total-memory, nesting, node and retention
+bounds remain in force and never constrain what Pi sends to the model.
+
 All-request inspection is a trusted local Settings operation. A Chat entry
 filters by exact scope and Chat identity; detail reads enforce that filter.
 No raw context enters portable Chat files, activity events, SSE replay, CLI
@@ -242,6 +248,17 @@ passed, one optional model-driven test skipped), the bridge's 55 tests, and
 and the compact fold layout, keyboard navigation, closing and focus recovery.
 Provider fixtures use local synthetic responses; these checks establish native
 transport and lifecycle compatibility, not a model's judgment on real work.
+
+A subsequent Claude desktop review led to session-lifetime callback fixes
+and removal of the small per-string inspection cap. Native provider fixtures
+now compare an instruction block larger than 32 KiB across assembled context,
+observed payload and the local provider's received request. Escaped Unicode
+and oversized text remain bounded. The reported permanently blocked Chat
+scenario did not reproduce through the server: cancelled sessions are already
+disposed before admission reopens. Direct client reuse after disposal did
+reproduce it and now releases the disposed session's guard, while reuse of a
+still-draining live session remains refused. Compaction comparisons found no
+regression and did not justify replacing Pi's native compaction behavior.
 
 ## Sources
 

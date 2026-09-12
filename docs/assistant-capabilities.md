@@ -108,6 +108,9 @@ the field available for retry. The paired web client can see and answer only
 non-secret requests from its own exact management turn and browser grant.
 Async context carries the originating task identity; a delayed callback from
 an ended turn cannot become a question owned by a newer turn in that Chat.
+Session-start and reload callbacks keep session ownership instead: their
+desktop questions can outlive an ordinary turn, without borrowing its task or
+becoming available to an unrelated paired browser.
 
 These are live Pi callbacks, not durable collaboration questions. Stop,
 timeout, session disposal and app shutdown cancel them. Restart never recreates

@@ -22,7 +22,6 @@ export interface ModelContextInspectionLimits {
   payloadSamples: number;
   depth: number;
   nodes: number;
-  stringBytes: number;
   digestBytes: number;
 }
 

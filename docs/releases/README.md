@@ -6,6 +6,10 @@ release-note file alone does not mean a version was published.
 
 ## September 11, 2026
 
+[0.4.28](work-fold-0.4.28.md) adds inline native Extension questions, optional
+local model-context inspection, session-lifetime fixes, and a simpler web
+Space header.
+
 [0.4.27](work-fold-0.4.27.md) adds searchable fold chat history and a calmer
 new-chat experience, keeps questions in their Chats, and gives web Spaces a
 cohesive Files and Apps view.

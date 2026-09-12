@@ -212,6 +212,9 @@ test("a never-settling Pi abort cannot strand the accepted turn", async (t) => {
   assert.equal(await client.abort(), true);
   await assert.rejects(prompt, (error: unknown) => (error as Error).name === "PiTurnCancelledError");
   assert.ok(Date.now() - before < 500, "turn cancellation must not await the SDK abort promise");
+  await assert.rejects(client.prompt("/trust"), (error: unknown) => (error as Error).name === "PiTurnDrainingError");
+  await client.stop();
+  assert.match(await client.prompt("/trust"), /trust|registered|configuration/i, "disposal releases the old native lifetime before rebuilding");
   await client.stop();
 });
 
