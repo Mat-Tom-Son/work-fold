@@ -506,7 +506,7 @@ index 8ba0e2d..89a01c3 100644
  
  function waitForTabComplete(tabId, timeoutMs) {
 diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profile-bridge/index.ts
-index 1917956..096d971 100644
+index 1917956..484bec3 100644
 --- a/extensions/chrome-profile-bridge/index.ts
 +++ b/extensions/chrome-profile-bridge/index.ts
 @@ -1,5 +1,6 @@
@@ -642,7 +642,7 @@ index 1917956..096d971 100644
  					resolveStart();
  				});
  			});
-+			if (this.stopped) { server.close(); throw new Error("Chrome bridge has stopped."); }
++			if (this.stopped) { server.close(); server.closeAllConnections(); throw new Error("Chrome bridge has stopped."); }
  			this.server = server;
  			this.mode = "server";
  		} catch (error) {
@@ -652,7 +652,7 @@ index 1917956..096d971 100644
  			// Another Pi session already owns the bridge port. Use it as the shared
  			// machine-local broker so multiple Pi sessions can control Chrome at once.
  			this.mode = "client";
-@@ -377,13 +408,14 @@ class ChromeProfileBridge {
+@@ -377,45 +408,65 @@ class ChromeProfileBridge {
  	}
  
  	stop(): void {
@@ -668,7 +668,14 @@ index 1917956..096d971 100644
  		}
  		this.pending.clear();
  		this.queue = [];
-@@ -394,28 +426,42 @@ class ChromeProfileBridge {
+ 		for (const waiter of this.waiters) waiter(undefined);
+ 		this.waiters = [];
++		// A long poll is active when close() runs. Its socket can become idle only
++		// afterward, then keep serving the revoked lease on every browser retry.
++		// End this listener's sockets as well, before another lease reuses the port.
+ 		this.server?.close();
++		this.server?.closeAllConnections();
+ 		this.server = undefined;
  		this.mode = undefined;
  	}
  
@@ -693,6 +700,7 @@ index 1917956..096d971 100644
  	private sendLocal(action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> {
 -		const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 -		const command = { id, action, params };
++		if (this.stopped) return Promise.reject(new Error("Chrome bridge has stopped. The command was not dispatched."));
 +		const id = randomUUID();
 +		const wireParams = this.companionToken && typeof params.sessionKey === "string" ? { ...params, sessionKey: `${this.epoch}:${params.sessionKey}` } : params;
 +		const command = { id, action, params: wireParams };
@@ -716,7 +724,7 @@ index 1917956..096d971 100644
  			};
  			const timer = setTimeout(() => {
  				const entry = this.pending.get(id);
-@@ -442,8 +488,9 @@ class ChromeProfileBridge {
+@@ -442,8 +493,9 @@ class ChromeProfileBridge {
  	private timeoutMessage(entry: PendingCommand | undefined, timeoutMs: number): string {
  		const pollAgeMs = this.lastSeenAt === undefined ? undefined : Date.now() - this.lastSeenAt;
  		if (entry?.deliveredAt) {
@@ -727,7 +735,7 @@ index 1917956..096d971 100644
  		if (pollAgeMs === undefined || pollAgeMs > 60_000) {
  			return `Timed out after ${timeoutMs}ms: the Chrome extension is not polling (last seen ${pollAgeMs === undefined ? "never" : Math.round(pollAgeMs / 1000) + "s ago"}). Run /chrome onboard, then load the bundled browser-extension folder in your normal Chrome profile and keep that Chrome window open.`;
  		}
-@@ -459,10 +506,10 @@ class ChromeProfileBridge {
+@@ -459,10 +511,10 @@ class ChromeProfileBridge {
  			else signal.addEventListener("abort", forwardAbort, { once: true });
  		}
  		try {
@@ -740,7 +748,7 @@ index 1917956..096d971 100644
  				signal: controller.signal,
  			});
  			const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; error?: string };
-@@ -475,18 +522,14 @@ class ChromeProfileBridge {
+@@ -475,18 +527,14 @@ class ChromeProfileBridge {
  			return payload.result;
  		} catch (error) {
  			if ((error as Error).name === "AbortError") {
@@ -765,9 +773,11 @@ index 1917956..096d971 100644
  			}
  			throw error;
  		} finally {
-@@ -516,20 +559,31 @@ class ChromeProfileBridge {
+@@ -515,21 +563,33 @@ class ChromeProfileBridge {
+ 	}
  
  	private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
++		if (this.stopped) { sendJson(response, 503, { error: "Chrome connection has ended." }, { connection: "close" }); return; }
  		const url = new URL(request.url ?? "/", this.url);
 -		const corsHeaders = corsHeadersFor(request);
 +		const corsHeaders = corsHeadersFor(request, this.connection ? this.connection.extensionOrigin.slice(0, -1) : undefined);
@@ -800,7 +810,7 @@ index 1917956..096d971 100644
  			if (!isLocalProcessRequest(request)) {
  				sendJson(response, 403, { ok: false, error: "Chrome commands are accepted only from local Pi processes" });
  				return;
-@@ -538,24 +592,58 @@ class ChromeProfileBridge {
+@@ -538,24 +598,58 @@ class ChromeProfileBridge {
  				action?: string;
  				params?: Record<string, unknown>;
  				timeoutMs?: number;
@@ -862,7 +872,7 @@ index 1917956..096d971 100644
  			this.lastSeenAt = Date.now();
  			this.clientName = url.searchParams.get("name") ?? undefined;
  			let aborted = false;
-@@ -573,9 +661,10 @@ class ChromeProfileBridge {
+@@ -573,9 +667,10 @@ class ChromeProfileBridge {
  			if (aborted) {
  				// Long-poll connection died before we could deliver. Requeue any command we pulled
  				// so the next live /next picks it up instead of dropping it on the floor.
@@ -874,7 +884,7 @@ index 1917956..096d971 100644
  			// Mark the command as delivered so a later timeout can distinguish "extension never
  			// picked it up" from "extension is running it / failed to post a result".
  			if (command) {
-@@ -588,19 +677,20 @@ class ChromeProfileBridge {
+@@ -588,19 +683,20 @@ class ChromeProfileBridge {
  				response,
  				200,
  				command
@@ -897,7 +907,7 @@ index 1917956..096d971 100644
  			const pending = this.pending.get(result.id);
  			if (!pending) {
  				sendJson(response, 404, { ok: false, error: "unknown command id" }, corsHeaders);
-@@ -636,6 +726,100 @@ class ChromeProfileBridge {
+@@ -636,6 +732,100 @@ class ChromeProfileBridge {
  	}
  }
  
@@ -998,7 +1008,7 @@ index 1917956..096d971 100644
  const tabActionValues = ["list", "new", "activate", "close", "group", "ungroup", "version"] as const;
  const imageFormatValues = ["png", "jpeg"] as const;
  const waitForValues = ["selector", "expression"] as const;
-@@ -666,7 +850,8 @@ function StringEnum<T extends readonly [string, ...string[]]>(values: T) {
+@@ -666,7 +856,8 @@ function StringEnum<T extends readonly [string, ...string[]]>(values: T) {
  	return Type.Union(values.map((value) => Type.Literal(value)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]);
  }
  
@@ -1008,7 +1018,7 @@ index 1917956..096d971 100644
  	const instanceToken = Symbol("pi-chrome-instance");
  	const currentRoot = extensionRoot();
  	const globalState = globalThis as typeof globalThis & {
-@@ -674,7 +859,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -674,7 +865,7 @@ export default function (pi: ExtensionAPI): void {
  		[PI_CHROME_AUTH_KEY]?: { until: number | "indefinite" };
  	};
  	const alreadyLoaded = globalState[PI_CHROME_GLOBAL_KEY];
@@ -1017,7 +1027,7 @@ index 1917956..096d971 100644
  		console.warn(
  			`pi-chrome already loaded from ${alreadyLoaded.root} (v${alreadyLoaded.version}); skipping duplicate from ${currentRoot}.`,
  		);
-@@ -683,13 +868,14 @@ export default function (pi: ExtensionAPI): void {
+@@ -683,13 +874,14 @@ export default function (pi: ExtensionAPI): void {
  	// pi-chrome <=0.15.19 set the singleton flag but did not clear it on reload.
  	// If the stale flag points at this same extension root, replace it instead of
  	// skipping the freshly reloaded extension.
@@ -1036,7 +1046,7 @@ index 1917956..096d971 100644
  	if (persistedAuth) {
  		if (persistedAuth.until === "indefinite" || persistedAuth.until > Date.now()) {
  			chromeAuthorizedUntil = persistedAuth.until;
-@@ -698,6 +884,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -698,6 +890,7 @@ export default function (pi: ExtensionAPI): void {
  		}
  	}
  	const persistAuth = (): void => {
@@ -1044,7 +1054,7 @@ index 1917956..096d971 100644
  		if (chromeAuthorizedUntil === undefined) delete globalState[PI_CHROME_AUTH_KEY];
  		else globalState[PI_CHROME_AUTH_KEY] = { until: chromeAuthorizedUntil };
  	};
-@@ -707,6 +894,10 @@ export default function (pi: ExtensionAPI): void {
+@@ -707,6 +900,10 @@ export default function (pi: ExtensionAPI): void {
  	let countdownInterval: NodeJS.Timeout | undefined;
  	// Remembered so bridge sends can tag tabs with this session's group even when ctx isn't handy.
  	let sessionCtx: ExtensionContext | undefined;
@@ -1055,7 +1065,7 @@ index 1917956..096d971 100644
  
  	const clearAuthExpiryTimer = (): void => {
  		if (!authExpiryTimer) return;
-@@ -764,6 +955,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -764,6 +961,7 @@ export default function (pi: ExtensionAPI): void {
  	// this in the background; shutdown must wait before tearing down the bridge.
  	const cleanupAutomationTargetBestEffort = async (timeoutMs = 2_000): Promise<void> => {
  		const sessionKey = sessionKeyFor(sessionCtx);
@@ -1063,7 +1073,7 @@ index 1917956..096d971 100644
  		if (sessionKey === undefined) return; // Never clean up an unscoped/default session.
  		const controller = new AbortController();
  		let timer: ReturnType<typeof setTimeout> | undefined;
-@@ -795,6 +987,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -795,6 +993,7 @@ export default function (pi: ExtensionAPI): void {
  	};
  
  	const authSummary = (): string => {
@@ -1071,7 +1081,7 @@ index 1917956..096d971 100644
  		if (chromeAuthorizedUntil === "indefinite") return "authorized indefinitely";
  		if (typeof chromeAuthorizedUntil === "number") {
  			const remainingMs = chromeAuthorizedUntil - Date.now();
-@@ -884,6 +1077,13 @@ export default function (pi: ExtensionAPI): void {
+@@ -884,6 +1083,13 @@ export default function (pi: ExtensionAPI): void {
  
  	const authorizedBridgeSend = async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> => {
  		requireChromeControlAuthorized();
@@ -1085,7 +1095,7 @@ index 1917956..096d971 100644
  		// Background on is a session policy, not a default that tool arguments can override.
  		// Apply it here so tab.new, chrome_launch(url), and tools without a background parameter
  		// cannot bypass it. Background off still permits per-call background:true.
-@@ -931,7 +1131,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -931,7 +1137,7 @@ export default function (pi: ExtensionAPI): void {
  
  	pi.on("session_start", async (_event, ctx) => {
  		sessionCtx = ctx;
@@ -1094,7 +1104,7 @@ index 1917956..096d971 100644
  		// Reestablish in-memory state after a /reload restored chromeAuthorizedUntil from globalThis.
  		if (chromeControlAuthorized()) {
  			activateChromeTools();
-@@ -948,11 +1148,14 @@ export default function (pi: ExtensionAPI): void {
+@@ -948,11 +1154,14 @@ export default function (pi: ExtensionAPI): void {
  	pi.on("session_shutdown", async (event) => {
  		clearAuthExpiryTimer();
  		clearCountdownInterval();
@@ -1110,7 +1120,7 @@ index 1917956..096d971 100644
  			delete globalState[PI_CHROME_GLOBAL_KEY];
  		}
  	});
-@@ -986,11 +1189,15 @@ Usage rules:
+@@ -986,11 +1195,15 @@ Usage rules:
  7. If you hit a native file-picker or privileged browser prompt gate, tell the user; generic clicks/typing/CSP gates are handled by Chrome input.
  8. Run /chrome doctor when in doubt about connectivity or capabilities.
  </chrome-profile-bridge>`;
@@ -1127,7 +1137,7 @@ index 1917956..096d971 100644
  			ctx.ui.notify("Checking pi-chrome…", "info");
  			const lines: string[] = [
  				`pi-chrome v${PI_CHROME_VERSION}`,
-@@ -1011,7 +1218,7 @@ Usage rules:
+@@ -1011,7 +1224,7 @@ Usage rules:
  				};
  				const latencyMs = Date.now() - started;
  				extensionAlive = true;
@@ -1136,7 +1146,7 @@ index 1917956..096d971 100644
  					versionMismatch = true;
  					lines.push(
  						`✗ The Chrome companion extension is on an old version (${version.extensionVersion}); this pi-chrome is ${PI_CHROME_VERSION}.`,
-@@ -1113,6 +1320,7 @@ Usage rules:
+@@ -1113,6 +1326,7 @@ Usage rules:
  	};
  
  	const authorizeHandler = async (ctx: ExtensionContext, args: string) => {
@@ -1144,7 +1154,7 @@ index 1917956..096d971 100644
  		const grant = parseAuthorizeArg(args);
  		if (!grant) {
  			ctx.ui.notify("Unknown authorize duration. Use minutes (15m, 30m, 45) or indefinite.", "warning");
-@@ -1122,13 +1330,15 @@ Usage rules:
+@@ -1122,13 +1336,15 @@ Usage rules:
  	};
  
  	const revokeHandler = (ctx: ExtensionContext) => {
@@ -1161,7 +1171,7 @@ index 1917956..096d971 100644
  		const proceed = await ctx.ui.confirm(
  			"Install the pi-chrome Chrome extension?",
  			`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
-@@ -1153,7 +1363,7 @@ Usage rules:
+@@ -1153,7 +1369,7 @@ Usage rules:
  		const parts: string[] = [];
  		try {
  			const version = (await bridge.send("tab.version", {}, 5_000)) as { extensionVersion?: string };
@@ -1170,7 +1180,7 @@ index 1917956..096d971 100644
  				parts.push(`⚠ Chrome extension v${version.extensionVersion} (pi-chrome v${PI_CHROME_VERSION}, reload extension)`);
  			} else {
  				parts.push(`✓ Chrome connected`);
-@@ -1293,6 +1503,8 @@ Usage rules:
+@@ -1293,6 +1509,8 @@ Usage rules:
  		},
  	});
  
@@ -1179,7 +1189,7 @@ index 1917956..096d971 100644
  	function registerChromeTools(pi: ExtensionAPI): void {
  		if (chromeToolsRegistered) return;
  		chromeToolsRegistered = true;
-@@ -1300,8 +1512,9 @@ Usage rules:
+@@ -1300,8 +1518,9 @@ Usage rules:
  	pi.registerTool({
  		name: "chrome_launch",
  		label: "Chrome Bridge Setup",
@@ -1191,7 +1201,7 @@ index 1917956..096d971 100644
  		promptSnippet: "Show instructions for connecting Pi to the user's existing Chrome profile via the companion extension.",
  		parameters: Type.Object({
  			port: Type.Optional(Type.Number({ description: "Ignored. The bundled Chrome extension polls 127.0.0.1:17318." })),
-@@ -1311,10 +1524,13 @@ Usage rules:
+@@ -1311,10 +1530,13 @@ Usage rules:
  			headless: Type.Optional(Type.Boolean({ description: "Ignored." })),
  		}),
  		async execute(_id, params, signal, _onUpdate, ctx): Promise<ToolTextResult> {
@@ -1205,7 +1215,7 @@ index 1917956..096d971 100644
  			return {
  				content: [
  					{
-@@ -1325,11 +1541,11 @@ Usage rules:
+@@ -1325,11 +1547,11 @@ Usage rules:
  							`1. Open chrome://extensions in the Chrome profile you normally use.\n` +
  							`2. Enable Developer mode.\n` +
  							`3. Click “Load unpacked”.\n` +
@@ -1219,7 +1229,7 @@ index 1917956..096d971 100644
  			};
  		},
  	});
-@@ -1743,10 +1959,10 @@ Usage rules:
+@@ -1743,10 +1965,10 @@ Usage rules:
  		name: "chrome_screenshot",
  		label: "Chrome Screenshot",
  		description:
@@ -1233,7 +1243,7 @@ index 1917956..096d971 100644
  			format: Type.Optional(StringEnum(imageFormatValues)),
  			quality: Type.Optional(Type.Number({ minimum: 0, maximum: 100, description: "JPEG quality 0-100." })),
  			fullPage: Type.Optional(Type.Boolean({ description: "Capture full-page tiles plus a JSON manifest. Temporarily scrolls the target page; does not activate background tabs." })),
-@@ -1770,7 +1986,32 @@ Usage rules:
+@@ -1770,7 +1992,32 @@ Usage rules:
  				dimensions?: { width: number; height: number; viewportHeight: number; dpr: number };
  				tiles?: Array<{ y: number; dataUrl: string }>;
  			};
