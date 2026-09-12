@@ -52,7 +52,7 @@ export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace:
         <span>Start with a folder</span>
         <div className="onboarding-choice-list">
           <button className="onboarding-choice-card onboarding-choice-primary" type="button" onClick={onOpenFolder}><span className="onboarding-choice-icon"><FolderOpen size={20} /></span><span className="onboarding-choice-copy"><strong>Use an existing folder</strong><span>Register it in place. Nothing moves.</span></span><ArrowRight className="onboarding-choice-arrow" size={18} /></button>
-          <button className="onboarding-choice-card onboarding-choice-secondary" type="button" onClick={onCreateSpace}><span className="onboarding-choice-icon"><FolderPlus size={20} /></span><span className="onboarding-choice-copy"><strong>Create a new Space</strong><span>work-fold creates a new ordinary folder.</span></span><ArrowRight className="onboarding-choice-arrow" size={18} /></button>
+          <button className="onboarding-choice-card onboarding-choice-secondary" type="button" onClick={onCreateSpace}><span className="onboarding-choice-icon"><FolderPlus size={20} /></span><span className="onboarding-choice-copy"><strong>Create a new folder</strong><span>work-fold creates a new ordinary folder.</span></span><ArrowRight className="onboarding-choice-arrow" size={18} /></button>
         </div>
       </div>
     </section>

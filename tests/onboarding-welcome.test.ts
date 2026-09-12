@@ -33,7 +33,7 @@ test("first-run onboarding locates the always-available menu-bar surface", async
   assert.match(source, /Start with a folder/);
   assert.match(source, /Use an existing folder/);
   assert.match(source, /Register it in place\. Nothing moves\./);
-  assert.match(source, /Create a new Space/);
+  assert.match(source, /Create a new folder/);
   assert.match(source, /work-fold creates a new ordinary folder\./);
   assert.match(source, /<FolderOpen/);
   assert.match(source, /<FolderPlus/);
