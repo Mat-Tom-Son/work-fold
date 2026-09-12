@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { installModelContextInspection, ModelContextInspector } from "../src/local/agent/model-context-inspector.js";
+import { describeModelContextDispatch, installModelContextInspection, ModelContextInspector } from "../src/local/agent/model-context-inspector.js";
 
 const owner = { spaceRoot: "/spaces/a", conversationId: "chat-a", sessionId: "session-a", taskId: "task-a", purpose: "chat" };
 const model = { provider: "fixture", id: "any-model", api: "custom-transport" } as any;
@@ -111,7 +111,7 @@ test("snapshot bounds redact credential fields and replace native/provider image
   assert.match(serialized, /digest.*size limit/);
   assert.match(serialized, /Accessor property/);
   assert.match(serialized, /Proxy object/);
-  assert.match(serialized, /circular object/);
+  assert.match(serialized, /Circular object/);
   assert.match(serialized, /depth limit/);
   assert.equal(detail.truncated, true);
 });
@@ -304,4 +304,54 @@ test("runtime provenance is captured only while recording and remains bounded, d
   assert.ok(detail.provenance!.truncated);
   assert.ok(detail.bytes <= 12000);
   inspector.setEnabled(false);
+});
+
+test("optional JSON fields and shared references remain complete without hiding actual cycles", () => {
+  const inspector = enable();
+  const source = { path: "/extension.ts", package: undefined };
+  const value = { optional: undefined, tools: [{ source }, { source }], positions: [undefined, "second"] };
+  inspector.begin(owner, model, value);
+  const captured = inspector.get(inspector.list()[0]!.id)!;
+  assert.deepEqual(captured.assembled.value, JSON.parse(JSON.stringify(value)));
+  assert.deepEqual(captured.assembled.omissions, []);
+  assert.equal(captured.truncated, false);
+  source.path = "/changed.ts";
+  assert.equal((captured.assembled.value as any).tools[1].source.path, "/extension.ts");
+
+  const cycle: any = { nested: {} };
+  cycle.nested.parent = cycle;
+  inspector.begin(owner, model, cycle);
+  const cyclic = inspector.get(inspector.list()[0]!.id)!;
+  assert.equal(cyclic.truncated, true);
+  assert.deepEqual(cyclic.assembled.omissions, ["Circular object."]);
+});
+
+test("reused objects still consume the node budget rather than expanding without bound", () => {
+  const inspector = enable({ limits: { nodes: 16 } });
+  const shared = { value: "same" };
+  inspector.begin(owner, model, Array(100).fill(shared));
+  const captured = inspector.get(inspector.list()[0]!.id)!;
+  assert.equal(captured.truncated, true);
+  assert.match(captured.assembled.omissions.join(" "), /node limit/);
+  assert.doesNotMatch(captured.assembled.omissions.join(" "), /[Cc]ircular/);
+});
+
+test("dispatch provenance never evaluates accessors, proxies or custom array iteration", () => {
+  const inspector = enable();
+  let promptReads = 0, toolReads = 0, proxyReads = 0, iterations = 0;
+  const value = {
+    get systemPrompt() { return `prompt-${++promptReads}`; },
+    tools: [{ get name() { toolReads++; return "tool"; } }],
+    messages: new Proxy([], { get() { proxyReads++; throw new Error("proxy read"); } }),
+  };
+  value.tools[Symbol.iterator] = () => { iterations++; throw new Error("iterator read"); };
+  const session = fakeSession((_model, sent) => sent.systemPrompt);
+  installModelContextInspection(session, inspector, () => owner, (sent) => ({ dispatch: describeModelContextDispatch(sent) }));
+  assert.equal(session.agent.streamFn(model, value), "prompt-1", "only the original transport reads the accessor");
+  assert.equal(promptReads, 1);
+  assert.equal(toolReads + proxyReads + iterations, 0);
+  const dispatch = (inspector.get(inspector.list()[0]!.id)!.provenance!.value as any).dispatch;
+  assert.match(dispatch.systemPrompt, /Unavailable/);
+  assert.match(dispatch.tools, /Unavailable/);
+  assert.match(dispatch.messageCount, /Unavailable/);
 });

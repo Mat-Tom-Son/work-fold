@@ -2,7 +2,7 @@ import { modelReviewSubmissionSchema, modelReviewSystemPrompt, type WorkFoldMode
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { installModelContextInspection } from "./model-context-inspector.js";
+import { describeModelContextDispatch, installModelContextInspection } from "./model-context-inspector.js";
 import { includedResourceOptions } from "./included-tools.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -716,20 +716,25 @@ export class PiConversationClient extends EventEmitter {
         purpose: call?.purpose && call.purpose !== "assistant" ? call.purpose
           : session.isCompacting ? "compaction" : call?.purpose ?? "unknown",
       };
-    }, () => ({
+    }, (context) => ({
       piVersion: PI_SDK_VERSION,
       runtime: { cwd: this.spaceRoot, agentDir: this.resolvedRuntime?.agentDir },
-      contextFiles: session.resourceLoader.getAgentsFiles().agentsFiles.map((file) => ({
-        path: file.path, sha256: createHash("sha256").update(file.content).digest("hex"), bytes: Buffer.byteLength(file.content),
-      })),
-      // Hash the actual loaded strings, never re-read a possibly edited file at dispatch.
-      appendedInstructions: session.resourceLoader.getAppendSystemPrompt().map((text, index) => ({
-        index, source: "Pi resource loader append system prompt", sha256: createHash("sha256").update(text).digest("hex"), bytes: Buffer.byteLength(text),
-      })),
-      hostInstructionSources: ["src/local/agent/pi-runtime-config.ts", "src/local/agent/space-operations-guide.ts", "src/local/agent/tool-feedback-guide.ts"],
-      skills: session.resourceLoader.getSkills().skills.map((skill) => ({ name: skill.name, path: skill.filePath, source: skill.sourceInfo })),
-      extensions: session.resourceLoader.getExtensions().extensions.map((extension) => ({ path: extension.path, resolvedPath: extension.resolvedPath, source: extension.sourceInfo })),
-      tools: session.getAllTools().map((tool) => ({ name: tool.name, active: session.getActiveToolNames().includes(tool.name), source: tool.sourceInfo })),
+      dispatch: describeModelContextDispatch(context),
+      // These describe the loaded session, not inputs necessarily used by this
+      // call. Bounded inference, titles and Checks assemble separate contexts.
+      loadedSessionResources: {
+        contextFiles: session.resourceLoader.getAgentsFiles().agentsFiles.map((file) => ({
+          path: file.path, sha256: createHash("sha256").update(file.content).digest("hex"), bytes: Buffer.byteLength(file.content),
+        })),
+        // Hash loaded strings; never re-read possibly edited files at dispatch.
+        appendedInstructions: session.resourceLoader.getAppendSystemPrompt().map((text, index) => ({
+          index, source: "Pi resource loader append system prompt", sha256: createHash("sha256").update(text).digest("hex"), bytes: Buffer.byteLength(text),
+        })),
+        hostInstructionSources: ["src/local/agent/pi-runtime-config.ts", "src/local/agent/space-operations-guide.ts", "src/local/agent/tool-feedback-guide.ts"],
+        skills: session.resourceLoader.getSkills().skills.map((skill) => ({ name: skill.name, path: skill.filePath, source: skill.sourceInfo })),
+        extensions: session.resourceLoader.getExtensions().extensions.map((extension) => ({ path: extension.path, resolvedPath: extension.resolvedPath, source: extension.sourceInfo })),
+        tools: session.getAllTools().map((tool) => ({ name: tool.name, active: session.getActiveToolNames().includes(tool.name), source: tool.sourceInfo })),
+      },
     }));
     this.unsubscribeSession = session.subscribe((event) => {
       // Native event persistence remains Pi-owned. Only its UI projection is

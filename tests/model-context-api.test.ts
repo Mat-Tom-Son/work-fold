@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
@@ -7,6 +8,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { startLocalApi } from "../src/local/server.js";
+import { PiConversationClient } from "../src/local/agent/pi-client.js";
+import { ModelContextInspector } from "../src/local/agent/model-context-inspector.js";
 import { workFoldManagementScopeId } from "../src/local/state-paths.js";
 import type { ModelContextInspection, ModelContextInspectionState } from "../src/shared/model-context-inspection.js";
 
@@ -117,6 +120,40 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
   assert.ok(!JSON.stringify(detail.assembled).includes(marker), "provider payload and assembled context remain distinct");
   assert.ok(!JSON.stringify(detail).includes(secret), "auth and response headers never enter diagnostics");
   assert.ok(providerRequests.some((payload) => JSON.stringify(payload).includes(marker)), "observation does not replace the actual provider request");
+  assert.deepEqual((detail.provenance!.value as any).dispatch.tools,
+    (detail.assembled.value as any).tools.map((tool: any) => tool.name));
+
+  const inferenceInspector = new ModelContextInspector();
+  inferenceInspector.setEnabled(true);
+  const sessionOnlyInstructions = "SESSION-INSTRUCTIONS-NOT-SENT-TO-BOUNDED-INFERENCE";
+  const inferenceClient = new PiConversationClient("app-inference", space.spaceRoot, {
+    async resolveRuntime() {
+      return { ...await options.piRuntimeProvider.resolveRuntime(), assistantInstructions: sessionOnlyInstructions,
+        modelContextInspector: inferenceInspector };
+    },
+  });
+  try {
+    const beforeInference = providerRequests.length;
+    await inferenceClient.infer({ instructions: "Summarize the supplied notes.", input: "Synthetic workshop notes.", maxOutputBytes: 1024, timeoutMs: 5_000 });
+    assert.equal(providerRequests.length, beforeInference + 1);
+    const inference = inferenceInspector.get(inferenceInspector.list()[0]!.id)!;
+    assert.equal(inference.owner.purpose, "app_inference");
+    assert.equal(inference.truncated, false, JSON.stringify(inference.provenance?.omissions));
+    const assembled = inference.assembled.value as any;
+    const provenance = inference.provenance!.value as any;
+    assert.deepEqual(provenance.dispatch.tools, []);
+    assert.equal(provenance.dispatch.messageCount, 1);
+    assert.equal(provenance.dispatch.systemPrompt.sha256, createHash("sha256").update(assembled.systemPrompt).digest("hex"));
+    assert.ok(provenance.loadedSessionResources.tools.length > 0, "loaded tools remain discoverable as session metadata");
+    assert.ok(provenance.loadedSessionResources.appendedInstructions.some((item: any) =>
+      item.sha256 === createHash("sha256").update(`## Space instructions\n\n${sessionOnlyInstructions}`).digest("hex")));
+    assert.equal("tools" in assembled, false);
+    assert.ok(!JSON.stringify(providerRequests.at(-1)).includes(sessionOnlyInstructions));
+    assert.ok(!JSON.stringify(inference).includes(secret));
+  } finally {
+    inferenceInspector.setEnabled(false);
+    await inferenceClient.stop();
+  }
 
   const baselineResolutions = runtimeResolutions;
   const baselineRequests = providerRequests.length;

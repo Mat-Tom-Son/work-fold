@@ -186,12 +186,18 @@ more than once; bounded samples remain attached to that call without pretending
 to count all HTTP retries. Automatic compaction is labeled separately using
 Pi's lifecycle context where available; unknown purpose stays unknown.
 
-Provenance comes from the loaded runtime at dispatch: Pi version, runtime
-paths, context-file paths and loaded-content digests, appended instruction
-digests, Skill/Extension origins and active tool sources. It never reconstructs
-past context from files that may since have changed. Image metadata records
+Provenance separates the actual dispatch's system-prompt digest and tool names
+from loaded session resources: Pi version, runtime paths, context-file paths
+and loaded-content digests, appended instruction digests, Skill/Extension
+origins and session-active tool sources. Loaded resources are not proof that
+an auxiliary request used them; bounded app inference, titles and Checks
+assemble separate contexts. It never reconstructs past context from files that
+may since have changed. Image metadata records
 available identity and bounded digests of encoded content without retaining
-image bytes. Missing or truncated provenance remains explicit.
+image bytes. Missing or truncated provenance remains explicit. Ordinary
+undefined JSON object fields are absent, undefined array entries become null,
+and shared references are copied within the same bounds. Actual cycles and
+unsupported values remain explicit omissions.
 
 Recording is bounded per request and across the app, lives only in memory,
 and has an age limit. The UI shows omissions, evictions and absent capture

@@ -34,8 +34,8 @@ human setup are separate evidence.
 | A06 | Tool Lab / Chrome | Edit a synthetic registration form in a dedicated browser tab; verify final state; reconnect | Native Chrome observation/action, correct isolated tab, no duplicate submit on recovery | Setup needed: installed readiness check confirms companion is not connected |
 | A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Setup needed: installed helper reports Accessibility and Screen Recording not verified |
 | A08 | Tool Lab / documents | Detect and fix a deliberately clipped PDF heading and overlapping footer | Model receives images if supported; two renders; final source/image provenance matches; previews cleaned | Passed after manual recovery and evidence correction: two image paths, readable corrected PDF, matching hashes; initial allocation failure retained |
-| A09 | Two Chats | Run independent document jobs, stop one, switch tabs and reopen app | Stopped worker has no late write; sibling completes; files and task states survive restart without replay | 0.4.30 candidate overlap/Stop/sibling passed; candidate restart remains pending; earlier failures retained |
-| A10 | Tool Lab / Space app | Build a small workshop notes app with a bounded inference action | App installs, saves a record, invokes app-owned inference, displays result and receipt | 0.4.30 candidate: one new inference, two Answered rows, zero Running; saved notes restored on panel reopen |
+| A09 | Two Chats | Run independent document jobs, stop one, switch tabs and reopen app | Stopped worker has no late write; sibling completes; files and task states survive restart without replay | 0.4.30 candidate overlap/Stop/sibling and restart passed; earlier failures retained |
+| A10 | Tool Lab / Space app | Build a small workshop notes app with a bounded inference action | App installs, saves a record, invokes app-owned inference, displays result and receipt | 0.4.30 candidate: one new inference, two Answered rows, zero Running; notes/summary survived restart without another call |
 | A11 | Settings | Change scoped model, inspect connection, edit instructions, navigate every page | Scope correct after async loads/saves; credentials protected; no stale responses, clear errors | Passed in source DOM tests and native development app; see verification below |
 | A12 | Settings | Keyboard, narrow window, light/dark, long model names and save/error states | No clipping or horizontal overflow; visible focus; correct tab navigation and focus return | Passed: CUA light/dark, 320/390/700/940 widths, keyboard focus and scrolling |
 
@@ -373,8 +373,8 @@ one-page PDF has SHA-256
 `1fd7cdf21e5cae16a7369477ab7a7635c7abfe7a724f1c67b2b3a3e3c8644a85`.
 Independent text extraction found the matching run id, and the root reviewer's
 Preview inspection confirmed a readable page with that id. This verifies
-concurrent execution, prompt Stop, sibling isolation and minimization; full app
-restart/no-replay verification for this candidate remains pending.
+concurrent execution, prompt Stop, sibling isolation and minimization. The
+subsequent full app restart is checked separately below.
 
 **A10 — one call, one row.** One Summarize click added exactly two audit events,
 accepted and completed, for call `6321b97f-a523-47dd-a3f6-ac5ba52d149b`. It used
@@ -383,8 +383,31 @@ accepted and completed, for call `6321b97f-a523-47dd-a3f6-ac5ba52d149b`. It used
 has four events for two distinct completed calls. The trusted UI showed two
 Answered rows and zero Running rows. Saved notes remained after closing and
 reopening the app panel, and a subsequent journal read found no additional
-inference. This is panel persistence, not a candidate restart test; runtime
-usage is not an independently checked provider-account balance.
+inference. That panel check preceded the full restart below; runtime usage is
+not an independently checked provider-account balance.
+
+**Cold restart.** The root reviewer quit normally and reopened the same frozen
+candidate. A04 still showed Finished, the exact answer and its deliverable,
+with no open question; A09's stopped Chat remained Stopped; A10's notes and
+11:15:30 summary remained saved. Independent read-only checks found all four
+turns' terminal records unchanged, one A04 continuation, one turn per A09
+request and exactly one document call in each tested native session. All A04
+fixture/output hashes and the sibling PDF hash were unchanged, the stopped
+completion marker remained absent, and the inference journal still contained
+four events for two call ids. The candidate ASAR hash also remained unchanged.
+No replay was observed.
+
+**S18 — Inspector fidelity.** The candidate's developer-only inspector correctly
+showed the bounded app prompt with no tools, but flagged ordinary undefined
+metadata and shared source objects as truncation. Its provenance also did not
+distinguish loaded session resources from the actual call. The source serializer
+now follows JSON's optional-field semantics, distinguishes shared references
+from real cycles and preserves its existing bounds. Provenance separates the
+dispatch's prompt digest/tool names from loaded session resources. Native Pi
+integration verifies that session instructions and active tools are absent
+from the actual bounded request. Forty-one focused diagnostic, API, renderer and
+bounded-inference tests and `npm run check` passed. This correction changes
+diagnostic copies only and is not part of frozen candidate `8108655`.
 
 Consolidated evidence is in ignored
 `out/installed-acceptance/candidate-0430-verification.json`: source-log and ASAR
@@ -393,5 +416,5 @@ call ids, turn usage, fixture hashes and interval calculations. Root UI/Preview
 observations are labeled separately from independently checked native records.
 Earlier failed attempts remain intact. Subsequent Chrome onboarding and signed
 Computer-helper changes are outside frozen commit `8108655`; they require a
-new candidate and their own live acceptance. Final Chrome acceptance, full
-candidate restart verification and public desktop release are not claimed here.
+new candidate and their own live acceptance. Final Chrome acceptance and public
+desktop release are not claimed here.

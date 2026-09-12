@@ -9,6 +9,7 @@ import type {
 } from "../../shared/model-context-inspection.js";
 
 type StreamFunction = AgentSession["agent"]["streamFn"];
+type StreamContext = Parameters<StreamFunction>[1];
 type InspectionSession = { agent: { streamFn: StreamFunction } };
 interface Capture {
   payload(value: unknown): void;
@@ -148,14 +149,14 @@ export class ModelContextInspector {
   }
 }
 
-const installed = new WeakMap<object, { original: StreamFunction; wrapped: StreamFunction; inspector: ModelContextInspector; getOwner: () => ModelContextOwner; getProvenance?: () => unknown }>();
+const installed = new WeakMap<object, { original: StreamFunction; wrapped: StreamFunction; inspector: ModelContextInspector; getOwner: () => ModelContextOwner; getProvenance?: (context: StreamContext) => unknown }>();
 
 /** Preserve native transport and hook semantics; observing never consumes a stream. */
 export function installModelContextInspection(
   session: InspectionSession,
   inspector: ModelContextInspector,
   getOwner: () => ModelContextOwner,
-  getProvenance?: () => unknown,
+  getProvenance?: (context: StreamContext) => unknown,
 ): () => void {
   const previous = installed.get(session.agent);
   if (previous && session.agent.streamFn === previous.wrapped) {
@@ -167,7 +168,8 @@ export function installModelContextInspection(
   const original = session.agent.streamFn;
   const binding = { original, wrapped: original, inspector, getOwner, getProvenance };
   const wrapped: StreamFunction = function (this: unknown, model, context, options) {
-    const capture = safely(() => binding.inspector.begin(binding.getOwner(), model, context, binding.getProvenance));
+    const capture = safely(() => binding.inspector.begin(binding.getOwner(), model, context,
+      binding.getProvenance ? () => binding.getProvenance!(context) : undefined));
     if (!capture) return original.call(this, model, context, options);
     const priorPayload = options?.onPayload;
     const priorResponse = options?.onResponse;
@@ -245,9 +247,51 @@ function own(value: unknown, key: string): unknown {
   return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
+/** Dispatch metadata must not evaluate Extension-supplied accessors or proxies. */
+export function describeModelContextDispatch(context: unknown): Record<string, ModelContextValue> {
+  const unavailable = Symbol("unavailable");
+  const read = (value: unknown, key: string): unknown => {
+    if (!value || typeof value !== "object" || types.isProxy(value)) return unavailable;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== null && prototype !== Object.prototype && prototype !== Array.prototype) return unavailable;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor ? "value" in descriptor ? descriptor.value : unavailable : undefined;
+  };
+  const missing = "Unavailable: no plain data property.";
+  const systemPrompt = read(context, "systemPrompt");
+  let prompt: ModelContextValue = systemPrompt === undefined ? null : missing;
+  if (typeof systemPrompt === "string") {
+    const limit = workFoldModelContextLimits.digestBytes;
+    if (systemPrompt.length > limit) prompt = { digest: "omitted: size limit" };
+    else {
+      const bytes = Buffer.byteLength(systemPrompt);
+      prompt = bytes > limit ? { bytes, digest: "omitted: size limit" }
+        : { bytes, sha256: createHash("sha256").update(systemPrompt).digest("hex") };
+    }
+  }
+  const toolValue = read(context, "tools");
+  let tools: ModelContextValue = toolValue === undefined ? [] : missing;
+  if (!types.isProxy(toolValue) && Array.isArray(toolValue)) {
+    const length = read(toolValue, "length");
+    if (typeof length === "number" && length > workFoldModelContextLimits.nodes) tools = "Unavailable: tool count exceeds inspection limit.";
+    else if (typeof length === "number") {
+      const names: string[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const name = read(read(toolValue, String(index)), "name");
+        if (typeof name !== "string" || name.length > 256) break;
+        names.push(name);
+      }
+      tools = names.length === length ? names : missing;
+    }
+  }
+  const messages = read(context, "messages");
+  const count = !types.isProxy(messages) && Array.isArray(messages) ? read(messages, "length") : unavailable;
+  return { systemPrompt: prompt, tools, messageCount: typeof count === "number" ? count : missing };
+}
+
 function captureValue(value: unknown, limits: ModelContextInspectionLimits, byteBudget: number, capturedAt: number): ModelContextSnapshot {
   const omissions = new Set<string>();
-  const seen = new WeakSet<object>();
+  const ancestors = new WeakSet<object>();
   let nodes = 0;
   let available = byteBudget;
   let digestRemaining = limits.digestBytes;
@@ -299,17 +343,17 @@ function captureValue(value: unknown, limits: ModelContextInspectionLimits, byte
     }
     if (typeof input !== "object") return charge(omit(`Unsupported ${typeof input} value.`));
     if (types.isProxy(input)) return charge(omit("Proxy object not inspected."));
-    if (seen.has(input)) return charge(omit("Repeated or circular object."));
+    if (ancestors.has(input)) return charge(omit("Circular object."));
     if (depth >= limits.depth) return charge(omit("Snapshot depth limit reached."));
     if (ArrayBuffer.isView(input) || input instanceof ArrayBuffer) return charge(omit("Binary data not inspected."));
     const prototype = Object.getPrototypeOf(input);
     if (prototype !== null && prototype !== Object.prototype && prototype !== Array.prototype) return charge(omit("Non-plain object not inspected."));
-    seen.add(input);
     const data = own(input, "data");
     const mime = own(input, "mimeType") ?? own(input, "media_type");
     if (typeof data === "string" && (own(input, "type") === "image" || own(input, "type") === "base64" || typeof mime === "string" && mime.startsWith("image/"))) {
       return image(data, typeof mime === "string" ? mime : "image/unknown");
     }
+    ancestors.add(input);
     const result: ModelContextValue[] | { [key: string]: ModelContextValue } = Array.isArray(input) ? [] : Object.create(null);
     let incompleteArray = false;
     available -= 2;
@@ -321,6 +365,12 @@ function captureValue(value: unknown, limits: ModelContextInspectionLimits, byte
         omit(nodes >= limits.nodes ? "Snapshot node limit reached." : "Snapshot byte limit reached.");
         incompleteArray = true;
         break;
+      }
+      // JSON leaves undefined object fields out and preserves array positions
+      // as null. Optional transport metadata is not lost request content.
+      if (!Array.isArray(result) && "value" in descriptor && descriptor.value === undefined) {
+        nodes += 1;
+        continue;
       }
       // Property names are identity too: truncating them can merge two fields
       // or remove a credential suffix before redaction. Omit the whole field.
@@ -353,12 +403,13 @@ function captureValue(value: unknown, limits: ModelContextInspectionLimits, byte
         ? charge(omit("Accessor property not evaluated."))
         : /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret|credential|cookie|private[_-]?key|^token$)/i.test(key)
           ? charge(omit("Credential-like field redacted."))
-          : visit(descriptor.value, depth + 1);
+          : visit(descriptor.value === undefined && Array.isArray(result) ? null : descriptor.value, depth + 1);
       if (Array.isArray(result)) result.push(item); else result[key] = item;
     }
     if (Array.isArray(result) && !incompleteArray && result.length < (own(input, "length") as number)) {
       omit("Sparse array remainder omitted to preserve indices.");
     }
+    ancestors.delete(input);
     return result;
   };
   const captured = visit(value, 0);
