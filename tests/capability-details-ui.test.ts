@@ -23,7 +23,7 @@ const assets = registerHooks({
     return next(url, context);
   },
 });
-const { CapabilityDetailsDialog } = await import("../web-local/src/components/panes/CapabilitiesPane.js");
+const { CapabilitiesPane, CapabilityDetailsDialog } = await import("../web-local/src/components/panes/CapabilitiesPane.js");
 assets.deregister();
 type Item = Parameters<typeof CapabilityDetailsDialog>[0]["item"];
 function included(id: string): Item {
@@ -94,6 +94,93 @@ test("ready included tools need no repeated setup copy and MCP keeps connection 
   assert.doesNotMatch(dom.container.textContent!, /redundant success explanation/);
   await dom.render(null);
   assert.deepEqual(operations, ["open", "check", "close"]);
+});
+
+test("Installed separates cold readiness from native loading and keeps a newer setup result through late summary reads", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  const summaryReads: Array<(value: Response) => void> = [];
+  const writes: unknown[] = [];
+  let failingCheck = false;
+  const tools = [included("chrome"), included("computer"), { ...included("documents"), enabled: false, status: "disabled" as const }];
+  const catalog = {
+    diagnostics: [], packages: [], skills: [], tools: [],
+    extensions: tools.map((item) => ({ ...item, included: undefined, source: { scope: "user", origin: "top-level", source: "builtin" } })),
+    resources: tools.map((item) => ({ kind: "extensions", path: item.path, enabled: item.enabled, included: item.included, metadata: { scope: "user", origin: "top-level", source: "builtin" } })),
+  };
+  globalThis.fetch = (async (input, init) => {
+    if (init?.method === "POST") {
+      writes.push(JSON.parse(String(init.body)));
+      if (failingCheck) return Response.json({ error: "Companion probe failed" }, { status: 503 });
+      return Response.json({ status: { id: "chrome", state: "ready", checkedAt: "2026-09-12T15:01:00.000Z", detail: "Authenticated companion responded." } });
+    }
+    if (String(input).includes("included-tools")) return failingCheck
+      ? Response.json({ tools: [{ id: "chrome", state: "unknown", checkedAt: "2026-09-12T15:03:00.000Z", detail: "No current evidence" }] })
+      : new Promise<Response>((resolve) => summaryReads.push(resolve));
+    return Response.json(catalog);
+  }) as typeof fetch;
+  const props: Parameters<typeof CapabilitiesPane>[0] = {
+    space: { id: "first", name: "Workshop" } as never, status: { configured: true } as never,
+    view: "installed", onOpenSettings() {}, onError(message) { assert.fail(message ?? "Unexpected catalog error"); }, onViewChange() {},
+  };
+  await dom.render(createElement(CapabilitiesPane, props));
+  const card = (name: string) => [...dom.container.querySelectorAll<HTMLElement>(".capabilities-resource-card")].find((item) => item.querySelector("strong")?.textContent === name)!;
+  await dom.waitFor(() => Boolean(card("Chrome")));
+  assert.match(card("Chrome").textContent!, /Not checked/);
+  assert.match(card("Computer control").textContent!, /Not checked/);
+  assert.match(card("Documents").textContent!, /Turned off/);
+  assert.doesNotMatch(card("Chrome").textContent!, /Loaded|Ready/);
+  assert.doesNotMatch(dom.container.querySelector(".capabilities-health")!.textContent!, /Everything loaded/);
+  assert.deepEqual(writes, [], "catalog inspection must not check, launch, or configure an included tool");
+
+  await dom.act(() => card("Chrome").querySelector("button")!.click());
+  await dom.waitFor(() => summaryReads.length === 2);
+  assert.doesNotMatch(dom.container.querySelector(".capability-details-dialog .modal-title")!.textContent!, /Loaded/);
+  assert.match(dom.container.querySelector(".capability-technical-details")!.textContent!, /ExtensionLoadedEnabledYes/);
+  const check = [...dom.container.querySelectorAll<HTMLButtonElement>(".included-tool-setup button")].find((button) => button.textContent === "Check")!;
+  await dom.act(() => { check.click(); check.click(); });
+  await dom.waitFor(() => card("Chrome").textContent!.includes("Ready"));
+  assert.deepEqual(writes, [{ spaceId: "first", id: "chrome", action: "check" }]);
+  await dom.act(() => {
+    for (const complete of summaryReads) complete(Response.json({ tools: [{ id: "chrome", state: "unknown", checkedAt: "2026-09-12T15:02:00.000Z", detail: "A snapshot taken while the earlier-started explicit probe was running" }] }));
+  });
+  await dom.settle();
+  assert.match(card("Chrome").textContent!, /Ready/);
+  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Ready");
+  failingCheck = true;
+  await dom.act(() => check.click());
+  await dom.waitFor(() => dom.container.textContent!.includes("Companion probe failed"));
+  await dom.settle();
+  assert.match(card("Chrome").textContent!, /Not checked/);
+  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Not checked");
+  await dom.act(() => [...dom.container.querySelectorAll<HTMLButtonElement>(".capability-dialog-footer button")].find((button) => button.textContent === "Done")!.click());
+  assert.match(card("Chrome").textContent!, /Not checked/, "closing details must not restore the last successful badge");
+});
+
+test("late readiness responses cannot cross Spaces or survive a closed setup owner", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  let completeOld: ((value: Response) => void) | undefined;
+  let completeCheck: ((value: Response) => void) | undefined;
+  const delivered: string[] = [];
+  globalThis.fetch = (async (input, init) => {
+    if (init?.method === "POST") return new Promise<Response>((resolve) => { completeCheck = resolve; });
+    if (String(input).includes("spaceId=first")) return new Promise<Response>((resolve) => { completeOld = resolve; });
+    return Response.json({ tools: [{ id: "chrome", state: "setup_required", checkedAt: "2026-09-12T15:02:00.000Z", detail: "Load the companion." }] });
+  }) as typeof fetch;
+  const props = { item: included("chrome"), busy: false, onClose() {}, onReadinessChange: (status: { state: string } | null) => { if (status) delivered.push(status.state); } };
+  await dom.render(createElement(CapabilityDetailsDialog, { ...props, spaceId: "first" }));
+  await dom.act(() => [...dom.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Check")!.click());
+  await dom.render(createElement(CapabilityDetailsDialog, { ...props, spaceId: "second" }));
+  await dom.waitFor(() => delivered.length === 1);
+  await dom.act(() => {
+    completeOld!(Response.json({ tools: [{ id: "chrome", state: "ready", checkedAt: "2026-09-12T15:03:00.000Z" }] }));
+    completeCheck!(Response.json({ status: { id: "chrome", state: "ready", checkedAt: "2026-09-12T15:03:00.000Z" } }));
+  });
+  await dom.settle();
+  assert.deepEqual(delivered, ["setup_required"]);
+  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Setup needed");
+  assert.match(dom.container.textContent!, /Load the companion/);
 });
 
 test("real detail CSS keeps long paths above tool lists and preserves scrolling at narrow and short sizes", { timeout: 60_000 }, async (t) => {

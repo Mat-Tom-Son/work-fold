@@ -118,8 +118,17 @@ successful module import alone does not prove an operation works. An MCP connect
 performs bounded native connect and tool/resource/prompt discovery, without
 invoking a server tool. Chrome checks its authenticated companion; computer
 checks report actual helper/permission state. Web reports configured or unknown
-until the relevant operation supplies evidence. Setup and failures remain
-visible in the same tool detail rather than a new navigation destination.
+until the relevant operation supplies evidence; the default keyless Web path
+is available without setup. Included cards read the existing cold status
+summary and show Ready, Setup needed, Unavailable, or Not checked. Native
+enabled/load state stays in Technical details; loading an Extension never
+marks its connection ready. Opening the list launches no helper, browser, or
+MCP server. Readiness reflects the last check rather than continuous
+monitoring; reopening the Installed view rereads the host's five-minute
+cache. Explicit checks update the
+owning list, invalidate prior evidence before work starts, and stale responses
+cannot cross Spaces or overwrite a newer check. Setup and failures remain visible in
+the same tool detail rather than a new navigation destination.
 
 Enable/disable persists through Pi's native filters, preserving unrelated
 package selections, manifest defaults, resource aliases and scopes. Desktop

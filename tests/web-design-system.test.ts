@@ -136,7 +136,6 @@ test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab
   // Catalog rows get a network-free identity tile and name where links go.
   assert.match(capabilitiesSource, /function CapabilityMonogram/);
   assert.match(capabilitiesSource, /function GitHubMark/);
-  assert.match(capabilitiesSource, />Details<\/button>/);
   assert.doesNotMatch(capabilitiesSource, />Review<\/button>|Install…/);
   assert.doesNotMatch(capabilitiesSource, /Installation location|Install to</);
   assert.match(appSource, /openAssistantToolsSurfaceTab\(space,\s*"installed"\)/);

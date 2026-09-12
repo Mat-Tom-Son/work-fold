@@ -1,4 +1,4 @@
-import type { IncludedToolDefinition } from "../../../../src/shared/included-tools";
+import type { IncludedToolDefinition, IncludedToolId, IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { IncludedToolSetup } from "./IncludedToolSetup";
 import {
   useEffect,
@@ -34,6 +34,7 @@ import { api, apiForm, errorText, safeExternalHref } from "../../lib/api";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { externalLinkHost, monogramHue, monogramInitials } from "../../lib/capability-identity";
 import { createSpaceOperationGate, type SpaceOperationToken } from "../../lib/space-operation-gate";
+import { includedToolReadiness } from "../../lib/included-tool-readiness";
 import type {
   AgentCatalog,
   AgentCapabilityOrigin,
@@ -118,6 +119,7 @@ export function CapabilitiesPane({
   onViewChange: (view: AssistantToolsView) => void;
 }) {
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
+  const [readiness, setReadiness] = useState<{ spaceId: string; tools: IncludedToolStatus[]; error?: string } | null>(null);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<CapabilityTypeFilter>("all");
   /** Where the next install lands; chosen in the review step and remembered for the next one. */
@@ -141,9 +143,11 @@ export function CapabilitiesPane({
   const installedViewRef = useRef<HTMLElement>(null);
   const discoverViewRef = useRef<HTMLElement>(null);
   const catalogRequestRef = useRef(0);
+  const readinessRevisions = useRef(new Map<IncludedToolId, number>());
   const discoverRequestRef = useRef(0);
   const operationGateRef = useRef(createSpaceOperationGate(space.id));
   operationGateRef.current.activate(space.id);
+  const readinessOwner = operationGateRef.current.capture();
 
   useEffect(() => {
     setCatalog(null);
@@ -164,6 +168,38 @@ export function CapabilitiesPane({
     const timer = window.setTimeout(() => void loadDiscover(true), 220);
     return () => window.clearTimeout(timer);
   }, [view, query, typeFilter, discoverSort, fixtureMode]);
+
+  useEffect(() => {
+    if (fixtureMode || view !== "installed") return;
+    const operation = operationGateRef.current.capture();
+    const controller = new AbortController();
+    const revisions = new Map(readinessRevisions.current);
+    void api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(space.id)}`, { signal: controller.signal })
+      .then(({ tools }) => {
+        if (!controller.signal.aborted && operationGateRef.current.isCurrent(operation)) {
+          setReadiness((current) => {
+            const merged = new Map((current?.spaceId === operation.spaceId ? current.tools : []).map((tool) => [tool.id, tool]));
+            for (const tool of tools) {
+              if ((revisions.get(tool.id) ?? 0) === (readinessRevisions.current.get(tool.id) ?? 0)) merged.set(tool.id, tool);
+            }
+            return { spaceId: operation.spaceId, tools: [...merged.values()] };
+          });
+        }
+      })
+      .catch((caught) => {
+        if (!controller.signal.aborted && operationGateRef.current.isCurrent(operation)) setReadiness((current) => ({ spaceId: operation.spaceId, tools: current?.spaceId === operation.spaceId ? current.tools : [], error: errorText(caught) }));
+      });
+    return () => controller.abort();
+  }, [fixtureMode, space.id, view]);
+
+  function rememberReadiness(id: IncludedToolId, tool: IncludedToolStatus | null, operation: SpaceOperationToken) {
+    if (!operationGateRef.current.isCurrent(operation)) return;
+    readinessRevisions.current.set(id, (readinessRevisions.current.get(id) ?? 0) + 1);
+    setReadiness((current) => {
+      const previous = current?.spaceId === operation.spaceId ? current.tools : [];
+      return { spaceId: operation.spaceId, tools: [...previous.filter((item) => item.id !== id), ...(tool ? [tool] : [])] };
+    });
+  }
 
   async function loadCatalog(operation: SpaceOperationToken = operationGateRef.current.capture()) {
     const requestId = ++catalogRequestRef.current;
@@ -231,7 +267,9 @@ export function CapabilitiesPane({
   const spaceResources = visibleResources.filter((item) => item.scope === "project");
   const installedTotal = resources.length;
   const installedVisible = visibleResources.length;
-  const installedIssues = resources.filter((item) => ["error", "blocked", "missing"].includes(item.status)).length;
+  const includedStatuses = readiness?.spaceId === space.id ? readiness.tools : [];
+  const installedIssues = resources.filter((item) => ["error", "blocked", "missing"].includes(item.status)
+    || (item.enabled && item.included && ["setup_required", "unavailable"].includes(includedStatuses.find((status) => status.id === item.included!.id)?.state ?? "unknown"))).length;
   const hasInstalledQuery = Boolean(query.trim()) || typeFilter !== "all";
   const catalogHref = safeExternalHref(discoverCatalogUrl);
 
@@ -461,19 +499,20 @@ export function CapabilitiesPane({
             onTypeChange={setTypeFilter}
             onDiscoverSortChange={setDiscoverSort}
             status={catalog ? (
-              <p className={`capabilities-health${installedIssues ? " needs-attention" : " ready"}`} role="status">
-                {installedIssues ? <Warning16Regular aria-hidden="true" /> : <ShieldCheckmark16Regular aria-hidden="true" />}
+              <p className={`capabilities-health${installedIssues ? " needs-attention" : ""}`} role="status">
+                {installedIssues ? <Warning16Regular aria-hidden="true" /> : null}
                 <span>{installedIssues
                   ? `${installedIssues} ${installedIssues === 1 ? "tool needs" : "tools need"} attention`
                   : hasInstalledQuery
                     ? `Showing ${installedVisible} of ${installedTotal}`
                     : installedTotal
-                      ? `Everything loaded · ${installedTotal} ${installedTotal === 1 ? "tool" : "tools"}`
+                      ? `${installedTotal} ${installedTotal === 1 ? "tool" : "tools"}`
                       : "Nothing installed yet"}</span>
               </p>
             ) : null}
           />
           {!catalog ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading Skills and Extensions</div> : null}
+          {readiness?.spaceId === space.id && readiness.error ? <div className="inline-error" role="alert">Setup status could not be loaded: {readiness.error}</div> : null}
           {catalog && !installedVisible && installedTotal ? <CapabilityEmpty title="No matching tools" /> : null}
           {catalog ? (
             <div className="capabilities-scope-groups">
@@ -481,6 +520,7 @@ export function CapabilitiesPane({
                 scope="global"
                 spaceName={space.name}
                 items={personalResources}
+                includedStatuses={includedStatuses}
                 hiddenByQuery={hasInstalledQuery && personalResources.length === 0 && resources.some((item) => item.scope === "global")}
                 onSelect={setSelectedCapability}
                 onAdd={() => openAddDialog("global")}
@@ -489,6 +529,7 @@ export function CapabilitiesPane({
                 scope="project"
                 spaceName={space.name}
                 items={spaceResources}
+                includedStatuses={includedStatuses}
                 hiddenByQuery={hasInstalledQuery && spaceResources.length === 0 && resources.some((item) => item.scope === "project")}
                 onSelect={setSelectedCapability}
                 onAdd={() => openAddDialog("project")}
@@ -563,6 +604,7 @@ export function CapabilitiesPane({
         <CapabilityDetailsDialog
           item={selectedCapability}
           spaceId={space.id}
+          onReadinessChange={(tool) => { if (selectedCapability.included) rememberReadiness(selectedCapability.included.id, tool, readinessOwner); }}
           busy={busy}
           onClose={() => { if (!busy) setSelectedCapability(null); }}
           {...(canRemoveSkill(selectedCapability) ? { onRemove: () => void removeSkill(selectedCapability) } : {})}
@@ -618,10 +660,11 @@ function CapabilityToolbar({
  * One rung of the hierarchy: Personal tools serve the fold and every Space;
  * This Space tools live in its folder and travel with it.
  */
-function ScopeGroup({ scope, spaceName, items, hiddenByQuery, onSelect, onAdd }: {
+function ScopeGroup({ scope, spaceName, items, includedStatuses, hiddenByQuery, onSelect, onAdd }: {
   scope: AgentCapabilityScope;
   spaceName: string;
   items: InstalledCapability[];
+  includedStatuses: IncludedToolStatus[];
   hiddenByQuery: boolean;
   onSelect: (item: InstalledCapability) => void;
   onAdd: () => void;
@@ -639,7 +682,7 @@ function ScopeGroup({ scope, spaceName, items, hiddenByQuery, onSelect, onAdd }:
         <span className="capabilities-scope-count">{items.length}</span>
       </div>
       {items.length ? (
-        <div className="capabilities-resource-list">{items.map((item) => <InstalledCapabilityCard key={item.id} item={item} onSelect={() => onSelect(item)} />)}</div>
+        <div className="capabilities-resource-list">{items.map((item) => <InstalledCapabilityCard key={item.id} item={item} readiness={includedStatuses.find((status) => status.id === item.included?.id)} onSelect={() => onSelect(item)} />)}</div>
       ) : (
         <div className="capabilities-scope-empty">
           <p>{hiddenByQuery ? "Nothing here matches the search." : "Nothing here yet."}</p>
@@ -746,12 +789,18 @@ function isCoreTool(tool: AgentTool): boolean {
   return tool.core === true || tool.kind === "core" || (tool.core === undefined && tool.kind === undefined && /^(?:pi|built-?in)$/i.test(tool.source.trim()));
 }
 
-function InstalledCapabilityCard({ item, onSelect }: { item: InstalledCapability; onSelect: () => void }) {
+function InstalledCapabilityCard({ item, readiness, onSelect }: { item: InstalledCapability; readiness?: IncludedToolStatus; onSelect: () => void }) {
+  const state = !item.enabled ? { label: "Turned off", tone: "", setup: false }
+    : ["error", "blocked", "missing"].includes(item.status) ? { label: statusLabel(item.status), tone: "error", setup: false }
+    : item.included ? includedToolReadiness(readiness)
+    : { label: statusLabel(item.status), tone: item.status === "loaded" ? "enabled" : "", setup: false };
+  const checkedAt = readiness && readiness.id !== "web" && readiness.state !== "unknown" && Number.isFinite(Date.parse(readiness.checkedAt))
+    ? `Checked ${new Date(readiness.checkedAt).toLocaleString()}` : undefined;
   return (
     <article className="capabilities-resource-card">
       <CapabilityMonogram name={item.name} kind={item.kind} />
       <div className="capabilities-resource-copy"><div className="capabilities-resource-title"><strong>{item.name}</strong><span>{item.kind === "skill" ? "Skill" : "Extension"}</span></div>{item.description ? <p>{item.description}</p> : null}{item.kind === "extension" ? <small>{item.tools.length} tools · {item.commands.length} commands</small> : null}</div>
-      <div className="capabilities-resource-actions"><span className={`professional-status-badge ${item.status === "loaded" ? "enabled" : item.status === "error" ? "error" : ""}`}>{statusLabel(item.status)}</span><button className="professional-button professional-button-secondary" type="button" onClick={onSelect}>Details</button></div>
+      <div className="capabilities-resource-actions"><span className={`professional-status-badge ${state.tone}`} title={checkedAt}>{state.label}</span><button className="professional-button professional-button-secondary" type="button" onClick={onSelect}>{state.setup ? "Set up" : "Details"}</button></div>
     </article>
   );
 }
@@ -856,19 +905,20 @@ function InstallReviewDialog({ pending, spaceName, busy, onClose, onScopeChange,
   );
 }
 
-export function CapabilityDetailsDialog({ item, spaceId, busy, onClose, onRemove, onToggle }: { item: InstalledCapability; spaceId: string; busy: boolean; onClose: () => void; onRemove?: () => void; onToggle?: () => void }) {
+export function CapabilityDetailsDialog({ item, spaceId, busy, onClose, onRemove, onToggle, onReadinessChange }: { item: InstalledCapability; spaceId: string; busy: boolean; onClose: () => void; onRemove?: () => void; onToggle?: () => void; onReadinessChange?: (status: IncludedToolStatus | null) => void }) {
   const dialogRef = useModalDialog({ onClose, blocked: busy });
   return (
     <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="capability-dialog capability-details-dialog" role="dialog" aria-modal="true" aria-labelledby="capability-details-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-title"><div><h2 id="capability-details-title">{item.name}</h2><p>{item.kind === "skill" ? "Skill" : "Extension"} · {scopeLabel(item.scope)} · {statusLabel(item.status)}</p></div><button className="minimal-icon-button" type="button" onClick={onClose} aria-label="Close details"><Dismiss20Regular /></button></div>
+        <div className="modal-title"><div><h2 id="capability-details-title">{item.name}</h2><p>{item.kind === "skill" ? "Skill" : "Extension"} · {scopeLabel(item.scope)}{item.included ? "" : ` · ${statusLabel(item.status)}`}</p></div><button className="minimal-icon-button" type="button" onClick={onClose} aria-label="Close details"><Dismiss20Regular /></button></div>
         <div className="capability-dialog-body">
-          {item.included ? <IncludedToolSetup key={`${spaceId}:${item.included.id}`} spaceId={spaceId} tool={item.included} enabled={item.enabled} /> : null}
+          {item.included ? <IncludedToolSetup key={`${spaceId}:${item.included.id}`} spaceId={spaceId} tool={item.included} enabled={item.enabled} onStatusChange={onReadinessChange} /> : null}
           {item.diagnostics.length ? <div className="professional-diagnostics" role="status">{item.diagnostics.map((diagnostic, index) => <span className={diagnostic.type} key={`${diagnostic.message}:${index}`}>{diagnostic.message}</span>)}</div> : null}
           <details className="capability-technical-details">
             <summary>Technical details</summary>
             <div className="capability-technical-body">
               <dl className="capability-review-facts">
+                {item.included ? <><div><dt>Extension</dt><dd>{statusLabel(item.status)}</dd></div><div><dt>Enabled</dt><dd>{item.enabled ? "Yes" : "No"}</dd></div></> : null}
                 {item.description && !item.included ? <div><dt>Description</dt><dd>{item.description}</dd></div> : null}
                 <div><dt>Source</dt><dd>{provenanceLabel(item)}</dd></div>
                 <div><dt>Path</dt><dd><code>{item.path}</code></dd></div>

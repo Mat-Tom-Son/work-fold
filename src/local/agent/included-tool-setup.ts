@@ -6,7 +6,7 @@ import { resolvePiRuntime, type PiRuntimeProvider, type ResolvedPiRuntime } from
 import { includedToolDefinitions, type IncludedToolId, type IncludedToolStatus } from "../../shared/included-tools.js";
 
 const jiti = createJiti(import.meta.url, { moduleCache: true });
-const checks = new Map<string, IncludedToolStatus>();
+const checks = new Map<string, { revision: number; status?: IncludedToolStatus }>();
 const checkKey = (runtime: ResolvedPiRuntime, id: IncludedToolId) => `${runtime.config.includedTools?.stateRoot}:${id}`;
 
 /** Catalog inspection never starts a helper, a browser connection, or an MCP server. */
@@ -18,7 +18,7 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
     if (id === "web") return runtime.authStorage.get("work-fold:web:brave")?.type === "api_key"
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
       : { id, state: "ready", detail: "DuckDuckGo search and public page reading are available without setup.", checkedAt: now };
-    const checked = checks.get(checkKey(runtime, id));
+    const checked = checks.get(checkKey(runtime, id))?.status;
     return checked && Date.now() - Date.parse(checked.checkedAt) < 5 * 60_000 ? checked
       : { id, state: "unknown", detail: id === "mcp" ? "Add a service connection to use its tools." : "Check setup to verify this tool on your computer.", checkedAt: now };
   });
@@ -32,6 +32,11 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
   const runtime = await resolvePiRuntime(cwd, provider, { requestProjectTrust: false });
   const config = runtime.config.includedTools;
   if (!config) throw new Error("Included Assistant tools are unavailable in this host.");
+  // Starting an explicit recheck invalidates earlier evidence even if this
+  // attempt throws before it can produce a new structured result.
+  const key = checkKey(runtime, id);
+  const revision = (checks.get(key)?.revision ?? 0) + 1;
+  checks.set(key, { revision });
   let status: IncludedToolStatus = { id, state: "unknown", detail: "Setup has not been checked.", checkedAt: new Date().toISOString() };
   let revealPath: string | undefined;
   let openUrl: string | undefined;
@@ -83,7 +88,12 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
     const result = await documents.probeIncludedDocuments();
     status = { ...status, state: result.state, detail: result.reason, facts: result.versions };
   } else throw new Error("Use service connection setup to configure MCP.");
-  checks.set(checkKey(runtime, id), status);
+  if (checks.get(key)?.revision === revision) {
+    status = { ...status, checkedAt: new Date().toISOString() };
+    checks.set(key, { revision, status });
+  } else {
+    status = checks.get(key)?.status ?? { id, state: "unknown", detail: "A newer setup check started.", checkedAt: new Date().toISOString() };
+  }
   return { status, ...(revealPath ? { revealPath } : {}), ...(openUrl ? { openUrl } : {}) };
 }
 
