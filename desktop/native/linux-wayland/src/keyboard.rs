@@ -59,44 +59,58 @@ impl Keyboard {
             .map(|code| code - 8)
     }
 
-    /// Preflight every character before returning any events. Characters that
-    /// require compose, an IME or unsupported modifier layers fail explicitly.
+    /// Preflight every character before returning any events. XKB determines
+    /// the actual Shift/level-three/level-five state; no layout table or fixed
+    /// modifier mask is assumed. Compose and IME-only text fails explicitly.
     pub fn text(&self, text: &str) -> Result<Vec<Vec<u32>>> {
         self.idle()?;
         ensure!(
             !text.is_empty() && text.chars().count() <= 256,
             "Type at most 256 characters per action"
         );
-        let shift = self.unshifted_symbol(xkb::keysym_from_name("Shift_L", xkb::KEYSYM_NO_FLAGS));
-        let shift_index = self.keymap.mod_get_index("Shift");
-        let shift_mask = if shift_index < 32 {
-            1u32 << shift_index
-        } else {
-            0
-        };
-        let mut state = xkb::State::new(&self.keymap);
+        let mut modifiers = Vec::new();
+        for alternatives in [
+            &["Shift_L", "Shift_R"][..],
+            &["ISO_Level3_Shift"],
+            &["ISO_Level5_Shift"],
+        ] {
+            if let Some(code) = alternatives.iter().find_map(|name| {
+                self.unshifted_symbol(xkb::keysym_from_name(name, xkb::KEYSYM_NO_FLAGS))
+            }) {
+                if !modifiers.contains(&code) {
+                    modifiers.push(code);
+                }
+            }
+        }
+        // Prefer fewer modifiers, preserving plain and Shift typing. In
+        // particular, never synthesize Ctrl+Alt as an assumed AltGr substitute.
+        let mut combinations: Vec<usize> = (0..1 << modifiers.len()).collect();
+        combinations.sort_by_key(|mask| mask.count_ones());
+        let states: Vec<_> = combinations
+            .into_iter()
+            .map(|mask| {
+                let mut state = xkb::State::new(&self.keymap);
+                state.update_mask(0, 0, self.modifiers[2], 0, 0, self.modifiers[3]);
+                let held: Vec<_> = modifiers
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, code)| (mask & (1 << index) != 0).then_some(*code))
+                    .collect();
+                for code in &held {
+                    state.update_key(xkb::Keycode::new(code + 8), xkb::KeyDirection::Down);
+                }
+                (held, state)
+            })
+            .collect();
         let mut plan = Vec::new();
         for character in text.chars() {
             let mut found = None;
-            for shifted in [false, true] {
-                if shifted && (shift.is_none() || shift_mask == 0) {
-                    continue;
-                }
-                state.update_mask(
-                    if shifted { shift_mask } else { 0 },
-                    0,
-                    self.modifiers[2],
-                    0,
-                    0,
-                    self.modifiers[3],
-                );
+            for (held, state) in &states {
                 for code in self.keymap.min_keycode().raw()..=self.keymap.max_keycode().raw() {
                     if state.key_get_utf8(xkb::Keycode::new(code)) == character.to_string() {
-                        found = Some(if shifted {
-                            vec![shift.unwrap(), code - 8]
-                        } else {
-                            vec![code - 8]
-                        });
+                        let mut chord = held.clone();
+                        chord.push(code - 8);
+                        found = Some(chord);
                         break;
                     }
                 }
@@ -163,6 +177,39 @@ pub fn fixture(layout: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn typed_text(keyboard: &Keyboard, chords: &[Vec<u32>]) -> String {
+        let mut state = xkb::State::new(&keyboard.keymap);
+        state.update_mask(0, 0, keyboard.modifiers[2], 0, 0, keyboard.modifiers[3]);
+        let mut text = String::new();
+        for chord in chords {
+            for code in &chord[..chord.len() - 1] {
+                state.update_key(xkb::Keycode::new(code + 8), xkb::KeyDirection::Down);
+            }
+            text.push_str(&state.key_get_utf8(xkb::Keycode::new(chord[chord.len() - 1] + 8)));
+            for code in chord[..chord.len() - 1].iter().rev() {
+                state.update_key(xkb::Keycode::new(code + 8), xkb::KeyDirection::Up);
+            }
+        }
+        text
+    }
+
+    #[test]
+    fn german_level_three_text_preserves_symbols_and_locked_state() {
+        let mut keyboard = Keyboard::parse(&fixture("de")).unwrap();
+        let text = "Grüße: mail@example.de € {value} [x] \\ | ~";
+        assert_eq!(typed_text(&keyboard, &keyboard.text(text).unwrap()), text);
+        let caps = keyboard.keymap.mod_get_index("Lock");
+        assert!(caps < 32);
+        keyboard.modifiers[2] = 1 << caps;
+        let locked_text = "Äpfel: MAIL@example.de € {value} [x] \\ | ~";
+        assert_eq!(
+            typed_text(&keyboard, &keyboard.text(locked_text).unwrap()),
+            locked_text
+        );
+        assert_eq!(keyboard.modifiers, [0, 0, 1 << caps, 0]);
+        assert!(keyboard.text("mail@example.de 😀").is_err());
+    }
+
     #[test]
     fn compositor_layout_controls_typing_and_shortcuts() {
         let us = Keyboard::parse(&fixture("us")).unwrap();

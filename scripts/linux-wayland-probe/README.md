@@ -71,7 +71,11 @@ Both private GNOME 46/Ubuntu 24.04 and GNOME 50/Fedora 44 matrices pass at
 100%, 125%, 150% and 200%. Set `WORKFOLD_NATIVE_TEST_SIZE=2880x1800` for all four
 scales; its integer dimensions permit exact 150% as well as 125%. The default
 1280×720 run covers 100% and 125%. Set `WORKFOLD_NATIVE_TEST_LAYOUT=de` to test
-the compositor's German keymap, including umlauts and ß; the default is US.
+the compositor's German keymap, including umlauts, ß and AltGr symbols such as
+`@`, `€`, braces and backslash; the default is US. Modifier chords are resolved
+through libxkbcommon's key state, including locked modifiers, without changing
+Caps Lock or assuming Ctrl+Alt means AltGr. Compose/IME-only text is rejected
+before any keys are sent.
 Both layouts have passed real input and exact-file verification. A separate
 two-monitor run uses `WORKFOLD_NATIVE_TEST_SECOND_MONITOR=2560x1440` with the
 default 1280×720 primary; the selected secondary starts at (1280, 0). Both

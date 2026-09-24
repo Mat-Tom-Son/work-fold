@@ -24,7 +24,7 @@ size = tuple(int(value) for value in os.environ.get("WORKFOLD_NATIVE_TEST_SECOND
 assert size in ((1280, 720), (2560, 1440), (2880, 1800))
 if os.environ.get("WORKFOLD_NATIVE_TEST_TRANSFORM") in ("1", "3"):
     size = tuple(reversed(size))
-expected = "Wayland: y z Ä Ö Ü ä ö ü ß." if os.environ.get("WORKFOLD_NATIVE_TEST_LAYOUT") == "de" else "Wayland protocol input verified."
+expected = "Wayland: y z Ä Ö Ü ä ö ü ß @ € {value} [x] \\ | ~" if os.environ.get("WORKFOLD_NATIVE_TEST_LAYOUT") == "de" else "Wayland protocol input verified."
 subprocess.run(ui + ["desktop-ready"], check=True)
 fixture_log = open("/tmp/workfold-gtk-protocol.log", "wb")
 fixture_env = dict(os.environ)

@@ -602,8 +602,8 @@ impl Sender {
             .context("EIS sequence exhausted; reconnect")?;
         for codes in plan {
             // This bounded plan runs without yielding. Modifier notifications
-            // echo our own Shift press/release asynchronously; dispatching one
-            // echo halfway through the plan mistakes our Shift for a new held
+            // echo our own modifier press/release asynchronously; dispatching
+            // an echo halfway through the plan mistakes it for a new held
             // modifier. The complete plan and initial compositor state are
             // validated before emission; every chord releases all its keys.
             self.emit_keys(&codes)?;

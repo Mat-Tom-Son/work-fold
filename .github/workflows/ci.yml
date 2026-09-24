@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build Ubuntu packaging environment
-        run: docker build -t work-fold-linux-build desktop/linux
+        run: docker build --build-arg WORKFOLD_BUILD_UID="$(id -u)" --build-arg WORKFOLD_BUILD_GID="$(id -g)" -t work-fold-linux-build desktop/linux
       - name: Verify and package Linux
         run: |
           docker run --rm --user "$(id -u):$(id -g)" \

@@ -26,5 +26,13 @@ WORKDIR /work
 RUN npm install -g --ignore-scripts @cyclonedx/cyclonedx-npm@6.0.1 \
     && cargo install cargo-cyclonedx --version 0.5.9 --locked \
     && chmod -R a+rwX /opt/cargo/registry
-# Run the container as the checkout owner. Chromium's sandbox stays enabled.
+# Match Docker's numeric checkout owner to a real account. Pi's native MCP
+# credential locks use os.userInfo(); an unknown UID fails even with HOME set.
+# Rootless Podman's keep-id mapping uses the default container UID/GID 1000.
+ARG WORKFOLD_BUILD_UID=1000
+ARG WORKFOLD_BUILD_GID=1000
+RUN test "$WORKFOLD_BUILD_UID" -gt 0 && test "$WORKFOLD_BUILD_GID" -gt 0 \
+    && groupmod --gid "$WORKFOLD_BUILD_GID" ubuntu \
+    && usermod --uid "$WORKFOLD_BUILD_UID" --gid "$WORKFOLD_BUILD_GID" ubuntu
+# Run the container as that checkout owner. Chromium's sandbox stays enabled.
 CMD ["bash"]

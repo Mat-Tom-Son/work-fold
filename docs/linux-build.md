@@ -36,14 +36,17 @@ The reproducible build environment is [desktop/linux/Dockerfile](../desktop/linu
 For Docker:
 
 ```sh
-docker build -t work-fold-linux-build desktop/linux
+docker build --build-arg WORKFOLD_BUILD_UID="$(id -u)" \
+  --build-arg WORKFOLD_BUILD_GID="$(id -g)" -t work-fold-linux-build desktop/linux
 docker run --rm --user "$(id -u):$(id -g)" \
   --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
   -v "$PWD:/work" -e HOME=/tmp/work-fold-build work-fold-linux-build \
   bash -lc 'mkdir -p "$HOME"; npm ci && npm run check && npm run desktop:computer-helper && npm run desktop:linux-native-hosts && npm run desktop:linux-native-tests && npm test && dbus-run-session -- xvfb-run -a npm run desktop:make:linux'
 ```
 
-For rootless Podman, replace `docker` with `podman`, replace `--user ...` with
+The build arguments give Docker's numeric checkout owner a real account inside
+the image, required by Pi's native credential-lock machinery.
+For rootless Podman, omit those build arguments, replace `docker` with `podman`, replace `--user ...` with
 `--userns keep-id:uid=1000,gid=1000 --user 1000:1000`, and use `--security-opt label=disable` instead of the AppArmor
 option. These options let Chromium create namespaces inside the disposable
 build container. Chromium's own renderer sandbox remains enabled. Never ship
