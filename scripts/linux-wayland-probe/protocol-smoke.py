@@ -157,6 +157,43 @@ try:
     wait_until(lambda: events()["clicks"] == 2 and events()["buttonReleases"] == 2)
     assert events()["scrolls"] >= 1
     assert collections.Counter(events()["presses"]) == collections.Counter(events()["releases"])
+    if os.environ.get("WORKFOLD_NATIVE_TEST_LIVE_SCALE") == "1":
+        assert not os.environ.get("WORKFOLD_NATIVE_TEST_SECOND_MONITOR")
+        assert not os.environ.get("WORKFOLD_NATIVE_TEST_TRANSFORM")
+        old_geometry = result["observationId"]
+        before_geometry = events()
+        scale = 1.25 if scale == 1 else 1.0
+        subprocess.run(["python3", "/work/scripts/linux-wayland-probe/configure-monitor.py", str(scale)], check=True)
+        failure = helper.call("act", error=True, lease=lease, observation=old_geometry,
+                              actions=[{"action": "click", "x": 500, "y": 160}])
+        print("Rejected stale geometry:", failure["error"], flush=True)
+        assert events()["clicks"] == before_geometry["clicks"]
+        assert events()["presses"] == before_geometry["presses"]
+        helper.call("close")
+        helper.stop()
+        subprocess.run(ui + ["closed"], check=True)
+        helper = Helper("geometry-reconnected")
+        helpers.append(helper)
+        starting = helper.send("start")
+        subprocess.run(ui + ["choose-input"], check=True)
+        helper.result(starting)
+        subprocess.run(ui + ["closed"], check=True)
+        previous_lease = lease
+        lease = helper.call("begin", turn=str(uuid.uuid4()))["lease"]
+        assert lease != previous_lease
+        result = helper.call("observe", lease=lease)
+        assert result["inputAvailable"]
+        expected += " resized"
+        result = helper.call("act", lease=lease, observation=result["observationId"], actions=[
+            {"action": "click", "x": 500, "y": 160},
+            {"action": "keypress", "keys": ["Ctrl", "a"]},
+            {"action": "typeText", "text": expected},
+            {"action": "keypress", "keys": ["Ctrl", "s"]},
+        ])
+        wait_until(lambda: (root / "saved.txt").read_text() == expected)
+        assert events()["clicks"] == before_geometry["clicks"] + 1
+        assert collections.Counter(events()["presses"]) == collections.Counter(events()["releases"])
+        print("PASS changed monitor scale fences old input; a fresh chooser restores exact saved-byte input", flush=True)
     helper.call("end", lease=lease)
     helper.call("observe", error=True, lease=lease)
     with open("/tmp/workfold-runtime/work-fold-wayland-seat.lock", "r+") as seat:

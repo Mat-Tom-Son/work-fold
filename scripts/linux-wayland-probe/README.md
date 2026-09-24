@@ -89,6 +89,16 @@ hotplug, physical multi-monitor setups, physical
 sleep/wake, GPU buffer negotiation, composed Unicode/IME and KDE remain outside
 this evidence. Unit math/keymap tests do not substitute for those cases.
 
+Set `WORKFOLD_NATIVE_TEST_LIVE_SCALE=1` for a single unrotated monitor to change
+its scale while a turn holds an observation. The test requires rejection of
+the old input attempt without GTK clicks or keys, then closes the old helper
+and selects a fresh portal grant. Exact saved text and balanced input must work
+again at the new scale. Both private desktops pass 100→125%, 125→100%,
+150→100% and 200→100%, with the German/AltGr exact-text checks retained.
+The compositor ends the old capture pipeline or invalidates its input region.
+Neither case permits reuse of the old coordinates. This covers live
+virtual-monitor scaling, not physical cable hotplug.
+
 `desktop-acceptance.sh` adds the packaged application to the same isolated seat.
 Run it in place of `acceptance.sh`, with `--security-opt seccomp=unconfined` so
 Electron can create its renderer sandbox inside the container. It uses the real

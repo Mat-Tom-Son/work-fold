@@ -45,7 +45,8 @@ jobs:
             if [ "$image" = work-fold-gnome-fedora-acceptance ]; then layout=de; fi
             docker run --rm --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
               -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \
-              -e WORKFOLD_NATIVE_TEST_SIZE=2880x1800 -e WORKFOLD_NATIVE_TEST_LAYOUT="$layout" "$image" \
+              -e WORKFOLD_NATIVE_TEST_SIZE=2880x1800 -e WORKFOLD_NATIVE_TEST_LAYOUT="$layout" \
+              -e WORKFOLD_NATIVE_TEST_LIVE_SCALE=1 "$image" \
               bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/acceptance.sh'
             docker run --rm --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
               -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \

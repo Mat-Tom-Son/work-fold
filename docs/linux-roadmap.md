@@ -201,6 +201,13 @@ modifier behavior is covered without toggling Caps Lock. Compose/IME-only text
 still fails before emission. These helper changes follow the immutable .38
 candidate and need the next packaged candidate's qualification.
 
+Live scale changes also pass on both private compositors: old observations
+cannot produce GTK clicks or keys after 100→125%, 125→100%, 150→100% or
+200→100%. Closing the old helper and accepting a fresh chooser restores exact
+German/AltGr saved bytes and balanced input at the new scale. The shared CI
+matrix now retains this regression check. Physical monitor hotplug is still
+separate qualification work.
+
 The first remote .39 CI run passes all four Mac jobs. Its Linux application
 suite finds a build-image setup defect: GitHub's numeric checkout UID has no
 passwd entry, so Pi's MCP credential-lock code cannot resolve `os.userInfo()`.
