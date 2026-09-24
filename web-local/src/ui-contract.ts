@@ -132,3 +132,41 @@ export const foldLimitsSettings = {
 export const remoteAccessSettings = {
   pairedBrowserTrust: "Paired browsers can read or change accessible files and run local commands.",
 } as const;
+
+/**
+ * The Folder-owned Automations tab (docs/fold-routings.md, F15 as amended
+ * 2026-09-24): a read-mostly window onto the automations whose trigger or
+ * steps name this Folder. Settings → Automations stays the management home;
+ * the rail entry exists only while at least one automation touches the Folder.
+ */
+export const folderAutomations = {
+  rail: "Automations",
+  tab: "Automations",
+  heading: (folderName: string) => `Automations in ${folderName}`,
+  states: {
+    on: "On",
+    off: "Off",
+    running: "Running",
+    suspended: "Suspended",
+    completed: "Done",
+  },
+  roles: {
+    watches: "Watches this folder",
+    "copies-to": "Copies files here",
+    "copies-from": "Copies files from here",
+    "chats-here": "Starts a Chat here",
+    "checks-here": "Runs a Check here",
+  },
+  runNow: "Run now",
+  turnOn: "Turn on",
+  turnOff: "Turn off",
+  lastRun: (when: string) => `Last run ${when}`,
+  notRunYet: "Not run yet",
+  failed: "Failed",
+  allAutomations: "All automations",
+  noneLeft: "No automations touch this folder.",
+  runRequested: "Run requested",
+  turnedOn: "Automation turned on",
+  turnedOff: "Automation turned off",
+  previewDisabled: "Changing automations is disabled in the preview",
+} as const;

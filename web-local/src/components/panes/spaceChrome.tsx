@@ -20,6 +20,8 @@ import {
   Dismiss20Regular,
   DocumentFolder24Filled,
   DocumentFolder24Regular,
+  Flash24Filled,
+  Flash24Regular,
   FolderAdd20Regular,
   FolderOpen20Regular,
   History24Filled,
@@ -58,12 +60,19 @@ function SpaceModeRail({
   accountControl,
   onOpenKeyboardShortcuts,
   updateControl,
+  automations = null,
 }: {
   activeMode: SpaceRailMode;
   space: SpaceSummary;
   surfaces: CapabilitySurface[];
   apps: RestrictedAppInstalled[];
   onModeChange: (mode: SpaceRailMode) => void;
+  /**
+   * The Folder-owned Automations entry (docs/fold-routings.md, F15 as
+   * amended 2026-09-24), present only while an automation touches this
+   * Folder. `active` follows the Automations tab, not the navigator mode.
+   */
+  automations?: { active: boolean } | null;
   onOpenLibrary: () => void;
   onOpenApps: () => void;
   onOpenAssistantTools: (view: AssistantToolsView) => void;
@@ -139,6 +148,20 @@ function SpaceModeRail({
             <span className="space-rail-label">{item.label}</span>
           </button>
         ))}
+        {automations ? (
+          <button
+            className={["space-rail-button", automations.active ? "active" : ""].filter(Boolean).join(" ")}
+            type="button"
+            onClick={() => onModeChange("automations")}
+            aria-label="Automations"
+            aria-current={automations.active ? "page" : undefined}
+          >
+            <span className="space-rail-icon" aria-hidden="true">
+              {automations.active ? <Flash24Filled className="fluent-rail-icon" /> : <Flash24Regular className="fluent-rail-icon" />}
+            </span>
+            <span className="space-rail-label">Automations</span>
+          </button>
+        ) : null}
         {surfaces.length || apps.length ? <span className="space-rail-app-divider" aria-hidden="true" /> : null}
         {surfaces.map((surface) => {
           const mode = `app:${surface.key}` as const;

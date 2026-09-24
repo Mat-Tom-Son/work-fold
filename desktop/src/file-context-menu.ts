@@ -7,6 +7,7 @@ export type NativeFileMenuCommand =
   | "copy-path"
   | "attach-chat"
   | "version-history"
+  | "share"
   | "upload-here"
   | "rename"
   | "delete";
@@ -22,6 +23,9 @@ export interface NativeFileMenuRequest {
     upload: boolean;
     rename: boolean;
     delete: boolean;
+    /** The file type can be shared as a page; `shared` says it already is. */
+    share: boolean;
+    shared: boolean;
   };
   point: { x: number; y: number };
 }
@@ -31,7 +35,7 @@ export type NativeFileMenuItem =
   | { type: "item"; label: string; command: NativeFileMenuCommand };
 
 const requestKeys = new Set(["spaceId", "path", "kind", "capabilities", "point"]);
-const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete"]);
+const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete", "share", "shared"]);
 const pointKeys = new Set(["x", "y"]);
 
 export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuRequest {
@@ -65,6 +69,8 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
       upload: capabilities.upload as boolean,
       rename: capabilities.rename as boolean,
       delete: capabilities.delete as boolean,
+      share: capabilities.share as boolean,
+      shared: capabilities.shared as boolean,
     },
     point: {
       x: Math.max(0, Math.min(1_000_000, Math.round(point.x as number))),
@@ -92,6 +98,9 @@ export function nativeFileMenuItems(request: NativeFileMenuRequest): NativeFileM
   }
   if (request.kind === "file" && request.capabilities.history) {
     items.push({ type: "item", label: "Version History", command: "version-history" });
+  }
+  if (request.kind === "file" && request.capabilities.share) {
+    items.push({ type: "item", label: request.capabilities.shared ? "Shared" : "Share", command: "share" });
   }
   if (request.kind === "folder" && request.capabilities.upload) {
     items.push(

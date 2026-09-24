@@ -14,6 +14,13 @@ import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-previe
 import { turnFileChanges } from "./agent/turn-file-changes.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { workRequestLabel, type WorkRequestView } from "../shared/request-presentation.js";
+import {
+  routingTriggerSummary,
+  type FolderAutomationState,
+  type FolderAutomationsResponse,
+  type FolderAutomationView,
+  type RoutingTriggerView,
+} from "../shared/routing-presentation.js";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createReadStream, existsSync, watch } from "node:fs";
@@ -251,6 +258,7 @@ import {
   workFoldRoutingDigest,
   workFoldRoutingProposalKind,
   workFoldRoutingReferencedSpaceIds,
+  workFoldRoutingSpaceRoles,
   type WorkFoldRoutingDeclaration,
   type WorkFoldRoutingFilesStep,
 } from "./routings/routing-declarations.js";
@@ -573,6 +581,14 @@ export interface WorkFoldRoutingSettingsFacade {
   stop(routingId: string): Promise<{ routingId: string; requestId: string; runId: string; stopped: true }>;
   disable(routingId: string): Promise<{ routingId: string; requestId: string; disabled: true; stoppedRunId: string | null }>;
   delete(routingId: string): Promise<{ routingId: string; requestId: string; deleted: true }>;
+  /**
+   * The Folder-owned Automations view (docs/fold-routings.md, F15 as amended
+   * 2026-09-24): the routings whose trigger or any step names this Space,
+   * with what each does there. Served at `GET /api/spaces/:id/automations`.
+   */
+  forSpace(spaceId: string): Promise<FolderAutomationsResponse>;
+  /** Refuses with notFound unless the routing names this Space; the gate for the Folder view's actions. */
+  requireSpaceRouting(spaceId: string, routingId: string): Promise<void>;
 }
 
 export interface LocalApiHandle {
@@ -603,7 +619,12 @@ export interface LocalApiHandle {
   requests: WorkFoldRequestStore;
   /** The routing executor (docs/fold-routings.md), for the desktop surfaces and lifecycle wiring. */
   routings: WorkFoldRoutingService;
-  /** Main-window Settings capability; never exposed on the local HTTP or remote facades. */
+  /**
+   * Main-window Settings capability; never exposed on the remote facade. The
+   * local HTTP API serves only its Folder-scoped subset — `forSpace` and the
+   * enable, disable, and run of a routing that names that Space — at
+   * `/api/spaces/:id/automations` (docs/fold-routings.md, F15 as amended).
+   */
   routingSettings: WorkFoldRoutingSettingsFacade;
   /** The publication authority (docs/fold-publishing.md rung 2); the desktop wires it as the remote viewer-page provider. */
   publications: WorkFoldPublicationService;
@@ -1586,6 +1607,32 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       };
     });
     sendJson(res, removal.value);
+    return;
+  }
+
+  // The Folder-owned Automations view (docs/fold-routings.md, F15 as amended
+  // 2026-09-24): a read of the routings that name this Space, and the same
+  // Settings enable/disable/run acts — same facade, same receipts — refused
+  // for a routing that does not name it.
+  const spaceAutomationsMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/automations$/);
+  if (spaceAutomationsMatch && method === "GET") {
+    const space = await getSpace(spaceAutomationsMatch[1]);
+    sendJson(res, await createWorkFoldRoutingSettingsFacade(state).forSpace(space.id));
+    return;
+  }
+  const spaceAutomationActMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/automations\/([^/]+)\/(enable|disable|run)$/);
+  if (spaceAutomationActMatch && method === "POST") {
+    const space = await getSpace(spaceAutomationActMatch[1]);
+    await readJsonBody<Record<string, never>>(state, req);
+    const routingId = spaceAutomationActMatch[2];
+    const facade = createWorkFoldRoutingSettingsFacade(state);
+    await facade.requireSpaceRouting(space.id, routingId);
+    const action = spaceAutomationActMatch[3];
+    sendJson(res, action === "enable"
+      ? await facade.enable(routingId)
+      : action === "disable"
+        ? await facade.disable(routingId)
+        : await facade.run(routingId));
     return;
   }
 
@@ -10017,6 +10064,53 @@ function createWorkFoldRoutingSettingsFacade(state: LocalApiState): WorkFoldRout
       });
       return { routingId: projection.declaration.id, requestId: result.requestId, deleted: true };
     },
+    async forSpace(spaceId) {
+      const projections = (await runActOperation(() => state.routings.listRoutings()))
+        .filter((projection) => workFoldRoutingReferencedSpaceIds(projection.declaration).includes(spaceId));
+      if (!projections.length) return { automations: [] };
+      const receiptProjection = await readRoutingReceiptProjectionsByRouting();
+      const automations: FolderAutomationView[] = [];
+      for (const projection of projections) {
+        const history = await routingSettingsHistoryFromProjection(projection.declaration.id, receiptProjection);
+        const summary = await routingSettingsSummary(projection, history.runs);
+        automations.push(folderAutomationView(projection, summary, spaceId));
+      }
+      return { automations };
+    },
+    async requireSpaceRouting(spaceId, routingId) {
+      const projection = await requireSettingsRouting(state, routingId);
+      if (!workFoldRoutingReferencedSpaceIds(projection.declaration).includes(spaceId)) {
+        throw new WorkFoldCliError("notFound", "This automation does not touch this folder.");
+      }
+    },
+  };
+}
+
+function folderAutomationView(
+  projection: WorkFoldRoutingProjection,
+  summary: WorkFoldRoutingSettingsSummary,
+  spaceId: string,
+): FolderAutomationView {
+  // The act-lane trigger ref is the loose superset of the discriminated view
+  // Settings already renders over IPC; the settled source gains its name.
+  const view = summary.trigger as RoutingTriggerView;
+  const sourceName = view.kind === "on-settled"
+    ? summary.spaces.find((space) => space.spaceId === view.source.spaceId)?.spaceName
+    : undefined;
+  const trigger: RoutingTriggerView = view.kind === "on-settled" && sourceName
+    ? { ...view, source: { ...view.source, spaceName: sourceName } }
+    : view;
+  const state: FolderAutomationState = summary.activeRun
+    ? "running"
+    : ({ enabled: "on", disabled: "off", suspended: "suspended", completed: "completed" } as const)[summary.health];
+  return {
+    routingId: summary.routingId,
+    title: summary.title,
+    state,
+    triggerSummary: routingTriggerSummary(trigger),
+    nextRunAt: summary.nextScheduledAt ?? null,
+    lastRun: summary.lastRun ? { at: summary.lastRun.startedAt, outcome: summary.lastRun.outcome } : null,
+    roles: workFoldRoutingSpaceRoles(projection.declaration, spaceId),
   };
 }
 

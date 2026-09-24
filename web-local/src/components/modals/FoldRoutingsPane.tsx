@@ -1,33 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { errorText } from "../../lib/api";
+import {
+  formatRoutingDateTime as formatDateTime,
+  routingTriggerSummary as triggerSummary,
+  type RoutingOutcome,
+  type RoutingTriggerView,
+} from "../../../../src/shared/routing-presentation";
 
 export type FoldRoutingHealth = "enabled" | "disabled" | "suspended" | "completed";
-export type FoldRoutingOutcome = "accepted" | "succeeded" | "failed" | "stopped" | "interrupted" | "skipped" | "lapsed";
+export type FoldRoutingOutcome = RoutingOutcome;
 
 export interface FoldRoutingSpaceRef {
   spaceId: string;
   spaceName?: string;
 }
 
-export type FoldRoutingTriggerView =
-  | { kind: "files-changed"; spaceId: string; watch: { kind: "tree"; path: string; recursive: boolean; extensions: string[] }; debounceSeconds: number; cooldownMinutes: number; summary?: string }
-  | { kind: "manual"; summary?: string }
-  | { kind: "interval"; intervalMinutes: number; summary?: string }
-  | { kind: "at"; at: string; ifMissed: "run" | "skip"; summary?: string }
-  | {
-    kind: "on-settled";
-    summary?: string;
-    source: {
-      kind: "check-run" | "app-automation-run";
-      spaceId: string;
-      spaceName?: string;
-      checkId?: string;
-      appId?: string;
-      automationId?: string;
-      outcomes?: string[];
-    };
-  };
+export type FoldRoutingTriggerView = RoutingTriggerView;
 
 export type FoldRoutingStepView =
   | {
@@ -392,8 +381,10 @@ export function FoldRoutingsPane() {
   const storeUnavailable = Boolean(status?.storeDamaged);
   const wideningUnavailable = storeUnavailable || Boolean(status?.journalDamaged);
 
-  // Automations sit above Folders, so the Folder filter is a client-side
-  // view over one list, never a per-Folder place (docs/fold-routings.md).
+  // Automations sit above Folders and are managed here, so the Folder filter
+  // is a client-side view over one list. The Folder-owned Automations tab is
+  // a read-mostly window onto the same routings (docs/fold-routings.md,
+  // F15 as amended 2026-09-24).
   const folderChips = useMemo(() => {
     const byId = new Map<string, FoldRoutingSpaceRef>();
     for (const routing of allRoutings) {
@@ -815,18 +806,6 @@ function RoutingRun({ run }: { run: FoldRoutingHistoryRunView }) {
   );
 }
 
-function triggerSummary(trigger: FoldRoutingTriggerView): string {
-  if (trigger.summary) return trigger.summary;
-  if (trigger.kind === "files-changed") return `When ${trigger.watch.path} changes · wait ${trigger.debounceSeconds}s · ${trigger.cooldownMinutes} minute cooldown`;
-  if (trigger.kind === "manual") return "Manual only";
-  if (trigger.kind === "interval") return `Every ${formatMinutes(trigger.intervalMinutes)}`;
-  if (trigger.kind === "at") return `Once · ${formatDateTime(trigger.at)}`;
-  const source = trigger.source;
-  const space = source.spaceName ?? source.spaceId;
-  if (source.kind === "check-run") return `After a Check settles in ${space}`;
-  return `After ${source.appId} · ${source.automationId} settles in ${space}`;
-}
-
 function filesSourceSummary(source: Extract<FoldRoutingStepView, { kind: "files" }>["source"]): string {
   if (source.kind === "paths") return source.paths.join(", ");
   if (source.kind === "tree") {
@@ -867,17 +846,6 @@ function hopLabel(kind: FoldRoutingHistoryHopView["kind"]): string {
   if (kind === "chat") return "Chat";
   if (kind === "files") return "Copy files";
   return kind === "fold" ? "Message work-fold agent" : "Run Checks";
-}
-
-function formatMinutes(minutes: number): string {
-  if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)} day${minutes === 24 * 60 ? "" : "s"}`;
-  if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? "" : "s"}`;
-  return `${minutes} minutes`;
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
 function formatBytes(bytes: number): string {

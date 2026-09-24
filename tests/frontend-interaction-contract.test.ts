@@ -307,3 +307,16 @@ function functionBody(source: string, name: string): string {
 async function read(relativePath: string): Promise<string> {
   return readFile(join(root, relativePath), "utf8");
 }
+
+test("the Folder-owned Automations rail entry sits after History, shows only when an automation touches the Folder, and opens its tab", () => {
+  // docs/fold-routings.md, F15 as amended 2026-09-24: Settings → Automations
+  // stays the management home; the Folder view is a read-mostly window.
+  assert.match(spaceChrome, /\{primaryItems\.map[\s\S]*?\)\)\}\s*\{automations \? \(/);
+  assert.match(spaceChrome, /\{automations \? \([\s\S]*?onClick=\{\(\) => onModeChange\("automations"\)\}[\s\S]*?Flash24Filled[\s\S]*?<span className="space-rail-label">Automations<\/span>[\s\S]*?\) : null\}\s*\{surfaces\.length \|\| apps\.length \? <span className="space-rail-app-divider"/);
+  assert.match(app, /const folderAutomations = useFolderAutomations\(space\.id, Boolean\(fixture\)\);/);
+  assert.match(app, /automations=\{hasFolderAutomations \? \{ active: activeTab\?\.kind === "space-automations" && activeTab\.spaceId === space\.id \} : null\}/);
+  assert.match(app, /if \(mode === "automations"\) \{ tabs\.openSpaceAutomationsSurfaceTab\(space\); return; \}\s*setActiveMode\(mode\);/);
+  assert.match(app, /tab\.kind === "space-automations" \? \(\s*<SpaceAutomationsPane[\s\S]*?onOpenAllAutomations=\{\(\) => onOpenSettings\("automations"\)\}/);
+  // The mode opens a tab and is never persisted as the navigator mode.
+  assert.match(app, /return \(\["files", "chats", "history"\] as SpaceRailMode\[\]\)\.includes/);
+});

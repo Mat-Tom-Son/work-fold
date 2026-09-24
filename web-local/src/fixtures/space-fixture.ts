@@ -1,5 +1,6 @@
 import type { AgentExtensionSurface, AgentStatus, ConversationSummary, TreeEntry, SpaceCheckpoint, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../types";
 import type { SharedPageView } from "../lib/page-sharing";
+import { routingTriggerSummary, type FolderAutomationView } from "../../../src/shared/routing-presentation";
 
 export interface SpaceUiFixture {
   spaces: SpaceSummary[];
@@ -101,6 +102,44 @@ export function buildSpaceFixture(): SpaceUiFixture {
       [trip.id]: [],
     },
     library: [{ name: "Templates", path: "Templates", kind: "folder", hasChildren: true, children: [{ name: "comparison-table.docx", path: "Templates/comparison-table.docx", kind: "file", sizeBytes: 18600, updatedAt: now }] }, { name: "packing-list.md", path: "packing-list.md", kind: "file", sizeBytes: 1240, updatedAt: now }],
+  };
+}
+
+/**
+ * Sample automations for the preview's Folder-owned Automations tab, keyed
+ * by Folder. One routing touches both Folders — it watches Home projects and
+ * copies to Japan trip — so each Folder shows its own side of it; the other
+ * starts a Chat in Home projects every 30 minutes and is off.
+ */
+export function buildFixtureFolderAutomations(): Record<string, FolderAutomationView[]> {
+  const kitchenToTrip = {
+    routingId: "fixture-kitchen-to-trip",
+    title: "Send kitchen ideas to the trip folder",
+    state: "on" as const,
+    triggerSummary: routingTriggerSummary({
+      kind: "files-changed",
+      spaceId: "fixture-home",
+      watch: { kind: "tree", path: "Kitchen refresh", recursive: true, extensions: [".md"] },
+      debounceSeconds: 10,
+      cooldownMinutes: 30,
+    }),
+    nextRunAt: null,
+    lastRun: { at: "2026-07-10T17:45:00.000Z", outcome: "succeeded" as const },
+  };
+  return {
+    "fixture-home": [
+      { ...kitchenToTrip, roles: ["watches", "copies-from"] },
+      {
+        routingId: "fixture-budget-check-in",
+        title: "Budget check-in",
+        state: "off",
+        triggerSummary: routingTriggerSummary({ kind: "interval", intervalMinutes: 30 }),
+        nextRunAt: null,
+        lastRun: null,
+        roles: ["chats-here"],
+      },
+    ],
+    "fixture-trip": [{ ...kitchenToTrip, roles: ["copies-to"] }],
   };
 }
 

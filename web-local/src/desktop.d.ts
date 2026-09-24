@@ -49,7 +49,7 @@ type WorkFoldDesktopMenuCommand =
 
 type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
-type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "upload-here" | "rename" | "delete";
+type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "share" | "upload-here" | "rename" | "delete";
 
 interface WorkFoldDesktopFileMenuRequest {
   spaceId: string;
@@ -62,6 +62,8 @@ interface WorkFoldDesktopFileMenuRequest {
     upload: boolean;
     rename: boolean;
     delete: boolean;
+    share: boolean;
+    shared: boolean;
   };
   point: { x: number; y: number };
 }

@@ -29,12 +29,15 @@ import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
 import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
 import { SpaceAppsPane } from "./components/panes/SpaceAppsPane";
+import { SpaceAutomationsPane } from "./components/panes/SpaceAutomationsPane";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
 import { SpaceAppearancePanel, SpaceModeRail, SpaceNameEditor, SpacePaneHeader } from "./components/panes/spaceChrome";
 import { FileContentSearch } from "./components/panes/FileContentSearch";
 import { ChatsPane, HistoryPane, LibraryPane, SpacesPane, type AssistantModelScope } from "./components/panes/spacePanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
+import { useSharedPages } from "./hooks/useSharedPages";
+import { activeSharedPageFor, isShareablePath } from "./lib/page-sharing";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
 import type { SpaceUiFixture } from "./fixtures/space-fixture";
 import { useApplicationAppearance } from "./hooks/useApplicationAppearance";
@@ -47,6 +50,7 @@ import { useRestrictedApps } from "./hooks/useRestrictedApps";
 import { useSurfaceTabs } from "./hooks/useSurfaceTabs";
 import { useSpaceTree } from "./hooks/useSpaceTree";
 import { useSpaceChecks } from "./hooks/useSpaceChecks";
+import { useFolderAutomations } from "./hooks/useFolderAutomations";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
 import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle";
 import { appBuildDraft, appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
@@ -374,6 +378,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   const surfaceCatalogRequestRef = useRef(0);
   const chatActivity = useChatActivity(Boolean(fixture));
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
+  // The native macOS file menu needs to know whether a file is already shared.
+  const sharedPages = useSharedPages(Boolean(fixture));
   const [renameEntryRequest, setRenameEntryRequest] = useState<{ path: string; name: string } | null>(null);
   const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
   const [versionHistory, setVersionHistory] = useState<{ space: SpaceSummary; path: string; name: string } | null>(null);
@@ -424,6 +430,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   });
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
   const checks = useSpaceChecks(space, Boolean(fixture), activeTab?.kind !== "checks");
+  const folderAutomations = useFolderAutomations(space.id, Boolean(fixture));
+  const hasFolderAutomations = (folderAutomations.bySpace[space.id]?.length ?? 0) > 0;
   useEffect(() => {
     const control = { spaceId: space.id, suspend: checks.suspend, resume: checks.resume };
     onChecksControlChange(control);
@@ -906,6 +914,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
             upload: entry.kind === "folder",
             rename: Boolean(entry.path),
             delete: Boolean(entry.path),
+            share: entry.kind === "file" && isShareablePath(entry.path),
+            shared: entry.kind === "file" && Boolean(activeSharedPageFor(sharedPages, space.id, entry.path)),
           },
           point,
         });
@@ -920,6 +930,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
         else if (command === "copy-path") await copyPath(entry.path);
         else if (command === "attach-chat") attachToChat(entry.path);
         else if (command === "version-history") openVersionHistory(space, entry.path);
+        else if (command === "share") shareFile(entry.path);
         else if (command === "upload-here") chooseUpload(entry.path);
         else if (command === "rename") renameEntry(entry.path);
         else if (command === "delete") await deleteEntry(entry.path);
@@ -1241,6 +1252,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   }
 
   function selectRailMode(mode: SpaceRailMode): void {
+    // Automations opens its Folder-owned tab and leaves the navigator pane as it was.
+    if (mode === "automations") { tabs.openSpaceAutomationsSurfaceTab(space); return; }
     setActiveMode(mode);
     if (mode.startsWith("app:restricted:")) return;
     const surfaceKey = extensionSurfaceIdForMode(mode);
@@ -1322,7 +1335,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   }
 
   return <main className={paneResize.sidebarResizing ? "space-layout resizing" : "space-layout"} ref={paneResize.spaceLayoutRef} style={layoutStyle}>
-    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenApps={() => tabs.openSpaceAppsSurfaceTab(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenApps={() => tabs.openSpaceAppsSurfaceTab(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} automations={hasFolderAutomations ? { active: activeTab?.kind === "space-automations" && activeTab.spaceId === space.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel" onKeyDown={activeMode === "spaces" ? leaveManageFoldersOnEscape : undefined}>
       <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} />
       {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRemove={(target) => void removeSpace(target)} onDone={leaveManageFolders} /> : null}
@@ -1445,6 +1458,15 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
                 onUpsertApp={restrictedAppsState.upsertApp}
                 onRemoveApp={(featureInstallationId) => restrictedAppsState.removeApp(targetSpace.id, featureInstallationId)}
                 onError={onError}
+              />
+            ) : tab.kind === "space-automations" ? (
+              <SpaceAutomationsPane
+                space={targetSpace}
+                automations={folderAutomations.bySpace[targetSpace.id]}
+                active={active}
+                fixtureMode={Boolean(fixture)}
+                onRefresh={() => folderAutomations.refresh(targetSpace.id)}
+                onOpenAllAutomations={() => onOpenSettings("automations")}
               />
             ) : tab.kind === "checks" ? (
               <ChecksPane

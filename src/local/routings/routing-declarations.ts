@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 
 import { normalizeWorkFoldCheckTargetPath } from "../../shared/checks.js";
 import { workFoldRoutingDeclarationBounds } from "../../shared/fold-limits.js";
+import { folderAutomationRoles, type FolderAutomationRole } from "../../shared/routing-presentation.js";
 import { restrictedAppAutomationIntervalMinutes } from "../agent/restricted-app-manifest.js";
 import { workFoldCheckDigest } from "../checks/check-integrity.js";
 import { workFoldCheckTargetHardLimits } from "../checks/target-resolver.js";
@@ -398,6 +399,30 @@ export function workFoldRoutingReferencedSpaceIds(definition: WorkFoldRoutingDef
     // A fold step names no Space: the fold sits above them.
   }
   return [...ids].sort();
+}
+
+/**
+ * What this routing does in one Space, derived from the declaration alone:
+ * the trigger watches it (a folder change, or a Check or app automation
+ * settling there), a files step copies into or out of it, a chat step starts
+ * a conversation there, a check step runs Checks there. Empty exactly when
+ * `workFoldRoutingReferencedSpaceIds` does not name the Space.
+ */
+export function workFoldRoutingSpaceRoles(definition: WorkFoldRoutingDefinition, spaceId: string): FolderAutomationRole[] {
+  const roles = new Set<FolderAutomationRole>();
+  if (definition.trigger.kind === "files-changed" && definition.trigger.space === spaceId) roles.add("watches");
+  if (definition.trigger.kind === "on-settled" && definition.trigger.source.space === spaceId) roles.add("watches");
+  for (const step of definition.steps) {
+    if (step.kind === "files") {
+      if (step.toSpace === spaceId) roles.add("copies-to");
+      if (step.fromSpace === spaceId) roles.add("copies-from");
+    } else if (step.kind === "chat" && step.space === spaceId) {
+      roles.add("chats-here");
+    } else if (step.kind === "check" && step.space === spaceId) {
+      roles.add("checks-here");
+    }
+  }
+  return folderAutomationRoles.filter((role) => roles.has(role));
 }
 
 /**

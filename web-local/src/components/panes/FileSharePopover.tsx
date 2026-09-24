@@ -28,7 +28,6 @@ function popoverPlacement(anchor: HTMLElement): CSSProperties {
 }
 
 /** Share requests from the Files context menu, each handled by the one file tab it names. */
-const handledShareRequests = new Set<number>();
 
 /**
  * The file tab's Share button and its popover (docs/fold-publishing.md,
@@ -62,7 +61,16 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
     setLinkUnavailable(false);
   }
 
-  useEffect(() => { close(); }, [spaceId, path]);
+  // Close when this control moves to a different file, not on mount: a
+  // StrictMode remount must not wipe a popover a Files-menu Share just opened.
+  const shownFileRef = useRef(`${spaceId}\0${path}`);
+  useEffect(() => {
+    const key = `${spaceId}\0${path}`;
+    if (shownFileRef.current === key) return;
+    shownFileRef.current = key;
+    close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaceId, path]);
 
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) { setPlacement(undefined); return; }
@@ -195,11 +203,13 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
     }
   }
 
+  // A request is handled once by the tab mounted for it. The ref survives a
+  // StrictMode remount, so the second effect run neither repeats nor drops it.
+  const handledShareRequest = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (shareRequestId === undefined || handledShareRequests.has(shareRequestId)) return;
-    handledShareRequests.add(shareRequestId);
+    if (shareRequestId === undefined || handledShareRequest.current === shareRequestId) return;
+    handledShareRequest.current = shareRequestId;
     void share();
-    // A request is handled once, by the tab mounted for it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shareRequestId]);
 

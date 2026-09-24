@@ -441,6 +441,28 @@ per-Folder chip row filters the list client-side by the Folders each
 automation's trigger and steps name. It is a view over the one list, not a
 per-Folder place: automations stay above Folders.
 
+*Amended 2026-09-24 (owner decision, revising F15):* Settings → Automations
+stays the management home, and a Folder also gets a read-mostly window onto
+the automations that touch it. The rail shows an **Automations** entry
+(between History and the contributed apps) only while at least one
+automation's trigger or step names that Folder; the renderer reads
+`GET /api/spaces/:id/automations` when the Folder changes and when the
+window regains focus, and caches the list per Folder. The entry opens one
+Folder-owned **Automations** tab (`space-automations`) under the
+Space-bound-tab rules. Each row carries the title, one state word (On, Off,
+Running, Suspended, or Done), the trigger summary Settings shows, what the
+automation does in this Folder (Watches this folder, Copies files here,
+Copies files from here, Starts a Chat here, Runs a Check here), and the last
+run time, with **Run now** (only while On), **Turn on**, and **Turn off**.
+Those three call `POST /api/spaces/:id/automations/:routingId/(run|enable|disable)`,
+which runs the exact Settings facade methods — same prepared-act path, same
+`main-window` receipts — and refuses a routing that does not name the Folder.
+Nothing is edited or deleted there, and **All automations** opens Settings →
+Automations. Unlike Settings, the view is not desktop-only: it is served by
+the session-authenticated local API, so it also works in the browser lane.
+Automations are still declared, stored, and receipted above Folders; the
+Folder view never becomes a second place to author one.
+
 The fold narrates run
 history on demand, and only a routing's own `fold` step ever puts it on a
 cadence. A routing's effects remain visible where they land: the copied
@@ -496,6 +518,7 @@ The plan items shipped as follows:
 11. Version-2 one-time scheduling and schema migration — `src/local/agent/work-fold-automation-service.ts`, `src/local/routings/`; `tests/work-fold-automation-service.test.ts`, `tests/work-fold-routing-declarations.test.ts`, `tests/work-fold-routing-store.test.ts`, `tests/work-fold-routing-service.test.ts`.
 12. Receipts-not-gates: direct `routings enable`, version-4 placeholders and the `fold` step, raised defaults — `src/local/routings/`, `src/local/server.ts`; `tests/work-fold-routing-*.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/routings-settings-ui.test.ts`.
 13. Pending proposals in Settings and the Folder filter (2026-09-24) — `src/local/routings/routing-proposal-scan.ts`, the `routingSettings` facade in `src/local/server.ts`, `work-fold:routings:proposals` and `work-fold:routings:enable-proposal` in `desktop/src/`, `web-local/src/components/modals/FoldRoutingsPane.tsx`; `tests/work-fold-routing-proposal-scan.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/routings-settings-ui.test.ts`.
+14. Folder-owned Automations view (2026-09-24, F15 amended) — `src/shared/routing-presentation.ts` (the one trigger summary Settings, the Folder tab, and the route share), `workFoldRoutingSpaceRoles` in `src/local/routings/routing-declarations.ts`, `forSpace`/`requireSpaceRouting` on the `routingSettings` facade and the `/api/spaces/:id/automations` routes in `src/local/server.ts`, `web-local/src/components/panes/SpaceAutomationsPane.tsx`, `web-local/src/hooks/useFolderAutomations.ts`; `tests/folder-automations.test.ts`, `tests/use-surface-tabs.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 
 ## Deliberately not in this design
 
