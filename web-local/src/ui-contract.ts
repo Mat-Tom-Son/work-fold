@@ -1,3 +1,5 @@
+import { WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE } from "../../src/shared/publications";
+
 export const primaryNavigation = [
   { id: "files", label: "Files" },
   { id: "chats", label: "Chats" },
@@ -10,14 +12,13 @@ export const welcomeActions = {
 } as const;
 
 /**
- * Settings → Shared pages (docs/fold-publishing.md,
- * rung 2): the publications list with its budgets, tallies, and health
- * notes, the transient share-link reveal, and the narrowing controls —
- * stop sharing, cut budgets, snapshot off. Widening never happens here:
- * a new page, raised budgets, or snapshot caching on is a fresh `pages
- * stage` through the fold, receipted like every act. Copy never says host,
- * hosting, or website, and "publish" stays reserved for App Studio's local
- * Release transition.
+ * Settings → Shared pages (docs/fold-publishing.md, rung 2): the
+ * publications list with its budgets, tallies, and page state, the
+ * transient share-link reveal, stop sharing, and the in-place Budgets and
+ * Sleep copy controls (amended 2026-09-24) that narrow or widen under a
+ * receipt while the link stays the same. A new page starts from a file's
+ * tab. Copy never says host, hosting, or website, and "publish" stays
+ * reserved for App Studio's local Release transition.
  */
 export const foldPublicationsSettings = {
   heading: "Pages your fold serves",
@@ -27,14 +28,44 @@ export const foldPublicationsSettings = {
   copyLink: "Copy link",
   noAddress: "Set up web access to show links.",
   snapshotLabel: "An encrypted copy at the relay stays readable while your desktop sleeps.",
-  snapshotOn: "Sleep copy on",
-  snapshotOff: "Sleep copy off",
-  turnSnapshotOff: "Turn off sleep copy",
-  narrowBudgets: "Tighten budgets",
-  narrowHint: "To raise budgets, ask the fold to share again.",
+  sleepCopy: "Sleep copy",
+  budgets: "Budgets",
+  servesPerMinute: "Serves per minute",
+  mibPerDay: "MiB per day",
+  saveBudgets: "Save",
+  saved: "Saved",
+  budgetRange: (serveRateMaximum: number, byteBudgetMaximumMiB: number) => `Choose 1 to ${serveRateMaximum} serves per minute and 1 to ${byteBudgetMaximumMiB} MiB per day.`,
   stopSharing: "Stop sharing",
   stopSharingConfirm: "Stop sharing this page? Every copy of its link stops working, and sharing again mints a new link.",
-  empty: "No pages are shared. Ask the fold to share a page.",
+  emptyNoAddress: "Set up web access to share pages.",
+  webAccess: "Web access",
+  empty: "No pages are shared. Share a file from its tab.",
+  previewDisabled: "Changing shared pages is disabled in the preview",
+  states: {
+    live: "Live",
+    asleep: "Asleep",
+    resting: "Resting",
+    "not-available": "Not available",
+    stopped: "Stopped",
+  },
+} as const;
+
+/**
+ * Sharing a file from its tab or the Files menu (docs/fold-publishing.md,
+ * amended 2026-09-24): the click shares and says so; the popover holds the
+ * link. No confirmation — sharing is receipted and Stop sharing undoes it.
+ */
+export const fileSharing = {
+  share: "Share",
+  shared: "Shared",
+  sharedToast: (title: string) => `Shared "${title}"`,
+  stoppedToast: (title: string) => `Stopped sharing "${title}"`,
+  linkCopied: "Link copied",
+  linkInSettings: "Show the link in Settings → Shared pages.",
+  openSharedPages: "Open Shared pages",
+  noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
+  webAccess: "Web access",
+  previewDisabled: "Sharing is disabled in the preview",
 } as const;
 
 /**

@@ -227,6 +227,7 @@ import { ensureManagementInstructions } from "./management-instructions.js";
 import {
   WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
   WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES,
+  WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
   WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
   WORKFOLD_PUBLICATION_SOURCE_TYPES,
   WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH,
@@ -242,7 +243,7 @@ import {
 } from "./agent/restricted-app-viewer.js";
 import {
   assertWorkFoldRoutingAtAdmissionHorizon,
-  declarationFromWorkFoldRoutingProposal,
+  contentAddressedWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingProposal,
   workFoldRoutingBounds,
@@ -253,6 +254,10 @@ import {
   type WorkFoldRoutingDeclaration,
   type WorkFoldRoutingFilesStep,
 } from "./routings/routing-declarations.js";
+import {
+  resolveWorkFoldRoutingProposalPath,
+  scanWorkFoldRoutingProposals,
+} from "./routings/routing-proposal-scan.js";
 import {
   WorkFoldRoutingService,
   WorkFoldRoutingServiceError,
@@ -505,6 +510,8 @@ export interface WorkFoldRoutingSettingsSummary {
   trigger: WorkFoldActRoutingTriggerRef;
   fileWatch?: import("./routings/routing-file-observer.js").WorkFoldRoutingFileWatchStatus;
   stepCount: number;
+  /** Every Folder the trigger or a step names, for the Settings Folder filter. */
+  spaces: WorkFoldRoutingSettingsSpaceRef[];
   nextScheduledAt?: string;
   lastScheduledAt?: string;
   activeRun?: { runId: string; startedAt: string };
@@ -512,8 +519,34 @@ export interface WorkFoldRoutingSettingsSummary {
   suspension?: { at: string; reason?: string; missingSpaces?: WorkFoldRoutingSettingsSpaceRef[] };
 }
 
+/**
+ * One `*.work-fold-routing.json` file at the top level of the work-fold
+ * agent's working folder that is not already a stored routing
+ * (docs/fold-routings.md, "Where routings live in the product").
+ */
+export type WorkFoldRoutingSettingsProposalView =
+  | {
+    valid: true;
+    path: string;
+    fileName: string;
+    routingId: string;
+    digest: string;
+    title: string;
+    trigger: WorkFoldActRoutingTriggerRef;
+  }
+  | { valid: false; path: string; fileName: string; problem: string };
+
 export interface WorkFoldRoutingSettingsFacade {
   list(): Promise<{ routings: WorkFoldRoutingSettingsSummary[]; status: WorkFoldRoutingServiceStatus }>;
+  proposals(): Promise<{ proposals: WorkFoldRoutingSettingsProposalView[]; truncated: boolean }>;
+  /** Turns on one pending proposal by its absolute path, through the CLI's enable path. */
+  enableProposal(path: string): Promise<{
+    routingId: string;
+    requestId: string;
+    enabled: true;
+    alreadyEnabled: boolean;
+    routing: WorkFoldRoutingSettingsSummary;
+  }>;
   show(routingId: string): Promise<{
     routing: WorkFoldRoutingSettingsSummary & {
       createdAt: string;
@@ -3366,14 +3399,17 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
 
   // Pages your fold serves (docs/fold-publishing.md, plan item 5): the
   // desktop Settings surface over the publication authority. Reads list the
-  // grant records with their budgets, tallies, and health notes; the
-  // narrowing verbs — revoke, cut budgets, snapshot off — are direct
+  // grant records with their budgets, tallies, health notes, and page state;
+  // the narrowing verbs — revoke, cut budgets, snapshot off — are direct
   // receipted acts minted with a per-request id and the main-window surface.
-  // Widening has no route here: a new page or a wider budget is a fresh
-  // `pages share` through the fold, receipted like every act. The reveal
-  // route composes the share link's secret
-  // fragment on demand from the key store and returns it transiently — it is
-  // never listed, journaled, or logged.
+  // Sharing a file from its tab and widening a page in place (raised
+  // budgets, sleep copy on) run the same domain paths as `pages share` and
+  // `pages widen`, receipted through the Settings act wrapper — a share
+  // executes on the click and leaves a receipt (docs/receipts-not-gates.md,
+  // F19). These routes sit behind the renderer session; the paired browser's
+  // closed remote operation set has no settings endpoint. The reveal route
+  // composes the share link's secret fragment on demand from the key store
+  // and returns it transiently — it is never listed, journaled, or logged.
   if (url.pathname === "/api/settings/publications" && method === "GET") {
     try {
       const status = state.publications.status();
@@ -3389,7 +3425,44 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     }
     return;
   }
-  const publicationSettingsMatch = match(url.pathname, /^\/api\/settings\/publications\/([^/]+)\/(reveal-link|revoke|narrow|snapshot-off)$/);
+  if (url.pathname === "/api/settings/publications/share" && method === "POST") {
+    try {
+      const body = await readJsonBody<{ spaceId?: unknown; path?: unknown; title?: unknown; snapshot?: unknown }>(state, req);
+      if (typeof body.spaceId !== "string" || !body.spaceId || typeof body.path !== "string" || typeof body.title !== "string") {
+        sendJson(res, { error: "A Space id, a file path, and a title are required to share a page." }, 400);
+        return;
+      }
+      const space = await getSpace(body.spaceId).catch(() => null);
+      if (!space) {
+        sendJson(res, { error: "That Space is not registered on this machine.", code: "SPACE_NOT_REGISTERED" }, 404);
+        return;
+      }
+      const path = body.path;
+      const title = body.title;
+      const shared = await runDesktopSettingsAct(state, "pages.share", async (requestId) => {
+        const view = await sharePageFromDesktop(state, { space, path, title, snapshot: body.snapshot === true }, {
+          surface: "main-window",
+          requestId,
+        });
+        return {
+          value: view,
+          detail: `Shared "${view.title}" (${view.spaceId}:${view.relativePath}) as ${view.viewerPath}; `
+            + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
+        };
+      });
+      const view = shared.value;
+      const revealable = view.state === "active" && Boolean(await state.publicationKeys.get(view.publicationId).catch(() => null));
+      sendJson(res, { publication: { ...view, spaceName: space.name }, revealable });
+    } catch (error) {
+      if (error instanceof WorkFoldCliError && error.message === WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE) {
+        sendJson(res, { error: error.message, code: "NO_ADDRESS" }, 409);
+        return;
+      }
+      sendFoldPublicationError(res, error);
+    }
+    return;
+  }
+  const publicationSettingsMatch = match(url.pathname, /^\/api\/settings\/publications\/([^/]+)\/(reveal-link|revoke|narrow|widen|snapshot-off)$/);
   if (publicationSettingsMatch && method === "POST") {
     const publicationId = publicationSettingsMatch[1];
     const action = publicationSettingsMatch[2];
@@ -3420,6 +3493,29 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       if (action === "snapshot-off") {
         await readJsonBody<Record<string, never>>(state, req);
         sendJson(res, { publication: await state.publications.disableSnapshot(publicationId, context) });
+        return;
+      }
+      if (action === "widen") {
+        const body = await readJsonBody<{ serveRatePerMinute?: unknown; byteBudgetPerDay?: unknown; snapshotEnabled?: unknown }>(state, req);
+        if (body.snapshotEnabled !== undefined && body.snapshotEnabled !== true) {
+          sendJson(res, { error: "Widening can only turn the sleep copy on; turning it off is snapshot-off.", code: "INPUT_INVALID" }, 400);
+          return;
+        }
+        const widenInput: { serveRatePerMinute?: number; byteBudgetPerDay?: number; snapshotEnabled?: true } = {};
+        if (body.serveRatePerMinute !== undefined) widenInput.serveRatePerMinute = Number(body.serveRatePerMinute);
+        if (body.byteBudgetPerDay !== undefined) widenInput.byteBudgetPerDay = Number(body.byteBudgetPerDay);
+        if (body.snapshotEnabled === true) widenInput.snapshotEnabled = true;
+        // The same slot, key, and link: the widening is the service's own
+        // journaled verb, run under the Settings act's minted id.
+        const widened = await runDesktopSettingsAct(state, "pages.widen", async (requestId) => {
+          const publication = await state.publications.widen(publicationId, widenInput, { requestId, surface: "main-window" });
+          return {
+            value: publication,
+            detail: `Widened ${publication.viewerPath}: serveRatePerMinute=${publication.serveRatePerMinute} `
+              + `byteBudgetPerDay=${publication.byteBudgetPerDay} snapshot=${publication.snapshotEnabled ? "on" : "off"}.`,
+          };
+        });
+        sendJson(res, { publication: widened.value });
         return;
       }
       const body = await readJsonBody<{ serveRatePerMinute?: unknown; byteBudgetPerDay?: unknown }>(state, req);
@@ -7685,48 +7781,18 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async pagesShare(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
-      const title = input.title.trim();
-      if (!title || title.length > WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH || /[\r\n]/.test(title)) {
-        throw new WorkFoldCliError(
-          "usage",
-          `A page title of 1 through ${WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH} characters is required.`,
-        );
-      }
-      const status = state.publications.status();
-      if (status.damaged) {
-        throw new WorkFoldCliError("failure", `work-fold cannot share a page: ${status.damageReason ?? "the publication store is damaged."}`);
-      }
-      const source = await designatedPageSource(space.spaceRoot, input.path);
-      const alreadyShared = (await runActOperation(() => state.publications.activePublicationsForSpace(space.id)))
-        .some((view) => view.kind === "page" && view.relativePath === source.relativePath);
-      if (alreadyShared) {
-        throw new WorkFoldCliError("conflict", "This file is already shared as a page; stop sharing it before sharing it again.");
-      }
-      const snapshotEnabled = input.snapshot === true;
-      const requestId = input.requestId?.trim() || randomUUID();
-      const context: FoldViewerExposeContext = {
-        requestId,
+      const view = await sharePageFromDesktop(state, {
+        space,
+        path: input.path,
+        title: input.title,
+        snapshot: input.snapshot === true,
+      }, {
+        surface: "cli",
         ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
-        attribution: foldActAttribution(state, "cli", input.parentTaskId),
-      };
-      await runPreparedAct({
-        kind: "publish.viewer.expose",
-        parameters: { exposure: "page", spaceId: space.id },
-        pins: {
-          exposure: "page",
-          spaceId: space.id,
-          relativePath: source.relativePath,
-          title,
-          snapshotEnabled,
-          byteBudget: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
-          serveBudget: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
-        },
-        requestId,
-        context,
+        ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
       });
-      if (!context.outcome) throw new WorkFoldCliError("failure", "The page was not activated.");
       await recordFacadeAction(state, input.parentTaskId, { command: "pages.share", space });
-      return { space: toActSpaceRef(space), publication: toActPublicationRef(context.outcome, space.name) };
+      return { space: toActSpaceRef(space), publication: toActPublicationRef(view, space.name) };
     },
     async pagesShareApp(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -7968,6 +8034,28 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         publication: toActPublicationRef(view, registered?.name),
         priorServeRatePerMinute: prior.serveRatePerMinute,
         priorByteBudgetPerDay: prior.byteBudgetPerDay,
+      };
+    },
+    async pagesWiden(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const publicationId = input.publication.trim();
+      const prior = await runActOperation(() => state.publications.get(publicationId));
+      if (!prior) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
+      const view = await runPublicationActOperation(() => state.publications.widen(publicationId, {
+        ...(input.serveRatePerMinute !== undefined ? { serveRatePerMinute: input.serveRatePerMinute } : {}),
+        ...(input.byteBudgetPerDay !== undefined ? { byteBudgetPerDay: input.byteBudgetPerDay } : {}),
+        ...(input.snapshot === true ? { snapshotEnabled: true as const } : {}),
+      }, {
+        requestId: input.requestId ?? randomUUID(),
+        surface: "cli",
+        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+      }));
+      const registered = await getSpace(view.spaceId).catch(() => null);
+      return {
+        publication: toActPublicationRef(view, registered?.name),
+        priorServeRatePerMinute: prior.serveRatePerMinute,
+        priorByteBudgetPerDay: prior.byteBudgetPerDay,
+        priorSnapshotEnabled: prior.snapshotEnabled,
       };
     },
     async pagesSnapshotOff(input) {
@@ -9700,12 +9788,76 @@ function createWorkFoldRoutingSettingsFacade(state: LocalApiState): WorkFoldRout
         status: state.routings.status(),
       };
     },
+    async proposals() {
+      const scan = await scanWorkFoldRoutingProposals(workFoldManagementRoot());
+      // A proposal already stored at the same digest shows once, in the main
+      // list, whatever its health.
+      const stored = new Set((await runActOperation(() => state.routings.listRoutings()))
+        .map((projection) => `${projection.declaration.id}\n${projection.digest}`));
+      const proposals: WorkFoldRoutingSettingsProposalView[] = [];
+      for (const entry of scan.entries) {
+        if (!entry.valid) {
+          proposals.push({ valid: false, path: entry.path, fileName: entry.fileName, problem: entry.problem });
+          continue;
+        }
+        if (stored.has(`${entry.declaration.id}\n${entry.digest}`)) continue;
+        const missing: string[] = [];
+        for (const spaceId of workFoldRoutingReferencedSpaceIds(entry.declaration)) {
+          if (!await getSpace(spaceId).catch(() => null)) missing.push(spaceId);
+        }
+        if (missing.length) {
+          proposals.push({
+            valid: false,
+            path: entry.path,
+            fileName: entry.fileName,
+            problem: `Names a Folder that is not on this computer (${missing.join(", ")}).`,
+          });
+          continue;
+        }
+        proposals.push({
+          valid: true,
+          path: entry.path,
+          fileName: entry.fileName,
+          routingId: entry.declaration.id,
+          digest: entry.digest,
+          title: entry.declaration.title,
+          trigger: toActRoutingTriggerRef(entry.declaration.trigger),
+        });
+      }
+      return { proposals, truncated: scan.truncated };
+    },
+    async enableProposal(path) {
+      let proposalPath: string;
+      try {
+        proposalPath = resolveWorkFoldRoutingProposalPath(workFoldManagementRoot(), path);
+      } catch (error) {
+        throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
+      }
+      // The exact CLI enable path: read and digest the file now, then the
+      // journaled prepared-act enablement pinned to that digest.
+      const result = await runDesktopSettingsAct(state, "routings.enable", async (requestId) => {
+        const { declaration, digest } = await readRoutingStagingFile(proposalPath, workFoldManagementRoot());
+        const enabled = await enableStoredRoutingDeclaration(state, declaration, digest, {
+          requestId,
+          surface: "main-window",
+        });
+        return { value: enabled, detail: `Enabled routing ${enabled.routingId} from ${basename(proposalPath)}.` };
+      });
+      const projection = await requireSettingsRouting(state, result.value.routingId);
+      const history = await routingSettingsHistory(projection.declaration.id);
+      return {
+        routingId: result.value.routingId,
+        requestId: result.requestId,
+        enabled: true as const,
+        alreadyEnabled: result.value.alreadyEnabled,
+        routing: await routingSettingsSummary(projection, history.runs),
+      };
+    },
     async show(routingId) {
       const projection = await requireSettingsRouting(state, routingId);
       const history = await routingSettingsHistory(projection.declaration.id);
       const summary = await routingSettingsSummary(projection, history.runs);
-      const ids = workFoldRoutingReferencedSpaceIds(projection.declaration);
-      const spaces = await routingSettingsSpaceRefs(ids);
+      const spaces = summary.spaces;
       const byId = new Map(spaces.map((space) => [space.spaceId, space]));
       const named = (spaceId: string): WorkFoldRoutingSettingsSpaceRef => byId.get(spaceId) ?? { spaceId };
       return {
@@ -9910,6 +10062,7 @@ async function routingSettingsSummary(
     trigger: toActRoutingTriggerRef(projection.declaration.trigger),
     ...(projection.fileWatch ? { fileWatch: projection.fileWatch } : {}),
     stepCount: projection.declaration.steps.length,
+    spaces: await routingSettingsSpaceRefs(workFoldRoutingReferencedSpaceIds(projection.declaration)),
     ...(projection.nextScheduledAt ? { nextScheduledAt: projection.nextScheduledAt } : {}),
     ...(projection.lastScheduledAt ? { lastScheduledAt: projection.lastScheduledAt } : {}),
     ...(projection.activeRunId && active ? { activeRun: { runId: projection.activeRunId, startedAt: active.startedAt } } : {}),
@@ -11790,10 +11943,7 @@ async function readRoutingStagingFile(
   const kind = (parsed as { kind?: unknown } | null)?.kind;
   try {
     if (kind === workFoldRoutingProposalKind) {
-      const proposal = normalizeWorkFoldRoutingProposal(parsed);
-      const contentId = `routing-${workFoldRoutingDigest(proposal).slice(0, 16)}`;
-      const declaration = declarationFromWorkFoldRoutingProposal(proposal, contentId);
-      return { declaration, digest: workFoldRoutingDigest(declaration) };
+      return contentAddressedWorkFoldRoutingDeclaration(normalizeWorkFoldRoutingProposal(parsed));
     }
     if (kind === workFoldRoutingDeclarationKind) {
       const declaration = normalizeWorkFoldRoutingDeclaration(parsed);
@@ -11881,6 +12031,96 @@ function capabilityResourceSummary(details: {
   }
   if (details.dependencyCount) parts.push(`${details.dependencyCount} runtime dependencies`);
   return parts.join(", ").slice(0, 2000);
+}
+
+/**
+ * The one share-a-page path (docs/fold-publishing.md, rung 2) behind both
+ * `pages share` on the act lane and Settings' share route from a file tab:
+ * the same title bound, the same refusal when this desktop has no address
+ * to serve at, the same source verification and already-shared refusal, and
+ * the same `publish.viewer.expose` prepared act — pins rechecked at effect
+ * time, activation journaled under `<request>:activate`. The caller owns the
+ * outer receipt: the act protocol on the act lane, the Settings act wrapper
+ * on the desktop. Returns the activated publication view.
+ */
+async function sharePageFromDesktop(
+  state: LocalApiState,
+  input: { space: SpaceSummary; path: string; title: string; snapshot: boolean },
+  context: { surface: WorkFoldCliActSurface; parentTaskId?: string; requestId?: string },
+): Promise<WorkFoldPublicationView> {
+  const { space } = input;
+  const title = input.title.trim();
+  if (!title || title.length > WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH || /[\r\n]/.test(title)) {
+    throw new WorkFoldCliError(
+      "usage",
+      `A page title of 1 through ${WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH} characters is required.`,
+    );
+  }
+  const status = state.publications.status();
+  if (status.damaged) {
+    throw new WorkFoldCliError("failure", `work-fold cannot share a page: ${status.damageReason ?? "the publication store is damaged."}`);
+  }
+  // No address, no share: the fold cannot bootstrap web access to publish
+  // to it, so the page never exists as a slot nobody can reach. A relay that
+  // is merely unreachable is different — the slot stays honestly pending.
+  if (!await state.publications.hasAddress()) {
+    throw new WorkFoldCliError("conflict", WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE);
+  }
+  const source = await designatedPageSource(space.spaceRoot, input.path);
+  const alreadyShared = (await runActOperation(() => state.publications.activePublicationsForSpace(space.id)))
+    .some((view) => view.kind === "page" && view.relativePath === source.relativePath);
+  if (alreadyShared) {
+    throw new WorkFoldCliError("conflict", "This file is already shared as a page; stop sharing it before sharing it again.");
+  }
+  const requestId = context.requestId?.trim() || randomUUID();
+  const exposeContext: FoldViewerExposeContext = {
+    requestId,
+    ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
+    attribution: foldActAttribution(state, context.surface, context.parentTaskId),
+  };
+  await runActOperation(() => runPreparedActOperation(async () => {
+    const act = prepareFoldAct({
+      kind: "publish.viewer.expose",
+      parameters: { exposure: "page", spaceId: space.id },
+      pins: {
+        exposure: "page",
+        spaceId: space.id,
+        relativePath: source.relativePath,
+        title,
+        snapshotEnabled: input.snapshot,
+        byteBudget: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
+        serveBudget: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
+      },
+    });
+    await state.preparedActs.run({ act, requestId, context: exposeContext });
+  }));
+  if (!exposeContext.outcome) throw new WorkFoldCliError("failure", "The page was not activated.");
+  return exposeContext.outcome;
+}
+
+/**
+ * The act lane's reading of a publication service refusal: an invalid
+ * request is a usage error, a missing slot is not found, and a slot that is
+ * no longer shared or already at its cap is a conflict.
+ */
+async function runPublicationActOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof WorkFoldPublicationError) {
+      const code = error.code === "INPUT_INVALID" || error.code === "WIDEN_REFUSED" || error.code === "SOURCE_INVALID"
+        ? "usage"
+        : error.code === "NOT_FOUND"
+          ? "notFound"
+          : error.code === "ALREADY_REVOKED" || error.code === "PUBLICATION_CAP"
+            ? "conflict"
+            : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
+              ? "unavailable"
+              : "failure";
+      throw new WorkFoldCliError(code, error.message, { cause: error });
+    }
+    return await runActOperation(() => Promise.reject(error));
+  }
 }
 
 /**

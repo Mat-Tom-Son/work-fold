@@ -64,6 +64,15 @@ async function directVerbHarness(prefix: string): Promise<{
     spaceBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
+    // An enrolled address whose relay is unreachable: shares proceed and
+    // stay honestly pending (docs/fold-publishing.md).
+    publicationBridge: {
+      async upsertSlot() { throw new Error("relay unreachable"); },
+      async deleteSlot() {},
+      async putSnapshot() { throw new Error("relay unreachable"); },
+      async deleteSnapshot() {},
+      async addressConfigured() { return true; },
+    },
     beforeAgentPrompt: async (event) => {
       if (draining || !held.has(event.spaceId)) return;
       await new Promise<void>((release) => pending.push({ taskId: event.taskId, spaceId: event.spaceId, release }));
@@ -156,6 +165,34 @@ test("pages share shares the page on the first call with receipts and no decisio
     const live = await h.api.publications.list();
     assert.equal(live.length, 1);
     assert.equal(live[0]?.publicationId, sharedJson.data.publication.publicationId);
+
+    // Widening in place keeps the slot and link: a raised serve rate and the
+    // sleep copy on, receipted on the first call; a lower value is refused as
+    // narrowing, and the ceiling caps the rate.
+    h.records.length = 0;
+    const publicationId = sharedJson.data.publication.publicationId;
+    const widened = await h.execute(["pages", "widen", "--publication", publicationId, "--serve-rate", "120", "--snapshot", "--json"]);
+    assert.equal(widened.exitCode, 0, widened.stderr);
+    const widenedJson = JSON.parse(widened.stdout) as {
+      data: { publication: { publicationId: string; serveRatePerMinute: number; snapshotEnabled: boolean; viewerPath: string }; priorServeRatePerMinute: number; priorSnapshotEnabled: boolean };
+    };
+    assert.equal(widenedJson.data.publication.publicationId, publicationId, "the slot is unchanged");
+    assert.equal(widenedJson.data.publication.viewerPath, sharedJson.data.publication.viewerPath, "the link path is unchanged");
+    assert.equal(widenedJson.data.publication.serveRatePerMinute, 120);
+    assert.equal(widenedJson.data.publication.snapshotEnabled, true);
+    assert.equal(widenedJson.data.priorServeRatePerMinute, 60);
+    assert.equal(widenedJson.data.priorSnapshotEnabled, false);
+    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
+    const lowered = await h.execute(["pages", "widen", "--publication", publicationId, "--serve-rate", "30", "--json"]);
+    assert.equal(errorCodeOf(lowered.stderr), "usage");
+    assert.match(lowered.stderr, /use pages narrow/);
+    const overCeiling = await h.execute(["pages", "widen", "--publication", publicationId, "--serve-rate", "601", "--json"]);
+    assert.equal(errorCodeOf(overCeiling.stderr), "usage");
+    const nothing = await h.execute(["pages", "widen", "--publication", publicationId, "--json"]);
+    assert.equal(nothing.exitCode, 2);
+    const humanWiden = await h.execute(["pages", "widen", "--publication", publicationId, "--byte-budget", String(512 * 1024 * 1024)]);
+    assert.equal(humanWiden.exitCode, 0, humanWiden.stderr);
+    assert.match(humanWiden.stdout, /^Widened "Weekly report" \[[^\]]+\]: serve rate 120 -> 120\/min, byte budget 268435456 -> 536870912\/day, snapshot caching on -> on\. The link is unchanged;/);
 
     // A second identical call refuses: the page is already shared. The
     // refusal is journaled as an error under a fresh request id.

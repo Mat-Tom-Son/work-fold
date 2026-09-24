@@ -1,7 +1,10 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, Trash2, Upload } from "lucide-react";
+import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, Share2, Trash2, Upload } from "lucide-react";
 import { canOpenDirectly, nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
+import { activeSharedPageFor, isShareablePath } from "../../lib/page-sharing";
+import { useSharedPages } from "../../hooks/useSharedPages";
 import type { FileContextMenuState } from "../../types";
+import { fileSharing } from "../../ui-contract";
 
 export function FileContextMenu({
   state,
@@ -16,6 +19,9 @@ export function FileContextMenu({
   onNewFile,
   onUploadHere,
   onDelete,
+  onShare,
+  shareSpaceId,
+  fixtureMode = false,
   onClose,
 }: {
   state: FileContextMenuState;
@@ -30,9 +36,17 @@ export function FileContextMenu({
   onNewFile?: (parentPath: string) => void;
   onUploadHere?: (parentPath: string) => void;
   onDelete: (path: string) => void | Promise<void>;
+  /** Shares a shareable file, or opens its link when it is already shared. */
+  onShare?: (path: string) => void;
+  /** The Space the menu's entries belong to, for the Share / Shared label. */
+  shareSpaceId?: string;
+  fixtureMode?: boolean;
   onClose: () => void;
 }) {
   const { entry } = state;
+  const sharedPages = useSharedPages(fixtureMode);
+  const shareable = Boolean(onShare && shareSpaceId && entry.kind === "file" && isShareablePath(entry.path));
+  const alreadyShared = shareable && Boolean(activeSharedPageFor(sharedPages, shareSpaceId!, entry.path));
   const openLabel = nativeOpenLabel(entry);
   const menuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); }, [entry.path]);
@@ -62,6 +76,7 @@ export function FileContextMenu({
       <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onCopyPath(entry.path))}><Copy size={15} />Copy {entry.kind === "folder" ? "folder" : "file"} path</button>
       {entry.kind === "file" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onAddToChatContext(entry.path))}><CirclePlus size={15} />Attach to chat</button> : null}
       {entry.kind === "file" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onShowVersionHistory(entry.path))}><History size={15} />Version history</button> : null}
+      {shareable && onShare ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onShare(entry.path))}><Share2 size={15} />{alreadyShared ? fileSharing.shared : fileSharing.share}</button> : null}
       {entry.kind === "folder" && (onNewFolder || onNewFile || onUploadHere) ? <div className="context-menu-separator" role="separator" /> : null}
       {entry.kind === "folder" && onNewFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onNewFolder(entry.path))}><FolderPlus size={15} />New folder here</button> : null}
       {entry.kind === "folder" && onNewFile ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onNewFile(entry.path))}><FilePlus2 size={15} />New file here</button> : null}

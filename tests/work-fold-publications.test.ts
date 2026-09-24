@@ -417,7 +417,7 @@ test("revocation is desktop-first, idempotent, and its bridge cleanup is named a
   assert.deepEqual(events.map((event) => event.event), ["created", "revoked"]);
 });
 
-test("narrowing is a direct verb and widening is refused without a fresh decision", async () => {
+test("narrowing is a direct verb that refuses a raise", async () => {
   const fixture = await publicationFixture();
   const view = await fixture.service.activate(
     { spaceId: "space-pub", relativePath: "report.md", title: "Budgeted", snapshotEnabled: true },
@@ -453,6 +453,68 @@ test("narrowing is a direct verb and widening is refused without a fresh decisio
     fixture.service.narrowBudgets(view.publicationId, { serveRatePerMinute: 1 }, context("req-after-revoke")),
     isRefusal("ALREADY_REVOKED"),
   );
+});
+
+test("widening in place raises budgets and turns the sleep copy on, keeping the slot and key", async () => {
+  const fixture = await publicationFixture();
+  const view = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "report.md", title: "Wider" },
+    context("req-widen-activate"),
+  );
+  const key = fixture.keys.values.get(view.publicationId);
+  await fixture.service.noteViewerResting(view.publicationId, "byte-budget");
+  assert.equal((await fixture.service.get(view.publicationId))!.health.state, "resting");
+
+  const widened = await fixture.service.widen(
+    view.publicationId,
+    { byteBudgetPerDay: 512 * 1024 * 1024, snapshotEnabled: true },
+    context("req-widen"),
+  );
+  assert.equal(widened.publicationId, view.publicationId);
+  assert.equal(widened.viewerPath, view.viewerPath);
+  assert.equal(widened.byteBudgetPerDay, 512 * 1024 * 1024);
+  assert.equal(widened.serveRatePerMinute, 60, "an unnamed budget is unchanged");
+  assert.equal(widened.snapshotEnabled, true);
+  assert.equal(widened.lastProblem, undefined, "raising a budget clears the resting note it answered");
+  assert.equal(widened.health.state, "live");
+  assert.equal(fixture.keys.values.get(view.publicationId), key, "the key, and so the link, is unchanged");
+  const entries = fixture.receipts.entries.filter((entry) => entry.requestId === "req-widen");
+  assert.deepEqual(entries.map((entry) => [entry.command, entry.outcome]), [["pages widen", "accepted"], ["pages widen", "ok"]]);
+  assert.match(entries[1]!.detail!, /byteBudgetPerDay=268435456->536870912 snapshot=off->on bridgeSync=confirmed/);
+  assert.deepEqual(entries[1]!.undoRef, { kind: "publicationId", value: view.publicationId });
+  const upsert = fixture.bridge.calls.filter((call) => call.method === "upsertSlot").at(-1)!.input as { snapshotEnabled: boolean; byteBudgetPerDay: number };
+  assert.equal(upsert.snapshotEnabled, true);
+  assert.equal(upsert.byteBudgetPerDay, 512 * 1024 * 1024);
+  assert.equal(fixture.bridge.calls.some((call) => call.method === "putSnapshot"), true, "the relay copy is seeded when it is opted into");
+
+  // Lower values, over-ceiling values, off, nothing, and stopped pages refuse
+  // before anything is journaled.
+  for (const input of [
+    { serveRatePerMinute: 30 },
+    { serveRatePerMinute: 601 },
+    { byteBudgetPerDay: 1024 * 1024 * 1024 + 1 },
+    {},
+  ]) {
+    await assert.rejects(fixture.service.widen(view.publicationId, input, context("req-widen-refused")), isRefusal("INPUT_INVALID"));
+  }
+  assert.equal(fixture.receipts.entries.some((entry) => entry.requestId === "req-widen-refused"), false);
+  await fixture.service.revoke(view.publicationId, context("req-widen-revoke"));
+  await assert.rejects(
+    fixture.service.widen(view.publicationId, { serveRatePerMinute: 120 }, context("req-widen-after")),
+    isRefusal("ALREADY_REVOKED"),
+  );
+  assert.equal((await fixture.service.get(view.publicationId))!.health.state, "stopped");
+});
+
+test("the service knows whether an address exists to serve pages at", async () => {
+  assert.equal(await (await publicationFixture({ bridge: null })).service.hasAddress(), false, "no bridge lane means no address");
+  assert.equal(await (await publicationFixture()).service.hasAddress(), true, "a bridge that cannot say is taken at its word");
+  const unconfigured = bridgeRecorder();
+  Object.assign(unconfigured, { addressConfigured: async () => false });
+  assert.equal(await (await publicationFixture({ bridge: unconfigured })).service.hasAddress(), false);
+  const configured = bridgeRecorder();
+  Object.assign(configured, { addressConfigured: async () => true });
+  assert.equal(await (await publicationFixture({ bridge: configured })).service.hasAddress(), true);
 });
 
 test("a damaged store fails closed for mutations, serves, and Space-removal checks without being overwritten", async () => {

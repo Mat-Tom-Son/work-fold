@@ -1435,6 +1435,15 @@ test("routing runs drive live chat hops with receipts, stop honestly, and refuse
   }
 });
 
+/** An enrolled address whose relay is unreachable: shares proceed and stay honestly pending. */
+const addressedUnreachableRelay = {
+  async upsertSlot() { throw new Error("relay unreachable"); },
+  async deleteSlot() {},
+  async putSnapshot() { throw new Error("relay unreachable"); },
+  async deleteSnapshot() {},
+  async addressConfigured() { return true; },
+};
+
 test("routing enablement and page exposure execute on one call with one request identity", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-enable-test-"));
   const api = await startLocalApi({
@@ -1443,6 +1452,7 @@ test("routing enablement and page exposure execute on one call with one request 
     spaceBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return {}; } },
+    publicationBridge: addressedUnreachableRelay,
   });
   try {
     const facade = api.actFacade;

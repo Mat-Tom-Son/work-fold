@@ -17359,9 +17359,32 @@ textarea,
 .fold-publication-row .settings-actions .secondary-button { min-width: 0; }
 .fold-publication-link { display: grid; gap: 6px; }
 .fold-publication-link .remote-access-url { overflow-wrap: anywhere; user-select: all; }
-.fold-publication-link small,
-.fold-publication-snapshot-label { color: #5c6b81; font-size: 0.74rem; }
-.fold-publication-narrow { border-top: 1px dashed #e4e9ef; padding-top: 8px; }
+.fold-publication-link small { color: #5c6b81; font-size: 0.74rem; }
+/* One compact row: two labeled number fields and Save; wraps only when the pane is too narrow for all three. */
+.fold-publication-budgets { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; border-top: 1px dashed #e4e9ef; padding-top: 8px; }
+.fold-publication-budgets .settings-field { flex: 0 0 140px; width: 140px; min-width: 0; }
+.fold-publication-budgets .settings-field input { min-height: 36px; height: 36px; }
+.fold-publication-budgets .settings-actions { flex: 0 0 auto; }
+.fold-publication-budgets .settings-actions .primary-button { min-width: 0; min-height: 36px; height: 36px; padding: 0 16px; }
+.fold-publication-summary { display: grid; gap: 2px; min-width: 0; }
+.fold-publication-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.fold-publication-state { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border: 1px solid #d4dbe5; border-radius: 999px; background: #f4f6f9; color: #4b5a70; font-size: 0.72rem; font-weight: 600; cursor: default; }
+.fold-publication-state.live { color: #17684f; border-color: #b9e1d2; background: #edf8f3; }
+.fold-publication-state.resting { color: #8a5a00; border-color: #efd9a6; background: #fdf6e6; }
+.fold-publication-state.not-available { color: #9b2c2c; border-color: #f0c4c4; background: #fdf0f0; }
+.fold-publication-sleep-copy { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; }
+.fold-publication-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fold-publication-empty .secondary-button { width: auto; }
+.file-share-anchor { position: relative; display: inline-flex; }
+.file-share-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 45; width: min(440px, calc(100vw - 32px)); max-width: calc(100vw - 32px); box-sizing: border-box; display: grid; gap: 8px; padding: 12px; color: #253044; background: #ffffff; border: 1px solid #cfd8e3; border-radius: 8px; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.14); }
+.file-share-popover p { margin: 0; font-size: 0.8rem; }
+.file-share-popover .file-share-meaning { color: #5c6b81; font-size: 0.74rem; }
+/* The link stays on one line: ellipsis at rest, scrolls sideways when focused. */
+.file-share-link { display: block; width: 100%; min-width: 0; box-sizing: border-box; height: 30px; padding: 0 8px; overflow-x: auto; white-space: nowrap; text-overflow: ellipsis; font: 0.74rem ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit; background: #f4f6f9; border: 1px solid #dde3ea; border-radius: 6px; }
+.file-share-link:focus { outline: 2px solid rgba(24, 78, 119, 0.18); border-color: #9fc6dc; text-overflow: clip; }
+.file-share-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-share-actions .secondary-button.compact { width: auto; min-height: 28px; padding: 4px 10px; gap: 6px; font-size: 0.78rem; }
+.file-share-loading { color: #5c6b81; }
 
 /* Settings → Automations. The list is the selector; the right side is
    one plain inspector, so the operational surface stays dense without turning
@@ -17393,6 +17416,82 @@ textarea,
   font-size: 0.82rem;
   line-height: 1.5;
   text-align: center;
+}
+
+/* Proposal files the work-fold agent wrote, waiting for one-click Turn on. */
+.fold-routing-proposals {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.fold-routing-proposals h5 {
+  margin: 0;
+  color: #344054;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.fold-routing-proposals ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.fold-routing-proposal {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+}
+
+.fold-routing-proposal + .fold-routing-proposal {
+  border-top: 1px solid #e4e9ef;
+}
+
+.fold-routing-proposal > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.fold-routing-proposal strong,
+.fold-routing-proposal small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fold-routing-proposal strong {
+  color: #344054;
+  font-size: 0.82rem;
+}
+
+.fold-routing-proposal small {
+  color: #667085;
+  font-size: 0.7rem;
+}
+
+.fold-routing-proposal.invalid strong {
+  color: #667085;
+  font-weight: 600;
+}
+
+.fold-routing-proposal .primary-button {
+  flex: none;
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+}
+
+.fold-routing-folder-filter {
+  justify-self: start;
+  flex-wrap: wrap;
 }
 
 .fold-routings-workbench {
@@ -17839,9 +17938,16 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .fold-publication-row + .fold-publication-row { border-top-color: #303a48; }
-.app-shell[data-theme="dark"] .fold-publication-narrow { border-top-color: #303a48; }
-.app-shell[data-theme="dark"] .fold-publication-link small,
-.app-shell[data-theme="dark"] .fold-publication-snapshot-label { color: #94a3b8; }
+.app-shell[data-theme="dark"] .fold-publication-budgets { border-top-color: #303a48; }
+.app-shell[data-theme="dark"] .fold-publication-state { color: #cbd5e1; border-color: #3c4655; background: #202733; }
+.app-shell[data-theme="dark"] .fold-publication-state.live { color: #8fe0c0; border-color: #285948; background: #142d26; }
+.app-shell[data-theme="dark"] .fold-publication-state.resting { color: #f0cb7a; border-color: #5f4d2b; background: #302817; }
+.app-shell[data-theme="dark"] .fold-publication-state.not-available { color: #f4a0a0; border-color: #6b3838; background: #351d1d; }
+.app-shell[data-theme="dark"] .file-share-popover { color: #e5edf7; background: rgba(17, 24, 39, 0.98); border-color: rgba(148, 163, 184, 0.24); box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45); }
+.app-shell[data-theme="dark"] .file-share-popover .file-share-meaning,
+.app-shell[data-theme="dark"] .file-share-loading { color: #94a3b8; }
+.app-shell[data-theme="dark"] .file-share-link { background: #202733; color: #e5edf7; border-color: #3c4655; }
+.app-shell[data-theme="dark"] .fold-publication-link small { color: #94a3b8; }
 
 .app-shell[data-theme="dark"] .fold-routings-empty,
 .app-shell[data-theme="dark"] .fold-routings-workbench { border-color: #3c4655; }

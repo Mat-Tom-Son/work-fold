@@ -108,8 +108,19 @@ Consequences, consistent with the fold doctrine:
   person-only prerequisite, and nothing a task needs waits behind it.
 - **Narrowing needs nothing.** Revoking a publication, cutting its budgets,
   and turning snapshot caching off are direct receipted verbs that only
-  reduce exposure. Widening — a new slot, a rebound source, raised budgets,
-  snapshot on — is a fresh receipted share.
+  reduce exposure. A new slot or a rebound source is a fresh receipted
+  share with a new link.
+- **Budgets and the sleep copy change in place** (amended 2026-09-24).
+  Raising the serve rate or the daily byte budget, up to the ceilings in
+  `src/local/publications.ts` (600 serves per minute, 1 GiB per day), and
+  turning the sleep copy on are one receipted widening verb — `pages widen`
+  on the act lane, the Budgets and Sleep copy controls in Settings → Shared
+  pages — that keeps the slot, the key, and the link unchanged. The receipt
+  names the old and new values; narrowing back is the direct verb above. A
+  person can also share a file straight from its tab: the click runs the
+  same `pages share` path and answers with the link, and a desktop with no
+  address refuses the share up front instead of leaving a page nobody can
+  reach.
 - **Revocation is the undo.** Nothing published is permanent at the moment
   it happens: one revoke kills every copy of the link at once,
   desktop-first, regardless of who holds them.
@@ -343,8 +354,9 @@ it touches durable state (snapshot refresh).
 | Mutation | Kind | Journaled | Receipt contains | Revocation / undo | Mid-act failure | Replay prevention |
 |---|---|---|---|---|---|---|
 | Share a page | Prepared verb (widen) | `accepted` before the durable intent; key mint and bridge sync after | `publicationId`, Space id, relative path, title, budgets, snapshot flag, viewer origin and path — never the fragment key or the full link — bridge sync outcome, initiating surface and browser/grant when remote | Revoke verb, any time | Two-phase: the local record commits first; bridge slot creation is retried by operation id and the page is not presented as live until the bridge confirms | Act request-id at-most-once; bridge slot upsert idempotent by operation id; startup recovery re-drives or cancels the intent |
-| Rebind source / raise budgets / snapshot on | Prepared verb (widen) | As sharing above | Old and new binding, old and new budgets | The previous binding's receipt chain is the undo reference; narrowing back is a direct verb | Same two-phase as sharing | Same as sharing |
-| Cut budgets / snapshot off | Direct verb | `accepted` before mutation | Old and new values; snapshot-deletion outcome | Raising again is a fresh receipted share | Bridge sync retried; local narrowing already effective | Operation-id idempotence |
+| Rebind source | Prepared verb (widen) | As sharing above | Old and new binding | The previous binding's receipt chain is the undo reference | Same two-phase as sharing | Same as sharing |
+| Raise budgets / snapshot on (in place, 2026-09-24) | Widening verb (`pages widen`) | `accepted` before mutation | Old and new budgets and snapshot flag; bridge sync outcome — the slot, key, and link are unchanged | Narrowing back is a direct verb | Local record first; bridge sync retried by operation id | Act request-id at-most-once; operation-id idempotence |
+| Cut budgets / snapshot off | Direct verb | `accepted` before mutation | Old and new values; snapshot-deletion outcome | Raising again is `pages widen` | Bridge sync retried; local narrowing already effective | Operation-id idempotence |
 | Revoke publication | Direct verb | `accepted` before mutation | `publicationId`, ordering outcomes, `bridgeCleanup: ok\|pending` | This is the undo; re-publishing mints a new slot, key, and link | Desktop-first; bridge cleanup retried until confirmed | Revocation is idempotent; a second revoke is a no-op receipt |
 | Snapshot refresh (serve-time) | Bounded sync, not an act | Not journaled; counter-tracked | — (aggregate counters only) | Snapshot off / revoke deletes the row | A failed refresh leaves the previous snapshot; staleness is visible in "as of" | Refresh carries the serve's content digest; the bridge keeps newest-wins by digest + timestamp |
 | Put an app at your address (rung 3) | Prepared verb (widen) | `accepted` before the durable intent; bridge slot creation (kind `app`) after | `publicationId`, App Instance id, exact Release digest, viewer entry, the complete viewer-readable surface, budgets, viewer origin and path — never keys or full links — bridge sync outcome, initiating surface and browser/grant when remote | Revoke verb, any time | Same two-phase as sharing a page | Same act request-id and operation-id idempotence |
@@ -434,7 +446,7 @@ waiting to happen: the verb shares the page and says so, and **Stop
 sharing** is always one click away.
 
 The CLI act verbs are `pages share|share-app|list|status|revoke|narrow|
-snapshot-off`. The verb and the copy now say the same thing: `pages share`
+widen|snapshot-off`. The verb and the copy now say the same thing: `pages share`
 shares the page on the call that asks and returns the receipt, and there is
 no holding spelling left in the vocabulary.
 
@@ -475,3 +487,4 @@ The plan items shipped as follows (numbering preserved for references):
 8. Docs and canonical promotion — recorded in [Fold integration](fold-integration.md).
 9. Receipts, not gates (2026-09-10, F19) — sharing became a prepared verb that executes and receipts on the call that asks; the receipt's retired decision fields were dropped — `src/local/publications.ts`, `src/local/cli/act-receipts.ts`; `tests/work-fold-publications.test.ts`, `tests/work-fold-cli-act-receipts.test.ts`.
 10. Verb rename (2026-09-10) — the two outward-exposure verbs became `pages share` and `pages share-app` across the act protocol, help, the fold's instructions, and these docs; the retired holding spellings are unknown commands — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`, `src/local/cli/commands.ts`, `src/local/management-instructions.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-direct-verbs.test.ts`.
+11. Share from the file tab and widen in place (2026-09-24) — `POST /api/settings/publications/share` and `pages share` run one domain path that refuses without an address; `POST /api/settings/publications/:id/widen` and `pages widen` raise budgets or turn the sleep copy on under a receipt; each Shared pages row shows its page state (Live, Asleep, Resting, Not available, Stopped) with the precise reason as a tooltip — `src/local/server.ts`, `src/local/publications.ts`, `src/shared/publications.ts`, `web-local/src/components/panes/FileSharePopover.tsx`; `tests/fold-publication-settings.test.ts`, `tests/work-fold-publications.test.ts`.

@@ -233,6 +233,102 @@ test("routings enable is direct and a fold step opens a new management thread", 
   }
 });
 
+test("Settings lists pending proposal files and turns one on by path through the CLI enable path", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-proposals-"));
+  const stateRoot = join(sandbox, "state");
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: stateRoot,
+    spaceBase: join(sandbox, "spaces"),
+    loadEnv: false,
+  });
+  t.after(async () => {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  const alpha = await api.actFacade.createSpace({ name: "Alpha" });
+  const beta = await api.actFacade.createSpace({ name: "Beta" });
+  const root = workFoldManagementRoot();
+  await mkdir(root, { recursive: true });
+  const proposal = (title: string, space: string) => JSON.stringify({
+    kind: "work-fold.routing-proposal",
+    version: 1,
+    name: title,
+    createdBy: "assistant",
+    createdAt: "2026-09-24T12:00:00.000Z",
+    routing: {
+      title,
+      trigger: { kind: "interval", intervalMinutes: 60 },
+      steps: [{ id: "hello", kind: "chat", space, message: "Say hello." }],
+    },
+  });
+  const readyPath = join(root, "hourly.work-fold-routing.json");
+  await writeFile(readyPath, proposal("Hourly hello", alpha.space.id), "utf8");
+  await writeFile(join(root, "broken.work-fold-routing.json"), "{", "utf8");
+  await writeFile(join(root, "gone.work-fold-routing.json"), proposal("Gone folder", "space-00000000000000ff"), "utf8");
+
+  const pending = await api.routingSettings.proposals();
+  assert.equal(pending.truncated, false);
+  assert.deepEqual(pending.proposals.map((entry) => [entry.fileName, entry.valid]), [
+    ["broken.work-fold-routing.json", false],
+    ["gone.work-fold-routing.json", false],
+    ["hourly.work-fold-routing.json", true],
+  ]);
+  const ready = pending.proposals.find((entry) => entry.valid);
+  assert.ok(ready?.valid);
+  assert.equal(ready.title, "Hourly hello");
+  assert.deepEqual(ready.trigger, { kind: "interval", intervalMinutes: 60 });
+  assert.equal(ready.path, readyPath);
+  const gone = pending.proposals.find((entry) => entry.fileName === "gone.work-fold-routing.json");
+  assert.match(gone?.valid === false ? gone.problem : "", /Names a Folder that is not on this computer/);
+
+  // Only a proposal file directly inside the agent's working folder is admitted.
+  const outside = join(sandbox, "outside.work-fold-routing.json");
+  await writeFile(outside, proposal("Outside", alpha.space.id), "utf8");
+  await assert.rejects(() => api.routingSettings.enableProposal(outside), /Only automation files in the work-fold agent's folder/);
+  await assert.rejects(() => api.routingSettings.enableProposal(join(root, "..", "outside.work-fold-routing.json")), /Only automation files/);
+  await assert.rejects(() => api.routingSettings.enableProposal("hourly.work-fold-routing.json"), /absolute automation file path/);
+  await assert.rejects(() => api.routingSettings.enableProposal(join(root, "broken.work-fold-routing.json")), /not readable JSON/);
+  assert.deepEqual(await api.routings.listRoutings(), [], "refused paths enable nothing");
+
+  const enabled = await api.routingSettings.enableProposal(readyPath);
+  assert.equal(enabled.enabled, true);
+  assert.equal(enabled.alreadyEnabled, false);
+  assert.equal(enabled.routingId, ready.routingId, "the scanned id is exactly what enabling pins");
+  assert.match(enabled.requestId, /^settings:/);
+  assert.equal(enabled.routing.health, "enabled");
+  assert.equal(enabled.routing.title, "Hourly hello");
+  assert.deepEqual(enabled.routing.spaces, [{ spaceId: alpha.space.id, spaceName: "Alpha" }]);
+  const stored = await api.routings.getRouting(enabled.routingId);
+  assert.equal(stored?.digest, ready.digest);
+  assert.equal(stored?.grants.at(-1)?.surface, "main-window");
+  assert.equal(stored?.grants.at(-1)?.requestId, enabled.requestId);
+
+  // An enabled proposal shows once, in the main list — and still once after it is turned off.
+  const after = await api.routingSettings.proposals();
+  assert.ok(!after.proposals.some((entry) => entry.fileName === "hourly.work-fold-routing.json"));
+  await api.routingSettings.disable(enabled.routingId);
+  assert.ok(!(await api.routingSettings.proposals()).proposals.some((entry) => entry.fileName === "hourly.work-fold-routing.json"));
+  assert.equal((await api.routingSettings.enableProposal(readyPath)).alreadyEnabled, false, "turning a stored-but-off file on again re-enables it");
+  assert.equal((await api.routingSettings.enableProposal(readyPath)).alreadyEnabled, true, "the same digest again changes nothing");
+
+  // Editing the file makes it a new pending proposal with a new digest.
+  await writeFile(readyPath, proposal("Hourly hello, Beta", beta.space.id), "utf8");
+  const edited = (await api.routingSettings.proposals()).proposals.find((entry) => entry.fileName === "hourly.work-fold-routing.json");
+  assert.equal(edited?.valid, true);
+  assert.notEqual(edited?.valid ? edited.digest : "", ready.digest);
+
+  const listed = await api.routingSettings.list();
+  assert.deepEqual(listed.routings[0]?.spaces, [{ spaceId: alpha.space.id, spaceName: "Alpha" }], "summaries carry the Folders for the filter");
+
+  const actPath = join(workFoldCliBrokerPaths(stateRoot).root, "receipts", "act.jsonl");
+  const enables = (await jsonLines<WorkFoldCliActReceipt>(actPath)).filter((entry) => entry.command === "routings.enable");
+  assert.ok(enables.some((entry) => entry.outcome === "accepted" && entry.surface === "main-window"));
+  assert.ok(enables.some((entry) => entry.outcome === "ok" && /from hourly\.work-fold-routing\.json/.test(entry.detail ?? "")));
+  assert.ok(enables.some((entry) => entry.outcome === "error"), "a refused read after acceptance records its error");
+});
+
 // A wall-clock budget, not an attempt count: every attempt awaits a real API
 // call, so a count means nothing under full-suite load.
 async function waitFor(predicate: () => Promise<boolean>, label: string, timeoutMs = 15_000): Promise<void> {

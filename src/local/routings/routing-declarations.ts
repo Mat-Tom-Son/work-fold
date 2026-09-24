@@ -356,6 +356,20 @@ export function declarationFromWorkFoldRoutingProposal(
 }
 
 /**
+ * The declaration a proposal enables as: a deterministic content-derived
+ * routing id, so identical proposal content always names one routing. The
+ * CLI's `routings enable --proposal` and Settings' pending-proposal scan both
+ * go through this, so a scanned file's digest is exactly what enabling it pins.
+ */
+export function contentAddressedWorkFoldRoutingDeclaration(
+  proposal: WorkFoldRoutingProposal,
+): { declaration: WorkFoldRoutingDeclaration; digest: string } {
+  const contentId = `routing-${workFoldRoutingDigest(proposal).slice(0, 16)}`;
+  const declaration = declarationFromWorkFoldRoutingProposal(proposal, contentId);
+  return { declaration, digest: workFoldRoutingDigest(declaration) };
+}
+
+/**
  * The digest that pins a routing: enablement records an exact-authority grant
  * over it, receipts carry it, and any edit changes it — an edited routing
  * never coasts on a stale approval. Canonicalization is the same stable JSON

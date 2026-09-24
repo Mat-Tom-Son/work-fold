@@ -4,6 +4,8 @@ import type {
   FoldRoutingsResponse,
   FoldRoutingRunResponse,
   FoldRoutingEnableResponse,
+  FoldRoutingEnableProposalResponse,
+  FoldRoutingProposalsResponse,
 } from "./components/modals/FoldRoutingsPane";
 
 export {};
@@ -148,6 +150,10 @@ declare global {
       /** Main-window-only routing management; absent from the popover preload. */
       routings?: {
         list: () => Promise<FoldRoutingsResponse>;
+        /** Pending `*.work-fold-routing.json` files in the work-fold agent's working folder. */
+        proposals: () => Promise<FoldRoutingProposalsResponse>;
+        /** Turns on one pending file by absolute path, through the same enable path as the CLI. */
+        enableProposal: (path: string) => Promise<FoldRoutingEnableProposalResponse>;
         show: (routingId: string) => Promise<FoldRoutingDetailResponse>;
         history: (routingId: string) => Promise<FoldRoutingHistoryResponse>;
         enable: (routingId: string) => Promise<FoldRoutingEnableResponse>;

@@ -1,4 +1,5 @@
 import type { AgentExtensionSurface, AgentStatus, ConversationSummary, TreeEntry, SpaceCheckpoint, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../types";
+import type { SharedPageView } from "../lib/page-sharing";
 
 export interface SpaceUiFixture {
   spaces: SpaceSummary[];
@@ -101,4 +102,66 @@ export function buildSpaceFixture(): SpaceUiFixture {
     },
     library: [{ name: "Templates", path: "Templates", kind: "folder", hasChildren: true, children: [{ name: "comparison-table.docx", path: "Templates/comparison-table.docx", kind: "file", sizeBytes: 18600, updatedAt: now }] }, { name: "packing-list.md", path: "packing-list.md", kind: "file", sizeBytes: 1240, updatedAt: now }],
   };
+}
+
+/** The preview's web address for share links. Not a real address. */
+export const fixtureViewerOrigin = "https://pages-you.work-fold.com";
+/** A sample link key for the preview; it opens nothing. */
+export const fixtureShareLinkKey = "sampleKeyForThePreviewOnly0000000000000000";
+
+/**
+ * Sample shared pages for the preview (`?fixture=space`), one per page state
+ * Settings → Shared pages shows — Live, Asleep, Resting, Not available, and
+ * Stopped — with the default and raised budgets a person would see.
+ */
+export function buildFixturePublications(): SharedPageView[] {
+  const mib = 1024 * 1024;
+  return [
+    {
+      publicationId: "fixture-page-live", kind: "page", spaceId: "fixture-home", spaceName: "Home projects",
+      relativePath: "weekend checklist.md", title: "weekend checklist", state: "active", live: true,
+      serveRatePerMinute: 60, byteBudgetPerDay: 256 * mib, snapshotEnabled: true,
+      createdAt: "2026-09-20T15:04:00.000Z", bridgeSlot: "confirmed",
+      counters: { served: 42, servedBytes: 3_870_000, lastServedAt: "2026-09-24T08:12:00.000Z" },
+      health: { state: "live", reason: "Your desktop is serving this page." },
+      viewerPath: "/p/fixture-page-live",
+    },
+    {
+      publicationId: "fixture-page-asleep", kind: "page", spaceId: "fixture-home", spaceName: "Home projects",
+      relativePath: "Garden/planting-plan.pdf", title: "Planting plan", state: "active", live: false,
+      serveRatePerMinute: 120, byteBudgetPerDay: 512 * mib, snapshotEnabled: false,
+      createdAt: "2026-09-18T10:30:00.000Z", bridgeSlot: "pending",
+      counters: { served: 7, servedBytes: 5_684_000, lastServedAt: "2026-09-22T19:45:00.000Z" },
+      health: { state: "asleep", reason: "The relay has not confirmed this page yet." },
+      viewerPath: "/p/fixture-page-asleep",
+    },
+    {
+      publicationId: "fixture-page-resting", kind: "page", spaceId: "fixture-trip", spaceName: "Japan trip",
+      relativePath: "itinerary.md", title: "Japan itinerary", state: "active", live: true,
+      serveRatePerMinute: 30, byteBudgetPerDay: 64 * mib, snapshotEnabled: false,
+      createdAt: "2026-09-12T07:00:00.000Z", bridgeSlot: "confirmed",
+      counters: { served: 1_318, servedBytes: 67_108_864, lastServedAt: "2026-09-24T09:58:00.000Z" },
+      lastProblem: { state: "resting", reason: "its daily byte budget at the relay is used up", at: "2026-09-24T09:58:30.000Z" },
+      health: { state: "resting", reason: "This page's daily byte budget at the relay is used up." },
+      viewerPath: "/p/fixture-page-resting",
+    },
+    {
+      publicationId: "fixture-page-missing", kind: "page", spaceId: "fixture-trip", spaceName: "Japan trip",
+      relativePath: "Bookings/hotel.pdf", title: "Hotel booking", state: "active", live: true,
+      serveRatePerMinute: 60, byteBudgetPerDay: 256 * mib, snapshotEnabled: false,
+      createdAt: "2026-09-10T12:00:00.000Z", bridgeSlot: "confirmed",
+      lastProblem: { state: "not-available", reason: "The designated file does not exist as a regular file.", at: "2026-09-23T16:20:00.000Z" },
+      health: { state: "not-available", reason: "The designated file does not exist as a regular file." },
+      viewerPath: "/p/fixture-page-missing",
+    },
+    {
+      publicationId: "fixture-page-stopped", kind: "page", spaceId: "fixture-home", spaceName: "Home projects",
+      relativePath: "Kitchen refresh/ideas.md", title: "Kitchen ideas", state: "revoked", live: false,
+      serveRatePerMinute: 60, byteBudgetPerDay: 256 * mib, snapshotEnabled: false,
+      createdAt: "2026-09-02T09:00:00.000Z", bridgeSlot: "confirmed", bridgeCleanup: "pending",
+      counters: { served: 12, servedBytes: 96_000, lastServedAt: "2026-09-21T11:03:00.000Z" },
+      health: { state: "stopped", reason: "You stopped sharing this page. The relay is still removing it." },
+      viewerPath: "/p/fixture-page-stopped",
+    },
+  ];
 }
