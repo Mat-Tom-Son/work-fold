@@ -35,24 +35,28 @@ def walk(node, depth=0):
         yield from walk(child, depth + 1)
 
 
-def candidates(name, roles):
+def portal_nodes():
     desktop = Atspi.get_desktop(0)
-    result = []
     for index in range(desktop.get_child_count()):
         app = desktop.get_child_at_index(index)
         if read_node(app, "get_name", "") != "xdg-desktop-portal-gnome":
             continue
-        for node in walk(app):
-            if read_node(node, "get_name", "") == name and read_node(node, "get_role_name", "") in roles:
-                # Recent GTK exposes both an AdwSwitchRow and its leaf switch
-                # with the same label/role. Choose the concrete leaf control.
-                if any(read_node(child, "get_name", "") == name and read_node(child, "get_role_name", "") in roles
-                       for child in list(walk(node))[1:]):
-                    continue
-                node.clear_cache()
-                state = node.get_state_set()
-                if state.contains(Atspi.StateType.SHOWING) and state.contains(Atspi.StateType.SENSITIVE):
-                    result.append(node)
+        yield from walk(app)
+
+
+def candidates(name, roles):
+    result = []
+    for node in portal_nodes():
+        if read_node(node, "get_name", "") == name and read_node(node, "get_role_name", "") in roles:
+            # Recent GTK exposes both an AdwSwitchRow and its leaf switch
+            # with the same label/role. Choose the concrete leaf control.
+            if any(read_node(child, "get_name", "") == name and read_node(child, "get_role_name", "") in roles
+                   for child in list(walk(node))[1:]):
+                continue
+            node.clear_cache()
+            state = node.get_state_set()
+            if state.contains(Atspi.StateType.SHOWING) and state.contains(Atspi.StateType.SENSITIVE):
+                result.append(node)
     return result
 
 
@@ -100,6 +104,15 @@ def press(name, roles, select=False, selected_state=Atspi.StateType.PRESSED, mon
                 raise RuntimeError("Monitor selection did not settle")
             return
         time.sleep(0.1)
+    print("Private portal controls at timeout:", flush=True)
+    for node in portal_nodes():
+        label = read_node(node, "get_name", "")
+        if label:
+            node.clear_cache()
+            state = node.get_state_set()
+            print(repr(label), read_node(node, "get_role_name", ""),
+                  "showing=" + str(state.contains(Atspi.StateType.SHOWING)),
+                  "sensitive=" + str(state.contains(Atspi.StateType.SENSITIVE)), flush=True)
     raise RuntimeError("Test portal control unavailable: " + name)
 
 

@@ -8,7 +8,23 @@ test "$(id -u)" = 1000
 test ! -e /tmp/workfold-input-fixture
 setsid bash /work/scripts/linux-wayland-probe/gnome-session.sh > /tmp/gnome-session.log 2>&1 &
 desktop=$!
-trap 'kill -- -"$desktop" 2>/dev/null || true; wait "$desktop" 2>/dev/null || true' EXIT
+cleanup() {
+  local result=$?
+  trap - EXIT
+  if (( result != 0 )); then
+    tail -c 12000 /tmp/gnome-session.log /tmp/gnome-shell.log /tmp/login-services.log \
+      /tmp/pipewire.log /tmp/wireplumber.log 2>/dev/null || true
+  fi
+  kill -- -"$desktop" 2>/dev/null || true
+  for attempt in {1..50}; do
+    kill -0 "$desktop" 2>/dev/null || break
+    sleep 0.1
+  done
+  kill -KILL -- -"$desktop" 2>/dev/null || true
+  wait "$desktop" 2>/dev/null || true
+  exit "$result"
+}
+trap cleanup EXIT
 ready=0
 for attempt in {1..150}; do
   if ! kill -0 "$desktop" 2>/dev/null; then
@@ -36,7 +52,8 @@ case "${WORKFOLD_NATIVE_TEST_SIZE:-}" in
 esac
 for scale in "${scales[@]}"; do
   python3 /work/scripts/linux-wayland-probe/configure-monitor.py "$scale"
-  WORKFOLD_NATIVE_TEST_SCALE="$scale" python3 /work/scripts/linux-wayland-probe/protocol-smoke.py
+  WORKFOLD_NATIVE_TEST_SCALE="$scale" timeout --signal=TERM --kill-after=10s 3m \
+    python3 /work/scripts/linux-wayland-probe/protocol-smoke.py
   mv /tmp/workfold-input-fixture "/tmp/workfold-input-fixture-scale-$scale"
 done
 python3 /work/scripts/linux-wayland-probe/configure-monitor.py 1

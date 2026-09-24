@@ -60,6 +60,10 @@ click-to-focus, scrolling, shortcut and drag events, paired input, stale-state
 and wrong-owner rejection, cross-process seat exclusion, compositor screen-lock
 revocation and Stop during a pending chooser. It saves bounded evidence only
 under `/tmp/workfold-input-fixture*` inside the disposable container.
+Each protocol run has a three-minute deadline. Failures print helper exit state,
+pending native errors, portal controls and bounded compositor/media-service logs
+before cleanup, so a missing chooser is not mistaken for a diagnosed app defect.
+Desktop teardown is bounded too; these checks never retry a failed interaction.
 
 `pi-smoke.mts` exercises the real Pi client and included computer tools, host
 accepted-turn lease, native portal, PipeWire image, image-bearing provider request,

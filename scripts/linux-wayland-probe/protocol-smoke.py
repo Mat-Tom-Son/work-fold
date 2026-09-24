@@ -8,6 +8,7 @@ import pathlib
 import selectors
 import struct
 import subprocess
+import sys
 import time
 import uuid
 
@@ -220,6 +221,23 @@ try:
     assert "Portal session close: confirmed" in (root / "pending-stop.log").read_text()
     print("PASS native protocol Stop closes the pending desktop chooser", flush=True)
 finally:
+    if sys.exc_info()[0] is not None:
+        # A missing chooser can mean the helper rejected or lost its session.
+        # Keep that evidence before teardown instead of reporting only a UI
+        # lookup failure. This fixture contains no personal desktop data.
+        for helper in helpers:
+            print("Native helper at failure:", helper.log.name,
+                  "exit:", helper.process.poll(), flush=True)
+            print(pathlib.Path(helper.log.name).read_text(errors="replace")[-8000:], flush=True)
+            if helper.selector.get_map() and helper.selector.select(0):
+                pending = helper.buffer + os.read(helper.process.stdout.fileno(), 65536)
+                for line in pending.splitlines():
+                    try:
+                        response = json.loads(line)
+                    except (ValueError, UnicodeDecodeError):
+                        continue
+                    if response.get("error"):
+                        print("Native helper pending error:", response["error"], flush=True)
     for helper in helpers:
         helper.stop()
     fixture.terminate()
