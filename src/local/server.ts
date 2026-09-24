@@ -12236,7 +12236,7 @@ async function designatedPageSource(spaceRoot: string, relativePath: string): Pr
   if (!normalized) throw new WorkFoldCliError("usage", "A Space-relative file path is required.");
   const extension = extname(normalized).toLowerCase();
   if (!WORKFOLD_PUBLICATION_SOURCE_TYPES[extension]) {
-    throw new WorkFoldCliError("usage", "Only Markdown, plain text, PNG, JPEG, and PDF files can be shared as a page in this slice.");
+    throw new WorkFoldCliError("usage", "Only Markdown, plain text, HTML, PNG, JPEG, and PDF files can be shared as a page.");
   }
   const info = await lstat(path).catch(() => null);
   if (!info || !info.isFile()) throw new WorkFoldCliError("notFound", "The designated file does not exist as a regular file.");

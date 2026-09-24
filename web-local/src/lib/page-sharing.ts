@@ -1,7 +1,7 @@
 import {
   WORKFOLD_PUBLICATION_BYTE_BUDGET_MAXIMUM,
   WORKFOLD_PUBLICATION_SERVE_RATE_MAXIMUM,
-  WORKFOLD_PUBLICATION_SOURCE_TYPES,
+  WORKFOLD_PUBLICATION_SHAREABLE_EXTENSIONS,
   WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH,
   isWorkFoldPublicationSourcePath,
   workFoldPublicationHealth,
@@ -18,7 +18,7 @@ import {
  * tab never offers a share the host would refuse.
  */
 
-export const shareableSourceExtensions: readonly string[] = Object.freeze(Object.keys(WORKFOLD_PUBLICATION_SOURCE_TYPES));
+export const shareableSourceExtensions: readonly string[] = WORKFOLD_PUBLICATION_SHAREABLE_EXTENSIONS;
 export const pageServeRateMaximum = WORKFOLD_PUBLICATION_SERVE_RATE_MAXIMUM;
 export const pageByteBudgetMaximumMiB = WORKFOLD_PUBLICATION_BYTE_BUDGET_MAXIMUM / (1024 * 1024);
 
@@ -82,6 +82,17 @@ export function activeSharedPageFor(publications: readonly SharedPageView[] | nu
     && publication.spaceId === spaceId
     && publication.relativePath === path
   )) ?? null;
+}
+
+/** Every file in this Space backing an active page slot, for the Files mark and file tabs. */
+export function sharedPathsForSpace(publications: readonly SharedPageView[] | null, spaceId: string): ReadonlySet<string> {
+  const paths = new Set<string>();
+  for (const publication of publications ?? []) {
+    if (publication.kind === "page" && publication.state === "active" && publication.spaceId === spaceId && publication.relativePath) {
+      paths.add(publication.relativePath);
+    }
+  }
+  return paths;
 }
 
 /**

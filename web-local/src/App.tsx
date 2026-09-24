@@ -37,7 +37,7 @@ import { FileContentSearch } from "./components/panes/FileContentSearch";
 import { ChatsPane, HistoryPane, LibraryPane, SpacesPane, type AssistantModelScope } from "./components/panes/spacePanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
 import { useSharedPages } from "./hooks/useSharedPages";
-import { activeSharedPageFor, isShareablePath } from "./lib/page-sharing";
+import { activeSharedPageFor, isShareablePath, sharedPathsForSpace } from "./lib/page-sharing";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
 import type { SpaceUiFixture } from "./fixtures/space-fixture";
 import { useApplicationAppearance } from "./hooks/useApplicationAppearance";
@@ -380,6 +380,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
   // The native macOS file menu needs to know whether a file is already shared.
   const sharedPages = useSharedPages(Boolean(fixture));
+  const sharedPaths = useMemo(() => sharedPathsForSpace(sharedPages, space.id), [sharedPages, space.id]);
   const [renameEntryRequest, setRenameEntryRequest] = useState<{ path: string; name: string } | null>(null);
   const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
   const [versionHistory, setVersionHistory] = useState<{ space: SpaceSummary; path: string; name: string } | null>(null);
@@ -1388,7 +1389,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><Loader2 className="spin" size={14} />Updating files</div> : null}
-      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this folder. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
+      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this folder. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -1405,7 +1406,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     </section>
     <button className="space-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="space-file-panel space-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetSpaceSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="space-chat-panel">
-      <SpaceSurfaceTabBar tabs={tabs.surfaceTabs} spaces={spaces} spaceCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatSpaceId={space.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onNewChatInSpace={(target) => openChat(target, null)} onChatActions={openChatActions} />
+      <SpaceSurfaceTabBar tabs={tabs.surfaceTabs} spaces={spaces} spaceCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatSpaceId={space.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onNewChatInSpace={(target) => openChat(target, null)} onChatActions={openChatActions} isSharedFile={(spaceId, path) => Boolean(activeSharedPageFor(sharedPages, spaceId, path))} />
       {tabs.surfaceTabs.length ? tabs.surfaceTabs.map((tab) => {
         const targetSpace = spaces.find((item) => item.id === tab.spaceId);
         if (!targetSpace) return null;

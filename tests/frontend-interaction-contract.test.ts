@@ -7,6 +7,7 @@ import { nextDialogTabIndex } from "../web-local/src/hooks/useModalDialog.js";
 import { resolveMessageImageSource } from "../web-local/src/lib/message-images.js";
 import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
 import { createSpaceOperationGate } from "../web-local/src/lib/space-operation-gate.js";
+import { fileSharing } from "../web-local/src/ui-contract.js";
 
 const root = process.cwd();
 const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, app, _retiredNeedsYou, spacePanes, ...desktopDialogs] = await Promise.all([
@@ -189,6 +190,34 @@ test("a file tab shares on the click and holds the link in a popover", async () 
   assert.match(menu, /isShareablePath\(entry\.path\)/);
   assert.match(app, /onShare=\{shareFile\} shareSpaceId=\{space\.id\}/);
   assert.match(app, /onOpenSettings=\{openSharingSettings\}/);
+});
+
+test("a shared file carries a quiet mark in Files and on its tab", async () => {
+  const [fileTree, styles] = await Promise.all([
+    read("web-local/src/components/tree/FileTree.tsx"),
+    read("web-local/src/styles.css"),
+  ]);
+  // Files: one 12px Share2 glyph after the name, files only, with the
+  // check-attention dot still in place beside it.
+  assert.match(fileTree, /sharedPaths\?: ReadonlySet<string>;/);
+  assert.match(fileTree, /const shared = entry\.kind === "file" && sharedPaths\.has\(entry\.path\);/);
+  assert.match(fileTree, /<HighlightedFileName name=\{entry\.name\} query=\{searchQuery\} \/>\{shared \? <SharedPageGlyph className="file-shared-marker" \/> : null\}<\/>/);
+  assert.match(fileTree, /\{checkAttention \? <span className="file-check-attention-marker" aria-hidden="true" \/> : null\}/);
+  assert.match(fileTree, /sharedPaths=\{sharedPaths\}/, "nested folders keep the mark");
+  assert.match(fileTree, /aria-label=\{rowLabel\}/);
+  assert.match(fileTree, /\$\{shared \? ` · \$\{fileSharing\.sharedMarkLabel\}` : ""\}/);
+  assert.match(fileTree, /<span className=\{className\} title=\{fileSharing\.sharedMarkTooltip\} aria-hidden="true"><Share2 size=\{12\} \/><\/span>/);
+  assert.match(app, /const sharedPaths = useMemo\(\(\) => sharedPathsForSpace\(sharedPages, space\.id\), \[sharedPages, space\.id\]\);/);
+  assert.match(app, /checkAttentionPaths=\{checks\.attentionPaths\} sharedPaths=\{sharedPaths\}/);
+  // File tabs: the same glyph before the close button, inside the tab's
+  // own trailing column so the width tiers are untouched.
+  assert.match(tabBar, /const shared = tab\.kind === "file" && Boolean\(isSharedFile\?\.\(tab\.spaceId, tab\.path\)\);/);
+  assert.match(tabBar, /\{shared \? <SharedPageGlyph className="surface-tab-shared-marker" \/> : null\}\n\s*<\/button>\n\s*<button\n\s*className="surface-tab-close"/);
+  assert.match(app, /isSharedFile=\{\(spaceId, path\) => Boolean\(activeSharedPageFor\(sharedPages, spaceId, path\)\)\}/);
+  assert.match(styles, /\.file-row-entry\.is-shared \{\n\s*grid-template-columns: auto minmax\(0, max-content\) auto minmax\(0, 1fr\);/);
+  assert.match(styles, /\.app-shell\[data-theme="dark"\] \.file-shared-marker,\n\.app-shell\[data-theme="dark"\] \.surface-tab-shared-marker \{/);
+  assert.equal(fileSharing.sharedMarkLabel, "Shared as a page");
+  assert.equal(fileSharing.sharedMarkTooltip, "Shared as a page. Anyone with the link can read it.");
 });
 
 test("the main window has no glance panel; the Space-identity header carries no action and the files refresh sits in the toolbar", () => {

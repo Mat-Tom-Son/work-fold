@@ -329,6 +329,61 @@ test("serving renders the closed set within bounds and decrypts under the docume
   );
 });
 
+test("a person-authored HTML page is stripped desktop-side and flagged as a whole document", async () => {
+  const fixture = await publicationFixture();
+  await writeFile(join(fixture.spaceRoot, "flyer.html"), [
+    "<!doctype html><html><head><title>Flyer</title><style>h1 { color: teal }</style>",
+    "<meta http-equiv=refresh content=\"0;url=https://evil.example\"></head>",
+    "<body onload=\"alert(1)\"><h1 style=\"font-size: 3rem\">Bake sale</h1>",
+    "<script>alert(1)</script><iframe src=\"https://evil.example\"></iframe>",
+    "<a href=\"javascript:alert(1)\">bad</a> <a href=\"https://example.com\" target=\"_top\">good</a>",
+    "<form action=\"https://evil.example\"><button>Send</button></form></body></html>",
+  ].join("\n"));
+  await writeFile(join(fixture.spaceRoot, "old.HTM"), "<p>Legacy</p>");
+
+  const page = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "flyer.html", title: "Flyer" },
+    context("req-html"),
+  );
+  const served = await fixture.service.serveViewerPage(page.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
+  assert.equal(served.state, "served");
+  const payload = decryptServed(fixture.keys.values.get(page.publicationId)!, served) as {
+    v: number; mediaType: string; body: string; document?: boolean;
+  };
+  assert.equal(payload.mediaType, "text/html");
+  assert.equal(payload.document, true, "the viewer places a whole HTML document in a script-less sandboxed frame");
+  assert.match(payload.body, /^<!DOCTYPE html>\n<meta charset="utf-8">/);
+  assert.match(payload.body, /<style>h1 \{ color: teal \}<\/style>/, "the page keeps its own design");
+  assert.match(payload.body, /<h1 style="font-size: 3rem">Bake sale<\/h1>/);
+  assert.match(payload.body, /<a href="https:\/\/example\.com" target="_blank" rel="noopener noreferrer">good<\/a>/);
+  assert.doesNotMatch(payload.body, /<script|<iframe|<form|http-equiv|onload|javascript:/i);
+  assert.match(payload.body, /<button>Send<\/button>/);
+
+  const legacy = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "old.HTM", title: "Legacy" },
+    context("req-htm"),
+  );
+  const servedLegacy = await fixture.service.serveViewerPage(legacy.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
+  const legacyPayload = decryptServed(fixture.keys.values.get(legacy.publicationId)!, servedLegacy) as { body: string; document?: boolean };
+  assert.equal(legacyPayload.document, true);
+  assert.match(legacyPayload.body, /<p>Legacy<\/p>$/);
+
+  const markdown = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "report.md", title: "Report" },
+    context("req-md-flag"),
+  );
+  const servedMarkdown = await fixture.service.serveViewerPage(markdown.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
+  const markdownPayload = decryptServed(fixture.keys.values.get(markdown.publicationId)!, servedMarkdown) as { document?: boolean };
+  assert.equal(markdownPayload.document, undefined, "Markdown stays an article body, not a document");
+
+  await writeFile(join(fixture.spaceRoot, "drawing.svg"), "<svg><script>alert(1)</script></svg>");
+  await assert.rejects(
+    fixture.service.activate({ spaceId: "space-pub", relativePath: "drawing.svg", title: "Drawing" }, context("req-svg")),
+    isRefusal("SOURCE_INVALID"),
+    "SVG stays out: it is scriptable",
+  );
+});
+
 test("the effect-time recheck refuses with typed, content-free states", async () => {
   const fixture = await publicationFixture();
   assert.deepEqual(await fixture.service.serveViewerPage("publication-unknown"), {

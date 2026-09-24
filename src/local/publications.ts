@@ -11,10 +11,12 @@ import {
   WORKFOLD_PUBLICATION_SERVE_RATE_MAXIMUM,
   WORKFOLD_PUBLICATION_SOURCE_TYPES,
   WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH,
+  isWorkFoldPublicationHtmlExtension,
   workFoldPublicationHealth,
   type WorkFoldPublicationHealth,
   type WorkFoldPublicationMediaType,
 } from "../shared/publications.js";
+import { renderInertHtmlDocument } from "./publication-html.js";
 import { resolveSpacePath } from "./space.js";
 import { workFoldStateRoot } from "./state-paths.js";
 
@@ -1471,7 +1473,7 @@ async function inspectSource(spaceRoot: string, relativePath: string): Promise<I
   if (!mediaType) {
     throw new WorkFoldPublicationError(
       "SOURCE_INVALID",
-      "Only Markdown, plain text, PNG, JPEG, and PDF files can be shared as a page in this slice.",
+      "Only Markdown, plain text, HTML, PNG, JPEG, and PDF files can be shared as a page.",
     );
   }
   const info = await lstat(path).catch(() => null);
@@ -1498,6 +1500,12 @@ interface PublicationPayload {
   mediaType: WorkFoldPublicationMediaType;
   body: string;
   renderedAt: string;
+  /**
+   * Person-authored HTML: `body` is one whole stripped document the viewer
+   * places in a script-less sandboxed frame. A viewer that predates the
+   * flag renders it like Markdown, still under the script-free CSP.
+   */
+  document?: true;
 }
 
 function renderPublicationPayload(
@@ -1511,6 +1519,9 @@ function renderPublicationPayload(
     return { v: 1, title, mediaType, body: bytes.toString("base64url"), renderedAt };
   }
   const text = bytes.toString("utf8");
+  if (isWorkFoldPublicationHtmlExtension(extension)) {
+    return { v: 1, title, mediaType: "text/html", body: renderInertHtmlDocument(text), renderedAt, document: true };
+  }
   const body = extension === ".txt"
     ? `<pre class="plain-text">${escapeHtml(text)}</pre>`
     : renderInertMarkdown(text);

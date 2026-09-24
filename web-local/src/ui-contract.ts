@@ -66,6 +66,9 @@ export const fileSharing = {
   noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
   webAccess: "Web access",
   previewDisabled: "Sharing is disabled in the preview",
+  /** The at-a-glance mark on a shared file's Files row and tab. */
+  sharedMarkLabel: "Shared as a page",
+  sharedMarkTooltip: "Shared as a page. Anyone with the link can read it.",
 } as const;
 
 /**

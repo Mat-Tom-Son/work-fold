@@ -17,6 +17,7 @@ import {
   pageTitleFromFileName,
   shareableSourceExtensions,
   sharedPageHealth,
+  sharedPathsForSpace,
   type SharedPageView,
 } from "../web-local/src/lib/page-sharing.js";
 import { WORKFOLD_PUBLICATION_SOURCE_TYPES } from "../src/local/publications.js";
@@ -86,11 +87,11 @@ test("sharing from a file tab says what happened in plain words and never asks f
 
 test("the file tab offers Share for exactly the types the host serves as a page", () => {
   assert.deepEqual([...shareableSourceExtensions].sort(), Object.keys(WORKFOLD_PUBLICATION_SOURCE_TYPES).sort());
-  assert.deepEqual([...shareableSourceExtensions].sort(), [".jpeg", ".jpg", ".markdown", ".md", ".pdf", ".png", ".txt"]);
-  for (const path of ["notes.md", "a/b/Plan.MARKDOWN", "readme.txt", "photo.PNG", "x.jpg", "y.jpeg", "doc.pdf"]) {
+  assert.deepEqual([...shareableSourceExtensions].sort(), [".htm", ".html", ".jpeg", ".jpg", ".markdown", ".md", ".pdf", ".png", ".txt"]);
+  for (const path of ["notes.md", "a/b/Plan.MARKDOWN", "readme.txt", "photo.PNG", "x.jpg", "y.jpeg", "doc.pdf", "flyer.html", "site/Index.HTM"]) {
     assert.equal(isShareablePath(path), true, path);
   }
-  for (const path of ["index.html", "logo.svg", "budget.xlsx", ".md", "noextension", "folder.md/child"]) {
+  for (const path of ["page.xhtml", "logo.svg", "budget.xlsx", ".md", "noextension", "folder.md/child"]) {
     assert.equal(isShareablePath(path), false, path);
   }
   assert.equal(pageServeRateMaximum, 600);
@@ -113,6 +114,15 @@ test("the preview's sample pages cover every state a Shared pages row shows", ()
   const shared = activeSharedPageFor(samples, "fixture-home", "weekend checklist.md");
   assert.equal(shared?.publicationId, "fixture-page-live", "the preview's file tab shows Shared for its live sample");
   assert.equal(activeSharedPageFor(samples, "fixture-home", "Kitchen refresh/ideas.md"), null, "a stopped page is not shared");
+  assert.deepEqual(
+    [...sharedPathsForSpace(samples, "fixture-home")].sort(),
+    ["Garden/planting-plan.pdf", "weekend checklist.md"],
+    "Files marks the active page slots of this Folder only: no stopped page, no other Folder's page",
+  );
+  assert.deepEqual([...sharedPathsForSpace(null, "fixture-home")], []);
+  assert.deepEqual([...sharedPathsForSpace(samples, "fixture-none")], []);
+  const withApp = [...samples, { ...samples[0]!, publicationId: "app-slot", kind: "app" as const, relativePath: "app.md" }];
+  assert.equal(sharedPathsForSpace(withApp, "fixture-home").has("app.md"), false, "a hosted-app slot never marks a file");
 });
 
 test("Recently deleted says what is waiting, how long, and what work-fold never erases", () => {

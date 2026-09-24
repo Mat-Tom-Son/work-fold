@@ -10,20 +10,33 @@
 export type WorkFoldPublicationMediaType = "text/html" | "image/png" | "image/jpeg" | "application/pdf";
 
 /**
- * The closed first-slice source set: Markdown and plain text render
- * desktop-side into one inert HTML body; PNG, JPEG, and PDF ship as bytes the
- * shell renders from local blob URLs. Person-authored HTML and SVG are
- * deliberately absent — an app (rung 3) is the vehicle for script.
+ * The closed source set: Markdown and plain text render desktop-side into
+ * one inert HTML body; person-authored HTML is stripped desktop-side and
+ * served inert (a script-less sandboxed frame under the viewer CSP); PNG,
+ * JPEG, and PDF ship as bytes the shell renders from local blob URLs. SVG is
+ * deliberately absent because it is scriptable — an app (rung 3) is the
+ * vehicle for script.
  */
 export const WORKFOLD_PUBLICATION_SOURCE_TYPES: Readonly<Record<string, WorkFoldPublicationMediaType>> = Object.freeze({
   ".md": "text/html",
   ".markdown": "text/html",
   ".txt": "text/html",
+  ".html": "text/html",
+  ".htm": "text/html",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".pdf": "application/pdf",
 });
+
+/** The file extensions a page can be made from, lower-case with the dot. */
+export const WORKFOLD_PUBLICATION_SHAREABLE_EXTENSIONS: readonly string[] = Object.freeze(Object.keys(WORKFOLD_PUBLICATION_SOURCE_TYPES));
+
+/** Person-authored HTML sources: stripped desktop-side, served as an inert document. */
+export function isWorkFoldPublicationHtmlExtension(extension: string): boolean {
+  const lower = extension.toLowerCase();
+  return lower === ".html" || lower === ".htm";
+}
 
 /** Budget defaults and ceilings, mirroring the bridge's admission bounds. */
 export const WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT = 60;

@@ -10,6 +10,14 @@
 const envelopeType = "work-fold.viewer-page.v1";
 const maximumPayloadBytes = 2 * 1024 * 1024;
 
+/**
+ * The sandbox for a person-authored HTML page (stripped desktop-side): no
+ * allow-scripts, no allow-same-origin, no allow-forms. The document gets an
+ * opaque origin with no reach back into this shell or its key; the only
+ * power is that a link may open a new window.
+ */
+export const viewerDocumentSandbox = "allow-popups allow-popups-to-escape-sandbox";
+
 /** Publication id and fragment key from one share link, or nulls. */
 export function parseViewerLocation(pathname, hash) {
   const path = /^\/p\/([A-Za-z0-9._:-]{1,128})$/.exec(String(pathname ?? ""));
@@ -80,9 +88,23 @@ function showBanner(text) {
   banner.hidden = false;
 }
 
-function renderPayload(root, payload) {
+export function renderPayload(root, payload) {
   if (typeof payload.title === "string" && payload.title.trim()) document.title = payload.title.trim();
   root.replaceChildren();
+  if (payload.mediaType === "text/html" && payload.document === true) {
+    // A whole person-authored document, stripped desktop-side, placed in a
+    // script-less sandboxed blob: frame. The frame inherits this origin's
+    // CSP as well, so no inline or remote script could run in it anyway.
+    const frame = document.createElement("iframe");
+    frame.className = "viewer-document";
+    frame.setAttribute("sandbox", viewerDocumentSandbox);
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.title = typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : "Shared page";
+    frame.src = URL.createObjectURL(new Blob([payload.body], { type: "text/html;charset=utf-8" }));
+    root.classList.add("viewer-root-document");
+    root.append(frame);
+    return;
+  }
   if (payload.mediaType === "text/html") {
     const article = document.createElement("article");
     // Desktop-rendered, escape-first HTML for the closed Markdown/plain-text
