@@ -91,8 +91,9 @@ rotations on both compositors. The headless fixture disables
 hot corners: AT-SPI portal selection leaves the initial pointer at (0, 0), where
 the first move can otherwise open the overview and consume the click. Mirroring,
 hotplug, physical multi-monitor setups, physical
-sleep/wake, GPU buffer negotiation and KDE remain outside
-this evidence. Unit math/keymap tests do not substitute for those cases.
+sleep/wake and GPU buffer negotiation remain outside this evidence. KDE has
+its own narrower fixture below. Unit math/keymap tests do not substitute for
+those cases.
 
 Set `WORKFOLD_NATIVE_TEST_LIVE_SCALE=1` for a single unrotated monitor to change
 its scale while a turn holds an observation. The test requires rejection of
@@ -118,6 +119,57 @@ occlusion and is disabled before native focus/minimize/continuity checks.
 Its screenshots come from the shipped portal path,
 not the web debugger. A test-only local provider drives deterministic tool calls;
 the harness never receives model credentials or a personal desktop connection.
+
+## Private KDE helper qualification
+
+`Dockerfile.kde-test`, `kde-session.sh`, `kde-acceptance.sh` and
+`kde-native-smoke.mjs` exercise the production TypeScript transport and verified
+Rust binary against Fedora 44's actual KDE portal, KWin and screen locker. Build
+the Fedora GNOME test image first; the KDE image extends its common dependencies.
+The Qt chooser is operated through AT-SPI on the private bus. No portal permission
+store rule or automatic approval is installed. Node 24 runs the transport's
+TypeScript using its built-in type stripping, without a second runtime adapter.
+
+This is a manual **owned QEMU guest** lane, not a command for the host desktop.
+KWin's virtual renderer needs software OpenGL backed by the guest's VGEM device;
+QPainter does not support capture and the readiness check rejects it. Provision
+the guest under the ownership rules below, load `vgem` inside that guest, and
+verify the selected DRM device resolves to `/sys/devices/faux/vgem`. Pass only
+that guest-created device to the private test container, with the fixture sources,
+`src/local/agent/wayland-transport.ts`, and the built helper plus adjacent
+`source.json` mounted read-only at `/work`. Never forward a host graphics device,
+home, input device or bus. The image removes KWin's file capability only in the
+container; no host executable or desktop policy is changed.
+
+Run `bash /work/scripts/linux-wayland-probe/kde-acceptance.sh` as uid 1000 with
+`WORKFOLD_ISOLATED_KDE_TEST=1`, a disposable HOME, and permission to access the
+guest VGEM node. The runner creates its own session/system buses, runtime,
+PipeWire, WirePlumber and lock-enabled KWin session. Run cases **sequentially**
+in fresh containers. `WORKFOLD_KDE_TEST_SCALE=1|1.25|1.5|2` chooses scale;
+`WORKFOLD_KDE_TEST_OUTPUTS=2` selects the refusal case. Diagnostics and exact saved
+bytes remain under `/tmp/workfold-input-fixture`; compositor/media logs stay in
+`/tmp`. Earlier concurrent fixtures include a failed media startup, retained as
+failure evidence rather than retried silently.
+
+The native cases cover real Deny, Stop while the chooser is pending, capture,
+click/type/scroll/shortcut, exact saved bytes, balanced input, stale observation
+rejection, owner teardown/fresh approval and real KDE lock revocation. A separate
+case refuses a two-monitor grant before publishing any frame. KDE 6.7.5's
+RemoteDesktop portal combines monitors when `multiple=false`; the helper asks
+for individual streams and admits exactly one. It does not choose one monitor
+on behalf of a person or silently expose a combined desktop. See the
+[KDE portal implementation](https://github.com/KDE/xdg-desktop-portal-kde/blob/v6.7.5/src/remotedesktop.cpp).
+All four scales and the two-monitor refusal pass on KWin/Plasma 6.7.5 with the
+source-verified helper. Initial failures exposed incorrect fixture coordinates
+and an extra protocol field in the test driver; both were corrected and rerun.
+The optional GStreamer Vulkan plugin scanner also reports a crash in this
+software-rendered image. Its diagnostics are retained; the required PipeWire
+capture pipeline passes. This is not a Vulkan qualification.
+
+This fixture does not qualify an installed Plasma session, the app's KDE setup
+UI, native dialogs, unlock/regrant, suspend, physical graphics or other Plasma
+versions. The separate packaged-store KWallet evidence also does not establish
+installed KDE acceptance. The supported GNOME matrix remains the release baseline.
 
 ## Full disposable virtual machines
 

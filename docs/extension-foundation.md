@@ -126,9 +126,13 @@ Visual observation returns the granted PipeWire frame. Pixel actions use the
 portal/EIS mapping and compositor geometry, including qualified fractional
 scaling; semantic refs and semantic outcome assertions are rejected for that
 target. libei and libxkbcommon own input transport and keymap interpretation.
-No model call opens a chooser or restores a grant. Portal closure, GNOME lock,
+No model call opens a chooser or restores a grant. Portal closure, native GNOME/KDE lock,
 sleep, app exit and Stop revoke it. Input is whole-seat work: keyboard events
 affect the focused application, and the successor image verifies what happened.
+The helper requires an identifiable GNOME or KDE session and revokes sharing if
+its native lock service loses or changes ownership. KDE helper qualification is
+limited to a single connected monitor; a multiple-monitor response is refused
+before capture. The installed-desktop support baseline remains GNOME.
 See [Linux builds](linux-build.md) and the [native acceptance harness](../scripts/linux-wayland-probe/README.md)
 for packaging, supported geometry/layouts and remaining qualification.
 

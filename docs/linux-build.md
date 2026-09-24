@@ -336,8 +336,8 @@ pass a two-monitor test with a 100% primary and 100/125/200% selected secondary 
 headless fixture disables hot corners because AT-SPI accepts Share without moving
 its initial pointer away from (0, 0); the first motion otherwise opens the overview.
 Rotations of 90°, 180° and 270° also pass capture, input and the Pi path at 100/125%
-on both private compositors. Hotplug, physical multi-monitor/GPU paths and KDE
-remain unqualified.
+on both private compositors. Hotplug and physical multi-monitor/GPU paths remain
+unqualified. KDE has the separate, narrower helper coverage described below.
 Geometry mismatches fail before input. Unit tests cover additional scale math
 and US/German keymaps; they do not replace those desktop cases.
 
@@ -351,6 +351,24 @@ on Fedora. Do not disable the Chromium sandbox to work around missing desktop
 integration. See the upstream [ScreenCast](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)
 and [RemoteDesktop](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html)
 contracts.
+
+The helper also recognizes KDE's native `org.freedesktop.ScreenSaver` service.
+Both desktop lock monitors subscribe before reading the initial state and revoke
+sharing if the service disappears or changes owner. Unknown or ambiguous desktop
+identities fail before requesting a grant. A private Fedora 44/KWin 6.7.5 fixture
+tests the real KDE chooser, capture/input, exact saved bytes, Deny/Stop, owner
+teardown, fresh approval and native lock revocation through the production
+transport. Its guest-created software graphics device is separate from the
+host's desktop and physical GPU. See the [KDE fixture](../scripts/linux-wayland-probe/README.md#private-kde-helper-qualification)
+for the full evidence boundary.
+
+KDE currently requires **one connected monitor**. Its combined RemoteDesktop
+portal does not provide GNOME's monitor picker and may aggregate displays into
+one stream. The helper requests individual streams and rejects a multiple-monitor
+response before opening capture. The real two-monitor regression fails without
+this check and passes with it. This does not establish installed Plasma desktop,
+unlock/regrant, dialog, sleep, hardware or KDE upgrade qualification; GNOME remains
+the supported release baseline.
 
 ## Signed repository candidates
 

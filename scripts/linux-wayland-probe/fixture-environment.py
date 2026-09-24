@@ -9,7 +9,7 @@ import uuid
 
 
 def require_isolated_session():
-    assert os.environ.get("WORKFOLD_ISOLATED_GNOME_TEST") == "1"
+    assert (os.environ.get("WORKFOLD_ISOLATED_GNOME_TEST") == "1") != (os.environ.get("WORKFOLD_ISOLATED_KDE_TEST") == "1")
     vm_id = os.environ.get("WORKFOLD_ISOLATED_VM_TEST")
     if vm_id:
         assert str(uuid.UUID(vm_id)) == vm_id

@@ -7,11 +7,55 @@ use futures_util::StreamExt;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{oneshot, watch};
 
-#[zbus::proxy(interface = "org.gnome.ScreenSaver", default_service = "org.gnome.ScreenSaver", default_path = "/org/gnome/ScreenSaver")]
+// GNOME and KDE expose the same typed methods/signals under separate names.
+// The builder below selects only these two reviewed desktop contracts.
+#[zbus::proxy(interface = "org.freedesktop.ScreenSaver")]
 trait ScreenSaver {
     fn get_active(&self) -> zbus::Result<bool>;
     #[zbus(signal)]
     fn active_changed(&self, active: bool) -> zbus::Result<()>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LockService { name: &'static str, path: &'static str }
+const GNOME_LOCK: LockService = LockService { name: "org.gnome.ScreenSaver", path: "/org/gnome/ScreenSaver" };
+const KDE_LOCK: LockService = LockService { name: "org.freedesktop.ScreenSaver", path: "/ScreenSaver" };
+
+fn lock_service(desktop: &str) -> Result<LockService> {
+    let names: Vec<_> = desktop.split(':').collect();
+    let gnome = names.iter().any(|name| name.eq_ignore_ascii_case("GNOME"));
+    let kde = names.iter().any(|name| name.eq_ignore_ascii_case("KDE"));
+    match (gnome, kde) {
+        (true, false) => Ok(GNOME_LOCK),
+        (false, true) => Ok(KDE_LOCK),
+        _ => Err(anyhow!("Screen sharing requires an identifiable GNOME or KDE desktop session")),
+    }
+}
+
+async fn monitor_screen_lock(connection: &zbus::Connection, service: LockService,
+    ready: oneshot::Sender<Result<()>>) {
+    let mut ready = Some(ready);
+    let result = async {
+        let proxy = ScreenSaverProxy::builder(connection).destination(service.name)?
+            .path(service.path)?.interface(service.name)?.build().await?;
+        // Subscribe before querying state. Loss/replacement of the original
+        // service is revocation too; never silently follow a new lock service.
+        let mut owners = proxy.inner().receive_owner_changed().await?;
+        let mut changes = proxy.receive_active_changed().await?;
+        ensure!(!proxy.get_active().await?, "Unlock the desktop before sharing a screen");
+        let _ = ready.take().unwrap().send(Ok(()));
+        loop {
+            tokio::select! {
+                _ = owners.next() => return Err(anyhow!("Desktop screen-lock service changed")),
+                change = changes.next() => {
+                    let change = change.context("Desktop screen-lock signal stream ended")?;
+                    if change.args()?.active { return Ok::<_, anyhow::Error>(()); }
+                }
+            }
+        }
+    }.await;
+    if let Some(ready) = ready { let _ = ready.send(result); }
+    else if let Err(error) = result { eprintln!("Screen-lock monitoring ended: {error}"); }
 }
 
 pub struct SharedScreen {
@@ -33,6 +77,7 @@ impl Drop for SharedScreen {
 
 impl SharedScreen {
     pub async fn request(cancel: impl std::future::Future<Output = ()>) -> Result<Self> {
+        let lock_service = lock_service(&std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default())?;
         let remote = RemoteDesktop::new().await?;
         let cast = Screencast::with_connection(remote.connection().clone()).await?;
         let session = Arc::new(remote.create_session(Default::default()).await?);
@@ -56,36 +101,32 @@ impl SharedScreen {
             mapping_id: None, logical_size: None, logical_position: None, devices: 0, alive: true };
         let connection = remote.connection().clone();
         let (lock_ready, lock_subscribed) = oneshot::channel();
-        // Electron does not emit lock-screen on every Linux desktop. GNOME's
-        // documented session service is mandatory for this initial GNOME lane.
-        // Subscribe before checking the current state to avoid a lock race.
+        // Electron does not emit lock-screen on every Linux desktop. The
+        // selected desktop's native session service is therefore mandatory.
         screen.watchers.push(tokio::spawn(async move {
-            let mut ready = Some(lock_ready);
-            let monitor = async {
-                let proxy = ScreenSaverProxy::new(&connection).await?;
-                let mut changes = proxy.receive_active_changed().await?;
-                ensure!(!proxy.get_active().await?, "Unlock the desktop before sharing a screen");
-                let _ = ready.take().unwrap().send(Ok::<_, anyhow::Error>(()));
-                while let Some(change) = changes.next().await {
-                    if change.args()?.active { break; }
-                }
-                Ok::<_, anyhow::Error>(())
-            }.await;
-            if let Some(ready) = ready { let _ = ready.send(monitor); }
+            monitor_screen_lock(&connection, lock_service, lock_ready).await;
             lock_sender.send_replace(true);
         }));
         if let Err(error) = lock_subscribed.await.context("Screen-lock monitor ended").and_then(|r| r) {
             screen.close().await.ok();
-            return Err(error.context("GNOME screen-lock monitoring is unavailable"));
+            return Err(error.context("Desktop screen-lock monitoring is unavailable"));
         }
         let mut revoked = screen.closed.clone();
         let operation = async {
             remote.select_devices(&screen.session, SelectDevicesOptions::default()
                 .set_devices(DeviceType::Keyboard | DeviceType::Pointer).set_persist_mode(PersistMode::DoNot)).await?.response()?;
             cast.select_sources(&screen.session, SelectSourcesOptions::default()
-                .set_sources(Some(SourceType::Monitor.into())).set_multiple(false)
+                // KDE's RemoteDesktop portal merges all monitors into one
+                // workspace stream when multiple=false. Request individual
+                // streams there so the one-monitor check below cannot admit
+                // a combined desktop before any pixels reach the application.
+                .set_sources(Some(SourceType::Monitor.into())).set_multiple(lock_service == KDE_LOCK)
                 .set_cursor_mode(CursorMode::Embedded).set_persist_mode(PersistMode::DoNot)).await?.response()?;
             let selection = remote.start(&screen.session, None, Default::default()).await?.response()?;
+            if lock_service == KDE_LOCK {
+                ensure!(selection.streams().len() == 1,
+                    "KDE screen sharing currently requires one connected monitor; stop sharing and use a single-monitor desktop");
+            }
             ensure!(selection.streams().len() == 1, "Select exactly one monitor");
             let stream = &selection.streams()[0];
             screen.logical_size = stream.size();
@@ -198,6 +239,98 @@ fn coordinate_scale(width: u32, height: u32, region: &crate::ei::Region) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{io::{BufRead, Write}, process::{Child, Command, Stdio}, sync::atomic::{AtomicBool, Ordering}};
+
+    // A private bus with no activation directories cannot reach or start any
+    // desktop service belonging to the person running these tests.
+    struct TestBus { child: Child, address: String, _config: tempfile::NamedTempFile }
+    impl TestBus {
+        fn new() -> Self {
+            let mut config = tempfile::NamedTempFile::new().unwrap();
+            write!(config, "<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context=\"default\"><allow send_destination=\"*\"/><allow receive_sender=\"*\"/><allow own=\"*\"/></policy></busconfig>").unwrap();
+            let child = Command::new("dbus-daemon").arg(format!("--config-file={}", config.path().display()))
+                .args(["--nofork", "--nopidfile", "--print-address=1"])
+                .stdin(Stdio::null()).stdout(Stdio::piped()).spawn().unwrap();
+            let mut bus = Self { child, address: String::new(), _config: config };
+            std::io::BufReader::new(bus.child.stdout.take().unwrap()).read_line(&mut bus.address).unwrap();
+            bus.address = bus.address.trim().to_owned();
+            assert!(bus.address.starts_with("unix:"));
+            bus
+        }
+        async fn connection(&self) -> zbus::Connection {
+            zbus::connection::Builder::address(self.address.as_str()).unwrap().build().await.unwrap()
+        }
+        async fn serve(&self, service: LockService, active: bool) -> zbus::Connection {
+            let state = Arc::new(AtomicBool::new(active));
+            let builder = zbus::connection::Builder::address(self.address.as_str()).unwrap().name(service.name).unwrap();
+            if service == GNOME_LOCK { builder.serve_at(service.path, GnomeLock(state)).unwrap().build().await.unwrap() }
+            else { builder.serve_at(service.path, KdeLock(state)).unwrap().build().await.unwrap() }
+        }
+    }
+    impl Drop for TestBus {
+        fn drop(&mut self) { self.child.kill().ok(); self.child.wait().ok(); }
+    }
+    struct GnomeLock(Arc<AtomicBool>);
+    #[zbus::interface(name = "org.gnome.ScreenSaver")]
+    impl GnomeLock {
+        fn get_active(&self) -> bool { self.0.load(Ordering::SeqCst) }
+    }
+    struct KdeLock(Arc<AtomicBool>);
+    #[zbus::interface(name = "org.freedesktop.ScreenSaver")]
+    impl KdeLock {
+        fn get_active(&self) -> bool { self.0.load(Ordering::SeqCst) }
+    }
+    async fn monitor(bus: &TestBus, service: LockService) -> (oneshot::Receiver<Result<()>>, tokio::task::JoinHandle<()>) {
+        let connection = bus.connection().await;
+        let (send, receive) = oneshot::channel();
+        (receive, tokio::spawn(async move { monitor_screen_lock(&connection, service, send).await }))
+    }
+    #[test]
+    fn only_identifiable_supported_desktops_choose_a_lock_service() {
+        for desktop in ["GNOME", "ubuntu:GNOME", "gnome"] { assert_eq!(lock_service(desktop).unwrap(), GNOME_LOCK); }
+        for desktop in ["KDE", "plasma:KDE", "kde"] { assert_eq!(lock_service(desktop).unwrap(), KDE_LOCK); }
+        for desktop in ["", "GNOME:KDE", "not-GNOME", "XFCE", "KDE-other"] { assert!(lock_service(desktop).is_err()); }
+    }
+    #[tokio::test]
+    async fn both_native_lock_interfaces_revoke_on_active_signal() {
+        for service in [GNOME_LOCK, KDE_LOCK] {
+            let bus = TestBus::new();
+            let server = bus.serve(service, false).await;
+            let (ready, mut task) = monitor(&bus, service).await;
+            tokio::time::timeout(Duration::from_secs(3), ready).await.unwrap().unwrap().unwrap();
+            server.emit_signal(None::<&str>, service.path, service.name, "ActiveChanged", &(false,)).await.unwrap();
+            assert!(tokio::time::timeout(Duration::from_millis(30), &mut task).await.is_err());
+            server.emit_signal(None::<&str>, service.path, service.name, "ActiveChanged", &(true,)).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(3), task).await.unwrap().unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn locked_or_missing_services_never_publish_readiness() {
+        for service in [GNOME_LOCK, KDE_LOCK] {
+            let bus = TestBus::new();
+            let server = bus.serve(service, true).await;
+            let (ready, task) = monitor(&bus, service).await;
+            let error = tokio::time::timeout(Duration::from_secs(3), ready).await.unwrap().unwrap().unwrap_err();
+            assert!(error.to_string().contains("Unlock the desktop"));
+            task.await.unwrap();
+            server.release_name(service.name).await.unwrap();
+            let (ready, task) = monitor(&bus, service).await;
+            assert!(tokio::time::timeout(Duration::from_secs(3), ready).await.unwrap().unwrap().is_err());
+            task.await.unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn losing_the_lock_service_revokes_an_unlocked_session() {
+        for service in [GNOME_LOCK, KDE_LOCK] {
+            let bus = TestBus::new();
+            let server = bus.serve(service, false).await;
+            let (ready, task) = monitor(&bus, service).await;
+            tokio::time::timeout(Duration::from_secs(3), ready).await.unwrap().unwrap().unwrap();
+            server.release_name(service.name).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(3), task).await.unwrap().unwrap();
+        }
+    }
+
     #[test]
     fn scales_pixels_using_compositor_geometry_and_rejects_crops() {
         let mut region = crate::ei::Region { mapping_id: Some("monitor".into()), x: 1024, y: 120,

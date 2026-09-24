@@ -295,8 +295,24 @@ DEB harness now uses APT for local-file installation and passes its complete
 install/replacement/removal/reinstall and retained-credential test in a fresh
 build container. The same run's Mac
 Electron smoke hits its existing five-second frame-recovery deadline; its
-diagnostics are retained and a fresh source run must pass. Neither failure is
-waived, and these local results do not establish final CI qualification.
+diagnostics are retained. The subsequent 0.4.43 source run passes all five CI
+jobs, including the complete Linux candidate lane and macOS Electron integration
+([run 36010001028](https://github.com/Mat-Tom-Son/work-fold/actions/runs/36010001028)).
+Its separate local DEB/RPM/AppImage build also passes with clean source evidence.
+The .42 actual local-model seed and cold-relaunch phases both pass. These results
+supersede the earlier failures without deleting their diagnostics; later source
+changes still require their own qualification.
+
+The .44 follow-up adds KDE's native screen-lock monitor and invalidates grants
+when either supported desktop's lock service loses or changes ownership. The
+private Fedora 44/KWin 6.7.5 helper fixture passes actual Deny/Stop, capture/input
+and exact saved bytes at 100/125/150/200%, stale-state rejection, owner teardown,
+fresh approval and lock revocation. KDE's two-monitor regression reproduces a
+combined-workspace grant with the previous helper; the fixed path rejects it
+before capture. This is single-monitor helper coverage, not installed Plasma
+desktop qualification. GNOME regressions, 17 native helper tests, 1,563 application
+tests (8 explicit skips), repository/TypeScript checks and desktop preparation
+pass. The .44 package and remote CI runs remain separate evidence.
 
 The original baseline and architecture investigation below are retained as dated
 planning evidence. They are not the current feature inventory. The [build guide](linux-build.md)

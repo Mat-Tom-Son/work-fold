@@ -1,0 +1,9 @@
+# Build Dockerfile.fedora-test as work-fold-gnome-fedora-acceptance first.
+ARG GNOME_TEST_IMAGE=localhost/work-fold-gnome-fedora-acceptance:latest
+FROM ${GNOME_TEST_IMAGE}
+USER root
+RUN dnf install -y kwin-wayland plasma-workspace xdg-desktop-portal-kde kf6-kwallet \
+    kwalletmanager qt6-qttools xorg-x11-server-Xvfb xorg-x11-xauth dolphin \
+    && dnf clean all && setcap -r /usr/bin/kwin_wayland
+ENV XDG_CURRENT_DESKTOP=KDE KDE_SESSION_VERSION=6 QT_ACCESSIBILITY=1
+WORKDIR /work
