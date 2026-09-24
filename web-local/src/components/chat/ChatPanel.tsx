@@ -1,5 +1,5 @@
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useWorkRequest } from "../../hooks/useWorkRequest";
 import { WorkRequest, openWorkFile } from "./WorkRequest";
 import type * as React from "react";
@@ -12,6 +12,9 @@ import { ApiError, api, createEventSource, errorText, isTransientNetworkError, r
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
 import { displayAssistantModelLabel } from "../../lib/model-display";
+import { thinkingLevelLabel } from "../../lib/thinking-levels";
+import { composerModelFilterThreshold, composerModelListView } from "../../lib/composer-model-list";
+import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import {
   chatDisplayTitle,
   chatDraftStorageKey,
@@ -29,7 +32,7 @@ import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHa
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
 import { spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
-import type { AgentCatalog, AgentCommand, AgentStatus, AssistantComposerState, ChatContextPathRequest,
+import type { AgentCatalog, AgentCommand, AgentModel, AgentStatus, AssistantComposerState, ChatContextPathRequest,
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
 import { ExtensionQuestions } from "./ExtensionQuestions";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
@@ -181,6 +184,7 @@ export function ChatPanel({
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [configuredAssistant, setConfiguredAssistant] = useState<AgentStatus | null>(null);
   const [assistantComposer, setAssistantComposer] = useState<AssistantComposerState | null>(null);
+  const [composerModelRevision, setComposerModelRevision] = useState(0);
   const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(null);
   const extensionRequests = extensionSnapshot && extensionSnapshot.conversationId === conversation?.id ? extensionSnapshot.requests : [];
   const [appProposal, setAppProposal] = useState<RestrictedAppProposal | null>(null);
@@ -269,6 +273,18 @@ export function ChatPanel({
   const commandMenuOpen = commandQuery !== null
     && dismissedCommandDraft !== draft
     && commandSuggestions.length > 0;
+  const composerModelPicker: ComposerModelPickerProps = {
+    spaceId: space.id,
+    fixtureMode,
+    revision: assistantConfigurationRevision,
+    disabled: running,
+    // An existing Chat keeps the model its session started with; the saved
+    // Folder model applies to the Chats that start after it.
+    forNewChats: Boolean(conversationRuntime),
+    shownModel: conversationRuntime?.model ?? assistantComposer?.model ?? null,
+    onSaved: handleComposerModelSaved,
+    onOpenModelSettings,
+  };
   runningRef.current = running;
   messagesRef.current = messages;
 
@@ -390,7 +406,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [space.id, fixtureMode, assistantConfigurationRevision]);
+  }, [space.id, fixtureMode, assistantConfigurationRevision, composerModelRevision]);
 
   useEffect(() => {
     setConversationRuntime(null);
@@ -418,7 +434,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [space.id, conversation?.id, messages.length, running, fixtureMode, configuredAssistant?.configured, assistantConfigurationRevision]);
+  }, [space.id, conversation?.id, messages.length, running, fixtureMode, configuredAssistant?.configured, assistantConfigurationRevision, composerModelRevision]);
 
   useEffect(() => {
     if (!fixtureMode) return;
@@ -1375,6 +1391,13 @@ export function ChatPanel({
     }
   }
 
+  function handleComposerModelSaved(status: AgentStatus, model: AgentModel): void {
+    setConfiguredAssistant(status);
+    setAssistantComposer((current) => current ? { ...current, model: { provider: model.provider, id: model.id, name: model.name } } : current);
+    // Re-read the composer (its reasoning levels follow the model) and this Chat's runtime.
+    setComposerModelRevision((current) => current + 1);
+  }
+
   async function changeThinkingLevel(conversationId: string | null, level: string): Promise<void> {
     if (fixtureMode) {
       if (conversationId && conversationRuntime) {
@@ -1382,7 +1405,7 @@ export function ChatPanel({
       } else {
         setAssistantComposer((current) => current ? { ...current, thinkingLevel: level } : current);
       }
-      showToast({ text: `Thinking level: ${level}`, tone: "success" });
+      showToast({ text: `Thinking level: ${thinkingLevelLabel(level)}`, tone: "success" });
       return;
     }
     try {
@@ -1392,7 +1415,7 @@ export function ChatPanel({
           body: { scope: "space", spaceId: space.id, level },
         });
         setAssistantComposer(result.composer);
-        showToast({ text: `Thinking level: ${result.composer.thinkingLevel}`, tone: "success" });
+        showToast({ text: `Thinking level: ${thinkingLevelLabel(result.composer.thinkingLevel)}`, tone: "success" });
         return;
       }
       const result = await api<{ thinking: { level: string; available: string[] }; runtime: ConversationRuntime }>(
@@ -1400,7 +1423,7 @@ export function ChatPanel({
         { method: "POST", body: { level } },
       );
       setConversationRuntime(result.runtime);
-      showToast({ text: `Thinking level: ${result.thinking.level}`, tone: "success" });
+      showToast({ text: `Thinking level: ${thinkingLevelLabel(result.thinking.level)}`, tone: "success" });
     } catch (caught) {
       setError(errorText(caught));
     }
@@ -1860,9 +1883,9 @@ export function ChatPanel({
               <span>Commands</span>
             </button>
             {configuredAssistant?.configured && conversationRuntime
-              ? <ConversationContextMeter runtime={conversationRuntime} status={configuredAssistant} spaceName={space.name} onOpenModelSettings={onOpenModelSettings} />
+              ? <ConversationContextMeter runtime={conversationRuntime} status={configuredAssistant} spaceName={space.name} picker={composerModelPicker} />
               : configuredAssistant?.configured && assistantComposer?.model
-                ? <ConfiguredAssistantModel model={assistantComposer.model} spaceName={space.name} onOpenModelSettings={onOpenModelSettings} />
+                ? <ConfiguredAssistantModel model={assistantComposer.model} spaceName={space.name} picker={composerModelPicker} />
                 : null}
             {configuredAssistant?.configured && (conversationRuntime ?? assistantComposer)
               ? (
@@ -1935,7 +1958,7 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
   );
 }
 
-function ConversationContextMeter({ runtime, status, spaceName, onOpenModelSettings }: { runtime: ConversationRuntime; status: AgentStatus; spaceName: string; onOpenModelSettings?: () => void }) {
+function ConversationContextMeter({ runtime, status, spaceName, picker }: { runtime: ConversationRuntime; status: AgentStatus; spaceName: string; picker: ComposerModelPickerProps }) {
   const percent = runtime.usage.contextPercent === null
     ? null
     : Math.max(0, Math.min(100, runtime.usage.contextPercent));
@@ -1951,11 +1974,10 @@ function ConversationContextMeter({ runtime, status, spaceName, onOpenModelSetti
     `${formatTokenCount(runtime.usage.totalTokens)} processed this Chat`,
   ].join(" · ");
   return (
-    <button
+    <ComposerModelPicker
+      {...picker}
       className={`conversation-context-meter${percent !== null && percent >= 85 ? " warning" : ""}`}
-      type="button"
-      onClick={onOpenModelSettings}
-      aria-label={`Change the model saved for ${spaceName}. ${title}`}
+      ariaLabel={`Change the model saved for ${spaceName}. ${title}`}
       title={`${title} · Change the model saved for ${spaceName}`}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1963,10 +1985,10 @@ function ConversationContextMeter({ runtime, status, spaceName, onOpenModelSetti
         {percent !== null ? <circle className="value" cx="12" cy="12" r="9" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
       </svg>
       <span className="conversation-context-model">{modelLabel}</span>
-      <span className="conversation-context-value">
-        {percent === null ? "Context —" : `${Math.round(percent)}%`}
-      </span>
-    </button>
+      {percent !== null && percent >= 50 ? (
+        <span className="conversation-context-value">{`${Math.round(percent)}% of context`}</span>
+      ) : null}
+    </ComposerModelPicker>
   );
 }
 
@@ -1981,32 +2003,19 @@ function ThinkingLevelControl({
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const levels = state.thinkingLevels ?? [];
-  useEffect(() => {
-    if (!open) return;
-    function handlePointerDown(event: PointerEvent): void {
-      if (event.target instanceof Node && containerRef.current?.contains(event.target)) return;
-      setOpen(false);
-    }
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [open]);
+  useDismissOnOutsideInteraction(open, containerRef, () => setOpen(false), triggerRef);
   useEffect(() => {
     if (disabled) setOpen(false);
   }, [disabled]);
   // A model without adjustable thinking offers nothing to choose.
   if (levels.length < 2) return null;
-  const title = `Reasoning level for this Chat: ${state.thinkingLevel}`;
+  const title = `Reasoning level for this Chat: ${thinkingLevelLabel(state.thinkingLevel)}`;
   return (
     <div className="composer-thinking-control" ref={containerRef}>
       <button
+        ref={triggerRef}
         className={open ? "composer-command-trigger composer-thinking-trigger active" : "composer-command-trigger composer-thinking-trigger"}
         type="button"
         disabled={disabled}
@@ -2016,7 +2025,7 @@ function ThinkingLevelControl({
         title={disabled ? "Thinking level changes apply between turns" : title}
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="composer-thinking-label">{state.thinkingLevel}</span>
+        <span className="composer-thinking-label">{thinkingLevelLabel(state.thinkingLevel)}</span>
       </button>
       {open ? (
         <div className="composer-command-menu composer-thinking-menu" role="listbox" aria-label="Reasoning level">
@@ -2033,7 +2042,7 @@ function ThinkingLevelControl({
                 if (level !== state.thinkingLevel) void onChange(level);
               }}
             >
-              <span className="composer-command-name">{level}</span>
+              <span className="composer-command-name">{thinkingLevelLabel(level)}</span>
             </button>
           ))}
         </div>
@@ -2042,21 +2051,316 @@ function ThinkingLevelControl({
   );
 }
 
-function ConfiguredAssistantModel({ model, spaceName, onOpenModelSettings }: { model: NonNullable<AssistantComposerState["model"]>; spaceName: string; onOpenModelSettings?: () => void }) {
+// Composer chip menus are mutually exclusive: opening one closes any other,
+// so no menu is left open (or half-closed) behind the one being used.
+const openComposerChipMenus = new Set<() => void>();
+
+function useDismissOnOutsideInteraction(
+  open: boolean,
+  containerRef: React.RefObject<HTMLElement | null>,
+  close: () => void,
+  triggerRef?: React.RefObject<HTMLElement | null>,
+): void {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const closeThis = () => closeRef.current();
+    for (const closeOther of [...openComposerChipMenus]) closeOther();
+    openComposerChipMenus.add(closeThis);
+    function handlePointerDown(event: PointerEvent): void {
+      if (event.target instanceof Node && containerRef.current?.contains(event.target)) return;
+      closeThis();
+    }
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      // Escape inside the menu (such as its search field) returns focus to
+      // the chip instead of dropping it on the page when the menu unmounts.
+      if (triggerRef?.current && document.activeElement instanceof Node && containerRef.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        triggerRef.current.focus({ preventScroll: true });
+      }
+      closeThis();
+    }
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      openComposerChipMenus.delete(closeThis);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [open, containerRef, triggerRef]);
+}
+
+type ComposerModelPickerProps = {
+  spaceId: string;
+  fixtureMode: boolean;
+  revision: number;
+  disabled: boolean;
+  forNewChats: boolean;
+  shownModel: { provider: string; id: string; name: string } | null;
+  onSaved: (status: AgentStatus, model: AgentModel) => void;
+  onOpenModelSettings?: () => void;
+};
+
+type ComposerModelList = { spaceId: string; revision: number; models: AgentModel[]; status: AgentStatus };
+
+// One lazily read model list per Folder, reused across Chat tabs until the
+// Assistant configuration revision moves.
+const composerModelLists = new Map<string, ComposerModelList>();
+
+function ComposerModelPicker({
+  spaceId,
+  fixtureMode,
+  revision,
+  disabled,
+  forNewChats,
+  shownModel,
+  onSaved,
+  onOpenModelSettings,
+  className,
+  ariaLabel,
+  title,
+  children,
+}: ComposerModelPickerProps & { className: string; ariaLabel: string; title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<ComposerModelList | null>(() => composerModelLists.get(spaceId) ?? null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionsRef = useRef<HTMLDivElement | null>(null);
+  const pendingFocusRef = useRef<"start" | "end" | null>(null);
+  const menuId = useId();
+  useDismissOnOutsideInteraction(open, containerRef, () => setOpen(false), triggerRef);
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+  useEffect(() => {
+    if (open) return;
+    setError(null);
+    setQuery("");
+  }, [open]);
+  useEffect(() => {
+    if (!open || fixtureMode) return;
+    const cached = composerModelLists.get(spaceId);
+    if (cached && cached.revision === revision) {
+      setList(cached);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    const params = new URLSearchParams({ scope: "space", spaceId });
+    void api<{ models: AgentModel[]; status: AgentStatus }>(`/api/agent/models?${params.toString()}`, { signal: controller.signal })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        const next = { spaceId, revision, models: result.models, status: result.status };
+        composerModelLists.set(spaceId, next);
+        setList(next);
+      })
+      .catch((caught) => {
+        if (!controller.signal.aborted) setError(errorText(caught));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [open, fixtureMode, spaceId, revision]);
+
+  const currentList = list?.spaceId === spaceId ? list : null;
+  const models = fixtureMode
+    ? shownModel ? [{ ...shownModel, authConfigured: true, oauthSupported: false } satisfies AgentModel] : []
+    : (currentList?.models ?? []).filter((model) => model.authConfigured);
+  const saved = !fixtureMode && currentList?.status.configured && currentList.status.provider && currentList.status.model
+    ? { provider: currentList.status.provider, id: currentList.status.model }
+    : shownModel;
+  const filterable = models.length > composerModelFilterThreshold;
+  const view = composerModelListView(models, filterable ? query : "", saved);
+  const heading = forNewChats ? "Model for new Chats" : "Model";
+  const noMatches = filterable && query.trim() !== "" && !view.groups.length;
+
+  function focusOption(edge: "start" | "end"): boolean {
+    const options = optionsRef.current?.querySelectorAll<HTMLButtonElement>('button[role="option"]:not(:disabled)');
+    const option = options?.[edge === "end" ? options.length - 1 : 0];
+    option?.focus({ preventScroll: true });
+    option?.scrollIntoView({ block: "nearest" });
+    return Boolean(option);
+  }
+
+  useEffect(() => {
+    if (!open) { pendingFocusRef.current = null; return; }
+    if (pendingFocusRef.current && focusOption(pendingFocusRef.current)) pendingFocusRef.current = null;
+  }, [open, models.length]);
+
+  function navigateOptions(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const options = Array.from(optionsRef.current?.querySelectorAll<HTMLButtonElement>('button[role="option"]:not(:disabled)') ?? []);
+    const next = nextMenuItemIndex(options.indexOf(document.activeElement as HTMLButtonElement), options.length, event.key as MenuNavigationKey);
+    if (next === null) return;
+    event.preventDefault();
+    options[next]?.focus({ preventScroll: true });
+    options[next]?.scrollIntoView({ block: "nearest" });
+  }
+
+  function renderOption(model: AgentModel) {
+    const selected = saved?.provider === model.provider && saved.id === model.id;
+    const key = `${model.provider}/${model.id}`;
+    return (
+      <button
+        key={key}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        className={selected ? "active" : undefined}
+        disabled={Boolean(saving)}
+        onClick={() => void choose(model)}
+      >
+        <span className="composer-model-name">{model.name || model.id}</span>
+        {saving === key ? <Loader2 className="spin" size={12} aria-hidden="true" /> : null}
+      </button>
+    );
+  }
+
+  async function choose(model: AgentModel): Promise<void> {
+    if (saving) return;
+    // Keep keyboard focus when the selected option is disabled or unmounted.
+    triggerRef.current?.focus({ preventScroll: true });
+    if (fixtureMode || (saved?.provider === model.provider && saved.id === model.id)) {
+      setOpen(false);
+      return;
+    }
+    const key = `${model.provider}/${model.id}`;
+    setSaving(key);
+    setError(null);
+    try {
+      const result = await api<{ status: AgentStatus }>("/api/agent/configure", {
+        method: "POST",
+        body: { scope: "space", spaceId, provider: model.provider, model: model.id },
+      });
+      const cached = composerModelLists.get(spaceId);
+      if (cached) {
+        const next = { ...cached, status: result.status };
+        composerModelLists.set(spaceId, next);
+        setList(next);
+      }
+      setOpen(false);
+      onSaved(result.status, model);
+      showToast({ text: `${heading}: ${model.name || model.id}`, tone: "success" });
+    } catch (caught) {
+      setError(errorText(caught));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="composer-model-control" ref={containerRef} onBlurCapture={(event) => {
+      if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+    }}>
+      <button
+        ref={triggerRef}
+        className={open ? `${className} active` : className}
+        type="button"
+        aria-disabled={disabled || undefined}
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-label={ariaLabel}
+        title={disabled ? "Model changes apply between turns" : title}
+        onClick={() => { if (!disabled) setOpen((current) => !current); }}
+        onKeyDown={(event) => {
+          if (disabled || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
+          event.preventDefault();
+          const edge = event.key === "ArrowUp" ? "end" : "start";
+          pendingFocusRef.current = open && focusOption(edge) ? null : edge;
+          setOpen(true);
+        }}
+      >
+        {children}
+      </button>
+      {open ? (
+        <div className="composer-command-menu composer-model-menu" id={menuId}>
+          <div className="composer-command-menu-heading"><span>{heading}</span></div>
+          {filterable ? (
+            <input
+              className="composer-model-filter"
+              type="search"
+              value={query}
+              placeholder="Search models"
+              aria-label="Search models"
+              autoFocus
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  // The composer is a form; Enter here picks, never sends.
+                  event.preventDefault();
+                  const first = query.trim() ? view.groups[0]?.models[0] : undefined;
+                  if (first) void choose(first);
+                  return;
+                }
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  focusOption(event.key === "ArrowUp" ? "end" : "start");
+                }
+              }}
+            />
+          ) : null}
+          {models.length ? (
+            <div className="composer-model-options" role="listbox" aria-label={heading} ref={optionsRef} onKeyDown={navigateOptions}>
+              {view.current ? (
+                <div className="composer-model-group" role="group" aria-label="Current">
+                  {view.groups.length ? <div className="composer-model-provider" aria-hidden="true">Current</div> : null}
+                  {renderOption(view.current)}
+                </div>
+              ) : null}
+              {view.groups.map((group) => (
+                <div className="composer-model-group" role="group" aria-label={group.name} key={group.provider}>
+                  {view.providerCount > 1 ? <div className="composer-model-provider" aria-hidden="true">{group.name}</div> : null}
+                  {group.models.map(renderOption)}
+                </div>
+              ))}
+              {noMatches ? <div className="composer-model-status" role="status">No matching models</div> : null}
+            </div>
+          ) : loading ? (
+            <div className="composer-model-status" role="status">Loading models</div>
+          ) : !error ? (
+            <div className="composer-model-status" role="status">No connected models</div>
+          ) : null}
+          {error ? <div className="composer-model-error" role="alert">{error}</div> : null}
+          <button
+            className="composer-model-settings"
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onOpenModelSettings?.();
+            }}
+          >
+            Model settings
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConfiguredAssistantModel({ model, spaceName, picker }: { model: NonNullable<AssistantComposerState["model"]>; spaceName: string; picker: ComposerModelPickerProps }) {
   const label = model.name || displayAssistantModelLabel(model.provider, model.id);
   return (
-    <button
+    <ComposerModelPicker
+      {...picker}
       className="conversation-context-meter configured"
-      type="button"
-      onClick={onOpenModelSettings}
-      aria-label={`Change the model saved for ${spaceName}. Selected model: ${label}`}
+      ariaLabel={`Change the model saved for ${spaceName}. Selected model: ${label}`}
       title={`Selected model for new Chats: ${label} · Change the model saved for ${spaceName}`}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
       </svg>
       <span className="conversation-context-model">{label}</span>
-    </button>
+    </ComposerModelPicker>
   );
 }
 

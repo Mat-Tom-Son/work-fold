@@ -238,8 +238,16 @@ the Space it came from. `trash list` is content-free — ids, kinds, paths,
 sizes, and dates. `trash restore` puts one item back where it came from,
 renaming it when something else took the name, and app data whose app is gone
 is saved as a file with `--to <absolute-path>`. Nothing empties the store: the
-retention window in Settings → General → Recently deleted does, and a tree
+retention window in Settings → Recently deleted does, and a tree
 holding legacy `.workspace/` records is never erased.
+
+Folder Chat deletion moves its portable transcript into Recently deleted and
+records the Folder, Chat, and recovery-entry identities in its receipt.
+Restoration preserves the transcript filename, refuses an occupied identity,
+and requires the original Folder to remain registered. Creation with an
+explicit Chat id, renderer and CLI title/lifecycle changes, deletion, and
+restoration share the Chat mutation fence through their final filesystem
+write, so overlapping operations cannot recreate or rename a deleted Chat.
 
 `work-fold manage …` talks to the **management conversation** — user-facing name: **the fold** — the one conversation above all Spaces. It reuses the same acceptance path, Pi runtime, kernel task records, and task-scoped outcome semantics as Space Chats under the dedicated scope id `work-fold-management` instead of a Space id. Its transcript lives in machine-local application state under the app profile's `management/` root — it describes this machine's registry, so it is deliberately not portable Space data. Its Pi session loads personal-scope Skills and Extensions plus exactly two app-materialized project resources — a management `AGENTS.md` context file and the `manage-spaces` Skill, rewritten on every start — and gets no user Space's `.pi` configuration, no restricted-app bridges, and no History checkpoints (History is a Space concept).
 
@@ -316,13 +324,13 @@ naming each settled child, its outcome, the files it chose, and any question
 still open beneath it. It is counted against the per-root bound; past that
 bound a settle is recorded rather than narrated. Continuations never follow a
 root Stop, a request that ran out of time or hit a bound, or a restart, and a
-person can turn them off in Settings → General → Limits.
+person can turn them off in Settings → Automations → Limits.
 
 Only the assignment text, the answer text, released report summaries, and
 copied files ever enter a Space Chat. The request graph itself, other Spaces'
 results, and the fold's transcript stay above Spaces.
 
-The bounds are generous defaults in Settings → General → Limits
+The bounds are generous defaults in Settings → Automations → Limits
 (`src/shared/fold-limits.ts`), and every refusal names the number it hit:
 
 | Limit | Default | On hit |
@@ -644,7 +652,7 @@ observe:
   the popover, the remote client, and the glance read.
 - A settle batch beneath an owning request can start one host-composed
   follow-up turn in that conversation, bounded per root and switchable off in
-  Settings → General → Limits. It follows only an explicit request; a declared routing fold step is the
+  Settings → Automations → Limits. It follows only an explicit request; a declared routing fold step is the
   separate trigger-driven entry.
 - Space turns receive their own hidden context — task id, request id, and, when
   delegated, an opaque parent handle and the assignment text — plus a compact
@@ -656,7 +664,7 @@ observe:
 
 ## Fold-led Checks
 
-Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The main-window glance links to the owning Space’s Checks tab. The fold popover stays focused on conversations and has no separate Checks disclosure. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.
+Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The fold popover stays focused on conversations and has no separate Checks disclosure. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.
 
 Check help drafts name their Space-scoped CLI operations. `help checks` documents
 the full correction JSON, and `help routings` provides a validated complete

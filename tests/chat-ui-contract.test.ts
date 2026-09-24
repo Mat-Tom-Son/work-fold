@@ -46,7 +46,7 @@ test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cance
   assert.match(styles, /\.queued-send-bubble \{/);
 });
 
-test("the file tab previews bounded text and images inline through Space-policy routes", () => {
+test("the file tab previews bounded text, images, and PDFs inline through Space-policy routes", () => {
   // The preview endpoint reads a bounded head under the same path policy as
   // every entry route, declines binary and oversized content with a reason,
   // and images ride the existing same-origin raw-file route.
@@ -55,9 +55,19 @@ test("the file tab previews bounded text and images inline through Space-policy 
   const pane = readFileSyncLike("web-local/src/components/panes/FileDetailsPane.tsx");
   return pane.then((source) => {
     assert.match(source, /file-preview\?path=/);
-    assert.match(source, /apiUrl\(`\/api\/spaces\/\$\{space\.id\}\/raw-file\?path=/);
+    assert.match(source, /spaceRawFileObjectUrl\(space\.id, path, controller\.signal\)/);
+    assert.match(source, /<iframe title=\{fileName\} src=\{`\$\{objectUrl\}\$\{pdfViewerParameters\}`\} \/>/);
+    assert.match(source, /const pdfViewerParameters = "#toolbar=0&navpanes=0&view=FitH";/);
+    assert.match(source, /<MarkdownMessage content=\{preview\.content\} \/>/);
     assert.match(source, /className="file-preview-text"/);
     assert.match(source, /Preview stops at 256 KB\./);
+    assert.doesNotMatch(source, /label: "Created"|label: "Location"/, "the tab shows one quiet line of facts, not a metadata grid");
+  }).then(() => readFileSyncLike("web-local/src/lib/raw-file.ts")).then((source) => {
+    // A blob URL carries the session header and stays inside the renderer's
+    // img-src/frame-src policy, which a direct local API URL would not.
+    assert.match(source, /apiUrl\(`\/api\/spaces\/\$\{spaceId\}\/raw-file\?path=/);
+    assert.match(source, /getSessionHeaders/);
+    assert.match(source, /URL\.createObjectURL/);
   });
 });
 
@@ -93,6 +103,10 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
   assert.match(chatActions, />Snooze</);
   assert.match(chatActions, />Resume now</);
   assert.match(chatActions, /Restore to Active/);
+  assert.match(chatActions, /<strong>Delete<\/strong>/);
+  assert.match(chatActions, /<small>Hide until a time you pick<\/small>/);
+  assert.match(app, /onDelete=\{deleteChat\}/);
+  assert.match(app, /Moved "\$\{chatDisplayTitle\(\{ serverTitle: conversation\.title \}\)\}" to Recently deleted/);
   assert.match(app, /actionLabel:\s*"Undo"/);
   assert.match(localServer, /state\.runningTurns\.has\(key\)/);
   assert.match(app, /chatActivity\.setAttention/);
@@ -246,12 +260,17 @@ test("settlement prefers a persisted work trail over still-running live previews
 });
 
 test("Chat composer model and reasoning controls are truthful, scoped, and functional", () => {
-  // The control names the actual provider model, never the product, and its
-  // click opens the Assistant page already scoped to this Space's model.
+  // The control names the actual provider model, never the product. Its
+  // click opens an inline list of this Space's connected models that saves
+  // through the same configure endpoint as Settings, and its last item opens
+  // the Assistant page already scoped to this Space's model.
   assert.match(chatPanel, /runtime\.model\?\.name\s*\n\s*\?\? runtime\.model\?\.id/);
   assert.match(chatPanel, /displayAssistantModelLabel\(status\.provider \?\? "", status\.model \?\? ""\)/);
   assert.doesNotMatch(modelDisplay, /work-fold Assistant/i);
-  assert.match(chatPanel, /onClick=\{onOpenModelSettings\}/);
+  assert.match(chatPanel, /`\/api\/agent\/models\?\$\{params\.toString\(\)\}`/);
+  assert.match(chatPanel, /\.filter\(\(model\) => model\.authConfigured\)/);
+  assert.match(chatPanel, /"\/api\/agent\/configure", \{\s*method: "POST",\s*body: \{ scope: "space", spaceId, provider: model\.provider, model: model\.id \}/);
+  assert.match(chatPanel, /onOpenModelSettings\?\.\(\);\s*\}\}\s*>\s*Model settings/);
   assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("assistant", "space", true\)\}/);
   assert.match(settingsModal, /initialScope=\{initialAssistantScope\} focusModelOnOpen=\{focusAssistantModel\}/);
   assert.match(panes, /<select id="assistant-model" ref=\{modelSelect\}/);
@@ -263,7 +282,7 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /\/conversations\/\$\{conversationId\}\/thinking/);
   assert.match(chatPanel, /body: \{ level \}/);
   assert.match(chatPanel, /setConversationRuntime\(result\.runtime\)/);
-  assert.match(chatPanel, /className="composer-thinking-label">\{state\.thinkingLevel\}/);
+  assert.match(chatPanel, /className="composer-thinking-label">\{thinkingLevelLabel\(state\.thinkingLevel\)\}/);
   assert.match(chatPanel, /conversationRuntime \?\? assistantComposer/);
   assert.match(chatPanel, /"\/api\/agent\/thinking"/);
   assert.match(chatPanel, /body: \{ scope: "space", spaceId: space\.id, level \}/);

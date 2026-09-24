@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     openPath: (spaceId: string, path: string, action: "open" | "open-native" | "reveal" = "open") => (
       ipcRenderer.invoke("work-fold:space:open-path", { spaceId, path, action })
     ),
+    openPathWith: (spaceId: string, path: string) => ipcRenderer.invoke("work-fold:space:open-path-with", { spaceId, path }),
     startDrag: (spaceId: string, path: string) => ipcRenderer.invoke("work-fold:space:start-drag", { spaceId, path }),
     previewFile: (spaceId: string, path: string) => ipcRenderer.invoke("work-fold:space:preview-file", { spaceId, path }),
     ...(process.platform === "darwin" ? {

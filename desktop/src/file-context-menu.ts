@@ -2,6 +2,7 @@ import { extname, isAbsolute } from "node:path";
 
 export type NativeFileMenuCommand =
   | "open"
+  | "open-with"
   | "reveal"
   | "copy-path"
   | "attach-chat"
@@ -81,6 +82,7 @@ export function nativeFileMenuItems(request: NativeFileMenuRequest): NativeFileM
       command: "open",
     });
   }
+  if (request.kind === "file") items.push({ type: "item", label: "Open With", command: "open-with" });
   items.push(
     { type: "item", label: "Show in Finder", command: "reveal" },
     { type: "item", label: `Copy ${request.kind === "folder" ? "Folder" : "File"} Path`, command: "copy-path" },
@@ -112,7 +114,7 @@ function nativeFileOpenLabel(path: string): string {
   if (extension === ".docx" || extension === ".dotx") return "Open in Word";
   if (extension === ".xlsx" || extension === ".csv") return "Open in Excel";
   if (extension === ".pptx" || extension === ".potx") return "Open in PowerPoint";
-  return "Open in Default App";
+  return "Open";
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: Set<string>): boolean {

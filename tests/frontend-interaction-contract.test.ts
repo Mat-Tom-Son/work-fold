@@ -9,7 +9,7 @@ import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
 import { createSpaceOperationGate } from "../web-local/src/lib/space-operation-gate.js";
 
 const root = process.cwd();
-const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, app, _retiredNeedsYou, glancePanel, ...desktopDialogs] = await Promise.all([
+const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, app, _retiredNeedsYou, spacePanes, ...desktopDialogs] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/modals/TextInputModal.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
@@ -18,7 +18,7 @@ const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, a
   read("web-local/index.html"),
   read("web-local/src/App.tsx"),
   Promise.resolve(""),
-  read("web-local/src/components/chrome/GlancePanel.tsx"),
+  read("web-local/src/components/panes/spacePanes.tsx"),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
   read("web-local/src/components/modals/KeyboardShortcutsModal.tsx"),
   read("web-local/src/components/modals/CreateSpaceModal.tsx"),
@@ -62,22 +62,48 @@ test("Settings preserves save feedback and explicit remote setup", async () => {
   assert.match(settings, /!remoteSettingsChanged/);
 });
 
+test("Settings keeps older page ids landing on the tab that now holds their content", async () => {
+  const { createRequire, registerHooks } = await import("node:module");
+  const iconNames = Object.keys(createRequire(import.meta.url)("@fluentui/react-icons")).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
+  const assets = registerHooks({
+    resolve(specifier, context, next) { return specifier === "@fluentui/react-icons" ? { url: "test:settings-page-icons", shortCircuit: true } : next(specifier, context); },
+    load(url, context, next) {
+      if (url === "test:settings-page-icons") return { format: "module", source: iconNames.map((name) => `export const ${name}=${name === "bundleIcon" ? "(filled)=>filled" : "()=>null"};`).join("\n"), shortCircuit: true };
+      if (/\.(css|png|svg)(?:\?|$)/.test(url)) return { format: "module", source: `export default ${JSON.stringify(url)};`, shortCircuit: true };
+      return next(url, context);
+    },
+  });
+  const { settingsTabForPage } = await import("../web-local/src/components/modals/DesktopSettingsModal.js");
+  assets.deregister();
+  assert.equal(settingsTabForPage("desktop"), "automations");
+  assert.equal(settingsTabForPage("general"), "automations");
+  assert.equal(settingsTabForPage("desktop", "routings"), "automations");
+  assert.equal(settingsTabForPage("desktop", "limits"), "automations");
+  assert.equal(settingsTabForPage("desktop", "deleted"), "recently-deleted");
+  assert.equal(settingsTabForPage("general", "deleted"), "recently-deleted");
+  assert.equal(settingsTabForPage("remote"), "web-access");
+  for (const page of ["appearance", "assistant", "web-access", "shared-pages", "automations", "recently-deleted", "about"] as const) {
+    assert.equal(settingsTabForPage(page), page);
+  }
+  const settings = desktopDialogs[0] ?? "";
+  assert.doesNotMatch(settings, /label: "Desktop"/);
+  assert.match(settings, /<FoldRoutingsPane \/>\s*<FoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} \/>/);
+  assert.match(settings, /interfaceExtra=\{closeWindowControl\}/);
+});
+
 test("no surface offers an authority mode, a policy, or a decision card", () => {
-  // docs/receipts-not-gates.md, F19/F24: the Settings → Desktop pane has no
+  // docs/receipts-not-gates.md, F19/F24: the Settings → Automations pane has no
   // Authority selector and no Standing policies section; the main window has
-  // no needs-you rail control; the only needs-you surface is the glance's
-  // questions list.
+  // no needs-you rail control; questions live inside their owning Chat.
   const settings = desktopDialogs[0] ?? "";
   assert.doesNotMatch(settings, /fold-authority|fold-policies|FoldAuthorityPane|FoldPoliciesPane|PolicyMatcherFields|"authority"/);
   assert.match(settings, /remoteAccessSettings\.pairedBrowserTrust/);
   assert.doesNotMatch(app, /NeedsYouRailControl|useNeedsYouDecisions|needsYouControl|\/api\/management\/decisions/);
   assert.match(app, /accountControl=\{<button className="space-rail-account-button"/);
-  assert.doesNotMatch(glancePanel, /pending-decision/);
-  assert.match(glancePanel, /const questions = snapshot\.needsYou;/);
 });
 
 test("the publications Settings section reveals links transiently and only narrows", () => {
-  // Settings → Desktop → Pages your fold serves (docs/fold-publishing.md,
+  // Settings → Shared pages (docs/fold-publishing.md,
   // plan item 5): the pane is a read-and-narrow surface over the renderer
   // session. The share link is composed on demand from the reveal route plus
   // the viewer origin, held only in pane state, and never persisted; every
@@ -111,34 +137,32 @@ test("the publications Settings section reveals links transiently and only narro
   assert.match(settings, /: \{publication\.relativePath\} — \{stateLine\(publication\)\}<\/>\}/);
 });
 
-test("the main-window glance panel hangs off the Space-identity header, mounts only while open, and never becomes a rail destination", () => {
-  // The glance (docs/fold-glance.md, surface `main-window`): the digest panel
-  // is reachable from the persistent Space-identity header's action cluster —
-  // not a rail destination, badge, or permanent navigation item
-  // (primaryNavigation stays pinned in web-ui-contract.test.ts). The fixture
-  // preview omits it because the digest reads the live local API.
-  assert.match(app, /const headerAction = fixture && activeMode !== "files" \? undefined : <>/);
-  assert.match(app, /\{fixture \? null : <GlanceHeaderControl \/>\}/);
+test("the main window has no glance panel; the Space-identity header keeps only the files refresh", () => {
+  // The menu-bar popover's GlanceSection and the server digest stay; the
+  // main-window "Since you last looked" panel is gone, so the renderer
+  // neither fetches nor acknowledges the glance from the main window.
+  assert.doesNotMatch(app, /GlanceHeaderControl|GlancePanel|useGlance/);
+  assert.match(app, /const headerAction = activeMode === "files"\s*\? <button className="minimal-icon-button"[\s\S]{0,300}?aria-label="Refresh files"/);
   assert.match(app, /action=\{headerAction\}/);
   assert.doesNotMatch(app, /primaryItems[\s\S]{0,400}glance/i);
-  // The shared surface-agnostic hook and section render as surface
-  // "main-window", and the hook mounts only while the panel is open: nothing
-  // is fetched — and no marker can advance — for a panel nobody is looking at.
-  assert.match(glancePanel, /useGlance\("main-window"\)/);
-  assert.match(glancePanel, /<GlanceSection state=\{state\} surface="main-window" \/>/);
-  assert.match(glancePanel, /\{open\s*\?\s*createPortal\(/);
-  // While open it refreshes on the focus/visibility discipline Checks use.
-  assert.match(glancePanel, /window\.addEventListener\("focus", refreshOnReturn\)/);
-  assert.match(glancePanel, /document\.addEventListener\("visibilitychange", refreshOnReturn\)/);
-  // Anchored-dialog disciplines: outside pointerdown, Escape restoring focus,
-  // and the native-view occluder marker the header switcher already carries.
-  assert.match(glancePanel, /aria-haspopup="dialog"/);
-  assert.match(glancePanel, /role="dialog"/);
-  assert.match(glancePanel, /data-native-view-occluder="true"/);
-  assert.match(glancePanel, /document\.addEventListener\("pointerdown", closeFromOutside, true\)/);
-  assert.match(glancePanel, /event\.key !== "Escape"/);
-  // An empty digest stays epistemically honest: nothing recorded, never "all clear".
-  assert.match(glancePanel, /Nothing recorded right now/);
+});
+
+test("Manage folders has a Done exit and an Escape exit back to the previous mode", () => {
+  // Done and Escape return to the mode the person was in before opening
+  // Manage folders; Escape defers to an open menu, dialog, or modal.
+  assert.match(app, /const modeBeforeManagingRef = useRef<SpaceRailMode>/);
+  assert.match(app, /if \(activeMode !== "spaces"\) modeBeforeManagingRef\.current = activeMode;/);
+  assert.match(app, /function leaveManageFolders\(\): void \{\s*selectRailMode\(modeBeforeManagingRef\.current\);/);
+  assert.match(app, /onKeyDown=\{activeMode === "spaces" \? leaveManageFoldersOnEscape : undefined\}/);
+  assert.match(app, /event\.currentTarget\.querySelector\('\[aria-expanded="true"\]'\)/);
+  assert.match(app, /closest\?\.\('\[role="menu"\], \[role="dialog"\]'\)/);
+  assert.match(app, /<SpacesPane [^\n]*onDone=\{leaveManageFolders\}/);
+  assert.match(spacePanes, /<button className="spaces-pane-done" type="button" onClick=\{onDone\}>Done<\/button>/);
+  // The header looks the same while managing: the menu entry, not the
+  // trigger, marks Manage folders as current.
+  assert.match(spaceChrome, /aria-current=\{managingSpaces \? "true" : undefined\}/);
+  assert.doesNotMatch(spaceChrome, /managingSpaces \? "page"/);
+  assert.match(spaceChrome, /aria-label=\{saving \? "Saving name" : undefined\}/);
 });
 
 test("file attachment requests stay bound to one Space-owned Chat tab", () => {

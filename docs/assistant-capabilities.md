@@ -130,7 +130,7 @@ answer them or turn them into product approval cards.
 
 The host allows eight pending questions per Chat, 64 total, 64 choices per
 selection, and 64 KiB per question or answer. The enforcing code and
-Settings → General → Limits read the same shared constants. Current questions travel as
+Settings → Automations → Limits read the same shared constants. Current questions travel as
 transient snapshots, outside the Chat replay log. Extension-managed editor
 text is scoped by root and conversation. Answer drafts stay in renderer memory
 only; password drafts are not retained across navigation. Extensions themselves

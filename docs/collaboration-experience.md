@@ -54,8 +54,7 @@ question drafts. Typing alone never sends an answer to the host or model.
 ## Surfaces and boundaries
 
 Space Chats, the trusted Apps tab, and the fold popover share the same React
-work presentation. The main-window glance opens a question inline, without
-making the person hunt through Chats. Each Space tab retains its identity.
+work presentation. Each Space tab retains its identity.
 
 The paired browser uses the same host projection through its encrypted remote
 lane. Detailed work, answers, continuation, and Stop remain limited to the

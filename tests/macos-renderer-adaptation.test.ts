@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { typographyFontOptionsForPlatform } from "../web-local/src/constants.js";
 import { nativeOpenLabel, revealInFileManagerLabel } from "../web-local/src/lib/file-actions.js";
-import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../web-local/src/lib/keyboard.js";
+import { desktopShortcutKeyLabel, desktopShortcutKeySpokenName, desktopShortcutModifierKey } from "../web-local/src/lib/keyboard.js";
 import { desktopFileDragHint, typographyFontForPlatform, spaceEntryNativePath } from "../web-local/src/lib/platform.js";
 
 const root = process.cwd();
@@ -46,8 +46,17 @@ test("macOS shortcut and file-drag labels use native notation without changing W
   assert.equal(desktopShortcutKeyLabel("Command", "darwin"), "⌘");
   assert.equal(desktopShortcutKeyLabel("Option", "darwin"), "⌥");
   assert.equal(desktopShortcutKeyLabel("Shift", "darwin"), "⇧");
+  assert.equal(desktopShortcutKeyLabel("Ctrl", "darwin"), "⌃");
+  assert.equal(desktopShortcutKeyLabel("Enter", "darwin"), "↩");
+  assert.equal(desktopShortcutKeyLabel("Esc", "darwin"), "⎋");
+  assert.equal(desktopShortcutKeyLabel("Home", "darwin"), "Home");
+  assert.equal(desktopShortcutKeyLabel("End", "darwin"), "End");
   assert.equal(desktopShortcutModifierKey("win32"), "Ctrl");
   assert.equal(desktopShortcutKeyLabel("Shift", "win32"), "Shift");
+  assert.equal(desktopShortcutKeyLabel("Ctrl", "win32"), "Ctrl");
+  assert.equal(desktopShortcutKeyLabel("Esc", "win32"), "Esc");
+  assert.equal(["Ctrl", "Tab"].map(desktopShortcutKeySpokenName).join(" plus "), "Control plus Tab");
+  assert.equal(desktopShortcutKeySpokenName("Esc"), "Escape");
   assert.equal(desktopFileDragHint("notes.md", "darwin"), "notes.md — drag to move, Option-drag to Finder");
   assert.equal(desktopFileDragHint("notes.md", "win32"), "notes.md — drag to move, Alt+drag to File Explorer");
   assert.equal(revealInFileManagerLabel("darwin"), "Show in Finder");

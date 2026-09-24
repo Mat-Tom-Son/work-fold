@@ -9,6 +9,37 @@ const argumentCommands = new Set([
   "name",
 ]);
 
+// Pi built-ins that the app already covers with its own controls (model and
+// reasoning chips, Chats list, Settings). They stay typeable; the menu just
+// does not offer them.
+const hiddenBuiltinCommands = new Set([
+  "changelog",
+  "hotkeys",
+  "login",
+  "logout",
+  "copy",
+  "model",
+  "thinking",
+  "settings",
+  "session",
+  "resume",
+  "quit",
+  "reload",
+  "new",
+  "import",
+  "share",
+  "fork",
+  "clone",
+  "tree",
+  "trust",
+  "name",
+  "scoped-models",
+]);
+
+export function isHiddenComposerCommand(command: AgentCommand): boolean {
+  return command.source === "builtin" && hiddenBuiltinCommands.has(command.name.toLowerCase());
+}
+
 export function composerCommandQuery(value: string): string | null {
   const match = /^\/([^\s/]*)$/.exec(value);
   return match ? (match[1] ?? "").toLowerCase() : null;
@@ -20,7 +51,10 @@ export function matchingComposerCommands(
   limit = 8,
 ): AgentCommand[] {
   const normalized = query.trim().toLowerCase();
+  // A hidden built-in typed in full closes the menu so Enter sends it as typed.
+  if (commands.some((command) => isHiddenComposerCommand(command) && command.name.toLowerCase() === normalized)) return [];
   return commands
+    .filter((command) => !isHiddenComposerCommand(command))
     .map((command, index) => ({
       command,
       index,

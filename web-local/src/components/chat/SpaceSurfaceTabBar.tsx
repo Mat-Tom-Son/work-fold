@@ -14,6 +14,27 @@ import { FluentGlyph, NewChatIcon, SpaceIconGlyph } from "../chrome/common";
 
 const groupSurfaceTabsStorageKey = "work-fold.space.surface-tabs.group-by-space.v1";
 
+export type SurfaceTabOverflow = "start" | "end" | "both" | null;
+
+/** Size tier for the tab strip: compact above three tabs, dense above six. */
+export function surfaceTabCountTier(tabCount: number): "tab-count-dense" | "tab-count-compact" | "" {
+  if (tabCount > 6) return "tab-count-dense";
+  if (tabCount > 3) return "tab-count-compact";
+  return "";
+}
+
+/** Which edges of a horizontally scrolling strip hide content. */
+export function surfaceTabOverflow(scrollLeft: number, scrollWidth: number, clientWidth: number): SurfaceTabOverflow {
+  const tolerance = 1;
+  if (scrollWidth - clientWidth <= tolerance) return null;
+  const hiddenStart = scrollLeft > tolerance;
+  const hiddenEnd = scrollLeft + clientWidth < scrollWidth - tolerance;
+  if (hiddenStart && hiddenEnd) return "both";
+  if (hiddenStart) return "start";
+  if (hiddenEnd) return "end";
+  return null;
+}
+
 export function SpaceSurfaceTabBar({
   tabs,
   spaces,
@@ -42,6 +63,7 @@ export function SpaceSurfaceTabBar({
   const spaceIdentityFor = useSpaceIdentityResolver();
   const [spaceMenuOpen, setSpaceMenuOpen] = useState(false);
   const [groupBySpace, setGroupBySpace] = useState(() => readStoredValue(groupSurfaceTabsStorageKey) === "true");
+  const [overflow, setOverflow] = useState<SurfaceTabOverflow>(null);
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const menuAnchorRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -58,6 +80,7 @@ export function SpaceSurfaceTabBar({
       : [{ spaceId: null, tabs }],
     [groupingActive, tabs],
   );
+  const countTier = surfaceTabCountTier(tabs.length);
   const menuSpaces = [
     ...spaces.filter((item) => item.id === newChatSpaceId),
     ...spaces.filter((item) => item.id !== newChatSpaceId),
@@ -101,7 +124,33 @@ export function SpaceSurfaceTabBar({
     const observer = new ResizeObserver(() => revealActiveTab());
     observer.observe(tabStrip);
     return () => observer.disconnect();
-  }, [activeTabId, groupingActive]);
+  }, [activeTabId, groupingActive, countTier]);
+
+  useEffect(() => {
+    const tabStrip = tabsRef.current;
+    if (!tabStrip) return;
+    const strip = tabStrip;
+    function measureOverflow(): void {
+      setOverflow(surfaceTabOverflow(strip.scrollLeft, strip.scrollWidth, strip.clientWidth));
+    }
+    function scrollVerticalWheel(event: WheelEvent): void {
+      if (strip.scrollWidth <= strip.clientWidth) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      const lineHeight = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? strip.clientWidth : 1;
+      strip.scrollLeft += event.deltaY * lineHeight;
+    }
+    measureOverflow();
+    strip.addEventListener("scroll", measureOverflow, { passive: true });
+    strip.addEventListener("wheel", scrollVerticalWheel, { passive: false });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => measureOverflow());
+    observer?.observe(strip);
+    return () => {
+      strip.removeEventListener("scroll", measureOverflow);
+      strip.removeEventListener("wheel", scrollVerticalWheel);
+      observer?.disconnect();
+    };
+  }, [orderedTabs, groupingActive, countTier]);
 
   function handleTabListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
     if (!orderedTabs.length) return;
@@ -125,7 +174,7 @@ export function SpaceSurfaceTabBar({
   }
 
   function spaceMenuItems(): HTMLButtonElement[] {
-    return Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemcheckbox"]') ?? []);
+    return Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]') ?? []);
   }
 
   function handleSpaceMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
@@ -141,6 +190,12 @@ export function SpaceSurfaceTabBar({
   function handleSpaceMenuSelect(targetSpace: SpaceSummary): void {
     setSpaceMenuOpen(false);
     onNewChatInSpace(targetSpace);
+  }
+
+  function handleOpenTabSelect(tabId: string): void {
+    setSpaceMenuOpen(false);
+    onActivate(tabId);
+    window.requestAnimationFrame(() => document.getElementById(surfaceTabDomId(tabId))?.focus());
   }
 
   function toggleSpaceGrouping(): void {
@@ -219,7 +274,8 @@ export function SpaceSurfaceTabBar({
     <div className={tabs.length ? "surface-tabbar" : "surface-tabbar empty"}>
       <div
         ref={tabsRef}
-        className={["surface-tabs", groupingActive ? "surface-tabs-grouped" : "", tabs.length > 8 ? "tab-count-dense" : tabs.length > 4 ? "tab-count-compact" : ""].filter(Boolean).join(" ")}
+        className={["surface-tabs", groupingActive ? "surface-tabs-grouped" : "", countTier].filter(Boolean).join(" ")}
+        data-overflow={overflow ?? undefined}
         role="tablist"
         aria-label="Open tabs"
         onKeyDown={handleTabListKeyDown}
@@ -300,6 +356,35 @@ export function SpaceSurfaceTabBar({
                   </button>
                 );
               })}
+              {orderedTabs.length ? (
+                <>
+                  <span className="surface-tab-space-menu-separator" role="separator" />
+                  <span className="surface-tab-space-menu-heading">Open tabs</span>
+                  {orderedTabs.map((tab) => {
+                    const tabSpace = spaces.find((item) => item.id === tab.spaceId)
+                      ?? fallbackSpaceSummary(tab.spaceId, "Folder");
+                    const identity = spaceIdentityFor(tabSpace, spaceCustomizations);
+                    const active = tab.id === activeTabId;
+                    return (
+                      <button
+                        className="surface-tab-open-item"
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        aria-label={`${tab.title} in ${tabSpace.name}`}
+                        tabIndex={-1}
+                        key={tab.id}
+                        style={spaceIdentityStyle(identity)}
+                        onClick={() => handleOpenTabSelect(tab.id)}
+                        title={`${tab.title} - ${tabSpace.name}`}
+                      >
+                        <span className="space-identity-icon"><SpaceIconGlyph icon={identity.Icon} size={14} /></span>
+                        <span className="surface-tab-space-menu-copy"><strong>{tab.title}</strong></span>
+                      </button>
+                    );
+                  })}
+                </>
+              ) : null}
               <span className="surface-tab-space-menu-separator" role="separator" />
               <span className="surface-tab-space-menu-heading">Tab layout</span>
               <button

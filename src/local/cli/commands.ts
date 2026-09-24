@@ -286,7 +286,7 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "",
       "Requests have no fixed lifetime, child-count, depth, or continuation-count",
       "quota. Concurrent child work and transport fields remain bounded, and",
-      "every refusal names the bound it hit. See Settings → Desktop → Limits.",
+      "every refusal names the bound it hit. See Settings → Automations → Limits.",
       "Stop ends a request explicitly.",
       "",
     ].join("\n");
@@ -603,7 +603,7 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "and folders History could not keep a copy of, deleted managed Space",
       "folders, and app data that was cleared or purged. list shows what is",
       "waiting and when it will be removed (30 days by default; change that in",
-      "Settings → Desktop → Recently deleted). restore puts an item back where",
+      "Settings → Recently deleted). restore puts an item back where",
       "it came from, renaming it if something else now has that name. App data",
       "whose app is gone can only be saved as a file, which is what --to does.",
       "Nothing empties Recently deleted early. Needs the work-fold app running.",

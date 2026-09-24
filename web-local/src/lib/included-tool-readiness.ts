@@ -8,7 +8,10 @@ export function chromeConnectionReadiness(state: ChromeConnectionState | undefin
     update_extension: "Update Chrome extension", profile_conflict: "Another profile is connected", busy: "Chrome is in use",
     store_unavailable: "Chrome extension unavailable", connection_error: "Not connected",
   };
-  return { label: state ? labels[state] : "Not checked", tone: state === "connected" ? "enabled" : state === "connection_error" ? "error" : "", setup: !["connected", "store_unavailable"].includes(state ?? "") };
+  // Setup is offered only for a known state a person can fix; an unchecked,
+  // transient, or unfixable state never asks for setup.
+  const setup = Boolean(state) && !["connected", "connecting", "busy", "store_unavailable"].includes(state ?? "");
+  return { label: state ? labels[state] : "Not checked", tone: state === "connected" ? "enabled" : state === "connection_error" ? "error" : "", setup };
 }
 
 /** A loaded Pi Extension is not evidence that its external tools are ready. */
@@ -18,6 +21,6 @@ export function includedToolReadiness(status: IncludedToolStatus | undefined) {
     case "ready": return { label: "Ready", tone: "enabled", setup: false };
     case "setup_required": return { label: "Setup needed", tone: "", setup: true };
     case "unavailable": return { label: "Unavailable", tone: "error", setup: true };
-    default: return { label: "Not checked", tone: "", setup: true };
+    default: return { label: "Not checked", tone: "", setup: false };
   }
 }

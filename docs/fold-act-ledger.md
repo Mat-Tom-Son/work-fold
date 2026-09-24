@@ -221,11 +221,11 @@ entry records its source Space, so the family takes no `--space`.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
-| List Recently deleted | Settings → Desktop → Recently deleted | none | direct verb (content-bearing act read) | `trash list --json` | — | n/a | entries carry source Space id, original Space-relative path or folder, kind (`file`, `folder`, `space`, `app-storage`, `app-retained`), size, deleted-at, restore-by, and the producing receipt id |
+| List Recently deleted | Settings → Recently deleted | none | direct verb (content-bearing act read) | `trash list --json` | — | n/a | entries carry source Space id, original Space-relative path or folder, kind (`file`, `folder`, `space`, `app-storage`, `app-retained`), size, deleted-at, restore-by, and the producing receipt id |
 | Restore an entry | Recently deleted → Restore / Save a copy | none | direct verb | `trash restore --entry <id> [--to <absolute-path>]` | entry id, kind, restored path or Space id; the additive restore point for a file or folder | file/folder: its restore point; Space: `spaces delete`; app data: the app's own single recovery point | an occupied destination is collision-renamed, never overwritten (`stem (2).ext` / `name-2`); refused when the source Space is unregistered and the entry is not itself a Space, when the entry's portable Space identity is registered elsewhere, or when app data's installation is gone or changed — that data can only be saved as a file with `--to`, at an absolute path outside every Space and outside work-fold's own state |
 
 No verb empties Recently deleted. **Delete now** is a Settings-only action;
-retention (default 30 days, adjustable in Settings → Desktop → Recently
+retention (default 30 days, adjustable in Settings → Recently deleted
 deleted) is the only automatic purge, run on app start and daily while awake.
 Neither the purge nor **Delete now** ever erases an entry whose tree holds
 legacy `.workspace/` records: it is marked held and stays until the person
@@ -334,7 +334,7 @@ refused at parse time.
 | Remove or replace stored provider credential | Settings → AI Models | **setup-only** |
 | Remote access: create/change address, password, approve or revoke a browser, revoke generations, disable, delete | Settings → Web access | **setup-only** (fold-authority surface) |
 | Act-token and pairing machinery: minting, scope, lifetime | none (app-owned) | **setup-only** |
-| Delete now (purge one Recently-deleted entry early) or change Limits | Settings → Desktop | **desktop-only** (no act verb; nothing a task needs is behind it) |
+| Delete now (purge one Recently-deleted entry early) or change Limits | Settings → Recently deleted or Settings → Automations | **desktop-only** (no act verb; nothing a task needs is behind it) |
 
 Approved remote browsers use the same verbs and receipts as the desktop;
 each remote-originated receipt records the browser and grant. They cannot

@@ -2884,7 +2884,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const conversationId = body.conversationId === undefined
       ? undefined
       : conversationIdentity(body.conversationId);
-    sendJson(res, { conversation: await createConversation(space.spaceRoot, undefined, conversationId) }, 201);
+    const conversation = conversationId === undefined
+      ? await createConversation(space.spaceRoot)
+      : await runConversationMutation(state, space.id, conversationId, () =>
+        createConversation(space.spaceRoot, undefined, conversationId));
+    sendJson(res, { conversation }, 201);
     return;
   }
 
@@ -2907,17 +2911,26 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       }
       if (Date.parse(body.snoozedUntil) <= Date.now()) throw badRequest("Choose a future snooze time.");
     }
-    const key = clientKey(space.id, conversationId);
-    if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current Assistant turn to finish.");
-    if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
-    const conversation = body.title !== undefined
-      ? await renameConversation(space.spaceRoot, conversationId, body.title)
-      : await updateConversationLifecycle(space.spaceRoot, conversationId, {
-          ...(body.archived !== undefined ? { archived: body.archived } : {}),
-          ...(body.snoozedUntil !== undefined ? { snoozedUntil: body.snoozedUntil } : {}),
-        });
-    if (body.title !== undefined) state.clients.get(key)?.setSessionName(conversation.title);
+    const conversation = await runConversationMutation(state, space.id, conversationId, async () => {
+      const updated = body.title !== undefined
+        ? await renameConversation(space.spaceRoot, conversationId, body.title)
+        : await updateConversationLifecycle(space.spaceRoot, conversationId, {
+            ...(body.archived !== undefined ? { archived: body.archived } : {}),
+            ...(body.snoozedUntil !== undefined ? { snoozedUntil: body.snoozedUntil } : {}),
+          });
+      if (body.title !== undefined) state.clients.get(clientKey(space.id, conversationId))?.setSessionName(updated.title);
+      return updated;
+    });
     sendJson(res, { conversation });
+    return;
+  }
+  if (conversationMatch && method === "DELETE") {
+    const space = await getSpace(conversationMatch[1]);
+    const deleted = await runDesktopSettingsAct(state, "chats.delete", async (requestId) => {
+      const value = await deleteSpaceConversation(state, space, conversationMatch[2], { receiptId: requestId });
+      return { value, detail: `space ${space.id}; conversation ${value.conversationId}; trash ${value.trash.entryId}` };
+    });
+    sendJson(res, { deleted: deleted.value });
     return;
   }
 
@@ -3421,7 +3434,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
-  // Settings → Desktop → Recently deleted (docs/receipts-not-gates.md, F20).
+  // Settings → Recently deleted (docs/receipts-not-gates.md, F20).
   // Listing is a plain read; restoring, removing one item, and changing how
   // long items are kept are journaled acts with the main-window surface, like
   // every other trusted-Settings mutation. Nothing here empties the store.
@@ -3446,7 +3459,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, updated.value);
     return;
   }
-  // Settings → Desktop → Limits: the one adjustable request setting (F28).
+  // Settings → Automations → Limits: the one adjustable request setting (F28).
   // Turning follow-up turns off changes nothing about what is recorded; it
   // only stops the host from bringing the results back as a turn.
   if (url.pathname === "/api/settings/requests" && method === "GET") {
@@ -3629,6 +3642,12 @@ async function acceptConversationTurn(
     } catch (error) {
       throw requestRefusal(error);
     }
+  }
+  // The summary read above can overlap a completed deletion. Recheck the
+  // transcript synchronously at admission so accepting a stale send cannot
+  // recreate the Chat after its recoverable copy has moved into the trash.
+  if (!existsSync(join(conversationsDir(space.spaceRoot), `${conversationId}.jsonl`))) {
+    throw notFound("Conversation not found.");
   }
   state.runningTurns.add(turnKey);
   // Clear the settled turn's retained stream state in the same synchronous
@@ -4148,6 +4167,7 @@ async function restoreTrashEntry(
   }
   if (entry.kind === "space") return restoreTrashSpace(state, entry);
   if (isManagementConversationTrashEntry(entry)) return restoreManagementConversationTrashEntry(state, entry);
+  if (isSpaceConversationTrashEntry(entry)) return restoreSpaceConversationTrashEntry(state, entry);
   const space = await getSpace(entry.spaceId).catch(() => null);
   if (!space) {
     throw new WorkFoldCliError(
@@ -4190,6 +4210,55 @@ function isManagementConversationTrashEntry(entry: WorkFoldTrashEntry): boolean 
     && /^\.work-fold\/conversations\/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.jsonl$/.test(entry.originalPath);
 }
 
+function isSpaceConversationTrashEntry(entry: WorkFoldTrashEntry): boolean {
+  return entry.kind === "file"
+    && entry.reason === "chats.delete"
+    && entry.spaceId !== workFoldManagementScopeId
+    && /^\.work-fold\/conversations\/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.jsonl$/.test(entry.originalPath);
+}
+
+/**
+ * A Folder Chat goes back into its own Folder's `.work-fold/conversations/`
+ * under the same transcript name, or nowhere: work-fold never guesses another
+ * Folder, and never collision-renames a transcript into a different identity.
+ */
+async function restoreSpaceConversationTrashEntry(
+  state: LocalApiState,
+  entry: WorkFoldTrashEntry,
+): Promise<WorkFoldTrashRestoreResult> {
+  const space = await getSpace(entry.spaceId).catch(() => null);
+  if (!space) {
+    throw new WorkFoldCliError(
+      "conflict",
+      "The folder this Chat came from is no longer registered, so there is nowhere to put it back. Add that folder again first.",
+    );
+  }
+  const conversationId = basename(entry.originalPath, ".jsonl");
+  return runActOperation(() => runConversationMutation(state, space.id, conversationId, async () => {
+    const destination = resolve(space.spaceRoot, entry.originalPath);
+    if (!pathContainsPath(conversationsDir(space.spaceRoot), destination)) {
+      throw new WorkFoldCliError("failure", "This Chat recovery item has an invalid destination.");
+    }
+    if (existsSync(destination)) {
+      throw new WorkFoldCliError("conflict", "A Chat with this identity already exists. Remove that Chat before restoring this one.");
+    }
+    await mkdir(conversationsDir(space.spaceRoot), { recursive: true });
+    const restored = await state.trash.restoreTree(entry.id, { absolutePath: destination, onConflict: "error" }).catch((error: unknown) => {
+      throw trashCliError(error);
+    });
+    publishControlHint(state, "spaces");
+    return {
+      kind: "file",
+      entryId: entry.id,
+      space: toActSpaceRef(space),
+      path: `.work-fold/conversations/${basename(restored.restoredPath)}`,
+      renamed: restored.renamed,
+      // `.work-fold/` is excluded from History capture, so there is no restore point.
+      safetyCheckpointId: null,
+    };
+  }));
+}
+
 async function restoreManagementConversationTrashEntry(
   state: LocalApiState,
   entry: WorkFoldTrashEntry,
@@ -4205,7 +4274,7 @@ async function restoreManagementConversationTrashEntry(
   if (existsSync(destination)) {
     throw new WorkFoldCliError("conflict", "A Chat with this identity already exists. Remove that Chat before restoring this one.");
   }
-  const restored = await state.trash.restoreTree(entry.id, { absolutePath: destination }).catch((error: unknown) => {
+  const restored = await state.trash.restoreTree(entry.id, { absolutePath: destination, onConflict: "error" }).catch((error: unknown) => {
     throw trashCliError(error);
   });
   return {
@@ -4283,7 +4352,7 @@ async function restoreTrashAppData(
     throw new WorkFoldCliError(
       "conflict",
       `${view.note ?? "This app's data has no app to go back into."} `
-        + "Save a copy from Settings → Desktop → Recently deleted, or with 'trash restore --entry "
+        + "Save a copy from Settings → Recently deleted, or with 'trash restore --entry "
         + `${entry.id} --to <absolute-file-path>'.`,
     );
   }
@@ -6068,16 +6137,17 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = await resolveSpace(input.space);
       const title = input.title.trim();
       if (!title) throw new WorkFoldCliError("usage", "Chat title is required.");
-      const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
-      assertChatMutable(space.id, input.conversationId);
-      const conversation = await runActOperation(() => renameConversation(space.spaceRoot, input.conversationId, title));
-      state.clients.get(clientKey(space.id, input.conversationId))?.setSessionName(conversation.title);
-      await recordFacadeAction(state, input.parentTaskId, { command: "chat.rename", space, conversationId: conversation.id });
-      return {
-        space: toActSpaceRef(space),
-        conversation: toActConversationRef(conversation),
-        priorTitle: summary.title,
-      };
+      return runActOperation(() => runConversationMutation(state, space.id, input.conversationId, async () => {
+        const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
+        const conversation = await runActOperation(() => renameConversation(space.spaceRoot, input.conversationId, title));
+        state.clients.get(clientKey(space.id, input.conversationId))?.setSessionName(conversation.title);
+        await recordFacadeAction(state, input.parentTaskId, { command: "chat.rename", space, conversationId: conversation.id });
+        return {
+          space: toActSpaceRef(space),
+          conversation: toActConversationRef(conversation),
+          priorTitle: summary.title,
+        };
+      }));
     },
     async chatSnooze(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -6085,55 +6155,58 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const until = input.until.trim();
       if (!Number.isFinite(Date.parse(until))) throw new WorkFoldCliError("usage", "Snooze time is invalid.");
       if (Date.parse(until) <= Date.now()) throw new WorkFoldCliError("usage", "Choose a future snooze time.");
-      const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
-      if (summary.archivedAt) throw new WorkFoldCliError("conflict", "Unarchive this Chat before snoozing it.");
-      assertChatMutable(space.id, input.conversationId);
-      const conversation = await runActOperation(() =>
-        updateConversationLifecycle(space.spaceRoot, input.conversationId, { snoozedUntil: until }));
-      await recordFacadeAction(state, input.parentTaskId, { command: "chat.snooze", space, conversationId: conversation.id });
-      return {
-        space: toActSpaceRef(space),
-        conversation: toActConversationRef(conversation),
-        priorLifecycle: toActChatLifecycleState(summary),
-      };
+      return runActOperation(() => runConversationMutation(state, space.id, input.conversationId, async () => {
+        const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
+        if (summary.archivedAt) throw new WorkFoldCliError("conflict", "Unarchive this Chat before snoozing it.");
+        const conversation = await runActOperation(() =>
+          updateConversationLifecycle(space.spaceRoot, input.conversationId, { snoozedUntil: until }));
+        await recordFacadeAction(state, input.parentTaskId, { command: "chat.snooze", space, conversationId: conversation.id });
+        return {
+          space: toActSpaceRef(space),
+          conversation: toActConversationRef(conversation),
+          priorLifecycle: toActChatLifecycleState(summary),
+        };
+      }));
     },
     async chatArchive(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
-      const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
-      if (summary.archivedAt) throw new WorkFoldCliError("conflict", "This Chat is already archived.");
-      assertChatMutable(space.id, input.conversationId);
-      const conversation = await runActOperation(() =>
-        updateConversationLifecycle(space.spaceRoot, input.conversationId, { archived: true }));
-      await recordFacadeAction(state, input.parentTaskId, { command: "chat.archive", space, conversationId: conversation.id });
-      return {
-        space: toActSpaceRef(space),
-        conversation: toActConversationRef(conversation),
-        priorLifecycle: toActChatLifecycleState(summary),
-      };
+      return runActOperation(() => runConversationMutation(state, space.id, input.conversationId, async () => {
+        const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
+        if (summary.archivedAt) throw new WorkFoldCliError("conflict", "This Chat is already archived.");
+        const conversation = await runActOperation(() =>
+          updateConversationLifecycle(space.spaceRoot, input.conversationId, { archived: true }));
+        await recordFacadeAction(state, input.parentTaskId, { command: "chat.archive", space, conversationId: conversation.id });
+        return {
+          space: toActSpaceRef(space),
+          conversation: toActConversationRef(conversation),
+          priorLifecycle: toActChatLifecycleState(summary),
+        };
+      }));
     },
     async chatResume(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
-      const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
-      if (!summary.archivedAt && !summary.snoozedUntil) {
-        throw new WorkFoldCliError("conflict", "This Chat is already active.");
-      }
-      assertChatMutable(space.id, input.conversationId);
-      // One lifecycle change per act, mirroring the renderer: an archived Chat
-      // restores to Active; a snoozed (or snooze-expired) Chat clears its snooze.
-      const conversation = await runActOperation(() =>
-        updateConversationLifecycle(
-          space.spaceRoot,
-          input.conversationId,
-          summary.archivedAt ? { archived: false } : { snoozedUntil: null },
-        ));
-      await recordFacadeAction(state, input.parentTaskId, { command: "chat.resume", space, conversationId: conversation.id });
-      return {
-        space: toActSpaceRef(space),
-        conversation: toActConversationRef(conversation),
-        priorLifecycle: toActChatLifecycleState(summary),
-      };
+      return runActOperation(() => runConversationMutation(state, space.id, input.conversationId, async () => {
+        const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
+        if (!summary.archivedAt && !summary.snoozedUntil) {
+          throw new WorkFoldCliError("conflict", "This Chat is already active.");
+        }
+        // One lifecycle change per act, mirroring the renderer: an archived Chat
+        // restores to Active; a snoozed (or snooze-expired) Chat clears its snooze.
+        const conversation = await runActOperation(() =>
+          updateConversationLifecycle(
+            space.spaceRoot,
+            input.conversationId,
+            summary.archivedAt ? { archived: false } : { snoozedUntil: null },
+          ));
+        await recordFacadeAction(state, input.parentTaskId, { command: "chat.resume", space, conversationId: conversation.id });
+        return {
+          space: toActSpaceRef(space),
+          conversation: toActConversationRef(conversation),
+          priorLifecycle: toActChatLifecycleState(summary),
+        };
+      }));
     },
     async chatCompact(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -8201,6 +8274,83 @@ async function deleteManagementConversation(
     }
     state.clients.delete(key);
     return { conversationId, trash: { entryId: entry.id, restoreBy: entry.restoreBy } };
+  } finally {
+    state.compactingConversations.delete(key);
+  }
+}
+
+/**
+ * A Folder Chat's transcript is portable `.work-fold/` metadata, which History
+ * never captures, so deletion moves the exact validated transcript into
+ * Recently deleted. The Pi session stays in machine-local state, so a restored
+ * Chat resumes where it was. It deliberately never accepts a path.
+ */
+async function deleteSpaceConversation(
+  state: LocalApiState,
+  space: SpaceSummary,
+  conversationId: string,
+  context: { receiptId: string | null },
+): Promise<{ conversationId: string; trash: { entryId: string; restoreBy: string } }> {
+  const key = clientKey(space.id, conversationId);
+  if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current Assistant turn to finish.");
+  if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
+  // The same conflict fence compaction uses: a transcript move must not race
+  // a new turn, rename, lifecycle change, or real compaction.
+  state.compactingConversations.add(key);
+  try {
+    const summary = await readConversationSummary(space.spaceRoot, conversationId).catch((error) => {
+      throw badRequest(errorMessage(error));
+    });
+    if (!summary) throw notFound("Conversation not found.");
+    if (state.requests.list().some((request) =>
+      request.owner.spaceId === space.id
+      && request.owner.conversationId === conversationId
+      && !isWorkFoldRequestTerminalState(request.state))) {
+      throw httpError(409, "Finish or stop this Chat's outstanding work before deleting it.");
+    }
+    await state.clients.get(key)?.stop();
+    // `readConversationSummary` validated the id before this join.
+    const relativePath = `.work-fold/conversations/${conversationId}.jsonl`;
+    const sourcePath = join(conversationsDir(space.spaceRoot), `${conversationId}.jsonl`);
+    let entry: WorkFoldTrashEntry;
+    try {
+      entry = await state.trash.trashTree({
+        kind: "file",
+        reason: "chats.delete",
+        sourcePath,
+        spaceId: space.id,
+        spaceName: space.name,
+        displayName: summary.title,
+        originalPath: relativePath,
+        receiptId: context.receiptId,
+      });
+    } catch (error) {
+      throw new WorkFoldCliError(
+        "failure",
+        `work-fold could not move this Chat to Recently deleted: ${errorMessage(error)}. Nothing was deleted.`,
+        { cause: error },
+      );
+    }
+    state.clients.delete(key);
+    return { conversationId, trash: { entryId: entry.id, restoreBy: entry.restoreBy } };
+  } finally {
+    state.compactingConversations.delete(key);
+  }
+}
+
+/** Reserve every transcript mutation through its final write, including CLI writes and restores. */
+async function runConversationMutation<T>(
+  state: LocalApiState,
+  spaceId: string,
+  conversationId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const key = clientKey(spaceId, conversationId);
+  if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current Assistant turn to finish.");
+  if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
+  state.compactingConversations.add(key);
+  try {
+    return await operation();
   } finally {
     state.compactingConversations.delete(key);
   }

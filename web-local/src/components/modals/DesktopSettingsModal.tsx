@@ -4,8 +4,9 @@ import {
   ArrowClockwise20Regular,
   Checkmark16Regular,
   Dismiss20Regular,
+  Delete20Regular,
+  Flash20Regular,
   Info20Regular,
-  Laptop20Regular,
   PaintBrush20Regular,
   Power20Regular,
   Sparkle20Regular,
@@ -25,16 +26,32 @@ import { FoldLimitsPane } from "./FoldLimitsPane";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "general" | "desktop" | "about";
-type FoldSettingsSection = "routings" | "deleted" | "limits";
+export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "recently-deleted" | "general" | "desktop" | "about";
+export type FoldSettingsSection = "routings" | "deleted" | "limits";
+type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "recently-deleted" | "about";
 
-export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
+/**
+ * The tab a Settings page id opens. "remote", "general" and "desktop" are
+ * older ids kept so existing callers still land somewhere sensible: the old
+ * Desktop tab held Automations, Recently deleted and Limits, so "desktop"
+ * with the "deleted" section opens Recently deleted and otherwise opens
+ * Automations (where Limits now sits).
+ */
+export function settingsTabForPage(page: SettingsPage, section?: FoldSettingsSection): SettingsTabId {
+  if (page === "remote") return "web-access";
+  if (page === "general" || page === "desktop") return section === "deleted" ? "recently-deleted" : "automations";
+  return page;
+}
+
+export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
   onCustomizeSpace?: (spaceId: string) => void;
   space: SpaceSummary | null;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
+  /** Older callers named a section of the former Desktop tab. */
+  initialSection?: FoldSettingsSection;
   initialAssistantScope?: AssistantModelScope;
   focusAssistantModel?: boolean;
   onAgentConfigured: (status: AgentStatus) => void;
@@ -44,10 +61,9 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
   onUpdateAction?: () => void;
 }) {
   const [narrowNavigation, setNarrowNavigation] = useState(() => window.matchMedia("(max-width: 700px)").matches);
-  const [page, setPage] = useState<SettingsPage>(initialPage);
+  const [page, setPage] = useState<SettingsTabId>(() => settingsTabForPage(initialPage, initialSection));
   const [assistantVisited, setAssistantVisited] = useState(initialPage === "assistant");
   const contentRef = useRef<HTMLDivElement>(null);
-  const [foldSection, setFoldSection] = useState<FoldSettingsSection>("routings");
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
   const [closeToTrayError, setCloseToTrayError] = useState<string | null>(null);
@@ -55,11 +71,11 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalDialog({ onClose, initialFocusRef: closeRef });
 
-  useEffect(() => { setPage(initialPage); }, [initialPage]);
+  useEffect(() => { setPage(settingsTabForPage(initialPage, initialSection)); }, [initialPage, initialSection]);
   useEffect(() => {
     if (page === "assistant") setAssistantVisited(true);
     if (contentRef.current) contentRef.current.scrollTop = 0;
-  }, [page, foldSection]);
+  }, [page]);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 700px)");
     const update = () => setNarrowNavigation(media.matches);
@@ -95,15 +111,34 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
     }
   }
 
-  const selectedPage = page === "remote" ? "web-access" : page === "general" ? "desktop" : page;
-  const tabs: Array<{ id: Exclude<SettingsPage, "remote">; label: string; icon: React.ReactNode }> = [
+  const tabs: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
     { id: "assistant", label: "AI Models", icon: <Sparkle20Regular /> },
     { id: "web-access", label: "Web access", icon: <Window20Regular /> },
     { id: "shared-pages", label: "Shared pages", icon: <Window20Regular /> },
-    { id: "desktop", label: "Desktop", icon: <Laptop20Regular /> },
+    { id: "automations", label: "Automations", icon: <Flash20Regular /> },
+    { id: "recently-deleted", label: "Recently deleted", icon: <Delete20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
+  const closeWindowControl = closeToTray?.supported ? (
+    <>
+      <div className="appearance-settings-row settings-close-window-row">
+        <span>
+          <span className="appearance-settings-label" id="window-close-settings-title">Closing the window</span>
+          {closeToTrayBusy ? <small><ArrowClockwise20Regular className="spin" /> Updating</small> : closeToTrayNotice ? <small className="settings-save-status" role="status"><Checkmark16Regular />{closeToTrayNotice}</small> : null}
+        </span>
+        <div className="theme-segmented-control two-options" role="radiogroup" aria-labelledby="window-close-settings-title">
+          <button className={closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={closeToTray.enabled} tabIndex={closeToTray.enabled ? 0 : -1} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(true)}>
+            <Subtract20Regular /><span className="theme-choice-copy"><span>Keep work-fold running</span></span>
+          </button>
+          <button className={!closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={!closeToTray.enabled} tabIndex={!closeToTray.enabled ? 0 : -1} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(false)}>
+            <Power20Regular /><span className="theme-choice-copy"><span>Quit work-fold</span></span>
+          </button>
+        </div>
+      </div>
+      {closeToTrayError ? <p className="appearance-settings-error" role="alert">{closeToTrayError}</p> : null}
+    </>
+  ) : null;
   return (
     <div className="modal-backdrop settings-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="settings-modal settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -117,13 +152,13 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
           <div className="settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation={narrowNavigation ? "horizontal" : "vertical"}>
             {tabs.map((tab) => (
               <button
-                className={selectedPage === tab.id ? "settings-tab active" : "settings-tab"}
+                className={page === tab.id ? "settings-tab active" : "settings-tab"}
                 id={`settings-tab-${tab.id}`}
                 type="button"
                 role="tab"
-                aria-selected={selectedPage === tab.id}
+                aria-selected={page === tab.id}
                 aria-controls={`settings-panel-${tab.id}`}
-                tabIndex={selectedPage === tab.id ? 0 : -1}
+                tabIndex={page === tab.id ? 0 : -1}
                 key={tab.id}
                 onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
                 onClick={() => setPage(tab.id)}
@@ -135,7 +170,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
           <div className="settings-content" ref={contentRef}>
             {page === "appearance" ? (
               <div className="settings-tab-panel" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
-                <AppearanceSettingsPane appearance={appearance} space={space} onCustomizeSpace={onCustomizeSpace} />
+                <AppearanceSettingsPane appearance={appearance} space={space} onCustomizeSpace={onCustomizeSpace} interfaceExtra={closeWindowControl} />
               </div>
             ) : null}
             {page === "assistant" || assistantVisited ? (
@@ -143,42 +178,25 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                 <AssistantSetupPane active={page === "assistant"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
               </div>
             ) : null}
-            {selectedPage === "web-access" ? (
+            {page === "web-access" ? (
               <div className="settings-tab-panel" id="settings-panel-web-access" role="tabpanel" aria-labelledby="settings-tab-web-access">
                 <RemoteAccessPane />
               </div>
             ) : null}
-            {selectedPage === "shared-pages" ? (
+            {page === "shared-pages" ? (
               <div className="settings-tab-panel" id="settings-panel-shared-pages" role="tabpanel" aria-labelledby="settings-tab-shared-pages">
                 <FoldPublicationsPane />
               </div>
             ) : null}
-            {selectedPage === "desktop" ? (
-              <div className="settings-tab-panel" id="settings-panel-desktop" role="tabpanel" aria-labelledby="settings-tab-desktop">
-                <div className="settings-subtabs" role="tablist" aria-label="Desktop settings">
-                  {([["routings", "Automations"], ["deleted", "Recently deleted"], ["limits", "Limits"]] as Array<[FoldSettingsSection, string]>).map(([id, label]) => (
-                    <button className={foldSection === id ? "active" : ""} type="button" role="tab" aria-selected={foldSection === id} tabIndex={foldSection === id ? 0 : -1} id={`fold-settings-tab-${id}`} aria-controls={`fold-settings-panel-${id}`} key={id} onClick={() => setFoldSection(id)}>{label}</button>
-                  ))}
-                </div>
-                <div id={`fold-settings-panel-${foldSection}`} role="tabpanel" aria-labelledby={`fold-settings-tab-${foldSection}`} className="settings-fold-panel">
-                  {foldSection === "routings" ? <FoldRoutingsPane /> : null}
-                  {foldSection === "deleted" ? <FoldRecentlyDeletedPane /> : null}
-                  {foldSection === "limits" ? <FoldLimitsPane onOpenRecentlyDeleted={() => setFoldSection("deleted")} /> : null}
-                </div>
-                {closeToTray?.supported ? (
-                  <section className="settings-section" aria-labelledby="window-close-settings-title">
-                    <div className="settings-section-heading"><h3 id="window-close-settings-title">Closing the window</h3>{closeToTrayBusy ? <span><ArrowClockwise20Regular className="spin" /> Updating</span> : closeToTrayNotice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{closeToTrayNotice}</span> : null}</div>
-                    <div className="theme-segmented-control two-options" role="radiogroup" aria-label="Close button behavior">
-                      <button className={closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={closeToTray.enabled} tabIndex={closeToTray.enabled ? 0 : -1} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(true)}>
-                        <Subtract20Regular /><span className="theme-choice-copy"><span>Keep work-fold running</span></span>
-                      </button>
-                      <button className={!closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={!closeToTray.enabled} tabIndex={!closeToTray.enabled ? 0 : -1} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(false)}>
-                        <Power20Regular /><span className="theme-choice-copy"><span>Quit work-fold</span></span>
-                      </button>
-                    </div>
-                    {closeToTrayError ? <span className="settings-inline-error" role="alert">{closeToTrayError}</span> : null}
-                  </section>
-                ) : null}
+            {page === "automations" ? (
+              <div className="settings-tab-panel" id="settings-panel-automations" role="tabpanel" aria-labelledby="settings-tab-automations">
+                <FoldRoutingsPane />
+                <FoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
+              </div>
+            ) : null}
+            {page === "recently-deleted" ? (
+              <div className="settings-tab-panel" id="settings-panel-recently-deleted" role="tabpanel" aria-labelledby="settings-tab-recently-deleted">
+                <FoldRecentlyDeletedPane />
               </div>
             ) : null}
             {page === "about" ? (

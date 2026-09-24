@@ -467,7 +467,7 @@ function SpaceHeaderSwitcher({
           className={managingSpaces ? "space-header-switcher-action space-header-switcher-manage active" : "space-header-switcher-action space-header-switcher-manage"}
           type="button"
           role="menuitem"
-          aria-current={managingSpaces ? "page" : undefined}
+          aria-current={managingSpaces ? "true" : undefined}
           onClick={() => {
             onClose();
             onManageSpaces();
@@ -544,8 +544,8 @@ function SpaceNameEditor({
             aria-label={`Folder name for ${space.name}`}
           />
         </label>
-        <button className="space-name-save" type="submit" disabled={saving || !name.trim() || name.trim() === space.name}>
-          {saving ? <ArrowClockwise20Regular className="spin" /> : "Save"}
+        <button className="space-name-save" type="submit" disabled={saving || !name.trim() || name.trim() === space.name} aria-label={saving ? "Saving name" : undefined}>
+          {saving ? <ArrowClockwise20Regular className="spin" aria-hidden="true" /> : "Save"}
         </button>
       </form>
       {error ? <span className="space-name-error" role="alert">{error}</span> : null}

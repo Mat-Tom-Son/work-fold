@@ -572,16 +572,17 @@ export async function getSpaceEntryInfo(spaceRoot: string, relativePath: string)
 /**
  * The file tab's read-only inline preview. Text renders from a bounded head
  * read with the truncation disclosed; recognized image types defer to the
- * raw-file route; binary or oversized content declines with its reason
+ * raw-file route, as do PDFs; binary or oversized content declines with its reason
  * instead of decoding garbage. The read honors the same Space path policy as
  * every other entry route.
  */
 const previewTextByteLimit = 256 * 1024;
 const previewImageByteLimit = 12 * 1024 * 1024;
+const previewPdfByteLimit = 200 * 1024 * 1024;
 const previewImageExtensions = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".svg"]);
 
 export interface SpaceFilePreview {
-  kind: "text" | "image" | "none";
+  kind: "text" | "image" | "pdf" | "none";
   reason?: "folder" | "binary" | "too-large";
   content?: string;
   truncated?: boolean;
@@ -598,6 +599,13 @@ export async function getSpaceFilePreview(spaceRoot: string, relativePath: strin
   if (previewImageExtensions.has(extension)) {
     return info.size <= previewImageByteLimit
       ? { kind: "image", sizeBytes: info.size }
+      : { kind: "none", reason: "too-large", sizeBytes: info.size };
+  }
+  // PDFs render in the built-in viewer from the raw-file route. The renderer
+  // holds the whole file as a blob, so very large ones fall back to Open.
+  if (extension === ".pdf") {
+    return info.size <= previewPdfByteLimit
+      ? { kind: "pdf", sizeBytes: info.size }
       : { kind: "none", reason: "too-large", sizeBytes: info.size };
   }
   const handle = await open(path, "r");

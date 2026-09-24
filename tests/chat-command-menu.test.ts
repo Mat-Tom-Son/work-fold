@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   composerCommandQuery,
   composerCommandValue,
+  isHiddenComposerCommand,
   matchingComposerCommands,
 } from "../web-local/src/components/chat/command-menu.js";
 import type { AgentCommand } from "../web-local/src/types.js";
@@ -38,4 +39,31 @@ test("composer command discovery ranks names before descriptions and keeps Skill
 test("composer command selection leaves argument-taking commands ready for input", () => {
   assert.equal(composerCommandValue(commands[0]!), "/model ");
   assert.equal(composerCommandValue(commands[1]!), "/skill:review");
+});
+
+test("the menu leaves out Pi built-ins the app already covers, but keeps compact and export", () => {
+  const menu: AgentCommand[] = [
+    ...["changelog", "hotkeys", "login", "logout", "copy", "model", "thinking", "settings", "session", "resume", "quit", "reload", "new", "import", "share", "fork", "clone", "tree", "trust", "name", "scoped-models"]
+      .map((name): AgentCommand => ({ name, description: `Pi ${name}`, source: "builtin" })),
+    { name: "compact", description: "Compact this Chat's working context", source: "builtin" },
+    { name: "export", description: "Export this Chat", source: "builtin" },
+    { name: "new", description: "A Skill that happens to share a name", source: "skill" },
+  ];
+  assert.deepEqual(
+    matchingComposerCommands(menu, "", 50).map((command) => `${command.source}:${command.name}`),
+    ["skill:new", "builtin:compact", "builtin:export"],
+  );
+  assert.equal(isHiddenComposerCommand({ name: "model", source: "builtin" }), true);
+  assert.equal(isHiddenComposerCommand({ name: "model", source: "extension" }), false);
+  assert.equal(isHiddenComposerCommand({ name: "compact", source: "builtin" }), false);
+});
+
+test("a hidden built-in typed in full closes the menu so Enter sends it as typed", () => {
+  const menu: AgentCommand[] = [
+    { name: "model", description: "Choose a model", source: "builtin" },
+    { name: "scoped-models", description: "Choose models to cycle", source: "builtin" },
+    { name: "skill:model-review", description: "Review a model", source: "skill" },
+  ];
+  assert.deepEqual(matchingComposerCommands(menu, "model"), []);
+  assert.deepEqual(matchingComposerCommands(menu, "mod").map((command) => command.name), ["skill:model-review"]);
 });

@@ -38,7 +38,7 @@ export const foldPublicationsSettings = {
 } as const;
 
 /**
- * Settings → Desktop → Recently deleted (docs/receipts-not-gates.md, F20).
+ * Settings → Recently deleted (docs/receipts-not-gates.md, F20).
  * Nothing work-fold deletes is gone at the moment it happens: History covers
  * what it can, and this is where the rest waits.
  */
@@ -72,7 +72,7 @@ export const deleteFolderConfirm = {
 } as const;
 
 /**
- * Settings → Desktop → Limits (docs/receipts-not-gates.md, F19 principle 6).
+ * Settings → Automations → Limits (docs/receipts-not-gates.md, F19 principle 6).
  * Bounds are defaults, not gates: they exist so a runaway stops and so
  * envelopes stay sane. Every message that names a limit names this section,
  * so every number an app or a routing can hit has a row here. The numbers are

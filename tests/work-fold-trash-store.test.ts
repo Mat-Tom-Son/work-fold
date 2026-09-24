@@ -96,6 +96,33 @@ test("workFoldTrashRoot lives under the state root", () => {
   }
 });
 
+test("identity-preserving restores refuse a destination occupied while queued and keep the recovery entry", async (t) => {
+  const root = await sandbox(t);
+  const store = await openStore(root);
+  const sourcePath = join(root, "chat-saved.jsonl");
+  const keep = async (content: string) => {
+    await writeFile(sourcePath, content);
+    return store.trashTree({
+      kind: "file", reason: "chats.delete", sourcePath, spaceId: "space-test",
+      originalPath: ".work-fold/conversations/chat-saved.jsonl", receiptId: null,
+    });
+  };
+  const first = await keep("first transcript\n");
+  const second = await keep("second transcript\n");
+  const outcomes = await Promise.allSettled([
+    store.restoreTree(first.id, { absolutePath: sourcePath, onConflict: "error" }),
+    store.restoreTree(second.id, { absolutePath: sourcePath, onConflict: "error" }),
+  ]);
+  assert.equal(outcomes[0]?.status, "fulfilled");
+  assert.equal(outcomes[1]?.status, "rejected");
+  if (outcomes[1]?.status === "rejected") assert.match(String(outcomes[1].reason), /identity already exists/);
+  assert.equal(await readFile(sourcePath, "utf8"), "first transcript\n");
+  assert.equal(existsSync(join(root, "chat-saved (2).jsonl")), false);
+  const kept = await store.get(second.id);
+  assert.ok(kept);
+  assert.equal(await readFile(kept.payloadPath, "utf8"), "second transcript\n");
+});
+
 test("open creates the layout with default retention, keeps it across reopen, and bounds retention changes", async (t) => {
   const root = await sandbox(t);
   const store = await openStore(root);

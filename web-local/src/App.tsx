@@ -16,7 +16,6 @@ import { SpaceSurfaceTabBar } from "./components/chat/SpaceSurfaceTabBar";
 import { WorkFoldLoadingState } from "./components/brand/WorkFoldBrand";
 import { Banner, CenteredState, EmptyInline, SpaceIconGlyph } from "./components/chrome/common";
 import { DesktopTitleBar } from "./components/chrome/DesktopTitleBar";
-import { GlanceHeaderControl } from "./components/chrome/GlancePanel";
 import { CommandPaletteHost, type CommandPaletteCommand } from "./components/modals/CommandPaletteHost";
 import { CreateSpaceModal } from "./components/modals/CreateSpaceModal";
 import { DesktopSettingsModal, type SettingsPage } from "./components/modals/DesktopSettingsModal";
@@ -53,7 +52,7 @@ import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle
 import { appBuildDraft, appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
 import { canOpenDirectly, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel } from "./lib/file-actions";
-import { formatItemCount } from "./lib/format";
+import { chatDisplayTitle, formatItemCount } from "./lib/format";
 import { readStoredJsonValue, writeStoredJsonValue } from "./lib/storage";
 import { isMacOS, spaceEntryNativePath } from "./lib/platform";
 import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRailLabel } from "./lib/restricted-app-navigation";
@@ -81,7 +80,7 @@ interface PendingDelete {
 /**
  * A delete always goes through (docs/receipts-not-gates.md, F20). `trash` is
  * present when History could not keep a copy of everything, so the entry is
- * waiting in Settings → Desktop → Recently deleted instead of being gone.
+ * waiting in Settings → Recently deleted instead of being gone.
  */
 interface DeleteLocalFileResult {
   trash?: { entryId: string; restoreBy: string; uncoveredCount: number };
@@ -486,6 +485,10 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   }
 
   useEffect(() => { if (!fixture) localStorage.setItem("work-fold.space.mode", activeMode); }, [activeMode, fixture]);
+  // Manage folders replaces the pane's content; Done and Escape return to
+  // whatever the person was doing before they opened it.
+  const modeBeforeManagingRef = useRef<SpaceRailMode>(activeMode === "spaces" ? "files" : activeMode);
+  useEffect(() => { if (activeMode !== "spaces") modeBeforeManagingRef.current = activeMode; }, [activeMode]);
   useEffect(() => {
     if (tree.status === "ready" && activeTab?.kind !== "checks") void checks.refresh();
   }, [activeTab?.kind, checks.refresh, tree.status, tree.tree]);
@@ -544,6 +547,14 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
       setCustomizations(next);
     }
   }, [spaces.map((item) => item.id).join("|")]);
+  // A restore from Settings → Recently deleted can bring back a Chat transcript
+  // or a file; the pane cannot reach this state, so it announces the restore.
+  useEffect(() => {
+    if (fixture) return;
+    function onTrashRestored(): void { void loadConversationGroups(); void tree.refresh(false); }
+    window.addEventListener("work-fold:trash-restored", onTrashRestored);
+    return () => window.removeEventListener("work-fold:trash-restored", onTrashRestored);
+  }, [fixture, spaces.map((item) => item.id).join("|")]);
   useEffect(() => { if (fixture) { setConversationGroups(fixtureConversationGroups(fixture)); return; } void loadConversationGroups(); }, [fixture, spaces.map((item) => item.id).join("|")]);
   useEffect(() => {
     if (fixture) {
@@ -806,7 +817,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
             ? `${target.name} removed. The folder and its files remain on your computer.`
             : removal.trash
               ? `${target.name} was deleted. Its folder is in Recently deleted until `
-                + `${new Date(removal.trash.restoreBy).toLocaleDateString()}; Settings → Desktop puts it back.`
+                + `${new Date(removal.trash.restoreBy).toLocaleDateString()}; Settings → Recently deleted puts it back.`
               : `${target.name} and its managed folder were deleted.`,
         tone: removal.cleanupPending ? "info" : "success",
       });
@@ -904,7 +915,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
             tabs.openFileSurfaceTab(space, entry.path);
             await openLocalPath(entry.path, nativeOpenLabel(entry).office ? "open-native" : "open");
           } else await openLocalPath(entry.path, "open");
-        } else if (command === "reveal") await openLocalPath(entry.path, "reveal");
+        } else if (command === "open-with") await openLocalPath(entry.path, "open-with");
+        else if (command === "reveal") await openLocalPath(entry.path, "reveal");
         else if (command === "copy-path") await copyPath(entry.path);
         else if (command === "attach-chat") attachToChat(entry.path);
         else if (command === "version-history") openVersionHistory(space, entry.path);
@@ -914,7 +926,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
       } catch (caught) { onError(errorText(caught)); }
       return;
     }
-    setFileContextMenu({ entry, x: Math.min(point.x, window.innerWidth - 250), y: Math.min(point.y, window.innerHeight - 390), returnFocusTarget });
+    setFileContextMenu({ entry, x: Math.min(point.x, window.innerWidth - 250), y: Math.min(point.y, window.innerHeight - 420), returnFocusTarget });
   }
   function openRootContextMenu(event: React.MouseEvent<HTMLElement>) { if ((event.target as HTMLElement).closest("[data-tree-row]")) return; openContextMenu({ name: space.name, path: "", kind: "folder" }, event); }
 
@@ -1019,12 +1031,22 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     showHistorySaved(`Renamed ${renameEntryRequest.name}`);
   }
 
-  async function openLocalPath(path: string, action: "reveal" | "open" | "open-native", targetSpace = space) {
+  async function openLocalPath(path: string, action: "reveal" | "open" | "open-native" | "open-with", targetSpace = space) {
     if (fixture) { showToast({ text: "Opening files is disabled in the preview", tone: "info" }); return; }
     const desktop = window.workFoldDesktop;
-    try { if (!path) await desktop?.space.revealFolder?.(targetSpace.id); else if (desktop?.space.openPath) await desktop.space.openPath(targetSpace.id, path, action); else await desktop?.space.revealFolder?.(targetSpace.id); }
-    catch (caught) { onError(errorText(caught)); }
+    try {
+      if (action === "open-with") {
+        const openPathWith = desktop?.space.openPathWith;
+        if (!path || !openPathWith) return;
+        const result = await openPathWith(targetSpace.id, path);
+        if (result.opened && result.appName) showToast({ text: `Opened in ${result.appName}`, tone: "success" });
+        return;
+      }
+      if (!path) await desktop?.space.revealFolder?.(targetSpace.id); else if (desktop?.space.openPath) await desktop.space.openPath(targetSpace.id, path, action); else await desktop?.space.revealFolder?.(targetSpace.id);
+    }
+    catch (caught) { onError(errorText(caught).replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "")); }
   }
+  const canOpenWith = !fixture && typeof window.workFoldDesktop?.space.openPathWith === "function";
   function openVersionHistory(targetSpace: SpaceSummary, path: string) {
     if (fixture) { showToast({ text: "Version history is disabled in the preview", tone: "info" }); return; }
     setVersionHistory({ space: targetSpace, path, name: path.split("/").pop() ?? path });
@@ -1177,6 +1199,38 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     return updated;
   }
 
+  async function deleteChat(targetSpace: SpaceSummary, conversation: ConversationSummary): Promise<void> {
+    const trash = fixture
+      ? null
+      : (await api<{ deleted: { conversationId: string; trash: { entryId: string; restoreBy: string } } }>(
+          `/api/spaces/${targetSpace.id}/conversations/${conversation.id}`,
+          { method: "DELETE" },
+        )).deleted.trash;
+    setConversationGroups((current) => ({
+      ...current,
+      [targetSpace.id]: (current[targetSpace.id] ?? []).filter((item) => item.id !== conversation.id),
+    }));
+    for (const tab of tabs.surfaceTabs) {
+      if (tab.kind === "chat" && tab.spaceId === targetSpace.id && tab.conversationId === conversation.id) tabs.closeSurfaceTab(tab.id);
+    }
+    chatActivity.setRunning(chatActivityKey(targetSpace.id, conversation.id), false);
+    chatActivity.setAttention(chatActivityKey(targetSpace.id, conversation.id), false);
+    showToast({
+      text: `Moved "${chatDisplayTitle({ serverTitle: conversation.title })}" to Recently deleted`,
+      tone: "success",
+      durationMs: 6500,
+      ...(trash ? {
+        actionLabel: "Undo",
+        onAction: () => {
+          void api(`/api/settings/trash/${trash.entryId}/restore`, { method: "POST", body: {} })
+            .then(() => api<{ conversations: ConversationSummary[] }>(`/api/spaces/${targetSpace.id}/conversations`))
+            .then(({ conversations }) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations })))
+            .catch((caught) => onError(errorText(caught)));
+        },
+      } : {}),
+    });
+  }
+
   function selectRailMode(mode: SpaceRailMode): void {
     setActiveMode(mode);
     if (mode.startsWith("app:restricted:")) return;
@@ -1238,20 +1292,30 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
 
   const layoutStyle = { ...(spaceIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--space-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
 
-  // The persistent Space-identity header's action cluster: the glance panel
-  // trigger (docs/fold-glance.md, surface `main-window` — reachable here,
-  // never a rail destination) plus the files-mode refresh. The glance reads
-  // the live local API, so the fixture preview omits it.
-  const headerAction = fixture && activeMode !== "files" ? undefined : <>
-    {fixture ? null : <GlanceHeaderControl />}
-    {activeMode === "files" ? <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button> : null}
-  </>;
+  // The persistent Space-identity header's action slot: the files-mode refresh.
+  const headerAction = activeMode === "files"
+    ? <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button>
+    : undefined;
+
+  function leaveManageFolders(): void {
+    selectRailMode(modeBeforeManagingRef.current);
+  }
+
+  // Escape leaves Manage folders only when nothing inside the pane claimed it:
+  // an open switcher menu, a dialog, or a modal keeps its own Escape.
+  function leaveManageFoldersOnEscape(event: import("react").KeyboardEvent<HTMLElement>): void {
+    if (event.key !== "Escape" || event.defaultPrevented || activeMode !== "spaces") return;
+    if (event.currentTarget.querySelector('[aria-expanded="true"]')) return;
+    if ((event.target as Element).closest?.('[role="menu"], [role="dialog"]') || document.querySelector('[aria-modal="true"]')) return;
+    event.preventDefault();
+    leaveManageFolders();
+  }
 
   return <main className={paneResize.sidebarResizing ? "space-layout resizing" : "space-layout"} ref={paneResize.spaceLayoutRef} style={layoutStyle}>
     <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenApps={() => tabs.openSpaceAppsSurfaceTab(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
-    <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel">
+    <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel" onKeyDown={activeMode === "spaces" ? leaveManageFoldersOnEscape : undefined}>
       <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} action={headerAction} />
-      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRemove={(target) => void removeSpace(target)} /> : null}
+      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRemove={(target) => void removeSpace(target)} onDone={leaveManageFolders} /> : null}
       {activeMode === "files" ? <div className="local-files-panel">
         <input
           ref={uploadRef}
@@ -1330,7 +1394,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
         return (
           <div className="space-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={spaceIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
-              <FileDetailsPane space={targetSpace} path={tab.path} entry={targetSpace.id === space.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetSpace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetSpace, path)} onRename={targetSpace.id === space.id ? renameEntry : undefined} />
+              <FileDetailsPane space={targetSpace} path={tab.path} entry={targetSpace.id === space.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetSpace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetSpace, path)} onRename={targetSpace.id === space.id ? renameEntry : undefined} canOpenWith={canOpenWith} />
             ) : tab.kind === "library" ? (
               <LibraryPane
                 space={targetSpace}
@@ -1444,9 +1508,9 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
         );
       }) : <SpaceSurfaceEmptyState space={space} identity={identity} onNewChat={() => openChat(space, null)} />}
     </aside>
-    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onClose={() => setFileContextMenu(null)} /> : null}
+    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onClose={() => setFileContextMenu(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
-    {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onClose={() => setChatActions(null)} /> : null}
+    {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onClose={() => setChatActions(null)} /> : null}
     {versionHistory ? <FileVersionHistoryModal space={versionHistory.space} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}
     {commandPaletteOpen ? <CommandPaletteHost commands={commands} onClose={closeCommandPalette} /> : null}
   </main>;

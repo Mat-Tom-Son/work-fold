@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { basename, delimiter, isAbsolute, join, normalize, relative, resolve } from "node:path";
@@ -97,6 +97,7 @@ import {
   type NativeFileMenuCommand,
   type NativeFileMenuRequest,
 } from "./file-context-menu.js";
+import { openFileWithPickedApp, openWithDialogOptions, type OpenWithLaunchPlan } from "./open-with.js";
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
 import { RailTooltipOverlay } from "./rail-tooltip-overlay.js";
@@ -1008,6 +1009,8 @@ async function createMainWindow(): Promise<void> {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: true,
+      // The built-in PDF viewer is plugin-backed; File tabs preview PDFs inline.
+      plugins: true,
       devTools: !app.isPackaged,
       // Assistant turns and automations are owned by the app host, not renderer
       // paint. Let Chromium throttle hidden/occluded UI to preserve battery life.
@@ -1227,6 +1230,25 @@ function registerIpc(): void {
     }
     const result = await shell.openPath(filePath);
     if (result) throw new Error(`${productName} could not open this item. ${result}`);
+  });
+  ipcMain.handle("work-fold:space:open-path-with", async (event, value: unknown): Promise<{ opened: boolean; canceled: boolean; appName: string | null }> => {
+    assertTrustedRenderer(event);
+    const request = spacePathRequest(value, false);
+    return openFileWithPickedApp(process.platform, {
+      resolveFile: async () => {
+        const filePath = await resolveSpaceItem(request.spaceId, request.path);
+        if (!(await stat(filePath)).isFile()) throw new Error("Only files can be opened with another app.");
+        return filePath;
+      },
+      pickApp: async () => {
+        const options = openWithDialogOptions(process.platform);
+        const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+        const choice = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+        // Only the path the dialog itself returned is ever launched.
+        return choice.canceled ? null : choice.filePaths[0] ?? null;
+      },
+      launch: launchOpenWith,
+    });
   });
   ipcMain.handle("work-fold:space:start-drag", async (event, value: unknown) => {
     assertTrustedRenderer(event);
@@ -1834,6 +1856,22 @@ function spacePathRequest(value: unknown, requireAction = true): { spaceId: stri
     throw new Error("Unsupported Space file action.");
   }
   return { spaceId, path, action };
+}
+
+function launchOpenWith(plan: OpenWithLaunchPlan): Promise<void> {
+  if (plan.kind === "exec") {
+    return new Promise((resolveLaunch, rejectLaunch) => {
+      execFile(plan.command, plan.args, (error) => error ? rejectLaunch(error) : resolveLaunch());
+    });
+  }
+  return new Promise((resolveLaunch, rejectLaunch) => {
+    const child = spawn(plan.command, plan.args, { detached: true, stdio: "ignore" });
+    child.once("error", rejectLaunch);
+    child.once("spawn", () => {
+      child.unref();
+      resolveLaunch();
+    });
+  });
 }
 
 async function resolveSpaceItem(spaceId: string, itemPath: string): Promise<string> {

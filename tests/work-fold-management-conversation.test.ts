@@ -108,7 +108,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Apps take no `--snapshot` — an offline desktop is an honestly asleep app/);
     // Publishing top-up (docs/fold-publishing.md): publication problems reach
     // the person as glance change items with the precise reason, and
-    // Settings → Desktop holds the person's own direct controls — the share
+    // Settings → Automations and Recently deleted hold the person's own direct controls — the share
     // link never rides the fold's lane.
     assert.match(managementContext, /Page problems surface through the glance/);
     assert.match(managementContext, /Share links are revealed only in Settings → Shared pages/);
@@ -200,7 +200,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Never busy-wait, sleep, or poll in a loop for one\./);
     assert.match(managementContext, /when its children settle it brings their reports back here once/);
     assert.doesNotMatch(managementContext, /bounded at 4 per request/);
-    assert.match(managementContext, /turn them off in Settings → Desktop → Limits/);
+    assert.match(managementContext, /turn them off in Settings → Automations → Limits/);
     assert.match(managementContext, /chat answer --space <id> --question <id> --answer "<text>" --parent-task <this-request-task-id> --json/);
     assert.match(managementContext, /A second answer, an answer after Stop/);
     assert.match(managementContext, /work-fold manage ask --task/);

@@ -29,7 +29,7 @@ The declaration contract accepts versions 1, 2, 3, and 4. Version 2 added a
 bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
 observation, shipped in September 2026; version 4 adds the closed placeholder
 set and the `fold` step, shipped with the receipts-not-gates build.
-Settings → **General → Automations** is the desktop management surface. The
+**Settings → Automations** is the desktop management surface. The
 store schema is version 3; version-1 and version-2 records load and are
 rewritten as version 3 on the next mutation, converting the grants an older
 build wrote, while newer schemas still fail closed.
@@ -84,7 +84,7 @@ recorded settle/schedule state, or explicitly granted bounded folder metadata ob
 
 **Folder changes (version 3)** use `{"kind":"files-changed","space":"<Space id>","watch":{"kind":"tree","path":"Incoming","recursive":true,"extensions":[".md",".txt"]},"debounceSeconds":5,"cooldownMinutes":1}`. The exact named folder must exist at enablement. The host observes matching ordinary files every two seconds, within 512 files, 2,000 visited entries, depth 16, and the existing target byte bounds. Metadata identities include size, nanosecond modification/change times, and inode; file contents are not read or sent anywhere by the observer. Symlinks and overlap with separately registered Spaces fail closed. The extension list and recursion are explicit; reserved metadata stays excluded.
 
-A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → Desktop → Automations.
+A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → Automations.
 
 All folder observers pause while any routing executes and establish fresh baselines afterward. This deliberately absorbs routing-generated edits and prevents cross-routing file loops. Changes made during that pause, while asleep, or while quit are **not replayed**. This is an awake-app convenience trigger, not a durable filesystem event bus. Keep a complete cross-Space sequence in one routing: wait for A's Chat, copy its created files, then run B's Chat or Check. There is no transcript relay or ambient context injection. Stop, disable, removal, shutdown, journaling, non-overlap, and FIFO limits use the existing executor paths.
 
@@ -407,7 +407,7 @@ The five questions, per mutation:
 
 ## Where routings live in the product
 
-Automations are managed in **Settings → Desktop → Automations** (decision F15) — Agent
+Automations are managed in **Settings → Automations** (decision F15) — Agent
 tools was rejected because a routing is not one Space's object, and a
 management work tab was rejected because it would spend the Space-bound tab
 contract's own deliberate design. The Settings section carries the list,

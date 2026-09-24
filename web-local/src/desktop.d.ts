@@ -47,7 +47,7 @@ type WorkFoldDesktopMenuCommand =
 
 type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
-type WorkFoldDesktopFileMenuCommand = "open" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "upload-here" | "rename" | "delete";
+type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "upload-here" | "rename" | "delete";
 
 interface WorkFoldDesktopFileMenuRequest {
   spaceId: string;
@@ -132,6 +132,7 @@ declare global {
         chooseFolder: () => Promise<{ path: string; folderGrantId: string } | null>;
         revealFolder: (spaceId: string) => Promise<void>;
         openPath: (spaceId: string, path: string, action?: WorkFoldDesktopPathAction) => Promise<void>;
+        openPathWith?: (spaceId: string, path: string) => Promise<{ opened: boolean; canceled: boolean; appName: string | null }>;
         startDrag: (spaceId: string, path: string) => Promise<void>;
         previewFile: (spaceId: string, path: string) => Promise<boolean>;
         popupFileMenu?: (request: WorkFoldDesktopFileMenuRequest) => Promise<WorkFoldDesktopFileMenuCommand | null>;

@@ -127,11 +127,15 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   await dom.render(createElement(CapabilitiesPane, props));
   const card = (name: string) => [...dom.container.querySelectorAll<HTMLElement>(".capabilities-resource-card")].find((item) => item.querySelector("strong")?.textContent === name)!;
   await dom.waitFor(() => Boolean(card("Chrome")));
-  assert.match(card("Chrome").textContent!, /Not checked/);
-  assert.match(card("Computer control").textContent!, /Not checked/);
-  assert.match(card("Documents").textContent!, /Turned off/);
-  assert.doesNotMatch(card("Chrome").textContent!, /Loaded|Ready/);
-  assert.doesNotMatch(dom.container.querySelector(".capabilities-health")!.textContent!, /Everything loaded/);
+  const action = (name: string) => card(name).querySelector<HTMLButtonElement>(".capabilities-resource-actions button")!;
+  assert.equal(dom.container.querySelector(".capabilities-resource-card .professional-status-badge"), null, "installed cards carry no status badge");
+  assert.equal(dom.container.querySelector(".capabilities-health"), null, "no tool-count or attention line");
+  assert.equal(dom.container.querySelector(".capabilities-scope-heading .capabilities-hierarchy-glyph"), null);
+  for (const name of ["Chrome", "Computer control", "Documents"]) {
+    assert.equal(action(name).textContent, "Details", `${name} is unchecked or off, so it never asks for setup`);
+    assert.match(action(name).className, /professional-button-secondary/);
+  }
+  assert.doesNotMatch(card("Chrome").textContent!, /Not checked|Loaded|Ready/);
   assert.deepEqual(writes, [], "catalog inspection must not check, launch, or configure an included tool");
 
   await dom.act(() => card("Chrome").querySelector("button")!.click());
@@ -140,22 +144,55 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   assert.match(dom.container.querySelector(".capability-technical-details")!.textContent!, /ExtensionLoadedEnabledYes/);
   const check = [...dom.container.querySelectorAll<HTMLButtonElement>(".included-tool-setup button")].find((button) => button.textContent === "Check")!;
   await dom.act(() => { check.click(); check.click(); });
-  await dom.waitFor(() => card("Chrome").textContent!.includes("Connected"));
+  await dom.waitFor(() => dom.container.querySelector('.included-tool-status [role="status"]')?.textContent === "Connected");
   assert.deepEqual(writes, [{ spaceId: "first", id: "chrome", action: "check" }]);
   await dom.act(() => {
     for (const complete of summaryReads) complete(Response.json({ tools: [{ id: "chrome", state: "unknown", checkedAt: "2026-09-12T15:02:00.000Z", detail: "A snapshot taken while the earlier-started explicit probe was running" }] }));
   });
   await dom.settle();
-  assert.match(card("Chrome").textContent!, /Connected/);
+  assert.equal(action("Chrome").textContent, "Details");
   assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Connected");
   failingCheck = true;
   await dom.act(() => check.click());
   await dom.waitFor(() => dom.container.textContent!.includes("Companion probe failed"));
   await dom.settle();
-  assert.match(card("Chrome").textContent!, /Not checked/);
+  assert.equal(action("Chrome").textContent, "Details");
   assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Not checked");
   await dom.act(() => [...dom.container.querySelectorAll<HTMLButtonElement>(".capability-dialog-footer button")].find((button) => button.textContent === "Done")!.click());
-  assert.match(card("Chrome").textContent!, /Not checked/, "closing details must not restore the last successful badge");
+  assert.equal(action("Chrome").textContent, "Details", "closing details must not restore an earlier result");
+});
+
+test("an installed card offers Set up only for a known state that needs it", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  const tools = [included("chrome"), included("computer"), included("documents"), included("web")];
+  const catalog = {
+    diagnostics: [], packages: [], skills: [], tools: [],
+    extensions: tools.map((item) => ({ ...item, included: undefined, source: { scope: "user", origin: "top-level", source: "builtin" } })),
+    resources: tools.map((item) => ({ kind: "extensions", path: item.path, enabled: item.enabled, included: item.included, metadata: { scope: "user", origin: "top-level", source: "builtin" } })),
+  };
+  globalThis.fetch = (async (input) => {
+    if (String(input).includes("included-tools")) return Response.json({ tools: [
+      { id: "chrome", state: "setup_required", checkedAt: "2026-09-12T15:02:00.000Z", chrome: { state: "not_connected", checkedAt: "2026-09-12T15:02:00.000Z", hasSelection: false } },
+      { id: "computer", state: "setup_required", checkedAt: "2026-09-12T15:02:00.000Z" },
+      { id: "documents", state: "ready", checkedAt: "2026-09-12T15:02:00.000Z" },
+      { id: "web", state: "unknown", checkedAt: "2026-09-12T15:02:00.000Z" },
+    ] });
+    return Response.json(catalog);
+  }) as typeof fetch;
+  await dom.render(createElement(CapabilitiesPane, {
+    space: { id: "first", name: "Workshop" } as never, status: { configured: true } as never,
+    view: "installed", onOpenSettings() {}, onError(message) { assert.fail(message ?? "Unexpected catalog error"); }, onViewChange() {},
+  }));
+  const action = (name: string) => [...dom.container.querySelectorAll<HTMLElement>(".capabilities-resource-card")]
+    .find((item) => item.querySelector("strong")?.textContent === name)?.querySelector<HTMLButtonElement>(".capabilities-resource-actions button");
+  await dom.waitFor(() => action("Chrome")?.textContent === "Set up");
+  assert.match(action("Chrome")!.className, /professional-button-primary/);
+  assert.equal(action("Computer control")!.textContent, "Set up");
+  assert.match(action("Computer control")!.className, /professional-button-primary/);
+  assert.equal(action("Documents")!.textContent, "Details");
+  assert.equal(action(tools[3]!.name)!.textContent, "Details", "an unchecked tool never asks for setup");
+  assert.equal(dom.container.querySelector(".capabilities-resource-card .professional-status-badge"), null);
 });
 
 test("late readiness responses cannot cross Spaces or survive a closed setup owner", async (t) => {

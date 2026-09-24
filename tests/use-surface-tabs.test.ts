@@ -433,3 +433,56 @@ test("identical app revisions keep separate installation tabs and a reinstall ca
   const { featureInstallationId: _identity, ...unpinned } = original;
   assert.deepEqual(normalizeStoredSurfaceTabsValue({ tabs: [unpinned], activeTabId: original.id }).tabs, [], "old unpinned tabs cannot attach to whichever installation is present");
 });
+
+test("the tab strip tightens early, fades its overflowing edges, and lists every open tab in its menu", async (t) => {
+  const { createRequire, registerHooks } = await import("node:module");
+  const { createElement } = await import("react");
+  const { createDomHarness } = await import("./support/dom.js");
+  const iconNames = Object.keys(createRequire(import.meta.url)("@fluentui/react-icons")).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
+  const assets = registerHooks({
+    resolve(specifier, context, next) { return specifier === "@fluentui/react-icons" ? { url: "test:tab-bar-icons", shortCircuit: true } : next(specifier, context); },
+    load(url, context, next) {
+      if (url === "test:tab-bar-icons") return { format: "module", source: iconNames.map((name) => `export const ${name}=${name === "bundleIcon" ? "(filled)=>filled" : "()=>null"};`).join("\n"), shortCircuit: true };
+      if (/\.(css|svg|png)(?:\?|$)/.test(url)) return { format: "module", source: "export default '';", shortCircuit: true };
+      return next(url, context);
+    },
+  });
+  const { SpaceSurfaceTabBar, surfaceTabCountTier, surfaceTabOverflow } = await import(pathToFileURL(join(process.cwd(), "web-local/src/components/chat/SpaceSurfaceTabBar.tsx")).href);
+  assets.deregister();
+
+  assert.equal(surfaceTabCountTier(3), "");
+  assert.equal(surfaceTabCountTier(4), "tab-count-compact");
+  assert.equal(surfaceTabCountTier(6), "tab-count-compact");
+  assert.equal(surfaceTabCountTier(7), "tab-count-dense");
+  assert.equal(surfaceTabOverflow(0, 600, 600), null);
+  assert.equal(surfaceTabOverflow(0, 900, 600), "end");
+  assert.equal(surfaceTabOverflow(150, 900, 600), "both");
+  assert.equal(surfaceTabOverflow(300, 900, 600), "start");
+
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const scrolled: string[] = [];
+  window.HTMLElement.prototype.scrollIntoView = function scrollIntoView(this: HTMLElement) { scrolled.push(this.querySelector("[role=tab]")?.id ?? ""); };
+  const space = { id: "space-1", name: "Workshop", spaceRoot: "/synthetic/workshop", location: { kind: "local", storage: "linked" }, createdAt: "", updatedAt: "" };
+  const tabs = Array.from({ length: 6 }, (_, index) => ({ id: `chat:space-1:${index}`, kind: "chat", spaceId: "space-1", title: `Chat ${index + 1}`, conversationId: `c${index}` }));
+  const activated: string[] = [];
+  await dom.render(createElement(SpaceSurfaceTabBar, {
+    tabs, spaces: [space], spaceCustomizations: {}, conversations: {}, chatActivityStatuses: {}, activeTabId: tabs[0]!.id, newChatSpaceId: "space-1",
+    onActivate: (id: string) => { activated.push(id); }, onClose() {}, onNewChatInSpace() {}, onChatActions() {},
+  }));
+  const strip = document.querySelector<HTMLElement>(".surface-tabs")!;
+  assert.match(strip.className, /tab-count-compact/);
+  assert.equal(strip.hasAttribute("data-overflow"), false, "a strip that fits has no fade");
+  assert.ok(scrolled.length > 0, "the active tab is revealed");
+
+  await dom.act(() => document.querySelector<HTMLButtonElement>(".surface-tab-new-chat-trigger")!.click());
+  const items = [...document.querySelectorAll<HTMLButtonElement>('#new-chat-space-menu [role="menuitemradio"]')];
+  assert.deepEqual(items.map((item) => item.textContent), tabs.map((tab) => tab.title));
+  assert.equal(items[0]!.getAttribute("aria-checked"), "true");
+  const navigable = [...document.querySelectorAll<HTMLButtonElement>('#new-chat-space-menu [role^="menuitem"]')];
+  navigable[0]!.focus();
+  await dom.act(() => { document.querySelector("#new-chat-space-menu")!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })); });
+  assert.equal(document.activeElement, items[0], "arrow keys move from New Chat into the open tabs");
+  await dom.act(() => items[3]!.click());
+  assert.deepEqual(activated, [tabs[3]!.id]);
+  assert.equal(document.querySelector("#new-chat-space-menu"), null, "choosing a tab closes the menu");
+});

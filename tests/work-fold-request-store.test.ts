@@ -26,7 +26,7 @@ import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js
  * provider-spending protections remain bounded; request graph work does not.
  */
 
-const limitsSection = "Settings → Desktop → Limits";
+const limitsSection = "Settings → Automations → Limits";
 
 function clockFrom(start: string) {
   let current = Date.parse(start);
