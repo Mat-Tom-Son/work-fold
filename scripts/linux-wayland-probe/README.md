@@ -119,6 +119,15 @@ occlusion and is disabled before native focus/minimize/continuity checks.
 Its screenshots come from the shipped portal path,
 not the web debugger. A test-only local provider drives deterministic tool calls;
 the harness never receives model credentials or a personal desktop connection.
+Debugger attachment and renderer discovery have explicit deadlines in addition
+to Puppeteer's per-command timeout. The container wrapper caps the complete
+desktop driver at five minutes; a timeout is a failed test, never a skipped or
+passing qualification. Startup milestones and bounded failure diagnostics go to
+the CI log. VM suspend runs invoke the driver separately with longer deadlines.
+Pass `--development` to `desktop-acceptance.sh` to exercise the same native UI
+flow using the already prepared `npm start` app and its profile-local CLI,
+without making an installer. This development check does not qualify packaged
+bytes; CI retains the default packaged launch.
 
 ## Private KDE helper qualification
 

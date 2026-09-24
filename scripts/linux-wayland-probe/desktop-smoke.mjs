@@ -1,4 +1,4 @@
-/** Packaged Electron UI + real Wayland portal acceptance on our private seat. */
+/** Electron UI + real Wayland portal acceptance on our private seat. */
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { existsSync, createWriteStream } from 'node:fs';
@@ -6,11 +6,13 @@ import { mkdir, mkdtemp, readFile, writeFile, lstat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import puppeteer from 'puppeteer-core';
 import sharp from 'sharp';
 import { createJiti } from 'jiti';
+import { withDeadline } from './deadline.mjs';
 
 assert.equal(process.env.WORKFOLD_ISOLATED_GNOME_TEST, '1');
 assert.equal(existsSync('/tmp/workfold-input-fixture'), false);
@@ -28,8 +30,15 @@ console.log(`Evidence: ${root}`);
 const appLog = createWriteStream(join(root, 'app.log'), { mode: 0o600, flags: 'wx' });
 const state = join(root, 'state'), agent = join(root, 'pi'), folder = join(root, 'Acceptance folder');
 await Promise.all([state, agent, folder].map(p => mkdir(p, { mode: 0o700 })));
-const packageRoot = resolve(process.argv[2] || '/work/out/linux/linux-unpacked');
-const executable = join(packageRoot, 'work-fold-desktop'), cli = join(packageRoot, 'bin/work-fold');
+const development = process.argv[2] === '--development';
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+const packageRoot = resolve(development ? repoRoot : process.argv[2] || '/work/out/linux/linux-unpacked');
+const executable = development ? 'npm' : join(packageRoot, 'work-fold-desktop');
+const launchArgs = development ? ['start', '--', '--ozone-platform=wayland'] : ['--ozone-platform=wayland'];
+const cli = development ? join(state, 'development-cli/work-fold') : join(packageRoot, 'bin/work-fold');
+const helper = development ? join(repoRoot, 'out/included-tools/wayland-helper/work-fold-wayland')
+  : join(packageRoot, 'resources/wayland-helper/work-fold-wayland');
+console.log(`Launch mode: ${development ? 'prepared development app via npm start' : 'packaged app'}`);
 const expected = 'The packaged app controlled this Wayland screen.';
 let phase = 'seed', computerRequests = 0, snapshotRequests = 0, images = 0, continuityStarted = false, releaseContinuity;
 const errors = [];
@@ -91,13 +100,31 @@ await writeFile(join(agent, 'models.json'), JSON.stringify({ providers: { 'deskt
 const env = { ...process.env, WORKFOLD_DESKTOP_STATE_DIR: state, WORKFOLD_STATE_DIR: state, WORKFOLD_CLI_STATE_DIR: state,
   WORKFOLD_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, WORKFOLD_DISABLE_LOGIN_SHELL_ENV: '1' };
 delete env.ELECTRON_RUN_AS_NODE; delete env.NODE_OPTIONS;
+delete env.WORKFOLD_CLI_APP;
+// Only the external fixture driver needs this launcher. The app configures its
+// own Worker environment, as exercised separately by the CLI regression lane.
+const cliEnv = development ? { ...env, WORKFOLD_CLI_APP: join(state, 'development-cli/app') } : env;
 let app, browser, fixture, output = '', page, automation;
 async function until(test, milliseconds = 20_000) {
   const deadline = Date.now() + testTime(milliseconds);
-  while (!await test()) { assert.ok(Date.now() < deadline, 'Packaged desktop condition timed out'); await delay(100); }
+  while (!await withDeadline('Packaged desktop condition', test(), Math.max(1, deadline - Date.now()))) {
+    assert.ok(Date.now() < deadline, 'Packaged desktop condition timed out'); await delay(100);
+  }
+}
+async function connectDebugger(endpoint) {
+  // protocolTimeout bounds individual CDP calls, not Puppeteer's initial
+  // target-discovery wait. The owned app is terminated in finally on failure.
+  const connection = puppeteer.connect({ browserWSEndpoint: endpoint, defaultViewport: null,
+    protocolTimeout: fixtureKind === 'vm' ? 180_000 : 15_000 });
+  try { return await withDeadline('Private debugger attachment', connection, testTime(30_000)); }
+  catch (error) {
+    // Do not retain a debugger if discovery finishes after our deadline.
+    connection.then(late => late.disconnect()).catch(() => {});
+    throw error;
+  }
 }
 async function command(...args) {
-  const { stdout } = await run(cli, [...args, '--json'], { env, cwd: root, timeout: testTime(45_000), maxBuffer: 3 * 1024 * 1024 });
+  const { stdout } = await run(cli, [...args, '--json'], { env: cliEnv, cwd: root, timeout: testTime(45_000), maxBuffer: 3 * 1024 * 1024 });
   const result = JSON.parse(stdout); assert.notEqual(result.ok, false); return result.data;
 }
 async function clickText(text, selector = 'button') {
@@ -122,7 +149,7 @@ async function changedDesktop(before, after) {
   return changed / count;
 }
 try {
-  app = spawn(executable, ['--ozone-platform=wayland', '--remote-debugging-port=0'], { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  app = spawn(executable, [...launchArgs, '--remote-debugging-port=0'], { env, cwd: repoRoot, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   app.once('exit', (code, signal) => console.log('Owned app exit:', JSON.stringify({ code, signal })));
   for (const stream of [app.stdout, app.stderr]) stream.on('data', data => { appLog.write(data); output = (output + data).slice(-32768); });
   await until(async () => { assert.equal(app.exitCode, null, 'Packaged app exited during startup'); return /DevTools listening on ws:\/\/127\.0\.0\.1:\d+\//.test(output); }, 45_000);
@@ -130,8 +157,10 @@ try {
   console.log('Packaged app opened its private debugging endpoint');
   // A native dialog can spend up to 75 seconds becoming actionable in TCG,
   // then still needs time to settle its renderer-side IPC promise after Cancel.
-  browser = await puppeteer.connect({ browserWSEndpoint: endpoint, defaultViewport: null, protocolTimeout: fixtureKind === 'vm' ? 180_000 : 15_000 });
+  browser = await connectDebugger(endpoint);
+  console.log('Private debugger attached; waiting for the main renderer');
   await until(async () => { page = (await browser.pages()).find(p => p.url().startsWith('work-fold-desktop://app/')); return !!page; });
+  console.log('Main renderer discovered; waiting for the desktop preload and onboarding');
   page.setDefaultTimeout(testTime(30_000));
   page.on('error', error => console.error('Owned renderer error:', error.message));
   page.on('close', () => console.log('Owned renderer closed'));
@@ -228,8 +257,8 @@ try {
     // Reattach to the same still-running app; never relaunch or reload it to
     // make a continuity test pass. Product state is checked independently.
     await browser.disconnect();
-    browser = await puppeteer.connect({ browserWSEndpoint: endpoint, defaultViewport: null, protocolTimeout: 180_000 });
-    const wakePages = await browser.pages();
+    browser = await connectDebugger(endpoint);
+    const wakePages = await withDeadline('Renderer discovery after wake', browser.pages(), testTime(30_000));
     console.log('Renderer targets after wake:', JSON.stringify(wakePages.map(p => ({ url: p.url(), closed: p.isClosed() }))));
     page = wakePages.find(p => p.url() === 'work-fold-desktop://app/index.html');
     assert.ok(page, 'The original app must retain its main window after sleep');
@@ -266,10 +295,10 @@ try {
   await until(async () => continuityStarted);
   // Use the compositor's actual close-window shortcut. JavaScript window.close
   // is a web-content lifecycle command, not a desktop window-manager action.
-  await run(executable, ['--ozone-platform=wayland'], { env, timeout: testTime(15_000) });
+  await run(executable, launchArgs, { env, cwd: repoRoot, timeout: testTime(15_000) });
   const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
   const { NativeWaylandTransport } = await jiti.import('/work/src/local/agent/wayland-transport.ts');
-  const driver = await NativeWaylandTransport.launch(join(packageRoot, 'resources/wayland-helper/work-fold-wayland'));
+  const driver = await NativeWaylandTransport.launch(helper);
   try {
     const started = driver.call('start');
     started.catch(() => {});
@@ -303,7 +332,7 @@ try {
     assert.equal(await page.evaluate(() => document.visibilityState), 'visible');
     assert.equal(await page.evaluate(() => document.hasFocus()), true, 'The named native switcher entry must focus work-fold');
     assert.match(await page.evaluate(() => document.body.innerText), /Skills & Extensions/);
-    await run(executable, ['--ozone-platform=wayland'], { env, timeout: testTime(15_000) });
+    await run(executable, launchArgs, { env, cwd: repoRoot, timeout: testTime(15_000) });
     console.log('PASS accepted turn survives main-window close/minimize, persists, desktop switcher restores it, and a second instance joins the running app');
     // Exercise the normal compositor close path with background retention off.
     // An OS signal in finally is cleanup, never evidence of a successful Quit.
@@ -320,7 +349,8 @@ try {
 } catch (error) {
   console.error('Packaged desktop acceptance failed:', error);
   console.error('Private native UI at failure:', (await ui('dump').catch(() => ({ stdout: 'Unavailable' }))).stdout.slice(0, 14000));
-  if (page) console.error('Owned UI at failure:', (await page.evaluate(() => document.body.innerText).catch(() => '')).slice(0, 7000));
+  if (page) console.error('Owned UI at failure:', (await withDeadline('Failure UI diagnostics',
+    page.evaluate(() => document.body.innerText), 5_000).catch(error => error.message)).slice(0, 7000));
   console.error('Owned app diagnostics:', output.slice(-4000));
   throw error;
 } finally {
