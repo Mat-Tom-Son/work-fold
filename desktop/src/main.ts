@@ -67,6 +67,8 @@ import { ModelContextWindow } from "./model-context-window.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
 import { includedToolsRoot } from "../../src/local/agent/included-tools.js";
 import { IncludedChromeConnectionService } from "../../src/local/agent/included-chrome-connection.js";
+import { ComputerSessionService } from "../../src/local/agent/computer-session.js";
+import { NativeWaylandTransport } from "../../src/local/agent/wayland-transport.js";
 import type { ChromeHostFacilities } from "../../src/shared/chrome-connection.js";
 import chromeDistribution from "../../src/shared/chrome-distribution.json" with { type: "json" };
 import { ChromeNativeHostRegistration } from "./chrome-native-host.js";
@@ -113,6 +115,14 @@ import {
   type RemotePairingPrompt,
 } from "./remote-access.js";
 import type { RemoteAccessSettings } from "./settings.js";
+
+// AppImage launchers may append this switch when their namespace probe fails.
+// A restricted Folder app must never become an unsandboxed renderer as a
+// packaging fallback. Refuse before creating the host, reading auth or UI.
+if (process.platform === "linux" && app.commandLine.hasSwitch("no-sandbox")) {
+  console.error("work-fold requires the Chromium sandbox. This launch requested --no-sandbox. Install the matching DEB/RPM and use the distribution's supported sandbox configuration.");
+  app.exit(1);
+}
 
 const productionProductName = productIdentity.productName;
 const localMacSmokeProductName = productIdentity.macSmokeProductName;
@@ -393,6 +403,7 @@ interface DesktopHost {
   restrictedApps: RestrictedAppService;
   restrictedAppHost: RestrictedAppHost;
   chromeConnection: IncludedChromeConnectionService;
+  computerSession?: ComputerSessionService;
   /**
    * The one in-process settle seam (docs/fold-routings.md): the host's Check
    * and restricted-app services publish into this exact instance, and the
@@ -529,28 +540,38 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         stateRoot: join(userData, "assistant-tools"), distribution: chromeDistribution,
         sourceDirectory: app.isPackaged ? join(process.resourcesPath, "chrome-native-host") : join(app.getAppPath(), "out/included-tools/chrome-native-host"),
         // An isolated/dev host must not replace the normal Chrome registration.
-        enabled: process.platform === "darwin" && app.isPackaged && !localMacSmokeBuild && !workFoldDesktopStateOverride(process.env),
+        enabled: ["darwin", "linux"].includes(process.platform) && app.isPackaged && !localMacSmokeBuild && !workFoldDesktopStateOverride(process.env),
+        appPath: process.platform === "linux" ? process.env.APPIMAGE || process.execPath : process.execPath,
       });
       const chromeConnection = await IncludedChromeConnectionService.create({
         stateRoot: join(userData, "assistant-tools"), distribution: chromeDistribution,
         registerNativeHost: (explicit) => chromeRegistration.register(explicit),
         openStore: async () => {
           if (!chromeDistribution.storeId || !/^[a-p]{32}$/.test(chromeDistribution.storeId)) throw new Error("Chrome connection is not available yet.");
-          await new Promise<void>((resolveOpen, rejectOpen) => execFile("/usr/bin/open", ["-a", "Google Chrome", `https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`], error => error ? rejectOpen(new Error("Google Chrome could not open the work-fold listing.")) : resolveOpen()));
+          const command = process.platform === "linux" ? "google-chrome" : "/usr/bin/open";
+          const args = process.platform === "linux" ? [`https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`] : ["-a", "Google Chrome", `https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`];
+          await new Promise<void>((resolveOpen, rejectOpen) => execFile(command, args, error => error ? rejectOpen(new Error("Google Chrome could not open the work-fold listing.")) : resolveOpen()));
         },
         startTransport: async (facilities) => (await loadChromeConnection()).startIncludedChromeConnection(facilities),
         probe: async () => { await (await loadChromeConnection()).probeIncludedChromeConnection(chromeConnection); },
       });
-      const bundledComputerHelper = app.isPackaged
+      const bundledComputerHelper = process.platform === "linux"
+        ? join(app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "out", "included-tools"), "computer-helper", "linux-bridge")
+        : app.isPackaged
         ? join(process.resourcesPath, "computer-helper", "work-fold Computer.app")
         : join(app.getAppPath(), "out", "included-tools", "computer-helper", "work-fold Computer.app");
       const computerHelper = process.platform === "darwin" && app.isPackaged
         ? await ComputerHelperInstallation.create({ sourceAppPath: bundledComputerHelper, stateRoot: join(userData, "assistant-tools") })
         : undefined;
+      const computerSession = process.platform === "linux" && process.env.XDG_SESSION_TYPE === "wayland"
+        ? new ComputerSessionService({ launch: () => NativeWaylandTransport.launch(join(
+          app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "out", "included-tools"), "wayland-helper", "work-fold-wayland")) })
+        : undefined;
       const runtime = new PackagedPiRuntimeProvider({
         includedTools: {
           rootPath: includedToolsRoot(), stateRoot: join(userData, "assistant-tools"),
           chromeConnection,
+          computerSession,
           helperAppPath: computerHelper?.helperAppPath ?? bundledComputerHelper,
           prepareComputerHelper: computerHelper?.prepare,
           repairComputerHelper: computerHelper?.repair,
@@ -586,7 +607,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       await cli.initialize();
       secureSettings = settings;
       piRuntime = runtime;
-      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime, settleSignal, chromeConnection };
+      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime, settleSignal, chromeConnection, computerSession };
     } catch (error) {
       await restrictedApps.close();
       throw error;
@@ -642,6 +663,7 @@ async function quitAfterCliRequest(): Promise<void> {
   }
   await host.restrictedApps.close();
   await host.chromeConnection.close();
+  await host.computerSession?.close();
   await host.checks.close();
   // A headless boot proves no interactive app holds the single-instance lock,
   // so any act-token file on disk is stale crash residue; removing it lets
@@ -1002,7 +1024,10 @@ async function createMainWindow(): Promise<void> {
     ...(nativeWindowMaterial === "none"
       ? { backgroundColor: windowBackgroundColors[nativeTheme.shouldUseDarkColors ? "dark" : "light"] }
       : { backgroundColor: "#00000000" }),
-    show: false,
+    // Map Linux windows immediately against the opaque background. On native
+    // Wayland, waiting for a first hidden paint can prevent ready-to-show from
+    // ever firing and leave an unmapped surface that native dialogs cannot use.
+    show: process.platform === "linux",
     webPreferences: {
       preload: resolvePreloadPath(),
       contextIsolation: true,
@@ -1050,12 +1075,21 @@ async function createMainWindow(): Promise<void> {
   // First reveal only: renderer recoveries can re-emit ready-to-show, and a
   // window the person hid (Windows close-to-tray, minimize) must not
   // resurface because an autonomous reload finished painting.
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  if (process.platform !== "linux") {
+    mainWindow.once("ready-to-show", () => mainWindow?.show());
+  }
   mainWindow.on("blur", () => railTooltipOverlay?.hide());
   mainWindow.on("hide", () => railTooltipOverlay?.hide());
   mainWindow.on("minimize", () => railTooltipOverlay?.hide());
   mainWindow.on("close", (event) => {
     if (quitting || quittingForUpdate || !quitCoordinator.shouldPreventNativeQuit()) return;
+    if (process.platform === "linux" && desktopPreferences.closeToTray) {
+      // GNOME may not display status icons. Retain a taskbar-visible window so
+      // background work and the management surface are always recoverable.
+      event.preventDefault();
+      mainWindow?.minimize();
+      return;
+    }
     // Close-to-tray is Windows behavior; the macOS menu-bar item must not
     // change what closing the last macOS window means (Dock keeps the host).
     if (process.platform !== "win32" || !tray || !desktopPreferences.closeToTray) return;
@@ -1217,7 +1251,7 @@ function registerIpc(): void {
     assertTrustedRenderer(event);
     if (typeof value !== "string") throw new Error("A Space id is required.");
     const space = await getSpace(value);
-    const error = await shell.openPath(space.spaceRoot);
+    const error = await openNativeLocalPath(space.spaceRoot);
     if (error) throw new Error(`work-fold could not show this Space's folder. ${error}`);
   });
   ipcMain.handle("work-fold:space:open-path", async (event, value: unknown) => {
@@ -1228,7 +1262,7 @@ function registerIpc(): void {
       shell.showItemInFolder(filePath);
       return;
     }
-    const result = await shell.openPath(filePath);
+    const result = await openNativeLocalPath(filePath);
     if (result) throw new Error(`${productName} could not open this item. ${result}`);
   });
   ipcMain.handle("work-fold:space:open-path-with", async (event, value: unknown): Promise<{ opened: boolean; canceled: boolean; appName: string | null }> => {
@@ -1802,12 +1836,12 @@ function configureCliEnvironment(): void {
   // different userData roots, so leaving this unset can expose a different
   // Space registry through an installed work-fold CLI on PATH.
   process.env.WORKFOLD_CLI_STATE_DIR = app.getPath("userData");
-  if (!app.isPackaged || (process.platform !== "win32" && process.platform !== "darwin")) return;
+  if (!app.isPackaged || !["win32", "darwin", "linux"].includes(process.platform)) return;
   const executableDirectory = dirnameFromFile(process.execPath);
   const binDirectory = process.platform === "darwin"
     ? resolve(executableDirectory, "..", "bin")
     : join(executableDirectory, "bin");
-  const pathKey = Object.keys(process.env).find((key) => key.toLocaleLowerCase() === "path") ?? "Path";
+  const pathKey = Object.keys(process.env).find((key) => key.toLocaleLowerCase() === "path") ?? "PATH";
   const currentPath = process.env[pathKey] ?? "";
   const alreadyPresent = currentPath
     .split(delimiter)
@@ -2015,6 +2049,17 @@ function updateAgentPowerState(activeTurns: number): void {
   }
 }
 
+async function openNativeLocalPath(filePath: string): Promise<string> {
+  if (process.platform !== "linux") return shell.openPath(filePath);
+  // Electron 42.6.1's Linux OpenPath drops its completion callback after
+  // launching xdg-open. Its OpenExternal path completes correctly and uses
+  // the same desktop integration. Only pass a validated local file URL here.
+  // https://github.com/electron/electron/blob/v42.6.1/shell/common/platform_util_linux.cc
+  await stat(filePath);
+  await shell.openExternal(pathToFileURL(filePath).href);
+  return "";
+}
+
 async function openExternal(value: string): Promise<void> {
   const url = new URL(value);
   if (!new Set(["https:", "http:", "mailto:"]).has(url.protocol)) throw new Error(`work-fold cannot open ${url.protocol} links.`);
@@ -2038,6 +2083,7 @@ async function shutdown(): Promise<void> {
   const restrictedApps = desktopHostPromise?.then((host) => host.restrictedApps.close()) ?? Promise.resolve();
   const checks = desktopHostPromise?.then((host) => host.checks.close()) ?? Promise.resolve();
   const chrome = desktopHostPromise?.then((host) => host.chromeConnection.close()) ?? Promise.resolve();
+  const computer = desktopHostPromise?.then((host) => host.computerSession?.close()) ?? Promise.resolve();
   shutdownPromise = (async () => {
     const outcomes = await Promise.allSettled([
       withShutdownTimeout(localApiLifetime.close(), "local API"),
@@ -2045,6 +2091,7 @@ async function shutdown(): Promise<void> {
       withShutdownTimeout(restrictedApps, "restricted apps"),
       withShutdownTimeout(checks, "Checks"),
       withShutdownTimeout(chrome, "Chrome connection"),
+      withShutdownTimeout(computer, "Desktop sharing"),
       withShutdownTimeout(removeWorkFoldCliActTokenFile(app.getPath("userData")), "CLI act token"),
     ]);
     for (const outcome of outcomes) {
@@ -2131,7 +2178,7 @@ function updateDesktopPreferences(update: Partial<DesktopPreferences>): void {
 }
 
 function createTrayIfSupported(): void {
-  if (tray || (process.platform !== "win32" && process.platform !== "darwin")) return;
+  if (tray || !["win32", "darwin", "linux"].includes(process.platform)) return;
   const icon = resolveTrayIcon();
   if (!icon) {
     console.warn(`${productName} tray icon was not found; the ${process.platform === "darwin" ? "menu-bar" : "tray"} surface is unavailable.`);
@@ -2252,18 +2299,22 @@ function maybeShowTrayNotice(): void {
 function closeToTrayStatus(): { supported: boolean; enabled: boolean } {
   // A macOS menu-bar item is a management surface, not close-to-tray support:
   // closing the last macOS window already keeps the app alive via the Dock.
-  return { supported: process.platform === "win32" && tray !== null, enabled: desktopPreferences.closeToTray };
+  return { supported: process.platform === "linux" || (process.platform === "win32" && tray !== null), enabled: desktopPreferences.closeToTray };
 }
 
 function configurePowerMonitor(): void {
   if (powerMonitorRegistered) return;
   powerMonitorRegistered = true;
   powerMonitor.on("suspend", () => {
+    void desktopHostPromise?.then((host) => host.computerSession?.stop()).catch(() => console.warn("Desktop sharing could not stop before sleep."));
     void desktopHostPromise?.then((host) => host.restrictedApps.suspendAutomations());
     // Routing runs share the scheduler discipline: suspension aborts the
     // active run (it settles `interrupted`, honestly receipted) and holds
     // admissions until resume (docs/fold-routings.md).
     routingPowerLifecycle?.suspend();
+  });
+  powerMonitor.on("lock-screen", () => {
+    void desktopHostPromise?.then((host) => host.computerSession?.stop()).catch(() => console.warn("Desktop sharing could not stop on lock."));
   });
   powerMonitor.on("resume", () => {
     void desktopHostPromise?.then((host) => host.restrictedApps.resumeAutomations());

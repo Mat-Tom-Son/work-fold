@@ -75,6 +75,8 @@ test("desktop release configuration uses the isolated work-fold identities and f
   assert.equal(builder.nsis.deleteAppDataOnUninstall, false);
   assert.equal(builder.electronFuses.runAsNode, false);
   assert.equal(builder.electronFuses.onlyLoadAppFromAsar, true);
+  assert.equal(builder.toolsets.appimage, "1.0.3", "Use the pinned static runtime without a host libfuse2 dependency");
+  assert.deepEqual(builder.appImage.executableArgs, [], "Desktop launcher must not request an unsandboxed renderer");
   assert.equal(builder.win.verifyUpdateCodeSignature, false);
   assert.equal(builder.nsis.differentialPackage, true);
   assert.deepEqual(builder.mac.target, ["dmg", "zip"]);
@@ -121,7 +123,7 @@ test("CI preserves independent main/tag release evidence and all verification la
   assert.equal(workflow.concurrency.group, "ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "non-PR runs have unique groups so queued release evidence cannot be replaced");
   const jobs = Object.values(workflow.jobs) as Array<{ name: string; "runs-on": string; "continue-on-error"?: boolean; if?: string; steps: Array<{ run?: string; if?: string; "continue-on-error"?: boolean; uses?: string }> }>;
   const commands = jobs.flatMap((job) => {
-    assert.equal(job["runs-on"], "macos-latest");
+    assert.equal(job["runs-on"], job === workflow.jobs.linux ? "ubuntu-24.04" : "macos-latest");
     assert.equal(job["continue-on-error"], undefined);
     assert.equal(job.if, undefined, "every required job runs on main and tags");
     return job.steps.filter((step) => step.run).map((step) => {
@@ -134,6 +136,9 @@ test("CI preserves independent main/tag release evidence and all verification la
     assert.ok(commands.includes(gate), `${gate} remains a required gate`);
   }
   assert.ok(jobs.some((job) => job.steps.some((step) => step.uses?.startsWith("actions/upload-artifact@") && step.if === "failure()")));
+  const linux = workflow.jobs.linux.steps.map((step: { run?: string }) => step.run ?? "").join("\n");
+  for (const command of ["npm ci", "npm run check", "npm test", "npm run desktop:make:linux"]) assert.ok(linux.includes(command));
+  assert.doesNotMatch(linux, /--no-sandbox|desktop:publish|desktop:release:mac/);
 });
 
 test("the macOS Safe Storage reset can target only the work-fold identity", () => {

@@ -70,12 +70,12 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "31ee7d88dad61b1de2d2f5eceadad2f78e265593345338957573b56a67929109",
+    "sha256": "661c3d5b3ad857b169b09623bf2a8d2105ebfc8417a14baa5abff02609c1757e",
     "files": [
       {
         "path": "extensions/computer-use.ts",
         "before": "1ed753c7b9bd4f11e36225e3358f827c2349d3a0fb71bbb18f8e4de38c5a9420",
-        "after": "0ee64cb01e6c71df7a862bd9b017e3ffd15111b0d6a5d91fd1186c738c499a3f"
+        "after": "a9c612405e9d0b331c022f5d5947353b9196ae2f5e509832df27cceee832bb27"
       },
       {
         "path": "native/macos/bridge.swift",
@@ -166,6 +166,76 @@
         "path": "docs/architecture.md",
         "before": "479a2b8870a6ef338f6a0771d52a29096f8baf1d66ac4b6753330a74f3e59101",
         "after": "b7c5ffd4d17cc51df34f06ecd3a25118b5ee3b688bc68cea79888e286171b5db"
+      },
+      {
+        "path": "src/platform/linux/helper.ts",
+        "before": "0d79a939164cf9a5d4d87a6c8be006796892c4e6afe1b000d68f1507135b0ab3",
+        "after": "f1cdf3bfa56b7e4d31597d82ca3d0ceed9550bebdf48e90e23b8f273901eee3f"
+      },
+      {
+        "path": "native/linux/bridge-rs/Cargo.lock",
+        "before": "905f5d1aefd8b8e9cb4d292cdc186e54d999dd821b5343ab251b6f55fbc9b7fb",
+        "after": "905f5d1aefd8b8e9cb4d292cdc186e54d999dd821b5343ab251b6f55fbc9b7fb"
+      },
+      {
+        "path": "native/linux/bridge-rs/Cargo.toml",
+        "before": "d974431a70d621066a84343c3887590b404f16ef79e6e323fcdbaab0b5ff322c",
+        "after": "d974431a70d621066a84343c3887590b404f16ef79e6e323fcdbaab0b5ff322c"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/atspi.rs",
+        "before": "e8aad487e4d4d02e6ff48cbedcd7748fb24de2f23d0d1e6461c22cb5c4cf6a00",
+        "after": "96f717c4b04d12631ab26e18215ebf26f60181be2da2922d4f82deffee6d723e"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/error.rs",
+        "before": "d553ca07226c8193ce777ed6dec2dd478cbc6b8b3f8f6787889e6bdf54fcef39",
+        "after": "d553ca07226c8193ce777ed6dec2dd478cbc6b8b3f8f6787889e6bdf54fcef39"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/lib.rs",
+        "before": "55202aa52347ff226b9d12382795968a4b3a43824276322518fa5cde3091b171",
+        "after": "55202aa52347ff226b9d12382795968a4b3a43824276322518fa5cde3091b171"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/main.rs",
+        "before": "de47f254ec23163dc649a2f7dd225b25720755a1c3037c38c51e0b334bde5c9a",
+        "after": "de47f254ec23163dc649a2f7dd225b25720755a1c3037c38c51e0b334bde5c9a"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/protocol.rs",
+        "before": "5fc04cf91bd7b57085198b5239d922e9f72e57acfda14bd52c9ca15253b18459",
+        "after": "5fc04cf91bd7b57085198b5239d922e9f72e57acfda14bd52c9ca15253b18459"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/state.rs",
+        "before": "b09771a3f0a81cc2cab6d9806fed42204edcfb19ec8e23b4b67a5787ddf9f5bc",
+        "after": "33f1c79ec1c57bd1da5d09cf360409a1aa4b95eb318b5d5dd26b493065d487ca"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/wayland.rs",
+        "before": "601c2daa17e8a940d3e94e5bd5766603a12968c74738e4c9b3015053c8c44189",
+        "after": "601c2daa17e8a940d3e94e5bd5766603a12968c74738e4c9b3015053c8c44189"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/x11.rs",
+        "before": "40848d0cc7b13d0bf9cd1e7c484cd710138ef8a9ae4608ed0a33aced811906f0",
+        "after": "40848d0cc7b13d0bf9cd1e7c484cd710138ef8a9ae4608ed0a33aced811906f0"
+      },
+      {
+        "path": "native/linux/bridge-rs/tests/protocol_tests.rs",
+        "before": "aab02064aeb22a3cbb31823cf4d1136a42b5d3bd27b927225a85c100e9edaa75",
+        "after": "aab02064aeb22a3cbb31823cf4d1136a42b5d3bd27b927225a85c100e9edaa75"
+      },
+      {
+        "path": "src/shared-screen.ts",
+        "before": null,
+        "after": "c4fe5de8213496149c5a1afe2e766a5dcb4bd68a50eda92c2ace815280d83a09"
+      },
+      {
+        "path": "src/contract.ts",
+        "before": "b2873c27f392c7254c49e71be6a2dfd8a2c0b865f29acd57ce0a49698dabbc41",
+        "after": "68bf5679a78636476505465f1669df7543caba7d3dff4b549fafee5a55a0f85a"
       }
     ]
   },

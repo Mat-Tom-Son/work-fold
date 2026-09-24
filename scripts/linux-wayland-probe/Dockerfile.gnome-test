@@ -1,0 +1,13 @@
+# Disposable compositor for native portal acceptance. Never bind the person's
+# session bus, Wayland socket, home directory or input devices into this image.
+FROM work-fold-linux-build
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnome-shell gjs xdg-desktop-portal xdg-desktop-portal-gnome \
+    pipewire wireplumber libgl1-mesa-dri libegl-mesa0 \
+    dbus-x11 python3-gi gir1.2-atspi-2.0 gir1.2-gtk-3.0 at-spi2-core \
+    adwaita-icon-theme gnome-themes-extra gnome-text-editor nautilus python3-dbusmock \
+    && rm -rf /var/lib/apt/lists/* && mkdir -p /run/systemd/seats
+ENV XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_TYPE=wayland \
+    LIBGL_ALWAYS_SOFTWARE=1 GSETTINGS_BACKEND=memory NO_AT_BRIDGE=0
+WORKDIR /work

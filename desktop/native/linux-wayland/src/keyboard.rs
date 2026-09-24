@@ -1,0 +1,198 @@
+//! Translate against the compositor's keymap with libxkbcommon. No hardcoded
+//! layout tables, clipboard injection, or assumptions about a US keyboard.
+use anyhow::{ensure, Context, Result};
+use xkbcommon::xkb;
+
+pub struct Keyboard {
+    keymap: xkb::Keymap,
+    pub modifiers: [u32; 4], // depressed, latched, locked, group from libei
+}
+
+impl Keyboard {
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        ensure!(
+            !bytes.is_empty() && bytes.len() <= 1024 * 1024,
+            "Invalid keymap size"
+        );
+        // libei supplies a byte length, unlike Wayland's NUL-terminated keymap
+        // convention. Mutter sends XKB text without a trailing NUL. Accept one
+        // optional terminator and still reject interior NULs before libxkbcommon.
+        let text = std::str::from_utf8(bytes.strip_suffix(&[0]).unwrap_or(bytes))?;
+        ensure!(!text.contains('\0'), "Embedded keymap terminator");
+        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        let keymap = xkb::Keymap::new_from_string(
+            &context,
+            text.to_owned(),
+            xkb::KEYMAP_FORMAT_TEXT_V1,
+            xkb::KEYMAP_COMPILE_NO_FLAGS,
+        )
+        .context("Compositor keymap could not be compiled")?;
+        ensure!(
+            keymap.min_keycode().raw() >= 8 && keymap.max_keycode().raw() <= 775,
+            "Keymap is outside EVDEV bounds"
+        );
+        Ok(Self {
+            keymap,
+            modifiers: [0; 4],
+        })
+    }
+
+    fn idle(&self) -> Result<()> {
+        ensure!(
+            self.modifiers[0] == 0 && self.modifiers[1] == 0,
+            "Release held or latched keyboard modifiers before typing"
+        );
+        ensure!(
+            self.modifiers[3] < self.keymap.num_layouts(),
+            "Keyboard layout is unavailable"
+        );
+        Ok(())
+    }
+
+    fn unshifted_symbol(&self, symbol: xkb::Keysym) -> Option<u32> {
+        (self.keymap.min_keycode().raw()..=self.keymap.max_keycode().raw())
+            .find(|code| {
+                self.keymap
+                    .key_get_syms_by_level(xkb::Keycode::new(*code), self.modifiers[3], 0)
+                    == [symbol]
+            })
+            .map(|code| code - 8)
+    }
+
+    /// Preflight every character before returning any events. Characters that
+    /// require compose, an IME or unsupported modifier layers fail explicitly.
+    pub fn text(&self, text: &str) -> Result<Vec<Vec<u32>>> {
+        self.idle()?;
+        ensure!(
+            !text.is_empty() && text.chars().count() <= 256,
+            "Type at most 256 characters per action"
+        );
+        let shift = self.unshifted_symbol(xkb::keysym_from_name("Shift_L", xkb::KEYSYM_NO_FLAGS));
+        let shift_index = self.keymap.mod_get_index("Shift");
+        let shift_mask = if shift_index < 32 {
+            1u32 << shift_index
+        } else {
+            0
+        };
+        let mut state = xkb::State::new(&self.keymap);
+        let mut plan = Vec::new();
+        for character in text.chars() {
+            let mut found = None;
+            for shifted in [false, true] {
+                if shifted && (shift.is_none() || shift_mask == 0) {
+                    continue;
+                }
+                state.update_mask(
+                    if shifted { shift_mask } else { 0 },
+                    0,
+                    self.modifiers[2],
+                    0,
+                    0,
+                    self.modifiers[3],
+                );
+                for code in self.keymap.min_keycode().raw()..=self.keymap.max_keycode().raw() {
+                    if state.key_get_utf8(xkb::Keycode::new(code)) == character.to_string() {
+                        found = Some(if shifted {
+                            vec![shift.unwrap(), code - 8]
+                        } else {
+                            vec![code - 8]
+                        });
+                        break;
+                    }
+                }
+                if found.is_some() {
+                    break;
+                }
+            }
+            plan.push(found.context("Text requires an unavailable layout, compose sequence, IME or modifier layer; use semantic text entry")?);
+        }
+        Ok(plan)
+    }
+
+    pub fn shortcut(&self, names: &[String]) -> Result<Vec<u32>> {
+        self.idle()?;
+        ensure!(
+            !names.is_empty() && names.len() <= 8,
+            "Invalid shortcut length"
+        );
+        let mut codes = Vec::new();
+        for name in names {
+            ensure!(name.len() <= 64 && !name.contains('\0'), "Invalid key name");
+            let alias = match name.to_ascii_lowercase().as_str() {
+                "ctrl" | "control" => "Control_L",
+                "alt" => "Alt_L",
+                "shift" => "Shift_L",
+                "super" | "meta" | "win" => "Super_L",
+                "enter" => "Return",
+                "esc" => "Escape",
+                "backspace" => "BackSpace",
+                "space" => "space",
+                _ => name.as_str(),
+            };
+            let symbol = xkb::keysym_from_name(alias, xkb::KEYSYM_CASE_INSENSITIVE);
+            let code = self
+                .unshifted_symbol(symbol)
+                .context("Shortcut key is absent from the compositor keymap")?;
+            ensure!(!codes.contains(&code), "Repeated shortcut key");
+            codes.push(code);
+        }
+        Ok(codes)
+    }
+}
+
+#[cfg(test)]
+pub fn fixture(layout: &str) -> Vec<u8> {
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+    let keymap = xkb::Keymap::new_from_names(
+        &context,
+        "",
+        "",
+        layout,
+        "",
+        None,
+        xkb::KEYMAP_COMPILE_NO_FLAGS,
+    )
+    .unwrap();
+    let mut bytes = keymap
+        .get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1)
+        .into_bytes();
+    bytes.push(0);
+    bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn compositor_layout_controls_typing_and_shortcuts() {
+        let us = Keyboard::parse(&fixture("us")).unwrap();
+        let mut unterminated = fixture("us");
+        unterminated.pop();
+        assert_eq!(
+            Keyboard::parse(&unterminated).unwrap().text("a").unwrap(),
+            us.text("a").unwrap()
+        );
+        assert!(Keyboard::parse(b"xkb\0keymap").is_err());
+        let de = Keyboard::parse(&fixture("de")).unwrap();
+        assert_eq!(
+            us.text("yzY").unwrap(),
+            vec![vec![21], vec![44], vec![42, 21]]
+        );
+        assert_eq!(
+            de.text("yzY").unwrap(),
+            vec![vec![44], vec![21], vec![42, 44]]
+        );
+        assert_eq!(
+            us.shortcut(&["Ctrl".into(), "s".into()]).unwrap(),
+            vec![29, 31]
+        );
+        assert!(
+            us.text("a😀").is_err(),
+            "Unsupported text fails before emitting the supported prefix"
+        );
+        let mut held = us;
+        held.modifiers[0] = 1;
+        assert!(held.text("a").is_err());
+        assert!(Keyboard::parse(b"bad").is_err());
+    }
+}

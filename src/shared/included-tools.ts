@@ -1,4 +1,5 @@
 import type { ChromeConnectionSummary } from "./chrome-connection.js";
+import type { ComputerSessionSummary } from "./computer-session.js";
 
 export const includedToolDefinitions = [
   { id: "computer", title: "Computer control", package: "@injaneity/pi-computer-use", version: "0.5.1", description: "Observe and operate desktop apps, with screenshots and accessibility information." },
@@ -11,4 +12,4 @@ export type IncludedToolDefinition = typeof includedToolDefinitions[number];
 export type IncludedToolId = typeof includedToolDefinitions[number]["id"];
 
 export type IncludedToolReadiness = "ready" | "setup_required" | "unavailable" | "unknown";
-export interface IncludedToolStatus { id: IncludedToolId; state: IncludedToolReadiness; detail: string; checkedAt: string; facts?: Record<string, string | boolean>; chrome?: ChromeConnectionSummary; }
+export interface IncludedToolStatus { id: IncludedToolId; state: IncludedToolReadiness; detail: string; checkedAt: string; facts?: Record<string, string | boolean>; chrome?: ChromeConnectionSummary; computerSession?: ComputerSessionSummary; }

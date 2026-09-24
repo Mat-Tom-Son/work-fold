@@ -103,8 +103,13 @@ test("a bound reached truncates rather than failing, and change detection still 
   assert.equal(visited.truncated, true);
 
   const watch = new RestrictedAppFileWatch();
-  assert.equal(watch.observe(await observeRestrictedAppGrantRoot(root, directoryTarget(), tight), 0, tight), null);
-  await writeFile(join(root, "exports", "bulk-0.csv"), "changed\n");
+  const baseline = await observeRestrictedAppGrantRoot(root, directoryTarget(), tight);
+  assert.equal(watch.observe(baseline, 0, tight), null);
+  // Directory iteration order differs across filesystems. A truncated scan
+  // only promises to detect changes to the entries it actually observed.
+  const observedFile = Object.keys(baseline.entries).find(path => path.endsWith(".csv"));
+  assert.ok(observedFile);
+  await writeFile(join(root, "exports", observedFile), "changed\n");
   assert.equal(watch.observe(await observeRestrictedAppGrantRoot(root, directoryTarget(), tight), 1_000, tight), null);
   assert.deepEqual(watch.observe(await observeRestrictedAppGrantRoot(root, directoryTarget(), tight), 3_000, tight), { truncated: true });
 });

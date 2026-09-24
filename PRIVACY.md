@@ -84,15 +84,31 @@ baseline does not import browser cookies, initialize media services or call a
 second model. Chrome operates the connected signed-in profile through an
 explicitly prepared companion; account content and external actions carry
 that profile's normal permissions. Computer control captures selected native
-observations using macOS permissions granted to its helper.
+observations using macOS permissions granted to its helper. Linux candidates use
+AT-SPI accessibility, the upstream X11 backend, and explicit GNOME Wayland
+screen sharing. In Computer setup the person chooses a Chat, then a monitor in
+the desktop portal. The helper receives that granted stream while sharing is
+active and retains a bounded latest frame in memory. Only requested observations
+enter Pi's ordinary tool results, session and model-provider context; the helper
+does not write a recording or save a restore token. Images may include content
+outside the selected Folder. Keyboard input goes to the desktop's focused
+application. Stop sharing, screen lock, sleep, app exit or removal of the owning
+Chat/Folder ends the grant. See [Linux builds](docs/linux-build.md) for the
+qualified desktop and input limits.
 
 The Chrome extension's random installation ID and connection proof stay in
 trusted-only local extension storage, never Chrome sync. work-fold stores the
 selected installation and proof hash under its private application-data
-directory. A signed Native Messaging helper authenticates the exact extension
+directory. A Native Messaging helper (signed on macOS, byte-verified on Linux) authenticates the exact extension
 ID and forwards setup requests to the running app; it does not identify the
 Chrome profile by itself. Temporary connection credentials stay in the browser
 service worker's memory and native host runtime, outside Chat and setup status.
+
+Linux application data defaults to `~/.config/work-fold` (or
+`$XDG_CONFIG_HOME/work-fold`), including the private CLI broker. Saved app-managed
+credentials require GNOME Keyring/libsecret or KWallet; work-fold refuses the
+`basic_text` fallback. Removing the Linux package leaves personal app data,
+Pi resources and ordinary Folders intact.
 
 The Chrome extension can process requested tab URLs/titles, page text and
 structure, form inputs, screenshots, and page console/network observations.

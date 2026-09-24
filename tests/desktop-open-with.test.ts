@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { openFileWithPickedApp, openWithAppName, openWithDialogOptions, openWithLaunchPlan, type OpenWithLaunchPlan } from "../desktop/src/open-with.js";
 
@@ -17,7 +23,10 @@ test("the app picker starts where each platform keeps its apps", () => {
     filters: [{ name: "Applications", extensions: ["exe"] }],
   });
   assert.equal(openWithDialogOptions("win32", {}).defaultPath, "C:\\Program Files");
-  assert.deepEqual(openWithDialogOptions("linux"), { title: "Choose an app", properties: ["openFile"] });
+  assert.deepEqual(openWithDialogOptions("linux"), {
+    title: "Choose an app", properties: ["openFile"], defaultPath: "/usr/share/applications",
+    filters: [{ name: "Applications", extensions: ["desktop"] }, { name: "All files", extensions: ["*"] }],
+  });
 });
 
 test("the chosen app is named without its extension", () => {
@@ -39,8 +48,31 @@ test("launch plans are argument vectors with the file as its own argument", () =
     args: ["C:\\Space\\x & y.txt"],
   });
   assert.deepEqual(openWithLaunchPlan("linux", "/usr/bin/gedit", "/home/me/Space/$(rm).txt").args, ["/home/me/Space/$(rm).txt"]);
+  assert.deepEqual(openWithLaunchPlan("linux", "/usr/share/applications/org.gnome.TextEditor.desktop", "/home/me/Space/a b.txt"), {
+    kind: "exec", command: "/usr/bin/gio", args: ["launch", "--", "/usr/share/applications/org.gnome.TextEditor.desktop", "/home/me/Space/a b.txt"],
+  });
   assert.throws(() => openWithLaunchPlan("linux", "", "/tmp/x"), /required/);
   assert.throws(() => openWithLaunchPlan("linux", "/usr/bin/gedit", "/tmp/x\0y"), /required/);
+});
+
+test("Linux desktop entries use real GIO field expansion and preserve the chosen filename", { skip: process.platform !== "linux" }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-open-with-"));
+  try {
+    const app = join(root, "Fixture application.desktop"), script = join(root, "capture.mjs"), result = join(root, "received.json");
+    const file = join(root, "a $(literal) & quoted ' file.txt");
+    await writeFile(file, "Disposable Open with input");
+    await writeFile(script, 'import { writeFileSync } from "node:fs"; writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)));');
+    await writeFile(app, `[Desktop Entry]\nType=Application\nName=Disposable work-fold fixture\nExec="${process.execPath}" "${script}" "${result}" %f\nTerminal=false\n`);
+    const plan = openWithLaunchPlan("linux", app, file);
+    assert.equal(plan.kind, "exec");
+    await promisify(execFile)(plan.command, plan.args, { timeout: 10_000 });
+    let received: string | undefined;
+    for (let i = 0; i < 100 && received === undefined; i++) {
+      received = await readFile(result, "utf8").catch(error => { if (error.code !== "ENOENT") throw error; return undefined; });
+      if (received === undefined) await delay(20);
+    }
+    assert.deepEqual(JSON.parse(received ?? "null"), [file]);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("Open with rechecks the Folder file after the picker closes", async () => {

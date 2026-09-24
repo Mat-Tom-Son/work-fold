@@ -1,8 +1,14 @@
 #!/usr/bin/env sh
 set -eu
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_path=$0
+# DEB/RPM install a /usr/bin symlink; resolve it before locating native siblings.
+if [ "$(uname -s)" = "Linux" ]; then script_path=$(readlink -f -- "$0"); fi
+script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)
 if [ "$(uname -s)" = "Darwin" ]; then
   exec /usr/bin/osascript -l JavaScript "$script_dir/work-fold-cli.jxa.js" "$script_dir" "$@"
+fi
+if [ "$(uname -s)" = "Linux" ]; then
+  exec "$script_dir/work-fold-cli" "$@"
 fi
 exec "$script_dir/work-fold.cmd" "$@"

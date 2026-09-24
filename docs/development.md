@@ -17,6 +17,7 @@ model credentials, Apple signing credentials, and Railway access are separate.
 | Native, unpackaged Electron | `npm run desktop:smoke` | Builds and verifies the desktop, then opens Electron; restart after native changes |
 | Optional hosted relay | See [Bridge development](../services/bridge/README.md#local-development) | Separate dependencies and local PostgreSQL; unnecessary for ordinary desktop work |
 | Packaged Mac candidate | See [Mac build lanes](macos-build.md) | Packaging, signing, and publication are separate from everyday development |
+| Packaged Linux candidate | See [Linux builds](linux-build.md) | Ubuntu/Fedora x64, Rust native helpers, DEB/RPM/AppImage; no public update feed |
 
 The browser preview cannot prove native dialogs, secure storage, preloads, or
 restricted-app WebContentsView behavior. Use the native lane for those changes.

@@ -10,9 +10,10 @@ module.exports = async function signComputerHelper(context) {
     : join(context.appOutDir, "resources");
   const verified = verifyAsarFileIntegrity(join(resources, "app.asar"), { includeUnpacked: true });
   console.log(`Verified ${verified.checkedFiles} ASAR file hashes before signing.`);
-  if (context.electronPlatformName !== "darwin") return;
+  if (!["darwin", "linux"].includes(context.electronPlatformName)) return;
   const { verifyPackagedNativeTools } = await import("./verify-packaged-native-tools.mjs");
   console.log(await verifyPackagedNativeTools(join(resources, "app.asar")));
+  if (context.electronPlatformName !== "darwin") return;
   const app = join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
   const helper = join(app, "Contents", "Resources", "computer-helper", "work-fold Computer.app");
   const source = JSON.parse(readFileSync(join(helper, "Contents", "Resources", "source.json"), "utf8"));

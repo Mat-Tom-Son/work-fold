@@ -14,6 +14,8 @@ interface Options {
   chromeUserDataRoot?: string;
   enabled: boolean;
   verifySignature?: boolean;
+  platform?: NodeJS.Platform;
+  appPath?: string;
 }
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const run = promisify(execFile);
@@ -23,18 +25,23 @@ export class ChromeNativeHostRegistration {
   constructor(private readonly options: Options) {}
   async register(explicit: boolean): Promise<void> {
     const { distribution } = this.options;
+    const platform = this.options.platform ?? process.platform;
+    const verifySignature = platform === "darwin" && this.options.verifySignature !== false;
     if (!this.options.enabled) throw new Error("Chrome Store setup is available in the installed work-fold app.");
     if (!distribution.storeId || !/^[a-p]{32}$/.test(distribution.storeId) || !/^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(distribution.nativeHostName)) throw new Error("The Chrome Store connection identity is not available.");
     const origin = `chrome-extension://${distribution.storeId}/`;
     const source = await realpath(join(this.options.sourceDirectory, "work-fold-chrome-host"));
     const provenance = JSON.parse(await readFile(join(this.options.sourceDirectory, "source.json"), "utf8"));
     if (provenance.schema !== "work-fold.chrome-native-host-source.v1" || provenance.origin !== origin || provenance.nativeHostName !== distribution.nativeHostName || provenance.bootstrapVersion !== distribution.bootstrapVersion) throw new Error("The signed Chrome bootstrap does not match this app's Store identity.");
-    if (this.options.verifySignature !== false) await run("/usr/bin/codesign", ["--verify", "--strict", source]);
+    if (verifySignature) await run("/usr/bin/codesign", ["--verify", "--strict", source]);
     const bytes = await readFile(source), sha256 = digest(bytes);
+    if (platform === "linux" && (provenance.target !== "x86_64-unknown-linux-gnu" || provenance.binarySha256 !== sha256)) throw new Error("The Linux Chrome bootstrap does not match its packaged provenance.");
     const root = resolve(this.options.stateRoot, "chrome", "native-host");
     await mkdir(root, { recursive: true, mode: 0o700 }); await chmod(root, 0o700);
     const binary = join(root, `work-fold-chrome-host-${sha256.slice(0, 24)}`);
-    const manifestPath = join(this.options.chromeUserDataRoot ?? join(homedir(), "Library/Application Support/Google/Chrome"), "NativeMessagingHosts", `${distribution.nativeHostName}.json`);
+    const manifestPath = join(this.options.chromeUserDataRoot ?? (platform === "linux"
+      ? join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "google-chrome")
+      : join(homedir(), "Library/Application Support/Google/Chrome")), "NativeMessagingHosts", `${distribution.nativeHostName}.json`);
     const receiptPath = join(root, "registration.json");
     const manifest = { name: distribution.nativeHostName, description: "Connect Chrome to work-fold", path: binary, type: "stdio", allowed_origins: [origin] };
     let current: { path?: string; allowed_origins?: string[]; name?: string; type?: string } | undefined;
@@ -58,14 +65,14 @@ export class ChromeNativeHostRegistration {
       try {
         await copyFile(source, temporary); await chmod(temporary, 0o700);
         if (digest(await readFile(temporary)) !== sha256) throw new Error("The Chrome bootstrap copy did not match the signed app.");
-        if (this.options.verifySignature !== false) await run("/usr/bin/codesign", ["--verify", "--strict", temporary]);
+        if (verifySignature) await run("/usr/bin/codesign", ["--verify", "--strict", temporary]);
         await rename(temporary, binary);
       } finally { await rm(temporary, { force: true }); }
     }
     if (!(await stat(binary)).isFile()) throw new Error("Chrome bootstrap is not an ordinary executable.");
     await mkdir(dirname(manifestPath), { recursive: true });
     await atomicJson(manifestPath, manifest);
-    await atomicJson(receiptPath, { version: 1, manifestPath, binary, sha256 });
+    await atomicJson(receiptPath, { version: 1, manifestPath, binary, sha256, ...(this.options.appPath ? { appPath: this.options.appPath } : {}) });
   }
 }
 

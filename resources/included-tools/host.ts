@@ -1,10 +1,11 @@
 import type { McpConfig } from "pi-mcp-adapter/types";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ChromeHostFacilities } from "../../src/shared/chrome-connection.js";
+import type { ComputerHostFacilities } from "../../src/shared/computer-session.js";
 
 /** Optional native host context. It never crosses a renderer or restricted-app bridge. */
 export function hostContext(pi: ExtensionAPI) {
-  const query: { version: 1; context?: Partial<ChromeHostFacilities> & {
+  const query: { version: 1; context?: Partial<ChromeHostFacilities> & Partial<ComputerHostFacilities> & {
     version: 1; mode: "catalog" | "session"; cwd: string; agentDir: string; stateRoot: string;
     companionPath: string; helperAppPath?: string;
     prepareComputerHelper?: () => Promise<void>;
