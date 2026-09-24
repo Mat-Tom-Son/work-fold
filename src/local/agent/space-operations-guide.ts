@@ -17,8 +17,8 @@ import { workFoldManagementScopeId } from "../state-paths.js";
 
 export const workFoldSpaceOperationsGuideHeading = "## Working with work-fold";
 
-/** The budget the guide has to stay under; it rides every Space turn's system prompt. */
-export const workFoldSpaceOperationsGuideMaxBytes = 6 * 1024;
+/** The budget the guide has to stay under; it rides every Space turn's system prompt. Raised from 6 KiB on 2026-09-24 for the shareable-pages section. */
+export const workFoldSpaceOperationsGuideMaxBytes = 7 * 1024;
 
 export function workFoldSpaceOperationsGuide(executable = "work-fold"): string {
   const cmd = executable;
@@ -61,6 +61,10 @@ export function workFoldSpaceOperationsGuide(executable = "work-fold"): string {
     "- Apps: `apps list --space <id> --json` shows this Space's installed apps with their tools, and `apps invoke --space <id> --app <id> --tool <name> --input '<json>' --json` runs one and returns its result with a receipt. Use an app's own tool for that app's job; never reach into its stored data with raw tools.",
     "",
     "Registering or deleting Spaces, routings, pages, and installing Assistant tools sit above this Space: raise them with a question instead of deciding for the person.",
+    "",
+    "### Pages the person may share",
+    "",
+    "The person can share one Markdown, text, HTML, PNG, JPEG, or PDF file as a page anyone with the link can read; it always shows the file's current content. A page is one file and loads nothing from the network, so write shareable HTML self-contained: `<style>` or inline styles, `data:` images, system fonts. Script, forms, frames, and external loads are stripped before serving. Say when a file is ready; the person shares it from the file's tab or the Files menu.",
     "",
     "### Finish",
     "",

@@ -70,6 +70,9 @@ test("the guide teaches the two rules the host actually enforces", () => {
   assert.match(guide, /child result\/wait and answer reads name the owning Space/);
   assert.match(guide, /chat answer --space <the Space that asked>/);
   assert.match(guide, /Name the asking Space, never your own/);
+  assert.match(guide, /### Pages the person may share/);
+  assert.match(guide, /write shareable HTML self-contained/);
+  assert.match(guide, /Script, forms, frames, and external loads are stripped/);
   assert.doesNotMatch(guide, /chat answer --space <id>/, "the answer verb never shows the caller's own id");
 
   // `chat wait` does not promise a filter the built path does not apply.
