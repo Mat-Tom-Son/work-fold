@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Only for an owned rootless test container; no personal desktop sockets.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "Private GNOME command failed at line %s (exit %s)\n" "$LINENO" "$?" >&2' ERR
 test -f /run/.containerenv || test -f /.dockerenv
 test "${WORKFOLD_ISOLATED_GNOME_TEST:-}" = 1
 test "$(id -u)" != 0

@@ -1826,6 +1826,9 @@ export function ChatPanel({
               void attachDroppedNativeFiles(transfer);
             }}
             onKeyDown={(event) => {
+              // Candidate navigation/confirmation belongs to the input method.
+              // Some engines end composition before the final keydown (229).
+              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
               if (commandMenuOpen && event.key === "ArrowDown") {
                 event.preventDefault();
                 setActiveCommandIndex((current) => (current + 1) % commandSuggestions.length);

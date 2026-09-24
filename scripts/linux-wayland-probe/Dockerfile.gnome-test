@@ -2,6 +2,9 @@
 # session bus, Wayland socket, home directory or input devices into this image.
 FROM work-fold-linux-build
 USER root
+# The build base matches the CI checkout owner (often 1001); the private
+# desktop deliberately runs as 1000, like the separate Fedora fixture.
+RUN groupmod --gid 1000 ubuntu && usermod --uid 1000 --gid 1000 ubuntu
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gnome-shell gjs xdg-desktop-portal xdg-desktop-portal-gnome \
     pipewire wireplumber libgl1-mesa-dri libegl-mesa0 \

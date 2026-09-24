@@ -74,14 +74,18 @@ Gtk.main()
     let look = await command("look", { rootRef: owned.rootRef, includeImage: false });
     const editor = nodes(look.outline).find(node => node.title === "Document text" && node.canSetValue);
     assert.ok(editor, `The document text field must be editable through AT-SPI: ${JSON.stringify(look.outline)}`);
-    const sentence = "work-fold can edit and save this document through Linux accessibility.";
+    // Exact bytes distinguish precomposed/decomposed accents and retain
+    // non-Latin scripts and emoji that physical XKB typing cannot represent.
+    const sentence = "Linux accessibility: café / cafe\u0301 — Grüße; 日本語; 你好; العربية; हिन्दी; 👩🏽‍💻.\nSecond line: € @ {text}.";
     const edited = await command("act", { lookId: look.lookId, action: "setText", target: { ref: editor.ref }, params: { text: sentence }, policy: "ax_only" });
     assert.equal(edited.outcome, "worked");
+    assert.equal(edited.performed.delivery, "ax");
     look = await command("look", { rootRef: owned.rootRef, includeImage: false });
     const save = nodes(look.outline).find(node => node.title === "Save document" && node.canPress);
     assert.ok(save, "The Save button must expose an accessible action");
     const saved = await command("act", { lookId: look.lookId, action: "press", target: { ref: save.ref }, policy: "ax_only" });
     assert.equal(saved.outcome, "worked");
+    assert.equal(saved.performed.delivery, "ax");
     let contents;
     for (let attempt = 0; attempt < 30; attempt++) {
       try { contents = await readFile(join(root, "Linux-ready.txt"), "utf8"); break; } catch { await delay(100); }

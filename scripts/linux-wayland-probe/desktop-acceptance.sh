@@ -8,7 +8,10 @@ desktop=$!
 trap 'kill -- -"$desktop" 2>/dev/null || true; wait "$desktop" 2>/dev/null || true' EXIT
 ready=0
 for attempt in {1..150}; do
-  kill -0 "$desktop"
+  if ! kill -0 "$desktop" 2>/dev/null; then
+    cat /tmp/gnome-session.log /tmp/gnome-shell.log /tmp/login-services.log 2>/dev/null || true
+    exit 1
+  fi
   if test -f /tmp/workfold-session.env; then
     source /tmp/workfold-session.env
     if python3 /work/scripts/linux-wayland-probe/portal-test-ui.py desktop-ready >/tmp/desktop-ready.log 2>&1; then ready=1; break; fi

@@ -64,7 +64,12 @@ under `/tmp/workfold-input-fixture*` inside the disposable container.
 `pi-smoke.mts` exercises the real Pi client and included computer tools, host
 accepted-turn lease, native portal, PipeWire image, image-bearing provider request,
 libei input, exact output bytes, end-of-turn release and Chat teardown. Its
-provider responses are scripted. The separate installed local-model harness in
+first turn also locates an owned GTK editor, sets multilingual text, saves it,
+and clears the field using semantic AT-SPI tools. Exact saved bytes include
+precomposed/decomposed accents, Arabic, Hindi, CJK and emoji; the fixture verifies
+that no portal or physical input was used. `linux-accessibility-smoke.cjs` adds
+a multiline GTK TextView check. These are semantic text tests, not qualification
+of an IME's preedit/candidate UI. Provider responses are scripted. The separate installed local-model harness in
 the [Linux build guide](../../docs/linux-build.md) covers actual model generation.
 
 Both private GNOME 46/Ubuntu 24.04 and GNOME 50/Fedora 44 matrices pass at
@@ -86,7 +91,7 @@ rotations on both compositors. The headless fixture disables
 hot corners: AT-SPI portal selection leaves the initial pointer at (0, 0), where
 the first move can otherwise open the overview and consume the click. Mirroring,
 hotplug, physical multi-monitor setups, physical
-sleep/wake, GPU buffer negotiation, composed Unicode/IME and KDE remain outside
+sleep/wake, GPU buffer negotiation and KDE remain outside
 this evidence. Unit math/keymap tests do not substitute for those cases.
 
 Set `WORKFOLD_NATIVE_TEST_LIVE_SCALE=1` for a single unrotated monitor to change
@@ -140,6 +145,21 @@ use KVM for CPU execution; the fixture guard accepts both modes and verifies
 QEMU's DMI identity. No host desktop, GPU, input device or home is passed through.
 Product and native-helper timeouts remain unchanged. These timings do not
 measure physical graphics performance.
+
+`ime-smoke.mjs /opt/work-fold` tests the installed helper with a real
+IBus/libpinyin engine: native Latin keys create preedit, Space commits `你好`,
+and the owned GTK editor saves exact bytes. Set `WORKFOLD_VM_IME_APP=1` to also
+exercise the installed Worker's visible Chat composer, Chinese candidate commit,
+Enter composition confirmation without sending, and clean native Quit. It uses
+fresh app/Pi profiles and restores the guest's original GNOME input sources.
+Install the distro's `ibus-libpinyin` and CJK fonts in this disposable guest
+first (`fonts-noto-cjk` on Ubuntu, `google-noto-sans-cjk-vf-fonts` on Fedora).
+After installation, restart the guest's IBus and wait until `ibus list-engine`
+includes `libpinyin`. Both Ubuntu 26.04.1 and Fedora 44 guests pass with the
+installed .38 candidate and no extra Electron flags. Preedit, committed-screen
+images and exact text/event evidence stay under the printed `/tmp/workfold-ime-*`
+directory. This qualifies those Pinyin sequences; other engines, candidate
+navigation and physical hardware still need acceptance.
 
 Run `desktop-smoke.mjs /opt/work-fold` first. Its printed evidence directory
 contains the disposable profile. `launcher-smoke.py` separately verifies the

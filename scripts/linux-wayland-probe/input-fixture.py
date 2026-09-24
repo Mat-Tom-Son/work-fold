@@ -8,9 +8,10 @@ import_module("fixture-environment").require_isolated_session()
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gdk, Gio
 
-root = "/tmp/workfold-input-fixture"
+root = os.environ.get("WORKFOLD_NATIVE_INPUT_FIXTURE", "/tmp/workfold-input-fixture")
+assert os.path.realpath(root).startswith("/tmp/workfold-")
 os.mkdir(root, mode=0o700)
-state = {"presses": [], "releases": [], "clicks": 0, "buttonReleases": 0, "scrolls": 0, "saved": False, "active": False, "mapped": False, "initialFocusSet": False}
+state = {"presses": [], "releases": [], "clicks": 0, "buttonReleases": 0, "scrolls": 0, "saved": False, "active": False, "mapped": False, "initialFocusSet": False, "preedit": "", "preedits": []}
 application = Gtk.Application(application_id="com.workfold.NativeInputFixture", flags=Gio.ApplicationFlags.NON_UNIQUE)
 application.register(None)
 window = Gtk.ApplicationWindow(application=application, title="work-fold isolated Wayland input fixture")
@@ -83,6 +84,12 @@ def released(*_):
     return False
 
 
+def preedit(_, text):
+    state["preedit"] = text
+    state["preedits"].append(text)
+    record()
+
+
 entry.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
 # Observe before GtkEntry's own gesture controllers consume events. Raw
 # button-press-event is not emitted consistently for GTK's emulated devices.
@@ -98,6 +105,8 @@ window.connect("key-release-event", key, False)
 window.connect("notify::is-active", window_state)
 window.connect("map-event", window_state)
 button.connect("clicked", save)
+entry.connect("changed", lambda *_: record())
+entry.connect("preedit-changed", preedit)
 window.connect("destroy", lambda *_: application.quit())
 window.show_all()
 record()

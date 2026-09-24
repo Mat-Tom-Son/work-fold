@@ -308,8 +308,16 @@ completion callback. See [Electron window behavior](https://www.electronjs.org/d
 and [the pinned shell implementation](https://github.com/electron/electron/blob/v42.6.1/shell/common/platform_util_linux.cc).
 
 The initial path supports **one explicitly selected GNOME monitor**, frames up to 4096 pixels per
-dimension, and keys representable in the compositor's map. Unsupported composed
-Unicode/IME input is rejected before dispatch. Both private GNOME versions also
+dimension, and keys representable in the compositor's map. Direct physical text
+that requires unavailable composed characters is rejected before dispatch;
+Pi's semantic AT-SPI text entry supports exact multilingual Unicode instead.
+The installed .38 helper also passes actual IBus/libpinyin composition in the
+owned Ubuntu 26.04.1 and Fedora 44 VMs: Latin Pinyin keys produce preedit, Space
+commits `你好`, and the GTK editor saves those exact bytes. The installed Electron
+Worker composer passes candidate commit and Enter composition confirmation
+without sending a message, with native Quit afterwards. These checks use the
+distro input method and CJK fonts, without additional Electron flags. Other IME
+engines and composition sequences remain unqualified. Both private GNOME versions also
 pass a two-monitor test with a 100% primary and 100/125/200% selected secondary at
 (1280, 0), verifying capture dimensions and exact input on the secondary. The
 headless fixture disables hot corners because AT-SPI accepts Share without moving

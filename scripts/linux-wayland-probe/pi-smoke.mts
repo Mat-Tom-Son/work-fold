@@ -35,23 +35,44 @@ const service = new ComputerSessionService({ launch: () => NativeWaylandTranspor
 const conversationId = `chat-${randomUUID()}`;
 const owner = { scope: "management" as const, conversationId, spaceRoot };
 const failures: Error[] = [];
+const semanticText = "café / cafe\u0301 — Grüße; 日本語; 你好; العربية; हिन्दी; 👩🏽‍💻";
+let phase: "semantic" | "visual" = "semantic";
+let semanticRoot: string | undefined;
 let requests = 0, imageRequests = 0;
 const server = createServer(async (request, response) => {
   try {
     let bytes = "";
     for await (const chunk of request) { bytes += chunk; assert.ok(bytes.length < 40 * 1024 * 1024); }
     const payload = JSON.parse(bytes);
-    assert.ok(++requests <= 4, "Unexpected Pi model loop");
+    assert.ok(++requests <= (phase === "semantic" ? 8 : 4), "Unexpected Pi model loop");
     if (bytes.includes("data:image/png;base64,")) imageRequests++;
     const results = payload.messages.filter((message: any) => message.role === "tool");
     const last = JSON.stringify(results.at(-1)?.content ?? "");
     let tool: { name: string; arguments: object } | undefined;
-    if (requests === 1) tool = { name: "find_roots", arguments: { kind: "shared_screen" } };
-    if (requests === 2) {
+    if (phase === "semantic") {
+      const content = results.at(-1)?.content;
+      const text = typeof content === "string" ? content : (content || []).filter((item: any) => item.type === "text").map((item: any) => item.text).join("\n");
+      if (requests === 1) tool = { name: "find_roots", arguments: { pid: fixture.pid, kind: "window" } };
+      if (requests === 2) {
+        semanticRoot = text.match(/@r\d+/)?.[0]; assert.ok(semanticRoot, text);
+        tool = { name: "observe_ui", arguments: { root: semanticRoot, mode: "semantic" } };
+      }
+      if ([3, 5, 7].includes(requests)) {
+        const stateId = text.match(/stateId ([a-f0-9-]{36})/)?.[1]; assert.ok(stateId, text);
+        const label = requests === 5 ? "Save fixture" : "Native input test text";
+        const ref = text.split("\n").find((line: string) => line.includes(label))?.match(/@e\d+/)?.[0];
+        assert.ok(ref, text);
+        tool = { name: "act_ui", arguments: { stateId, actions: requests === 5
+          ? [{ action: "press", ref }] : [{ action: "setText", ref, text: requests === 3 ? semanticText : "" }] } };
+      }
+      if ([4, 6].includes(requests)) tool = { name: "observe_ui", arguments: { root: semanticRoot, mode: "semantic" } };
+    }
+    if (phase === "visual" && requests === 1) tool = { name: "find_roots", arguments: { kind: "shared_screen" } };
+    if (phase === "visual" && requests === 2) {
       const ref = last.match(/@r-shared-[a-f0-9-]{36}/)?.[0]; assert.ok(ref, "Pi did not receive a shared-screen root");
       tool = { name: "observe_ui", arguments: { root: ref, mode: "visual" } };
     }
-    if (requests === 3) {
+    if (phase === "visual" && requests === 3) {
       const stateId = last.match(/@shared-[a-f0-9-]{36}/)?.[0]; assert.ok(stateId, "Pi did not receive an observation");
       assert.ok(bytes.includes("data:image/png;base64,"), "Actual image must reach Pi's provider transport");
       tool = { name: "act_ui", arguments: { stateId, actions: [
@@ -59,17 +80,17 @@ const server = createServer(async (request, response) => {
         { action: "scroll", scrollY: 120 }, { action: "keypress", keys: ["Ctrl", "s"] },
       ] } };
     }
-    if (requests === 4) assert.match(last, /Input sent; verify/);
+    if (phase === "visual" && requests === 4) assert.match(last, /Input sent; verify/);
     response.writeHead(200, { "content-type": "text/event-stream", connection: "close" });
     const send = (delta: object, reason: string | null) => response.write(`data: ${JSON.stringify({
       id: `fixture-${requests}`, object: "chat.completion.chunk", created: 1, model: "wayland-fixture",
       choices: [{ index: 0, delta, finish_reason: reason }],
     })}\n\n`);
     if (tool) {
-      send({ role: "assistant", tool_calls: [{ index: 0, id: `tool-${requests}`, type: "function",
+      send({ role: "assistant", tool_calls: [{ index: 0, id: `tool-${phase}-${requests}`, type: "function",
         function: { name: tool.name, arguments: JSON.stringify(tool.arguments) } }] }, null);
       send({}, "tool_calls");
-    } else { send({ role: "assistant", content: "Shared-screen fixture completed." }, null); send({}, "stop"); }
+    } else { send({ role: "assistant", content: phase === "semantic" ? "Semantic fixture completed." : "Shared-screen fixture completed." }, null); send({}, "stop"); }
     response.end("data: [DONE]\n\n");
   } catch (error) { failures.push(error as Error); response.writeHead(500); response.end("Fixture rejected unexpected tool behavior"); }
 });
@@ -87,13 +108,25 @@ const client = new PiConversationClient(conversationId, spaceRoot, { resolveRunt
     helperAppPath: "/work/out/included-tools/computer-helper/linux-bridge", computerSession: service },
 }) });
 try {
+  const semanticResponse = await client.prompt("Edit and save the disposable editor using its exact accessibility controls.", { managementTaskId: `task-${randomUUID()}` });
+  assert.deepEqual(failures, []); assert.equal(requests, 8); assert.equal(imageRequests, 0);
+  assert.equal(semanticResponse, "Semantic fixture completed.");
+  await until(async () => (await events()).saved);
+  assert.equal(await readFile("/tmp/workfold-input-fixture/saved.txt", "utf8"), semanticText);
+  await until(async () => (await events()).text === "");
+  const semanticEvents = await events();
+  assert.equal(semanticEvents.text, "", "The semantic reset prepares the independent physical-input test");
+  assert.equal(semanticEvents.clicks, 0); assert.deepEqual(semanticEvents.presses, []); assert.deepEqual(semanticEvents.releases, []);
+  assert.equal(service.status().state, "idle", "Semantic text entry does not open a portal or acquire the physical seat");
+  console.log("PASS actual Pi semantic tools → owned AT-SPI editor → exact multilingual saved bytes, including combining accents and emoji; no portal or physical input. Provider responses are scripted.");
+  phase = "visual"; requests = 0;
   const sharing = service.start(owner);
   await Promise.all([sharing, ui("choose-input")]);
   const accepted = `task-${randomUUID()}`;
   const response = await client.prompt("Complete the isolated Wayland native acceptance fixture.", { managementTaskId: accepted });
   assert.deepEqual(failures, []); assert.equal(requests, 4); assert.ok(imageRequests >= 2);
   assert.equal(response, "Shared-screen fixture completed.");
-  await until(async () => (await events()).saved);
+  await until(async () => await readFile("/tmp/workfold-input-fixture/saved.txt", "utf8") === "Pi controlled this shared Wayland screen.");
   assert.equal(await readFile("/tmp/workfold-input-fixture/saved.txt", "utf8"), "Pi controlled this shared Wayland screen.");
   assert.equal((await events()).clicks, 1);
   assert.equal(service.status().state, "active"); assert.equal(service.status().controlInUse, false, "Turn completion releases the native seat");

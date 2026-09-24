@@ -139,7 +139,7 @@ of the per-launch CLI token on both private GNOME seats.
 | Work | Evidence and limits |
 |---|---|
 | L0/L3–L6 native bridge | The bundled [Rust helper](../desktop/native/linux-wayland/Cargo.toml) uses ASHPD 0.13.13, GStreamer 0.25, libei and libxkbcommon. A combined portal grant, bounded frames, visual target identity, compositor geometry, accepted-turn ownership, stale-observation fencing, cross-process seat exclusion and paired input are implemented. Native unit and protocol tests pass. No restore token is retained. |
-| L3–L6 live desktop | Fresh private GNOME 46/Ubuntu 24.04 and GNOME 50/Fedora 44 runs pass 100/125/150/200% scaling and US/German keymaps, click/type/scroll/shortcut/drag, independently verified saved bytes, screen-lock revocation and stopping a pending chooser. The actual Pi client/tool/host/native path passes on both. That provider is scripted; login services are simulated with python-dbusmock. The packaged setup UI, warm Chat, native folder chooser/cancel, Nautilus reveal, native close/minimize, accepted-turn continuity and desktop-switcher restore also pass on both. Two-monitor tests also pass with a 100% primary and 100/125/200% secondary at a nonzero desktop offset. 90°, 180° and 270° rotations also pass at 100/125% on both. A Fedora 44 full QEMU guest also passes installed RPM capture/input, native dialogs/reveal, minimize/turn continuity, restoration and second-instance handling under real GDM and SELinux enforcing. It uses the verified Cloud image plus distro GNOME packages, not a pristine Workstation ISO. Real GNOME lock/unlock also revokes the old grant and requires a fresh chooser before capture resumes. Both Ubuntu 26.04.1 and Fedora 44 KVM guests now pass the installed native flow and clean Quit; Ubuntu also passes real lock/unlock revocation. Fedora’s software VGA guest passes real S3 turn continuity and fresh-grant capture. The separate Ubuntu VGA/KVM guest also passes a measured five-second S3 cycle with accepted-turn continuity and a fresh grant. Physical GPUs and IME remain open. |
+| L3–L6 live desktop | Fresh private GNOME 46/Ubuntu 24.04 and GNOME 50/Fedora 44 runs pass 100/125/150/200% scaling and US/German keymaps, click/type/scroll/shortcut/drag, independently verified saved bytes, screen-lock revocation and stopping a pending chooser. The actual Pi client/tool/host/native path passes on both. That provider is scripted; login services are simulated with python-dbusmock. The packaged setup UI, warm Chat, native folder chooser/cancel, Nautilus reveal, native close/minimize, accepted-turn continuity and desktop-switcher restore also pass on both. Two-monitor tests also pass with a 100% primary and 100/125/200% secondary at a nonzero desktop offset. 90°, 180° and 270° rotations also pass at 100/125% on both. A Fedora 44 full QEMU guest also passes installed RPM capture/input, native dialogs/reveal, minimize/turn continuity, restoration and second-instance handling under real GDM and SELinux enforcing. It uses the verified Cloud image plus distro GNOME packages, not a pristine Workstation ISO. Real GNOME lock/unlock also revokes the old grant and requires a fresh chooser before capture resumes. Both Ubuntu 26.04.1 and Fedora 44 KVM guests now pass the installed native flow and clean Quit; Ubuntu also passes real lock/unlock revocation. Fedora’s software VGA guest passes real S3 turn continuity and fresh-grant capture. The separate Ubuntu VGA/KVM guest also passes a measured five-second S3 cycle with accepted-turn continuity and a fresh grant. Physical GPUs and other IME engines remain open. |
 | L1 actual model | Ollama 0.34.3 and a local Qwen3 4B instruct model complete a real Pi native-write task through packaged 0.4.36 and the merged-main 0.4.38 candidate, preserve exact output and durable records, then pass cold-relaunch verification. No paid provider, OAuth or vision-model claim follows. |
 | L1 environment/credentials | Live session variables survive shell hydration. Real Electron/GNOME Keyring tests cover encrypted persistence, corrupt-file preservation, basic-text rejection, missing/locked service and recovery. Installed credential stores survive .34→.35 and .35→.36 upgrade/reinstall. The Fedora GDM guest also passes synthetic key entry through Settings, encrypted-byte verification, cold-relaunch persistence and removal. Native unlock allows startup; cancelling every repeated prompt shows an actionable unlock/restart error and preserves the encrypted file. An encrypted profile's app UI needs an unlocked keyring; its ordinary folders remain accessible outside the app. KWallet remains open. |
 | L2 sandbox and lifecycle | .34 refuses explicit or AppImage-injected `--no-sandbox` before state initialization. DEB/RPM .34→.35 and .35→.36 upgrades and reinstalls preserve meaningful app state and credentials, including resolution of new Wayland library dependencies. Actual renderer sandbox/NoNewPrivs/seccomp checks pass. .34 AppImage direct FUSE launch passed on Fedora; extraction passed on Ubuntu. Earlier .32/.33 AppImages are unsuitable for distribution. |
@@ -201,6 +201,27 @@ modifier behavior is covered without toggling Caps Lock. Compose/IME-only text
 still fails before emission. These helper changes follow the immutable .38
 candidate and need the next packaged candidate's qualification.
 
+The actual Pi semantic-tool path also passes exact multilingual saved-byte
+checks on both private desktops. It discovers only the owned GTK editor, sets
+and saves accents (both composed and decomposed), CJK, Arabic, Hindi and emoji,
+then clears the field before the independent physical-input test. No portal
+grant or physical click/key is used for these semantic actions. A separate
+multiline GTK TextView check passes through the same bundled AT-SPI helper.
+This uses Pi's existing accessibility implementation; it does not establish
+IME preedit/candidate behavior or universal Unicode physical typing.
+
+A separate installed .38 test now verifies real IBus/libpinyin on both owned
+Ubuntu 26.04.1 and Fedora 44 guests, using distro packages and CJK fonts. Native
+Latin keys create preedit, Space selects `你好`, and the GTK editor saves exact
+bytes. The actual Electron Worker composer also receives native composition,
+keeps the Chinese commit and Enter composition confirmation as an unsent draft,
+and quits cleanly. No Electron IME flags are needed. Other engines and sequences
+remain open. The follow-up renderer fix also leaves IME Enter/Tab/arrows/Escape
+to the input method, including keycode 229 after compositionend; its rendered
+regression fails before the fix and passes afterwards, preserving ordinary
+Enter-to-send. The full application suite passes 1,561 tests with eight explicit
+environment skips, and TypeScript/repository checks and desktop preparation pass.
+
 Live scale changes also pass on both private compositors: old observations
 cannot produce GTK clicks or keys after 100→125%, 125→100%, 150→100% or
 200→100%. Closing the old helper and accepting a fresh chooser restores exact
@@ -226,6 +247,17 @@ unchanged. The same Electron preload smoke fails before this profile and passes
 under it in the owned Ubuntu VM, retaining Chromium sandboxing. The CI command
 also checks user/PID/network namespace creation before compiling anything.
 The full remote packaging and desktop matrix still needs a successful run.
+
+That corrected remote run builds the .39 DEB/RPM/AppImage candidate, passes
+built-ASAR tools, installed sandbox/Pi smoke and encrypted-credential restart
+checks, then stops during private GNOME startup. Its short failure did not retain
+the compositor log. Startup now prints the relevant private logs, and the Ubuntu
+desktop image explicitly restores its fixed UID 1000 after inheriting the
+runner-mapped build account. A local image derived from a UID 1001 build base
+passes the native protocol, semantic Unicode and Pi screen-sharing tests. The
+workflow now retains successfully built artifacts even if later acceptance
+fails; retained artifacts do not imply a qualified release. The next source
+candidate is .40, preserving .39's source/version identity.
 
 A separate Ubuntu 26.04.1 VGA/KVM guest now passes installed .38 sleep/wake
 with an actual five-second QMP S3 interval and host wake, plus kernel ACPI S3
