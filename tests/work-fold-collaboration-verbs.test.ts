@@ -504,6 +504,10 @@ test("continuations can be turned off, the settle is still recorded, and a resta
     await settled(api, spaceId, child.taskId);
     const freshRoot = api.requests.byTaskId(root.taskId)!;
     await waitFor(async () => api.requests.get(freshRoot.requestId)!.turns.length === 2);
+    const continuation = api.requests.get(freshRoot.requestId)!.turns[1]!;
+    // Request reservation precedes transcript persistence. The prompt gate
+    // proves this continuation's message has landed before we read it back.
+    await waitFor(async () => h.pending.some((turn) => turn.taskId === continuation.taskId));
     const fold = await managementMessages(api, root.conversationId);
     const brought = fold.find((message) => message.requestId === `continuation-${freshRoot.requestId}-1`);
     assert.ok(brought, "the fresh batch came back as one turn");
