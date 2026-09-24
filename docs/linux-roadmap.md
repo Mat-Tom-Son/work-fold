@@ -218,6 +218,15 @@ skips), including the failed MCP case; repository/TypeScript checks and full
 Electron preparation also pass. Full remote Linux qualification remains pending
 on the corrected source.
 
+The next remote run passes all Mac jobs and all 1,558 enabled Linux application
+tests, then reproduces Ubuntu's user-namespace restriction during Electron
+preparation. A named AppArmor profile now grants namespace creation only to the
+explicitly selected disposable build containers; the host restriction sysctl is
+unchanged. The same Electron preload smoke fails before this profile and passes
+under it in the owned Ubuntu VM, retaining Chromium sandboxing. The CI command
+also checks user/PID/network namespace creation before compiling anything.
+The full remote packaging and desktop matrix still needs a successful run.
+
 A separate Ubuntu 26.04.1 VGA/KVM guest now passes installed .38 sleep/wake
 with an actual five-second QMP S3 interval and host wake, plus kernel ACPI S3
 entry/resume evidence. The same app process keeps its accepted turn, completes
