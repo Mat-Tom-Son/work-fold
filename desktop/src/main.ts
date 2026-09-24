@@ -92,6 +92,7 @@ import {
   type WorkFoldStartupRecoveryPlan,
 } from "./startup-recovery.js";
 import { createDesktopPiOAuthHooks } from "./pi-oauth.js";
+import { prepareLinuxDevelopmentCli } from "./linux-development-cli.js";
 import { AppLifetimeResource } from "./app-lifetime-resource.js";
 import {
   nativeFileMenuItems,
@@ -1836,11 +1837,17 @@ function configureCliEnvironment(): void {
   // different userData roots, so leaving this unset can expose a different
   // Space registry through an installed work-fold CLI on PATH.
   process.env.WORKFOLD_CLI_STATE_DIR = app.getPath("userData");
-  if (!app.isPackaged || !["win32", "darwin", "linux"].includes(process.platform)) return;
+  if (!["win32", "darwin", "linux"].includes(process.platform)) return;
+  if (!app.isPackaged && process.platform !== "linux") return;
+  const developmentCli = !app.isPackaged ? prepareLinuxDevelopmentCli({
+    repoRoot,
+    stateDirectory: app.getPath("userData"),
+    electronPath: process.execPath,
+  }) : undefined;
   const executableDirectory = dirnameFromFile(process.execPath);
-  const binDirectory = process.platform === "darwin"
+  const binDirectory = developmentCli?.binDirectory ?? (process.platform === "darwin"
     ? resolve(executableDirectory, "..", "bin")
-    : join(executableDirectory, "bin");
+    : join(executableDirectory, "bin"));
   const pathKey = Object.keys(process.env).find((key) => key.toLocaleLowerCase() === "path") ?? "PATH";
   const currentPath = process.env[pathKey] ?? "";
   const alreadyPresent = currentPath
@@ -1850,8 +1857,9 @@ function configureCliEnvironment(): void {
     .some((entry) => samePath(entry, binDirectory));
   if (!alreadyPresent) process.env[pathKey] = currentPath ? `${binDirectory}${delimiter}${currentPath}` : binDirectory;
   // Agent shell tools inherit this process environment. Pinning the executable
-  // makes their CLI calls address this exact installed work-fold build.
-  process.env.WORKFOLD_CLI_APP = process.execPath;
+  // makes their CLI calls address this exact work-fold build. Development
+  // Electron needs the repository argument as well as its executable.
+  process.env.WORKFOLD_CLI_APP = developmentCli?.appPath ?? process.execPath;
 }
 
 function createFolderGrant(spaceRoot: string): string {

@@ -163,6 +163,12 @@ uses the same v1 read/v3 act envelopes, and carries message-file bytes in the
 private request payload. `chat wait`, `manage wait` and `checks wait` retain the
 same bounded polling and waiting-on-a-question behavior. See [Linux builds](linux-build.md).
 
+The unpackaged Linux desktop exposes that same prepared native CLI to Worker
+shells through profile-local development launchers. They pin the running
+development profile and launch Electron with its repository argument; command
+protocols, act tokens, receipts, and domain paths are the same as the installed
+app. This does not install a command into the person's system PATH.
+
 ```powershell
 work-fold context --json
 work-fold spaces list

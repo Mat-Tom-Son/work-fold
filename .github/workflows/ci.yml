@@ -34,6 +34,19 @@ jobs:
             --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
             -v "$PWD:/work" -e HOME=/tmp/work-fold-build work-fold-linux-build \
             bash -lc 'unshare --user --map-root-user --pid --net --fork true && mkdir -p "$HOME" && npm ci && npm run check && npm run desktop:computer-helper && npm run desktop:linux-native-hosts && npm run desktop:linux-native-tests && npm test && dbus-run-session -- xvfb-run -a npm run desktop:make:linux'
+      - name: Test unpackaged Worker CLI and cold restart
+        run: |
+          docker run --rm -i --user "$(id -u):$(id -g)" \
+            --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+            -v "$PWD:/work:ro" -e HOME=/tmp/work-fold-development-test work-fold-linux-build \
+            bash -seu <<'CONTAINER'
+          mkdir -p "$HOME"
+          dbus-run-session -- xvfb-run -a bash -seu <<'DESKTOP'
+          fixture=$(mktemp -d /tmp/workfold-dev-cli.XXXXXX)
+          npm run desktop:test:linux-dev -- --profile-root "$fixture"
+          npm run desktop:test:linux-dev -- --profile-root "$fixture" --phase verify
+          DESKTOP
+          CONTAINER
       - name: Test encrypted credentials across keyring restarts
         run: |
           docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \

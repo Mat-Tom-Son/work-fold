@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs, promisify } from "node:util";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Agent as HttpAgent, fetch as localModelFetch } from "undici-pi-reviewed";
 
 const fixtureSchema = "work-fold.linux-installed-fixture.v1";
@@ -50,7 +50,7 @@ export async function prepareFixture(root, phase) {
 }
 
 async function startProvider(nonce, live) {
-  let calls = 0; const observations = [];
+  let calls = 0, workerCheckpoint; const observations = [];
   const dispatcher = live ? new HttpAgent({ headersTimeout: liveRequestTimeoutMs, bodyTimeout: liveRequestTimeoutMs }) : undefined;
   const requests = new Set();
   const server = createServer(async (request, response) => {
@@ -67,9 +67,8 @@ async function startProvider(nonce, live) {
       const lastUser = payload.messages.findLastIndex(message => message.role === "user" && JSON.stringify(message.content).includes("LINUX_SMOKE_"));
       assert.ok(lastUser >= 0, "Expected a synthetic test prompt");
       observations.push({ tools: payload.tools?.map(tool => tool.function?.name), roles: payload.messages.map(message => message.role), marker: JSON.stringify(payload.messages[lastUser]?.content).includes(`LINUX_SMOKE_WRITE_${nonce}`) });
-      const wantsWrite = JSON.stringify(payload.messages[lastUser]?.content || "").includes(`LINUX_SMOKE_WRITE_${nonce}`)
-        && payload.tools?.some(tool => tool.function?.name === "write")
-        && !payload.messages.slice(lastUser + 1).some(message => message.role === "tool");
+      const wantsWrite = JSON.stringify(payload.messages[lastUser]?.content || "").includes(`LINUX_SMOKE_WRITE_${nonce}`);
+      const replies = payload.messages.slice(lastUser + 1).filter(message => message.role === "tool");
       if (live) {
         const abort = new AbortController(); requests.add(abort);
         const timeout = setTimeout(() => abort.abort(), liveRequestTimeoutMs);
@@ -94,9 +93,37 @@ async function startProvider(nonce, live) {
         id: `fixture-${calls}`, object: "chat.completion.chunk", created: 1, model,
         choices: [{ index: 0, delta, finish_reason: reason }],
       })}\n\n`);
-      if (wantsWrite) {
-        send({ role: "assistant", tool_calls: [{ index: 0, id: `write-${calls}`, type: "function", function: {
-          name: "write", arguments: JSON.stringify({ path: "worker-created.txt", content: workerNote }),
+      let tool;
+      if (replies.length === 0) {
+        assert.ok(payload.tools?.some(tool => tool.function?.name === "bash"), "Pi must expose its native shell tool");
+        tool = { name: "bash", arguments: { command: wantsWrite
+          ? 'work-fold files create --space "Linux test folder" --path worker-created.txt --json'
+          : 'work-fold context --json', timeout: 20 } };
+      } else {
+        const content = replies[0].content;
+        const text = typeof content === "string" ? content : content.map(item => item.text ?? "").join("\n");
+        assert.match(text, /^\s*\{/, `Worker shell did not return CLI JSON: ${text.slice(0, 240)}`);
+        const receipt = JSON.parse(text);
+        assert.equal(receipt.ok, true, "The Worker's inherited CLI must answer successfully");
+        assert.ok(receipt.data.space.id);
+        if (wantsWrite) {
+          assert.equal(receipt.command, "files.create");
+          assert.equal(receipt.data.path, "worker-created.txt");
+          assert.equal(receipt.data.created, true);
+          assert.equal(typeof receipt.data.safetyCheckpointId, "string", "Worker file creation must take a restore point");
+          workerCheckpoint = receipt.data.safetyCheckpointId;
+          if (replies.length === 1) {
+            assert.ok(payload.tools?.some(tool => tool.function?.name === "write"));
+            tool = { name: "write", arguments: { path: "worker-created.txt", content: workerNote } };
+          }
+        } else {
+          assert.equal(receipt.command, "context");
+          assert.equal(receipt.data.cwd, receipt.data.space.spaceRoot, "Worker CLI resolves its Folder after relaunch");
+        }
+      }
+      if (tool) {
+        send({ role: "assistant", tool_calls: [{ index: 0, id: `tool-${calls}`, type: "function", function: {
+          name: tool.name, arguments: JSON.stringify(tool.arguments),
         } }] }, null);
         send({}, "tool_calls");
       } else {
@@ -105,14 +132,14 @@ async function startProvider(nonce, live) {
       }
       response.end("data: [DONE]\n\n");
     } catch (error) {
-      if (live) console.error("Local-model test transport:", error.name, String(error.message).slice(0, 240));
+      console.error("Linux smoke provider:", error.name, String(error.message).slice(0, 300));
       if (!response.headersSent) response.writeHead(500);
       response.end("Synthetic provider rejected the request");
     }
   });
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
   return {
-    url: `http://127.0.0.1:${server.address().port}/v1`, calls: () => calls, observations,
+    url: `http://127.0.0.1:${server.address().port}/v1`, calls: () => calls, observations, workerCheckpoint: () => workerCheckpoint,
     close: async () => { for (const request of requests) request.abort(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await dispatcher?.close(); },
   };
 }
@@ -163,6 +190,7 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
     "profile-root": { type: "string" }, phase: { type: "string", default: "seed" }, "expect-version": { type: "string" },
     "live-ollama-url": { type: "string" }, "live-model": { type: "string" },
+    development: { type: "boolean", default: false },
   } });
   let live;
   if (values["live-ollama-url"] || values["live-model"]) {
@@ -174,21 +202,26 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
     live = { url: url.href, model: values["live-model"] };
   }
   assert.ok(positionals.length <= 2, "Provide only the GUI executable and optional CLI path");
+  assert.ok(!values.development || positionals.length === 0, "Development smoke uses npm start and the profile-local CLI");
+  const repoRoot = fileURLToPath(new URL("..", import.meta.url));
   const phase = values.phase;
   assert.ok(["seed", "verify"].includes(phase), "--phase must be seed or verify");
   assert.ok(phase === "seed" || values["profile-root"], "verify requires --profile-root");
   const executable = resolve(positionals[0] || "out/linux/linux-unpacked/work-fold-desktop");
-  const cli = resolve(positionals[1] || join(dirname(executable), "bin/work-fold"));
   const retained = Boolean(values["profile-root"]);
   const root = retained ? resolve(values["profile-root"]) : await mkdtemp(join(tmpdir(), "workfold-installed-smoke-"));
   let child, peer, closed, successMessage;
   try {
     const fixture = await prepareFixture(root, phase);
     const state = join(root, "state"), folder = join(root, "Linux test folder"), agent = join(root, "pi");
+    const cli = values.development ? join(state, "development-cli/work-fold")
+      : resolve(positionals[1] || join(dirname(executable), "bin/work-fold"));
     const modelsPath = join(agent, "models.json");
     // Pi's supported setting covers a CPU-only model's long initial prefill.
     // This remains local to the explicitly created test profile.
-    if (live && phase === "seed") await writeFile(join(agent, "settings.json"), JSON.stringify({ httpIdleTimeoutMs: liveRequestTimeoutMs, retry: { enabled: false } }), { flag: "wx", mode: 0o600 });
+    if (phase === "seed") await writeFile(join(agent, "settings.json"), JSON.stringify({
+      ...(live ? { httpIdleTimeoutMs: liveRequestTimeoutMs } : {}), retry: { enabled: false },
+    }), { flag: "wx", mode: 0o600 });
     const config = { api: "openai-completions", apiKey: "synthetic-not-a-secret", models: [{
       id: live?.model ?? model, name: "Installed Linux fixture", reasoning: false, input: ["text"], contextWindow: 32768, maxTokens: live ? 2048 : 1024,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -205,17 +238,22 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
     const env = { ...process.env, WORKFOLD_STATE_DIR: state, WORKFOLD_DESKTOP_STATE_DIR: state, WORKFOLD_CLI_STATE_DIR: state,
       WORKFOLD_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, WORKFOLD_CLI_TIMEOUT_MS: "30000", WORKFOLD_DISABLE_LOGIN_SHELL_ENV: "1" };
     delete env.ELECTRON_RUN_AS_NODE; delete env.NODE_OPTIONS;
+    // The app must configure its own Worker environment. Never make a broken
+    // development launch pass by supplying its CLI path or app launcher here.
+    delete env.WORKFOLD_CLI_APP;
+    const cliEnv = values.development ? { ...env, WORKFOLD_CLI_APP: join(state, "development-cli/app") } : env;
     const tokenPath = join(state, "cli/act-token.json");
     const previousToken = await readFile(tokenPath, "utf8").catch(error => { if (error.code !== "ENOENT") throw error; return null; });
     // Own a process group: AppImage extraction mode keeps a launcher between
     // this harness and Electron. Stopping only the launcher can orphan the GUI.
-    child = spawn(executable, [], { env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    child = spawn(values.development ? "npm" : executable, values.development ? ["start"] : [],
+      { env, cwd: repoRoot, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     for (const stream of [child.stdout, child.stderr]) stream.on("data", data => { output = (output + data).slice(-16_384); });
     closed = new Promise(resolve => child.once("close", resolve));
     await new Promise((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
     async function command(...argv) {
-      const { stdout } = await promisify(execFile)(cli, [...argv, "--json"], { env, cwd: root, timeout: 40_000, maxBuffer: 2 * 1024 * 1024 });
+      const { stdout } = await promisify(execFile)(cli, [...argv, "--json"], { env: cliEnv, cwd: root, timeout: 40_000, maxBuffer: 2 * 1024 * 1024 });
       const result = JSON.parse(stdout);
       assert.notEqual(result.ok, false, `CLI ${argv[0]} ${argv[1] || ""} failed`);
       return result;
@@ -232,7 +270,7 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
           // The installed launcher starts Electron before its RPC deadline.
           // Allow cold ASAR loading under concurrent distro/model acceptance;
           // killing that launcher after two seconds can orphan its child.
-          env: { ...env, WORKFOLD_CLI_TIMEOUT_MS: "5000" }, timeout: 10_000, maxBuffer: 2 * 1024 * 1024 });
+          env: { ...cliEnv, WORKFOLD_CLI_TIMEOUT_MS: "5000" }, timeout: 10_000, maxBuffer: 2 * 1024 * 1024 });
         ready = true; break;
       } catch { await delay(250); }
     }
@@ -259,6 +297,7 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
       assert.ok(conversations.some(chat => chat.id === fixture.conversationId && chat.title === "Linux persistence fixture"), "Chat identity/title survive");
       const history = (await command("history", "list", "--space", fixture.spaceId)).data.checkpoints;
       assert.ok(history.some(item => item.checkpointId === fixture.checkpointId), "History checkpoint survives");
+      if (fixture.workerCheckpointId) assert.ok(history.some(item => item.checkpointId === fixture.workerCheckpointId), "The Worker's CLI restore point survives");
       const result = (await command("chat", "result", "--space", fixture.spaceId, "--conversation", fixture.conversationId)).data;
       assert.ok(result.messages.some(message => message.content.includes(`LINUX_SMOKE_WRITE_${fixture.nonce}`)), "User message survives");
       assert.ok(result.messages.some(message => message.content.includes(`Linux fixture completed ${fixture.nonce}`)), "Worker result survives");
@@ -290,6 +329,12 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
     assert.equal(settled.data.task.state, "succeeded", `Worker fixture must succeed: ${JSON.stringify(settled.data.task)}`);
     assert.ok(peer.calls() >= (phase === "seed" ? 2 : 1), `The installed Pi runtime reached the local provider: ${JSON.stringify(peer.observations)}`);
     assert.equal(await readFile(join(folder, "worker-created.txt"), "utf8"), workerNote);
+    if (!live && phase === "seed") {
+      fixture.workerCheckpointId = peer.workerCheckpoint();
+      assert.equal(typeof fixture.workerCheckpointId, "string");
+      const history = (await command("history", "list", "--space", fixture.spaceId)).data.checkpoints;
+      assert.ok(history.some(item => item.checkpointId === fixture.workerCheckpointId), "The Worker's CLI restore point exists in History");
+    }
     assert.equal(await readFile(join(folder, "Linux-ready.txt"), "utf8"), note);
     const library = (await command("library", "list")).data.items;
     assert.ok(library.some(item => item.path === "Linux-ready.txt" && item.sizeBytes === Buffer.byteLength(note)), "Library entry survives");
@@ -305,7 +350,7 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
       fixture.complete = true;
       await writeFile(join(root, markerName), JSON.stringify(fixture, null, 2) + "\n", { mode: 0o600 });
     }
-    successMessage = `PASS installed Linux ${phase}: sandboxed renderer, real Pi turn with ${live ? `real local Ollama model ${live.model}` : "local synthetic provider"}, Folder identity, Chat, History, Library, request, model choice and exact file bytes${retained ? "; profile retained" : "; disposable profile"}`;
+    successMessage = `PASS ${values.development ? "development" : "installed"} Linux ${phase}: sandboxed renderer, real Pi turn with ${live ? `real local Ollama model ${live.model}` : "local synthetic provider and Worker-inherited CLI"}, Folder identity, Chat, History, Library, request, model choice and exact file bytes${retained ? "; profile retained" : "; disposable profile"}`;
   } finally {
     try {
       if (child?.pid) {

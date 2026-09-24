@@ -38,6 +38,10 @@ async fn monitor_screen_lock(connection: &zbus::Connection, service: LockService
     let result = async {
         let proxy = ScreenSaverProxy::builder(connection).destination(service.name)?
             .path(service.path)?.interface(service.name)?.build().await?;
+        // This first typed call may activate the desktop's lock proxy. Its
+        // initial name acquisition is setup, not revocation. Recheck below
+        // after both subscriptions; this lookup alone never grants sharing.
+        ensure!(!proxy.get_active().await?, "Unlock the desktop before sharing a screen");
         // Subscribe before querying state. Loss/replacement of the original
         // service is revocation too; never silently follow a new lock service.
         let mut owners = proxy.inner().receive_owner_changed().await?;
@@ -241,18 +245,34 @@ mod tests {
     use super::*;
     use std::{io::{BufRead, Write}, process::{Child, Command, Stdio}, sync::atomic::{AtomicBool, Ordering}};
 
-    // A private bus with no activation directories cannot reach or start any
-    // desktop service belonging to the person running these tests.
-    struct TestBus { child: Child, address: String, _config: tempfile::NamedTempFile }
+    // No desktop activation directories are loaded. The optional private
+    // directory starts only this test binary's synthetic lock service.
+    struct TestBus {
+        child: Child, address: String, _config: tempfile::NamedTempFile,
+        _services: Option<tempfile::TempDir>,
+        _stdout: std::io::BufReader<std::process::ChildStdout>,
+    }
     impl TestBus {
-        fn new() -> Self {
+        fn new() -> Self { Self::with_activation(false) }
+        fn with_activation(activate: bool) -> Self {
+            let services = activate.then(|| tempfile::tempdir().unwrap());
+            let service_config = if let Some(directory) = &services {
+                let executable = std::env::current_exe().unwrap();
+                let executable = executable.to_str().unwrap().replace('\\', "\\\\").replace('"', "\\\"");
+                for service in [GNOME_LOCK, KDE_LOCK] {
+                    std::fs::write(directory.path().join(format!("{}.service", service.name)),
+                        format!("[D-BUS Service]\nName={}\nExec=\"{executable}\" --exact portal::tests::activated_lock_service_process --ignored --nocapture\n", service.name)).unwrap();
+                }
+                format!("<servicedir>{}</servicedir>", directory.path().display())
+            } else { String::new() };
             let mut config = tempfile::NamedTempFile::new().unwrap();
-            write!(config, "<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context=\"default\"><allow send_destination=\"*\"/><allow receive_sender=\"*\"/><allow own=\"*\"/></policy></busconfig>").unwrap();
-            let child = Command::new("dbus-daemon").arg(format!("--config-file={}", config.path().display()))
+            write!(config, "<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>{service_config}<policy context=\"default\"><allow send_destination=\"*\"/><allow receive_sender=\"*\"/><allow own=\"*\"/></policy></busconfig>").unwrap();
+            let mut child = Command::new("dbus-daemon").arg(format!("--config-file={}", config.path().display()))
                 .args(["--nofork", "--nopidfile", "--print-address=1"])
                 .stdin(Stdio::null()).stdout(Stdio::piped()).spawn().unwrap();
-            let mut bus = Self { child, address: String::new(), _config: config };
-            std::io::BufReader::new(bus.child.stdout.take().unwrap()).read_line(&mut bus.address).unwrap();
+            let stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+            let mut bus = Self { child, address: String::new(), _config: config, _services: services, _stdout: stdout };
+            bus._stdout.read_line(&mut bus.address).unwrap();
             bus.address = bus.address.trim().to_owned();
             assert!(bus.address.starts_with("unix:"));
             bus
@@ -268,7 +288,12 @@ mod tests {
         }
     }
     impl Drop for TestBus {
-        fn drop(&mut self) { self.child.kill().ok(); self.child.wait().ok(); }
+        fn drop(&mut self) {
+            self.child.kill().ok(); self.child.wait().ok();
+            // The activation subprocess exits when this bus closes. Drain its
+            // test-runner output before closing the pipe beneath it.
+            std::io::copy(&mut self._stdout, &mut std::io::sink()).ok();
+        }
     }
     struct GnomeLock(Arc<AtomicBool>);
     #[zbus::interface(name = "org.gnome.ScreenSaver")]
@@ -279,6 +304,21 @@ mod tests {
     #[zbus::interface(name = "org.freedesktop.ScreenSaver")]
     impl KdeLock {
         fn get_active(&self) -> bool { self.0.load(Ordering::SeqCst) }
+    }
+    // Launched only by the private bus's generated activation files. It never
+    // selects the person's session bus and exits when that private bus closes.
+    #[tokio::test]
+    #[ignore = "Private D-Bus activation subprocess; exercised by cold_lock_service_activation_is_not_revocation"]
+    async fn activated_lock_service_process() {
+        let address = std::env::var("DBUS_STARTER_ADDRESS").unwrap();
+        assert!(address.starts_with("unix:"));
+        let connection = zbus::connection::Builder::address(address.as_str()).unwrap()
+            .name(GNOME_LOCK.name).unwrap().name(KDE_LOCK.name).unwrap()
+            .serve_at(GNOME_LOCK.path, GnomeLock(Arc::new(AtomicBool::new(false)))).unwrap()
+            .serve_at(KDE_LOCK.path, KdeLock(Arc::new(AtomicBool::new(false)))).unwrap()
+            .build().await.unwrap();
+        let mut messages = zbus::MessageStream::from(&connection);
+        while let Some(Ok(_)) = messages.next().await {}
     }
     async fn monitor(bus: &TestBus, service: LockService) -> (oneshot::Receiver<Result<()>>, tokio::task::JoinHandle<()>) {
         let connection = bus.connection().await;
@@ -328,6 +368,17 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(3), ready).await.unwrap().unwrap().unwrap();
             server.release_name(service.name).await.unwrap();
             tokio::time::timeout(Duration::from_secs(3), task).await.unwrap().unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn cold_lock_service_activation_is_not_revocation() {
+        for service in [GNOME_LOCK, KDE_LOCK] {
+            let bus = TestBus::with_activation(true);
+            let (ready, mut task) = monitor(&bus, service).await;
+            tokio::time::timeout(Duration::from_secs(5), ready).await.unwrap().unwrap().unwrap();
+            assert!(tokio::time::timeout(Duration::from_millis(100), &mut task).await.is_err(),
+                "The initial activation must not revoke an unlocked desktop");
+            task.abort();
         }
     }
 

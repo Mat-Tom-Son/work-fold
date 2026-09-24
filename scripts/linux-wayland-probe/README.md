@@ -140,6 +140,11 @@ that guest-created device to the private test container, with the fixture source
 `source.json` mounted read-only at `/work`. Never forward a host graphics device,
 home, input device or bus. The image removes KWin's file capability only in the
 container; no host executable or desktop policy is changed.
+Keep the guest's ordinary graphical login stopped during this VGEM lane, or use
+a separate guest. An existing GNOME/software-VGA session later crashed with GBM
+buffer errors after VGEM tests; a fresh login with VGEM removed passed the
+unchanged installed app. Keep that diagnostic separate from KDE acceptance and
+do not treat this recovery as physical-GPU qualification.
 
 Run `bash /work/scripts/linux-wayland-probe/kde-acceptance.sh` as uid 1000 with
 `WORKFOLD_ISOLATED_KDE_TEST=1`, a disposable HOME, and permission to access the

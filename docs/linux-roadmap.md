@@ -314,6 +314,36 @@ desktop qualification. GNOME regressions, 17 native helper tests, 1,563 applicat
 tests (8 explicit skips), repository/TypeScript checks and desktop preparation
 pass. The .44 package and remote CI runs remain separate evidence.
 
+The clean .44 build, signed APT/DNF .42→.44 lifecycle, exact-candidate KDE matrix,
+installed Fedora desktop and actual local-model write/cold restart all pass.
+Ubuntu's first installed run encounters a GNOME Shell/Mutter SIGSEGV with GBM
+buffer errors; the unchanged app passes after a fresh GDM login with the temporary
+KDE VGEM device removed. This does not establish a physical-GPU fix.
+
+Remote .44 CI passes the four Mac/TypeScript/application/bridge jobs and Linux
+packaging/keyring/native GNOME cases, then exposes a first-use lock-proxy bug in
+the packaged desktop flow: initial D-Bus name acquisition is mistaken for
+revocation. The same failure reproduces locally. The .45 follow-up performs the
+first typed lock-state lookup before watching ownership, then subscribes and
+rechecks before granting sharing. A private-bus activation regression fails
+before the fix and passes afterwards, alongside the existing locked/missing
+service, active-lock and name-loss cases. Its isolated activation subprocess is
+exercised by that parent test, not a skipped behavior check. No failed candidate
+is relabeled or treated as fully qualified.
+
+The first hands-on development preview exposed a separate launch gap: installed
+packages supplied the Worker's CLI, but the unpackaged desktop supplied only its
+state-directory binding. The Worker consequently searched for an unavailable
+command. The .45 development launch now exposes the already prepared native CLI
+through profile-local launchers and starts Electron from the repository so its
+package metadata is available. The person confirmed the original file-creation
+task succeeds after restart. The shared smoke now exercises actual Pi shell
+calls inside the running app, verifies the resulting History restore point and
+file bytes, and repeats from a cold start; `npm start` is tested separately from
+installed binaries. A local scripted provider makes that integration test
+repeatable without consuming a person's provider account. This does not replace
+real-provider or physical-desktop qualification.
+
 The original baseline and architecture investigation below are retained as dated
 planning evidence. They are not the current feature inventory. The [build guide](linux-build.md)
 owns setup, requirements and present limitations. Continue with packaged-app

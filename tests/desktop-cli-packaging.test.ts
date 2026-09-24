@@ -178,7 +178,7 @@ test("desktop Assistant shells inherit the exact running profile in development 
   assert.match(helper, /process\.env\.WORKFOLD_CLI_STATE_DIR = app\.getPath\("userData"\)/);
   assert.ok(
     helper.indexOf("WORKFOLD_CLI_STATE_DIR") < helper.indexOf("if (!app.isPackaged"),
-    "state binding must happen before the packaged-only executable and PATH setup",
+    "state binding must happen before platform-specific executable and PATH setup",
   );
   // The login-shell environment is adopted before the CLI PATH pin so the
   // packaged `work-fold` executable stays first on PATH for Assistant shells.

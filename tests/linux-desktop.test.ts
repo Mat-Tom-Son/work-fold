@@ -8,11 +8,49 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { secureStorageAvailable } from "../desktop/src/secure-storage.js";
+import { prepareLinuxDevelopmentCli } from "../desktop/src/linux-development-cli.js";
 
 const run = promisify(execFile);
 const cli = resolve("out/included-tools/linux-cli/work-fold-cli");
 const chrome = resolve("out/included-tools/chrome-native-host/work-fold-chrome-host");
 const native = process.platform === "linux" && existsSync(cli) && existsSync(chrome);
+
+test("Linux development CLI fails at setup when the native transport has not been prepared", async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-dev-cli-missing-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.throws(() => prepareLinuxDevelopmentCli({ repoRoot: root, stateDirectory: join(root, "state"), electronPath: process.execPath }), /desktop:linux-native-hosts/);
+});
+
+test("Linux development Worker shells find the native CLI and preserve profile, repository, and argv", { skip: !native }, async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-dev-cli-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repoRoot = join(root, "repo's $data `literal`");
+  const stateDirectory = join(root, "profile's data");
+  const electronPath = join(root, "fake electron's launcher");
+  await mkdir(join(repoRoot, "out/included-tools/linux-cli"), { recursive: true });
+  await copyFile(cli, join(repoRoot, "out/included-tools/linux-cli/work-fold-cli"));
+  await writeFile(electronPath, `#!${process.execPath}
+const fs = require('node:fs'), path = require('node:path');
+const id = process.argv[4], root = path.join(process.env.WORKFOLD_CLI_STATE_DIR, 'cli');
+const request = JSON.parse(fs.readFileSync(path.join(root, 'requests', id + '.json')));
+const data = { request, launchArguments: process.argv.slice(2) };
+fs.writeFileSync(path.join(root, 'responses', id + '.json'), JSON.stringify({protocolVersion:1,id,exitCode:0,stdout:JSON.stringify(data),stderr:''}), {mode:0o600});
+`);
+  await chmod(electronPath, 0o700);
+  const launch = prepareLinuxDevelopmentCli({ repoRoot, stateDirectory, electronPath });
+  const env = { ...process.env, PATH: `${launch.binDirectory}:${process.env.PATH}`, WORKFOLD_CLI_APP: launch.appPath,
+    WORKFOLD_CLI_STATE_DIR: stateDirectory, WORKFOLD_CLI_TIMEOUT_MS: "3000" };
+  const reply = JSON.parse((await run("/bin/bash", ["-c", "work-fold context --json"], { env, cwd: repoRoot })).stdout);
+  assert.equal(reply.launchArguments[0], repoRoot);
+  assert.equal(reply.launchArguments[1], "--work-fold-cli-request");
+  assert.equal(reply.request.cwd, repoRoot);
+  assert.equal(reply.request.protocolVersion, 1);
+  await writeFile(join(stateDirectory, "cli/act-token.json"), JSON.stringify({ version: 1, actToken: "d".repeat(64) }), { mode: 0o600 });
+  const act = JSON.parse((await run("/bin/bash", ["-c", 'work-fold files list --space "Test Folder" --json'], { env, cwd: repoRoot })).stdout);
+  assert.equal(act.request.protocolVersion, 3);
+  assert.equal(act.request.lane, "act");
+  assert.deepEqual(act.request.argv, ["files", "list", "--space", "Test Folder", "--json"]);
+});
 
 test("Linux credentials require an actual keyring and retain other platform behavior", () => {
   for (const backend of ["basic_text", "unknown", ""]) assert.equal(secureStorageAvailable({ isEncryptionAvailable: () => true, getSelectedStorageBackend: () => backend }, "linux"), false);

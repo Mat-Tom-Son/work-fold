@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.4.44",
+  "version": "0.4.45",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",
@@ -21,6 +21,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "start": "electron .",
     "postinstall": "node scripts/normalize-pi-dependencies.mjs && node scripts/prepare-included-tools.mjs",
     "build": "npm run desktop:prepare",
     "check": "npm run repo:check && npm run local:check && npm run desktop:check",
@@ -55,7 +56,7 @@
     "desktop:reset:mac-safe-storage": "node scripts/reset-mac-safe-storage.mjs",
     "desktop:verify:installed:mac": "node scripts/verify-installed-mac-app.mjs",
     "desktop:make:zip": "npm run desktop:prepare && node scripts/make-desktop.mjs && npm run desktop:verify:packaged-assets",
-    "desktop:smoke": "npm run desktop:prepare && electron dist/desktop/desktop/src/main.js",
+    "desktop:smoke": "npm run desktop:prepare && npm start",
     "desktop:preflight": "node scripts/desktop-preflight.mjs",
     "desktop:restricted-app:smoke": "electron scripts/restricted-app-electron-smoke.mjs",
     "desktop:preload:smoke": "electron scripts/desktop-preload-electron-smoke.mjs",
@@ -67,6 +68,7 @@
     "chrome:build": "node scripts/build-chrome-store.mjs",
     "desktop:linux-native-hosts": "node scripts/build-linux-native-hosts.mjs",
     "desktop:linux-native-tests": "node scripts/test-linux-native.mjs",
+    "desktop:test:linux-dev": "node scripts/linux-installed-smoke.mjs --development",
     "desktop:package:linux": "node scripts/build-linux-desktop.mjs --dir",
     "desktop:make:linux": "node scripts/build-linux-desktop.mjs",
     "desktop:stage:linux": "node scripts/stage-linux-repository.mjs"

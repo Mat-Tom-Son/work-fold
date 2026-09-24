@@ -5,6 +5,12 @@ Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
 not a separate Linux agent. The public release and automatic-update lane remains
 macOS. Linux candidates have no update feed and are not published by these commands.
 
+For everyday iteration, prepare the native development app once and use
+`npm start`; rebuild only the renderer, TypeScript, or native helper that changed.
+`npm run desktop:test:linux-dev` checks a real Pi turn using the development
+app's inherited CLI with a local scripted provider, without making an installer.
+See [Development](development.md) for focused commands and cold-restart checks.
+
 ## Build
 
 Use Node 24, npm 11.16.0 or newer, Rust/Cargo, and a Linux x64 desktop. `npm ci`
@@ -353,8 +359,10 @@ and [RemoteDesktop](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.fr
 contracts.
 
 The helper also recognizes KDE's native `org.freedesktop.ScreenSaver` service.
-Both desktop lock monitors subscribe before reading the initial state and revoke
-sharing if the service disappears or changes owner. Unknown or ambiguous desktop
+An initial typed lookup may activate the desktop's lock proxy; both monitors then
+subscribe and recheck its state before allowing sharing. Initial activation is
+not revocation. Sharing ends if the established service disappears or changes
+owner. Unknown or ambiguous desktop
 identities fail before requesting a grant. A private Fedora 44/KWin 6.7.5 fixture
 tests the real KDE chooser, capture/input, exact saved bytes, Deny/Stop, owner
 teardown, fresh approval and native lock revocation through the production
