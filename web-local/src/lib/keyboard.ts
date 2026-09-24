@@ -4,14 +4,30 @@ function desktopShortcutModifierKey(platform: DesktopPlatform = desktopPlatform(
   return platform === "darwin" ? "Command" : "Ctrl";
 }
 
+const macKeyGlyphs: Record<string, string> = {
+  Command: "⌘",
+  Ctrl: "⌃",
+  Option: "⌥",
+  Shift: "⇧",
+  Enter: "↩",
+  Esc: "⎋",
+  "Arrow left": "←",
+  "Arrow right": "→",
+};
+
 function desktopShortcutKeyLabel(key: string, platform: DesktopPlatform = desktopPlatform()): string {
   if (platform !== "darwin") return key;
-  if (key === "Command") return "⌘";
-  if (key === "Option") return "⌥";
-  if (key === "Shift") return "⇧";
-  if (key === "Arrow left") return "←";
-  if (key === "Arrow right") return "→";
-  return key;
+  return macKeyGlyphs[key] ?? key;
 }
 
-export { desktopShortcutKeyLabel, desktopShortcutModifierKey };
+const spokenKeyNames: Record<string, string> = {
+  Ctrl: "Control",
+  Esc: "Escape",
+};
+
+/** Full-word key name for assistive technology, whatever the visible glyph. */
+function desktopShortcutKeySpokenName(key: string): string {
+  return spokenKeyNames[key] ?? key;
+}
+
+export { desktopShortcutKeyLabel, desktopShortcutKeySpokenName, desktopShortcutModifierKey };

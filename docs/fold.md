@@ -147,7 +147,7 @@ their specification; F8 and F9 keep the narrowings that record relies on.
 - **Recently deleted (the trash):** the machine-local store under the state
   root where every deletion History cannot cover goes — files, folders, a
   managed Space's folder, app storage and retained-data exports — with a
-  manifest per entry, restorable from Settings → Desktop and
+  manifest per entry, restorable from Settings → Recently deleted and
   `work-fold trash list|restore`, purged only by retention (default 30
   days).
 - **Setup-only authority:** the three families with no model/CLI/remote
@@ -221,7 +221,7 @@ their specification; F8 and F9 keep the narrowings that record relies on.
    card, approve, policy, mode, Reviewed, or Unrestricted. Needs you names
    questions and due snoozes. Recently deleted is the trash's name; Restore
    and Delete now are its actions; a limit that stops work names the setting
-   in Settings → Desktop → Limits.
+   in Settings → Automations → Limits.
 
 The shipped copy inventory is pinned by `tests/work-fold-brand.test.ts`
 (popover title, tray entry, two-state send button),
@@ -263,4 +263,4 @@ taught behavior in `src/local/management-instructions.ts`.
 
 ## Fold-led Checks
 
-Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The main-window glance links to the owning Space’s Checks tab. The fold popover stays focused on conversations and has no separate Checks disclosure. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.
+Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The fold popover stays focused on conversations and has no separate Checks disclosure. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.

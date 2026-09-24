@@ -1008,6 +1008,8 @@ async function createMainWindow(): Promise<void> {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: true,
+      // The built-in PDF viewer is plugin-backed; File tabs preview PDFs inline.
+      plugins: true,
       devTools: !app.isPackaged,
       // Assistant turns and automations are owned by the app host, not renderer
       // paint. Let Chromium throttle hidden/occluded UI to preserve battery life.

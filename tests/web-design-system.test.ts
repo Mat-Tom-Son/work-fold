@@ -438,6 +438,10 @@ test("Manage Spaces is a compact launcher into customization", () => {
   assert.match(spacePanesSource, /space-card-delete/);
   assert.match(spacePanesSource, /const deletesFolder = item\.location\.storage === "managed"/);
   assert.match(spacePanesSource, /aria-label=\{`\$\{deletesFolder \? "Delete" : "Remove"\} \$\{item\.name\}`\}/);
+  assert.doesNotMatch(spacePanesSource, /"Managed folder"|"Linked folder"/);
+  assert.match(spacePanesSource, /const location = item\.location\.storage === "managed" \? "" : shortFolderLocation\(item\.spaceRoot\);/);
+  assert.match(spacePanesSource, /<span title=\{item\.spaceRoot \|\| undefined\}>/);
+  assert.match(surfacesCss, /\.app-shell \.professional-spaces \.space-card-actions \.space-card-delete\s*\{[^}]*color:\s*var\(--ui-text-muted\)/);
   assert.doesNotMatch(legacyCss, /\.space-card-actions\s*\{[^}]*linear-gradient/s);
   assert.match(surfacesCss, /\.professional-spaces \.space-card-main\s*\{[^}]*padding-right:\s*52px/);
   assert.match(appSource, /<SpaceNameEditor space=\{targetSpace\} onRenameSpace=\{renameSpace\} \/>/);

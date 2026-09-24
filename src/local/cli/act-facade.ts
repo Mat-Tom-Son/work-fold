@@ -43,6 +43,7 @@ export interface WorkFoldActTrashEntry {
   reason:
     | "files.delete"
     | "management.chat.delete"
+    | "chats.delete"
     | "spaces.delete"
     | "apps.remove"
     | "apps.space.removed"

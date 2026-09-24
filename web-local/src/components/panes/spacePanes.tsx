@@ -29,6 +29,7 @@ import {
 } from "@fluentui/react-icons";
 import { api, apiForm, errorText } from "../../lib/api";
 import { aggregateChatActivityStatus, chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
+import { shortFolderLocation } from "../../lib/folder-location";
 import { formatChatListTime, formatItemCount } from "../../lib/format";
 import { spaceIdentityStyle } from "../../lib/space-identity";
 import type {
@@ -54,6 +55,7 @@ export function SpacesPane({
   onOpenFolder,
   onCustomize,
   onRemove,
+  onDone,
 }: {
   space: SpaceSummary;
   spaces: SpaceSummary[];
@@ -62,10 +64,20 @@ export function SpacesPane({
   onOpenFolder: () => void;
   onCustomize: (space: SpaceSummary) => void;
   onRemove?: (space: SpaceSummary) => void;
+  onDone?: () => void;
 }) {
   const spaceIdentityFor = useSpaceIdentityResolver();
+  const paneRef = useRef<HTMLDivElement>(null);
+
+  // Choosing Manage folders closes the menu that had focus; land focus here
+  // so Escape and Tab start from this pane instead of the page body.
+  useEffect(() => {
+    const focused = document.activeElement;
+    if (!focused || focused === document.body) paneRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
-    <div className="space-pane-content spaces-pane professional-surface professional-spaces">
+    <div className="space-pane-content spaces-pane professional-surface professional-spaces" ref={paneRef} tabIndex={-1}>
       <div className="professional-space-actions" aria-label="Add a folder">
         <button className="professional-space-action" type="button" onClick={onOpenFolder}>
           <span className="professional-space-action-icon" aria-hidden="true"><FolderOpen20Regular /></span>
@@ -80,13 +92,18 @@ export function SpacesPane({
       <section className="space-pane-section professional-section-card">
         <div className="professional-section-heading">
           <span>Your folders</span>
-          <strong>{formatItemCount(spaces.length, "folder")}</strong>
+          <span className="spaces-pane-heading-end">
+            <strong>{formatItemCount(spaces.length, "folder")}</strong>
+            {onDone ? <button className="spaces-pane-done" type="button" onClick={onDone}>Done</button> : null}
+          </span>
         </div>
         <div className="space-switcher">
           {spaces.map((item) => {
             const identity = spaceIdentityFor(item, identities);
             const active = item.id === space.id;
             const deletesFolder = item.location.storage === "managed";
+            const location = item.location.storage === "managed" ? "" : shortFolderLocation(item.spaceRoot);
+            const subtitle = item.location.providerHint === "google-drive" ? (location ? `Google Drive · ${location}` : "Google Drive") : location;
             return (
               <div className={active ? "space-card-shell active" : "space-card-shell"} key={item.id} style={spaceIdentityStyle(identity)}>
                 <div className="space-card-row">
@@ -100,7 +117,7 @@ export function SpacesPane({
                     <span className="space-tab-icon space-identity-icon"><SpaceIconGlyph icon={identity.Icon} size={16} /></span>
                     <span className="space-tab-copy">
                       <strong>{item.name}</strong>
-                      <span>{item.location.providerHint === "google-drive" ? "Google Drive" : item.location.storage === "linked" ? "Linked folder" : "Managed folder"}</span>
+                      {subtitle ? <span title={item.spaceRoot || undefined}>{subtitle}</span> : null}
                     </span>
                     {active ? <span className="active-dot" aria-label="Active folder"><Checkmark12Regular /></span> : null}
                   </button>

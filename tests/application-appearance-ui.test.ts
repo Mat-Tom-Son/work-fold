@@ -94,3 +94,17 @@ test("a file import that completes after leaving Appearance cannot save into the
   await dom.act(async () => { finishFile(JSON.stringify({ kind: "work-fold.appearance-preset", version: 1, name: "Late", preferences: defaultApplicationAppearance })); await Promise.resolve(); });
   assert.equal(store.getSnapshot().presets.length, 0);
 });
+
+test("the Interface section ends with any desktop row the Settings window passes in", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup()); mediaEnvironment();
+  const { useApplicationAppearance } = await import("../web-local/src/hooks/useApplicationAppearance.js");
+  const { AppearanceSettingsPane } = await import("../web-local/src/components/modals/AppearanceSettingsPane.js");
+  const store = new ApplicationAppearanceStore(null, true);
+  function Screen() {
+    const appearance = useApplicationAppearance({ store, fixtureMode: true });
+    return createElement(AppearanceSettingsPane, { appearance, space: null, interfaceExtra: createElement("div", { role: "radiogroup", "aria-label": "Closing the window" }) });
+  }
+  await dom.render(createElement(Screen));
+  const section = document.querySelector('[aria-labelledby="appearance-interface-title"]')!;
+  assert.equal(section.lastElementChild?.getAttribute("aria-label"), "Closing the window");
+});

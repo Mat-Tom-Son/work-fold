@@ -20,9 +20,9 @@ import { FoldLimitsPane } from "../web-local/src/components/modals/FoldLimitsPan
 import { createDomHarness } from "./support/dom.js";
 
 /**
- * Settings → Desktop → Limits (docs/receipts-not-gates.md, F19 principle 6).
+ * Settings → Automations → Limits (docs/receipts-not-gates.md, F19 principle 6).
  * Bounds are defaults, not gates, and they are visible in Settings. Every
- * app-facing refusal names "Settings → Desktop → Limits", so this suite pins
+ * app-facing refusal names "Settings → Automations → Limits", so this suite pins
  * that the section exists, that it is read-only, and that the numbers it shows
  * are the frozen constants the host enforces rather than retyped copies.
  */
@@ -39,13 +39,13 @@ test("the surface every limit message names is a real fold Settings section", ()
   for (const [label, source] of [["tasks", tasksSource], ["inference", inferenceSource]] as const) {
     assert.match(
       source,
-      /const limitsSection = "Settings → Desktop → Limits";/,
+      /const limitsSection = "Settings → Automations → Limits";/,
       `${label} refusals still name the Limits section`,
     );
   }
   assert.match(settingsSource, /type FoldSettingsSection = [^;]*\| "limits";/);
-  assert.match(settingsSource, /"limits",\s*"Limits"/);
-  assert.match(settingsSource, /foldSection === "limits" \? <FoldLimitsPane/);
+  assert.match(settingsSource, /id: "automations", label: "Automations"/);
+  assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<FoldRoutingsPane \/>\s*<FoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} \/>/);
 });
 
 test("the Limits pane reads the frozen contracts instead of retyping them", () => {
@@ -106,7 +106,7 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
 });
 
 /**
- * Every request refusal ends with "Settings → Desktop → Limits shows this
+ * Every request refusal ends with "Settings → Automations → Limits shows this
  * number." A bound whose refusal says that and whose number is not in the
  * pane sends a person somewhere that does not answer them, which is exactly
  * the gate-in-disguise principle 6 forbids. This pins one row per bound, so a
@@ -132,7 +132,7 @@ test("every request bound whose refusal names the Limits section has a row in it
   for (const [name, row] of Object.entries(rows) as Array<[WorkFoldRequestLimitName, string]>) {
     assert.match(
       workFoldRequestLimitMessage(name, 1),
-      /Settings → Desktop → Limits shows this number\.$/,
+      /Settings → Automations → Limits shows this number\.$/,
       `the ${name} refusal points at the Limits pane`,
     );
     assert.ok(text.includes(row), `the ${name} bound has a row reading "${row}"`);

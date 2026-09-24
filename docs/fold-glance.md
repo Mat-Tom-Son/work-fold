@@ -175,16 +175,17 @@ Marker advance is the glance's only mutation, and its standard answers:
 
 ## Surfaces
 
-The main window reads the digest and owns its marker. Older paired clients
-retain their grant-scoped marker through the compatible host operations. No surface
-receives push: the digest is pulled when a surface is visible and never
-recomputed in the background for nobody.
+No current in-app surface renders the digest; `work-fold manage glance --json`
+and the fold's narration read it on request. The `main-window` marker stays an
+accepted id, and older paired clients retain their grant-scoped marker through
+the compatible host operations. No surface receives push: the digest is pulled
+on request and never recomputed in the background for nobody.
 
 **Not the popover.** The compact menu-bar surface is reserved for the live
 conversation and capture. It has no **What's new**
 footer, does not request `GET /api/management/glance`, and never advances a
 glance marker. Removing that presentation does not remove or clear any
-recorded state; the main window composes the same current digest when opened.
+recorded state.
 
 **The paired web client.** Questions now live inside their owning Chat, with an
 answer indicator in the saved-chat list. There is no Needs you destination or
@@ -193,10 +194,10 @@ The signed `management.glance`/`management.glanceSeen` host operations remain
 compatible with older paired clients, with their existing 64 KB bound and
 per-grant marker isolation. Viewers never receive the glance.
 
-**The main window.** The same digest as a compact panel reachable from the
-Space-identity header region — deliberately not a new rail destination,
-badge, or permanent navigation item — refreshing on focus/visibility like
-Checks, acknowledging as `main-window`.
+**Not the main window.** The compact "Since you last looked" panel that hung off
+the Folder header was removed (2026-09-23). The main window neither requests nor
+acknowledges the glance; the server routes, the seen-marker store, and the
+shared `GlanceSection` renderer remain.
 
 ## Narration on demand
 
@@ -254,7 +255,7 @@ The plan items shipped as follows:
 6. Management-instruction narration teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.
 7. Shared renderer — `web-local/src/popover/GlanceSection.tsx`; the popover no longer mounts it, while `tests/management-popover-refresh.test.ts` pins that boundary.
 8. Remote surface — `src/local/remote-management.ts`, `desktop/src/remote-access.ts`, `services/bridge/`; `tests/desktop-remote-access.test.ts`, `tests/work-fold-remote-management.test.ts`, the bridge suite.
-9. Main-window panel — `web-local/src/components/chrome/GlancePanel.tsx`; `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
+9. Main-window panel — shipped, then removed on 2026-09-23; `tests/frontend-interaction-contract.test.ts` pins its absence.
 10. Documentation promotion — recorded in [Fold integration](fold-integration.md).
 11. Receipts-not-gates (2026-09-10, F24) — needs-you reduced to questions and due snoozes, the removed source and its change kind dropped, the remote screen's allow controls removed — `src/local/glance.ts`, `services/bridge/`; `tests/work-fold-glance.test.ts`, the bridge suite.
 12. Collaboration contract (2026-09-11, F25/F27/F28) — the request source read from the durable request store, running items folded from the request and the turns it started, one needs-you item per open question the person owns, and settled items covering `partial` and `expired` — `src/local/glance.ts`; `tests/work-fold-glance.test.ts`.
@@ -284,4 +285,4 @@ The plan items shipped as follows:
 
 ## Checks navigation refinement
 
-The popover has no Checks disclosure and does not read or acknowledge the glance. The main-window Check rows offer Review, opening the owning Space’s Checks tab. No sensor or model turn starts from either view. Trial runs are excluded from settled Check changes and live status.
+The popover has no Checks disclosure and does not read or acknowledge the glance. The shared renderer's Check rows offer Review, opening the owning Space’s Checks tab. No sensor or model turn starts from a digest. Trial runs are excluded from settled Check changes and live status.

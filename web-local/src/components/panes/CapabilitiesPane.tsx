@@ -27,7 +27,6 @@ import {
   Search20Regular,
   ShieldCheckmark16Regular,
   ShieldCheckmark20Regular,
-  Warning16Regular,
 } from "@fluentui/react-icons";
 
 import { api, apiForm, errorText, safeExternalHref } from "../../lib/api";
@@ -268,8 +267,6 @@ export function CapabilitiesPane({
   const installedTotal = resources.length;
   const installedVisible = visibleResources.length;
   const includedStatuses = readiness?.spaceId === space.id ? readiness.tools : [];
-  const installedIssues = resources.filter((item) => ["error", "blocked", "missing"].includes(item.status)
-    || (item.enabled && item.included && ["setup_required", "unavailable"].includes(includedStatuses.find((status) => status.id === item.included!.id)?.state ?? "unknown"))).length;
   const hasInstalledQuery = Boolean(query.trim()) || typeFilter !== "all";
   const catalogHref = safeExternalHref(discoverCatalogUrl);
 
@@ -498,18 +495,6 @@ export function CapabilitiesPane({
             onQueryChange={setQuery}
             onTypeChange={setTypeFilter}
             onDiscoverSortChange={setDiscoverSort}
-            status={catalog ? (
-              <p className={`capabilities-health${installedIssues ? " needs-attention" : ""}`} role="status">
-                {installedIssues ? <Warning16Regular aria-hidden="true" /> : null}
-                <span>{installedIssues
-                  ? `${installedIssues} ${installedIssues === 1 ? "tool needs" : "tools need"} attention`
-                  : hasInstalledQuery
-                    ? `Showing ${installedVisible} of ${installedTotal}`
-                    : installedTotal
-                      ? `${installedTotal} ${installedTotal === 1 ? "tool" : "tools"}`
-                      : "Nothing installed yet"}</span>
-              </p>
-            ) : null}
           />
           {!catalog ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading Skills and Extensions</div> : null}
           {readiness?.spaceId === space.id && readiness.error ? <div className="inline-error" role="alert">Setup status could not be loaded: {readiness.error}</div> : null}
@@ -620,7 +605,6 @@ function CapabilityToolbar({
   query,
   typeFilter,
   discoverSort,
-  status,
   onQueryChange,
   onTypeChange,
   onDiscoverSortChange,
@@ -629,7 +613,6 @@ function CapabilityToolbar({
   query: string;
   typeFilter: CapabilityTypeFilter;
   discoverSort: DiscoverSort;
-  status?: ReactNode;
   onQueryChange: (value: string) => void;
   onTypeChange: (value: CapabilityTypeFilter) => void;
   onDiscoverSortChange: (value: DiscoverSort) => void;
@@ -650,7 +633,7 @@ function CapabilityToolbar({
         </div>
         {view === "discover" ? (
           <label className="capabilities-sort"><span>Sort</span><select aria-label="Catalog sort" value={discoverSort} onChange={(event) => onDiscoverSortChange(event.target.value as DiscoverSort)}><option value="official">First-party first</option><option value="downloads">Most downloads</option><option value="recent">Recently updated</option><option value="name">Name</option></select></label>
-        ) : status}
+        ) : null}
       </div>
     </section>
   );
@@ -674,7 +657,6 @@ function ScopeGroup({ scope, spaceName, items, includedStatuses, hiddenByQuery, 
   return (
     <section className={`capabilities-panel capabilities-scope-group scope-${scope}`} aria-labelledby={titleId}>
       <div className="capabilities-scope-heading">
-        <ScopeHierarchyGlyph scope={scope} />
         <div>
           <h3 id={titleId}>{personal ? "Everywhere" : "This folder only"}</h3>
           {!personal ? <p>{spaceName}</p> : null}
@@ -694,10 +676,8 @@ function ScopeGroup({ scope, spaceName, items, includedStatuses, hiddenByQuery, 
 }
 
 /** The work-fold agent above, folders below; filled pills show where a tool is available. */
-function ScopeHierarchyGlyph({ scope, size = "small" }: { scope: AgentCapabilityScope; size?: "small" | "large" }) {
+function ScopeHierarchyGlyph({ scope }: { scope: AgentCapabilityScope }) {
   const personal = scope === "global";
-  const width = size === "large" ? 150 : 104;
-  const height = size === "large" ? 60 : 42;
   const pill = (x: number, y: number, w: number, label: string, active: boolean, key: string) => (
     <g key={key} className={active ? "active" : "inactive"}>
       <rect x={x} y={y} width={w} height={18} rx={9} />
@@ -705,7 +685,7 @@ function ScopeHierarchyGlyph({ scope, size = "small" }: { scope: AgentCapability
     </g>
   );
   return (
-    <svg className={`capabilities-hierarchy-glyph ${size}`} viewBox="0 0 150 60" width={width} height={height} aria-hidden="true" focusable="false">
+    <svg className="capabilities-hierarchy-glyph large" viewBox="0 0 150 60" width={150} height={60} aria-hidden="true" focusable="false">
       <g className="links">
         <path d="M75 22 L75 30 L19 30 L19 38" />
         <path d="M75 22 L75 38" />
@@ -737,7 +717,7 @@ function ScopeChooser({ value, spaceName, disabled, onChange }: {
         {options.map((option) => (
           <label key={option.scope} className={`capabilities-scope-option${value === option.scope ? " active" : ""}`}>
             <input type="radio" name="capability-scope" value={option.scope} checked={value === option.scope} onChange={() => onChange(option.scope)} />
-            <ScopeHierarchyGlyph scope={option.scope} size="large" />
+            <ScopeHierarchyGlyph scope={option.scope} />
             <span className="capabilities-scope-option-copy"><strong>{option.title}</strong><span>{option.detail}</span></span>
           </label>
         ))}
@@ -790,17 +770,16 @@ function isCoreTool(tool: AgentTool): boolean {
 }
 
 function InstalledCapabilityCard({ item, readiness, onSelect }: { item: InstalledCapability; readiness?: IncludedToolStatus; onSelect: () => void }) {
-  const state = !item.enabled ? { label: "Turned off", tone: "", setup: false }
-    : ["error", "blocked", "missing"].includes(item.status) ? { label: statusLabel(item.status), tone: "error", setup: false }
-    : item.included ? includedToolReadiness(readiness)
-    : { label: statusLabel(item.status), tone: item.status === "loaded" ? "enabled" : "", setup: false };
-  const checkedAt = readiness && readiness.id !== "web" && readiness.state !== "unknown" && Number.isFinite(Date.parse(readiness.checkedAt))
-    ? `Checked ${new Date(readiness.checkedAt).toLocaleString()}` : undefined;
+  // The one button carries the state: "Set up" only for a known state that needs it.
+  const setup = item.enabled
+    && !["error", "blocked", "missing"].includes(item.status)
+    && Boolean(item.included)
+    && includedToolReadiness(readiness).setup;
   return (
     <article className="capabilities-resource-card">
       <CapabilityMonogram name={item.name} kind={item.kind} />
       <div className="capabilities-resource-copy"><div className="capabilities-resource-title"><strong>{item.name}</strong><span>{item.kind === "skill" ? "Skill" : "Extension"}</span></div>{item.description ? <p>{item.description}</p> : null}{item.kind === "extension" ? <small>{item.tools.length} tools · {item.commands.length} commands</small> : null}</div>
-      <div className="capabilities-resource-actions"><span className={`professional-status-badge ${state.tone}`} title={checkedAt}>{state.label}</span><button className="professional-button professional-button-secondary" type="button" onClick={onSelect}>{state.setup ? "Set up" : "Details"}</button></div>
+      <div className="capabilities-resource-actions"><button className={`professional-button ${setup ? "professional-button-primary" : "professional-button-secondary"}`} type="button" onClick={onSelect}>{setup ? "Set up" : "Details"}</button></div>
     </article>
   );
 }

@@ -3008,7 +3008,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Deleted ${kindLabel} ${terminalText(record.path)} in ${spaceLabel}.\n`
         + `It is in Recently deleted until ${terminalText(recovery.restoreBy)} because History could not keep a copy of `
         + `${uncovered.length} file${uncovered.length === 1 ? "" : "s"}: ${named}${more}.\n`
-        + `Put it back with 'trash restore --entry ${terminalText(recovery.entryId)}', or in Settings → Desktop → Recently deleted.\n`;
+        + `Put it back with 'trash restore --entry ${terminalText(recovery.entryId)}', or in Settings → Recently deleted.\n`;
     }
     case "files.mkdir":
       return `Created folder ${terminalText(record.path)} in ${spaceLabel}.\n`;

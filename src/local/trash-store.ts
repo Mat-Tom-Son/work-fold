@@ -93,6 +93,8 @@ export type WorkFoldTrashReason =
   | "files.delete"
   /** Deleting a work-fold agent Chat keeps its transcript recoverable. */
   | "management.chat.delete"
+  /** Deleting a Folder Chat keeps its portable transcript recoverable. */
+  | "chats.delete"
   | "spaces.delete"
   /** Removing a Development preview, which takes its namespace with it. */
   | "apps.remove"
@@ -268,7 +270,7 @@ export interface WorkFoldTrashPurgeResult {
 
 const TRASH_KINDS: readonly WorkFoldTrashKind[] = ["file", "folder", "space", "app-storage", "app-retained"];
 const TRASH_REASONS: readonly WorkFoldTrashReason[] = [
-  "files.delete", "management.chat.delete", "spaces.delete", "apps.remove", "apps.space.removed",
+  "files.delete", "management.chat.delete", "chats.delete", "spaces.delete", "apps.remove", "apps.space.removed",
   "apps.storage.clear", "apps.retained.purge", "apps.uninstall.purge",
 ];
 const UNCOVERED_REASONS: readonly WorkFoldTrashUncoveredPath["reason"][] = ["too_large", "unreadable", "symbolic_link", "excluded"];

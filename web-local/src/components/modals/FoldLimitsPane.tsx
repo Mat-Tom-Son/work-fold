@@ -15,7 +15,7 @@ import { api, errorText } from "../../lib/api";
 import { foldLimitsSettings } from "../../ui-contract";
 
 /**
- * Settings → Desktop → Limits (docs/receipts-not-gates.md, F19 principle 6:
+ * Settings → Automations → Limits (docs/receipts-not-gates.md, F19 principle 6:
  * bounds are visible and named). Every app and routing refusal names this
  * section, so this pane is where those phrases resolve.
  *
@@ -123,8 +123,9 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
   const requests = workFoldRequestLimits;
 
   return (
-    <section className="settings-section" aria-label={foldLimitsSettings.heading}>
-      <span className="settings-section-note">{foldLimitsSettings.frozenNote}</span>
+    <section className="settings-section" aria-labelledby="fold-limits-title">
+      <div className="settings-section-heading"><h3 id="fold-limits-title">{foldLimitsSettings.heading}</h3></div>
+      {foldLimitsSettings.frozenNote ? <span className="settings-section-note">{foldLimitsSettings.frozenNote}</span> : null}
 
       <h4 id="fold-limits-assistant-title">{foldLimitsSettings.assistantHeading}</h4>
       <LimitRows

@@ -75,9 +75,9 @@ Narrowed earlier decisions:
 
 ### The fold's authority surfaces
 
-- Settings exposes Web access and Shared pages directly. Settings → Desktop
-  contains Automations, Recently deleted (trash), and the remaining transport
-  and concurrency limits.
+- Settings exposes Web access and Shared pages directly. Settings → Automations
+  holds Automations and the remaining transport and concurrency limits, and
+  Settings → Recently deleted holds the trash.
 - The Needs-you surfaces (main window, popover, web client) render questions
   and due snoozes only. Decision cards, approve/deny controls, and the
   no-self-approval and Personal-scope-desktop-only rules are deleted.

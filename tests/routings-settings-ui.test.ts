@@ -24,8 +24,9 @@ test("General Settings includes Automations without introducing a builder", () =
   assert.match(settingsSource, /type FoldSettingsSection = "routings" \| "deleted" \| "limits";/);
   assert.match(settingsSource, /id: "web-access", label: "Web access"/);
   assert.match(settingsSource, /id: "shared-pages", label: "Shared pages"/);
-  assert.match(settingsSource, /"routings",\s*"Automations"/);
-  assert.match(settingsSource, /foldSection === "routings" \? <FoldRoutingsPane \/>/);
+  assert.match(settingsSource, /id: "automations", label: "Automations"/);
+  assert.match(settingsSource, /id: "recently-deleted", label: "Recently deleted"/);
+  assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<FoldRoutingsPane \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
   // The two residuals `routings show` prints are mirrored here, so both
   // surfaces tell a person the same thing (docs/fold-routings.md).

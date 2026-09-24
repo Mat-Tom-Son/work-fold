@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../../lib/keyboard";
+import { desktopShortcutKeyLabel, desktopShortcutKeySpokenName, desktopShortcutModifierKey } from "../../lib/keyboard";
 import { isMacOS } from "../../lib/platform";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import type { ShortcutGroup } from "../../types";
@@ -98,7 +98,7 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
               <div className="keyboard-shortcuts-list">
                 {group.rows.map((row) => (
                   <div className="keyboard-shortcut-row" key={`${group.title}:${row.keys.join("+")}:${row.action}`}>
-                    <span className="keyboard-shortcut-keys" aria-label={row.keys.join(" plus ")}>
+                    <span className="keyboard-shortcut-keys" aria-label={row.keys.map(desktopShortcutKeySpokenName).join(" plus ")}>
                       {row.keys.map((key) => <kbd key={key}>{desktopShortcutKeyLabel(key)}</kbd>)}
                     </span>
                     <span>{row.action}</span>

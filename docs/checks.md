@@ -317,7 +317,6 @@ signals. They never create or replace an enablement grant. **Turn on** grants
 manual run authority; it does not run the Check. Model trials disclose provider
 use and possible charges at the action boundary.
 
-The main-window glance links to the owning Space’s existing Checks tab.
 The compact fold popover has no separate Checks disclosure. Details and
 evidence remain in the Space work tab; neither navigation nor a status
 refresh starts an agent.

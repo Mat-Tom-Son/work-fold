@@ -2910,6 +2910,10 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const key = clientKey(space.id, conversationId);
     if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current Assistant turn to finish.");
     if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
+    // Hold the same fence a delete takes so a rename or snooze cannot land after
+    // the transcript has moved to Recently deleted and recreate a stray Chat.
+    state.compactingConversations.add(key);
+    try {
     const conversation = body.title !== undefined
       ? await renameConversation(space.spaceRoot, conversationId, body.title)
       : await updateConversationLifecycle(space.spaceRoot, conversationId, {
@@ -2918,6 +2922,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         });
     if (body.title !== undefined) state.clients.get(key)?.setSessionName(conversation.title);
     sendJson(res, { conversation });
+    } finally {
+      state.compactingConversations.delete(key);
+    }
+    return;
+  }
+  if (conversationMatch && method === "DELETE") {
+    const space = await getSpace(conversationMatch[1]);
+    const deleted = await runDesktopSettingsAct(state, "chats.delete", async (requestId) => {
+      const value = await deleteSpaceConversation(state, space, conversationMatch[2], { receiptId: requestId });
+      return { value, detail: `space ; conversation ; trash ` };
+    });
+    sendJson(res, { deleted: deleted.value });
     return;
   }
 
@@ -3421,7 +3437,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
-  // Settings → Desktop → Recently deleted (docs/receipts-not-gates.md, F20).
+  // Settings → Recently deleted (docs/receipts-not-gates.md, F20).
   // Listing is a plain read; restoring, removing one item, and changing how
   // long items are kept are journaled acts with the main-window surface, like
   // every other trusted-Settings mutation. Nothing here empties the store.
@@ -3446,7 +3462,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, updated.value);
     return;
   }
-  // Settings → Desktop → Limits: the one adjustable request setting (F28).
+  // Settings → Automations → Limits: the one adjustable request setting (F28).
   // Turning follow-up turns off changes nothing about what is recorded; it
   // only stops the host from bringing the results back as a turn.
   if (url.pathname === "/api/settings/requests" && method === "GET") {
@@ -4148,6 +4164,7 @@ async function restoreTrashEntry(
   }
   if (entry.kind === "space") return restoreTrashSpace(state, entry);
   if (isManagementConversationTrashEntry(entry)) return restoreManagementConversationTrashEntry(state, entry);
+  if (isSpaceConversationTrashEntry(entry)) return restoreSpaceConversationTrashEntry(state, entry);
   const space = await getSpace(entry.spaceId).catch(() => null);
   if (!space) {
     throw new WorkFoldCliError(
@@ -4188,6 +4205,52 @@ function isManagementConversationTrashEntry(entry: WorkFoldTrashEntry): boolean 
     && entry.reason === "management.chat.delete"
     && entry.spaceId === workFoldManagementScopeId
     && /^\.work-fold\/conversations\/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.jsonl$/.test(entry.originalPath);
+}
+
+function isSpaceConversationTrashEntry(entry: WorkFoldTrashEntry): boolean {
+  return entry.kind === "file"
+    && entry.reason === "chats.delete"
+    && entry.spaceId !== workFoldManagementScopeId
+    && /^\.work-fold\/conversations\/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.jsonl$/.test(entry.originalPath);
+}
+
+/**
+ * A Folder Chat goes back into its own Folder's `.work-fold/conversations/`
+ * under the same transcript name, or nowhere: work-fold never guesses another
+ * Folder, and never collision-renames a transcript into a different identity.
+ */
+async function restoreSpaceConversationTrashEntry(
+  state: LocalApiState,
+  entry: WorkFoldTrashEntry,
+): Promise<WorkFoldTrashRestoreResult> {
+  const space = await getSpace(entry.spaceId).catch(() => null);
+  if (!space) {
+    throw new WorkFoldCliError(
+      "conflict",
+      "The folder this Chat came from is no longer registered, so there is nowhere to put it back. Add that folder again first.",
+    );
+  }
+  const destination = resolve(space.spaceRoot, entry.originalPath);
+  if (!pathContainsPath(conversationsDir(space.spaceRoot), destination)) {
+    throw new WorkFoldCliError("failure", "This Chat recovery item has an invalid destination.");
+  }
+  if (existsSync(destination)) {
+    throw new WorkFoldCliError("conflict", "A Chat with this identity already exists. Remove that Chat before restoring this one.");
+  }
+  await mkdir(conversationsDir(space.spaceRoot), { recursive: true });
+  const restored = await state.trash.restoreTree(entry.id, { absolutePath: destination }).catch((error: unknown) => {
+    throw trashCliError(error);
+  });
+  publishControlHint(state, "spaces");
+  return {
+    kind: "file",
+    entryId: entry.id,
+    space: toActSpaceRef(space),
+    path: `.work-fold/conversations/${basename(restored.restoredPath)}`,
+    renamed: restored.renamed,
+    // `.work-fold/` is excluded from History capture, so there is no restore point.
+    safetyCheckpointId: null,
+  };
 }
 
 async function restoreManagementConversationTrashEntry(
@@ -4283,7 +4346,7 @@ async function restoreTrashAppData(
     throw new WorkFoldCliError(
       "conflict",
       `${view.note ?? "This app's data has no app to go back into."} `
-        + "Save a copy from Settings → Desktop → Recently deleted, or with 'trash restore --entry "
+        + "Save a copy from Settings → Recently deleted, or with 'trash restore --entry "
         + `${entry.id} --to <absolute-file-path>'.`,
     );
   }
@@ -8188,6 +8251,65 @@ async function deleteManagementConversation(
         sourcePath,
         spaceId: workFoldManagementScopeId,
         spaceName: "work-fold agent",
+        displayName: summary.title,
+        originalPath: relativePath,
+        receiptId: context.receiptId,
+      });
+    } catch (error) {
+      throw new WorkFoldCliError(
+        "failure",
+        `work-fold could not move this Chat to Recently deleted: ${errorMessage(error)}. Nothing was deleted.`,
+        { cause: error },
+      );
+    }
+    state.clients.delete(key);
+    return { conversationId, trash: { entryId: entry.id, restoreBy: entry.restoreBy } };
+  } finally {
+    state.compactingConversations.delete(key);
+  }
+}
+
+/**
+ * A Folder Chat's transcript is portable `.work-fold/` metadata, which History
+ * never captures, so deletion moves the exact validated transcript into
+ * Recently deleted. The Pi session stays in machine-local state, so a restored
+ * Chat resumes where it was. It deliberately never accepts a path.
+ */
+async function deleteSpaceConversation(
+  state: LocalApiState,
+  space: SpaceSummary,
+  conversationId: string,
+  context: { receiptId: string | null },
+): Promise<{ conversationId: string; trash: { entryId: string; restoreBy: string } }> {
+  const key = clientKey(space.id, conversationId);
+  if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current Assistant turn to finish.");
+  if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
+  // The same conflict fence compaction uses: a transcript move must not race
+  // a new turn, rename, lifecycle change, or real compaction.
+  state.compactingConversations.add(key);
+  try {
+    const summary = await readConversationSummary(space.spaceRoot, conversationId).catch((error) => {
+      throw badRequest(errorMessage(error));
+    });
+    if (!summary) throw notFound("Conversation not found.");
+    if (state.requests.list().some((request) =>
+      request.owner.spaceId === space.id
+      && request.owner.conversationId === conversationId
+      && !isWorkFoldRequestTerminalState(request.state))) {
+      throw httpError(409, "Finish or stop this Chat's outstanding work before deleting it.");
+    }
+    await state.clients.get(key)?.stop();
+    // `readConversationSummary` validated the id before this join.
+    const relativePath = `.work-fold/conversations/${conversationId}.jsonl`;
+    const sourcePath = join(conversationsDir(space.spaceRoot), `${conversationId}.jsonl`);
+    let entry: WorkFoldTrashEntry;
+    try {
+      entry = await state.trash.trashTree({
+        kind: "file",
+        reason: "chats.delete",
+        sourcePath,
+        spaceId: space.id,
+        spaceName: space.name,
         displayName: summary.title,
         originalPath: relativePath,
         receiptId: context.receiptId,

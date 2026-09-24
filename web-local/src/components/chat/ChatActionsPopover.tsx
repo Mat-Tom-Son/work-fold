@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Archive, Check, ChevronLeft, Clock3, Loader2, Pencil, RotateCcw } from "lucide-react";
+import { Archive, Check, ChevronLeft, Clock3, Loader2, Pencil, RotateCcw, Trash2 } from "lucide-react";
 
 import { chatDisplayTitle } from "../../lib/format";
 import {
@@ -16,6 +16,7 @@ export function ChatActionsPopover({
   state,
   onRename,
   onLifecycle,
+  onDelete,
   onClose,
 }: {
   state: ChatActionsState;
@@ -25,11 +26,13 @@ export function ChatActionsPopover({
     conversation: ConversationSummary,
     patch: { archived?: boolean; snoozedUntil?: string | null },
   ) => Promise<void>;
+  onDelete: (space: SpaceSummary, conversation: ConversationSummary) => Promise<void>;
   onClose: () => void;
 }) {
   const [view, setView] = useState<ActionView>("menu");
   const [title, setTitle] = useState(chatDisplayTitle({ serverTitle: state.conversation.title }));
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("Saving");
   const [error, setError] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -92,7 +95,12 @@ export function ChatActionsPopover({
     await runAction(() => onLifecycle(state.space, state.conversation, patch));
   }
 
-  async function runAction(action: () => Promise<void>): Promise<void> {
+  async function handleDelete(): Promise<void> {
+    await runAction(() => onDelete(state.space, state.conversation), "Deleting");
+  }
+
+  async function runAction(action: () => Promise<void>, label = "Saving"): Promise<void> {
+    setBusyLabel(label);
     setBusy(true);
     setError(null);
     try {
@@ -140,11 +148,10 @@ export function ChatActionsPopover({
           ) : lifecycleView !== "archived" ? (
             <button type="button" disabled={busy} onClick={() => setView("snooze")}>
               <Clock3 size={14} />
-              <span><strong>Snooze</strong></span>
+              <span><strong>Snooze</strong><small>Hide until a time you pick</small></span>
             </button>
           ) : null}
           <button
-            className={lifecycleView === "archived" ? "" : "danger"}
             type="button"
             disabled={busy}
             onClick={() => void handleLifecycle({ archived: lifecycleView !== "archived" })}
@@ -153,6 +160,10 @@ export function ChatActionsPopover({
             <span>
               <strong>{lifecycleView === "archived" ? "Restore to Active" : "Archive"}</strong>
             </span>
+          </button>
+          <button className="danger" type="button" disabled={busy} onClick={() => void handleDelete()}>
+            <Trash2 size={14} />
+            <span><strong>Delete</strong></span>
           </button>
         </div>
       ) : null}
@@ -205,7 +216,7 @@ export function ChatActionsPopover({
         </div>
       ) : null}
 
-      {busy ? <span className="chat-actions-progress"><Loader2 className="spin" size={13} />Saving</span> : null}
+      {busy ? <span className="chat-actions-progress"><Loader2 className="spin" size={13} />{busyLabel}</span> : null}
       {error ? <span className="chat-rename-error">{error}</span> : null}
       {lifecycleView === "snoozed" && state.conversation.snoozedUntil && view === "menu" ? (
         <span className="chat-actions-current-state">

@@ -6,10 +6,12 @@ import { maximumAppearanceImportBytes } from "../../lib/application-appearance-s
 import { typographyFontOptionsForPlatform } from "../../constants";
 import type { SpaceSummary } from "../../types";
 
-export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: {
+export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, interfaceExtra }: {
   appearance: ApplicationAppearanceController;
   space: SpaceSummary | null;
   onCustomizeSpace?: (spaceId: string) => void;
+  /** Extra rows at the end of the Interface section, such as the desktop close-button choice. */
+  interfaceExtra?: ReactNode;
 }) {
   const { preferences: p, store } = appearance;
   const [presetName, setPresetName] = useState("");
@@ -81,6 +83,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: 
       <Choice label="App font" value={p.font === "stable" && !fontOptions.some((option) => option.value === "stable") ? "default" : p.font} onChange={(font) => update({ font })} options={fontOptions.map((option) => [option.value, option.label])} />
       <Choice label="Text size" value={p.textSize} onChange={(textSize) => update({ textSize })} options={[["compact", "Compact · 14 px"], ["standard", "Standard · 15 px"], ["comfortable", "Comfortable · 16 px"], ["large", "Large · 18 px"]]} />
       <Choice label="List density" value={p.density} onChange={(density) => update({ density })} options={[["compact", "Compact"], ["standard", "Standard"], ["spacious", "Spacious"]]} />
+      {interfaceExtra}
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-reading-title">
       <h3 id="appearance-reading-title">Conversations</h3>

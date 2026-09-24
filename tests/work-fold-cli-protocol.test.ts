@@ -398,7 +398,7 @@ test("help collaborate's worked example parses through the real act parser", () 
   }
   // Bounds are visible where a person can change them, and a refusal names
   // the same place (docs/receipts-not-gates.md, principle 6).
-  assert.match(help, /Settings → Desktop →/);
+  assert.match(help, /Settings → (?:Automations|Recently deleted)/);
   assert.match(help, /Nothing waits on someone clicking something\./);
   assert.doesNotMatch(help, /\bcard\b|\bmode\b|sandboxed/i);
 });

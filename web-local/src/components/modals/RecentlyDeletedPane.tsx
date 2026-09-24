@@ -5,7 +5,7 @@ import { api, errorText } from "../../lib/api";
 import { recentlyDeletedSettings } from "../../ui-contract";
 
 /**
- * Settings → Desktop → Recently deleted (docs/receipts-not-gates.md, F20).
+ * Settings → Recently deleted (docs/receipts-not-gates.md, F20).
  * Nothing work-fold destroys is gone at the moment it happens: History covers
  * ordinary deletion, and whatever it could not keep a copy of waits here until
  * its time runs out. This pane lists what is waiting, puts an item back, saves
@@ -21,6 +21,7 @@ export interface RecentlyDeletedEntry {
   reason:
     | "files.delete"
     | "management.chat.delete"
+    | "chats.delete"
     | "spaces.delete"
     | "apps.remove"
     | "apps.space.removed"
@@ -126,6 +127,7 @@ export function FoldRecentlyDeletedPane() {
   async function restore(entry: RecentlyDeletedEntry): Promise<void> {
     await run(`restore-${entry.id}`, async () => {
       await api(`/api/settings/trash/${entry.id}/restore`, { method: "POST", body: {} });
+      window.dispatchEvent(new CustomEvent("work-fold:trash-restored", { detail: { entryId: entry.id, kind: entry.kind } }));
       return `${entry.name} is back`;
     });
   }
@@ -208,7 +210,7 @@ export function FoldRecentlyDeletedPane() {
                 <div>
                   <strong>{entry.name}</strong>
                   <small>
-                    {entry.reason === "management.chat.delete" ? "Chat" : kindLabels[entry.kind]} from {entry.spaceName ?? entry.spaceId} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
+                    {entry.reason === "management.chat.delete" || entry.reason === "chats.delete" ? "Chat" : kindLabels[entry.kind]} from {entry.spaceName ?? entry.spaceId} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
                   </small>
                   <small>
                     Deleted {new Date(entry.deletedAt).toLocaleString()} · Kept until {new Date(entry.restoreBy).toLocaleDateString()}
