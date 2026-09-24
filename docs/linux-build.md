@@ -221,6 +221,9 @@ the old app, verify with the new app, remove it, reinstall it and verify again.
 Passing one package tests same-version replacement and reinstall only; this is
 what ordinary CI can do without a retained previous candidate. Both cases leave
 the synthetic profile inside the container until the container is removed.
+The DEB harness installs local files through APT so the declared dependencies
+are resolved, including the desktop portal absent from the base build image.
+Using `dpkg --install` alone does not exercise that normal installation path.
 
 `scripts/linux-credentials-smoke.sh` runs as a non-root user in the disposable
 Ubuntu build container with `WORKFOLD_CONTAINER_INSTALL_TEST=1`. It creates a
@@ -241,12 +244,22 @@ after a cold app relaunch, and removal. That uses a real GDM password login and
 its unlocked GNOME Keyring with SELinux enforcing. Explicitly locking that
 synthetic keyring also verifies the native unlock dialog and successful startup
 after unlocking. Cancelling every repeated native prompt produces the app's
-unlock-and-restart error with the encrypted file unchanged. KWallet remains
-unqualified. The guest is an official
+unlock-and-restart error with the encrypted file unchanged. The guest is an official
 Cloud image plus distro GNOME packages, with no personal host resources shared.
 The installed 0.4.36 DEB also passes Settings entry, encrypted storage, cold
 relaunch and removal in the Ubuntu 26.04.1 GDM guest with AppArmor unchanged.
 Its native keyring cancellation dialog has not been separately qualified.
+
+An additional private Fedora 44/KWin fixture verifies the packaged 0.4.40
+credential stores with Plasma 6.7.5 and KWallet 6.30.0. Electron automatically
+selects `kwallet6`. Both stores pass encrypted persistence, a cold wallet-daemon
+restart with the native Qt unlock dialog, corrupt-file preservation, rejection
+of `basic_text`, and rejection when the private bus is unavailable. Locking the
+actual wallet and cancelling its native unlock dialog rejects reads and writes
+without replacing either encrypted file; unlocking permits a subsequent read.
+This uses synthetic credentials and the pinned development Electron host.
+It does not qualify the installed KDE Settings flow, KDE upgrades, or KDE
+Wayland sharing. The existing GNOME container command above remains unchanged.
 
 The optional check below creates a disposable GTK editor, targets only its own
 process, edits text through AT-SPI, presses Save and reads back the exact bytes.
