@@ -16,6 +16,7 @@ test("native file menus use host-owned labels and a bounded command set", () => 
   assert.deepEqual(request.point, { x: 24, y: 42 });
   assert.deepEqual(nativeFileMenuItems(request), [
     { type: "item", label: "Open in Excel", command: "open" },
+    { type: "item", label: "Open With", command: "open-with" },
     { type: "item", label: "Show in Finder", command: "reveal" },
     { type: "item", label: "Copy File Path", command: "copy-path" },
     { type: "item", label: "Attach to Chat", command: "attach-chat" },

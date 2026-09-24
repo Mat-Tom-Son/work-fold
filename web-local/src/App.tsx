@@ -915,7 +915,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
             tabs.openFileSurfaceTab(space, entry.path);
             await openLocalPath(entry.path, nativeOpenLabel(entry).office ? "open-native" : "open");
           } else await openLocalPath(entry.path, "open");
-        } else if (command === "reveal") await openLocalPath(entry.path, "reveal");
+        } else if (command === "open-with") await openLocalPath(entry.path, "open-with");
+        else if (command === "reveal") await openLocalPath(entry.path, "reveal");
         else if (command === "copy-path") await copyPath(entry.path);
         else if (command === "attach-chat") attachToChat(entry.path);
         else if (command === "version-history") openVersionHistory(space, entry.path);
@@ -925,7 +926,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
       } catch (caught) { onError(errorText(caught)); }
       return;
     }
-    setFileContextMenu({ entry, x: Math.min(point.x, window.innerWidth - 250), y: Math.min(point.y, window.innerHeight - 390), returnFocusTarget });
+    setFileContextMenu({ entry, x: Math.min(point.x, window.innerWidth - 250), y: Math.min(point.y, window.innerHeight - 420), returnFocusTarget });
   }
   function openRootContextMenu(event: React.MouseEvent<HTMLElement>) { if ((event.target as HTMLElement).closest("[data-tree-row]")) return; openContextMenu({ name: space.name, path: "", kind: "folder" }, event); }
 
@@ -1030,12 +1031,22 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     showHistorySaved(`Renamed ${renameEntryRequest.name}`);
   }
 
-  async function openLocalPath(path: string, action: "reveal" | "open" | "open-native", targetSpace = space) {
+  async function openLocalPath(path: string, action: "reveal" | "open" | "open-native" | "open-with", targetSpace = space) {
     if (fixture) { showToast({ text: "Opening files is disabled in the preview", tone: "info" }); return; }
     const desktop = window.workFoldDesktop;
-    try { if (!path) await desktop?.space.revealFolder?.(targetSpace.id); else if (desktop?.space.openPath) await desktop.space.openPath(targetSpace.id, path, action); else await desktop?.space.revealFolder?.(targetSpace.id); }
-    catch (caught) { onError(errorText(caught)); }
+    try {
+      if (action === "open-with") {
+        const openPathWith = desktop?.space.openPathWith;
+        if (!path || !openPathWith) return;
+        const result = await openPathWith(targetSpace.id, path);
+        if (result.opened && result.appName) showToast({ text: `Opened in ${result.appName}`, tone: "success" });
+        return;
+      }
+      if (!path) await desktop?.space.revealFolder?.(targetSpace.id); else if (desktop?.space.openPath) await desktop.space.openPath(targetSpace.id, path, action); else await desktop?.space.revealFolder?.(targetSpace.id);
+    }
+    catch (caught) { onError(errorText(caught).replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "")); }
   }
+  const canOpenWith = !fixture && typeof window.workFoldDesktop?.space.openPathWith === "function";
   function openVersionHistory(targetSpace: SpaceSummary, path: string) {
     if (fixture) { showToast({ text: "Version history is disabled in the preview", tone: "info" }); return; }
     setVersionHistory({ space: targetSpace, path, name: path.split("/").pop() ?? path });
@@ -1383,7 +1394,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
         return (
           <div className="space-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={spaceIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
-              <FileDetailsPane space={targetSpace} path={tab.path} entry={targetSpace.id === space.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetSpace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetSpace, path)} onRename={targetSpace.id === space.id ? renameEntry : undefined} />
+              <FileDetailsPane space={targetSpace} path={tab.path} entry={targetSpace.id === space.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetSpace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetSpace, path)} onRename={targetSpace.id === space.id ? renameEntry : undefined} canOpenWith={canOpenWith} />
             ) : tab.kind === "library" ? (
               <LibraryPane
                 space={targetSpace}
@@ -1497,7 +1508,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
         );
       }) : <SpaceSurfaceEmptyState space={space} identity={identity} onNewChat={() => openChat(space, null)} />}
     </aside>
-    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onClose={() => setFileContextMenu(null)} /> : null}
+    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onClose={() => setFileContextMenu(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
     {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onClose={() => setChatActions(null)} /> : null}
     {versionHistory ? <FileVersionHistoryModal space={versionHistory.space} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}

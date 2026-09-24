@@ -11,7 +11,7 @@ function nativeOpenLabel(entry: TreeEntry, platform: DesktopPlatform = desktopPl
   if ([".docx", ".dotx"].includes(extension)) return { text: "Open in Word", office: true };
   if ([".xlsx", ".csv"].includes(extension)) return { text: "Open in Excel", office: true };
   if ([".pptx", ".potx"].includes(extension)) return { text: "Open in PowerPoint", office: true };
-  return { text: "Open in default app", office: false };
+  return { text: "Open", office: false };
 }
 
 function canOpenDirectly(path: string): boolean {

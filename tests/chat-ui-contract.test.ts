@@ -56,7 +56,8 @@ test("the file tab previews bounded text, images, and PDFs inline through Space-
   return pane.then((source) => {
     assert.match(source, /file-preview\?path=/);
     assert.match(source, /spaceRawFileObjectUrl\(space\.id, path, controller\.signal\)/);
-    assert.match(source, /<iframe title=\{fileName\} src=\{objectUrl\} \/>/);
+    assert.match(source, /<iframe title=\{fileName\} src=\{`\$\{objectUrl\}\$\{pdfViewerParameters\}`\} \/>/);
+    assert.match(source, /const pdfViewerParameters = "#toolbar=0&navpanes=0&view=FitH";/);
     assert.match(source, /<MarkdownMessage content=\{preview\.content\} \/>/);
     assert.match(source, /className="file-preview-text"/);
     assert.match(source, /Preview stops at 256 KB\./);

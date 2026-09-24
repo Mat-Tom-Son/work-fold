@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CirclePlus, ExternalLink, FolderOpen, History, Loader2, PencilLine } from "lucide-react";
+import { AppWindow, CirclePlus, ExternalLink, FolderOpen, History, Loader2, PencilLine } from "lucide-react";
 import { api, errorText } from "../../lib/api";
 import { spaceRawFileObjectUrl } from "../../lib/raw-file";
 import { nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
@@ -10,14 +10,18 @@ import { EmptyInline } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
 import { MarkdownMessage } from "../chat/messages";
 
+// Chromium's PDF viewer: no toolbar, no thumbnail pane, fit to width.
+const pdfViewerParameters = "#toolbar=0&navpanes=0&view=FitH";
+
 type FilePreview = { kind: "text" | "image" | "pdf" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number };
 
-export function FileDetailsPane({ space, path, entry, fixtureMode = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename }: {
+export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename }: {
   space: SpaceSummary;
   path: string;
   entry: TreeEntry | null;
   fixtureMode?: boolean;
-  onOpenLocal: (path: string, action: "reveal" | "open" | "open-native") => void | Promise<void>;
+  canOpenWith?: boolean;
+  onOpenLocal: (path: string, action: "reveal" | "open" | "open-native" | "open-with") => void | Promise<void>;
   onAddToChatContext: (path: string) => void;
   onShowVersionHistory: (path: string) => void;
   onRename?: (path: string) => void;
@@ -92,27 +96,31 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, onOpe
     modifiedAt ? `Modified ${formatDateTime(modifiedAt)}` : null,
   ].filter(Boolean).join(" · ");
   const markdown = [".md", ".markdown"].includes(fileExtension(path));
+  const revealLabel = revealInFileManagerLabel();
   if (missing) return <section className="file-details-pane file-details-empty"><EmptyInline text="This file is no longer in the Space" /></section>;
   return (
     <section className="file-details-pane" aria-label={`File details for ${fileName}`}>
       <header className="file-details-header">
-        <span className="file-details-icon" aria-hidden="true"><FileTypeIcon path={path} /></span>
-        <div className="file-details-title">
-          <h2 title={path}>{fileName}</h2>
-          <p className="file-details-meta-line">
-            {loading && !info && !entry ? <><Loader2 className="spin" size={12} />Loading</> : metaLine}
-          </p>
+        <div className="file-details-identity">
+          <span className="file-details-icon" aria-hidden="true"><FileTypeIcon path={path} /></span>
+          <div className="file-details-title">
+            <h2 title={path}>{fileName}</h2>
+            <p className="file-details-meta-line">
+              {loading && !info && !entry ? <><Loader2 className="spin" size={12} />Loading</> : metaLine}
+            </p>
+          </div>
+        </div>
+        <div className="file-details-actions">
+          <button className="primary-button compact no-margin" type="button" onClick={() => void onOpenLocal(path, openLabel.office ? "open-native" : "open")}><ExternalLink size={14} />{openLabel.text}</button>
+          {canOpenWith ? <button className="secondary-button compact no-margin" type="button" onClick={() => void onOpenLocal(path, "open-with")}><AppWindow size={14} />Open with</button> : null}
+          <button className="minimal-icon-button" type="button" title={revealLabel} aria-label={revealLabel} onClick={() => void onOpenLocal(path, "reveal")}><FolderOpen size={15} /></button>
+          <button className="minimal-icon-button" type="button" title="Attach to chat" aria-label="Attach to chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={15} /></button>
+          <button className="minimal-icon-button" type="button" title="Version history" aria-label="Version history" onClick={() => onShowVersionHistory(path)}><History size={15} /></button>
+          {onRename ? <button className="minimal-icon-button" type="button" title="Rename" aria-label="Rename" onClick={() => onRename(path)}><PencilLine size={15} /></button> : null}
         </div>
       </header>
-      <div className="file-details-actions">
-        <button className="primary-button compact no-margin" type="button" onClick={() => void onOpenLocal(path, openLabel.office ? "open-native" : "open")}><ExternalLink size={14} />{openLabel.text}</button>
-        <button className="secondary-button compact no-margin" type="button" onClick={() => void onOpenLocal(path, "reveal")}><FolderOpen size={14} />{revealInFileManagerLabel()}</button>
-        <button className="secondary-button compact no-margin" type="button" onClick={() => onAddToChatContext(path)}><CirclePlus size={14} />Attach to chat</button>
-        <button className="secondary-button compact no-margin" type="button" onClick={() => onShowVersionHistory(path)}><History size={14} />Version history</button>
-        {onRename ? <button className="secondary-button compact no-margin" type="button" onClick={() => onRename(path)}><PencilLine size={14} />Rename</button> : null}
-      </div>
       {preview?.kind === "text" && preview.content ? (
-        <div className="file-preview">
+        <div className={markdown ? "file-preview file-preview-document" : "file-preview file-preview-code"}>
           {markdown
             ? <div className="file-preview-markdown"><MarkdownMessage content={preview.content} /></div>
             : <pre className="file-preview-text">{preview.content}</pre>}
@@ -120,13 +128,13 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, onOpe
         </div>
       ) : null}
       {preview?.kind === "image" && objectUrl ? (
-        <div className="file-preview">
+        <div className="file-preview file-preview-media">
           <img className="file-preview-image" src={objectUrl} alt={fileName} />
         </div>
       ) : null}
       {preview?.kind === "pdf" && objectUrl ? (
         <div className="file-preview file-preview-pdf">
-          <iframe title={fileName} src={objectUrl} />
+          <iframe title={fileName} src={`${objectUrl}${pdfViewerParameters}`} />
         </div>
       ) : null}
       {preview === null || preview?.kind === "none" || (preview?.kind === "text" && !preview.content) ? (
