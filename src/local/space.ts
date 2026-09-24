@@ -113,6 +113,8 @@ export interface ManagedSpaceRootIdentity {
   managedBaseRealPath: string;
   device: string;
   inode: string;
+  /** Distinguishes recycled inode numbers; absent on older records/filesystems. */
+  birthtimeNs?: string;
 }
 
 export interface SpaceRemovalResult {
@@ -468,7 +470,7 @@ export async function managedSpaceDeletionPinIssue(
 
 export async function spaceRemovalPendingResult(
   intent: Pick<SpaceRemovalIntent,
-    "transactionId" | "spaceRoot" | "storage" | "managedBase" | "managedRootIdentity" | "managedRootClaimed" | "folderDisposition">,
+    "transactionId" | "spaceId" | "spaceRoot" | "storage" | "managedBase" | "managedRootIdentity" | "managedRootClaimed" | "folderDisposition">,
 ): Promise<SpaceRemovalResult> {
   const deletes = intent.storage === "managed" && intent.folderDisposition !== "preserve";
   const rootStatus = deletes ? await managedRootStatus(intent) : "mismatch";
@@ -1023,7 +1025,8 @@ async function captureManagedRootIdentity(spaceRoot: string, managedBase: string
   const [realPath, managedBaseRealPath] = await Promise.all([realpath(spaceRoot), realpath(managedBase)]);
   const confirmedInfo = await lstat(spaceRoot, { bigint: true });
   if (!confirmedInfo.isDirectory() || confirmedInfo.isSymbolicLink()
-    || confirmedInfo.dev !== initialInfo.dev || confirmedInfo.ino !== initialInfo.ino) {
+    || confirmedInfo.dev !== initialInfo.dev || confirmedInfo.ino !== initialInfo.ino
+    || confirmedInfo.birthtimeNs !== initialInfo.birthtimeNs) {
     throw new Error("The managed Space root changed while its removal identity was being recorded.");
   }
   if (samePath(realPath, managedBaseRealPath) || !pathContains(managedBaseRealPath, realPath)) {
@@ -1034,13 +1037,21 @@ async function captureManagedRootIdentity(spaceRoot: string, managedBase: string
     managedBaseRealPath: resolve(managedBaseRealPath),
     device: confirmedInfo.dev.toString(10),
     inode: confirmedInfo.ino.toString(10),
+    ...(confirmedInfo.birthtimeNs > 0n ? { birthtimeNs: confirmedInfo.birthtimeNs.toString(10) } : {}),
   };
 }
 
 async function managedRootStatus(
-  intent: Pick<SpaceRemovalIntent, "spaceRoot" | "storage" | "managedBase" | "managedRootIdentity">,
+  intent: Pick<SpaceRemovalIntent, "spaceId" | "spaceRoot" | "storage" | "managedBase" | "managedRootIdentity">,
 ): Promise<ManagedRootStatus> {
-  return managedDirectoryStatus(intent, intent.spaceRoot, intent.managedRootIdentity?.realPath ?? intent.spaceRoot);
+  const status = await managedDirectoryStatus(intent, intent.spaceRoot, intent.managedRootIdentity?.realPath ?? intent.spaceRoot);
+  // Old intents lack a creation-time pin. A reused inode at the public path
+  // must not let a metadata-free/different Folder inherit the removal claim.
+  // Claimed trees may be partly removed, so this fallback applies only before
+  // reclaiming the original path, never to partial cleanup at the claim path.
+  if (status === "matching" && !intent.managedRootIdentity?.birthtimeNs
+    && (await readExistingSpaceManifest(intent.spaceRoot))?.id !== intent.spaceId) return "mismatch";
+  return status;
 }
 
 async function managedClaimStatus(
@@ -1078,6 +1089,7 @@ async function managedDirectoryStatus(
   }
   return info.dev.toString(10) === intent.managedRootIdentity.device
     && info.ino.toString(10) === intent.managedRootIdentity.inode
+    && (!intent.managedRootIdentity.birthtimeNs || info.birthtimeNs.toString(10) === intent.managedRootIdentity.birthtimeNs)
     && samePath(currentRealPath, expectedRealPath)
     && samePath(currentManagedBaseRealPath, intent.managedRootIdentity.managedBaseRealPath)
     ? "matching"
@@ -1688,11 +1700,14 @@ function managedRootIdentity(value: unknown): ManagedSpaceRootIdentity {
   }
   const item = value as Partial<ManagedSpaceRootIdentity>;
   const keys = Object.keys(value).sort();
-  if (keys.join("\0") !== ["device", "inode", "managedBaseRealPath", "realPath"].sort().join("\0")
+  const expectedKeys = ["device", "inode", "managedBaseRealPath", "realPath",
+    ...(Object.hasOwn(item, "birthtimeNs") ? ["birthtimeNs"] : [])].sort();
+  if (keys.join("\0") !== expectedKeys.join("\0")
     || typeof item.realPath !== "string" || !isAbsolute(item.realPath)
     || typeof item.managedBaseRealPath !== "string" || !isAbsolute(item.managedBaseRealPath)
     || typeof item.device !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(item.device)
-    || typeof item.inode !== "string" || !/^[1-9][0-9]*$/.test(item.inode)) {
+    || typeof item.inode !== "string" || !/^[1-9][0-9]*$/.test(item.inode)
+    || (Object.hasOwn(item, "birthtimeNs") && (typeof item.birthtimeNs !== "string" || !/^[1-9][0-9]*$/.test(item.birthtimeNs)))) {
     throw new Error("Managed Space removal intent has an invalid root identity.");
   }
   return {
@@ -1700,6 +1715,7 @@ function managedRootIdentity(value: unknown): ManagedSpaceRootIdentity {
     managedBaseRealPath: resolve(item.managedBaseRealPath),
     device: item.device,
     inode: item.inode,
+    ...(item.birthtimeNs !== undefined ? { birthtimeNs: item.birthtimeNs } : {}),
   };
 }
 

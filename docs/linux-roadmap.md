@@ -809,3 +809,19 @@ packaged-app/UI acceptance, unresolved Chrome feedback, the unqualified native
 desktop matrix, and source-bound production distribution. Preserve the test
 failures and limits; a private GNOME test or test-key signature does not qualify
 an untested physical desktop or public channel.
+
+The .40 local candidate completes DEB/RPM/AppImage and source/SBOM verification,
+then passes signed APT/DNF .38→.40 upgrade/remove/reinstall, profile and encrypted
+credential preservation, and tamper rejection. Both installed GNOME guests pass
+Pinyin preedit, exact saved Chinese bytes, and the Worker composer's composition
+confirmation without sending. The first Ubuntu attempt reports a bounded frame
+timeout; the fresh grant on the next attempt passes, so that diagnostic is retained.
+Remote .40 CI passes every Mac job but exposes inode reuse during a Folder-removal
+recovery test on Linux, before packaging. New intents now pin the directory's
+creation timestamp as well as device/inode, and older records recheck portable
+Folder identity before reclaiming a path. Deterministic regressions model inode
+reuse with both current and older records, including a replacement with copied
+portable metadata. The next source candidate is .41; .40 artifacts stay immutable.
+The focused removal suites pass 38 tests after the fix, and the full local suite
+passes 1,563 tests with eight explicit environment skips. Repository and TypeScript
+checks pass. The unrelated working-tree DMG image remains untouched.
