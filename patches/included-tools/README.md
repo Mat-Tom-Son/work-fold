@@ -55,6 +55,14 @@ results, session-owned cleanup, unknown-effect cancellation and no replay remain
 the upstream tool path. See [distribution](../../docs/chrome-extension-distribution.md)
 and the package's maintained `docs/EMBEDDED-HOST.md` for the additive interface.
 
+Creating a new Chrome tab group pins `createProperties.windowId` to the target
+tab's existing window. Chrome otherwise uses the current window and moves the
+tab, breaking the owned-window invariant and stalling background capture on
+Linux. The upstream automation-target fixture models that documented default;
+its regression fails with the old grouping call. The companion candidate uses
+the existing CDP screenshot path without activating the target or substituting
+an image of the user's active tab.
+
 ## MCP 2.33.0
 
 The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.

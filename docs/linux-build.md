@@ -176,7 +176,11 @@ behavior.
   evaluation, two-Chat ownership, disconnect and browser/native-host restart
   tests in disposable profiles. Ordinary Store installation through Add to Chrome
   and the native confirmation, plus explicit foreground image feedback, also pass.
-  Its background screenshot command still times out. The
+  Its background screenshot command still times out. The unpublished 1.0.1
+  candidate fixes implicit tab movement during grouping and passes unfocused
+  target-pixel capture plus the connection/ownership/restart flow on Chrome for
+  Testing 154 Stable (X11 and GNOME Wayland) and 155 Beta (X11). The approved
+  Store update must still be installed and qualified before public release. The
   listing still describes Mac support. Chromium, Flatpak and Snap browser
   registration paths are not claimed by this lane.
 

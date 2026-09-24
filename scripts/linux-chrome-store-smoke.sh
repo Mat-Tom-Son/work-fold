@@ -5,7 +5,7 @@ test -f /run/.containerenv || test -f /.dockerenv
 test "${WORKFOLD_CONTAINER_CHROME_TEST:-}" = 1
 test "$(id -u)" = 0
 mkdir -p /etc/opt/chrome/policies/managed
-if [[ "${WORKFOLD_CHROME_STORE_UI:-}" != 1 ]]; then
+if [[ "${WORKFOLD_CHROME_STORE_UI:-}" != 1 && -z "${WORKFOLD_CHROME_CANDIDATE_ZIP:-}" ]]; then
 node --input-type=module <<'JS'
 import { readFileSync, writeFileSync } from 'node:fs';
 const { storeId } = JSON.parse(readFileSync('/work/src/shared/chrome-distribution.json', 'utf8'));

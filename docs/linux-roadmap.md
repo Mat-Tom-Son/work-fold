@@ -192,6 +192,17 @@ connection, explicit foreground capture and restart tests on .38. Background
 capture fails on both, so both full Chrome harnesses remain red; Beta is
 diagnostic coverage rather than the supported release channel.
 
+The later 1.0.1 companion candidate resolves a reproduced grouping defect:
+`chrome.tabs.group` defaults new groups to the current window, moving the
+unfocused automation tab away from its owned window. Pinning the new group's
+window preserves its target and restores capture without activation. The
+reviewed patch now models Chrome's actual grouping default in the regression
+fixture. The local candidate passes real native connection, correct background
+pixels, explicit foreground capture, two-Chat ownership, cleanup and browser/host
+restart on Chrome for Testing 154.0.8037.57 Stable (X11 and private GNOME Wayland)
+and 155.0.8059.12 Beta (X11). This advances the source fix; the public 1.0.0 Store
+bytes and their failed acceptance remain unchanged until an approved update.
+
 The follow-up native input audit adds AltGr/level-three and level-five chords
 through libxkbcommon's actual key state. German `@`, `€`, braces, brackets,
 backslash, pipe and tilde now pass exact GTK saved-byte checks on both private

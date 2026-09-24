@@ -5,7 +5,7 @@
     "source": "https://github.com/tianrendong/pi-chrome/tree/4811ee616d2bbd5ead669a7e2f33a0bb14bd43ef",
     "license": "MIT",
     "patch": "pi-chrome-0.15.51.patch",
-    "sha256": "07076c9ad3e481fd7ef7d0794bfa528cb8456b5e98df78263e5116aadfcf1798",
+    "sha256": "f1b667807f49db56c85dc32e869a3efeb60193013a44a5549e28487aa121c081",
     "files": [
       {
         "path": "docs/EMBEDDED-HOST.md",
@@ -25,7 +25,7 @@
       {
         "path": "extensions/chrome-profile-bridge/browser-extension/service_worker.js",
         "before": "ac1e346d88aaa684d1998b17f899c4b50077d27f01eeb1a3393649013643ee3f",
-        "after": "85c967f7c891675fb5e4ba37499aa4c4c7de1e22dd4bfe4dff19081e39e76d31"
+        "after": "fc2feb0aeab7d909b6ac7a34da64b39ee582cdc32307e367accef36d78eed6f2"
       },
       {
         "path": "extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js",
@@ -61,6 +61,11 @@
         "path": "test-suite/unit/session-cleanup.test.mjs",
         "before": "a19b3d47dfbb7415c973132017bc36d79a859373a561de6cb62080af797ccc87",
         "after": "2bf7a4749c8aaabf69cba450a905f96582c84a50b6e418c664e2a193e4db2702"
+      },
+      {
+        "path": "test-suite/unit/automation-target.test.mjs",
+        "before": "6b98cf840307a77f932034d0ae9cd74387aae7a5f767135a586fed66c17b5678",
+        "after": "bb510546d2646982d44a67aff45720dbcebe6b3f415d7b146e8e92f578e08403"
       }
     ]
   },

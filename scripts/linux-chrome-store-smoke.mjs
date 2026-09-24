@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -9,6 +9,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createJiti } from "jiti";
 import puppeteer from "puppeteer-core";
+import { createHash } from "node:crypto";
+import JSZip from "jszip";
+import sharp from "sharp";
 
 // Real Store bytes, browser APIs, packaged Rust host and native Pi tools. The
 // default managed-install lane replaces interactive Store enrollment. The
@@ -23,8 +26,30 @@ const browserRoot = join(root, "browser");
 const distribution = JSON.parse(await readFile(new URL("../src/shared/chrome-distribution.json", import.meta.url), "utf8"));
 const packageRoot = resolve(process.argv[2] ?? "out/linux/linux-unpacked");
 const storeUi = process.env.WORKFOLD_CHROME_STORE_UI === "1";
+const candidateZip = process.env.WORKFOLD_CHROME_CANDIDATE_ZIP;
+assert.ok(!(storeUi && candidateZip), "Choose Store enrollment or a local candidate, not both");
+let candidateDirectory;
+if (candidateZip) {
+  const bytes = await readFile(candidateZip);
+  const evidence = JSON.parse(await readFile(`${candidateZip}.json`, "utf8"));
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), evidence.sha256);
+  assert.equal(evidence.storeId, distribution.storeId);
+  assert.equal(evidence.extensionVersion, distribution.extensionVersion);
+  candidateDirectory = join(root, "candidate");
+  const zip = await JSZip.loadAsync(bytes);
+  for (const file of evidence.files) {
+    assert.match(file.path, /^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/);
+    assert.ok(!file.path.split("/").includes(".."));
+    const content = await zip.file(file.path).async("nodebuffer");
+    assert.equal(createHash("sha256").update(content).digest("hex"), file.sha256);
+    const target = join(candidateDirectory, file.path);
+    await mkdir(resolve(target, ".."), { recursive: true });
+    await writeFile(target, content);
+  }
+  console.log(`Testing local companion candidate ${evidence.extensionVersion}; this is not Store acceptance`);
+}
 const policyText = await readFile("/etc/opt/chrome/policies/managed/workfold-test.json", "utf8").catch(error => { if (error.code !== "ENOENT") throw error; return null; });
-if (storeUi) assert.equal(policyText, null, "Ordinary Store enrollment must not have a managed install policy");
+if (storeUi || candidateZip) assert.equal(policyText, null, "Ordinary Store enrollment and local candidates must not have a managed install policy");
 else assert.deepEqual(JSON.parse(policyText).ExtensionInstallForcelist, [`${distribution.storeId};https://clients2.google.com/service/update2/crx`]);
 process.env.PI_CODING_AGENT_DIR = join(root, "agent");
 delete process.env.PI_CHROME_BRIDGE_PORT; // Published worker uses its documented port.
@@ -42,7 +67,8 @@ const sessions = [];
 const failures = [];
 const web = createServer((request, response) => {
   response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-  response.end(`<!doctype html><html><title>work-fold isolated Chrome acceptance</title><body><h1>Browser acceptance fixture</h1><p id="marker">synthetic content only</p><input aria-label="Fixture text"><button onclick="document.querySelector('#marker').textContent='clicked'">Apply</button><p>${request.url === "/user-tab" ? "Ordinary user tab must survive" : "Worker-owned test tab"}</p></body></html>`);
+  const color = request.url === "/worker-a" ? "rgb(30,180,75)" : "rgb(180,30,75)";
+  response.end(`<!doctype html><html><title>work-fold isolated Chrome acceptance</title><body style="background:${color}"><h1>Browser acceptance fixture</h1><p id="marker">synthetic content only</p><input aria-label="Fixture text"><button onclick="document.querySelector('#marker').textContent='clicked'">Apply</button><p>${request.url === "/user-tab" ? "Ordinary user tab must survive" : "Worker-owned test tab"}</p></body></html>`);
 });
 await new Promise(resolve => web.listen(0, "127.0.0.1", resolve));
 const url = `http://127.0.0.1:${web.address().port}`;
@@ -62,7 +88,7 @@ async function connected() {
   assert.equal((await service.check()).state, "connected");
 }
 async function launch() {
-  browser = await puppeteer.launch({ executablePath: "/opt/google/chrome/chrome", headless: false, userDataDir: browserRoot, defaultViewport: null,
+  browser = await puppeteer.launch({ executablePath: process.env.WORKFOLD_TEST_CHROME || "/opt/google/chrome/chrome", headless: false, userDataDir: browserRoot, defaultViewport: null,
     env: { ...process.env, GTK_MODULES: "atk-bridge", NO_AT_BRIDGE: "0", ACCESSIBILITY_ENABLED: "1" },
     // Keep normal browser scheduling, extensions and rendering. Puppeteer's
     // broad automation defaults change the background behavior being tested.
@@ -70,7 +96,8 @@ async function launch() {
     // Explicitly restore the fixture's tabs on browser restart. Normal Chrome
     // startup preferences are independent of work-fold's owned-tab cleanup.
     args: [`--user-data-dir=${browserRoot}`, "--restore-last-session", "--window-size=1440,1000", "--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage", "--password-store=basic", "--force-renderer-accessibility",
-      ...(process.env.WORKFOLD_CHROME_WAYLAND === "1" ? ["--ozone-platform=wayland"] : []), "about:blank"], timeout: 60_000 });
+      ...(process.env.WORKFOLD_CHROME_WAYLAND === "1" ? ["--ozone-platform=wayland"] : []),
+      ...(candidateDirectory ? [`--load-extension=${candidateDirectory}`] : []), "about:blank"], timeout: 60_000 });
   assert.ok(!browser.process().spawnargs.includes("--no-sandbox"));
   assert.ok(browser.process().spawnargs.includes(`--user-data-dir=${browserRoot}`));
   browserEndpoint = browser.wsEndpoint(); browserProcess = browser.process();
@@ -142,7 +169,7 @@ try {
   // Store-installed manifest, then open its ordinary UI to wake it.
   const extensionRoot = join(browserRoot, "Default/Extensions", distribution.storeId);
   const installDeadline = Date.now() + 180_000;
-  let installed;
+  let installed = candidateDirectory ? JSON.parse(await readFile(join(candidateDirectory, "manifest.json"), "utf8")) : undefined;
   while (!installed) {
     const versions = await readdir(extensionRoot).catch(error => { if (error.code !== "ENOENT") throw error; return []; });
     if (versions.length === 1) installed = JSON.parse(await readFile(join(extensionRoot, versions[0], "manifest.json"), "utf8"));
@@ -150,7 +177,7 @@ try {
     if (!installed) await delay(200);
   }
   assert.equal(installed.key, distribution.publicKey);
-  assert.equal(installed.update_url, "https://clients2.google.com/service/update2/crx");
+  if (!candidateDirectory) assert.equal(installed.update_url, "https://clients2.google.com/service/update2/crx");
   const setup = await popup();
   await setup.bringToFront();
   await setup.waitForFunction(() => Array.from(document.querySelectorAll("button")).some(button => button.textContent.trim() === "Connect"), { polling: 100 });
@@ -161,7 +188,7 @@ try {
   await connected();
   const installedVersion = service.status().extensionVersion;
   assert.equal(installedVersion, distribution.extensionVersion, "Requalify changed published Store bytes before using this evidence");
-  console.log(`PASS published Store ${distribution.storeId} ${installedVersion}: actual native messaging bootstrap and authenticated HTTP connection`);
+  console.log(`PASS ${candidateDirectory ? "local candidate" : "published Store"} ${distribution.storeId} ${installedVersion}: actual native messaging bootstrap and authenticated HTTP connection`);
   const userTab = await browser.newPage(); await userTab.goto(url + "/user-tab");
   if (process.env.WORKFOLD_DIAGNOSE_CHROME_CAPTURE === "1") {
     try {
@@ -178,8 +205,9 @@ try {
   ]);
   const tabA = String(navigationA.details.result.id), tabB = String(navigationB.details.result.id);
   assert.notEqual(tabA, tabB);
-  const loaded = await call(a, "chrome_evaluate", { targetId: tabA, expression: "({url:document.URL,state:document.readyState,visibility:document.visibilityState})" });
+  const loaded = await call(a, "chrome_evaluate", { targetId: tabA, expression: "({url:document.URL,state:document.readyState,visibility:document.visibilityState,focus:document.hasFocus()})" });
   console.log("Real target before capture:", JSON.stringify(loaded.details));
+  assert.equal(loaded.details.value.focus, false, "Background work must leave its target unfocused");
   let snapshot;
   const captureStarted = Date.now();
   try { snapshot = await call(a, "chrome_screenshot", { targetId: tabA }); }
@@ -238,6 +266,10 @@ try {
   if (snapshot) {
     const image = snapshot.content.find(item => item.type === "image");
     assert.ok(image && Buffer.from(image.data, "base64").length > 1000, "Real Chrome screenshot reaches the native Pi result");
+    const pixels = await sharp(Buffer.from(image.data, "base64")).extract({ left: 200, top: 200, width: 10, height: 10 }).removeAlpha().raw().toBuffer();
+    assert.deepEqual([...pixels.subarray(0, 3)], [30, 180, 75], "Capture must contain the requested tab, not the active ordinary tab");
+    const after = await call(a, "chrome_evaluate", { targetId: tabA, expression: "document.hasFocus()" });
+    assert.equal(after.details.value, false, "Background capture must not focus the target");
     console.log("PASS real Chrome background screenshot reaches the native Pi image result");
   }
   // A separate explicit foreground request is part of the product contract;
@@ -267,7 +299,7 @@ try {
   assert.ok((await browser.pages()).some(page => page.url() === url + "/user-tab"), "Ordinary user tab survives browser/host restarts and Worker disposal");
   assert.equal((await service.disconnect()).state, "not_connected");
   console.log("PASS real Chrome: two Pi sessions, page evaluation, turn fence, owned-tab cleanup, browser restart, host restart, disconnect and user-tab preservation");
-  if (failures.length) throw new AggregateError(failures, "Published Chrome companion has unresolved acceptance failures");
+  if (failures.length) throw new AggregateError(failures, `${candidateDirectory ? "Candidate" : "Published"} Chrome companion has unresolved acceptance failures`);
 } catch (error) {
   if (process.env.DISPLAY) await promisify(execFile)('python3', ['-c', 'import os; from PIL import ImageGrab; ImageGrab.grab(xdisplay=os.environ["DISPLAY"]).save("/tmp/workfold-chrome-failure.png")'], { timeout: 5000 }).catch(() => {});
   console.error("Chrome acceptance failure:", error.message);
