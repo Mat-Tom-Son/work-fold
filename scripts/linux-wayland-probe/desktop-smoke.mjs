@@ -168,15 +168,22 @@ try {
     if (!button) throw new Error('Computer card unavailable'); button.click();
   });
   const section = 'section[aria-label="Wayland screen sharing"]';
-  await page.waitForSelector(`${section} select`);
-  await page.select(`${section} select`, `space:${conversationId}`);
+  const chooseChat = async () => {
+    const selector = `${section} select`, value = `space:${conversationId}`;
+    // The setup panel renders before its asynchronous Chat list arrives.
+    // Selecting an absent option silently clears the select in Puppeteer.
+    await page.waitForFunction((selector, value) => [...(document.querySelector(selector)?.options || [])].some(option => option.value === value),
+      { polling: 100 }, selector, value);
+    assert.deepEqual(await page.select(selector, value), [value]);
+  };
+  await chooseChat();
   await clickText('Choose screen');
   await ui('wait');
   await clickText('Stop sharing');
   await ui('closed');
   await page.waitForSelector(`${section} select`);
   console.log('PASS packaged setup: explicit Chat selection and Stop closes the real pending chooser');
-  await page.select(`${section} select`, `space:${conversationId}`);
+  await chooseChat();
   await clickText('Choose screen'); await ui('choose-input');
   await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('This screen is shared with the chosen Chat.'), { polling: 100 }, section);
   // Capture the actual compositor through the shipped path. CDP screenshots
@@ -201,7 +208,7 @@ try {
   await page.waitForSelector(`${section} select`);
   console.log('PASS packaged UI → warm Chat → actual Pi → bundled portal/capture/input → exact saved bytes → Stop');
   if (testSuspend) {
-    await page.select(`${section} select`, `space:${conversationId}`);
+    await chooseChat();
     await clickText('Choose screen'); await ui('choose-input');
     await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('This screen is shared with the chosen Chat.'), { polling: 100 }, section);
     phase = 'continuity'; continuityStarted = false;
@@ -234,7 +241,7 @@ try {
     releaseContinuity();
     assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
     assert.equal(app.exitCode, null);
-    await page.select(`${section} select`, `space:${conversationId}`);
+    await chooseChat();
     await clickText('Choose screen'); await ui('choose-input');
     await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('This screen is shared with the chosen Chat.'), { polling: 100 }, section);
     phase = 'setup_snapshot'; snapshotRequests = 0;

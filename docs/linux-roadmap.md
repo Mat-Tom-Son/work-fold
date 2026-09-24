@@ -139,7 +139,7 @@ of the per-launch CLI token on both private GNOME seats.
 | Work | Evidence and limits |
 |---|---|
 | L0/L3–L6 native bridge | The bundled [Rust helper](../desktop/native/linux-wayland/Cargo.toml) uses ASHPD 0.13.13, GStreamer 0.25, libei and libxkbcommon. A combined portal grant, bounded frames, visual target identity, compositor geometry, accepted-turn ownership, stale-observation fencing, cross-process seat exclusion and paired input are implemented. Native unit and protocol tests pass. No restore token is retained. |
-| L3–L6 live desktop | Fresh private GNOME 46/Ubuntu 24.04 and GNOME 50/Fedora 44 runs pass 100/125/150/200% scaling and US/German keymaps, click/type/scroll/shortcut/drag, independently verified saved bytes, screen-lock revocation and stopping a pending chooser. The actual Pi client/tool/host/native path passes on both. That provider is scripted; login services are simulated with python-dbusmock. The packaged setup UI, warm Chat, native folder chooser/cancel, Nautilus reveal, native close/minimize, accepted-turn continuity and desktop-switcher restore also pass on both. Two-monitor tests also pass with a 100% primary and 100/125/200% secondary at a nonzero desktop offset. 90°, 180° and 270° rotations also pass at 100/125% on both. A Fedora 44 full QEMU guest also passes installed RPM capture/input, native dialogs/reveal, minimize/turn continuity, restoration and second-instance handling under real GDM and SELinux enforcing. It uses the verified Cloud image plus distro GNOME packages, not a pristine Workstation ISO. Real GNOME lock/unlock also revokes the old grant and requires a fresh chooser before capture resumes. Both Ubuntu 26.04.1 and Fedora 44 KVM guests now pass the installed native flow and clean Quit; Ubuntu also passes real lock/unlock revocation. Fedora’s software VGA guest passes real S3 turn continuity and fresh-grant capture. Physical GPUs, IME and Ubuntu sleep/wake remain open. |
+| L3–L6 live desktop | Fresh private GNOME 46/Ubuntu 24.04 and GNOME 50/Fedora 44 runs pass 100/125/150/200% scaling and US/German keymaps, click/type/scroll/shortcut/drag, independently verified saved bytes, screen-lock revocation and stopping a pending chooser. The actual Pi client/tool/host/native path passes on both. That provider is scripted; login services are simulated with python-dbusmock. The packaged setup UI, warm Chat, native folder chooser/cancel, Nautilus reveal, native close/minimize, accepted-turn continuity and desktop-switcher restore also pass on both. Two-monitor tests also pass with a 100% primary and 100/125/200% secondary at a nonzero desktop offset. 90°, 180° and 270° rotations also pass at 100/125% on both. A Fedora 44 full QEMU guest also passes installed RPM capture/input, native dialogs/reveal, minimize/turn continuity, restoration and second-instance handling under real GDM and SELinux enforcing. It uses the verified Cloud image plus distro GNOME packages, not a pristine Workstation ISO. Real GNOME lock/unlock also revokes the old grant and requires a fresh chooser before capture resumes. Both Ubuntu 26.04.1 and Fedora 44 KVM guests now pass the installed native flow and clean Quit; Ubuntu also passes real lock/unlock revocation. Fedora’s software VGA guest passes real S3 turn continuity and fresh-grant capture. The separate Ubuntu VGA/KVM guest also passes a measured five-second S3 cycle with accepted-turn continuity and a fresh grant. Physical GPUs and IME remain open. |
 | L1 actual model | Ollama 0.34.3 and a local Qwen3 4B instruct model complete a real Pi native-write task through packaged 0.4.36 and the merged-main 0.4.38 candidate, preserve exact output and durable records, then pass cold-relaunch verification. No paid provider, OAuth or vision-model claim follows. |
 | L1 environment/credentials | Live session variables survive shell hydration. Real Electron/GNOME Keyring tests cover encrypted persistence, corrupt-file preservation, basic-text rejection, missing/locked service and recovery. Installed credential stores survive .34→.35 and .35→.36 upgrade/reinstall. The Fedora GDM guest also passes synthetic key entry through Settings, encrypted-byte verification, cold-relaunch persistence and removal. Native unlock allows startup; cancelling every repeated prompt shows an actionable unlock/restart error and preserves the encrypted file. An encrypted profile's app UI needs an unlocked keyring; its ordinary folders remain accessible outside the app. KWallet remains open. |
 | L2 sandbox and lifecycle | .34 refuses explicit or AppImage-injected `--no-sandbox` before state initialization. DEB/RPM .34→.35 and .35→.36 upgrades and reinstalls preserve meaningful app state and credentials, including resolution of new Wayland library dependencies. Actual renderer sandbox/NoNewPrivs/seccomp checks pass. .34 AppImage direct FUSE launch passed on Fedora; extraction passed on Ubuntu. Earlier .32/.33 AppImages are unsuitable for distribution. |
@@ -217,6 +217,26 @@ UID 1001 passes all 1,558 enabled application tests (10 explicit environment
 skips), including the failed MCP case; repository/TypeScript checks and full
 Electron preparation also pass. Full remote Linux qualification remains pending
 on the corrected source.
+
+A separate Ubuntu 26.04.1 VGA/KVM guest now passes installed .38 sleep/wake
+with an actual five-second QMP S3 interval and host wake, plus kernel ACPI S3
+entry/resume evidence. The same app process keeps its accepted turn, completes
+and persists it after unlock, revokes the old sharing grant, and captures under
+a fresh chooser grant. Native dialogs, minimize/restore, second-instance reuse
+and clean Quit pass afterwards. AppArmor stays enabled. The test driver now
+waits for the asynchronously loaded Chat option before selecting it; the first
+run exposed that driver race before reaching sleep. This qualifies the
+disposable software-display guest, not physical GPU or laptop sleep.
+
+A cold-start copy of the Fedora 44 VGA/KVM guest also passes the complete .38
+flow with a measured five-second QMP S3 interval, host wake and kernel resume
+evidence. SELinux stays enforcing. This adds sustained VM sleep evidence to the
+earlier immediate-wake results. Repeated sleep in the earlier VM exposed a
+virtual-hardware/kernel limitation: after the app had quit, system power-off
+synced and unmounted its filesystems, then kernel 7.2.7 panicked while powering
+down. That log and original disk are retained separately; the successful
+measured run uses a cold-start overlay. These results do not qualify repeated
+hardware sleep or physical GPU drivers.
 
 The original baseline and architecture investigation below are retained as dated
 planning evidence. They are not the current feature inventory. The [build guide](linux-build.md)

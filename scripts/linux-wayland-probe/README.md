@@ -157,9 +157,15 @@ If the guest wakes immediately before the host observes its suspended state,
 record that limit: kernel S3 entry/resume proves the OS lifecycle path, not a
 sustained sleep interval. The test checks turn completion and a new screen grant
 after wake. A disconnected test debugger is reattached to the same
-still-running app without restarting or reloading it. The Fedora 44 software VGA
-KVM guest passes this path; the virtio display does not reliably resume even
-without the app. This does not qualify physical hardware sleep behavior.
+still-running app without restarting or reloading it. Ubuntu 26.04.1 and Fedora
+44 software VGA KVM guests pass the full path with measured five-second QMP
+S3/wake intervals and clean app Quit afterwards. Capture QMP `SUSPEND`/`WAKEUP`
+events as well as status so a short automatic wake cannot escape the record.
+Fedora's virtio display does not reliably resume even without the app; its
+previous repeatedly suspended VGA guest later panicked during system power-off
+after syncing and unmounting filesystems. Retain those failures separately from
+the successful cold-start overlay. This does not qualify repeated physical
+hardware sleep or GPU behavior.
 Never satisfy these guards on a personal VM or weaken them for the host desktop.
 
 ## Optional diagnosis in a disposable session
