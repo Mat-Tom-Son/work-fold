@@ -424,3 +424,13 @@ provider credentials. Ollama 0.34.3 with a local Qwen3 4B instruct model has pas
 Pi write task and cold-relaunch verification. That text-only test does not
 qualify vision/computer planning, or a hosted provider's login, billing, OAuth
 or encrypted credential setup.
+
+### Cross-platform source cleanliness
+
+A clean Linux build revealed that DMG artwork generation rewrote the tracked
+Mac image using the build host's fonts. The generator now writes only the ignored
+`out/generated-assets` path already consumed by Electron Builder. A real generator
+regression checks the output image and verifies a tracked-asset sentinel remains
+byte-for-byte intact. This restores the source-cleanliness rule in the Mac release
+runbooks and allows Linux production staging to enforce its existing clean-source
+requirement. Previously captured candidates remain unchanged.

@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const require = createRequire(import.meta.url);
@@ -22,20 +25,30 @@ test("Electron Builder packages executable CLI shims outside ASAR and includes P
   assert.equal(builder.electronFuses.runAsNode, false);
 });
 
-test("macOS DMG artwork keeps the tracked source and generated packaging artifact in sync", async () => {
+test("DMG artwork generates the packaging image without rewriting tracked assets", async () => {
   assert.equal(
     builder.dmg.background,
     join(rootDir, "out", "generated-assets", "dmg-background.png"),
   );
 
-  const [generator, preflight] = await Promise.all([
-    read("scripts/generate-dmg-background.mjs"),
-    read("scripts/desktop-preflight.mjs"),
-  ]);
-  assert.match(generator, /join\(rootDir, "out", "generated-assets"\)/);
-  assert.match(generator, /writeFile\(join\(outDir, "dmg-background\.png"\), backgroundBytes\)/);
-  assert.match(generator, /writeFile\(join\(assetsDir, "dmg-background\.png"\), backgroundBytes\)/);
-  assert.match(preflight, /out\/generated-assets\/dmg-background\.png/);
+  // Keep the fixture under out/ so the copied script resolves our pinned Sharp.
+  await mkdir(join(rootDir, "out"), { recursive: true });
+  const fixture = await mkdtemp(join(rootDir, "out", "dmg-artwork-test-"));
+  try {
+    await mkdir(join(fixture, "scripts"));
+    const assets = join(fixture, "desktop", "assets");
+    await mkdir(assets, { recursive: true });
+    await copyFile(join(rootDir, "scripts/generate-dmg-background.mjs"), join(fixture, "scripts/generate-dmg-background.mjs"));
+    await copyFile(join(rootDir, "desktop/assets/icon.png"), join(assets, "icon.png"));
+    const sentinel = await readFile(join(rootDir, "desktop/assets/icon-16.png"));
+    await copyFile(join(rootDir, "desktop/assets/icon-16.png"), join(assets, "dmg-background.png"));
+    await promisify(execFile)(process.execPath, [join(fixture, "scripts/generate-dmg-background.mjs")]);
+    assert.deepEqual(await readFile(join(assets, "dmg-background.png")), sentinel);
+    const generated = await sharp(join(fixture, "out/generated-assets/dmg-background.png")).metadata();
+    assert.equal(generated.format, "png");
+    assert.equal(generated.width, 720);
+    assert.equal(generated.height, 440);
+  } finally { await rm(fixture, { recursive: true, force: true }); }
 });
 
 test("retained Forge packaging mirrors the package-root CLI bin layout", async () => {
