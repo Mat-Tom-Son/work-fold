@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -17,6 +17,7 @@ import {
 import { appendMessage, createConversation, readConversationSummary } from "../src/local/agent/chat-store.js";
 import { startLocalApi } from "../src/local/server.js";
 import { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
+import { WorkFoldTrashStore } from "../src/local/trash-store.js";
 
 test("local API covers Space files, the Library, and external restore points", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-api-test-"));
@@ -1233,6 +1234,10 @@ test("Folder Chats delete only into Recently deleted, refuse while work is outst
     assert.equal(entry?.spaceName, "Chat deletion");
     assert.equal(entry?.originalPath, `.work-fold/conversations/${conversationId}.jsonl`);
     assert.equal(entry?.restorable, "in-place");
+    const receipts = (await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8"))
+      .trim().split("\n").map((line) => JSON.parse(line) as { command: string; outcome: string; detail?: string });
+    assert.equal(receipts.find((receipt) => receipt.command === "chats.delete" && receipt.outcome === "ok")?.detail,
+      `space ${space.id}; conversation ${conversationId}; trash ${removed.deleted.trash.entryId}`);
 
     // A restore never collision-renames a transcript into another identity.
     await createConversation(space.spaceRoot, "Replacement", conversationId);
@@ -1255,6 +1260,60 @@ test("Folder Chats delete only into Recently deleted, refuse while work is outst
     await assert.rejects(() => api.actFacade.trashRestore({ entry: orphan.deleted.trash.entryId }), /no longer registered/);
   } finally {
     held.splice(0).forEach((turn) => turn.release());
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("restoring a Folder Chat reserves its identity against concurrent creation and CLI edits", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-chat-restore-fence-"));
+  const trash = await WorkFoldTrashStore.open({ rootPath: join(sandbox, "trash") });
+  const originalRestore = trash.restoreTree.bind(trash);
+  let releaseRestore!: () => void;
+  let enteredRestore!: () => void;
+  const restoreEntered = new Promise<void>((resolve) => { enteredRestore = resolve; });
+  const restoreHeld = new Promise<void>((resolve) => { releaseRestore = resolve; });
+  trash.restoreTree = async (...args) => {
+    enteredRestore();
+    await restoreHeld;
+    return originalRestore(...args);
+  };
+  const api = await startLocalApi({
+    port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, trashStore: trash,
+  });
+  try {
+    const { space } = await api.actFacade.createSpace({ name: "Restore fence" });
+    const conversation = await createConversation(space.spaceRoot, "Saved chat");
+    await appendMessage(space.spaceRoot, conversation.id, {
+      id: "message-original", role: "user", content: "Keep this message.", createdAt: new Date().toISOString(),
+    });
+    const url = `${api.origin}/api/spaces/${space.id}/conversations`;
+    const { deleted } = await json(`${url}/${conversation.id}`, { method: "DELETE" }) as { deleted: { trash: { entryId: string } } };
+    const restoring = api.actFacade.trashRestore({ entry: deleted.trash.entryId });
+    await restoreEntered;
+    try {
+      const creating = await fetch(url, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId: conversation.id }),
+      });
+      assert.equal(creating.status, 409, "a restore must not race an optimistic Chat creation with the same id");
+      for (const mutate of [
+        () => api.actFacade.chatRename({ space: space.id, conversationId: conversation.id, title: "Other title" }),
+        () => api.actFacade.chatSnooze({ space: space.id, conversationId: conversation.id, until: new Date(Date.now() + 60_000).toISOString() }),
+        () => api.actFacade.chatArchive({ space: space.id, conversationId: conversation.id }),
+        () => api.actFacade.chatResume({ space: space.id, conversationId: conversation.id }),
+      ]) {
+        await assert.rejects(mutate, (error: unknown) =>
+          error instanceof Error && "code" in error && error.code === "conflict", "CLI edits share the identity reservation");
+      }
+    } finally {
+      releaseRestore();
+      await restoring;
+    }
+    assert.equal((await readConversationSummary(space.spaceRoot, conversation.id))?.title, "Saved chat");
+    const renamed = await api.actFacade.chatRename({ space: space.id, conversationId: conversation.id, title: "Restored chat" });
+    assert.equal(renamed.conversation.title, "Restored chat", "restoring releases the fence after its final write");
+  } finally {
+    releaseRestore();
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
   }

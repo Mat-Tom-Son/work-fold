@@ -85,11 +85,19 @@ test("an external Assistant hint refreshes draft models while existing Chat sess
   const previousFetch = globalThis.fetch; t.after(() => { globalThis.fetch = previousFetch; });
   let stream!: ReadableStreamDefaultController<Uint8Array>;
   let model = { provider: "openrouter", id: "z-ai/glm", name: "Old GLM" };
+  const nextModel = { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash", name: "DeepSeek Flash" };
+  let configured: unknown;
   globalThis.fetch = (async (input, init) => {
     const path = String(input);
     if (path.endsWith("/api/events")) return new Response(new ReadableStream({ start(controller) { stream = logicalEventController(controller, init); init?.signal?.addEventListener("abort", () => controller.close(), { once: true }); } }), { headers: { "content-type": "text/event-stream" } });
     if (path.includes("/agent/composer")) return Response.json({ composer: { model, thinkingLevel: "off", thinkingLevels: ["off"] } });
     if (path.includes("/agent/status")) return Response.json({ status: { configured: true, provider: model.provider, model: model.id } });
+    if (path.includes("/agent/models")) return Response.json({ models: [model, nextModel].map((item) => ({ ...item, authConfigured: true })), status: { configured: true, provider: model.provider, model: model.id } });
+    if (path.endsWith("/agent/configure")) {
+      configured = JSON.parse(String(init?.body));
+      model = nextModel;
+      return Response.json({ status: { configured: true, provider: model.provider, model: model.id } });
+    }
     if (path.endsWith("/agent/catalog")) return Response.json({ commands: [], skills: [], extensions: [], diagnostics: [] });
     if (path.endsWith("/conversations")) return Response.json({ conversations: [{ id: "saved", title: "Existing work", createdAt: "2026-09-12T12:00:00.000Z", updatedAt: "2026-09-12T12:00:00.000Z" }] });
     if (path.endsWith("/saved")) return Response.json({ messages: [{ id: "message", role: "assistant", content: "Saved response", createdAt: "2026-09-12T12:00:00.000Z" }] });
@@ -107,15 +115,34 @@ test("an external Assistant hint refreshes draft models while existing Chat sess
     const props = { space: space("workshop"), spaceCustomizations: {}, assistantConfigurationRevision: revision, contextPathRequest: null, selectedPath: null, onAgentFinished() {} };
     return createElement("div", null,
       createElement("section", { id: "draft" }, createElement(ChatPanel, { ...props, surfaceTabId: "draft" })),
+      createElement("section", { id: "other-draft" }, createElement(ChatPanel, { ...props, surfaceTabId: "other-draft", active: false })),
       createElement("section", { id: "saved" }, createElement(ChatPanel, { ...props, surfaceTabId: "saved", targetConversationId: "saved", active: false })),
     );
   }
   await dom.render(createElement(Chat));
   await dom.waitFor(() => dom.container.textContent?.includes("Old GLM") === true);
   await dom.waitFor(() => dom.container.querySelector("#saved")?.textContent?.includes("Session Model") === true);
-  model = { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash", name: "DeepSeek Flash" };
+  const trigger = dom.container.querySelector<HTMLButtonElement>('#draft button[aria-label^="Change the model"]')!;
+  await dom.act(() => trigger.focus());
+  await dom.press("ArrowDown");
+  await dom.waitFor(() => document.activeElement?.textContent === "Old GLM");
+  await dom.press("ArrowDown");
+  assert.equal(document.activeElement?.textContent, "DeepSeek Flash");
+  await dom.press("Home");
+  assert.equal(document.activeElement?.textContent, "Old GLM");
+  await dom.press("End");
+  assert.equal(document.activeElement?.textContent, "DeepSeek Flash");
+  await dom.press("Escape");
+  assert.equal(document.activeElement, trigger);
+  assert.equal(dom.container.querySelector('[role="listbox"]'), null);
+  await dom.press("ArrowUp");
+  await dom.waitFor(() => document.activeElement?.textContent === "DeepSeek Flash");
+  await dom.act(() => (document.activeElement as HTMLButtonElement).click());
+  await dom.waitFor(() => trigger.textContent?.includes("DeepSeek Flash") === true);
+  assert.equal(document.activeElement, trigger, "choosing a model keeps focus when its option unmounts");
+  assert.deepEqual(configured, { scope: "space", spaceId: "workshop", provider: nextModel.provider, model: nextModel.id });
   await dom.act(async () => { stream.enqueue(new TextEncoder().encode('data: {"type":"assistant"}\n\n')); await new Promise(setImmediate); });
-  await dom.waitFor(() => dom.container.textContent?.includes("DeepSeek Flash") === true);
+  await dom.waitFor(() => dom.container.querySelector("#other-draft")?.textContent?.includes("DeepSeek Flash") === true);
   assert.doesNotMatch(dom.container.textContent ?? "", /Old GLM/);
   assert.match(dom.container.querySelector("#saved")?.textContent ?? "", /Session Model/);
 });

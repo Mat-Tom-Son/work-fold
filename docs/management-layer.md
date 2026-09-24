@@ -241,6 +241,14 @@ is saved as a file with `--to <absolute-path>`. Nothing empties the store: the
 retention window in Settings → Recently deleted does, and a tree
 holding legacy `.workspace/` records is never erased.
 
+Folder Chat deletion moves its portable transcript into Recently deleted and
+records the Folder, Chat, and recovery-entry identities in its receipt.
+Restoration preserves the transcript filename, refuses an occupied identity,
+and requires the original Folder to remain registered. Creation with an
+explicit Chat id, renderer and CLI title/lifecycle changes, deletion, and
+restoration share the Chat mutation fence through their final filesystem
+write, so overlapping operations cannot recreate or rename a deleted Chat.
+
 `work-fold manage …` talks to the **management conversation** — user-facing name: **the fold** — the one conversation above all Spaces. It reuses the same acceptance path, Pi runtime, kernel task records, and task-scoped outcome semantics as Space Chats under the dedicated scope id `work-fold-management` instead of a Space id. Its transcript lives in machine-local application state under the app profile's `management/` root — it describes this machine's registry, so it is deliberately not portable Space data. Its Pi session loads personal-scope Skills and Extensions plus exactly two app-materialized project resources — a management `AGENTS.md` context file and the `manage-spaces` Skill, rewritten on every start — and gets no user Space's `.pi` configuration, no restricted-app bridges, and no History checkpoints (History is a Space concept).
 
 Those two app-owned resources are required, not an optional enhancement. If work-fold cannot materialize them safely, ordinary Spaces and the desktop may still start, but management commands fail closed until the management folder can be prepared; work-fold never runs this full-trust scope as an unidentified, uninstructed Assistant.

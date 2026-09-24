@@ -17,6 +17,26 @@ export type OpenWithLaunchPlan =
   | { kind: "exec"; command: "/usr/bin/open"; args: [string, string, string] }
   | { kind: "spawn"; command: string; args: [string] };
 
+export async function openFileWithPickedApp(platform: NodeJS.Platform, dependencies: {
+  resolveFile: () => Promise<string>;
+  pickApp: () => Promise<string | null>;
+  launch: (plan: OpenWithLaunchPlan) => Promise<void>;
+}): Promise<{ opened: boolean; canceled: boolean; appName: string | null }> {
+  // Fail before showing a picker for an unavailable file. Recheck after the
+  // dialog: the Folder or its files may have changed while it was open.
+  await dependencies.resolveFile();
+  const appPath = await dependencies.pickApp();
+  if (!appPath) return { opened: false, canceled: true, appName: null };
+  const filePath = await dependencies.resolveFile();
+  const appName = openWithAppName(appPath, platform);
+  try {
+    await dependencies.launch(openWithLaunchPlan(platform, appPath, filePath));
+  } catch {
+    throw new Error(`Couldn't open with ${appName}.`);
+  }
+  return { opened: true, canceled: false, appName };
+}
+
 export function openWithDialogOptions(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = process.env): OpenWithDialogOptions {
   const base = { title: "Choose an app", properties: ["openFile"] as ["openFile"] };
   if (platform === "darwin") {

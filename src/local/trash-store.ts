@@ -250,6 +250,8 @@ export interface WorkFoldTrashAppDataInput {
 export interface WorkFoldTrashRestoreDestination {
   /** Where the tree goes back. An occupied path is collision-renamed (`stem (2).ext` / `name-2`). */
   absolutePath: string;
+  /** Transcript filenames are identities and must never be collision-renamed. */
+  onConflict?: "rename" | "error";
   /** space entries whose History state travelled: where `state/` goes back. */
   stateDirPath?: string;
   /** Alternative to `stateDirPath` that sees the final (possibly renamed) path first. */
@@ -573,6 +575,13 @@ export class WorkFoldTrashStore {
       const entry = await this.#requireEntry(id, true);
       if (entry.payload.kind !== "tree") {
         throw new WorkFoldTrashError("INPUT_INVALID", `${id} holds app data, which cannot be put back as a file or folder this way.`);
+      }
+      if (destination.onConflict === "error" && existsSync(desired)) {
+        throw new WorkFoldTrashError(
+          "MOVE_FAILED",
+          `work-fold could not restore ${basename(desired)}: that identity already exists. It is still in ${RECENTLY_DELETED}.`,
+          { entryId: id },
+        );
       }
       const finalPath = existsSync(desired)
         ? (entry.kind === "file" ? nextAvailableFile(desired) : nextAvailableDirectory(dirname(desired), basename(desired)))

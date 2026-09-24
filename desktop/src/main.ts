@@ -97,7 +97,7 @@ import {
   type NativeFileMenuCommand,
   type NativeFileMenuRequest,
 } from "./file-context-menu.js";
-import { openWithAppName, openWithDialogOptions, openWithLaunchPlan, type OpenWithLaunchPlan } from "./open-with.js";
+import { openFileWithPickedApp, openWithDialogOptions, type OpenWithLaunchPlan } from "./open-with.js";
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
 import { RailTooltipOverlay } from "./rail-tooltip-overlay.js";
@@ -1234,21 +1234,21 @@ function registerIpc(): void {
   ipcMain.handle("work-fold:space:open-path-with", async (event, value: unknown): Promise<{ opened: boolean; canceled: boolean; appName: string | null }> => {
     assertTrustedRenderer(event);
     const request = spacePathRequest(value, false);
-    const filePath = await resolveSpaceItem(request.spaceId, request.path);
-    if (!(await stat(filePath)).isFile()) throw new Error("Only files can be opened with another app.");
-    const options = openWithDialogOptions(process.platform);
-    const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-    const choice = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
-    // Only the path the dialog itself returned is ever launched.
-    const appPath = choice.filePaths[0];
-    if (choice.canceled || !appPath) return { opened: false, canceled: true, appName: null };
-    const appName = openWithAppName(appPath, process.platform);
-    try {
-      await launchOpenWith(openWithLaunchPlan(process.platform, appPath, filePath));
-    } catch {
-      throw new Error(`Couldn't open with ${appName}.`);
-    }
-    return { opened: true, canceled: false, appName };
+    return openFileWithPickedApp(process.platform, {
+      resolveFile: async () => {
+        const filePath = await resolveSpaceItem(request.spaceId, request.path);
+        if (!(await stat(filePath)).isFile()) throw new Error("Only files can be opened with another app.");
+        return filePath;
+      },
+      pickApp: async () => {
+        const options = openWithDialogOptions(process.platform);
+        const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+        const choice = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+        // Only the path the dialog itself returned is ever launched.
+        return choice.canceled ? null : choice.filePaths[0] ?? null;
+      },
+      launch: launchOpenWith,
+    });
   });
   ipcMain.handle("work-fold:space:start-drag", async (event, value: unknown) => {
     assertTrustedRenderer(event);

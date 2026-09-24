@@ -99,7 +99,7 @@ finished before deletion.
 
 Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 
-The configured provider and model remain visible in the Chat composer before the first message. Clicking that label opens **Settings → Agents** scoped to the owning Folder and its model selector; it always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
+The configured provider and model remain visible in the Chat composer before the first message. Clicking that label opens an inline model picker with the Folder’s saved model pinned first and search when more than eight connected models are available. A selection saves the Folder default for new Chats; existing Chat sessions keep their model. The picker’s **Model settings** link opens **Settings → AI Models** scoped to that Folder. The label always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
 
 ## A Folder is a view of a folder, not a new file format
 
@@ -131,9 +131,9 @@ collision handling require a later explicit design.
 The user should always be able to reveal a Space in the operating system, open its files with other applications, back it up normally, or synchronize it with a desktop sync tool. A Google Drive for desktop folder works because it is a local folder; that is not the same as direct Google Drive API integration.
 
 Settings uses one preferences window with **Appearance**, **AI Models**,
-**Web access**, **Shared pages**, **Desktop**, and **About** navigation.
-Desktop groups **Automations**, **Recently deleted**, and **Limits**; updates
-live in About. The navigation becomes a single horizontally scrollable row in
+**Web access**, **Shared pages**, **Automations**, **Recently deleted**, and **About** navigation.
+Automations also carries **Limits**; **Closing the window**, where supported,
+lives in Appearance → Interface, and updates live in About. The navigation becomes a single horizontally scrollable row in
 narrow windows; keyboard selection brings the selected item into view. AI Models
 settings separate model defaults, shared provider
 connections, and Space instructions. Unsaved model/instruction drafts survive

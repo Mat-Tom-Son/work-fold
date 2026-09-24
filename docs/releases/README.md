@@ -4,6 +4,12 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## September 23, 2026
+
+[0.4.33](work-fold-0.4.33.md) polishes the Chat composer, navigation, tabs,
+Settings, and file previews, adds native Open with, and makes Folder Chat
+deletion recoverable.
+
 ## September 11, 2026
 
 [0.4.28](work-fold-0.4.28.md) adds inline native Extension questions, optional

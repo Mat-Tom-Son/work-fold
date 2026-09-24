@@ -14,6 +14,7 @@ import { hasNativeFiles } from "../../lib/file-actions";
 import { displayAssistantModelLabel } from "../../lib/model-display";
 import { thinkingLevelLabel } from "../../lib/thinking-levels";
 import { composerModelFilterThreshold, composerModelListView } from "../../lib/composer-model-list";
+import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import {
   chatDisplayTitle,
   chatDraftStorageKey,
@@ -2131,6 +2132,7 @@ function ComposerModelPicker({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const optionsRef = useRef<HTMLDivElement | null>(null);
+  const pendingFocusRef = useRef<"start" | "end" | null>(null);
   const menuId = useId();
   useDismissOnOutsideInteraction(open, containerRef, () => setOpen(false), triggerRef);
   useEffect(() => {
@@ -2180,6 +2182,29 @@ function ComposerModelPicker({
   const heading = forNewChats ? "Model for new Chats" : "Model";
   const noMatches = filterable && query.trim() !== "" && !view.groups.length;
 
+  function focusOption(edge: "start" | "end"): boolean {
+    const options = optionsRef.current?.querySelectorAll<HTMLButtonElement>('button[role="option"]:not(:disabled)');
+    const option = options?.[edge === "end" ? options.length - 1 : 0];
+    option?.focus({ preventScroll: true });
+    option?.scrollIntoView({ block: "nearest" });
+    return Boolean(option);
+  }
+
+  useEffect(() => {
+    if (!open) { pendingFocusRef.current = null; return; }
+    if (pendingFocusRef.current && focusOption(pendingFocusRef.current)) pendingFocusRef.current = null;
+  }, [open, models.length]);
+
+  function navigateOptions(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const options = Array.from(optionsRef.current?.querySelectorAll<HTMLButtonElement>('button[role="option"]:not(:disabled)') ?? []);
+    const next = nextMenuItemIndex(options.indexOf(document.activeElement as HTMLButtonElement), options.length, event.key as MenuNavigationKey);
+    if (next === null) return;
+    event.preventDefault();
+    options[next]?.focus({ preventScroll: true });
+    options[next]?.scrollIntoView({ block: "nearest" });
+  }
+
   function renderOption(model: AgentModel) {
     const selected = saved?.provider === model.provider && saved.id === model.id;
     const key = `${model.provider}/${model.id}`;
@@ -2201,6 +2226,8 @@ function ComposerModelPicker({
 
   async function choose(model: AgentModel): Promise<void> {
     if (saving) return;
+    // Keep keyboard focus when the selected option is disabled or unmounted.
+    triggerRef.current?.focus({ preventScroll: true });
     if (fixtureMode || (saved?.provider === model.provider && saved.id === model.id)) {
       setOpen(false);
       return;
@@ -2230,7 +2257,9 @@ function ComposerModelPicker({
   }
 
   return (
-    <div className="composer-model-control" ref={containerRef}>
+    <div className="composer-model-control" ref={containerRef} onBlurCapture={(event) => {
+      if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+    }}>
       <button
         ref={triggerRef}
         className={open ? `${className} active` : className}
@@ -2241,6 +2270,13 @@ function ComposerModelPicker({
         aria-label={ariaLabel}
         title={disabled ? "Model changes apply between turns" : title}
         onClick={() => { if (!disabled) setOpen((current) => !current); }}
+        onKeyDown={(event) => {
+          if (disabled || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
+          event.preventDefault();
+          const edge = event.key === "ArrowUp" ? "end" : "start";
+          pendingFocusRef.current = open && focusOption(edge) ? null : edge;
+          setOpen(true);
+        }}
       >
         {children}
       </button>
@@ -2266,15 +2302,15 @@ function ComposerModelPicker({
                   if (first) void choose(first);
                   return;
                 }
-                if (event.key === "ArrowDown") {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();
-                  optionsRef.current?.querySelector<HTMLButtonElement>("button[role=\"option\"]:not(:disabled)")?.focus();
+                  focusOption(event.key === "ArrowUp" ? "end" : "start");
                 }
               }}
             />
           ) : null}
           {models.length ? (
-            <div className="composer-model-options" role="listbox" aria-label={heading} ref={optionsRef}>
+            <div className="composer-model-options" role="listbox" aria-label={heading} ref={optionsRef} onKeyDown={navigateOptions}>
               {view.current ? (
                 <div className="composer-model-group" role="group" aria-label="Current">
                   {view.groups.length ? <div className="composer-model-provider" aria-hidden="true">Current</div> : null}

@@ -74,6 +74,7 @@ async function verifyDiagnosticPreload() {
 
 async function verifyPreload(filename, managementOnly) {
   const errors = [];
+  const openWithRequests = [];
   const window = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -93,6 +94,13 @@ async function verifyPreload(filename, managementOnly) {
   window.webContents.on("console-message", (details) => {
     if (details.level === "warning" || details.level === "error") errors.push(details.message);
   });
+  if (!managementOnly) {
+    ipcMain.handle("work-fold:space:open-path-with", (event, request) => {
+      assert.equal(event.sender, window.webContents);
+      openWithRequests.push(request);
+      return { opened: false, canceled: true, appName: null };
+    });
+  }
   try {
     const document = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'">'
       + "<title>preload smoke</title>";
@@ -110,6 +118,7 @@ async function verifyPreload(filename, managementOnly) {
         material: value?.window?.material,
         hasManagement: Boolean(value?.management),
         hasSpace: Boolean(value?.space),
+        hasOpenWith: typeof value?.space?.openPathWith === "function",
         hasShell: Boolean(value?.shell),
       };
     })()`);
@@ -126,9 +135,17 @@ async function verifyPreload(filename, managementOnly) {
       material: "vibrancy",
       hasManagement: managementOnly,
       hasSpace: !managementOnly,
+      hasOpenWith: !managementOnly,
       hasShell: !managementOnly,
     });
+    if (!managementOnly) {
+      assert.deepEqual(await window.webContents.executeJavaScript('window.workFoldDesktop.space.openPathWith("space-fixture", "files/a b.pdf")'), {
+        opened: false, canceled: true, appName: null,
+      });
+      assert.deepEqual(openWithRequests, [{ spaceId: "space-fixture", path: "files/a b.pdf" }]);
+    }
   } finally {
+    if (!managementOnly) ipcMain.removeHandler("work-fold:space:open-path-with");
     window.destroy();
   }
 }

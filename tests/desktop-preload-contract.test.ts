@@ -41,9 +41,9 @@ test("Open with reaches the host only as a Space file reference and launches onl
   assert.match(body, /spacePathRequest\(value, false\)/);
   assert.match(body, /resolveSpaceItem\(request\.spaceId, request\.path\)/);
   assert.match(body, /dialog\.showOpenDialog\(window, options\)/);
-  assert.match(body, /const appPath = choice\.filePaths\[0\];/);
-  assert.match(body, /return \{ opened: false, canceled: true, appName: null \};/);
-  assert.match(body, /Couldn't open with \$\{appName\}\./);
+  assert.match(body, /return openFileWithPickedApp\(process\.platform, \{/);
+  assert.match(body, /return choice\.canceled \? null : choice\.filePaths\[0\] \?\? null;/);
+  assert.match(body, /launch: launchOpenWith/);
   assert.doesNotMatch(body, /shell: true|exec\(/);
   assert.match(main, /spawn\(plan\.command, plan\.args, \{ detached: true, stdio: "ignore" \}\)/);
 });
