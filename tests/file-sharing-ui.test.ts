@@ -13,7 +13,7 @@ const publication: SharedPageView = {
 };
 const props = { spaceId: "space-one", path: "one.md", fileName: "one.md" };
 const status = { configured: true, viewerOrigin: "https://pages-test.example" };
-const response = (value: unknown) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+const response = (value: unknown, httpStatus = 200) => new Response(JSON.stringify(value), { status: httpStatus, headers: { "content-type": "application/json" } });
 const list = (pages: SharedPageView[]) => ({ publications: pages, status: { damaged: false, activeCount: pages.length, pendingBridgeWork: 0 } });
 
 function deferred<T>() {
@@ -25,6 +25,106 @@ function deferred<T>() {
 function bridge(getStatus = async () => status) {
   Object.assign(window, { workFoldDesktop: { api: {}, remoteAccess: { getStatus } } });
 }
+
+test("a native Share request refreshes a cached empty list after the CLI shares the file", async (t) => {
+  const dom = await createDomHarness();
+  const originalFetch = globalThis.fetch;
+  t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; setSharedPages(null); });
+  setSharedPages([]);
+  bridge();
+  let hostPages: SharedPageView[] = [];
+  let shares = 0;
+  globalThis.fetch = (async (input) => {
+    if (String(input).endsWith("/share")) {
+      shares += 1;
+      return response({ error: "This file is already shared as a page." }, 409);
+    }
+    if (String(input).endsWith("/reveal-link")) return response({ viewerPath: publication.viewerPath, key: "cli-key" });
+    return response(list(hostPages));
+  }) as typeof fetch;
+  await dom.render(createElement(FileShareControl, props));
+  assert.equal(dom.container.querySelector("button")!.textContent, "Share");
+  hostPages = [publication];
+  await dom.render(createElement(FileShareControl, { ...props, shareRequestId: 1 }));
+  await dom.waitFor(() => Boolean(dom.container.querySelector("input")));
+  assert.equal(dom.container.querySelector("input")!.value, "https://pages-test.example/p/page-one#cli-key");
+  assert.equal(dom.container.querySelector("button")!.textContent, "Shared");
+  assert.equal(shares, 0, "a fresh host read reopens the existing link without another share act");
+});
+
+test("a concurrent external share conflict reopens its link without replaying the mutation", async (t) => {
+  const dom = await createDomHarness();
+  const originalFetch = globalThis.fetch;
+  t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; setSharedPages(null); });
+  setSharedPages([]);
+  bridge();
+  let shares = 0;
+  globalThis.fetch = (async (input) => {
+    if (String(input).endsWith("/share")) {
+      shares += 1;
+      // Another caller creates the page after this control's preflight GET.
+      return response({ error: "This file is already shared as a page." }, 409);
+    }
+    if (String(input).endsWith("/reveal-link")) return response({ viewerPath: publication.viewerPath, key: "concurrent-key" });
+    return response(list(shares ? [publication] : []));
+  }) as typeof fetch;
+  await dom.render(createElement(FileShareControl, props));
+  await dom.act(async () => { dom.container.querySelector("button")!.click(); });
+  await dom.waitFor(() => Boolean(dom.container.querySelector("input")));
+  assert.equal(dom.container.querySelector("input")!.value, "https://pages-test.example/p/page-one#concurrent-key");
+  assert.equal(shares, 1, "conflict recovery performs reads, never another share act");
+  assert.equal(dom.container.querySelector("button")!.disabled, false);
+});
+
+test("a share conflict without a matching page stays refused without another mutation", async (t) => {
+  const dom = await createDomHarness();
+  const originalFetch = globalThis.fetch;
+  t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; setSharedPages(null); });
+  setSharedPages([]);
+  bridge();
+  let shares = 0;
+  let reveals = 0;
+  globalThis.fetch = (async (input) => {
+    if (String(input).endsWith("/share")) {
+      shares += 1;
+      return response({ error: "Stop sharing another page first.", code: "PUBLICATION_CAP" }, 409);
+    }
+    if (String(input).endsWith("/reveal-link")) reveals += 1;
+    return response(list([{ ...publication, relativePath: "another-file.md" }]));
+  }) as typeof fetch;
+  await dom.render(createElement(FileShareControl, props));
+  await dom.act(async () => { dom.container.querySelector("button")!.click(); });
+  assert.equal(shares, 1);
+  assert.equal(reveals, 0, "another file's page cannot satisfy this Share request");
+  assert.equal(dom.container.querySelector('[role="dialog"]'), null);
+  assert.equal(dom.container.querySelector("button")!.disabled, false);
+});
+
+test("returning to the window refreshes shared markers after external share and revoke", async (t) => {
+  const dom = await createDomHarness();
+  const originalFetch = globalThis.fetch;
+  t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; setSharedPages(null); });
+  setSharedPages([]);
+  bridge();
+  let hostPages: SharedPageView[] = [];
+  let visibility = "visible";
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+  let reads = 0;
+  globalThis.fetch = (async () => { reads += 1; return response(list(hostPages)); }) as typeof fetch;
+  await dom.render(createElement(FileShareControl, props));
+  hostPages = [publication];
+  await dom.act(async () => { window.dispatchEvent(new Event("focus")); });
+  assert.equal(dom.container.querySelector("button")!.textContent, "Shared");
+  const readsBeforeHide = reads;
+  visibility = "hidden";
+  await dom.act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  assert.equal(reads, readsBeforeHide, "hiding the window does not start another read");
+  hostPages = [];
+  visibility = "visible";
+  await dom.act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  assert.equal(dom.container.querySelector("button")!.textContent, "Share");
+  await dom.cleanup();
+});
 
 test("Share admits one request even while its address lookup is pending", async (t) => {
   const dom = await createDomHarness();
@@ -133,15 +233,16 @@ test("Share refreshes file markers after a pending pre-share list finishes", asy
     if (String(input).endsWith("/share")) { shares += 1; return response({ publication, revealable: true }); }
     if (String(input).endsWith("/reveal-link")) return response({ viewerPath: publication.viewerPath, key: "current-key" });
     reads += 1;
-    return reads === 1 ? oldList.promise : response(list([publication]));
+    return reads === 1 ? oldList.promise : response(list(shares ? [publication] : []));
   }) as typeof fetch;
   await dom.render(createElement(FileShareControl, props));
   await dom.waitFor(() => reads === 1);
   await dom.act(async () => { dom.container.querySelector("button")!.click(); });
-  await dom.waitFor(() => Boolean(dom.container.querySelector("input")));
+  assert.equal(shares, 0, "sharing waits for a fresh host list instead of trusting the cached empty list");
   await dom.act(async () => { oldList.resolve(response(list([]))); });
+  await dom.waitFor(() => Boolean(dom.container.querySelector("input")));
   await dom.waitFor(() => dom.container.querySelector(".file-share-button")?.textContent === "Shared");
-  assert.equal(reads, 2, "a fresh GET follows the earlier read instead of reusing its stale list");
+  assert.equal(reads, 3, "fresh GETs follow both the older list and the share mutation");
   assert.deepEqual(sharedPagesSnapshot(), [publication]);
   await dom.press("Escape");
   await dom.act(async () => { dom.container.querySelector("button")!.click(); });
