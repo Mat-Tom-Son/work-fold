@@ -25,6 +25,10 @@ opens this small setup page once; extension updates do not reopen it or connect
 another profile. The UI shows Connected only after the authenticated HTTP
 transport has negotiated compatible capabilities. A native lease alone means
 Connecting. Setup reads do not launch a browser or enroll a profile.
+On Linux, opening the listing waits for the Chrome process to launch, not for
+the browser to exit. Otherwise a first launch would hold connection setup and
+block the extension's own native bootstrap. A launched process alone does not
+establish Connected; authenticated HTTP negotiation still determines readiness.
 
 Chrome supplies normal extension updates through the same Store item. The
 companion and desktop negotiate bridge major version and required capabilities;

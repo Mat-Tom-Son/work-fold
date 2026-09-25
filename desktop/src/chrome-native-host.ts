@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -19,6 +19,26 @@ interface Options {
 }
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const run = promisify(execFile);
+
+/** Open the pinned Store listing in Google Chrome, never the default browser. */
+export async function openChromeStore(storeId: string | null, platform: NodeJS.Platform = process.platform): Promise<void> {
+  if (!storeId || !/^[a-p]{32}$/.test(storeId)) throw new Error("Chrome connection is not available yet.");
+  const url = `https://chromewebstore.google.com/detail/${storeId}`;
+  try {
+    if (platform === "linux") {
+      // A cold Chrome launch lives until the browser quits. Waiting for exit
+      // holds connection setup's serialization lock and blocks its own native
+      // bootstrap. Only wait for OS launch; authenticated polling owns readiness.
+      await new Promise<void>((resolveLaunch, rejectLaunch) => {
+        const browser = spawn("google-chrome", [url], { detached: true, stdio: "ignore" });
+        browser.once("error", rejectLaunch);
+        browser.once("spawn", () => { browser.unref(); resolveLaunch(); });
+      });
+    } else {
+      await run("/usr/bin/open", ["-a", "Google Chrome", url]);
+    }
+  } catch { throw new Error("Google Chrome could not open the work-fold listing."); }
+}
 
 /** Register only this app's exact Store origin, never inspect or edit a Chrome profile. */
 export class ChromeNativeHostRegistration {

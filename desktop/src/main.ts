@@ -71,7 +71,7 @@ import { ComputerSessionService } from "../../src/local/agent/computer-session.j
 import { NativeWaylandTransport } from "../../src/local/agent/wayland-transport.js";
 import type { ChromeHostFacilities } from "../../src/shared/chrome-connection.js";
 import chromeDistribution from "../../src/shared/chrome-distribution.json" with { type: "json" };
-import { ChromeNativeHostRegistration } from "./chrome-native-host.js";
+import { ChromeNativeHostRegistration, openChromeStore } from "./chrome-native-host.js";
 import { ComputerHelperInstallation } from "./computer-helper-installation.js";
 import { createJiti } from "jiti";
 import { applyLoginShellEnvironment, formatLoginShellEnvironmentResult, type LoginShellEnvironmentResult } from "./shell-environment.js";
@@ -547,12 +547,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       const chromeConnection = await IncludedChromeConnectionService.create({
         stateRoot: join(userData, "assistant-tools"), distribution: chromeDistribution,
         registerNativeHost: (explicit) => chromeRegistration.register(explicit),
-        openStore: async () => {
-          if (!chromeDistribution.storeId || !/^[a-p]{32}$/.test(chromeDistribution.storeId)) throw new Error("Chrome connection is not available yet.");
-          const command = process.platform === "linux" ? "google-chrome" : "/usr/bin/open";
-          const args = process.platform === "linux" ? [`https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`] : ["-a", "Google Chrome", `https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`];
-          await new Promise<void>((resolveOpen, rejectOpen) => execFile(command, args, error => error ? rejectOpen(new Error("Google Chrome could not open the work-fold listing.")) : resolveOpen()));
-        },
+        openStore: () => openChromeStore(chromeDistribution.storeId),
         startTransport: async (facilities) => (await loadChromeConnection()).startIncludedChromeConnection(facilities),
         probe: async () => { await (await loadChromeConnection()).probeIncludedChromeConnection(chromeConnection); },
       });
