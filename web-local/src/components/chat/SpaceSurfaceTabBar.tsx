@@ -11,6 +11,8 @@ import { spaceIdentityStyle } from "../../lib/space-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/space-ui";
 import type { ChatActivityStatus, ConversationSummary, SpaceCustomizationMap, SpaceSummary, SpaceSurfaceTab } from "../../types";
 import { FluentGlyph, NewChatIcon, SpaceIconGlyph } from "../chrome/common";
+import { fileSharing } from "../../ui-contract";
+import { SharedPageGlyph } from "../tree/FileTree";
 
 const groupSurfaceTabsStorageKey = "work-fold.space.surface-tabs.group-by-space.v1";
 
@@ -47,6 +49,7 @@ export function SpaceSurfaceTabBar({
   onClose,
   onNewChatInSpace,
   onChatActions,
+  isSharedFile,
 }: {
   tabs: SpaceSurfaceTab[];
   spaces: SpaceSummary[];
@@ -59,6 +62,8 @@ export function SpaceSurfaceTabBar({
   onClose: (tabId: string) => void;
   onNewChatInSpace: (space: SpaceSummary) => void;
   onChatActions: (space: SpaceSummary, conversation: ConversationSummary, event: ReactMouseEvent<HTMLElement>) => void;
+  /** True when this Folder file is shared as a page; file tabs carry the mark. */
+  isSharedFile?: (spaceId: string, path: string) => boolean;
 }) {
   const spaceIdentityFor = useSpaceIdentityResolver();
   const [spaceMenuOpen, setSpaceMenuOpen] = useState(false);
@@ -220,6 +225,7 @@ export function SpaceSurfaceTabBar({
       ? conversations[tab.spaceId]?.find((item) => item.id === tab.conversationId)
       : undefined;
     const activityLabel = activity === "running" ? "Assistant working" : activity === "attention" ? "Assistant finished" : "";
+    const shared = tab.kind === "file" && Boolean(isSharedFile?.(tab.spaceId, tab.path));
     return (
       <span
         className={["surface-tab", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
@@ -247,7 +253,7 @@ export function SpaceSurfaceTabBar({
           role="tab"
           aria-selected={tab.id === activeTabId}
           aria-controls={surfacePanelDomId(tab.id)}
-          aria-label={`${tab.title} in ${spaceName}${activityLabel ? `, ${activityLabel}` : ""}`}
+          aria-label={`${tab.title} in ${spaceName}${activityLabel ? `, ${activityLabel}` : ""}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`}
           tabIndex={tab.id === activeTabId ? 0 : -1}
           onClick={() => onActivate(tab.id)}
         >
@@ -256,6 +262,7 @@ export function SpaceSurfaceTabBar({
             <span className="surface-tab-title">{tab.title}</span>
           </span>
           {activity ? <span className={`surface-tab-chat-status ${activity}`} aria-hidden="true" /> : null}
+          {shared ? <SharedPageGlyph className="surface-tab-shared-marker" /> : null}
         </button>
         <button
           className="surface-tab-close"

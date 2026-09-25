@@ -1030,6 +1030,11 @@ export function createRemoteBridgePublicationSync(
     }
   };
   return {
+    // A share needs an address to publish to; the publication service asks
+    // before minting a slot nobody could reach.
+    async addressConfigured() {
+      return (await getSettings()) !== null;
+    },
     async upsertSlot(input) {
       await request(`/api/device/publications/${encodeURIComponent(input.publicationId)}`, "PUT", {
         operationId: input.operationId,

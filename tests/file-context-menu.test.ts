@@ -7,7 +7,7 @@ const fileRequest = {
   spaceId: "space-1",
   path: "Reports/Q3.xlsx",
   kind: "file",
-  capabilities: { open: true, attach: true, history: true, upload: false, rename: true, delete: true },
+  capabilities: { open: true, attach: true, history: true, upload: false, rename: true, delete: true, share: false, shared: false },
   point: { x: 23.6, y: 42.2 },
 } as const;
 
@@ -27,12 +27,21 @@ test("native file menus use host-owned labels and a bounded command set", () => 
   ]);
 });
 
+test("shareable files get a Share or Shared item after Version History", () => {
+  const share = parseNativeFileMenuRequest({ ...fileRequest, path: "Reports/summary.md", capabilities: { ...fileRequest.capabilities, share: true } });
+  const labels = nativeFileMenuItems(share).map((item) => item.type === "item" ? item.label : "—");
+  assert.equal(labels.indexOf("Share"), labels.indexOf("Version History") + 1);
+  assert.ok(nativeFileMenuItems(share).some((item) => item.type === "item" && item.label === "Share" && item.command === "share"));
+  const shared = parseNativeFileMenuRequest({ ...fileRequest, path: "Reports/summary.md", capabilities: { ...fileRequest.capabilities, share: true, shared: true } });
+  assert.ok(nativeFileMenuItems(shared).some((item) => item.type === "item" && item.label === "Shared" && item.command === "share"));
+});
+
 test("native folder menus expose only applicable fixed actions", () => {
   const request = parseNativeFileMenuRequest({
     ...fileRequest,
     path: "Notes",
     kind: "folder",
-    capabilities: { open: true, attach: true, history: true, upload: true, rename: false, delete: false },
+    capabilities: { open: true, attach: true, history: true, upload: true, rename: false, delete: false, share: false, shared: false },
   });
   assert.deepEqual(nativeFileMenuItems(request).map((item) => item.type === "separator" ? "separator" : item.command), [
     "open", "reveal", "copy-path", "separator", "upload-here",

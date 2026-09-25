@@ -82,6 +82,9 @@ A routing has exactly one declared trigger; manual run-now is additionally
 available for every enabled routing. Triggers are evaluated by app code from
 recorded settle/schedule state, or explicitly granted bounded folder metadata observation. Trigger evaluation never calls a model or reads file contents.
 
+**Manual only** is `{"kind":"manual"}` (any version): the routing never fires
+on its own and runs only through run-now below.
+
 **Folder changes (version 3)** use `{"kind":"files-changed","space":"<Space id>","watch":{"kind":"tree","path":"Incoming","recursive":true,"extensions":[".md",".txt"]},"debounceSeconds":5,"cooldownMinutes":1}`. The exact named folder must exist at enablement. The host observes matching ordinary files every two seconds, within 512 files, 2,000 visited entries, depth 16, and the existing target byte bounds. Metadata identities include size, nanosecond modification/change times, and inode; file contents are not read or sent anywhere by the observer. Symlinks and overlap with separately registered Spaces fail closed. The extension list and recursion are explicit; reserved metadata stays excluded.
 
 A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → Automations.
@@ -161,7 +164,8 @@ proposal and enablement.
 
 Authoring follows the Check-proposal pattern: the fold writes an inert,
 typed, kind/version JSON file (`work-fold.routing-proposal`, version 1, 2, 3,
-or 4, `.work-fold-routing.json` suffix) in its own management working folder —
+or 4, `.work-fold-routing.json` suffix) at the top level of its own management
+working folder —
 never inside a Space folder, because the proposal names multiple Spaces and
 Space folders travel. `src/local/routings/routing-declarations.ts` is the
 schema authority. Spaces are pinned by stable Space id; duplicate names are
@@ -365,7 +369,8 @@ are not queued. Routing runs register as the experimental kernel task kind
 1. **Propose.** The fold (or a person, by hand) writes the inert typed
    proposal. Nothing is registered, armed, or scheduled; proposals are
    ordinary files with no authority.
-2. **Enable.** `work-fold routings enable --proposal <path>` is a direct
+2. **Enable.** `work-fold routings enable --proposal <path>` — or **Turn on**
+   beside a pending file in Settings → Automations — is a direct
    receipted verb (docs/receipts-not-gates.md, F23). It normalizes the
    declaration, rechecks the one-time horizon, requires every referenced
    Space to be registered, and commits the enablement through the same
@@ -412,7 +417,60 @@ tools was rejected because a routing is not one Space's object, and a
 management work tab was rejected because it would spend the Space-bound tab
 contract's own deliberate design. The Settings section carries the list,
 state, declaration, bounded run history, and valid actions; **Turn on** is one
-click that enables the routing and writes its receipt. The fold narrates run
+click that enables the routing and writes its receipt.
+
+Pending proposal files appear there too (2026-09-24). Settings scans the top
+level of the work-fold agent's management working folder — no subfolders, at
+most 64 `*.work-fold-routing.json` files of at most 256 KiB each — validates
+each with the proposal schema, and lists the ones not already stored at the
+same digest under **Ready to turn on**, each with its title, trigger, and a
+**Turn on** button. A file that does not validate, names an unregistered
+Folder, or has a one-time instant outside the enablement horizon shows only
+its file name, with the problem as a tooltip and no button; when every file
+is invalid the section is titled **Automation files** so the repair reason
+remains visible. Turn on re-reads
+that exact file — the path must resolve directly inside the management
+working folder. Reads reject symbolic links and files that change while
+being read, and never admit more than 256 KiB. The action takes the same
+enable path as `routings enable
+--proposal` (content-derived id, digest pinned at that moment, journaled
+prepared act), with the receipt's surface recorded as `main-window`. The
+routing then appears once, in the main list. The agent is taught to write the
+file and tell the person it is there, and to enable it itself only when asked.
+The scan is a read of inert files, so the section is absent in the browser
+lane, where the desktop bridge is missing.
+
+When more than one automation names more than one Folder, a compact **All** /
+per-Folder chip row filters the list client-side by the Folders each
+automation's trigger and steps name. It is a view over the one list, not a
+per-Folder place: automations stay above Folders.
+
+*Amended 2026-09-24 (owner decision, revising F15):* Settings → Automations
+stays the management home, and a Folder also gets a read-mostly window onto
+the automations that touch it. The rail shows an **Automations** entry
+(between History and the contributed apps) only while at least one
+automation's trigger or step names that Folder; the renderer reads
+`GET /api/spaces/:id/automations` when the Folder changes and when the
+window regains focus, and caches the list per Folder. Actions in Settings or
+a Folder's Automations tab refresh the cached Folder views immediately, so
+the rail does not wait for a window switch to show a newly enabled proposal
+or remove a deleted declaration. The entry opens one
+Folder-owned **Automations** tab (`space-automations`) under the
+Space-bound-tab rules. Each row carries the title, one state word (On, Off,
+Running, Suspended, or Done), the trigger summary Settings shows, what the
+automation does in this Folder (Watches this folder, Copies files here,
+Copies files from here, Starts a Chat here, Runs a Check here), and the last
+run time, with **Run now** (only while On), **Turn on**, and **Turn off**.
+Those three call `POST /api/spaces/:id/automations/:routingId/(run|enable|disable)`,
+which runs the exact Settings facade methods — same prepared-act path, same
+`main-window` receipts — and refuses a routing that does not name the Folder.
+Nothing is edited or deleted there, and **All automations** opens Settings →
+Automations. Unlike Settings, the view is not desktop-only: it is served by
+the session-authenticated local API, so it also works in the browser lane.
+Automations are still declared, stored, and receipted above Folders; the
+Folder view never becomes a second place to author one.
+
+The fold narrates run
 history on demand, and only a routing's own `fold` step ever puts it on a
 cadence. A routing's effects remain visible where they land: the copied
 files and restore point in the destination Space's Files and History, the
@@ -466,6 +524,8 @@ The plan items shipped as follows:
 10. Docs promotion — recorded in [Fold integration](fold-integration.md).
 11. Version-2 one-time scheduling and schema migration — `src/local/agent/work-fold-automation-service.ts`, `src/local/routings/`; `tests/work-fold-automation-service.test.ts`, `tests/work-fold-routing-declarations.test.ts`, `tests/work-fold-routing-store.test.ts`, `tests/work-fold-routing-service.test.ts`.
 12. Receipts-not-gates: direct `routings enable`, version-4 placeholders and the `fold` step, raised defaults — `src/local/routings/`, `src/local/server.ts`; `tests/work-fold-routing-*.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/routings-settings-ui.test.ts`.
+13. Pending proposals in Settings and the Folder filter (2026-09-24) — `src/local/routings/routing-proposal-scan.ts`, the `routingSettings` facade in `src/local/server.ts`, `work-fold:routings:proposals` and `work-fold:routings:enable-proposal` in `desktop/src/`, `web-local/src/components/modals/FoldRoutingsPane.tsx`; `tests/work-fold-routing-proposal-scan.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/routings-settings-ui.test.ts`.
+14. Folder-owned Automations view (2026-09-24, F15 amended) — `src/shared/routing-presentation.ts` (the one trigger summary Settings, the Folder tab, and the route share), `workFoldRoutingSpaceRoles` in `src/local/routings/routing-declarations.ts`, `forSpace`/`requireSpaceRouting` on the `routingSettings` facade and the `/api/spaces/:id/automations` routes in `src/local/server.ts`, `web-local/src/components/panes/SpaceAutomationsPane.tsx`, `web-local/src/hooks/useFolderAutomations.ts`; `tests/folder-automations.test.ts`, `tests/use-surface-tabs.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 
 ## Deliberately not in this design
 
@@ -497,8 +557,9 @@ The plan items shipped as follows:
   own.
 - **Portable or shared routings.** Declarations never enter `.work-fold/`,
   sync, export, or any distribution lane.
-- **A routings rail destination, badge, or notification stream.** Settings
-  owns management; the glance and receipts own visibility.
+- **A machine-wide routings rail destination, badge, or notification stream.**
+  Settings owns management; the conditional Folder entry above is a view of
+  related automations, not a second management home.
 - **Read-lane routing status.** All routing commands remain act-lane.
 - **Hosted or remote execution.** Routings run only on this desktop while
   the app runs; outward exposure of anything a routing produces stays in

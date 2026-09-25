@@ -5501,3 +5501,15 @@
 .restricted-app-task-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
 .restricted-app-task-result { min-width: 0; }
 .restricted-app-task-result .work-result-summary { color: var(--ui-text); font-size: 13px; line-height: 1.6; margin: 12px 0; }
+
+/* The Folder-owned Automations tab: one row per automation touching this Folder. */
+.folder-automations-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.folder-automation-row { min-width: 0; display: grid; gap: 4px; padding: 14px 16px; background: var(--ui-surface-subtle); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); }
+.folder-automation-heading { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.folder-automation-heading strong { min-width: 0; overflow: hidden; color: var(--ui-text); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.folder-automation-row p { margin: 0; color: var(--ui-text-muted); font-size: 13px; line-height: 1.5; }
+.folder-automation-last-run { color: var(--ui-text-muted); font-size: 12px; }
+.folder-automation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.folder-automation-actions:empty { display: none; }
+.folder-automations-empty { margin: 0; color: var(--ui-text-muted); font-size: 13px; line-height: 1.5; }
+.folder-automations-footer { display: flex; }

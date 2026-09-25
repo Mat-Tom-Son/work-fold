@@ -11,7 +11,7 @@ import { shouldSubmitComposerKey } from "./public/composer.js";
 import { canDeleteChat, removeDeletedChat } from "./public/chat-delete.js";
 import { renderMarkdown } from "./public/markdown.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./public/rendering.js";
-import { parseViewerLocation, viewerPageAad, viewerSlugFromHost } from "./public/viewer/viewer.js";
+import { parseViewerLocation, renderPayload, viewerDocumentSandbox, viewerPageAad, viewerSlugFromHost } from "./public/viewer/viewer.js";
 import {
   composeViewerAppDocument,
   parseViewerAppLocation,
@@ -1313,6 +1313,18 @@ test("a reserved pages-* host serves viewer routes or nothing, never the managem
   assert.equal(shell.status, 200);
   assert.match(shell.headers.get("content-type"), /^text\/html/);
   assert.match(shell.headers.get("content-security-policy"), /default-src 'none'; script-src 'self'/);
+  // A person-authored HTML page keeps its own design (inline style, data:
+  // images) inside a script-less sandboxed blob: frame that inherits this
+  // policy; script stays 'self' only and nothing else can load.
+  const shellPolicy = shell.headers.get("content-security-policy");
+  assert.match(shellPolicy, /script-src 'self';/);
+  assert.match(shellPolicy, /style-src 'self' 'unsafe-inline';/);
+  assert.match(shellPolicy, /img-src blob: data:;/);
+  assert.match(shellPolicy, /frame-src blob:;/);
+  assert.match(shellPolicy, /form-action 'none'/);
+  assert.equal(shellPolicy.match(/'unsafe-inline'/g)?.length, 1, "inline is allowed for style only");
+  assert.doesNotMatch(viewerDocumentSandbox, /allow-scripts|allow-same-origin|allow-forms|allow-top-navigation/);
+  assert.match(viewerDocumentSandbox, /allow-popups/);
   assert.equal(shell.headers.get("set-cookie"), null, "the viewer origin never sets a cookie");
   assert.match(await shell.text(), /viewer\.js/);
   const shellModule = await fetch(`${baseUrl}/viewer.js`, { headers: viewerHost });
@@ -1794,15 +1806,16 @@ test("the viewer app plane serves the sandboxed shell, relays typed calls, separ
   const viewerHost = { "x-forwarded-host": `pages-${slug}.work-fold.test` };
   // The app shell document carries its own CSP: the sandboxed opaque-origin
   // blob: iframe inherits it, so the reviewed app's inline/blob code may run
-  // while the page shell keeps the strict inert policy.
+  // while the page shell keeps script to 'self' (it allows inline style
+  // only, for person-authored HTML pages).
   const shell = await fetch(`${baseUrl}/a/${appSlot}`, { headers: viewerHost });
   assert.equal(shell.status, 200);
   assert.match(shell.headers.get("content-security-policy"), /script-src 'self' 'unsafe-inline' blob:/);
   assert.equal(shell.headers.get("set-cookie"), null, "the app shell never sets a cookie");
   assert.match(await shell.text(), /viewer-app\.js/);
   const pagesShell = await fetch(`${baseUrl}/p/${appSlot}`, { headers: viewerHost });
-  assert.doesNotMatch(pagesShell.headers.get("content-security-policy"), /unsafe-inline/,
-    "the page shell keeps its strict policy");
+  assert.doesNotMatch(pagesShell.headers.get("content-security-policy"), /script-src[^;]*(unsafe-inline|blob:)/,
+    "the page shell never runs inline or blob: script");
   const shellModule = await fetch(`${baseUrl}/viewer-app.js`, { headers: viewerHost });
   assert.equal(shellModule.status, 200);
   assert.match(await shellModule.text(), /workFoldViewerApp/);
@@ -1912,6 +1925,39 @@ test("the viewer app shell module composes canonical calls, routes, and the sand
   const composed = composeViewerAppDocument("<!doctype html><html><body>app</body></html>");
   assert.match(composed, /^<!doctype html><script>/, "the bootstrap runs first while standards mode is preserved");
   assert.match(composed, /workFoldViewerApp/);
+});
+
+test("the viewer shell places a whole HTML page in a script-less sandboxed frame and Markdown in the article", async () => {
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM('<main id="viewer-root" class="viewer-root"></main>');
+  const previous = { document: globalThis.document, createObjectURL: URL.createObjectURL };
+  const blobs = [];
+  globalThis.document = dom.window.document;
+  URL.createObjectURL = (blob) => { blobs.push(blob); return "blob:viewer/1"; };
+  try {
+    const root = dom.window.document.getElementById("viewer-root");
+    renderPayload(root, { v: 1, title: "Flyer", mediaType: "text/html", document: true, body: "<!DOCTYPE html><h1>Hi</h1>" });
+    const frame = root.querySelector("iframe");
+    assert.ok(frame, "the page sits in a frame, not in the shell's own document");
+    assert.equal(frame.getAttribute("sandbox"), viewerDocumentSandbox);
+    assert.equal(frame.getAttribute("src"), "blob:viewer/1");
+    assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
+    assert.equal(frame.className, "viewer-document");
+    assert.ok(root.classList.contains("viewer-root-document"));
+    assert.equal(blobs[0].type, "text/html;charset=utf-8");
+    const frameDocument = new JSDOM(await blobs[0].text()).window.document;
+    const documentPolicy = frameDocument.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content");
+    assert.equal(documentPolicy, "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'");
+    assert.equal(frameDocument.querySelector("h1")?.textContent, "Hi");
+    assert.equal(root.querySelector("h1"), null, "no page markup enters the shell document");
+
+    renderPayload(root, { v: 1, title: "Notes", mediaType: "text/html", body: "<h1>Notes</h1>" });
+    assert.equal(root.querySelector("iframe"), null);
+    assert.equal(root.querySelector("article h1")?.textContent, "Notes", "Markdown stays an article body");
+  } finally {
+    globalThis.document = previous.document;
+    URL.createObjectURL = previous.createObjectURL;
+  }
 });
 
 test("the viewer shell module parses links, derives slugs, and binds the documented AAD", () => {

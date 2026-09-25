@@ -329,6 +329,61 @@ test("serving renders the closed set within bounds and decrypts under the docume
   );
 });
 
+test("a person-authored HTML page is stripped desktop-side and flagged as a whole document", async () => {
+  const fixture = await publicationFixture();
+  await writeFile(join(fixture.spaceRoot, "flyer.html"), [
+    "<!doctype html><html><head><title>Flyer</title><style>h1 { color: teal }</style>",
+    "<meta http-equiv=refresh content=\"0;url=https://evil.example\"></head>",
+    "<body onload=\"alert(1)\"><h1 style=\"font-size: 3rem\">Bake sale</h1>",
+    "<script>alert(1)</script><iframe src=\"https://evil.example\"></iframe>",
+    "<a href=\"javascript:alert(1)\">bad</a> <a href=\"https://example.com\" target=\"_top\">good</a>",
+    "<form action=\"https://evil.example\"><button>Send</button></form></body></html>",
+  ].join("\n"));
+  await writeFile(join(fixture.spaceRoot, "old.HTM"), "<p>Legacy</p>");
+
+  const page = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "flyer.html", title: "Flyer" },
+    context("req-html"),
+  );
+  const served = await fixture.service.serveViewerPage(page.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
+  assert.equal(served.state, "served");
+  const payload = decryptServed(fixture.keys.values.get(page.publicationId)!, served) as {
+    v: number; mediaType: string; body: string; document?: boolean;
+  };
+  assert.equal(payload.mediaType, "text/html");
+  assert.equal(payload.document, true, "the viewer places a whole HTML document in a script-less sandboxed frame");
+  assert.match(payload.body, /^<!DOCTYPE html>\n<meta charset="utf-8">/);
+  assert.match(payload.body, /<style>h1 \{ color: teal \}<\/style>/, "the page keeps its own design");
+  assert.match(payload.body, /<h1 style="font-size: 3rem">Bake sale<\/h1>/);
+  assert.match(payload.body, /<a href="https:\/\/example\.com" target="_blank" rel="noopener noreferrer">good<\/a>/);
+  assert.doesNotMatch(payload.body, /<script|<iframe|<form|http-equiv|onload|javascript:/i);
+  assert.match(payload.body, /<button>Send<\/button>/);
+
+  const legacy = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "old.HTM", title: "Legacy" },
+    context("req-htm"),
+  );
+  const servedLegacy = await fixture.service.serveViewerPage(legacy.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
+  const legacyPayload = decryptServed(fixture.keys.values.get(legacy.publicationId)!, servedLegacy) as { body: string; document?: boolean };
+  assert.equal(legacyPayload.document, true);
+  assert.match(legacyPayload.body, /<p>Legacy<\/p>$/);
+
+  const markdown = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "report.md", title: "Report" },
+    context("req-md-flag"),
+  );
+  const servedMarkdown = await fixture.service.serveViewerPage(markdown.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
+  const markdownPayload = decryptServed(fixture.keys.values.get(markdown.publicationId)!, servedMarkdown) as { document?: boolean };
+  assert.equal(markdownPayload.document, undefined, "Markdown stays an article body, not a document");
+
+  await writeFile(join(fixture.spaceRoot, "drawing.svg"), "<svg><script>alert(1)</script></svg>");
+  await assert.rejects(
+    fixture.service.activate({ spaceId: "space-pub", relativePath: "drawing.svg", title: "Drawing" }, context("req-svg")),
+    isRefusal("SOURCE_INVALID"),
+    "SVG stays out: it is scriptable",
+  );
+});
+
 test("the effect-time recheck refuses with typed, content-free states", async () => {
   const fixture = await publicationFixture();
   assert.deepEqual(await fixture.service.serveViewerPage("publication-unknown"), {
@@ -417,7 +472,7 @@ test("revocation is desktop-first, idempotent, and its bridge cleanup is named a
   assert.deepEqual(events.map((event) => event.event), ["created", "revoked"]);
 });
 
-test("narrowing is a direct verb and widening is refused without a fresh decision", async () => {
+test("narrowing is a direct verb that refuses a raise", async () => {
   const fixture = await publicationFixture();
   const view = await fixture.service.activate(
     { spaceId: "space-pub", relativePath: "report.md", title: "Budgeted", snapshotEnabled: true },
@@ -453,6 +508,116 @@ test("narrowing is a direct verb and widening is refused without a fresh decisio
     fixture.service.narrowBudgets(view.publicationId, { serveRatePerMinute: 1 }, context("req-after-revoke")),
     isRefusal("ALREADY_REVOKED"),
   );
+});
+
+test("concurrent sharing admits only one live link for the same normalized source", async () => {
+  const fixture = await publicationFixture();
+  const results = await Promise.allSettled(["report.md", "./report.md"].map((relativePath, index) => fixture.service.activate(
+    { spaceId: "space-pub", relativePath, title: "Shared once" },
+    context(`req-concurrent-share-${index}`),
+  )));
+  const shared = results.filter((result) => result.status === "fulfilled");
+  const refused = results.filter((result) => result.status === "rejected");
+  assert.equal(shared.length, 1, "the duplicate check and activation share one serialized mutation");
+  assert.equal(refused.length, 1);
+  assert.ok(isRefusal("ALREADY_SHARED")(refused[0]!.reason));
+  assert.equal((await fixture.service.activePublicationsForSpace("space-pub")).length, 1);
+  assert.equal(fixture.keys.values.size, 1, "a duplicate share mints no second secret link");
+  const publication = shared[0]!.value;
+  await fixture.service.revoke(publication.publicationId, context("req-concurrent-share-revoke"));
+  const replacement = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "./report.md", title: "Shared again" },
+    context("req-concurrent-share-replacement"),
+  );
+  assert.equal(replacement.relativePath, "report.md");
+  assert.notEqual(replacement.publicationId, publication.publicationId, "sharing after revocation still creates a new link");
+});
+
+test("widening keeps resting until an admitted serve confirms recovery", async () => {
+  const fixture = await publicationFixture();
+  const page = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "report.md", title: "Budget health" },
+    context("req-health-share"),
+  );
+  await fixture.service.noteViewerResting(page.publicationId, "byte-budget");
+  const rateRaised = await fixture.service.widen(page.publicationId, { serveRatePerMinute: 120 }, context("req-health-rate"));
+  assert.equal(rateRaised.health.state, "resting", "more requests per minute do not replenish an exhausted byte budget");
+  // The relay can have served more bytes than either limit (for example,
+  // after narrowing an already-used page). Its counters are not in the
+  // desktop's slot acknowledgement, so an increase proves no recovery.
+  const bytesRaised = await fixture.service.widen(page.publicationId, { byteBudgetPerDay: 512 * 1024 * 1024 }, context("req-health-bytes"));
+  assert.equal(bytesRaised.health.state, "resting", "a higher byte limit may still be below relay usage");
+  assert.equal((await fixture.service.serveViewerPage(page.publicationId)).state, "served");
+  assert.equal((await fixture.service.get(page.publicationId))!.health.state, "live", "the relay-admitted serve confirms recovery");
+  await fixture.service.noteViewerResting(page.publicationId, "serve-rate");
+  const otherBytesRaised = await fixture.service.widen(page.publicationId, { byteBudgetPerDay: 1024 * 1024 * 1024 }, context("req-health-other-bytes"));
+  assert.equal(otherBytesRaised.health.state, "resting", "more bytes per day do not replenish a per-minute request budget");
+  const matchingRateRaised = await fixture.service.widen(page.publicationId, { serveRatePerMinute: 240 }, context("req-health-matching-rate"));
+  assert.equal(matchingRateRaised.health.state, "resting", "a higher minute limit may still be below relay attempts");
+  assert.equal((await fixture.service.serveViewerPage(page.publicationId)).state, "served");
+  assert.equal((await fixture.service.get(page.publicationId))!.health.state, "live");
+});
+
+test("widening in place raises budgets and turns the sleep copy on, keeping the slot and key", async () => {
+  const fixture = await publicationFixture();
+  const view = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "report.md", title: "Wider" },
+    context("req-widen-activate"),
+  );
+  const key = fixture.keys.values.get(view.publicationId);
+  await fixture.service.noteViewerResting(view.publicationId, "byte-budget");
+  assert.equal((await fixture.service.get(view.publicationId))!.health.state, "resting");
+
+  const widened = await fixture.service.widen(
+    view.publicationId,
+    { byteBudgetPerDay: 512 * 1024 * 1024, snapshotEnabled: true },
+    context("req-widen"),
+  );
+  assert.equal(widened.publicationId, view.publicationId);
+  assert.equal(widened.viewerPath, view.viewerPath);
+  assert.equal(widened.byteBudgetPerDay, 512 * 1024 * 1024);
+  assert.equal(widened.serveRatePerMinute, 60, "an unnamed budget is unchanged");
+  assert.equal(widened.snapshotEnabled, true);
+  assert.equal(widened.lastProblem?.state, "resting", "widening and a snapshot seed do not prove the relay can admit viewers");
+  assert.equal(widened.health.state, "resting");
+  assert.equal(fixture.keys.values.get(view.publicationId), key, "the key, and so the link, is unchanged");
+  const entries = fixture.receipts.entries.filter((entry) => entry.requestId === "req-widen");
+  assert.deepEqual(entries.map((entry) => [entry.command, entry.outcome]), [["pages widen", "accepted"], ["pages widen", "ok"]]);
+  assert.match(entries[1]!.detail!, /byteBudgetPerDay=268435456->536870912 snapshot=off->on bridgeSync=confirmed/);
+  assert.deepEqual(entries[1]!.undoRef, { kind: "publicationId", value: view.publicationId });
+  const upsert = fixture.bridge.calls.filter((call) => call.method === "upsertSlot").at(-1)!.input as { snapshotEnabled: boolean; byteBudgetPerDay: number };
+  assert.equal(upsert.snapshotEnabled, true);
+  assert.equal(upsert.byteBudgetPerDay, 512 * 1024 * 1024);
+  assert.equal(fixture.bridge.calls.some((call) => call.method === "putSnapshot"), true, "the relay copy is seeded when it is opted into");
+
+  // Lower values, over-ceiling values, off, nothing, and stopped pages refuse
+  // before anything is journaled.
+  for (const input of [
+    { serveRatePerMinute: 30 },
+    { serveRatePerMinute: 601 },
+    { byteBudgetPerDay: 1024 * 1024 * 1024 + 1 },
+    {},
+  ]) {
+    await assert.rejects(fixture.service.widen(view.publicationId, input, context("req-widen-refused")), isRefusal("INPUT_INVALID"));
+  }
+  assert.equal(fixture.receipts.entries.some((entry) => entry.requestId === "req-widen-refused"), false);
+  await fixture.service.revoke(view.publicationId, context("req-widen-revoke"));
+  await assert.rejects(
+    fixture.service.widen(view.publicationId, { serveRatePerMinute: 120 }, context("req-widen-after")),
+    isRefusal("ALREADY_REVOKED"),
+  );
+  assert.equal((await fixture.service.get(view.publicationId))!.health.state, "stopped");
+});
+
+test("the service knows whether an address exists to serve pages at", async () => {
+  assert.equal(await (await publicationFixture({ bridge: null })).service.hasAddress(), false, "no bridge lane means no address");
+  assert.equal(await (await publicationFixture()).service.hasAddress(), true, "a bridge that cannot say is taken at its word");
+  const unconfigured = bridgeRecorder();
+  Object.assign(unconfigured, { addressConfigured: async () => false });
+  assert.equal(await (await publicationFixture({ bridge: unconfigured })).service.hasAddress(), false);
+  const configured = bridgeRecorder();
+  Object.assign(configured, { addressConfigured: async () => true });
+  assert.equal(await (await publicationFixture({ bridge: configured })).service.hasAddress(), true);
 });
 
 test("a damaged store fails closed for mutations, serves, and Space-removal checks without being overwritten", async () => {

@@ -145,6 +145,7 @@ export type WorkFoldCliActCommandName =
   | "pages.status"
   | "pages.revoke"
   | "pages.narrow"
+  | "pages.widen"
   | "pages.snapshot-off"
   | "trash.list"
   | "trash.restore"
@@ -227,15 +228,15 @@ export interface WorkFoldCliActParsedCommand {
   retained?: string;
   /** Explicit apps.uninstall data disposition; deliberately never defaulted. */
   disposition?: "retain-data" | "purge-data";
-  /** Snapshot-caching opt-in for pages.share; an explicitly labeled choice, never defaulted on. */
+  /** Snapshot-caching opt-in for pages.share and pages.widen; an explicitly labeled choice, never defaulted on. */
   snapshot?: boolean;
   /** Routing id for the routings management verbs; routings take no --space. */
   routing?: string;
   /** Publication id for the pages management verbs. */
   publication?: string;
-  /** Narrowed serve-rate budget for pages.narrow. */
+  /** Serve-rate budget for pages.narrow (lower) or pages.widen (higher). */
   serveRatePerMinute?: number;
-  /** Narrowed daily byte budget for pages.narrow. */
+  /** Daily byte budget for pages.narrow (lower) or pages.widen (higher). */
   byteBudgetPerDay?: number;
   /** Recently deleted item id for trash.restore. */
   entry?: string;
@@ -687,6 +688,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "pages share-app",
     "pages revoke",
     "pages narrow",
+    "pages widen",
     "pages snapshot-off",
     "trash restore",
   ]);
@@ -1694,8 +1696,9 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "pages revoke":
     case "pages snapshot-off":
       // Narrowing verbs (docs/fold-publishing.md): revoking and turning
-      // snapshot caching off never need a click; widening back is a fresh
-      // `pages share`.
+      // snapshot caching off never need a click; turning the sleep copy
+      // back on is `pages widen --snapshot`, and a revoked page shares again
+      // only as a fresh `pages share` with a new link.
       allowOnlyFlags("--publication", "--parent-task");
       return {
         name: command === "pages revoke" ? "pages.revoke" : "pages.snapshot-off",
@@ -1703,6 +1706,34 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         publication: requireBoundedFlag("--publication", "publication-id"),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    case "pages widen": {
+      // Widening in place (docs/fold-publishing.md, amended 2026-09-24): the
+      // slot, key, and link stay; raised budgets are capped host-side at the
+      // publication ceilings, and --snapshot turns the sleep copy on.
+      allowOnlyFlags("--publication", "--serve-rate", "--byte-budget", "--snapshot", "--parent-task");
+      const requirePositiveInteger = (flag: string, label: string): number | undefined => {
+        const raw = stringFlag(flag);
+        if (raw === undefined) return undefined;
+        const value = Number(raw);
+        if (!Number.isInteger(value) || value < 1) throw usageError(`${flag} must be a positive integer (${label}).`);
+        return value;
+      };
+      const serveRatePerMinute = requirePositiveInteger("--serve-rate", "serves per minute");
+      const byteBudgetPerDay = requirePositiveInteger("--byte-budget", "bytes per day");
+      const snapshot = flags.get("--snapshot") === true;
+      if (serveRatePerMinute === undefined && byteBudgetPerDay === undefined && !snapshot) {
+        throw usageError("Provide --serve-rate <per-minute>, --byte-budget <bytes-per-day>, and/or --snapshot to widen.");
+      }
+      return {
+        name: "pages.widen",
+        output,
+        publication: requireBoundedFlag("--publication", "publication-id"),
+        ...(serveRatePerMinute !== undefined ? { serveRatePerMinute } : {}),
+        ...(byteBudgetPerDay !== undefined ? { byteBudgetPerDay } : {}),
+        ...(snapshot ? { snapshot: true } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
     case "pages narrow": {
       allowOnlyFlags("--publication", "--serve-rate", "--byte-budget", "--parent-task");
       const requirePositiveInteger = (flag: string, label: string): number | undefined => {
@@ -2524,6 +2555,15 @@ async function runActCommand(
         publication: command.publication!,
         ...(command.serveRatePerMinute !== undefined ? { serveRatePerMinute: command.serveRatePerMinute } : {}),
         ...(command.byteBudgetPerDay !== undefined ? { byteBudgetPerDay: command.byteBudgetPerDay } : {}),
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+        requestId: request.id,
+      }));
+    case "pages.widen":
+      return toChecksJson(await facade.pagesWiden({
+        publication: command.publication!,
+        ...(command.serveRatePerMinute !== undefined ? { serveRatePerMinute: command.serveRatePerMinute } : {}),
+        ...(command.byteBudgetPerDay !== undefined ? { byteBudgetPerDay: command.byteBudgetPerDay } : {}),
+        ...(command.snapshot ? { snapshot: true } : {}),
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
@@ -3617,13 +3657,21 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Narrowed budgets of "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}]: `
         + `serve rate ${terminalText(record.priorServeRatePerMinute)} -> ${terminalText(publication.serveRatePerMinute)}/min, `
         + `byte budget ${terminalText(record.priorByteBudgetPerDay)} -> ${terminalText(publication.byteBudgetPerDay)}/day. `
-        + `Raising a budget again is a fresh 'pages share'.\n`;
+        + `Raise it again with 'pages widen'.\n`;
+    }
+    case "pages.widen": {
+      const publication = (record.publication ?? {}) as Record<string, unknown>;
+      return `Widened "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}]: `
+        + `serve rate ${terminalText(record.priorServeRatePerMinute)} -> ${terminalText(publication.serveRatePerMinute)}/min, `
+        + `byte budget ${terminalText(record.priorByteBudgetPerDay)} -> ${terminalText(publication.byteBudgetPerDay)}/day, `
+        + `snapshot caching ${record.priorSnapshotEnabled === true ? "on" : "off"} -> ${publication.snapshotEnabled === true ? "on" : "off"}. `
+        + `The link is unchanged; narrow again with 'pages narrow' or 'pages snapshot-off'.\n`;
     }
     case "pages.snapshot-off": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       const already = record.wasEnabled === false ? " Snapshot caching was already off." : "";
       return `Turned snapshot caching off for "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}].${already} `
-        + `The stored relay copy is deleted${publication.bridgeSlot === "confirmed" ? "" : " once the bridge sync completes"}; turning it back on is a fresh 'pages share'.\n`;
+        + `The stored relay copy is deleted${publication.bridgeSlot === "confirmed" ? "" : " once the bridge sync completes"}; turn it back on with 'pages widen --snapshot'.\n`;
     }
     default:
       return `${terminalText(name)} completed.\n`;

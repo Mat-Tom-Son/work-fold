@@ -1,9 +1,22 @@
 import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 import type { RestrictedAppViewerExposurePins, RestrictedAppViewerServeOutcome } from "./agent/restricted-app-viewer.js";
 import type { WorkFoldCliActReceiptV3 } from "./cli/act-receipts.js";
+import {
+  WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
+  WORKFOLD_PUBLICATION_BYTE_BUDGET_MAXIMUM,
+  WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
+  WORKFOLD_PUBLICATION_SERVE_RATE_MAXIMUM,
+  WORKFOLD_PUBLICATION_SOURCE_TYPES,
+  WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH,
+  isWorkFoldPublicationHtmlExtension,
+  workFoldPublicationHealth,
+  type WorkFoldPublicationHealth,
+  type WorkFoldPublicationMediaType,
+} from "../shared/publications.js";
+import { renderInertHtmlDocument } from "./publication-html.js";
 import { resolveSpacePath } from "./space.js";
 import { workFoldStateRoot } from "./state-paths.js";
 
@@ -21,37 +34,26 @@ export const WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 /** Hard bound on one rendered page ciphertext (plaintext + AES-GCM tag). */
 export const WORKFOLD_PUBLICATION_MAX_CIPHERTEXT_BYTES = 2 * 1024 * 1024;
 
-/** Budget defaults and ceilings, mirroring the bridge's admission bounds. */
-export const WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT = 60;
-export const WORKFOLD_PUBLICATION_SERVE_RATE_MAXIMUM = 600;
-export const WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT = 256 * 1024 * 1024;
-export const WORKFOLD_PUBLICATION_BYTE_BUDGET_MAXIMUM = 1024 * 1024 * 1024;
+/** Budget defaults and ceilings, mirroring the bridge's admission bounds (shared with the renderer). */
+export {
+  WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
+  WORKFOLD_PUBLICATION_BYTE_BUDGET_MAXIMUM,
+  WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
+  WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
+  WORKFOLD_PUBLICATION_SERVE_RATE_MAXIMUM,
+  WORKFOLD_PUBLICATION_SOURCE_TYPES,
+  WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH,
+  workFoldPublicationHealth,
+  type WorkFoldPublicationHealth,
+  type WorkFoldPublicationMediaType,
+  type WorkFoldPublicationPageState,
+} from "../shared/publications.js";
 
 /** One address holds at most this many publication slots, live or pending. */
 export const WORKFOLD_PUBLICATION_ACTIVE_CAP = 32;
 
 /** Bounded retention of revoked records once their bridge cleanup confirmed. */
 export const WORKFOLD_PUBLICATION_SETTLED_RETENTION = 100;
-
-export const WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH = 80;
-
-/**
- * The closed first-slice source set: Markdown and plain text render
- * desktop-side into one inert HTML body; PNG, JPEG, and PDF ship as bytes the
- * shell renders from local blob URLs. Person-authored HTML and SVG are
- * deliberately absent — an app (rung 3) is the vehicle for script.
- */
-export const WORKFOLD_PUBLICATION_SOURCE_TYPES: Readonly<Record<string, WorkFoldPublicationMediaType>> = Object.freeze({
-  ".md": "text/html",
-  ".markdown": "text/html",
-  ".txt": "text/html",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".pdf": "application/pdf",
-});
-
-export type WorkFoldPublicationMediaType = "text/html" | "image/png" | "image/jpeg" | "application/pdf";
 
 export type WorkFoldPublicationKind = "page" | "app";
 
@@ -159,6 +161,12 @@ export interface WorkFoldPublicationView {
   counters?: WorkFoldPublicationServeCounters;
   /** The precise publisher-facing state behind a vague viewer refusal, until the next successful serve. */
   lastProblem?: WorkFoldPublicationProblem;
+  /**
+   * The page state word Settings → Shared pages shows, derived from the
+   * record alone (state, relay slot, health note) with its precise reason.
+   * The desktop's own relay connection is layered on by the renderer.
+   */
+  health: WorkFoldPublicationHealth;
   /** Share-link path on the viewer origin. The origin belongs to Remote access settings; the key is never here. */
   viewerPath: string;
 }
@@ -274,6 +282,13 @@ export interface WorkFoldPublicationBridgeSync {
     capturedAt: string;
   }): Promise<void>;
   deleteSnapshot(publicationId: string): Promise<void>;
+  /**
+   * Whether an address exists to serve pages at — false while Web access is
+   * not set up. Optional so an older desktop wiring keeps working; without
+   * it a configured bridge is assumed and an unreachable relay leaves the
+   * slot honestly pending.
+   */
+  addressConfigured?(): Promise<boolean>;
 }
 
 export interface WorkFoldPublicationReceiptWriter {
@@ -285,6 +300,7 @@ export type WorkFoldPublicationErrorCode =
   | "JOURNAL_UNAVAILABLE"
   | "INPUT_INVALID"
   | "NOT_FOUND"
+  | "ALREADY_SHARED"
   | "ALREADY_REVOKED"
   | "SPACE_NOT_REGISTERED"
   | "SOURCE_INVALID"
@@ -498,6 +514,24 @@ export class WorkFoldPublicationService {
     };
   }
 
+  /**
+   * Whether this desktop has an address to serve pages at
+   * (docs/fold-publishing.md: sharing with no enrolled address fails). No
+   * bridge lane at all means Remote access is unconfigured; a bridge that
+   * cannot say is taken at its word, and an unreachable relay stays the
+   * ordinary pending case rather than a refusal.
+   */
+  async hasAddress(): Promise<boolean> {
+    const bridge = this.#bridge;
+    if (!bridge) return false;
+    if (!bridge.addressConfigured) return true;
+    try {
+      return await bridge.addressConfigured();
+    } catch {
+      return true;
+    }
+  }
+
   async list(): Promise<WorkFoldPublicationView[]> {
     return await this.#mutate(async () => {
       this.#assertOperational();
@@ -573,6 +607,13 @@ export class WorkFoldPublicationService {
       const root = await this.#resolveSpaceRoot(input.spaceId);
       if (!root) throw new WorkFoldPublicationError("SPACE_NOT_REGISTERED", "That Space is not registered on this machine.");
       const source = await inspectSource(root, input.relativePath);
+      if (active.some((record) => record.kind === "page" && record.spaceId === input.spaceId
+        && record.relativePath === source.relativePath)) {
+        throw new WorkFoldPublicationError(
+          "ALREADY_SHARED",
+          "This file is already shared as a page; stop sharing it before sharing it again.",
+        );
+      }
 
       const publicationId = randomBytes(18).toString("base64url");
       const operationId = randomUUID();
@@ -742,8 +783,8 @@ export class WorkFoldPublicationService {
 
   /**
    * Narrowing is a direct verb: budgets may only shrink here. Raising either
-   * budget is widening and belongs to a fresh consecration, so it is refused
-   * with a typed error instead of silently staged.
+   * budget is widening and belongs to {@link widen}, its own receipted verb,
+   * so it is refused with a typed error here.
    */
   async narrowBudgets(
     publicationId: string,
@@ -763,7 +804,7 @@ export class WorkFoldPublicationService {
       if (serveRatePerMinute > existing.serveRatePerMinute || byteBudgetPerDay > existing.byteBudgetPerDay) {
         throw new WorkFoldPublicationError(
           "WIDEN_REFUSED",
-          "Raising a publication budget widens exposure and needs a fresh approval; only narrowing is a direct verb.",
+          "Raising a budget widens exposure; use pages widen for that.",
         );
       }
       await this.#journal(context, "pages narrow-budgets", existing.spaceId, async () => {
@@ -785,6 +826,81 @@ export class WorkFoldPublicationService {
       });
       return this.#view(this.#record(publicationId));
     });
+  }
+
+  /**
+   * Widening in place (docs/fold-publishing.md, amended 2026-09-24): raise
+   * the serve rate or the daily byte budget up to the ceilings, or turn the
+   * sleep copy on, keeping the slot, the key, and the link unchanged. Like
+   * every widening it runs on the call that asks for it and leaves a
+   * receipt naming the old and new values; narrowing back is a direct verb.
+   * A lower value than the current one is refused — that is narrowing — and
+   * apps have no sleep copy. A resting note stays until the relay admits
+   * another serve: a higher limit might still be below current usage, and
+   * the desktop does not own the relay's byte or minute-window counters.
+   */
+  async widen(
+    publicationId: string,
+    input: { serveRatePerMinute?: number; byteBudgetPerDay?: number; snapshotEnabled?: true },
+    context: WorkFoldPublicationActContext,
+  ): Promise<WorkFoldPublicationView> {
+    const widened = await this.#mutate(async () => {
+      this.#assertOperational();
+      assertActContext(context);
+      const existing = this.#activeRecord(publicationId);
+      if (this.#effectiveState(existing) !== "active") {
+        throw new WorkFoldPublicationError("ALREADY_REVOKED", "This page is no longer shared.");
+      }
+      if (input.serveRatePerMinute === undefined && input.byteBudgetPerDay === undefined && input.snapshotEnabled === undefined) {
+        throw new WorkFoldPublicationError("INPUT_INVALID", "Name a serve rate, a daily byte budget, or the sleep copy to widen.");
+      }
+      if (input.snapshotEnabled !== undefined && input.snapshotEnabled !== true) {
+        throw new WorkFoldPublicationError("INPUT_INVALID", "Widening can only turn the sleep copy on; turning it off is snapshot-off.");
+      }
+      if (input.snapshotEnabled === true && existing.kind === "app") {
+        throw new WorkFoldPublicationError("INPUT_INVALID", "Apps have no sleep copy.");
+      }
+      const serveRatePerMinute = input.serveRatePerMinute === undefined
+        ? existing.serveRatePerMinute
+        : boundedInteger(input.serveRatePerMinute, 1, WORKFOLD_PUBLICATION_SERVE_RATE_MAXIMUM, "serve-rate budget");
+      const byteBudgetPerDay = input.byteBudgetPerDay === undefined
+        ? existing.byteBudgetPerDay
+        : boundedInteger(input.byteBudgetPerDay, 1, WORKFOLD_PUBLICATION_BYTE_BUDGET_MAXIMUM, "byte budget");
+      if (serveRatePerMinute < existing.serveRatePerMinute || byteBudgetPerDay < existing.byteBudgetPerDay) {
+        throw new WorkFoldPublicationError("INPUT_INVALID", "That lowers a budget; use pages narrow for that.");
+      }
+      const snapshotEnabled = existing.snapshotEnabled || input.snapshotEnabled === true;
+      const snapshotTurnedOn = snapshotEnabled && !existing.snapshotEnabled;
+      await this.#journal(context, "pages widen", existing.spaceId, async () => {
+        const draft = structuredClone(this.#file);
+        const record = draftRecord(draft, publicationId);
+        const previous = {
+          serveRatePerMinute: record.serveRatePerMinute,
+          byteBudgetPerDay: record.byteBudgetPerDay,
+          snapshotEnabled: record.snapshotEnabled,
+        };
+        record.serveRatePerMinute = serveRatePerMinute;
+        record.byteBudgetPerDay = byteBudgetPerDay;
+        record.snapshotEnabled = snapshotEnabled;
+        record.updatedAt = this.#now().toISOString();
+        record.operationId = randomUUID();
+        record.bridgeSlot = "pending";
+        await this.#commit(draft);
+        const synced = await this.#syncSlot(publicationId);
+        return {
+          detail: `publicationId=${publicationId} serveRatePerMinute=${previous.serveRatePerMinute}->${serveRatePerMinute} `
+            + `byteBudgetPerDay=${previous.byteBudgetPerDay}->${byteBudgetPerDay} `
+            + `snapshot=${previous.snapshotEnabled ? "on" : "off"}->${snapshotEnabled ? "on" : "off"} `
+            + `bridgeSync=${synced ? "confirmed" : "pending"}`,
+          undoRef: { kind: "publicationId", value: publicationId },
+        };
+      });
+      return { seedSnapshot: snapshotTurnedOn };
+    });
+    // Seed the relay copy the moment it is opted into, as activation does;
+    // best-effort, with the serve-time refresh and the redrive lane behind it.
+    if (widened.seedSnapshot) await this.#pushSnapshot(publicationId);
+    return this.#view(this.#record(publicationId));
   }
 
   /**
@@ -914,7 +1030,7 @@ export class WorkFoldPublicationService {
     }
     const fingerprint = workFoldViewerAppCallFingerprint(callValue);
     if (fingerprint === null) return { state: "not-available", publicationId };
-    const coalesceKey = `${publicationId} ${fingerprint}`;
+    const coalesceKey = `${publicationId}\0${fingerprint}`;
     const inFlight = this.#servingAppCalls.get(coalesceKey);
     if (inFlight) return inFlight;
     const serving = this.#serveAppCallOnce(publicationId, fingerprint, callValue).then(async (outcome) => {
@@ -1289,6 +1405,12 @@ export class WorkFoldPublicationService {
       ...(record.bridgeCleanup ? { bridgeCleanup: record.bridgeCleanup } : {}),
       ...(record.counters ? { counters: { ...record.counters } } : {}),
       ...(record.lastProblem ? { lastProblem: { ...record.lastProblem } } : {}),
+      health: workFoldPublicationHealth({
+        state,
+        bridgeSlot: record.bridgeSlot,
+        ...(record.bridgeCleanup ? { bridgeCleanup: record.bridgeCleanup } : {}),
+        ...(record.lastProblem ? { lastProblem: record.lastProblem } : {}),
+      }),
       viewerPath: `${record.kind === "app" ? "/a/" : "/p/"}${record.publicationId}`,
     };
   }
@@ -1350,13 +1472,13 @@ async function inspectSource(spaceRoot: string, relativePath: string): Promise<I
       { cause: error },
     );
   }
-  const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const normalized = relative(resolve(spaceRoot), path).split(sep).join("/");
   const extension = extensionOf(normalized);
   const mediaType = WORKFOLD_PUBLICATION_SOURCE_TYPES[extension];
   if (!mediaType) {
     throw new WorkFoldPublicationError(
       "SOURCE_INVALID",
-      "Only Markdown, plain text, PNG, JPEG, and PDF files can be shared as a page in this slice.",
+      "Only Markdown, plain text, HTML, PNG, JPEG, and PDF files can be shared as a page.",
     );
   }
   const info = await lstat(path).catch(() => null);
@@ -1383,6 +1505,12 @@ interface PublicationPayload {
   mediaType: WorkFoldPublicationMediaType;
   body: string;
   renderedAt: string;
+  /**
+   * Person-authored HTML: `body` is one whole stripped document the viewer
+   * places in a script-less sandboxed frame. A viewer that predates the
+   * flag renders it like Markdown, still under the script-free CSP.
+   */
+  document?: true;
 }
 
 function renderPublicationPayload(
@@ -1396,6 +1524,9 @@ function renderPublicationPayload(
     return { v: 1, title, mediaType, body: bytes.toString("base64url"), renderedAt };
   }
   const text = bytes.toString("utf8");
+  if (isWorkFoldPublicationHtmlExtension(extension)) {
+    return { v: 1, title, mediaType: "text/html", body: renderInertHtmlDocument(text), renderedAt, document: true };
+  }
   const body = extension === ".txt"
     ? `<pre class="plain-text">${escapeHtml(text)}</pre>`
     : renderInertMarkdown(text);

@@ -1608,10 +1608,11 @@ export interface WorkFoldActFacade {
    * Publication management verbs (docs/fold-publishing.md, plan item 4).
    * Listing and status are content-bearing act reads over the machine-local
    * grant records; revoke, budget narrowing, and snapshot-off are direct
-   * verbs — narrowing never needs a click, and raising a budget or turning
-   * snapshot caching on is refused here because widening is a fresh
-   * `pagesShare`. Revocation is desktop-first: the grant dies before bridge
-   * cleanup is attempted, and unconfirmed cleanup is reported honestly.
+   * verbs that only reduce exposure, and `pagesWiden` raises budgets or
+   * turns snapshot caching on in place under its own receipt, keeping the
+   * slot, key, and link (docs/fold-publishing.md, amended 2026-09-24).
+   * Revocation is desktop-first: the grant dies before bridge cleanup is
+   * attempted, and unconfirmed cleanup is reported honestly.
    */
   pagesList(): Promise<{ publications: WorkFoldActPublicationRef[] }>;
   pagesStatus(input: { publication: string }): Promise<{ publication: WorkFoldActPublicationRef }>;
@@ -1630,6 +1631,24 @@ export interface WorkFoldActFacade {
     publication: WorkFoldActPublicationRef;
     priorServeRatePerMinute: number;
     priorByteBudgetPerDay: number;
+  }>;
+  /**
+   * Widens one page in place: a higher serve rate or daily byte budget (up
+   * to the ceilings) or the sleep copy on. A value below the current budget
+   * is refused as narrowing, and apps have no sleep copy.
+   */
+  pagesWiden(input: {
+    publication: string;
+    serveRatePerMinute?: number;
+    byteBudgetPerDay?: number;
+    snapshot?: boolean;
+    parentTaskId?: string;
+    requestId?: string;
+  }): Promise<{
+    publication: WorkFoldActPublicationRef;
+    priorServeRatePerMinute: number;
+    priorByteBudgetPerDay: number;
+    priorSnapshotEnabled: boolean;
   }>;
   pagesSnapshotOff(input: { publication: string; parentTaskId?: string; requestId?: string }): Promise<{
     publication: WorkFoldActPublicationRef;

@@ -20,6 +20,7 @@ const {
   restoreStoredSurfaceTabsForSpaces,
   retargetFileSurfaceTabs,
   restrictedAppSurfaceTabId,
+  spaceAutomationsSurfaceTab,
   surfaceTabActivationForSpace,
   surfaceTabSpaceSwitchTarget,
   upsertSurfaceTab,
@@ -36,7 +37,7 @@ interface SpaceSummary {
 
 interface SurfaceTab {
   id: string;
-  kind: "chat" | "file" | "history" | "library" | "appearance" | "app-studio" | "assistant-tools" | "checks" | "extension" | "restricted-app";
+  kind: "chat" | "file" | "history" | "library" | "appearance" | "app-studio" | "assistant-tools" | "checks" | "space-automations" | "extension" | "restricted-app";
   spaceId: string;
   conversationId?: string | null;
   path?: string;
@@ -58,6 +59,7 @@ interface SurfaceTabsExports {
   assistantToolsSurfaceTab: (space: SpaceSummary, view?: "installed" | "discover") => SurfaceTab;
   appStudioSurfaceTab: (space: SpaceSummary) => SurfaceTab;
   checksSurfaceTab: (space: SpaceSummary) => SurfaceTab;
+  spaceAutomationsSurfaceTab: (space: SpaceSummary) => SurfaceTab;
   closeFileSurfaceTabs: (tabs: SurfaceTab[], spaceId: string, deletedPaths: Set<string>) => SurfaceTab[];
   closeUnavailableRestrictedAppSurfaceTabs: (
     tabs: SurfaceTab[],
@@ -150,6 +152,16 @@ test("Checks use one canonical Space-owned work tab", () => {
   });
 });
 
+test("Automations use one canonical Folder-owned tab", () => {
+  // docs/fold-routings.md, F15 as amended 2026-09-24.
+  assert.deepEqual(spaceAutomationsSurfaceTab(space), {
+    id: "space-automations:space-1",
+    kind: "space-automations",
+    spaceId: "space-1",
+    title: "Automations",
+  });
+});
+
 test("tab restore falls back cleanly when persisted JSON is corrupt", () => {
   withStoredTabs("{not valid json", () => {
     assert.deepEqual(readStoredSurfaceTabsState(space, [space]), {
@@ -172,6 +184,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "spoofed-tools", kind: "assistant-tools", spaceId: "space-1", view: "discover", title: "Renamed Tools" },
       { id: "broken-tools", kind: "assistant-tools", spaceId: "space-1", view: "packages", title: "Broken Tools" },
       { id: "spoofed-checks", kind: "checks", spaceId: "space-1", title: "All files are healthy" },
+      { id: "spoofed-automations", kind: "space-automations", spaceId: "space-1", title: "Everything is on" },
       { id: "extension:space-1:inbox:overview", kind: "extension", spaceId: "space-1", surfaceId: "inbox", viewId: "overview", title: "Overview", ignored: true },
       { id: "restricted:bad", kind: "restricted-app", featureInstallationId: "feature-installation_original", spaceId: "space-1", appId: "mail", digest: "bad", appTabId: "message:release", route: "/message/release", title: "Bad app tab" },
       { id: "app-controlled-spoof", kind: "restricted-app", featureInstallationId: "feature-installation_original", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
@@ -187,6 +200,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "app-studio:space-1", kind: "app-studio", spaceId: "space-1", title: "Renamed Studio" },
       { id: "assistant-tools:space-1", kind: "assistant-tools", spaceId: "space-1", view: "discover", title: "Skills & Extensions" },
       { id: "checks:space-1", kind: "checks", spaceId: "space-1", title: "Checks" },
+      { id: "space-automations:space-1", kind: "space-automations", spaceId: "space-1", title: "Automations" },
       { id: "extension:space-1:inbox:overview", kind: "extension", spaceId: "space-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
       { id: restrictedAppSurfaceTabId("space-1", "mail", "a".repeat(64), "message:release", "feature-installation_original"), kind: "restricted-app", featureInstallationId: "feature-installation_original", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
     ],
