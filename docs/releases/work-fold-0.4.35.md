@@ -1,10 +1,9 @@
-# work-fold 0.4.34
+# work-fold 0.4.35
 
 September 25, 2026
 
-**Unpublished candidate.** The immutable source tag is retained after its
-[application CI failed](https://github.com/Mat-Tom-Son/work-fold/actions/runs/36157642044).
-[0.4.35](work-fold-0.4.35.md) carries this work forward.
+0.4.34 remained an unpublished candidate; this version carries its UI and
+sharing improvements forward.
 
 This update brings page sharing closer to your files and makes Automations
 easier to find, understand, and control.
