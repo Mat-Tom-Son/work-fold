@@ -253,6 +253,7 @@ import {
   contentAddressedWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingProposal,
+  readWorkFoldRoutingDocument,
   workFoldRoutingBounds,
   workFoldRoutingDeclarationKind,
   workFoldRoutingDigest,
@@ -9843,11 +9844,12 @@ function createWorkFoldRoutingSettingsFacade(state: LocalApiState): WorkFoldRout
         .map((projection) => `${projection.declaration.id}\n${projection.digest}`));
       const proposals: WorkFoldRoutingSettingsProposalView[] = [];
       for (const entry of scan.entries) {
+        const normalized = entry.valid ? entry : entry.normalized;
+        if (normalized && stored.has(`${normalized.declaration.id}\n${normalized.digest}`)) continue;
         if (!entry.valid) {
           proposals.push({ valid: false, path: entry.path, fileName: entry.fileName, problem: entry.problem });
           continue;
         }
-        if (stored.has(`${entry.declaration.id}\n${entry.digest}`)) continue;
         const missing: string[] = [];
         for (const spaceId of workFoldRoutingReferencedSpaceIds(entry.declaration)) {
           if (!await getSpace(spaceId).catch(() => null)) missing.push(spaceId);
@@ -11856,7 +11858,7 @@ function sendFoldPublicationError(res: ServerResponse, error: unknown): void {
       ? 400
       : error.code === "NOT_FOUND"
         ? 404
-        : error.code === "ALREADY_REVOKED" || error.code === "PUBLICATION_CAP"
+        : error.code === "ALREADY_REVOKED" || error.code === "ALREADY_SHARED" || error.code === "PUBLICATION_CAP"
           ? 409
           : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
             ? 503
@@ -12023,15 +12025,13 @@ async function readRoutingStagingFile(
   cwd: string,
 ): Promise<{ declaration: WorkFoldRoutingDeclaration; digest: string }> {
   const path = isAbsolute(proposalPath) ? resolve(proposalPath) : resolve(cwd, proposalPath);
-  const info = await lstat(path).catch(() => null);
-  if (!info || info.isSymbolicLink() || !info.isFile()) {
-    throw new WorkFoldCliError("notFound", "The routing proposal must be a regular file on this machine.");
-  }
-  if (info.size > 256 * 1024) throw new WorkFoldCliError("usage", "The routing proposal exceeds the 256 KiB bound.");
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(path, "utf8"));
+    parsed = JSON.parse(await readWorkFoldRoutingDocument(path));
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" || errorMessage(error).includes("ordinary file")) {
+      throw new WorkFoldCliError("notFound", "The routing proposal must be a regular file on this machine.", { cause: error });
+    }
     throw new WorkFoldCliError("usage", `The routing proposal is not readable JSON: ${errorMessage(error)}`, { cause: error });
   }
   const kind = (parsed as { kind?: unknown } | null)?.kind;
@@ -12172,7 +12172,7 @@ async function sharePageFromDesktop(
     ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
     attribution: foldActAttribution(state, context.surface, context.parentTaskId),
   };
-  await runActOperation(() => runPreparedActOperation(async () => {
+  await runPublicationActOperation(() => runPreparedActOperation(async () => {
     const act = prepareFoldAct({
       kind: "publish.viewer.expose",
       parameters: { exposure: "page", spaceId: space.id },
@@ -12206,7 +12206,7 @@ async function runPublicationActOperation<T>(operation: () => Promise<T>): Promi
         ? "usage"
         : error.code === "NOT_FOUND"
           ? "notFound"
-          : error.code === "ALREADY_REVOKED" || error.code === "PUBLICATION_CAP"
+          : error.code === "ALREADY_REVOKED" || error.code === "ALREADY_SHARED" || error.code === "PUBLICATION_CAP"
             ? "conflict"
             : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
               ? "unavailable"

@@ -54,8 +54,23 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
   const [placement, setPlacement] = useState<CSSProperties | undefined>(undefined);
   const anchorRef = useRef<HTMLSpanElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const requestRef = useRef(0);
+  const busyRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  function currentRequest(request: number) {
+    return mountedRef.current && requestRef.current === request;
+  }
 
   function close() {
+    requestRef.current += 1;
+    busyRef.current = false;
+    setBusy(false);
     setOpen(null);
     setLink(null);
     setLinkUnavailable(false);
@@ -77,8 +92,16 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
     const anchor = anchorRef.current;
     const place = () => setPlacement(popoverPlacement(anchor));
     place();
+    // Pane resizing and responsive layout can settle after window.resize.
+    // Observe the resulting geometry so the link stays inside its file pane.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    observer?.observe(anchor);
+    observer?.observe(anchor.closest(".file-details-pane") ?? document.documentElement);
     window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", place);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -109,12 +132,13 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
     });
   }
 
-  async function reveal(publication: SharedPageView) {
+  async function reveal(publication: SharedPageView, request: number) {
     if (fixtureMode) {
       setLink(sharedPageLink(fixtureViewerOrigin, publication.viewerPath, fixtureShareLinkKey));
       return;
     }
     const status = await window.workFoldDesktop?.remoteAccess?.getStatus().catch(() => null);
+    if (!currentRequest(request)) return;
     const viewerOrigin = status?.viewerOrigin ?? null;
     if (!viewerOrigin) {
       setLinkUnavailable(true);
@@ -125,55 +149,66 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
         `/api/settings/publications/${publication.publicationId}/reveal-link`,
         { method: "POST", body: {} },
       );
+      if (!currentRequest(request)) return;
       // Composed transiently, held only while the popover is open.
       setLink(sharedPageLink(viewerOrigin, response.viewerPath, response.key));
     } catch {
-      setLinkUnavailable(true);
+      if (currentRequest(request)) setLinkUnavailable(true);
     }
   }
 
-  async function openFor(publication: SharedPageView, revealable = true) {
+  async function openFor(publication: SharedPageView, request: number, revealable = true) {
+    if (!currentRequest(request)) return;
     setOpen(publication);
     setLink(null);
     setLinkUnavailable(!revealable);
-    if (revealable) await reveal(publication);
+    if (revealable) await reveal(publication, request);
   }
 
   async function share() {
-    if (busy) return;
     if (open) { close(); return; }
-    let existing = activeSharedPageFor(fixtureMode ? publications : sharedPagesSnapshot(), spaceId, path);
-    if (!fixtureMode && sharedPagesSnapshot() === null) {
-      await reloadSharedPages();
-      existing = activeSharedPageFor(sharedPagesSnapshot(), spaceId, path);
-    }
-    if (existing) {
-      await openFor(existing);
-      return;
-    }
-    if (fixtureMode) {
-      showToast({ text: fileSharing.previewDisabled, tone: "info" });
-      return;
-    }
-    const status = await window.workFoldDesktop?.remoteAccess?.getStatus().catch(() => null);
-    if (status && !status.configured) {
-      noAddress();
-      return;
-    }
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const request = ++requestRef.current;
     setBusy(true);
     try {
+      let existing = activeSharedPageFor(fixtureMode ? publications : sharedPagesSnapshot(), spaceId, path);
+      if (!fixtureMode && sharedPagesSnapshot() === null) {
+        await reloadSharedPages();
+        if (!currentRequest(request)) return;
+        existing = activeSharedPageFor(sharedPagesSnapshot(), spaceId, path);
+      }
+      if (existing) {
+        await openFor(existing, request);
+        return;
+      }
+      if (fixtureMode) {
+        showToast({ text: fileSharing.previewDisabled, tone: "info" });
+        return;
+      }
+      const status = await window.workFoldDesktop?.remoteAccess?.getStatus().catch(() => null);
+      if (!currentRequest(request)) return;
+      if (status && !status.configured) {
+        noAddress();
+        return;
+      }
       const result = await api<{ publication: SharedPageView; revealable: boolean }>("/api/settings/publications/share", {
         method: "POST",
         body: { spaceId, path, title: pageTitleFromFileName(fileName) },
       });
+      void reloadSharedPages({ afterMutation: true });
+      if (!currentRequest(request)) return;
       showToast({ text: fileSharing.sharedToast(result.publication.title), tone: "success" });
-      void reloadSharedPages();
-      await openFor(result.publication, result.revealable);
+      await openFor(result.publication, request, result.revealable);
     } catch (caught) {
+      if (!currentRequest(request)) return;
       if (caught instanceof ApiError && caught.code === "NO_ADDRESS") noAddress();
       else showToast({ text: errorText(caught), tone: "error" });
     } finally {
-      setBusy(false);
+      if (currentRequest(request)) {
+        busyRef.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -190,7 +225,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
     } catch (caught) {
       showToast({ text: errorText(caught), tone: "error" });
     } finally {
-      void reloadSharedPages();
+      void reloadSharedPages({ afterMutation: true });
     }
   }
 

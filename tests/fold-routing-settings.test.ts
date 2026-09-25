@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -290,6 +290,10 @@ test("Settings lists pending proposal files and turns one on by path through the
   await assert.rejects(() => api.routingSettings.enableProposal(join(root, "..", "outside.work-fold-routing.json")), /Only automation files/);
   await assert.rejects(() => api.routingSettings.enableProposal("hourly.work-fold-routing.json"), /absolute automation file path/);
   await assert.rejects(() => api.routingSettings.enableProposal(join(root, "broken.work-fold-routing.json")), /not readable JSON/);
+  const linked = join(root, "linked.work-fold-routing.json");
+  await symlink(outside, linked);
+  await assert.rejects(() => api.routingSettings.enableProposal(linked), /regular file/);
+  await rm(linked);
   assert.deepEqual(await api.routings.listRoutings(), [], "refused paths enable nothing");
 
   const enabled = await api.routingSettings.enableProposal(readyPath);
@@ -327,6 +331,44 @@ test("Settings lists pending proposal files and turns one on by path through the
   assert.ok(enables.some((entry) => entry.outcome === "accepted" && entry.surface === "main-window"));
   assert.ok(enables.some((entry) => entry.outcome === "ok" && /from hourly\.work-fold-routing\.json/.test(entry.detail ?? "")));
   assert.ok(enables.some((entry) => entry.outcome === "error"), "a refused read after acceptance records its error");
+});
+
+test("a stored one-time proposal stays out of pending files after its admission horizon passes", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-proposal-expiry-"));
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "spaces"),
+    loadEnv: false,
+  });
+  t.after(async () => {
+    t.mock.timers.reset();
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  });
+  const space = (await api.actFacade.createSpace({ name: "Scheduled folder" })).space;
+  const at = Date.now() + 5 * 60_000;
+  const value = {
+    kind: "work-fold.routing-proposal", version: 2, name: "One reminder",
+    createdBy: "assistant", createdAt: new Date().toISOString(),
+    routing: {
+      title: "One reminder", trigger: { kind: "at", at: new Date(at).toISOString(), ifMissed: "skip" },
+      steps: [{ id: "hello", kind: "chat", space: space.id, message: "Say hello." }],
+    },
+  };
+  const root = workFoldManagementRoot();
+  await mkdir(root, { recursive: true });
+  const path = join(root, "reminder.work-fold-routing.json");
+  await writeFile(path, JSON.stringify(value));
+  const enabled = await api.routingSettings.enableProposal(path);
+  await api.routingSettings.disable(enabled.routingId);
+
+  t.mock.timers.enable({ apis: ["Date"], now: at + 60_000 });
+  assert.deepEqual((await api.routingSettings.proposals()).proposals, [], "the unchanged stored proposal still appears only in the main list");
+  await writeFile(path, JSON.stringify({ ...value, name: "Another reminder" }));
+  const pending = (await api.routingSettings.proposals()).proposals;
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0]?.valid, false, "an unstored expired proposal remains invalid");
 });
 
 // A wall-clock budget, not an attempt count: every attempt awaits a real API

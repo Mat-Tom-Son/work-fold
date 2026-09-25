@@ -120,7 +120,10 @@ Consequences, consistent with the fold doctrine:
   person can also share a file straight from its tab: the click runs the
   same `pages share` path and answers with the link, and a desktop with no
   address refuses the share up front instead of leaving a page nobody can
-  reach.
+  reach. Concurrent shares of the same normalized source admit only one
+  active link. A Resting notice stays until another live serve confirms
+  recovery: a raised limit can still be below the relay's current usage,
+  and a successful slot update alone does not prove admission resumed.
 - **Revocation is the undo.** Nothing published is permanent at the moment
   it happens: one revoke kills every copy of the link at once,
   desktop-first, regardless of who holds them.
@@ -178,9 +181,11 @@ any value naming a `javascript:`, `vbscript:`, or HTML/XML `data:` URL; links
 open a new window with `rel="noopener noreferrer"`. The payload carries a
 `document` flag, and the viewer shell places that whole document in a
 sandboxed blob: frame without `allow-scripts`, `allow-same-origin`, or
-`allow-forms`. The frame inherits the page shell's CSP, which keeps script to
-`'self'` and every network direction closed and adds only inline style and
-`data:` images so a designed page keeps its look. The file tab still shows
+`allow-forms`. The frame inherits the page shell's CSP and begins with its
+own stricter policy: no scripts or network loads, including same-origin CSS
+imports, with only inline style and `data:` images allowed so a designed
+page keeps its look. The shell retains its separate same-origin script,
+stylesheet, and encrypted-page API permissions. The file tab still shows
 an HTML file as source text; work-fold never renders it in the app.
 
 Publication records are machine-local application state. Nothing about a
@@ -307,8 +312,9 @@ the page survives desktop sleep. The opt-in lives in the share verb's
 `--snapshot` flag and the publication's settings, labeled plainly: "Keep an
 encrypted copy at the relay so this page stays readable while your desktop
 sleeps. The relay stores it encrypted and cannot read it; anyone with the
-link still can." Turning it on is a widening and therefore a fresh receipted
-share; turning it off is a direct verb and deletes the stored row. After a successful live serve, the
+link still can." Turning it on is the receipted `pages widen --snapshot`
+verb and keeps the existing link; turning it off is a direct verb and deletes
+the stored row. After a successful live serve, the
 desktop refreshes the snapshot in the same device-frame exchange — a
 counter-tracked sync, not a separate receipted act. The residual-risk
 sentence above applies to snapshots verbatim.

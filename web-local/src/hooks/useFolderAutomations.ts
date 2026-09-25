@@ -4,6 +4,13 @@ import { api } from "../lib/api";
 import { buildFixtureFolderAutomations } from "../fixtures/space-fixture";
 import type { FolderAutomationsResponse, FolderAutomationView } from "../../../src/shared/routing-presentation";
 
+const automationsChanged = "work-fold:automations-changed";
+
+/** Refresh Folder views after an Automation action in this renderer. */
+export function notifyFolderAutomationsChanged(): void {
+  window.dispatchEvent(new Event(automationsChanged));
+}
+
 export function folderAutomationsPath(spaceId: string): string {
   return `/api/spaces/${encodeURIComponent(spaceId)}/automations`;
 }
@@ -40,8 +47,15 @@ export function useFolderAutomations(activeSpaceId: string, fixtureMode: boolean
     if (fixtureMode) return;
     void refresh(activeSpaceId);
     const onFocus = () => { void refresh(activeSpaceId); };
+    const onChange = () => {
+      for (const spaceId of new Set([activeSpaceId, ...Object.keys(requestRef.current)])) void refresh(spaceId);
+    };
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    window.addEventListener(automationsChanged, onChange);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(automationsChanged, onChange);
+    };
   }, [activeSpaceId, fixtureMode, refresh]);
 
   return { bySpace, refresh };

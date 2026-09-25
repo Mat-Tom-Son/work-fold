@@ -254,6 +254,24 @@ test("a share with no address fails up front on both surfaces and leaves nothing
   }
 });
 
+test("concurrent desktop and CLI shares cannot create two links for one file", async () => {
+  const relay = recordingRelay();
+  await withApi(async ({ api }) => {
+    const space = await api.actFacade.createSpace({ name: "Concurrent Sharing" });
+    await writeFile(join(space.space.spaceRoot, "notes.md"), "# Notes\n");
+    const [desktop, cli] = await Promise.all([
+      postJson(api.origin, "/api/settings/publications/share", { spaceId: space.space.id, path: "./notes.md", title: "notes" }),
+      api.actFacade.pagesShare({ space: space.space.id, path: "notes.md", title: "notes", requestId: "req-concurrent-cli-share" })
+        .then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error })),
+    ]);
+    assert.equal(Number(desktop.status === 200) + Number(cli.ok), 1, "exactly one share succeeds");
+    if (desktop.status !== 200) assert.equal(desktop.status, 409);
+    if (!cli.ok) assert.ok(cli.error instanceof WorkFoldCliError && cli.error.code === "conflict");
+    assert.equal((await api.publications.list()).length, 1);
+    assert.equal(relay.upserts.length, 1, "only one link reaches the relay");
+  }, { publicationBridge: relay });
+});
+
 test("an enrolled address with an unreachable relay still shares and stays honestly asleep", async () => {
   await withApi(async ({ api }) => {
     const space = await api.actFacade.createSpace({ name: "Offline Relay" });

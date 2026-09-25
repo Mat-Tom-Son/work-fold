@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { errorText } from "../../lib/api";
+import { notifyFolderAutomationsChanged } from "../../hooks/useFolderAutomations";
 import {
   formatRoutingDateTime as formatDateTime,
   routingTriggerSummary as triggerSummary,
@@ -333,6 +334,7 @@ export function FoldRoutingsPane() {
     setNotice(null);
     try {
       const nextNotice = await operation();
+      notifyFolderAutomationsChanged();
       await loadProposals().catch(() => undefined);
       const next = await loadList();
       const nextSelectedId = selectedId && next.routings.some((routing) => routing.routingId === selectedId)
@@ -401,7 +403,6 @@ export function FoldRoutingsPane() {
   const routings = activeFolder
     ? allRoutings.filter((routing) => routing.spaces?.some((space) => space.spaceId === activeFolder))
     : allRoutings;
-  const hasReadyProposal = proposals.some((proposal) => proposal.valid);
 
   function chooseFolder(spaceId: string | null) {
     setFolderFilter(spaceId);
@@ -433,9 +434,9 @@ export function FoldRoutingsPane() {
       ) : null}
       {notice ? <span className="settings-save-status" role="status">{notice}</span> : null}
       {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
-      {hasReadyProposal ? (
+      {proposals.length ? (
         <section className="fold-routing-proposals" aria-labelledby="fold-routing-proposals-title">
-          <h5 id="fold-routing-proposals-title">Ready to turn on</h5>
+          <h5 id="fold-routing-proposals-title">{proposals.some((proposal) => proposal.valid) ? "Ready to turn on" : "Automation files"}</h5>
           <ul>
             {proposals.map((proposal) => proposal.valid ? (
               <li className="fold-routing-proposal" key={proposal.path}>

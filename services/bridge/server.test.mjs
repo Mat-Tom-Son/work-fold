@@ -1945,7 +1945,10 @@ test("the viewer shell places a whole HTML page in a script-less sandboxed frame
     assert.equal(frame.className, "viewer-document");
     assert.ok(root.classList.contains("viewer-root-document"));
     assert.equal(blobs[0].type, "text/html;charset=utf-8");
-    assert.equal(await blobs[0].text(), "<!DOCTYPE html><h1>Hi</h1>");
+    const frameDocument = new JSDOM(await blobs[0].text()).window.document;
+    const documentPolicy = frameDocument.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content");
+    assert.equal(documentPolicy, "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'");
+    assert.equal(frameDocument.querySelector("h1")?.textContent, "Hi");
     assert.equal(root.querySelector("h1"), null, "no page markup enters the shell document");
 
     renderPayload(root, { v: 1, title: "Notes", mediaType: "text/html", body: "<h1>Notes</h1>" });

@@ -510,6 +510,54 @@ test("narrowing is a direct verb that refuses a raise", async () => {
   );
 });
 
+test("concurrent sharing admits only one live link for the same normalized source", async () => {
+  const fixture = await publicationFixture();
+  const results = await Promise.allSettled(["report.md", "./report.md"].map((relativePath, index) => fixture.service.activate(
+    { spaceId: "space-pub", relativePath, title: "Shared once" },
+    context(`req-concurrent-share-${index}`),
+  )));
+  const shared = results.filter((result) => result.status === "fulfilled");
+  const refused = results.filter((result) => result.status === "rejected");
+  assert.equal(shared.length, 1, "the duplicate check and activation share one serialized mutation");
+  assert.equal(refused.length, 1);
+  assert.ok(isRefusal("ALREADY_SHARED")(refused[0]!.reason));
+  assert.equal((await fixture.service.activePublicationsForSpace("space-pub")).length, 1);
+  assert.equal(fixture.keys.values.size, 1, "a duplicate share mints no second secret link");
+  const publication = shared[0]!.value;
+  await fixture.service.revoke(publication.publicationId, context("req-concurrent-share-revoke"));
+  const replacement = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "./report.md", title: "Shared again" },
+    context("req-concurrent-share-replacement"),
+  );
+  assert.equal(replacement.relativePath, "report.md");
+  assert.notEqual(replacement.publicationId, publication.publicationId, "sharing after revocation still creates a new link");
+});
+
+test("widening keeps resting until an admitted serve confirms recovery", async () => {
+  const fixture = await publicationFixture();
+  const page = await fixture.service.activate(
+    { spaceId: "space-pub", relativePath: "report.md", title: "Budget health" },
+    context("req-health-share"),
+  );
+  await fixture.service.noteViewerResting(page.publicationId, "byte-budget");
+  const rateRaised = await fixture.service.widen(page.publicationId, { serveRatePerMinute: 120 }, context("req-health-rate"));
+  assert.equal(rateRaised.health.state, "resting", "more requests per minute do not replenish an exhausted byte budget");
+  // The relay can have served more bytes than either limit (for example,
+  // after narrowing an already-used page). Its counters are not in the
+  // desktop's slot acknowledgement, so an increase proves no recovery.
+  const bytesRaised = await fixture.service.widen(page.publicationId, { byteBudgetPerDay: 512 * 1024 * 1024 }, context("req-health-bytes"));
+  assert.equal(bytesRaised.health.state, "resting", "a higher byte limit may still be below relay usage");
+  assert.equal((await fixture.service.serveViewerPage(page.publicationId)).state, "served");
+  assert.equal((await fixture.service.get(page.publicationId))!.health.state, "live", "the relay-admitted serve confirms recovery");
+  await fixture.service.noteViewerResting(page.publicationId, "serve-rate");
+  const otherBytesRaised = await fixture.service.widen(page.publicationId, { byteBudgetPerDay: 1024 * 1024 * 1024 }, context("req-health-other-bytes"));
+  assert.equal(otherBytesRaised.health.state, "resting", "more bytes per day do not replenish a per-minute request budget");
+  const matchingRateRaised = await fixture.service.widen(page.publicationId, { serveRatePerMinute: 240 }, context("req-health-matching-rate"));
+  assert.equal(matchingRateRaised.health.state, "resting", "a higher minute limit may still be below relay attempts");
+  assert.equal((await fixture.service.serveViewerPage(page.publicationId)).state, "served");
+  assert.equal((await fixture.service.get(page.publicationId))!.health.state, "live");
+});
+
 test("widening in place raises budgets and turns the sleep copy on, keeping the slot and key", async () => {
   const fixture = await publicationFixture();
   const view = await fixture.service.activate(
@@ -530,8 +578,8 @@ test("widening in place raises budgets and turns the sleep copy on, keeping the 
   assert.equal(widened.byteBudgetPerDay, 512 * 1024 * 1024);
   assert.equal(widened.serveRatePerMinute, 60, "an unnamed budget is unchanged");
   assert.equal(widened.snapshotEnabled, true);
-  assert.equal(widened.lastProblem, undefined, "raising a budget clears the resting note it answered");
-  assert.equal(widened.health.state, "live");
+  assert.equal(widened.lastProblem?.state, "resting", "widening and a snapshot seed do not prove the relay can admit viewers");
+  assert.equal(widened.health.state, "resting");
   assert.equal(fixture.keys.values.get(view.publicationId), key, "the key, and so the link, is unchanged");
   const entries = fixture.receipts.entries.filter((entry) => entry.requestId === "req-widen");
   assert.deepEqual(entries.map((entry) => [entry.command, entry.outcome]), [["pages widen", "accepted"], ["pages widen", "ok"]]);

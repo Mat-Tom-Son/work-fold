@@ -4,6 +4,12 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## September 25, 2026
+
+[0.4.34](work-fold-0.4.34.md) adds sharing from files, styled inert HTML pages,
+stable-link page controls, prepared Automation proposals, and a Folder view
+of relevant Automations.
+
 ## September 23, 2026
 
 [0.4.33](work-fold-0.4.33.md) polishes the Chat composer, navigation, tabs,

@@ -1,4 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import test from "node:test";
 
 import {
@@ -199,4 +206,28 @@ test("the document shell and the 8 MiB bound", () => {
   const started = Date.now();
   assert.equal(stripPublicationHtml(many), "<p>".repeat(100_000));
   assert.ok(Date.now() - started < 5_000, "the strip stays linear on many tags");
+});
+
+test("a shared HTML document cannot send content to the relay through CSS imports", { skip: process.platform !== "darwin", timeout: 30_000 }, async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-viewer-html-test-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const source = renderInertHtmlDocument([
+    '<style>@import url("__PROBE_ORIGIN__/private-content.css"); h1 { color: rgb(12, 34, 56); }</style>',
+    '<h1>Styled page</h1>',
+    '<img id="embedded" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1cAAAAASUVORK5CYII=">',
+    '<img src="__PROBE_ORIGIN__/private-content.png">',
+    '<script>globalThis.pageScriptRan = true</script>',
+  ].join(""));
+  await writeFile(join(root, "source.html"), source);
+  const electron = createRequire(import.meta.url)("electron") as string;
+  const { stdout } = await promisify(execFile)(electron, [
+    fileURLToPath(new URL("./fixtures/publication-html-electron.mjs", import.meta.url)), root,
+  ], { timeout: 25_000, maxBuffer: 1024 * 1024 });
+  const result = JSON.parse(stdout.trim());
+  assert.deepEqual(result.requests, ["/", "/viewer.js"], "decrypted content makes no requests, even to the viewer origin");
+  assert.equal(result.document.heading, "Styled page");
+  assert.equal(result.document.color, "rgb(12, 34, 56)", "inline styles still render");
+  assert.equal(result.document.imageWidth, 1, "embedded images still render");
+  assert.equal(result.document.scriptRan, false);
+  assert.equal(result.document.parentReadable, false, "the document retains an opaque sandbox origin");
 });

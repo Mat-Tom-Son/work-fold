@@ -997,9 +997,9 @@ async function handleViewerRequest(state, request, response, url, method) {
     // The page shell's policy adds exactly inline style and data: images to
     // the strict viewer policy, so a person-authored HTML page (stripped
     // desktop-side, placed in a script-less sandboxed blob: frame that
-    // inherits this policy) keeps its own design. Script stays 'self' only
-    // and every network direction stays closed, so CSS has nowhere to send
-    // anything.
+    // inherits this policy) keeps its own design. The frame's additional
+    // document policy removes the shell's same-origin permissions, so CSS
+    // cannot send decrypted page content back to the relay through @import.
     return serveViewerShellFile(state, request, response, method, "index.html", "text/html; charset=utf-8", {
       "content-security-policy": viewerPageShellContentSecurityPolicy,
     });

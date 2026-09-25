@@ -1,10 +1,12 @@
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import {
   assertWorkFoldRoutingAtAdmissionHorizon,
   contentAddressedWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingProposal,
+  readWorkFoldRoutingDocument,
+  workFoldRoutingDocumentMaxBytes,
   workFoldRoutingProposalFileSuffix,
   type WorkFoldRoutingDeclaration,
 } from "./routing-declarations.js";
@@ -21,7 +23,7 @@ import {
  */
 export const workFoldRoutingProposalScanBounds = Object.freeze({
   maxFiles: 64,
-  maxFileBytes: 256 * 1024,
+  maxFileBytes: workFoldRoutingDocumentMaxBytes,
 });
 
 export type WorkFoldRoutingProposalScanEntry =
@@ -37,6 +39,8 @@ export type WorkFoldRoutingProposalScanEntry =
     path: string;
     fileName: string;
     problem: string;
+    /** Stable identity survives a time-sensitive admission refusal. */
+    normalized?: { declaration: WorkFoldRoutingDeclaration; digest: string };
   };
 
 export interface WorkFoldRoutingProposalScan {
@@ -89,15 +93,13 @@ function isProposalFileName(name: string): boolean {
 
 async function scanOne(path: string, fileName: string, now: Date): Promise<WorkFoldRoutingProposalScanEntry> {
   const invalid = (problem: string): WorkFoldRoutingProposalScanEntry => ({ valid: false, path, fileName, problem });
-  const info = await lstat(path).catch(() => null);
-  if (!info || info.isSymbolicLink() || !info.isFile()) return invalid("Not a regular file.");
-  if (info.size > workFoldRoutingProposalScanBounds.maxFileBytes) return invalid("Larger than 256 KiB.");
   let text: string;
   try {
-    const bytes = await readFile(path);
-    if (bytes.byteLength > workFoldRoutingProposalScanBounds.maxFileBytes) return invalid("Larger than 256 KiB.");
-    text = bytes.toString("utf8");
-  } catch {
+    text = await readWorkFoldRoutingDocument(path);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("ordinary file")) return invalid("Not a regular file.");
+    if (message.includes("256 KiB")) return invalid("Larger than 256 KiB.");
     return invalid("Could not be read.");
   }
   let parsed: unknown;
@@ -106,11 +108,16 @@ async function scanOne(path: string, fileName: string, now: Date): Promise<WorkF
   } catch {
     return invalid("Not valid JSON.");
   }
+  let normalized: { declaration: WorkFoldRoutingDeclaration; digest: string };
   try {
-    const { declaration, digest } = contentAddressedWorkFoldRoutingDeclaration(normalizeWorkFoldRoutingProposal(parsed));
-    assertWorkFoldRoutingAtAdmissionHorizon(declaration, now);
-    return { valid: true, path, fileName, declaration, digest };
+    normalized = contentAddressedWorkFoldRoutingDeclaration(normalizeWorkFoldRoutingProposal(parsed));
   } catch (error) {
     return invalid(error instanceof Error ? error.message : String(error));
+  }
+  try {
+    assertWorkFoldRoutingAtAdmissionHorizon(normalized.declaration, now);
+    return { valid: true, path, fileName, ...normalized };
+  } catch (error) {
+    return { valid: false, path, fileName, problem: error instanceof Error ? error.message : String(error), normalized };
   }
 }

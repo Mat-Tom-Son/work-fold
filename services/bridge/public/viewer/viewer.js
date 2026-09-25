@@ -18,6 +18,12 @@ const maximumPayloadBytes = 2 * 1024 * 1024;
  */
 export const viewerDocumentSandbox = "allow-popups allow-popups-to-escape-sandbox";
 
+// The shell needs same-origin scripts, styles, and its encrypted-page API.
+// A decrypted document needs none of those permissions: in particular,
+// inherited `style-src 'self'` would let CSS @import disclose plaintext in
+// a request to the relay. This additional policy precedes all page content.
+const viewerDocumentPolicy = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
+
 /** Publication id and fragment key from one share link, or nulls. */
 export function parseViewerLocation(pathname, hash) {
   const path = /^\/p\/([A-Za-z0-9._:-]{1,128})$/.exec(String(pathname ?? ""));
@@ -94,13 +100,15 @@ export function renderPayload(root, payload) {
   if (payload.mediaType === "text/html" && payload.document === true) {
     // A whole person-authored document, stripped desktop-side, placed in a
     // script-less sandboxed blob: frame. The frame inherits this origin's
-    // CSP as well, so no inline or remote script could run in it anyway.
+    // CSP as well, with a stricter document policy that blocks every load
+    // except embedded data images while preserving authored inline styles.
     const frame = document.createElement("iframe");
     frame.className = "viewer-document";
     frame.setAttribute("sandbox", viewerDocumentSandbox);
     frame.setAttribute("referrerpolicy", "no-referrer");
     frame.title = typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : "Shared page";
-    frame.src = URL.createObjectURL(new Blob([payload.body], { type: "text/html;charset=utf-8" }));
+    const documentPrefix = `<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${viewerDocumentPolicy}">`;
+    frame.src = URL.createObjectURL(new Blob([documentPrefix, payload.body], { type: "text/html;charset=utf-8" }));
     root.classList.add("viewer-root-document");
     root.append(frame);
     return;

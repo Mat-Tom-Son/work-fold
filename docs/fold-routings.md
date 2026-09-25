@@ -426,9 +426,13 @@ each with the proposal schema, and lists the ones not already stored at the
 same digest under **Ready to turn on**, each with its title, trigger, and a
 **Turn on** button. A file that does not validate, names an unregistered
 Folder, or has a one-time instant outside the enablement horizon shows only
-its file name, with the problem as a tooltip and no button. Turn on re-reads
+its file name, with the problem as a tooltip and no button; when every file
+is invalid the section is titled **Automation files** so the repair reason
+remains visible. Turn on re-reads
 that exact file — the path must resolve directly inside the management
-working folder — and takes the same enable path as `routings enable
+working folder. Reads reject symbolic links and files that change while
+being read, and never admit more than 256 KiB. The action takes the same
+enable path as `routings enable
 --proposal` (content-derived id, digest pinned at that moment, journaled
 prepared act), with the receipt's surface recorded as `main-window`. The
 routing then appears once, in the main list. The agent is taught to write the
@@ -447,7 +451,10 @@ the automations that touch it. The rail shows an **Automations** entry
 (between History and the contributed apps) only while at least one
 automation's trigger or step names that Folder; the renderer reads
 `GET /api/spaces/:id/automations` when the Folder changes and when the
-window regains focus, and caches the list per Folder. The entry opens one
+window regains focus, and caches the list per Folder. Actions in Settings or
+a Folder's Automations tab refresh the cached Folder views immediately, so
+the rail does not wait for a window switch to show a newly enabled proposal
+or remove a deleted declaration. The entry opens one
 Folder-owned **Automations** tab (`space-automations`) under the
 Space-bound-tab rules. Each row carries the title, one state word (On, Off,
 Running, Suspended, or Done), the trigger summary Settings shows, what the
@@ -550,8 +557,9 @@ The plan items shipped as follows:
   own.
 - **Portable or shared routings.** Declarations never enter `.work-fold/`,
   sync, export, or any distribution lane.
-- **A routings rail destination, badge, or notification stream.** Settings
-  owns management; the glance and receipts own visibility.
+- **A machine-wide routings rail destination, badge, or notification stream.**
+  Settings owns management; the conditional Folder entry above is a view of
+  related automations, not a second management home.
 - **Read-lane routing status.** All routing commands remain act-lane.
 - **Hosted or remote execution.** Routings run only on this desktop while
   the app runs; outward exposure of anything a routing produces stays in

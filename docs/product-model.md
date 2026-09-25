@@ -42,6 +42,11 @@ stable primary navigation then follows these everyday surface nouns:
 - **Chats**
 - **History**
 
+An **Automations** entry follows History while an automation's trigger or
+step names the active Folder. It opens that Folder's read-mostly Automations
+tab; **Settings → Automations** remains the place to manage declarations
+(the 2026-09-24 amendment in [Automations](fold-routings.md)).
+
 The bottom-rail **Add** action opens **Your Library**, **Skills & Extensions**,
 and **Apps**. App building is not an Add destination: **Build with Worker** on
 Apps opens a fresh Chat seeded with starter text. Library opens as one persistent

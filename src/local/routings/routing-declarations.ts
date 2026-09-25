@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -269,7 +269,7 @@ export interface WorkFoldRoutingDeclaration extends WorkFoldRoutingDefinition {
   createdAt: string;
 }
 
-const maximumProposalBytes = 256 * 1024;
+export const workFoldRoutingDocumentMaxBytes = 256 * 1024;
 
 // Mirrors isSpaceId in src/local/space.ts: routings pin Spaces by stable
 // registered Space id, never by name or path. The CLI may resolve an exact
@@ -445,7 +445,7 @@ export function assertWorkFoldRoutingAtAdmissionHorizon(
 
 export async function readWorkFoldRoutingProposal(path: string): Promise<WorkFoldRoutingProposal> {
   const resolved = resolve(path);
-  return normalizeWorkFoldRoutingProposal(JSON.parse(await readBoundedOrdinaryFile(resolved)));
+  return normalizeWorkFoldRoutingProposal(JSON.parse(await readWorkFoldRoutingDocument(resolved)));
 }
 
 function normalizeRoutingDefinition(value: unknown, version: WorkFoldRoutingContractVersion): WorkFoldRoutingDefinition {
@@ -814,20 +814,38 @@ function assertKeys(
   if (missing.length) throw new Error(`${label} is missing required field: ${missing[0]}.`);
 }
 
-async function readBoundedOrdinaryFile(path: string): Promise<string> {
+/** The shared bounded, no-follow reader for proposal scans and enablement. */
+export async function readWorkFoldRoutingDocument(path: string): Promise<string> {
   const info = await lstat(path);
   if (info.isSymbolicLink() || !info.isFile()) throw new Error("Routing document must be an ordinary file, not a link or special file.");
-  if (info.size > maximumProposalBytes) throw new Error(`Routing document exceeds ${maximumProposalBytes} bytes.`);
-  const handle = await open(path, constants.O_RDONLY | noFollowFlag());
+  if (info.size > workFoldRoutingDocumentMaxBytes) throw new Error("Routing document exceeds the 256 KiB bound.");
+  // A raced FIFO must not block the app; a raced symlink must not redirect it.
+  const handle = await open(path, constants.O_RDONLY | noFollowFlag() | (constants.O_NONBLOCK ?? 0));
   try {
     const afterOpen = await handle.stat();
-    if (!afterOpen.isFile() || afterOpen.dev !== info.dev || afterOpen.ino !== info.ino) throw new Error("Routing document changed while it was opened.");
-    const source = await handle.readFile("utf8");
-    if (Buffer.byteLength(source, "utf8") > maximumProposalBytes) throw new Error(`Routing document exceeds ${maximumProposalBytes} bytes.`);
-    return source;
+    if (!sameRoutingFile(info, afterOpen)) throw new Error("Routing document changed while it was opened.");
+    // Read the admitted size only: readFile() could allocate without a bound
+    // if another process grew the file after stat. The final metadata checks
+    // also refuse a changed/truncated document instead of parsing mixed bytes.
+    const bytes = Buffer.alloc(afterOpen.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (!read.bytesRead) throw new Error("Routing document changed while it was read.");
+      offset += read.bytesRead;
+    }
+    if (!sameRoutingFile(afterOpen, await handle.stat()) || !sameRoutingFile(afterOpen, await lstat(path))) {
+      throw new Error("Routing document changed while it was read.");
+    }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } finally {
     await handle.close();
   }
+}
+
+function sameRoutingFile(before: Stats, after: Stats): boolean {
+  return after.isFile() && !after.isSymbolicLink() && before.dev === after.dev && before.ino === after.ino
+    && before.size === after.size && before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs;
 }
 
 function noFollowFlag(): number {

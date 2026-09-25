@@ -1,6 +1,6 @@
 import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 import type { RestrictedAppViewerExposurePins, RestrictedAppViewerServeOutcome } from "./agent/restricted-app-viewer.js";
 import type { WorkFoldCliActReceiptV3 } from "./cli/act-receipts.js";
@@ -300,6 +300,7 @@ export type WorkFoldPublicationErrorCode =
   | "JOURNAL_UNAVAILABLE"
   | "INPUT_INVALID"
   | "NOT_FOUND"
+  | "ALREADY_SHARED"
   | "ALREADY_REVOKED"
   | "SPACE_NOT_REGISTERED"
   | "SOURCE_INVALID"
@@ -606,6 +607,13 @@ export class WorkFoldPublicationService {
       const root = await this.#resolveSpaceRoot(input.spaceId);
       if (!root) throw new WorkFoldPublicationError("SPACE_NOT_REGISTERED", "That Space is not registered on this machine.");
       const source = await inspectSource(root, input.relativePath);
+      if (active.some((record) => record.kind === "page" && record.spaceId === input.spaceId
+        && record.relativePath === source.relativePath)) {
+        throw new WorkFoldPublicationError(
+          "ALREADY_SHARED",
+          "This file is already shared as a page; stop sharing it before sharing it again.",
+        );
+      }
 
       const publicationId = randomBytes(18).toString("base64url");
       const operationId = randomUUID();
@@ -827,8 +835,9 @@ export class WorkFoldPublicationService {
    * every widening it runs on the call that asks for it and leaves a
    * receipt naming the old and new values; narrowing back is a direct verb.
    * A lower value than the current one is refused — that is narrowing — and
-   * apps have no sleep copy. Raising a budget clears a resting note: the
-   * budget the relay reported exhausted is no longer the budget in force.
+   * apps have no sleep copy. A resting note stays until the relay admits
+   * another serve: a higher limit might still be below current usage, and
+   * the desktop does not own the relay's byte or minute-window counters.
    */
   async widen(
     publicationId: string,
@@ -873,10 +882,6 @@ export class WorkFoldPublicationService {
         record.serveRatePerMinute = serveRatePerMinute;
         record.byteBudgetPerDay = byteBudgetPerDay;
         record.snapshotEnabled = snapshotEnabled;
-        if (record.lastProblem?.state === "resting"
-          && (serveRatePerMinute > previous.serveRatePerMinute || byteBudgetPerDay > previous.byteBudgetPerDay)) {
-          delete record.lastProblem;
-        }
         record.updatedAt = this.#now().toISOString();
         record.operationId = randomUUID();
         record.bridgeSlot = "pending";
@@ -1025,7 +1030,7 @@ export class WorkFoldPublicationService {
     }
     const fingerprint = workFoldViewerAppCallFingerprint(callValue);
     if (fingerprint === null) return { state: "not-available", publicationId };
-    const coalesceKey = `${publicationId} ${fingerprint}`;
+    const coalesceKey = `${publicationId}\0${fingerprint}`;
     const inFlight = this.#servingAppCalls.get(coalesceKey);
     if (inFlight) return inFlight;
     const serving = this.#serveAppCallOnce(publicationId, fingerprint, callValue).then(async (outcome) => {
@@ -1467,7 +1472,7 @@ async function inspectSource(spaceRoot: string, relativePath: string): Promise<I
       { cause: error },
     );
   }
-  const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const normalized = relative(resolve(spaceRoot), path).split(sep).join("/");
   const extension = extensionOf(normalized);
   const mediaType = WORKFOLD_PUBLICATION_SOURCE_TYPES[extension];
   if (!mediaType) {

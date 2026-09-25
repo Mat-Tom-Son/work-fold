@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, errorText } from "../../lib/api";
-import { folderAutomationsPath } from "../../hooks/useFolderAutomations";
+import { folderAutomationsPath, notifyFolderAutomationsChanged } from "../../hooks/useFolderAutomations";
 import { showToast } from "../../ui/feedback";
 import { folderAutomations as copy } from "../../ui-contract";
 import {
@@ -69,6 +69,7 @@ export function SpaceAutomationsPane({
     setPending(automation.routingId);
     try {
       await api(`${folderAutomationsPath(space.id)}/${encodeURIComponent(automation.routingId)}/${action}`, { method: "POST" });
+      notifyFolderAutomationsChanged();
       if (action === "run") setWatchUntil(Date.now() + 60_000);
       await onRefresh();
     } catch (caught) {

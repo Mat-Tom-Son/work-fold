@@ -600,7 +600,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                           setEditingBudgets(editing ? null : {
                             publicationId: publication.publicationId,
                             serveRate: String(publication.serveRatePerMinute),
-                            byteBudgetMiB: String(Math.round(publication.byteBudgetPerDay / (1024 * 1024))),
+                            byteBudgetMiB: String(publication.byteBudgetPerDay / (1024 * 1024)),
                           });
                         }}
                       >

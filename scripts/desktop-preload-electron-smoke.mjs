@@ -75,6 +75,9 @@ async function verifyDiagnosticPreload() {
 async function verifyPreload(filename, managementOnly) {
   const errors = [];
   const openWithRequests = [];
+  const routingRequests = [];
+  const proposalPath = "/temporary work-fold agent/hourly.work-fold-routing.json";
+  const pendingProposals = { proposals: [{ valid: true, path: proposalPath, title: "Hourly hello" }], truncated: false };
   const window = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -100,6 +103,16 @@ async function verifyPreload(filename, managementOnly) {
       openWithRequests.push(request);
       return { opened: false, canceled: true, appName: null };
     });
+    ipcMain.handle("work-fold:routings:proposals", (event, ...args) => {
+      assert.equal(event.sender, window.webContents);
+      routingRequests.push({ command: "proposals", args });
+      return pendingProposals;
+    });
+    ipcMain.handle("work-fold:routings:enable-proposal", (event, path) => {
+      assert.equal(event.sender, window.webContents);
+      routingRequests.push({ command: "enable-proposal", path });
+      return { routingId: "routing-smoke-test", enabled: true, alreadyEnabled: false };
+    });
   }
   try {
     const document = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'">'
@@ -119,6 +132,9 @@ async function verifyPreload(filename, managementOnly) {
         hasManagement: Boolean(value?.management),
         hasSpace: Boolean(value?.space),
         hasOpenWith: typeof value?.space?.openPathWith === "function",
+        hasRoutings: Boolean(value?.routings),
+        hasRoutingProposals: typeof value?.routings?.proposals === "function",
+        hasRoutingEnableProposal: typeof value?.routings?.enableProposal === "function",
         hasShell: Boolean(value?.shell),
       };
     })()`);
@@ -136,16 +152,29 @@ async function verifyPreload(filename, managementOnly) {
       hasManagement: managementOnly,
       hasSpace: !managementOnly,
       hasOpenWith: !managementOnly,
+      hasRoutings: !managementOnly,
+      hasRoutingProposals: !managementOnly,
+      hasRoutingEnableProposal: !managementOnly,
       hasShell: !managementOnly,
     });
     if (!managementOnly) {
+      assert.deepEqual(routingRequests, [], "loading the preload must not read or enable a proposal");
+      assert.deepEqual(await window.webContents.executeJavaScript("window.workFoldDesktop.routings.proposals()"), pendingProposals);
+      assert.deepEqual(await window.webContents.executeJavaScript(`window.workFoldDesktop.routings.enableProposal(${JSON.stringify(proposalPath)})`), {
+        routingId: "routing-smoke-test", enabled: true, alreadyEnabled: false,
+      });
+      assert.deepEqual(routingRequests, [{ command: "proposals", args: [] }, { command: "enable-proposal", path: proposalPath }]);
       assert.deepEqual(await window.webContents.executeJavaScript('window.workFoldDesktop.space.openPathWith("space-fixture", "files/a b.pdf")'), {
         opened: false, canceled: true, appName: null,
       });
       assert.deepEqual(openWithRequests, [{ spaceId: "space-fixture", path: "files/a b.pdf" }]);
     }
   } finally {
-    if (!managementOnly) ipcMain.removeHandler("work-fold:space:open-path-with");
+    if (!managementOnly) {
+      ipcMain.removeHandler("work-fold:space:open-path-with");
+      ipcMain.removeHandler("work-fold:routings:proposals");
+      ipcMain.removeHandler("work-fold:routings:enable-proposal");
+    }
     window.destroy();
   }
 }

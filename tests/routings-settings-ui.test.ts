@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
+import { useFolderAutomations } from "../web-local/src/hooks/useFolderAutomations.js";
 
 import {
   FoldRoutingsPane,
@@ -418,6 +419,16 @@ test("pending proposal files list above the automations and Turn on moves one in
   const readyPath = "/state/management/hourly.work-fold-routing.json";
   const enabledPaths: string[] = [];
   let turnedOn = false;
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  Object.assign(window.workFoldDesktop!, { api: {} });
+  globalThis.fetch = (async () => new Response(JSON.stringify({ automations: turnedOn ? [{ routingId: "routing-hourly" }] : [] }), {
+    headers: { "content-type": "application/json" },
+  })) as typeof fetch;
+  function FolderRailState() {
+    const { bySpace } = useFolderAutomations("space-a", false);
+    return createElement("output", { "data-folder-count": true }, String(bySpace["space-a"]?.length ?? "loading"));
+  }
   const original = bridge.list as () => Promise<FoldRoutingsResponse>;
   const added = {
     routingId: "routing-hourly",
@@ -453,8 +464,9 @@ test("pending proposal files list above the automations and Turn on moves one in
       return { routingId: "routing-hourly", requestId: "settings:request-2", enabled: true as const, alreadyEnabled: false, routing: added };
     },
   });
-  await dom.render(createElement(FoldRoutingsPane));
+  await dom.render(createElement(Fragment, null, createElement(FoldRoutingsPane), createElement(FolderRailState)));
   await dom.waitFor(() => Boolean(dom.container.querySelector(".fold-routing-proposals")));
+  await dom.waitFor(() => dom.container.querySelector("output")?.textContent === "0");
 
   const section = dom.container.querySelector<HTMLElement>(".fold-routing-proposals")!;
   assert.equal(section.querySelector("h5")?.textContent, "Ready to turn on");
@@ -478,7 +490,8 @@ test("pending proposal files list above the automations and Turn on moves one in
     turnOn.click();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   });
-  await dom.waitFor(() => enabledPaths.length === 1 && !dom.container.querySelector(".fold-routing-proposals"));
+  await dom.waitFor(() => enabledPaths.length === 1 && !dom.container.querySelector(".fold-routing-proposal:not(.invalid)"));
+  await dom.waitFor(() => dom.container.querySelector("output")?.textContent === "1");
   assert.deepEqual(enabledPaths, [readyPath]);
   await dom.waitFor(() => [...dom.container.querySelectorAll(".fold-routing-list-row")]
     .some((row) => /Hourly hello/.test(row.textContent ?? "")));
@@ -486,7 +499,7 @@ test("pending proposal files list above the automations and Turn on moves one in
   assert.match(dom.container.textContent ?? "", /Automation turned on/);
 });
 
-test("only invalid proposal files leave the pending section absent", async (t) => {
+test("invalid-only proposal files remain visible with their repair reason", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   installRoutingBridge("enabled");
@@ -499,7 +512,12 @@ test("only invalid proposal files leave the pending section absent", async (t) =
   await dom.render(createElement(FoldRoutingsPane));
   await dom.waitFor(() => Boolean(dom.container.querySelector(".fold-routing-inspector-header")));
   await dom.settle();
-  assert.equal(dom.container.querySelector(".fold-routing-proposals"), null);
+  const section = dom.container.querySelector(".fold-routing-proposals")!;
+  assert.equal(section.querySelector("h5")?.textContent, "Automation files");
+  const invalid = section.querySelector(".fold-routing-proposal.invalid")!;
+  assert.match(invalid.textContent ?? "", /broken\.work-fold-routing\.json/);
+  assert.equal(invalid.getAttribute("title"), "Not valid JSON.");
+  assert.equal(invalid.querySelector("button"), null);
 });
 
 test("the Folder filter narrows the one automation list client-side", async (t) => {

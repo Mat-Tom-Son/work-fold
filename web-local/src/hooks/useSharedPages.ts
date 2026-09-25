@@ -5,8 +5,8 @@ import { buildFixturePublications } from "../fixtures/space-fixture";
 
 const fixturePublications = buildFixturePublications();
 
-export function reloadSharedPages(): Promise<void> {
-  return refreshSharedPages(() => api<SharedPagesResponse>("/api/settings/publications"));
+export function reloadSharedPages(options: { afterMutation?: boolean } = {}): Promise<void> {
+  return refreshSharedPages(() => api<SharedPagesResponse>("/api/settings/publications"), options);
 }
 
 /**

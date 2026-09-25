@@ -114,6 +114,7 @@ export function sharedPageLink(viewerOrigin: string, viewerPath: string, key: st
 
 let sharedPages: SharedPageView[] | null = null;
 let sharedPagesRequest: Promise<void> | null = null;
+let sharedPagesRevision = 0;
 const sharedPagesListeners = new Set<() => void>();
 
 export function subscribeSharedPages(listener: () => void): () => void {
@@ -126,15 +127,28 @@ export function sharedPagesSnapshot(): SharedPageView[] | null {
 }
 
 export function setSharedPages(next: SharedPageView[] | null): void {
+  // Settings may supply its own fresh post-action list while a file surface's
+  // older read is still pending. That older response must not replace it.
+  sharedPagesRevision += 1;
   sharedPages = next;
   for (const listener of sharedPagesListeners) listener();
 }
 
-/** Reloads the list once at a time; a failed read keeps the last known list. */
-export function refreshSharedPages(load: () => Promise<SharedPagesResponse>): Promise<void> {
+/** Reloads once at a time; mutations require a read begun after their effect. */
+export function refreshSharedPages(
+  load: () => Promise<SharedPagesResponse>,
+  options: { afterMutation?: boolean } = {},
+): Promise<void> {
+  if (options.afterMutation) {
+    sharedPagesRevision += 1;
+    if (sharedPagesRequest) return sharedPagesRequest.then(() => refreshSharedPages(load));
+  }
   if (sharedPagesRequest) return sharedPagesRequest;
+  const revision = sharedPagesRevision;
   sharedPagesRequest = load()
-    .then((response) => { setSharedPages(response.status.damaged ? [] : response.publications); })
+    .then((response) => {
+      if (revision === sharedPagesRevision) setSharedPages(response.status.damaged ? [] : response.publications);
+    })
     .catch(() => undefined)
     .finally(() => { sharedPagesRequest = null; });
   return sharedPagesRequest;
