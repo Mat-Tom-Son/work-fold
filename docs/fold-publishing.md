@@ -180,7 +180,7 @@ applet, base, link, form, noscript, frame, and SVG animation elements,
 any value naming a `javascript:`, `vbscript:`, or HTML/XML `data:` URL; links
 open a new window with `rel="noopener noreferrer"`. The payload carries a
 `document` flag, and the viewer shell places that whole document in a
-sandboxed blob: frame without `allow-scripts`, `allow-same-origin`, or
+sandboxed `srcdoc` frame without `allow-scripts`, `allow-same-origin`, or
 `allow-forms`. The frame inherits the page shell's CSP and begins with its
 own stricter policy: no scripts or network loads, including same-origin CSS
 imports, with only inline style and `data:` images allowed so a designed
@@ -277,7 +277,7 @@ IndexedDB for `<slug>.work-fold.com`). Structurally:
   never serves the management client bundle, and writes no browser
   storage. The management origin never serves viewer content.
 - Rung 2 pages are inert documents; a person-authored HTML page sits in a
-  sandboxed blob: frame without `allow-scripts` or `allow-same-origin`
+  sandboxed `srcdoc` frame without `allow-scripts` or `allow-same-origin`
   (2026-09-24). Rung 3 app content additionally runs
   inside a sandboxed iframe **without** `allow-same-origin`, so each app
   instance renders with an opaque origin: no shared storage between two

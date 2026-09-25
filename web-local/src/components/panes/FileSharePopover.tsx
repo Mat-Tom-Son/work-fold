@@ -172,12 +172,14 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
     const request = ++requestRef.current;
     setBusy(true);
     try {
-      let existing = activeSharedPageFor(fixtureMode ? publications : sharedPagesSnapshot(), spaceId, path);
-      if (!fixtureMode && sharedPagesSnapshot() === null) {
-        await reloadSharedPages();
+      if (!fixtureMode) {
+        // A Worker or the CLI may have changed sharing since this file tab
+        // mounted. Start a fresh read after any older in-flight list, even
+        // when the renderer already has a cached answer for this file.
+        await reloadSharedPages({ afterMutation: true });
         if (!currentRequest(request)) return;
-        existing = activeSharedPageFor(sharedPagesSnapshot(), spaceId, path);
       }
+      const existing = activeSharedPageFor(fixtureMode ? publications : sharedPagesSnapshot(), spaceId, path);
       if (existing) {
         await openFor(existing, request);
         return;
@@ -202,6 +204,17 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
       await openFor(result.publication, request, result.revealable);
     } catch (caught) {
       if (!currentRequest(request)) return;
+      if (caught instanceof ApiError && caught.status === 409 && caught.code !== "NO_ADDRESS") {
+        // Another caller can share between the fresh list and our act. Read
+        // the host's result and open its link, without replaying a mutation.
+        await reloadSharedPages({ afterMutation: true });
+        if (!currentRequest(request)) return;
+        const existing = activeSharedPageFor(sharedPagesSnapshot(), spaceId, path);
+        if (existing) {
+          await openFor(existing, request);
+          return;
+        }
+      }
       if (caught instanceof ApiError && caught.code === "NO_ADDRESS") noAddress();
       else showToast({ text: errorText(caught), tone: "error" });
     } finally {
