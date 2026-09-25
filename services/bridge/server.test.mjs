@@ -1314,7 +1314,7 @@ test("a reserved pages-* host serves viewer routes or nothing, never the managem
   assert.match(shell.headers.get("content-type"), /^text\/html/);
   assert.match(shell.headers.get("content-security-policy"), /default-src 'none'; script-src 'self'/);
   // A person-authored HTML page keeps its own design (inline style, data:
-  // images) inside a script-less sandboxed blob: frame that inherits this
+  // images) inside a script-less sandboxed srcdoc frame that inherits this
   // policy; script stays 'self' only and nothing else can load.
   const shellPolicy = shell.headers.get("content-security-policy");
   assert.match(shellPolicy, /script-src 'self';/);
@@ -1940,12 +1940,12 @@ test("the viewer shell places a whole HTML page in a script-less sandboxed frame
     const frame = root.querySelector("iframe");
     assert.ok(frame, "the page sits in a frame, not in the shell's own document");
     assert.equal(frame.getAttribute("sandbox"), viewerDocumentSandbox);
-    assert.equal(frame.getAttribute("src"), "blob:viewer/1");
+    assert.equal(frame.getAttribute("src"), null, "HTML uses srcdoc so WebKit does not reject a sandboxed blob document");
     assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
     assert.equal(frame.className, "viewer-document");
     assert.ok(root.classList.contains("viewer-root-document"));
-    assert.equal(blobs[0].type, "text/html;charset=utf-8");
-    const frameDocument = new JSDOM(await blobs[0].text()).window.document;
+    assert.equal(blobs.length, 0, "HTML does not create a blob URL");
+    const frameDocument = new JSDOM(frame.srcdoc).window.document;
     const documentPolicy = frameDocument.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content");
     assert.equal(documentPolicy, "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'");
     assert.equal(frameDocument.querySelector("h1")?.textContent, "Hi");

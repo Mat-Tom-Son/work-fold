@@ -996,7 +996,7 @@ async function handleViewerRequest(state, request, response, url, method) {
   if (/^\/p\/[A-Za-z0-9._:-]{1,128}$/.test(url.pathname)) {
     // The page shell's policy adds exactly inline style and data: images to
     // the strict viewer policy, so a person-authored HTML page (stripped
-    // desktop-side, placed in a script-less sandboxed blob: frame that
+    // desktop-side, placed in a script-less sandboxed srcdoc frame that
     // inherits this policy) keeps its own design. The frame's additional
     // document policy removes the shell's same-origin permissions, so CSS
     // cannot send decrypted page content back to the relay through @import.

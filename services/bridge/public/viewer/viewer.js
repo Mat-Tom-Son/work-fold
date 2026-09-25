@@ -99,8 +99,10 @@ export function renderPayload(root, payload) {
   root.replaceChildren();
   if (payload.mediaType === "text/html" && payload.document === true) {
     // A whole person-authored document, stripped desktop-side, placed in a
-    // script-less sandboxed blob: frame. The frame inherits this origin's
-    // CSP as well, with a stricter document policy that blocks every load
+    // script-less sandboxed srcdoc frame. WebKit does not render the same
+    // opaque sandboxed document through a blob: URL under this shell's CSP.
+    // srcdoc keeps the isolation and inherits this origin's CSP, with a
+    // stricter document policy that blocks every load
     // except embedded data images while preserving authored inline styles.
     const frame = document.createElement("iframe");
     frame.className = "viewer-document";
@@ -108,7 +110,7 @@ export function renderPayload(root, payload) {
     frame.setAttribute("referrerpolicy", "no-referrer");
     frame.title = typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : "Shared page";
     const documentPrefix = `<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${viewerDocumentPolicy}">`;
-    frame.src = URL.createObjectURL(new Blob([documentPrefix, payload.body], { type: "text/html;charset=utf-8" }));
+    frame.srcdoc = documentPrefix + payload.body;
     root.classList.add("viewer-root-document");
     root.append(frame);
     return;

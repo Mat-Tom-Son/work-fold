@@ -43,7 +43,7 @@ async function run() {
     }))`);
     window.webContents.debugger.attach("1.3");
     const { targetInfos } = await window.webContents.debugger.sendCommand("Target.getTargets");
-    const target = targetInfos.find(target => target.type === "iframe" && target.url.startsWith("blob:"));
+    const target = targetInfos.find(target => target.type === "iframe" && target.url === "about:srcdoc");
     if (!target) throw new Error("The sandboxed document frame target was not found.");
     const { sessionId } = await window.webContents.debugger.sendCommand("Target.attachToTarget", { targetId: target.targetId, flatten: true });
     const { result } = await window.webContents.debugger.sendCommand("Runtime.evaluate", { returnByValue: true, expression: `(() => {
