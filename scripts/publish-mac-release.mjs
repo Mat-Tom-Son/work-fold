@@ -4,6 +4,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
+import { verifyReleaseCi } from "./release-ci.mjs";
+import { assertPublishableMacState } from "./mac-publication-state.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 loadLocalReleaseEnvironment();
@@ -14,7 +16,7 @@ const arch = stringValue(process.env.WORKFOLD_DESKTOP_RELEASE_ARCH) || (process.
 const owner = stringValue(process.env.WORKFOLD_MAC_RELEASE_OWNER) || identity.sourceRepositoryOwner;
 const repo = stringValue(process.env.WORKFOLD_MAC_RELEASE_REPO) || identity.macReleaseRepositoryName;
 const releaseRepo = `${owner}/${repo}`;
-const sourceRepo = stringValue(process.env.WORKFOLD_SOURCE_RELEASE_REPO) || `${identity.sourceRepositoryOwner}/${identity.sourceRepositoryName}`;
+const sourceRepo = `${identity.sourceRepositoryOwner}/${identity.sourceRepositoryName}`;
 const tag = `v${version}`;
 const builderDir = join(rootDir, "out", "builder");
 const stem = `${identity.productName}-${version}-mac-${arch}`;
@@ -32,10 +34,16 @@ const requiredAssets = [
 
 if (process.platform !== "darwin") throw new Error(`${identity.productName} macOS releases must be published from a Mac host.`);
 if (!version) throw new Error("package.json does not declare a release version.");
+if (process.env.WORKFOLD_SOURCE_RELEASE_REPO && process.env.WORKFOLD_SOURCE_RELEASE_REPO !== sourceRepo) {
+  throw new Error(`Release evidence must come from the canonical source repository ${sourceRepo}.`);
+}
 
-assertSourceState();
+const sourceSha = assertSourceState();
 run("gh", ["auth", "status"], "GitHub CLI authentication is required");
 assertSourceTagPublished();
+const ciEvidence = await verifyReleaseCi({ repo: sourceRepo, sha: sourceSha, tag });
+console.log(`[${identity.productName} macOS release] Exact-source CI verified: ${JSON.stringify(ciEvidence)}`);
+await assertBuildState();
 const repoInfo = JSON.parse(run("gh", ["repo", "view", releaseRepo, "--json", "isPrivate,visibility,url"], `Mac release feed ${releaseRepo} was not found`));
 if (repoInfo.isPrivate || repoInfo.visibility !== "PUBLIC") {
   throw new Error(`${releaseRepo} must be public so installed ${identity.productName} apps can update without a GitHub token.`);
@@ -87,6 +95,10 @@ run(
 );
 
 verifyRemoteRelease(true);
+// Uploads take time. Recheck authority and bytes at the public effect boundary.
+if (assertSourceState() !== sourceSha) throw new Error("Release source changed during upload. The release remains a draft.");
+await verifyReleaseCi({ repo: sourceRepo, sha: sourceSha, tag, expectedTagObjectSha: ciEvidence.tagObjectSha });
+await assertBuildState();
 run("gh", ["release", "edit", tag, "--repo", releaseRepo, "--draft=false", "--latest"], `Could not publish ${identity.productName} macOS release ${tag}`);
 const release = verifyRemoteRelease(false);
 console.log(`[${identity.productName} macOS release] Published ${release.url}`);
@@ -98,6 +110,21 @@ function assertSourceState() {
   const head = run("git", ["rev-parse", "HEAD"], "Could not read local HEAD");
   const remoteHead = run("git", ["rev-parse", "origin/main"], "Could not read origin/main");
   if (head !== remoteHead) throw new Error(`Local HEAD ${head} does not match origin/main ${remoteHead}. Push the release commit first.`);
+  return head;
+}
+
+async function assertBuildState() {
+  await assertPublishableMacState(rootDir, {
+    productName: identity.productName,
+    version,
+    arch,
+    mode: "release",
+    nodeVersion: process.version,
+    signIdentity: stringValue(process.env.WORKFOLD_MAC_SIGN_IDENTITY || process.env.CSC_NAME),
+    teamId: stringValue(process.env.WORKFOLD_MAC_TEAM_ID || process.env.APPLE_TEAM_ID),
+    feedOwner: owner,
+    feedRepo: repo,
+  }, requiredAssets);
 }
 
 function assertSourceTagPublished() {

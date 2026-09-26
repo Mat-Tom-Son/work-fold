@@ -31,7 +31,20 @@ The full distribution lane records these timed stages under ignored `out/`:
 The checkpoint is a recovery aid, not release authority. Resume validates its
 source/configuration fingerprint, non-secret release environment, signed app,
 and artifact receipts. Publication independently reruns strict verification and
-all Git/GitHub guards. Never commit or hand-edit the checkpoint.
+all Git/GitHub guards, including source fingerprints and artifact receipts
+when the publisher is invoked directly. The exact-commit CI guard runs before
+upload and again immediately before publishing the draft. Never commit or
+hand-edit the checkpoint.
+
+For a routine release, finish review, fixes, versioning, and release notes before
+starting the distribution candidate. Its build may overlap PR/main CI while
+those source inputs remain frozen. Do not edit the source tree during packaging.
+After merging, inspect the checkpoint on final `main` and use `:resume` only if
+the source/configuration fingerprint and exact artifact receipts still match.
+This preserves completed signing and notarization when merging changed the
+commit id without changing build inputs. Release-tooling-only changes need
+focused regression tests and normal CI; they do not need a version bump or a
+submission to Apple.
 
 ## First work-fold release
 
@@ -74,62 +87,87 @@ artifacts, or metadata.
    npm audit --audit-level=high
    ```
 
-3. Confirm the worktree is clean and `HEAD` is pushed to `origin/main`. Wait
-   for the GitHub CI run whose `headSha` is that exact commit to finish
-   successfully; a green run for an older commit is not release evidence.
-4. Create and push the annotated source tag for that same commit, then wait for
-   the tag-triggered CI run to finish successfully:
+3. Confirm the worktree is clean and `HEAD` is pushed to canonical `main` in
+   `Mat-Tom-Son/work-fold`. Wait for its full GitHub CI run to finish. Check
+   readiness before creating the tag:
+
+   ```bash
+   npm run desktop:release:mac:ci -- --main-only
+   ```
+
+   The latest main push run for that exact SHA must pass on its first attempt
+   with all seven jobs: Repository & TypeScript, Application tests (1/4)
+   through (4/4), Web bridge tests, and Electron integration. An older commit,
+   a PR run, a manual run, skipped jobs, or a rerun is not release evidence.
+4. Create and push the annotated source tag for that same commit:
 
    ```bash
    git tag -a v<version> -m "work-fold <version>" &&
      git push origin refs/tags/v<version>:refs/tags/v<version>
    ```
 
-   Confirm both CI runs name the same SHA as local `HEAD` and the tag. If either
-   run fails, stop before publication. Preserve the pushed tag, correct the
-   cause on `main`, advance to a higher unique version, and repeat with a new
-   commit and tag.
-5. Build, verify, and publish in one command:
+   Wait for **Release tag verification** to succeed, then check both records:
 
    ```bash
-   npm run desktop:release:mac
+   npm run desktop:release:mac:ci
    ```
 
-   If a local build or pre-publication check is interrupted, inspect it first:
+   The lightweight tag workflow runs on Ubuntu with Node 24, no dependency
+   install, and `node scripts/verify-release-ci.mjs --tag-check` (the same
+   verifier exposed by `npm run desktop:release:mac:ci -- --tag-check`). It checks the
+   package version, annotated tag, current canonical `main`, and successful
+   exact-commit main CI. It does not repeat the application suite or publish
+   artifacts. Both runs must name the release SHA and pass on their first
+   attempt. If either fails, stop before publication. Preserve any pushed tag;
+   do not rerun it to qualify the candidate, move it, reuse it, or delete it.
+   Correct the cause on `main`, advance to a higher unique version, and repeat
+   with a new commit and tag.
+5. If the complete distribution candidate was built while CI ran, inspect it:
 
    ```bash
    npm run desktop:release:mac:status
    ```
 
-   When the command reports that its inputs and artifacts still match, resume
-   the release lane without repeating completed Apple work:
+   When its inputs and artifacts still match final `main`, publish through the
+   resume lane without repeating completed Apple work:
 
    ```bash
    npm run desktop:release:mac:resume
    ```
 
-   If status reports changed source, version, architecture, Node runtime,
-   signing identity, feed, or artifact bytes, start a fresh build. A draft
-   already created on GitHub is intentionally not overwritten by resume; apply
-   the failed-draft recovery rule below before retrying publication.
+   Otherwise, build, verify, and publish a fresh candidate:
+
+   ```bash
+   npm run desktop:release:mac
+   ```
+
+   Use the same status/resume procedure if a build or pre-publication check is
+   interrupted. Changed source, version, architecture, Node runtime, signing
+   identity, feed, or artifact bytes require a fresh build. A draft already
+   created on GitHub is intentionally not overwritten by resume; apply the
+   failed-draft recovery rule below before retrying publication.
 
 6. Confirm the command reports a public, non-draft `v<version>` release. It must contain the DMG, ZIP, both blockmaps, `latest-mac.yml`, checksums, and both release manifests.
-7. Install or update the app, then verify the exact installed bundle:
+7. When installation is authorized, install or update the app, then verify the
+   exact installed bundle:
 
    ```bash
    npm run desktop:verify:installed:mac
    ```
 
-8. Open work-fold normally and check **Settings > About** and **work-fold > Check for Updates...**.
+8. Open work-fold normally and check **Settings > About** and **work-fold > Check for Updates...**. If the person reserved the update click, verify the installed predecessor offers the new version and leave installation to them; do not report the new version as installed.
 
 The publisher refuses a dirty/unpushed source tree, a source tag that does not
 point at the exact release commit, a private source repository or Mac feed, an
-existing Mac tag, an unsigned manifest, a missing asset, or any remote
-size/digest mismatch. It does not inspect or require Windows artifacts or a
-source-repository GitHub Release. Installer-only artwork is generated under
+existing Mac tag, missing or incompatible source/artifact checkpoint, failed or
+incomplete exact-commit CI evidence, an unsigned manifest, a missing asset, or
+any remote size/digest mismatch. It does not inspect or require Windows
+artifacts or a source-repository GitHub Release. Installer-only artwork is generated under
 ignored `out/` build output so the release build cannot dirty its own source
 checkout. The publisher uploads a draft first and publishes only after every
-Mac asset's GitHub SHA-256 matches the local file.
+Mac asset's GitHub SHA-256 matches the local file. It rechecks current canonical
+`main`, the source tag, and both CI records immediately before making the draft
+public. Direct publisher invocation cannot bypass these checks.
 
 ## Updater evidence
 
@@ -206,7 +244,7 @@ Workspace 0.4.14 to 0.4.15 passed the same proof on July 27, 2026. Invoking the 
 ## Recovery rules
 
 - Never replace assets in a published release. Correct a bad release with a higher shared version.
-- Never move, reuse, or delete a pushed source tag after failed CI. It is immutable candidate evidence even when no Mac-feed draft or public release exists; fix forward with a higher package version, release commit, and tag.
+- Never move, reuse, delete, or rerun a pushed source tag to qualify a failed candidate. It is immutable candidate evidence even when no Mac-feed draft or public release exists; fix forward with a higher package version, release commit, and tag. Publication accepts only first-attempt main CI and tag verification; reruns are not a recovery lane.
 - A failed draft may be deleted only after confirming it was never published or consumed by an installed app.
 - Use `npm run desktop:release:mac:status` before retrying. If its checkpoint is compatible, use the matching `:resume` build/release command instead of rebuilding the app and repeating notarization.
 - If a build fails inside DMG finalization before its checkpoint is written, the resumable lane reruns the finalizer. It detects an already valid signed/stapled DMG and refreshes only updater metadata.

@@ -24,10 +24,14 @@ that proves the requested behavior.
    and deletion of a failed GitHub draft as separate external actions requiring
    explicit user authorization. Existing authorization in the conversation
    counts; do not ask again for an action the user already authorized.
-6. Before public publication, verify that GitHub CI succeeded for the exact
-   release SHA on pushed `main` and succeeded again for the matching pushed
-   source tag. If either run fails, stop. Never move, reuse, or delete the
-   pushed tag; advance to a higher version and create a new commit and tag.
+6. Before tagging, run `npm run desktop:release:mac:ci -- --main-only` to
+   verify the latest exact-release-SHA push run on canonical `main` passed all
+   seven CI jobs on its first attempt. After the annotated source tag is pushed,
+   run `npm run desktop:release:mac:ci` to also require successful first-attempt
+   `Release tag verification`. The tag workflow verifies version and source
+   identity against main CI; it does not repeat the full test suite. If either
+   run fails, stop. Never rerun to qualify, move, reuse, or delete the pushed
+   tag; advance to a higher version and create a new commit and tag.
 
 ## Choose the lane
 
@@ -46,6 +50,15 @@ that proves the requested behavior.
   publication prerequisite.
 
 Do not use a signed or packaged lane to check ordinary UI copy or styling.
+Release-tooling-only changes need focused tests and normal CI, not a new app
+version or an Apple submission.
+
+A frozen distribution build may overlap PR/main CI. Finish release inputs
+first, and never edit source while packaging. After the merge, inspect status
+on the final `main` checkout and reuse the build only if its fingerprint and
+artifact receipts still validate. Use `:resume` to avoid repeating completed
+signing and notarization; a changed commit id alone does not justify rebuilding
+when the checked build inputs are identical.
 
 ## Keep candidate, installed, and published versions distinct
 
@@ -78,7 +91,9 @@ Never edit `out/builder/work-fold-mac-release-state.json`. A checkpoint is
 ignored recovery data, not proof by itself. Resume must validate the source
 fingerprint, exact artifact receipts, signed app, notarization staple, and
 Gatekeeper result. Publication must still run the strict verifier and GitHub
-guards.
+guards, before upload and immediately before publishing the draft. Direct
+publisher invocation has the same source-fingerprint, artifact-receipt, and
+exact-commit CI requirements.
 
 ## Verify and report
 
