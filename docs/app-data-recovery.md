@@ -2,7 +2,7 @@
 
 Implemented and verified in work-fold 0.4.23.
 
-In **Add → Apps**, open the app's details. **Export data** downloads its complete
+In **Settings → Apps**, open the app's details. **Export data** downloads its complete
 instance-owned JSON data. **Restore…** accepts a backup of the same installation
 and exact app revision. **Undo data change** recovers the state before the most
 recent clear or restore, while that result is still current. App Studio also

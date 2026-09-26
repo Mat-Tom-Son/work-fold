@@ -282,7 +282,7 @@ keep their existing dispatch path. The separate intent/review journal and
 trusted browser controls are described in [browser app views](fold-browser-apps.md).
 
 Automations are first-class host jobs, not one app-wide background switch.
-Every declared job starts disabled and is enabled separately in the Apps tab.
+Every declared job is enabled on install and can be turned off or on separately in Settings → Apps.
 The worker exports `handleAutomation(event)` and dispatches using the reviewed
 `automationId` and `handler`. Intervals are whole minutes from 15 through
 1,440. `catchUp: "latest"` permits at most one deterministically staggered run
@@ -395,7 +395,7 @@ authority or bytes change, a stop, or host close. A hint never starts a model
 turn, and the internal settle signal stays private to the routing service.
 
 A directory declaration is granted over the whole Space when the app is
-added; in the Apps tab the person can limit it to one folder or revoke it. A
+added; in Settings → Apps the person can limit it to one folder or revoke it. A
 file declaration needs the person to choose the file first. The sandbox sends only
 the grant id and a grant-relative path; the host derives Runtime Instance,
 Feature Installation, exact revision, current authority, and the selected root.
@@ -426,8 +426,8 @@ directory permission (bound to the whole Space), every notification category,
 and every Check slot when the Space has exactly one Check are on, and every
 automation is enabled. Secrets stay person-entered once per destination; a
 file-target permission needs a chosen file. The receipt and the Chat report
-what still needs the person. The Space's **Apps** tab is where the person
-narrows any of that: destination, file, and notification grants, connections,
+what still needs the person. **Settings → Apps**, which lists apps by Folder,
+is where the person narrows any of that: destination, file, and notification grants, connections,
 each automation's schedule and run history, local data, and removal; advanced
 local preview remains a recovery/developer path. A code change preserves the
 Feature Installation and Data Namespace and advances the Feature, grant,

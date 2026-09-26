@@ -78,53 +78,38 @@ test("pane navigation uses one Fluent icon contract", () => {
 
   assert.match(spaceChromeSource, /professional-space-rail/);
   assert.match(spaceChromeSource, /Add24Regular/);
-  assert.match(spaceChromeSource, /aria-label="Add or manage"/);
-  assert.match(spaceChromeSource, /space-rail-add-anchor[\s\S]*?onBlurCapture=/);
+  // The Add button opens the Skills & Extensions popup directly; there is no Add menu (2026-09-25).
+  assert.match(spaceChromeSource, /aria-label="Skills & Extensions"/);
+  assert.match(spaceChromeSource, /onClick=\{\(\) => onOpenAssistantTools\("installed"\)\}/);
+  assert.doesNotMatch(spaceChromeSource, /id="space-add-menu"|chooseAddAction|onOpenLibrary|onOpenApps/);
   assert.doesNotMatch(spaceChromeSource, /aria-label="Assistant"/);
   assert.doesNotMatch(spaceChromeSource, /mode:\s*"setup"/);
   assert.doesNotMatch(spaceChromeSource, /<Bot\w*[^>]*>.*Assistant/s);
 });
 
-test("Library opens from Add as a persistent Space-owned work tab", () => {
+test("the Library is retired from the desktop (2026-09-25)", () => {
   const primaryItems = constArrayBody(spaceChromeSource, "primaryItems");
   assert.doesNotMatch(primaryItems, /mode:\s*"library"/);
-  assert.match(spaceChromeSource, /<strong>Your Library<\/strong>/);
-  assert.match(spaceChromeSource, /chooseAddAction\(onOpenLibrary\)/);
-  assert.match(appSource, /onOpenLibrary=\{\(\) => openLibrary\(space\)\}/);
-  assert.match(surfaceTabsSource, /skipNextPersistRef = useRef\(!fixtureMode && !migrateLegacyLibraryMode\)/);
-  assert.match(appSource, /tab\.kind === "library"[\s\S]*?<LibraryPane/);
-  assert.doesNotMatch(appSource, /activeMode === "library"[\s\S]*?<LibraryPane/);
-  assert.match(appSource, /const \[libraryTree, setLibraryTree\]/);
-  assert.match(appSource, /tree=\{libraryTree\}[\s\S]*?onRefresh=\{refreshLibraryTree\}/);
-  assert.doesNotMatch(spacePanesSource, /const \[tree, setTree\]/);
-  assert.match(spacePanesSource, /Personal · available across Spaces/);
-  assert.match(spacePanesSource, /Add a copy to[\s\S]*?spaces\.map/);
-  assert.match(spacePanesSource, /Copies to <strong>From Library<\/strong>; not added to Chat\./);
-  assert.match(spacePanesSource, /targetFolderPath", ""/);
-  assert.match(spacePanesSource, /parentPath: ""/);
-  assert.match(surfacesCss, /\.space-surface-body:has\(> \.library-pane\)[\s\S]*?container-type:\s*inline-size/);
-  assert.match(surfacesCss, /\.library-tab-header[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
-  assert.match(surfacesCss, /@container space-pane \(max-width: 760px\)[\s\S]*?\.library-tab-header[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.doesNotMatch(spaceChromeSource, /Your Library|onOpenLibrary/);
+  assert.doesNotMatch(appSource, /LibraryPane|openLibrary\(|libraryTree|migrateLegacyLibraryMode/);
+  assert.doesNotMatch(spacePanesSource, /export function LibraryPane|From Library/);
+  assert.doesNotMatch(surfaceTabsSource, /migrateLegacyLibrary|"library"/);
 });
 
-test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab titled Skills & Extensions", () => {
+test("Skills & Extensions opens as a popup from the Add button, and apps are managed in Settings", () => {
   const primaryItems = constArrayBody(spaceChromeSource, "primaryItems");
   assert.doesNotMatch(primaryItems, /mode:\s*"capabilities"/);
   assert.doesNotMatch(primaryItems, /mode:\s*"skills"|mode:\s*"extensions"/);
-  // The Add menu offers exactly three destinations — Your Library, the one
-  // Skills & Extensions tab, and the Apps tab. Discovery and management are
-  // the same place, and app building starts from Apps or any Chat, not from Add.
-  const addMenuStart = spaceChromeSource.indexOf('id="space-add-menu"');
-  const addMenu = spaceChromeSource.slice(addMenuStart, spaceChromeSource.indexOf("</div>", addMenuStart));
-  assert.match(addMenu, /<strong>Your Library<\/strong>[\s\S]*<strong>Skills &amp; Extensions<\/strong>[\s\S]*<strong>Apps<\/strong>/);
-  assert.doesNotMatch(spaceChromeSource, /Browse Skills &amp; Extensions|Manage Assistant tools|Build an app/);
-  assert.equal((addMenu.match(/role="menuitem"/g) ?? []).length, 3);
-  assert.match(appSource, /onOpenApps=\{\(\) => tabs\.openSpaceAppsSurfaceTab\(space\)\}/);
-  // Build with worker seeds a fresh Chat with starter text, caret at the end.
-  assert.match(appSource, /function startAppBuildChat/);
-  assert.match(appSource, /onBuildApp=\{\(\) => startAppBuildChat\(targetSpace\)\}/);
+  // The rail's Add button opens one popup: Skills & Extensions. Discovery and
+  // management are the same place; apps are managed in Settings → Apps and
+  // built by asking a Worker in a Chat, so nothing here seeds a Chat.
+  assert.doesNotMatch(spaceChromeSource, /Browse Skills &amp; Extensions|Manage Assistant tools|Build an app|Your Library|<strong>Apps<\/strong>/);
+  assert.match(appSource, /assistantToolsView \? <AssistantToolsModal/);
+  assert.match(appSource, /onOpenAssistantTools=\{setAssistantToolsView\}/);
+  assert.doesNotMatch(appSource, /startAppBuildChat|onBuildApp=|<SpaceAppsPane|openSpaceAppsSurfaceTab|openAssistantToolsSurfaceTab/);
+  assert.match(appSource, /run: \(\) => onOpenSettings\("apps"\)/);
   assert.match(chatPanelSource, /textarea\.setSelectionRange\(end, end\)/);
-  assert.match(surfaceTabsSource, /title: "Skills & Extensions"/);
+  assert.doesNotMatch(surfaceTabsSource, /"assistant-tools"|"space-apps"|"library"/);
   assert.match(capabilitiesSource, /<h1>Skills &amp; Extensions<\/h1>/);
   // Where a tool lives is one explicit decision in the review step, shown as
   // the work-fold agent above folders hierarchy rather than a bare Personal/This folder toggle.
@@ -138,8 +123,7 @@ test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab
   assert.match(capabilitiesSource, /function GitHubMark/);
   assert.doesNotMatch(capabilitiesSource, />Review<\/button>|Install…/);
   assert.doesNotMatch(capabilitiesSource, /Installation location|Install to</);
-  assert.match(appSource, /openAssistantToolsSurfaceTab\(space,\s*"installed"\)/);
-  assert.match(appSource, /tab\.kind === "assistant-tools"[\s\S]*?<CapabilitiesPane/);
+  assert.match(appSource, /setAssistantToolsView\("installed"\)/);
   assert.doesNotMatch(appSource, /activeMode === "capabilities"[\s\S]*?<CapabilitiesPane/);
   assert.match(capabilitiesSource, /Installed[\s\S]*Discover/);
   assert.match(capabilitiesSource, /Search installed tools/);
@@ -160,13 +144,13 @@ test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab
   assert.match(capabilitiesSource, /setTypeFilter\("all"\);[\s\S]*selectView\("installed"\)/);
   // Installed tools are grouped by where they live instead of filtered by a
   // scope dropdown; Everywhere comes first because it reaches the most.
-  assert.match(capabilitiesSource, /<ScopeGroup[\s\S]*scope="global"[\s\S]*<ScopeGroup[\s\S]*scope="project"/);
-  assert.doesNotMatch(capabilitiesSource, /All scopes|installedSort/);
+  assert.match(capabilitiesSource, /<IncludedToolsStrip[\s\S]*<ScopeGroup[\s\S]*scope="global"[\s\S]*<ScopeGroup[\s\S]*scope="project"/);
+  assert.match(capabilitiesSource, /Included with work-fold/);
+  assert.match(capabilitiesSource, /capabilities-scope-columns/);
+  assert.doesNotMatch(capabilitiesSource, /All scopes|installedSort|Add to this folder|Add for everywhere/);
   // Sandboxed apps are a different lane with their own authority model: they
   // live in the Space-owned Apps tab, never inside Skills & Extensions.
   assert.doesNotMatch(capabilitiesSource, /RestrictedAppsSection|restrictedApps|"Apps"/);
-  assert.match(surfaceTabsSource, /kind: "space-apps"[\s\S]*title: "Apps"/);
-  assert.match(appSource, /tab\.kind === "space-apps"[\s\S]*?<SpaceAppsPane/);
   assert.match(appSource, /id: "go:space-apps"/);
   // Catalog and source links show an icon for their destination, never a
   // host name; provenance is a glyph with a tooltip, not a pill on every row.

@@ -80,7 +80,6 @@ test("Files removes unsupported create controls and naming uses in-app UI", () =
   assert.doesNotMatch(app, /onNewFolder=|onNewFile=/);
   assert.doesNotMatch(`${app}\n${panes}`, /window\.prompt\s*\(/);
   assert.match(app, /<TextInputModal[^>]*title=\{`Rename/);
-  assert.match(panes, /<TextInputModal[^>]*title="New Library folder"/);
 });
 
 test("one Space menu trigger can create a Chat in every Space", () => {
@@ -273,7 +272,7 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /onOpenModelSettings\?\.\(\);\s*\}\}\s*>\s*Model settings/);
   assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("assistant", "space", true\)\}/);
   assert.match(settingsModal, /initialScope=\{initialAssistantScope\} focusModelOnOpen=\{focusAssistantModel\}/);
-  assert.match(panes, /<select id="assistant-model" ref=\{modelSelect\}/);
+  assert.match(panes, /<ModelCatalogList id="assistant-model" labelledBy="assistant-model-label"/);
 
   // Thinking is text-only and calls the real per-conversation endpoint. The
   // control appears only when the current model reports an actual choice.

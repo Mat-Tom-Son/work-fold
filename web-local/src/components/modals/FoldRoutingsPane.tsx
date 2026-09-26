@@ -358,7 +358,7 @@ export function FoldRoutingsPane() {
     }
   }
 
-  async function openAutomationDraft(existing?: FoldRoutingDetailView): Promise<void> {
+  async function openAutomationDraft(existing: FoldRoutingDetailView): Promise<void> {
     const openDraft = window.workFoldDesktop?.agent?.openFoldDraft;
     if (!openDraft || drafting) {
       setActionError("Open the work-fold agent in the desktop app to draft an automation.");
@@ -367,9 +367,7 @@ export function FoldRoutingsPane() {
     setDrafting(true);
     setActionError(null);
     try {
-      const draft = existing
-        ? `Review the automation “${existing.title}” (id: ${existing.routingId}). Its current trigger is: ${triggerSummary(existing.trigger)}. Preserve it until I give a clear instruction to change it.`
-        : "Help me set up an automation. Ask what should happen, when, and which folders to use.";
+      const draft = `Review the automation “${existing.title}” (id: ${existing.routingId}). Its current trigger is: ${triggerSummary(existing.trigger)}. Preserve it until I give a clear instruction to change it.`;
       await openDraft(draft);
     } catch (caught) {
       setActionError(errorText(caught));
@@ -416,11 +414,6 @@ export function FoldRoutingsPane() {
 
   return (
     <section className="settings-section fold-routings" aria-label="Automations">
-      <div className="settings-section-actions">
-        <button className="secondary-button" type="button" onClick={() => void openAutomationDraft()} disabled={drafting}>
-          {drafting ? "Opening…" : "New automation"}
-        </button>
-      </div>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {status?.storeDamaged ? (
         <span className="settings-inline-error" role="alert">
@@ -470,7 +463,7 @@ export function FoldRoutingsPane() {
         </section>
       ) : null}
       {data && !allRoutings.length ? (
-        <div className="fold-routings-empty">No automations yet.</div>
+        <div className="fold-routings-empty">No automations yet. To set one up, ask the work-fold agent in the menu bar. Say what should happen, when, and in which folders.</div>
       ) : null}
       {showFolderFilter ? (
         <div className="capabilities-type-chips fold-routing-folder-filter" role="group" aria-label="Folder">

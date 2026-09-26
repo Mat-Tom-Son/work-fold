@@ -1,12 +1,12 @@
 # Pi resource compatibility reference
 
-work-fold exposes Pi resources directly instead of maintaining a parallel Assistant tool registry. In this document, “resource” is Pi's technical term for runtime-discovered configuration; it is distinct from the user-facing **Library** of reusable personal files.
+work-fold exposes Pi resources directly instead of maintaining a parallel Assistant tool registry. In this document, “resource” is Pi's technical term for runtime-discovered configuration; it is distinct from ordinary reusable files.
 
 Start with [Assistant capabilities](assistant-capabilities.md) for the product concepts, safety model, scopes, and package boundary. This page is the compact compatibility reference for implementation and verification.
 
 The [work-fold management layer](management-layer.md) reports this same native catalog through versioned read snapshots and the installed `work-fold capabilities list --json` command. That projection includes tools, packages, prompts, themes, commands, trust, scope, provenance, and diagnostics; it is not a second discovery path or an install/activation surface.
 
-In the product navigation, **Agent tools** is the single Space-aware surface for Skills and Extensions. A Skill describes a reusable way of working; an Extension adds an executable capability or connection. Installed and Discover views retain the item type, source, scope, load state, diagnostics, and package lifecycle. Provider and model setup lives under **Settings → Agents**.
+In the product, the **Skills & Extensions** popup — opened by the rail's Add button and pinned to the Space it was opened from — is the single Space-aware surface for Skills and Extensions. A Skill describes a reusable way of working; an Extension adds an executable capability or connection. Installed and Discover views retain the item type, source, scope, load state, diagnostics, and package lifecycle. Provider and model setup lives under **Settings → Agents**.
 
 ## Extensions
 
@@ -35,7 +35,7 @@ Packages are distribution plumbing, not a separate top-level user concept. The i
 
 ## Restricted Space apps are not Pi resources
 
-A restricted app is package-shaped because the Assistant needs a portable set of completed web assets, but it is not a Pi package, Skill, Extension, or catalog item. work-fold inspects its `agent-app.json` and files without invoking npm or importing JavaScript, stages the exact reviewed digest in application data, and runs it only through the separate sandbox hosts. Its grants, encrypted connections, storage, background state, notifications, and lifecycle are managed in **Add → Apps**, in the Space-owned Apps tab and are intentionally absent from `work-fold capabilities list` protocol v1.
+A restricted app is package-shaped because the Assistant needs a portable set of completed web assets, but it is not a Pi package, Skill, Extension, or catalog item. work-fold inspects its `agent-app.json` and files without invoking npm or importing JavaScript, stages the exact reviewed digest in application data, and runs it only through the separate sandbox hosts. Its grants, encrypted connections, storage, background state, notifications, and lifecycle are managed in **Settings → Apps**, which lists apps by Folder, and are intentionally absent from `work-fold capabilities list` protocol v1.
 
 Use [Restricted app authoring](restricted-app-authoring.md) for the package and bridge contract and [Restricted app runtime](restricted-app-runtime.md) for the security boundary. Never add `pi.extensions` to a restricted package or route it through Pi's package manager merely to make it visible to the model; `propose_space_app` is the host-owned review path.
 

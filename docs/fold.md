@@ -58,7 +58,7 @@ There is one authority mode; nothing waits on a card, a standing rule, or a
 second click. Every destruction is reversible — History covers what it can
 and Recently deleted holds the rest for a retention window — and every
 exposure and grant is revocable. Disclosure is after the fact: the glance,
-receipts, and the Apps tab say what happened, and needs-you means an
+receipts, and Settings → Apps say what happened, and needs-you means an
 Assistant asked a question. Setup that establishes identity or secrets —
 pairing, provider secrets, remote enrollment — stays outside the act
 vocabulary and never blocks a task. Bounds are generous defaults in
@@ -81,6 +81,9 @@ What the fold is **not**:
   called.
 - Not a rename of anything else. **Space**, **Library**, **Assistant
   tools**, **Chats**, and **History** are untouched; there is no "foldr".
+  (The desktop Library and the Assistant tools tab were retired on 2026-09-25
+  by the information-architecture amendment in [the product model](product-model.md);
+  that was a separate decision, not a fold rename.)
 - Not a new technical contract. `work-fold manage …`, the
   `work-fold-management` scope id, the `/api/management/*` routes, the
   `management.*` remote-facade methods, the `management/` application-state
@@ -217,6 +220,8 @@ their specification; F8 and F9 keep the narrowings that record relies on.
    website". Honest absence states stay honest: an offline desktop is
    "asleep", not an error page pretending otherwise.
 7. Space, Library, Assistant tools, Chats, and History copy is untouched.
+   *(2026-09-25: the desktop Library and the Assistant tools tab were retired
+   separately; Skills & Extensions is the surface's only name.)*
 8. **Receipts, not gates, in copy.** Person-facing strings never say staged,
    card, approve, policy, mode, Reviewed, or Unrestricted. Needs you names
    questions and due snoozes. Recently deleted is the trash's name; Restore

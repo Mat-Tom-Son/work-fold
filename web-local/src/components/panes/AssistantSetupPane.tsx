@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { ModelCatalogList } from "./ModelCatalogList";
 import { RefreshCw } from "lucide-react";
 import { api, errorText } from "../../lib/api";
 import { subscribeControlEvents } from "../../lib/control-events";
@@ -75,9 +76,9 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
     return () => { disposed = true; document.removeEventListener("focusin", yieldFocus); document.removeEventListener("pointerdown", yieldFocus); };
   }, []);
 
-  function focusModelWhenReady(node: HTMLSelectElement | null) {
+  function focusModelWhenReady(node: HTMLElement | null) {
     const request = focusRequest.current;
-    if (!node || node.disabled || !request.pending || !active) return;
+    if (!node || ("disabled" in node && node.disabled) || !request.pending || !active) return;
     request.pending = false;
     if (document.activeElement === request.origin) node.focus();
   }
@@ -127,7 +128,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   isMutating: () => boolean;
   readDraft: () => AssistantDraft;
   editDraft: (edit: (draft: AssistantDraft) => AssistantDraft) => void;
-  focusModelWhenReady: (node: HTMLSelectElement | null) => void;
+  focusModelWhenReady: (node: HTMLElement | null) => void;
 }) {
   const [scopeStatus, setScopeStatus] = useState(status);
   const [models, setModels] = useState<AgentModel[]>([]);
@@ -151,7 +152,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   const providerRevision = useRef(0);
   const refresh = useRef<AbortController | null>(null);
   const localRevision = useRef(0);
-  const modelSelect = useRef<HTMLSelectElement>(null);
+  const modelSelect = useRef<HTMLElement>(null);
   const currentForm = useRef({ dirty: false, loading: true, snapshot: "" });
 
   useEffect(() => {
@@ -398,10 +399,10 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
             <select aria-label="Provider" value={provider} disabled={mutationBusy || !providers.length} onChange={(event) => changeProvider(event.target.value)}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
           </label>
           <div className="professional-field">
-            <div className="assistant-model-field-heading"><label className="professional-field-label" htmlFor="assistant-model">Model</label>
+            <div className="assistant-model-field-heading"><span className="professional-field-label" id="assistant-model-label">Model</span>
               {catalog?.refreshable ? <button className="assistant-refresh-models" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} models` : `Connect ${providerName} below to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
             </div>
-            <select id="assistant-model" ref={modelSelect} value={model} disabled={mutationBusy || !providerModels.length} onChange={(event) => { if (isMutating()) return; setModel(event.target.value); updateModelDraft(provider, event.target.value); setModelFeedback(null); }}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
+            <ModelCatalogList id="assistant-model" labelledBy="assistant-model-label" models={providerModels} value={model} disabled={mutationBusy || !providerModels.length} onChange={(next) => { if (isMutating()) return; setModel(next); updateModelDraft(provider, next); setModelFeedback(null); }} controlRef={modelSelect} />
             {catalog?.source === "live" && catalog.refreshedAt ? <span className="professional-field-hint">List updated {formatCatalogDate(catalog.refreshedAt)}</span> : null}
           </div>
         </div>

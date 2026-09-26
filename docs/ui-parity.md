@@ -8,7 +8,7 @@ work-fold is the clean-break successor to the legacy Workspace extraction of the
 | --- | --- |
 | Workspace backed by a local SharePoint mirror | Space backed directly by an ordinary folder |
 | Kits | Skills |
-| Sources | Library |
+| Sources | Ordinary files in a Space (the desktop Library was retired on 2026-09-25) |
 | Microsoft organization login | Assistant setup using Pi providers |
 | Kai | Assistant |
 | SharePoint sync and publish | Local files first; cloud-synced folders work through their desktop clients |
@@ -19,7 +19,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 
 ### Persistent surface tabs
 
-- Chat, file, Library, History, and appearance surfaces open as tabs instead of route-only panes.
+- Chat, file, History, and appearance surfaces open as tabs instead of route-only panes.
 - Tabs persist and restore across application restarts.
 - Each tab retains its Space identity; activating a tab from another Space activates that Space.
 - Each Space remembers its most recently active tab.
@@ -28,6 +28,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Moving or renaming a file retargets its open tab; deleting it closes the affected tab.
 - Closing a tab selects the adjacent tab predictably.
 - Arrow keys, Home, and End navigate the tab strip with correct focus and ARIA tab semantics.
+- With four or more tabs open, tabs narrow but keep their Folder icon and a normal close button.
 - Inactive tab panels remain mounted when needed so drafts, scroll position, and transient UI state survive tab switches.
 
 ### Desktop shell
@@ -52,7 +53,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 
 - Preserve conversation history, rename, drafts, streamed replies, actual model reasoning text, the compact inline trail of real tool calls, stop behavior, context attachments, copy actions, suggested prompts, and extension UI requests. Persist settled Thinking/tool entries with their Assistant message so tab switches and relaunches restore the same trail without running indicators or completed-tool replay. Reasoning may carry the quiet `Thinking…`/`Thinking` label; repair only orphan Markdown text markers after parsing, preserve valid code/emphasis, and show safe tool targets rather than raw result bodies. Do not reintroduce a separate Activity drawer, brain icon, completion badge, or large app-authored reasoning status card.
 - Preserve the command palette, keyboard shortcuts, toast/confirm feedback, onboarding, Space creation/linking, themes, typography, and resizable layout. [Application appearance](application-appearance.md) owns device-local presets, readable semantic colors, interface/conversation typography, density, and accessibility. Desktop and menu-bar chat use one shared preference store; Space identity stays separate, and the paired web fold retains browser appearance.
-- The persistent Folder header chooses the root-folder entity and offers compact create/use-existing/manage actions on every left-pane surface. Primary rail navigation uses `Files`, `Chats`, and `History`; Chats in other Folders stay collapsed below the selected Folder's list. The bottom-rail Add menu has three entries, Your Library, Skills & Extensions, and Apps; apps are managed in the Folder-owned Apps tab, and Build with Worker there seeds a fresh Chat with starter text. Library stays one shared personal collection: the owning Folder is the default copy target, and any registered Folder can be selected explicitly. The Folder-owned Agent tools tab combines Installed and Discover views for Skills and Extensions while retaining scope, provenance, load state, diagnostics, and package lifecycle. Provider connections, model defaults, per-Folder instructions, API-key, and OAuth setup live in `Settings → Agents`; only model defaults and Folder instructions have narrow work-fold-agent verbs.
+- The persistent Folder header chooses the root-folder entity and offers compact create/use-existing/manage actions on every left-pane surface. Primary rail navigation uses `Files`, `Chats`, and `History`; Chats in other Folders stay collapsed below the selected Folder's list. The bottom-rail Add button opens the Skills & Extensions popup directly (2026-09-25); there is no Add menu, no Library tab, and no Folder-owned Apps tab. Installed apps open from their contributed rail region and are managed in Settings → Apps, which lists apps by Folder; a person asks a Worker to build an app in a Chat. The Skills & Extensions popup is pinned to the Folder it was opened from and combines Installed and Discover views for Skills and Extensions while retaining scope, provenance, load state, diagnostics, and package lifecycle; its Installed view starts with the Included with work-fold strip and shows Everywhere and This folder only side by side. Provider connections, model defaults, per-Folder instructions, API-key, and OAuth setup live in `Settings → AI Models`, whose scope is chosen with two large buttons (This worker and work-fold agent) and whose model list has a search box and vendor groupings; only model defaults and Folder instructions have narrow work-fold-agent verbs.
 
 ### Collaboration within a conversation
 
@@ -76,7 +77,7 @@ own browser-grant request family; other Needs you items direct it to the desktop
 - The installed `work-fold` command resolves the terminal's current folder to the same Space model as the renderer, can report live Assistant/compaction tasks, and exposes compact capability metadata through stable JSON.
 - A headless CLI request must coexist with the running single-instance desktop app, return bounded stdout/stderr/exit status, and avoid opening or stealing focus from the interactive window.
 - Installer PATH integration must be reversible and must not modify shell profile files.
-- Settings uses Appearance, AI Models, Web access, Shared pages, Automations, Recently deleted, and About. Automations also carries Limits; Recently deleted carries the entry list, Restore, Save a copy, Delete now, and the retention window; Updates lives in About; no authority selector or standing-rules section exists on any surface.
+- Settings uses Appearance, AI Models, Web access, Shared pages, Automations, Recently deleted, and About, plus an Apps page (2026-09-25) that lists installed Folder apps by Folder and owns their management. Automations also carries Limits, collapsed by default under a Limits disclosure; Recently deleted carries the entry list, Restore, Save a copy, Delete now, and the retention window; Updates lives in About; no authority selector or standing-rules section exists on any surface.
 - **Needs you** shows only Assistant questions and due snoozes — never an action waiting for approval. On the desktop, questions appear inside their owning Chats and due snoozes return to the Chats list. The paired web client shows questions inside their owning Chats, with a quiet answer indicator in the chat list; it has no separate Needs you screen or receipt feed. The popover stays focused on its always-visible, incrementally streaming conversation, one expanding composer whose action becomes **Stop** during active work, a clickable actual-model label, and a text-only supported reasoning selector; it neither fetches nor acknowledges the glance. None of these adds a rail destination, tab, or notification; the main window may carry at most a questions-only indicator that opens those items — never an approval control — and with nothing to show, no control appears.
 
 ### Restricted Space apps

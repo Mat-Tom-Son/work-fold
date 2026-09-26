@@ -4,6 +4,7 @@ import {
   ArrowClockwise20Regular,
   Checkmark16Regular,
   Dismiss20Regular,
+  Apps20Regular,
   Delete20Regular,
   Flash20Regular,
   Info20Regular,
@@ -34,12 +35,14 @@ import { AssistantSetupPane, type AssistantModelScope } from "../panes/Assistant
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
 import { FoldLimitsPane } from "./FoldLimitsPane";
+import { SettingsAppsPane, type RestrictedAppsState } from "./SettingsAppsPane";
+import type { RestrictedAppInstalled } from "../../types";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "recently-deleted" | "general" | "desktop" | "about";
+export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "about";
 export type FoldSettingsSection = "routings" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "recently-deleted" | "about";
+type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "about";
 
 /**
  * The tab a Settings page id opens. "remote", "general" and "desktop" are
@@ -54,10 +57,16 @@ export function settingsTabForPage(page: SettingsPage, section?: FoldSettingsSec
   return page;
 }
 
-export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
   onCustomizeSpace?: (spaceId: string) => void;
   space: SpaceSummary | null;
+  /** Settings → Apps lists every installed app by Folder (the Folder-owned Apps tab was retired 2026-09-25). */
+  spaces?: SpaceSummary[];
+  restrictedApps?: RestrictedAppsState | null;
+  onChangeApp?: (app: RestrictedAppInstalled) => void;
+  onOpenAppBuildChat?: (spaceId: string, conversationId: string) => void;
+  onOpenAppStudio?: (spaceId: string, runtimeInstanceId?: string) => void;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
@@ -128,6 +137,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
     { id: "web-access", label: "Web access", icon: <Window20Regular /> },
     { id: "shared-pages", label: "Shared pages", icon: <Window20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
+    { id: "apps", label: "Apps", icon: <Apps20Regular /> },
     { id: "recently-deleted", label: "Recently deleted", icon: <Delete20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
@@ -203,6 +213,11 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
               <div className="settings-tab-panel" id="settings-panel-automations" role="tabpanel" aria-labelledby="settings-tab-automations">
                 <FoldRoutingsPane />
                 <FoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
+              </div>
+            ) : null}
+            {page === "apps" ? (
+              <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
+                <SettingsAppsPane spaces={spaces} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenAppStudio={onOpenAppStudio} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (

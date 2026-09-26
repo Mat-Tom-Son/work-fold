@@ -205,6 +205,12 @@ textarea,
   padding-top: var(--desktop-titlebar-height);
 }
 
+/* The desktop shell is exactly one window tall (minimum 1100x760), so the
+   document itself must never scroll; only panes inside it do. */
+body:has(> #root > .desktop-chrome-shell) {
+  overflow: hidden;
+}
+
 .desktop-titlebar {
   position: fixed;
   z-index: 10;
@@ -7778,20 +7784,9 @@ textarea,
   padding-inline: 8px 3px;
 }
 
-.surface-tabs.tab-count-compact .surface-tab-close,
-.surface-tabs.tab-count-dense .surface-tab-close {
-  width: 20px;
-  margin-right: 2px;
-}
-
 .surface-tabs.tab-count-dense .surface-tab-main {
   gap: 5px;
   padding-inline: 7px 3px;
-}
-
-.surface-tabs.tab-count-compact .surface-tab-icon,
-.surface-tabs.tab-count-dense .surface-tab-icon {
-  display: none;
 }
 
 .surface-tab-chat-status {
@@ -11131,10 +11126,9 @@ textarea,
 }
 
 .composer-capability-bar {
-  position: absolute;
-  left: 10px;
-  right: 60px;
-  bottom: 8px;
+  /* In flow below the text (2026-09-25): a long draft can no longer scroll under this row. */
+  position: static;
+  padding: 0 60px 8px 10px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -11436,7 +11430,7 @@ textarea,
   resize: none;
   border: 0;
   border-radius: 8px;
-  padding: 15px 58px 42px 15px;
+  padding: 15px 58px 12px 15px;
   outline: 0;
   line-height: var(--work-fold-composer-line-height);
   overflow-y: hidden;
@@ -18127,4 +18121,37 @@ textarea,
   font-size: 11px;
   padding: 1px 6px;
   white-space: nowrap;
+}
+
+/* Settings → Automations → Limits stays on the page but folded by default (2026-09-25). */
+.settings-limits > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-limits > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-limits > summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease-out;
+  opacity: 0.7;
+}
+
+.settings-limits[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.settings-limits > summary h3 {
+  margin: 0;
 }

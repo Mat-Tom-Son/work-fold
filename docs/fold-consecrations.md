@@ -47,7 +47,7 @@ history word; no shipped contract, copy, or test should introduce it.
   | `app.review.approve`, now `app.review.install` | `apps install-proposal`, `apps install-preview` (F21: every declared power on) |
   | `capability.package.install`, `capability.package.update`, `capability.skills.import` | `tools install`, `tools update`, `tools import-skill` |
   | `app.grant.network`, `app.grant.files`, `app.grant.notifications` | `apps grant` (re-allow after a revoke; declared grants are on from install) |
-  | `app.connection.save` | The ledger's connection row: the secret is entered by the person in the Apps tab, once per destination |
+  | `app.connection.save` | The ledger's connection row: the secret is entered by the person in Settings → Apps, once per destination |
   | `app.automation.enable` | `apps automation enable` (re-enable after a disable; declared automations run from install) |
   | `routing.enable` | `routings enable --proposal <path>` |
   | `publish.viewer.expose` | The `pages` share verbs in [Publishing](fold-publishing.md) |
@@ -70,7 +70,7 @@ and no click stands between content and effect. The defenses are typed
 admission, exact identity pins, host-side rechecks at effect time,
 at-most-once execution, receipts, reversible destruction (History and
 Recently deleted), revocable exposure and grants, and after-the-fact
-disclosure in the glance, the receipts, and the Apps tab.
+disclosure in the glance, the receipts, and Settings → Apps.
 
 ### Residual risks, stated plainly
 

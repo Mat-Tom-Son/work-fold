@@ -1,7 +1,7 @@
 # Changing an installed app
 
-Implemented in work-fold 0.4.23. The Apps tab has
-**Change this app**, which creates a working copy and opens an unsent Chat draft
+Implemented in work-fold 0.4.23. An app's details (in Settings → Apps since
+2026-09-25; the Apps tab before that) have **Change this app**, which creates a working copy and opens an unsent Chat draft
 in the App Project's source Space. The person adds the requested change and sends
 it. This does not invoke a model, install code, or grant authority by itself.
 

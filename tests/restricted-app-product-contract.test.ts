@@ -23,7 +23,8 @@ const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, profes
 
 test("Apps product hierarchy starts with the Assistant and keeps local preview loading advanced", () => {
   assert.match(apps, /Apps in this folder/);
-  assert.match(apps, /Build with worker/);
+  // Building an app is a plain ask in a Chat; there is no button for it (2026-09-25).
+  assert.doesNotMatch(apps, /Build with worker|onBuildApp/);
   assert.match(apps, /<details className="restricted-app-advanced"><summary>Advanced local preview/);
   assert.match(apps, /Add local preview…/);
   assert.doesNotMatch(capabilities, /Sandboxed app extension|onAddRestrictedApp/);

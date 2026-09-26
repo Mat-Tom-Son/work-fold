@@ -2,7 +2,7 @@
 
 work-fold has three runtime responsibility layers, one shared in-process management plane, and a separate restricted-app execution lane:
 
-1. The React renderer presents a persistent Space-identity header menu plus Files, Chats, and History rail surfaces; on-demand Space-owned Library and Assistant tools tabs; and Assistant configuration in Settings.
+1. The React renderer presents a persistent Space-identity header menu plus Files, Chats, and History rail surfaces; the Skills & Extensions popup; and Assistant configuration and app management in Settings.
 2. The local Node host owns filesystem access, conversations, resource import, Pi sessions, and the domain services that authorize mutations.
 3. Electron supplies native windows, menus, dialogs, secure storage, lifecycle, and packaging.
 
@@ -42,12 +42,14 @@ The persistent Space-header menu establishes the active root-folder entity and o
 - **Files** — the ordinary folder contents of the selected Space.
 - **Chats** — conversations associated with the selected Space, followed by collapsed groups for every other registered Space, including zero-count groups in the current view.
 - **History** — checkpoints and recoverable changes for the selected Space.
-- **Library** — reusable personal materials shared across Spaces, opened on demand as a persistent Space-owned tab whose explicit destination selector can copy to any registered Space.
-- **Agent tools** — one on-demand Space-owned Installed/Discover work tab for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another rail destination.
+- **Skills & Extensions** — one popup dialog, opened by the rail's Add button and pinned to the Space it was opened from, with Installed/Discover views for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another rail destination.
+- **Settings → Apps** — per-app management for installed Space apps, listed by Folder; the apps themselves open in their contributed rail region.
+
+The desktop no longer has a Library (2026-09-25); the CLI act-lane `library` family and its server routes remain unchanged for now as a compatibility contract.
 
 Provider, model, and authentication configuration for the Pi-powered Assistant lives under **Settings → Agents**.
 
-The concepts have deliberately different scopes and trust levels. Library materials are passive and personal. Skills influence how the Assistant works and may include scripts. Extensions execute code or reach other systems and therefore require stronger, explicit trust. Combining them in one management surface does not collapse those differences: type, provenance, scope, load state, diagnostics, and package contents remain visible. Making something available does not silently activate it or add it to a chat's context.
+The concepts have deliberately different scopes and trust levels. Ordinary files are passive. Skills influence how the Assistant works and may include scripts. Extensions execute code or reach other systems and therefore require stronger, explicit trust. Combining them in one management surface does not collapse those differences: type, provenance, scope, load state, diagnostics, and package contents remain visible. Making something available does not silently activate it or add it to a chat's context.
 
 Surface tabs are Space-bound rather than global views of the currently selected folder. Activating a tab activates its owning Space, and switching Spaces restores that Space's most recent tab. All open Chat panels remain mounted while the window exists; an accepted Pi turn continues in the app-owned local API while its tab is inactive, the window is minimized, the Windows window is hidden to the system tray, or the last macOS window is closed and later recreated from the Dock. Event-stream reconnects use server turn-state snapshots and persisted transcript rehydration so renderer sleep, window recreation, or wake does not lose the result.
 
@@ -55,7 +57,7 @@ The management popover is the one desktop surface outside the tab system: a smal
 
 Loaded Pi Extensions may contribute a validated declarative surface through a bounded `surface.json` file beside their entry point. The capability catalog carries this metadata to the renderer, which keeps the three primary rail destinations fixed, places contributed apps in a separate rail region, renders their navigator and content with host-owned components, and opens each view as a Space-bound tab. This contract carries no HTML or executable renderer code. Invalid manifests remain diagnostics on the owning capability. See [Extension surfaces](extension-surfaces.md).
 
-Technical types, routes, and storage paths use `space`, `project`, or `resource` where those are the precise domain or Pi terms. User-facing copy should use **Space** for the working context and **Library** for reusable personal materials. Pi's own “resource” terminology remains appropriate when describing Pi runtime discovery rather than the Library.
+Technical types, routes, and storage paths use `space`, `project`, or `resource` where those are the precise domain or Pi terms. User-facing copy should use **Space** for the working context. Pi's own “resource” terminology remains appropriate when describing Pi runtime discovery rather than ordinary files.
 
 ## Storage
 
@@ -65,7 +67,7 @@ work-fold is a clean authority domain. It does not open, parse, import, migrate,
 
 Operational state remains outside the folder. Electron user data holds the Space registry, content-addressed History objects, ignore rules, provider credentials, application preferences, and the local App Studio registry/store. App Project presentation, canonical Release envelopes, release-backed App bytes, grants, connections, schedules, operation journals, receipts, retained-data records, and mutable App data are machine-local application state; the current product does not add a portable App Project file. Development API, non-packaged Electron, and uninstalled Windows package directories default to a distinct `work-fold Development` application-data root, with `WORKFOLD_STATE_DIR` and `WORKFOLD_DESKTOP_STATE_DIR` reserved as explicit overrides, so those development entrypoints do not touch the installed product's state. A production-signed macOS candidate is different: it uses normal work-fold state by default even outside `/Applications`; an explicit `WORKFOLD_DESKTOP_STATE_DIR` override is needed for separate app data, and it does not isolate Keychain. On Windows, the installer-owned sibling uninstaller—not the updater manifest—distinguishes an NSIS installation from the same packaged bytes before installation. The separate `WORKFOLD_CLI_STATE_DIR` exact root keeps packaged child CLI requests on the owning app's broker without granting a later desktop process access to that state. A recognized registry version newer than the current binary remains byte-for-byte untouched and routes packaged startup to updater/release recovery instead of destructive downgrade; malformed state still fails closed. The configured Pi agent directory holds Pi sessions, Pi's own trust store for other native consumers, personal capabilities, and Pi settings. Native Pi project skills, extensions, prompts, settings, and context stay separately under the Space's `.pi/` directory. work-fold's runtime provider authorizes the exact registered root and explicitly denies unregistered roots; it does not rewrite Pi's independent trust store. Removing a linked Space preserves its ordinary files and `.work-fold/`; deleting a managed Space removes the managed folder. Managed deletion is blocked if preserved `.workspace/` metadata exists beneath the claimed tree, so work-fold cannot recursively erase legacy product state. Removal first persists a machine-local intent and installs a whole-Space runtime fence, then revokes trust and clears App state before final cleanup. Interrupted intents stay hidden and untrusted for startup recovery. Managed deletion atomically claims the exact canonical directory identity under a random transaction-bound same-filesystem path, revalidates and records that claim, and recursively deletes only the claim rather than any later replacement at the registered path. Either removal is blocked while the Space is the source or target of an active release-backed App Instance, so uninstall can make the data disposition explicit first. A source Space is also blocked while its Project owns retained App data. After those obligations are gone, source removal clears that machine-local App Project, Development Instance, prepared operations, Releases, and administrative receipts, and marks unreferenced Release objects for safe reconciliation; transient cleanup failure is retried before later App mutations and at startup. Target removal cancels prepared operations aimed at that target.
 
-The Library is application-scoped, reusable across Spaces, and separate from chat context. Copying a Library item into a Space is an explicit action and produces an ordinary file in that Space; Library contents are not automatically attached to conversations or synchronized into every Space.
+The Library storage that the CLI `library` family still reads is application-scoped and separate from chat context. Copying a Library item into a Space through `library copy` produces an ordinary file in that Space; nothing in that storage is attached to conversations or synchronized into every Space. The desktop no longer exposes it (2026-09-25).
 
 File change streams retain the logical Space root as the access-policy boundary but pass a `realpath`-canonical root to native `fs.watch`. On Windows this avoids Node/libuv aborts when the same folder is represented once by its long path and once by an 8.3 short path. The watcher fallback remains non-recursive where the host does not support recursive watching.
 
@@ -80,7 +82,7 @@ Restricted apps run beside, not inside, the Pi capability catalog and management
 ```mermaid
 flowchart LR
   chat["Space Chat and propose_space_app"] --> review["Host inspection and digest-pinned review"]
-  capabilities["Apps tab grants, connections, lifecycle"] --> service["RestrictedAppService"]
+  capabilities["Settings → Apps grants, connections, lifecycle"] --> service["RestrictedAppService"]
   studio["Space-bound App Studio"] --> service
   review --> service
   service --> staged["Content-addressed reviewed Feature assets"]

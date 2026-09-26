@@ -138,7 +138,7 @@ test("Run a copy now invokes the preload bridge, never a network request", async
   assert.match(dom.container.textContent ?? "", /Run requested/);
 });
 
-test("New automation opens an unsent work-fold agent draft without running or enabling anything", async (t) => {
+test("Automations has no New automation button; the empty state says where to ask (2026-09-25)", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   const calls = installRoutingBridge("disabled");
@@ -147,17 +147,13 @@ test("New automation opens an unsent work-fold agent draft without running or en
     agent: { openFoldDraft: async (draft: string) => { drafts.push(draft); return true; } },
   });
   await dom.render(createElement(FoldRoutingsPane));
-  await dom.waitFor(() => [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .some((button) => button.textContent?.trim() === "New automation"));
-  const newAutomation = [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => button.textContent?.trim() === "New automation");
-  assert.ok(newAutomation);
-  await dom.act(async () => { newAutomation.click(); });
-  await dom.waitFor(() => drafts.length === 1);
-  assert.equal(drafts[0], "Help me set up an automation. Ask what should happen, when, and which folders to use.");
+  await dom.settle();
+  assert.equal([...dom.container.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent?.trim() === "New automation"), false);
+  const empty = dom.container.querySelector(".fold-routings-empty");
+  if (empty) assert.match(empty.textContent ?? "", /ask the work-fold agent/);
+  assert.equal(drafts.length, 0);
   assert.equal(calls.run, 0);
 });
-
 test("an admitted queued run stays visible until its exact history entry settles", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
@@ -407,7 +403,7 @@ test("missing desktop bridge leaves Automations readable instead of crashing Set
   await dom.render(createElement(FoldRoutingsPane));
   await dom.waitFor(() => Boolean(dom.container.querySelector('[role="alert"]')));
   assert.match(dom.container.textContent ?? "", /available in the desktop app/);
-  assert.ok(dom.container.querySelector("button"), "Settings remains interactive");
+  assert.ok(dom.container.querySelector(".fold-routings"), "Settings remains readable");
   assert.equal(dom.container.querySelector(".fold-routing-proposals"), null, "no bridge, no pending section");
 });
 

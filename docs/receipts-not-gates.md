@@ -31,7 +31,7 @@ The replacement principle is **receipts, not gates**:
    with a retention window. Outward exposure is revocable. Grants are
    revocable.
 4. **Disclosure is after the fact.** The glance, receipts, and the Apps tab
-   tell the person what happened. "Needs you" means an Assistant asked a
+   (Settings → Apps since 2026-09-25) tell the person what happened. "Needs you" means an Assistant asked a
    question, never that an action is waiting for approval.
 5. **The only human-only surfaces are not work.** Entering a secret,
    pairing a browser, and enrolling a remote address establish identity or
@@ -124,7 +124,8 @@ Narrowed earlier decisions:
   documents `assistantActions`, `assistant.request`, `assistant.infer`,
   `permissions.checks`, and the new defaults.
 - Assistant requests: no review state. Journal, dispatch, and expose status,
-  result, and Open Chat and Stop in the Apps tab. Bounds raised to 64 KiB
+  result, and Open Chat and Stop in the Apps tab (Settings → Apps since
+  2026-09-25). Bounds raised to 64 KiB
   input and 256 KiB result; up to four running per installation. Available
   to the worker bridge.
 - `assistant.infer({ instructions, input, outputSchema?, maxOutputBytes? })`

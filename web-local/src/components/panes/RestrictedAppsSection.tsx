@@ -4,7 +4,6 @@ import { RestrictedAppAssistantTasks } from "./RestrictedAppAssistantTasks";
 import { RestrictedAppInferenceReceipts } from "./RestrictedAppInferenceReceipts";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  Add16Regular,
   Alert20Regular,
   ArrowSync16Regular,
   Clock20Regular,
@@ -68,7 +67,6 @@ export function RestrictedAppsSection({
   filtered = false,
   loading,
   fixtureMode = false,
-  onBuildApp,
   onChangeApp,
   onOpenBuildChat,
   onOpenAppStudio,
@@ -85,7 +83,6 @@ export function RestrictedAppsSection({
   fixtureMode?: boolean;
   /** "page" omits the section's own heading and actions; the hosting page provides them. */
   presentation?: "section" | "page";
-  onBuildApp: () => void;
   onChangeApp?: (app: RestrictedAppInstalled) => Promise<void>;
   onOpenBuildChat?: (spaceId: string, conversationId: string) => Promise<void>;
   onOpenAppStudio: (spaceId?: string, runtimeInstanceId?: string) => void;
@@ -191,7 +188,7 @@ export function RestrictedAppsSection({
         <div>
           <div className="restricted-apps-title-line"><h3 id="restricted-apps-title">Apps in this folder</h3><span>{filtered ? `${apps.length}/${totalApps}` : apps.length}</span></div>
         </div>
-        <div className="restricted-apps-heading-actions"><button className="professional-button professional-button-quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(space.id)}>App Studio</button><button className={apps.length ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy} onClick={onBuildApp}><Add16Regular />{apps.length ? "Build app" : "Build with worker"}</button></div>
+        <div className="restricted-apps-heading-actions"><button className="professional-button professional-button-quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(space.id)}>App Studio</button></div>
       </div> : null}
       {loading && !apps.length ? <div className="restricted-apps-loading"><ArrowSync16Regular className="spin" />Loading apps</div> : null}
       {apps.length ? (

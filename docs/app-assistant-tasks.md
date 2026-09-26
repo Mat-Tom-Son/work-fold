@@ -4,8 +4,8 @@ A Space app can hand one of its named, declared requests to the Space's
 Assistant. The request is journaled and dispatched in the same call: the host
 creates a fresh ordinary Chat in the owning Space and starts the turn at once
 (docs/receipts-not-gates.md, F22). The app reads that task's state and its
-successful reply, or asks for it to stop. In **Apps → the app → Assistant
-requests**, the person sees each request's status, its exact instructions and
+successful reply, or asks for it to stop. In **Settings → Apps → the app →
+Assistant requests**, the person sees each request's status, its exact instructions and
 input under **Details**, the reply once done, and **Open Chat** and **Stop**.
 Nothing there waits for a click.
 
@@ -144,7 +144,7 @@ The summary is bounded at 32 KiB on its own, before anything else is
 considered, and that is the bound an ordinary long reply reaches. The whole
 serialized envelope is then bounded at 256 KiB: over that, `data` is dropped
 first, then `files` are trimmed, then the summary. Either sets `truncated`.
-**Apps → the app → Assistant requests** names both numbers and the Settings
+**Settings → Apps → the app → Assistant requests** names both numbers and the Settings
 section showing these fixed bounds, and offers **Open Chat** for the full
 reply.
 
@@ -191,7 +191,7 @@ around that one turn, so a Chat title request or a bounded inference call on the
 same Space is never charged to it.
 
 `assistant.get` and `assistant.list` carry `model` and `usage` to the app, and
-**Apps → the app → Assistant requests** shows them as one compact line under
+**Settings → Apps → the app → Assistant requests** shows them as one compact line under
 each request:
 
 ```
@@ -253,7 +253,7 @@ Every refusal names what it hit: `INFER_INVALID`, `INFER_INPUT_TOO_LARGE`,
 Each call appends an accepted line and then an `ok` or `error` line to the
 machine-local `restricted-apps/inference-receipts.jsonl` journal, recording the
 surface, byte sizes, the effective model, and its usage — never the app's
-content. The Apps tab lists the latest event for each call across code changes,
+content. Settings → Apps lists the latest event for each call across code changes,
 with its limit applied to calls rather than journal lines. On startup, acceptance-only records receive an
 `INFER_INTERRUPTED` event without replay or a claim about provider completion.
 Only successfully written events enter the live receipt list. If a completion
@@ -268,7 +268,7 @@ The host derives and pins the Space, Feature Installation, exact package digest
 and authority generations. The request journal stores the instructions and
 canonical input the Chat received. App and grant mutations and task admission
 serialize through the same app service. A changed authority makes the old
-revision's tasks invisible to the app bridge; the trusted Apps tab still lists
+revision's tasks invisible to the app bridge; the trusted Settings → Apps page still lists
 an installation's requests across code changes, so a task started before a
 change can be opened and stopped. Once dispatched, the Chat is ordinary Space
 work; closing the app view does not stop it.

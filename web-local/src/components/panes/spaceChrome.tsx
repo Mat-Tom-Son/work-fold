@@ -54,8 +54,6 @@ function SpaceModeRail({
   surfaces,
   apps,
   onModeChange,
-  onOpenLibrary,
-  onOpenApps,
   onOpenAssistantTools,
   accountControl,
   onOpenKeyboardShortcuts,
@@ -73,17 +71,12 @@ function SpaceModeRail({
    * Folder. `active` follows the Automations tab, not the navigator mode.
    */
   automations?: { active: boolean } | null;
-  onOpenLibrary: () => void;
-  onOpenApps: () => void;
+  /** The rail's Add button opens the Skills & Extensions popup (2026-09-25: no Add menu, no Library, no Apps tab). */
   onOpenAssistantTools: (view: AssistantToolsView) => void;
   accountControl: ReactNode;
   onOpenKeyboardShortcuts: () => void;
   updateControl?: ReactNode;
 }) {
-  const [addOpen, setAddOpen] = useState(false);
-  const addAnchorRef = useRef<HTMLDivElement | null>(null);
-  const addButtonRef = useRef<HTMLButtonElement | null>(null);
-  const addMenuRef = useRef<HTMLDivElement | null>(null);
   const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
   const ChatsIcon = activeMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
   const HistoryIcon = activeMode === "history" ? History24Filled : History24Regular;
@@ -92,42 +85,6 @@ function SpaceModeRail({
     { mode: "chats", label: "Chats", ariaLabel: "Chats", icon: <ChatsIcon className="fluent-rail-icon" /> },
     { mode: "history", label: "History", ariaLabel: "History", icon: <HistoryIcon className="fluent-rail-icon" /> },
   ];
-
-  useEffect(() => {
-    if (!addOpen) return;
-    window.requestAnimationFrame(() => addMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
-    function closeFromOutside(event: PointerEvent): void {
-      if (addAnchorRef.current?.contains(event.target as Node)) return;
-      setAddOpen(false);
-    }
-    function closeFromEscape(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setAddOpen(false);
-      window.requestAnimationFrame(() => addButtonRef.current?.focus());
-    }
-    document.addEventListener("pointerdown", closeFromOutside, true);
-    document.addEventListener("keydown", closeFromEscape, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeFromOutside, true);
-      document.removeEventListener("keydown", closeFromEscape, true);
-    };
-  }, [addOpen]);
-
-  function chooseAddAction(action: () => void): void {
-    setAddOpen(false);
-    action();
-  }
-
-  function handleAddMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const items = Array.from(addMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
-    const currentIndex = items.findIndex((item) => item === document.activeElement);
-    const nextIndex = nextMenuItemIndex(currentIndex, items.length, event.key as MenuNavigationKey);
-    if (nextIndex === null) return;
-    event.preventDefault();
-    items[nextIndex]?.focus();
-  }
 
   return (
     <nav className="space-mode-rail professional-space-rail" aria-label="work-fold navigation">
@@ -212,28 +169,15 @@ function SpaceModeRail({
       <div className="space-rail-account">
         <div className="space-rail-tools">
           {updateControl ? <div className="space-rail-update">{updateControl}</div> : null}
-          <div className="space-rail-add-anchor" ref={addAnchorRef} onBlurCapture={(event) => { if (addOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setAddOpen(false); }}>
-            <button
-              ref={addButtonRef}
-              className="space-rail-quiet-button space-rail-add-button"
-              type="button"
-              onClick={() => setAddOpen((current) => !current)}
-              aria-label="Add or manage"
-              aria-haspopup="menu"
-              aria-expanded={addOpen}
-              aria-controls="space-add-menu"
-            >
-              <Add24Regular aria-hidden="true" />
-              <span>Add</span>
-            </button>
-            {addOpen ? (
-              <div ref={addMenuRef} id="space-add-menu" className="space-rail-add-menu" role="menu" aria-label="Add or manage" onKeyDown={handleAddMenuKeyDown}>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenLibrary)}><strong>Your Library</strong></button>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onOpenAssistantTools("installed"))}><strong>Skills &amp; Extensions</strong></button>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenApps)}><strong>Apps</strong></button>
-              </div>
-            ) : null}
-          </div>
+          <button
+            className="space-rail-quiet-button space-rail-add-button"
+            type="button"
+            onClick={() => onOpenAssistantTools("installed")}
+            aria-label="Skills & Extensions"
+          >
+            <Add24Regular aria-hidden="true" />
+            <span>Add</span>
+          </button>
           <button
             className="space-rail-quiet-button"
             type="button"

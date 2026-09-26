@@ -43,11 +43,11 @@ The normal product path begins in a Chat belonging to the target Space:
    on. Nothing collects a credential.
 4. The Chat and the receipt say what still needs you: a secret to connect, a
    file to choose, or a Check to choose when the Space has more than one.
-5. Narrow the preview under the Space's **Apps** tab. Network destinations,
+5. Narrow the preview in **Settings → Apps**, which lists apps by Folder. Network destinations,
    file targets, notification categories, connections, and each named
    automation are separate controls there.
 
-The Apps tab deliberately shows no developer path. A completed package that is
+Settings → Apps deliberately shows no developer path. A completed package that is
 already inside the Space and was not proposed from a Chat is added with
 `work-fold apps install-preview --space <id-or-name> --package <space-path>`
 (a recovery and developer lane in the CLI's act family); it does not replace
@@ -79,8 +79,8 @@ Use **Open App Studio** when the reviewed preview is ready to install as an App:
    and only one installed instance of this Project can be attached to that Space.
 5. The Installed Release's declared destinations, file roots, notification
    categories, Check slots, and named automations are on from install; connect
-   any secret-bearing destination and choose any exact file target in the Apps
-   tab. Connections do not copy from the preview.
+   any secret-bearing destination and choose any exact file target in
+   Settings → Apps. Connections do not copy from the preview.
 
 The v2 Release is a closed local artifact: it contains the prebuilt package
 bytes and declarations rather than a source-folder pointer or ambient Pi
@@ -537,7 +537,7 @@ a machine that slept re-establishes its baseline instead of announcing what
 happened while it was asleep. A hint never starts a model turn. Viewers and
 remote app views have no push channel at all.
 
-People can export and restore app-owned data from the Apps details surface;
+People can export and restore app-owned data from the app's details in Settings → Apps;
 see [App data recovery](app-data-recovery.md). This management operation adds no
 runtime bridge power and never restores connections or grants.
 
@@ -585,8 +585,8 @@ An optional `permissions.checks` array declares up to eight named choices:
 
 The slot is granted on install. When the owning Space has exactly one Check,
 that Check is bound automatically; otherwise the slot is reported as still
-needing the person, who picks an exact Check revision in **Apps → Review
-access → Check results**. A selection includes status, finding details,
+needing the person, who picks an exact Check revision in **Settings → Apps →
+Review access → Check results**. A selection includes status, finding details,
 Space-relative paths and quoted evidence from that Check. It grants no run,
 decision, correction, or general file authority, and does not enable or run
 the Check.
@@ -737,13 +737,13 @@ events contain `runId`, `automationId`, `handler`, `reason` (`scheduled`,
 `handler` as the reviewed dispatch pair and reject unknown values.
 
 Every automation is on when the app is added, anchored at that moment so its
-first run is one interval later; the person can turn any off in Apps. A job
+first run is one interval later; the person can turn any off in Settings → Apps. A job
 runs only while work-fold is running. One scheduler is shared across all
 Spaces and apps, with a four-run global limit, FIFO admission, same-job
 non-overlap, and at most one staggered latest catch-up when requested. **Run
 now** is a one-off execution: it works while the schedule is off and does not
 move the recurring cadence. Every attempt receives a durable receipt visible in
-the Apps tab.
+Settings → Apps.
 
 At launch, the worker sees only current app grants also named by that
 automation's `permissions` subset. `notifications.show({ permissionId })`
@@ -764,9 +764,9 @@ accepts. It never contains a credential:
 | Kind | Manifest shape | Host behavior |
 |---|---|---|
 | None | `{ "kind": "none" }` | No connection is stored. It must be the destination's only auth declaration and is the only kind allowed for numeric loopback. |
-| API key | `{ "kind": "api-key", "header": "x-api-key" }` | The Apps tab collects the value and the broker injects it through the reviewed non-sensitive header name. |
-| Bearer | `{ "kind": "bearer" }` | The Apps tab stores the token and the broker writes `Authorization: Bearer …`. |
-| Basic | `{ "kind": "basic" }` | The Apps tab stores username/password and the broker creates the Basic authorization header. |
+| API key | `{ "kind": "api-key", "header": "x-api-key" }` | Settings → Apps collects the value and the broker injects it through the reviewed non-sensitive header name. |
+| Bearer | `{ "kind": "bearer" }` | Settings → Apps stores the token and the broker writes `Authorization: Bearer …`. |
+| Basic | `{ "kind": "basic" }` | Settings → Apps stores username/password and the broker creates the Basic authorization header. |
 | OAuth PKCE | `{ "kind": "oauth2-pkce", "issuer": "https://identity.example.com", "clientId": "public-native-client", "scopes": ["records.read"] }` | work-fold performs public-issuer discovery, S256, system-browser authorization, one-shot loopback callback, encrypted storage, and refresh. |
 
 A public destination may accept multiple credential kinds, but `none` cannot
@@ -774,7 +774,7 @@ be combined with another kind. OAuth requires a client id registered with a
 public HTTPS issuer that supports public clients without a client secret, plus
 scopes that exclude `openid`. work-fold cannot verify who owns that client
 registration. Client secrets and device-code flow are rejected. Connections are configured per
-exact Feature revision and reviewed destination in the Apps tab. The host also
+exact Feature revision and reviewed destination in Settings → Apps. The host also
 binds each secret to its Tenant, Runtime Instance, Feature Installation,
 declaration digest, target identity, and current Runtime Instance owner. The
 portable contract reserves Principal-owned connection consent and job delegation
@@ -909,7 +909,7 @@ permission (whole Space), notification category, and automation on, and with a
 Check slot bound when the Space has exactly one Check. No connection is stored:
 a secret is entered by the person once per destination, and a file-target
 permission waits for a chosen file. Storage is available without any grant.
-The person narrows any of this in Apps. A direct preview update preserves the
+The person narrows any of this in Settings → Apps. A direct preview update preserves the
 Feature's Data Namespace and carries the person's granted or revoked state by
 declaration id, a chosen file root when the declaration is unchanged,
 automation state by id, run receipts, and connections whose destination
@@ -970,7 +970,7 @@ The Connected inbox package includes a project-service panel. To test it:
    registered Space.
 2. Add that Space-relative package as a Local preview with
    `work-fold apps install-preview --space <id-or-name> --package examples/packages/restricted-connected-inbox`
-   (adjust the path if copied). It is added at once; the Apps tab shows what
+   (adjust the path if copied). It is added at once; Settings → Apps shows what
    it can reach.
 3. From the repository root, start the companion process:
 
@@ -978,7 +978,7 @@ The Connected inbox package includes a project-service panel. To test it:
    node examples/services/restricted-app-demo-service.mjs
    ```
 
-4. In the Apps tab, allow the app's **project-service** destination.
+4. In Settings → Apps, allow the app's **project-service** destination.
 5. Open the app's **Project service** tab and use **Check health** or **Run
    refresh job**.
 

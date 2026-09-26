@@ -21,9 +21,11 @@ wrapper format or tool registry. Full-trust native code retains full-user
 authority; host facilities cannot sandbox arbitrary shell access.
 
 **Skills & Extensions** owns discovery, installation, source, scope,
-configuration, diagnostics, update, enable/disable and removal. **Everywhere**
-and **This Space only** remain the scope groups; included provenance appears
-within them. Account and OS setup stays on a trusted local surface. Generated
+configuration, diagnostics, update, enable/disable and removal. Since
+2026-09-25 it is a popup dialog opened by the rail's Add button and pinned to
+the Folder it was opened from. Its Installed view starts with an **Included
+with work-fold** strip holding the five included tools; **Everywhere** and
+**This folder only** remain the scope groups below it, side by side. Account and OS setup stays on a trusted local surface. Generated
 Space apps remain separate: they may request Assistant work through
 `assistant.request`, but receive no native desktop-control bridge.
 
@@ -134,14 +136,16 @@ performs bounded native connect and tool/resource/prompt discovery, without
 invoking a server tool. Chrome checks its authenticated companion; computer
 checks report actual helper/permission state. Web reports configured or unknown
 until the relevant operation supplies evidence; the default keyless Web path
-is available without setup. Included cards read the existing cold status
-summary and show Ready, Setup needed, Unavailable, or Not checked. Native
+is available without setup. Included tiles in the Installed view's **Included with work-fold** strip read
+the existing cold status summary and show Ready, Setup needed, Unavailable, or
+Not checked (Turned off when the resource is disabled; Chrome shows Connected
+or Not connected), with **Set up** only when a person can act. Native
 enabled/load state stays in Technical details; loading an Extension never
-marks its connection ready. Opening the list launches no helper, browser, or
+marks its connection ready. Opening the popup launches no helper, browser, or
 MCP server. Readiness reflects the last check rather than continuous
 monitoring; reopening the Installed view rereads the host's five-minute
 cache. Explicit checks update the
-owning list, invalidate prior evidence before work starts, and stale responses
+owning tile, invalidate prior evidence before work starts, and stale responses
 cannot cross Spaces or overwrite a newer check. Setup and failures remain visible in
 the same tool detail rather than a new navigation destination.
 

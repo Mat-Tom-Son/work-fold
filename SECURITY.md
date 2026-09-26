@@ -315,7 +315,7 @@ Fold-led setup prepares an unsent draft and materializes inert Check proposals. 
 
 ### App data recovery and control invalidation (development)
 
-Native views, Assistant tools and desktop app management controls retain exact
+Native views, Skills & Extensions and desktop app management controls retain exact
 Feature Installation identity. CLI and receipted acts propagate the resolved
 identity into the same domain services. Ambiguous name-only selectors refuse;
 stale pins never fall back to a same-byte reinstall. See the
