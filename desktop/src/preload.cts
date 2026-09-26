@@ -99,6 +99,8 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
   // the exact main renderer before reaching the in-process Settings facade.
   routings: {
     list: () => ipcRenderer.invoke("work-fold:routings:list"),
+    proposals: () => ipcRenderer.invoke("work-fold:routings:proposals"),
+    enableProposal: (path: string) => ipcRenderer.invoke("work-fold:routings:enable-proposal", path),
     show: (routingId: string) => ipcRenderer.invoke("work-fold:routings:show", routingId),
     history: (routingId: string) => ipcRenderer.invoke("work-fold:routings:history", routingId),
     enable: (routingId: string) => ipcRenderer.invoke("work-fold:routings:enable", routingId),

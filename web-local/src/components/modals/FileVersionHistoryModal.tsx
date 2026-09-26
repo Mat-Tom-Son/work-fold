@@ -125,7 +125,7 @@ function FileVersionHistoryModal({
         <div className="publish-review-heading">
           <span className="publish-review-icon"><History size={15} /></span>
           <span>
-            <strong id="file-history-title">Version history</strong>
+            <strong id="file-history-title">Version History</strong>
             <small>{filePath}</small>
           </span>
           <button ref={closeButtonRef} className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close version history">

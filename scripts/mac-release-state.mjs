@@ -8,6 +8,7 @@ export const MAC_RELEASE_STAGES = ["prepare", "package", "packaged-assets", "fin
 
 const inputPaths = [
   "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
   "package.json",
   "package-lock.json",
   "electron-builder.desktop.cjs",

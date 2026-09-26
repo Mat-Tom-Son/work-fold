@@ -24,7 +24,6 @@ import {
   FolderOpen20Regular,
   History16Regular,
   History20Regular,
-  Library20Regular,
   MoreHorizontal16Regular,
 } from "@fluentui/react-icons";
 import { api, apiForm, errorText } from "../../lib/api";
@@ -81,11 +80,11 @@ export function SpacesPane({
       <div className="professional-space-actions" aria-label="Add a folder">
         <button className="professional-space-action" type="button" onClick={onOpenFolder}>
           <span className="professional-space-action-icon" aria-hidden="true"><FolderOpen20Regular /></span>
-          <strong>Existing folder</strong>
+          <strong>Existing Folder</strong>
         </button>
         <button className="professional-space-action" type="button" onClick={onCreate}>
           <span className="professional-space-action-icon" aria-hidden="true"><FolderAdd20Regular /></span>
-          <strong>New folder</strong>
+          <strong>New Folder</strong>
         </button>
       </div>
 
@@ -128,7 +127,7 @@ export function SpacesPane({
                         type="button"
                         onClick={() => onRemove(item)}
                         aria-label={`${deletesFolder ? "Delete" : "Remove"} ${item.name}`}
-                        title={deletesFolder ? "Delete folder" : "Remove folder"}
+                        title={deletesFolder ? "Delete Folder" : "Remove folder"}
                       >
                         <Delete16Regular />
                       </button>
@@ -404,147 +403,6 @@ function chatViewEmptyLabel(view: ChatLifecycleView): string {
   return "No active Chats yet";
 }
 
-export function LibraryPane({
-  space,
-  spaces,
-  tree,
-  fixtureMode,
-  destinationResetRequest,
-  onRefresh,
-  onError,
-}: {
-  space: SpaceSummary;
-  spaces: SpaceSummary[];
-  tree: TreeEntry[];
-  fixtureMode: boolean;
-  destinationResetRequest: number;
-  onRefresh: () => Promise<void>;
-  onError: (message: string | null) => void;
-}) {
-  const [selected, setSelected] = useState<string | null>(null);
-  const [destinationSpaceId, setDestinationSpaceId] = useState(space.id);
-  const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-  const uploadRef = useRef<HTMLInputElement>(null);
-  const selectedEntry = selected ? findTreeEntry(tree, selected) : null;
-  const destinationSpace = spaces.find((item) => item.id === destinationSpaceId) ?? space;
-
-  useEffect(() => {
-    setDestinationSpaceId(space.id);
-    setNotice("");
-  }, [destinationResetRequest, space.id]);
-  useEffect(() => {
-    if (spaces.some((item) => item.id === destinationSpaceId)) return;
-    setDestinationSpaceId(space.id);
-    setNotice("");
-  }, [destinationSpaceId, space.id, spaces]);
-
-  async function upload(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (!files.length || fixtureMode) return;
-    const form = new FormData();
-    form.set("targetFolderPath", "");
-    form.set("relativePaths", JSON.stringify(files.map((file) => file.webkitRelativePath || file.name)));
-    files.forEach((file) => form.append("files", file, file.name));
-    setBusy(true);
-    try { await apiForm("/api/resources/upload", form); await onRefresh(); }
-    catch (caught) { onError(errorText(caught)); }
-    finally { setBusy(false); }
-  }
-
-  async function createFolder(name: string) {
-    if (fixtureMode) return;
-    setBusy(true);
-    try {
-      await api("/api/resources/folders", { method: "POST", body: { parentPath: "", name } });
-      await onRefresh();
-    } finally { setBusy(false); }
-  }
-
-  async function copyToSpace() {
-    if (!selected) return;
-    if (fixtureMode) { setNotice(`Preview: ${selectedEntry?.name ?? "item"} would be copied to ${destinationSpace.name}.`); return; }
-    setBusy(true);
-    setNotice("");
-    try {
-      const result = await api<{ copied: string[] }>("/api/resources/copy-to-space", { method: "POST", body: { spaceId: destinationSpace.id, paths: [selected], targetFolder: "From Library" } });
-      setNotice(`Added ${result.copied[0] ?? selectedEntry?.name ?? "item"} to ${destinationSpace.name}.`);
-    } catch (caught) { onError(errorText(caught)); }
-    finally { setBusy(false); }
-  }
-
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visible = normalizedQuery ? filterTree(tree, normalizedQuery) : tree;
-  const libraryEmpty = tree.length === 0;
-  const noMatches = !libraryEmpty && visible.length === 0;
-
-  return (
-    <div className="space-pane-content library-pane professional-surface professional-library">
-      <header className="library-tab-header">
-        <div>
-          <span className="professional-kicker">Personal · available across Spaces</span>
-          <h1>Library</h1>
-        </div>
-        <div className="library-tab-actions">
-          <button className="professional-button professional-button-primary" type="button" disabled={busy || fixtureMode} onClick={() => uploadRef.current?.click()}><ArrowUpload16Regular />Add files to Library</button>
-          <button className="professional-button professional-button-secondary" type="button" disabled={busy || fixtureMode} onClick={() => setFolderDialogOpen(true)}><FolderAdd16Regular />New Library folder</button>
-        </div>
-      </header>
-      <div className="file-tree-toolbar professional-library-toolbar">
-        <label className="file-tree-search">
-          <Library20Regular />
-          <input type="search" value={query} disabled={busy} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" aria-label="Search Library" />
-        </label>
-        <input hidden ref={uploadRef} type="file" multiple onChange={(event) => void upload(event)} />
-      </div>
-
-      {libraryEmpty || noMatches ? (
-        <div className="professional-library-empty">
-          <EmptyState
-            icon={<Library20Regular />}
-            title={noMatches ? "No Library items match" : "No Library items yet"}
-            detail={noMatches ? "Try a different search." : "Add files to reuse across Spaces."}
-          />
-        </div>
-      ) : (
-        <div className="library-split professional-library-split">
-          <div className="library-tree"><LibraryTree entries={visible} selected={selected} onSelect={setSelected} disabled={busy} /></div>
-          <div className="library-detail">
-            {selectedEntry ? (
-              <div className="professional-resource-selection">
-                <div className="professional-resource-heading">
-                  <span className="professional-icon-tile" aria-hidden="true">{selectedEntry.kind === "folder" ? <Folder20Regular /> : <FileTypeIcon path={selectedEntry.path} />}</span>
-                  <div><span className="professional-kicker">Library item</span><h2>{selectedEntry.name}</h2></div>
-                </div>
-                <code className="professional-resource-path">{selectedEntry.path}</code>
-                <label className="professional-field library-destination-field">
-                  <span className="professional-field-label">Add a copy to</span>
-                  <select value={destinationSpace.id} disabled={busy} onChange={(event) => { setDestinationSpaceId(event.target.value); setNotice(""); }}>
-                    {spaces.map((item) => <option value={item.id} key={item.id}>{libraryDestinationLabel(item, spaces)}</option>)}
-                  </select>
-                  <span className="professional-field-hint">Copies to <strong>From Library</strong>; not added to Chat.</span>
-                </label>
-                <div className="professional-actions">
-                  <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void copyToSpace()}>
-                    {busy ? <ArrowSync16Regular className="spin" /> : <Copy16Regular />}Add to {destinationSpace.name}
-                  </button>
-                </div>
-                {notice ? <p className="professional-status" role="status"><Checkmark16Regular />{notice}</p> : null}
-              </div>
-            ) : (
-              <EmptyState icon={<Library20Regular />} title="Choose a Library item" />
-            )}
-          </div>
-        </div>
-      )}
-      {folderDialogOpen ? <TextInputModal title="New Library folder" label="Folder name" confirmLabel="Create folder" onSubmit={createFolder} onClose={() => setFolderDialogOpen(false)} /> : null}
-    </div>
-  );
-}
-
 interface HistoryRestorePreview {
   checkpointId: string;
   scope: "full" | "targeted";
@@ -596,7 +454,7 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
     if (fixtureItems) return;
     setBusy(true);
     try {
-      const result = await api<{ created: boolean }>(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } });
+      const result = await api<{ created: boolean }>(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } });
       setNotice(result.created ? "Restore point saved." : "Current files already match the latest restore point.");
       await load();
     }
@@ -682,22 +540,6 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
 
 export { AssistantSetupPane, type AssistantModelScope } from "./AssistantSetupPane";
 
-function LibraryTree({ entries, selected, onSelect, disabled = false, level = 0 }: { entries: TreeEntry[]; selected: string | null; onSelect: (path: string) => void; disabled?: boolean; level?: number }) {
-  return (
-    <div className="file-tree">
-      {entries.map((entry) => (
-        <div className="file-tree-item" key={entry.path}>
-          <button className={selected === entry.path ? "file-row selected" : "file-row"} style={{ paddingLeft: 12 + level * 16 }} type="button" disabled={disabled} onClick={() => onSelect(entry.path)}>
-            {entry.kind === "folder" ? <Folder16Regular /> : <FileTypeIcon path={entry.path} />}
-            <span className="file-name">{entry.name}</span>
-          </button>
-          {entry.children?.length ? <LibraryTree entries={entry.children} selected={selected} onSelect={onSelect} disabled={disabled} level={level + 1} /> : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function EmptyState({ icon, title, detail }: { icon: ReactNode; title: string; detail?: string }) {
   return (
     <div className="professional-empty-state">
@@ -711,10 +553,6 @@ function LoadingRow({ label }: { label: string }) {
   return <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />{label}</div>;
 }
 
-function libraryDestinationLabel(space: SpaceSummary, spaces: SpaceSummary[]) {
-  const duplicateName = spaces.some((item) => item.id !== space.id && item.name.localeCompare(space.name, undefined, { sensitivity: "base" }) === 0);
-  return duplicateName ? `${space.name} — ${space.spaceRoot}` : space.name;
-}
 function formatDate(value: string) { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
 function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null { for (const entry of entries) { if (entry.path === path) return entry; const child = entry.children ? findTreeEntry(entry.children, path) : null; if (child) return child; } return null; }
 function filterTree(entries: TreeEntry[], query: string): TreeEntry[] { return entries.flatMap((entry) => { const children = entry.children ? filterTree(entry.children, query) : []; return entry.name.toLocaleLowerCase().includes(query) || children.length ? [{ ...entry, children }] : []; }); }

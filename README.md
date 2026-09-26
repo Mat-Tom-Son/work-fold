@@ -81,7 +81,7 @@ Ordinary Pi Extension questions appear in their owning Chats. These live
 callbacks cancel on Stop or session end; durable Assistant questions retain
 their separate continuation contract. **Skills & Extensions** manages native
 resource enablement, package updates and removal, and setup for the included
-Computer control, Chrome, Web, Documents and MCP service connections. Included
+Computer Control, Chrome, Web, Documents and MCP service connections. Included
 tools use the same native Pi formats and tool loop as user-added Extensions.
 Computer permissions, the Chrome companion and service credentials are explicit
 setup; web search and the document runtime work without those connections.

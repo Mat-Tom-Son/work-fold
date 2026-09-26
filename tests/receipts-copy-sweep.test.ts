@@ -94,7 +94,7 @@ test("shared Skills and the fold's materialized instructions stay gate-free", as
 test("the desktop copy contract and the remote client never say approve or staged", async () => {
   for (const source of [
     "web-local/src/ui-contract.ts",
-    "web-local/src/components/panes/SpaceAppsPane.tsx",
+    "web-local/src/components/modals/SettingsAppsPane.tsx",
     "services/bridge/public/app.js",
     "services/bridge/public/landing.js",
     "services/bridge/public/browser-app-actions.js",

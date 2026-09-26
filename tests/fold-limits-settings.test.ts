@@ -100,7 +100,7 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   assert.ok(text.includes(`Worker turns running together${workFoldRequestLimits.maxConcurrentChildrenPerRoot}`), "the concurrency is shown");
   assert.ok(text.includes("Model spending for one requestNo limit"), "no spending cap is shipped");
   assert.ok(text.includes(`A result summary${workFoldRequestLimits.maxResultSummaryBytes / 1024} KB`), "the summary bound is shown");
-  assert.ok(text.includes(`Result details${workFoldRequestLimits.maxResultDataBytes / 1024} KB`), "the data bound is shown");
+  assert.ok(text.includes(`Result Details${workFoldRequestLimits.maxResultDataBytes / 1024} KB`), "the data bound is shown");
   assert.ok(text.includes(`Pending Extension questions per Chat${workFoldExtensionUiLimits.pendingPerChat}`));
   assert.ok(text.includes(`An Extension answer or editor text${workFoldExtensionUiLimits.answerBytes / 1024} KB`));
 });
@@ -126,7 +126,7 @@ test("every request bound whose refusal names the Limits section has a row in it
     questionText: `A question an agent asks${kb(limits.maxQuestionTextBytes)}`,
     answerText: `An answer you give${kb(limits.maxAnswerTextBytes)}`,
     resultSummary: `A result summary${kb(limits.maxResultSummaryBytes)}`,
-    resultData: `Result details${kb(limits.maxResultDataBytes)}`,
+    resultData: `Result Details${kb(limits.maxResultDataBytes)}`,
   };
 
   for (const [name, row] of Object.entries(rows) as Array<[WorkFoldRequestLimitName, string]>) {
@@ -145,7 +145,7 @@ test("the Limits pane links to Recently deleted rather than setting retention it
   let opened = 0;
   await dom.render(createElement(FoldLimitsPane, { onOpenRecentlyDeleted: () => { opened += 1; } }));
   const link = [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => button.textContent?.trim() === "Open Recently deleted");
+    .find((button) => button.textContent?.trim() === "Open Recently Deleted");
   assert.ok(link, "the pane offers a way into Recently deleted");
   await dom.act(() => { link?.click(); });
   assert.equal(opened, 1);

@@ -188,13 +188,13 @@ try {
   let task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Create the disposable desktop acceptance Chat.');
   assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('[aria-label="Add or manage"]');
-  await page.$eval('button[aria-label="Add or manage"]', button => button.click());
-  await clickText('Skills & Extensions', '[role="menuitem"]');
-  await page.waitForFunction(() => [...document.querySelectorAll('.capabilities-resource-card strong')].some(b => b.textContent === 'Computer control'), { polling: 100 });
+  await page.waitForSelector('button[aria-label="Skills & Extensions"]');
+  await page.$eval('button[aria-label="Skills & Extensions"]', button => button.click());
+  await page.waitForSelector('[role="dialog"][aria-label="Skills & Extensions"]');
+  await page.waitForFunction(() => [...document.querySelectorAll('.capabilities-included-tile strong')].some(b => b.textContent === 'Computer Control'), { polling: 100 });
   await page.evaluate(() => {
-    const button = [...document.querySelectorAll('.capabilities-resource-card')].find(b => b.querySelector('strong')?.textContent === 'Computer control')?.querySelector('button');
-    if (!button) throw new Error('Computer card unavailable'); button.click();
+    const button = [...document.querySelectorAll('button.capabilities-included-tile')].find(b => b.querySelector('strong')?.textContent === 'Computer Control');
+    if (!button) throw new Error('Computer Control tile unavailable'); button.click();
   });
   const section = 'section[aria-label="Wayland screen sharing"]';
   const chooseChat = async () => {

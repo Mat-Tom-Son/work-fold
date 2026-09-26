@@ -4,6 +4,8 @@ import type {
   FoldRoutingsResponse,
   FoldRoutingRunResponse,
   FoldRoutingEnableResponse,
+  FoldRoutingEnableProposalResponse,
+  FoldRoutingProposalsResponse,
 } from "./components/modals/FoldRoutingsPane";
 
 export {};
@@ -47,7 +49,7 @@ type WorkFoldDesktopMenuCommand =
 
 type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
-type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "upload-here" | "rename" | "delete";
+type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "share" | "upload-here" | "rename" | "delete";
 
 interface WorkFoldDesktopFileMenuRequest {
   spaceId: string;
@@ -60,6 +62,8 @@ interface WorkFoldDesktopFileMenuRequest {
     upload: boolean;
     rename: boolean;
     delete: boolean;
+    share: boolean;
+    shared: boolean;
   };
   point: { x: number; y: number };
 }
@@ -148,6 +152,10 @@ declare global {
       /** Main-window-only routing management; absent from the popover preload. */
       routings?: {
         list: () => Promise<FoldRoutingsResponse>;
+        /** Pending `*.work-fold-routing.json` files in the work-fold agent's working folder. */
+        proposals: () => Promise<FoldRoutingProposalsResponse>;
+        /** Turns on one pending file by absolute path, through the same enable path as the CLI. */
+        enableProposal: (path: string) => Promise<FoldRoutingEnableProposalResponse>;
         show: (routingId: string) => Promise<FoldRoutingDetailResponse>;
         history: (routingId: string) => Promise<FoldRoutingHistoryResponse>;
         enable: (routingId: string) => Promise<FoldRoutingEnableResponse>;

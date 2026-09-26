@@ -53,7 +53,7 @@ question drafts. Typing alone never sends an answer to the host or model.
 
 ## Surfaces and boundaries
 
-Space Chats, the trusted Apps tab, and the fold popover share the same React
+Space Chats, the trusted Settings → Apps page, and the fold popover share the same React
 work presentation. Each Space tab retains its identity.
 
 The paired browser uses the same host projection through its encrypted remote

@@ -9,13 +9,15 @@ import type { TreeEntry, SpaceSummary } from "../../types";
 import { EmptyInline } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
 import { MarkdownMessage } from "../chat/messages";
+import { isShareablePath } from "../../lib/page-sharing";
+import { FileShareControl } from "./FileSharePopover";
 
 // Chromium's PDF viewer: no toolbar, no thumbnail pane, fit to width.
 const pdfViewerParameters = "#toolbar=0&navpanes=0&view=FitH";
 
 type FilePreview = { kind: "text" | "image" | "pdf" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number };
 
-export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename }: {
+export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
   space: SpaceSummary;
   path: string;
   entry: TreeEntry | null;
@@ -25,6 +27,9 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOp
   onAddToChatContext: (path: string) => void;
   onShowVersionHistory: (path: string) => void;
   onRename?: (path: string) => void;
+  /** A Files-menu Share for this file, handled once by this tab. */
+  shareRequestId?: number;
+  onOpenSettings?: (page: "shared-pages" | "web-access") => void;
 }) {
   const [info, setInfo] = useState<{ name: string; path: string; kind: "file" | "folder"; sizeBytes: number; createdAt: string; modifiedAt: string; mimeType: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,9 +118,10 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOp
         <div className="file-details-actions">
           <button className="primary-button compact no-margin" type="button" onClick={() => void onOpenLocal(path, openLabel.office ? "open-native" : "open")}><ExternalLink size={14} />{openLabel.text}</button>
           {canOpenWith ? <button className="secondary-button compact no-margin" type="button" onClick={() => void onOpenLocal(path, "open-with")}><AppWindow size={14} />Open with</button> : null}
+          {isShareablePath(path) ? <FileShareControl spaceId={space.id} path={path} fileName={fileName} fixtureMode={fixtureMode} shareRequestId={shareRequestId} onOpenSettings={onOpenSettings} /> : null}
           <button className="minimal-icon-button" type="button" title={revealLabel} aria-label={revealLabel} onClick={() => void onOpenLocal(path, "reveal")}><FolderOpen size={15} /></button>
-          <button className="minimal-icon-button" type="button" title="Attach to chat" aria-label="Attach to chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={15} /></button>
-          <button className="minimal-icon-button" type="button" title="Version history" aria-label="Version history" onClick={() => onShowVersionHistory(path)}><History size={15} /></button>
+          <button className="minimal-icon-button" type="button" title="Attach to Chat" aria-label="Attach to Chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={15} /></button>
+          <button className="minimal-icon-button" type="button" title="Version History" aria-label="Version History" onClick={() => onShowVersionHistory(path)}><History size={15} /></button>
           {onRename ? <button className="minimal-icon-button" type="button" title="Rename" aria-label="Rename" onClick={() => onRename(path)}><PencilLine size={15} /></button> : null}
         </div>
       </header>

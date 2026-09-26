@@ -9,6 +9,10 @@ import {
   ArrowUpload20Regular,
   Add24Regular,
   Apps24Filled,
+  ChatAdd16Regular,
+  Folder16Regular,
+  FolderOpen16Regular,
+  PaintBrush16Regular,
   Apps24Regular,
   ChatMultiple24Filled,
   ChatMultiple24Regular,
@@ -20,6 +24,8 @@ import {
   Dismiss20Regular,
   DocumentFolder24Filled,
   DocumentFolder24Regular,
+  Flash24Filled,
+  Flash24Regular,
   FolderAdd20Regular,
   FolderOpen20Regular,
   History24Filled,
@@ -39,6 +45,7 @@ import { filterSpaceIconOptions, spaceIconOptionFor, spaceIconOptions } from "..
 import { spaceBannerOptions } from "../../constants";
 import { errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
+import { revealInFileManagerLabel } from "../../lib/file-actions";
 import { normalizeSpaceCustomizations } from "../../lib/space-customization";
 import { normalizeSpaceColor, processSpaceBannerImageFile, spaceColorOptions, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
 import { spaceLookOptions } from "../../lib/space-looks";
@@ -52,29 +59,29 @@ function SpaceModeRail({
   surfaces,
   apps,
   onModeChange,
-  onOpenLibrary,
-  onOpenApps,
   onOpenAssistantTools,
   accountControl,
   onOpenKeyboardShortcuts,
   updateControl,
+  automations = null,
 }: {
   activeMode: SpaceRailMode;
   space: SpaceSummary;
   surfaces: CapabilitySurface[];
   apps: RestrictedAppInstalled[];
   onModeChange: (mode: SpaceRailMode) => void;
-  onOpenLibrary: () => void;
-  onOpenApps: () => void;
+  /**
+   * The Folder-owned Automations entry (docs/fold-routings.md, F15 as
+   * amended 2026-09-24), present only while an automation touches this
+   * Folder. `active` follows the Automations tab, not the navigator mode.
+   */
+  automations?: { active: boolean } | null;
+  /** The rail's Add button opens the Skills & Extensions popup (2026-09-25: no Add menu, no Library, no Apps tab). */
   onOpenAssistantTools: (view: AssistantToolsView) => void;
   accountControl: ReactNode;
   onOpenKeyboardShortcuts: () => void;
   updateControl?: ReactNode;
 }) {
-  const [addOpen, setAddOpen] = useState(false);
-  const addAnchorRef = useRef<HTMLDivElement | null>(null);
-  const addButtonRef = useRef<HTMLButtonElement | null>(null);
-  const addMenuRef = useRef<HTMLDivElement | null>(null);
   const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
   const ChatsIcon = activeMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
   const HistoryIcon = activeMode === "history" ? History24Filled : History24Regular;
@@ -83,42 +90,6 @@ function SpaceModeRail({
     { mode: "chats", label: "Chats", ariaLabel: "Chats", icon: <ChatsIcon className="fluent-rail-icon" /> },
     { mode: "history", label: "History", ariaLabel: "History", icon: <HistoryIcon className="fluent-rail-icon" /> },
   ];
-
-  useEffect(() => {
-    if (!addOpen) return;
-    window.requestAnimationFrame(() => addMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
-    function closeFromOutside(event: PointerEvent): void {
-      if (addAnchorRef.current?.contains(event.target as Node)) return;
-      setAddOpen(false);
-    }
-    function closeFromEscape(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setAddOpen(false);
-      window.requestAnimationFrame(() => addButtonRef.current?.focus());
-    }
-    document.addEventListener("pointerdown", closeFromOutside, true);
-    document.addEventListener("keydown", closeFromEscape, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeFromOutside, true);
-      document.removeEventListener("keydown", closeFromEscape, true);
-    };
-  }, [addOpen]);
-
-  function chooseAddAction(action: () => void): void {
-    setAddOpen(false);
-    action();
-  }
-
-  function handleAddMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const items = Array.from(addMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
-    const currentIndex = items.findIndex((item) => item === document.activeElement);
-    const nextIndex = nextMenuItemIndex(currentIndex, items.length, event.key as MenuNavigationKey);
-    if (nextIndex === null) return;
-    event.preventDefault();
-    items[nextIndex]?.focus();
-  }
 
   return (
     <nav className="space-mode-rail professional-space-rail" aria-label="work-fold navigation">
@@ -139,6 +110,20 @@ function SpaceModeRail({
             <span className="space-rail-label">{item.label}</span>
           </button>
         ))}
+        {automations ? (
+          <button
+            className={["space-rail-button", automations.active ? "active" : ""].filter(Boolean).join(" ")}
+            type="button"
+            onClick={() => onModeChange("automations")}
+            aria-label="Automations"
+            aria-current={automations.active ? "page" : undefined}
+          >
+            <span className="space-rail-icon" aria-hidden="true">
+              {automations.active ? <Flash24Filled className="fluent-rail-icon" /> : <Flash24Regular className="fluent-rail-icon" />}
+            </span>
+            <span className="space-rail-label">Automations</span>
+          </button>
+        ) : null}
         {surfaces.length || apps.length ? <span className="space-rail-app-divider" aria-hidden="true" /> : null}
         {surfaces.map((surface) => {
           const mode = `app:${surface.key}` as const;
@@ -189,33 +174,20 @@ function SpaceModeRail({
       <div className="space-rail-account">
         <div className="space-rail-tools">
           {updateControl ? <div className="space-rail-update">{updateControl}</div> : null}
-          <div className="space-rail-add-anchor" ref={addAnchorRef} onBlurCapture={(event) => { if (addOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setAddOpen(false); }}>
-            <button
-              ref={addButtonRef}
-              className="space-rail-quiet-button space-rail-add-button"
-              type="button"
-              onClick={() => setAddOpen((current) => !current)}
-              aria-label="Add or manage"
-              aria-haspopup="menu"
-              aria-expanded={addOpen}
-              aria-controls="space-add-menu"
-            >
-              <Add24Regular aria-hidden="true" />
-              <span>Add</span>
-            </button>
-            {addOpen ? (
-              <div ref={addMenuRef} id="space-add-menu" className="space-rail-add-menu" role="menu" aria-label="Add or manage" onKeyDown={handleAddMenuKeyDown}>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenLibrary)}><strong>Your Library</strong></button>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onOpenAssistantTools("installed"))}><strong>Skills &amp; Extensions</strong></button>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenApps)}><strong>Apps</strong></button>
-              </div>
-            ) : null}
-          </div>
+          <button
+            className="space-rail-quiet-button space-rail-add-button"
+            type="button"
+            onClick={() => onOpenAssistantTools("installed")}
+            aria-label="Skills & Extensions"
+          >
+            <Add24Regular aria-hidden="true" />
+            <span>Add</span>
+          </button>
           <button
             className="space-rail-quiet-button"
             type="button"
             onClick={onOpenKeyboardShortcuts}
-            aria-label="Keyboard shortcuts"
+            aria-label="Keyboard Shortcuts"
           >
             <Keyboard24Regular aria-hidden="true" />
             <span>Shortcuts</span>
@@ -241,6 +213,9 @@ function SpacePaneHeader({
   managingSpaces = false,
   switchable = true,
   action,
+  onNewChat,
+  onOpenAppearance,
+  onRevealFolder,
 }: {
   space: SpaceSummary;
   identity: SpaceIdentity;
@@ -253,8 +228,13 @@ function SpacePaneHeader({
   managingSpaces?: boolean;
   switchable?: boolean;
   action?: ReactNode;
+  /** Right-click actions on the Folder header (2026-09-25). */
+  onNewChat?: () => void;
+  onOpenAppearance?: () => void;
+  onRevealFolder?: () => void;
 }) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const switchTriggerRef = useRef<HTMLButtonElement>(null);
   const switcherEnabled = switchable && Boolean(spaceCustomizations && onSwitchSpace);
@@ -322,6 +302,12 @@ function SpacePaneHeader({
         className={headerClassName}
         style={spaceIdentityStyle(identity)}
         aria-label={switcherEnabled ? undefined : `Current folder: ${space.name}. ${detail}`}
+        onContextMenu={(event) => {
+          if (!onNewChat && !onOpenAppearance && !onRevealFolder) return;
+          event.preventDefault();
+          setSwitcherOpen(false);
+          setContextMenu({ x: event.clientX, y: event.clientY });
+        }}
       >
         {identity.bannerImage ? (
           <span className="space-pane-banner-image" aria-hidden="true">
@@ -365,6 +351,70 @@ function SpacePaneHeader({
           onClose={() => setSwitcherOpen(false)}
         />
       ) : null}
+      {contextMenu ? (
+        <FolderContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onNewChat={onNewChat}
+          onOpenAppearance={onOpenAppearance}
+          onRevealFolder={onRevealFolder}
+          onManageSpaces={onManageSpaces}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** The Folder header's right-click menu: the things a person does with this Folder most. */
+function FolderContextMenu({ x, y, onClose, onNewChat, onOpenAppearance, onRevealFolder, onManageSpaces }: {
+  x: number;
+  y: number;
+  onClose: () => void;
+  onNewChat?: () => void;
+  onOpenAppearance?: () => void;
+  onRevealFolder?: () => void;
+  onManageSpaces: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    function closeOnOutside(event: PointerEvent) {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      onClose();
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    }
+    document.addEventListener("pointerdown", closeOnOutside, true);
+    document.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside, true);
+      document.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [onClose]);
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+    const nextIndex = nextMenuItemIndex(currentIndex, items.length, event.key as MenuNavigationKey);
+    if (nextIndex === null) return;
+    event.preventDefault();
+    items[nextIndex]?.focus();
+  }
+
+  const run = (action: () => void) => { onClose(); action(); };
+  const style: CSSProperties = { left: Math.max(8, Math.min(x, window.innerWidth - 226)), top: Math.max(8, Math.min(y, window.innerHeight - 196)) };
+  return (
+    <div ref={menuRef} className="context-menu folder-context-menu" style={style} role="menu" aria-label="Folder actions" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
+      {onNewChat ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onNewChat)}><ChatAdd16Regular aria-hidden="true" />New Chat</button> : null}
+      {onOpenAppearance ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onOpenAppearance)}><PaintBrush16Regular aria-hidden="true" />Customize Folder</button> : null}
+      {onRevealFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onRevealFolder)}><FolderOpen16Regular aria-hidden="true" />{revealInFileManagerLabel()}</button> : null}
+      <div className="context-menu-separator" role="separator" />
+      <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onManageSpaces)}><Folder16Regular aria-hidden="true" />Manage Folders</button>
     </div>
   );
 }
@@ -449,7 +499,7 @@ function SpaceHeaderSwitcher({
           }}
         >
           <FolderOpen20Regular aria-hidden="true" />
-          <span>Use existing folder</span>
+          <span>Use Existing Folder</span>
         </button>
         <button
           className="space-header-switcher-action"
@@ -683,7 +733,7 @@ function SpaceAppearancePanel({
     <div className="space-appearance-inner">
       <div className="space-appearance-toolbar">
         <div>
-          <strong>Space appearance</strong>
+          <strong>Space Appearance</strong>
         </div>
         <div className="space-appearance-toolbar-actions">
           <button type="button" disabled={!canUndo} onClick={() => onUndoSpace(spaceId)} title="Undo the last appearance change">

@@ -1097,6 +1097,57 @@ test("remote lineage on a management parent stamps the browser identity on act r
   ]);
 });
 
+test("pages widen parses strictly, dispatches to the facade, journals, and names old and new values", async () => {
+  // Widening in place (docs/fold-publishing.md, amended 2026-09-24).
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--serve-rate", "120", "--byte-budget", "536870912", "--snapshot", "--parent-task", "task-1"]),
+    { name: "pages.widen", output: "human", publication: "pub-1", serveRatePerMinute: 120, byteBudgetPerDay: 536870912, snapshot: true, parentTaskId: "task-1" },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--snapshot", "--json"]),
+    { name: "pages.widen", output: "json", publication: "pub-1", snapshot: true },
+  );
+  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1"]), /to widen/);
+  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--serve-rate", "120"]), /--publication/);
+  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--serve-rate", "1.5"]), /positive integer/);
+  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--space", "space-1", "--snapshot"]), /--space cannot be used with 'pages widen'/);
+  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--title", "x", "--snapshot"]), /--title cannot be used with 'pages widen'/);
+
+  const calls: unknown[] = [];
+  const facade = {
+    pagesWiden: async (input: unknown) => {
+      calls.push(input);
+      return {
+        publication: { publicationId: "pub-1", kind: "page", spaceId: "space-1", title: "Weekly", state: "active", live: true, serveRatePerMinute: 120, byteBudgetPerDay: 536870912, snapshotEnabled: true, createdAt, updatedAt: createdAt, bridgeSlot: "confirmed", viewerPath: "/p/pub-1" },
+        priorServeRatePerMinute: 60,
+        priorByteBudgetPerDay: 268435456,
+        priorSnapshotEnabled: false,
+      };
+    },
+  } as unknown as WorkFoldActFacade;
+  const records: Array<Record<string, unknown>> = [];
+  const requestId = randomUUID();
+  const response = await executeWorkFoldCliActRequest(
+    createWorkFoldCliActRequest({ id: requestId, argv: ["pages", "widen", "--publication", "pub-1", "--serve-rate", "120", "--byte-budget", "536870912", "--snapshot"], cwd, actToken: token }),
+    {
+      version: "test",
+      getActFacade: () => ({ facade, token }),
+      receipts: {
+        hasAccepted: async () => false,
+        append: async (record) => { records.push({ ...record }); return true; },
+      },
+    },
+  );
+  assert.equal(response.exitCode, 0, response.stderr);
+  assert.deepEqual(calls, [{ publication: "pub-1", serveRatePerMinute: 120, byteBudgetPerDay: 536870912, snapshot: true, requestId }]);
+  assert.deepEqual(records.map((record) => [record.command, record.outcome]), [["pages.widen", "accepted"], ["pages.widen", "ok"]]);
+  assert.equal(
+    response.stdout,
+    'Widened "Weekly" [pub-1]: serve rate 60 -> 120/min, byte budget 268435456 -> 536870912/day, snapshot caching off -> on. '
+      + "The link is unchanged; narrow again with 'pages narrow' or 'pages snapshot-off'.\n",
+  );
+});
+
 test("manage glance parses strictly, dispatches to the facade, journals, and renders the digest", async () => {
   assert.deepEqual(parseWorkFoldCliActArgv(["manage", "glance"]), { name: "manage.glance", output: "human" });
   assert.deepEqual(parseWorkFoldCliActArgv(["manage", "glance", "--json"]), { name: "manage.glance", output: "json" });

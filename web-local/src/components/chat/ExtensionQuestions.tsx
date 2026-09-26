@@ -15,7 +15,7 @@ export function ExtensionQuestions({ requests, scope, respond }: {
     for (const key of drafts.keys()) if (key.startsWith(`${scope}/`) && !live.has(key)) drafts.delete(key);
   }, [scope, requests]);
   if (!requests.length) return null;
-  return <div className="extension-questions" aria-label="Extension questions">
+  return <div className="extension-questions" aria-label="Extension Questions">
     {requests.map((request) => <ExtensionQuestion key={`${scope}/${request.id}`} request={request} draftKey={`${scope}/${request.id}`} respond={respond} />)}
   </div>;
 }

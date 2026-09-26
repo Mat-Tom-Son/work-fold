@@ -1215,6 +1215,14 @@ function registerIpc(): void {
     const { facade } = await routingSettings(event);
     return facade.list();
   });
+  ipcMain.handle("work-fold:routings:proposals", async (event) => {
+    const { facade } = await routingSettings(event);
+    return facade.proposals();
+  });
+  ipcMain.handle("work-fold:routings:enable-proposal", async (event, value: unknown) => {
+    const { facade } = await routingSettings(event);
+    return facade.enableProposal(routingProposalPath(value));
+  });
   ipcMain.handle("work-fold:routings:show", async (event, value: unknown) => {
     const { facade, routingId } = await routingSettings(event, value);
     return facade.show(routingId!);
@@ -1602,7 +1610,7 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
     ];
   }
   const items: MenuItemConstructorOptions[] = [
-    { id: "open-capabilities", label: "Capabilities", accelerator: "CommandOrControl+Shift+S", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("open-capabilities") },
+    { id: "open-capabilities", label: "Skills & Extensions", accelerator: "CommandOrControl+Shift+S", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("open-capabilities") },
     { label: "Keyboard Shortcuts", accelerator: "CommandOrControl+/", click: () => sendRendererMenuCommand("open-keyboard-shortcuts") },
   ];
   if (process.platform !== "darwin") {
@@ -2519,6 +2527,15 @@ function assertTrustedMainRenderer(event: IpcMainInvokeEvent | IpcMainEvent): vo
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || !mainFrameMatches) {
     throw new Error("Restricted app view requests require the main work-fold renderer.");
   }
+}
+
+/** Shape check only; the local API confines the path to the agent's working folder. */
+function routingProposalPath(value: unknown): string {
+  if (typeof value !== "string" || !value || value.length > 4096
+    || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value)) {
+    throw new Error("The automation file path is invalid.");
+  }
+  return value;
 }
 
 function routingSettingsId(value: unknown): string {

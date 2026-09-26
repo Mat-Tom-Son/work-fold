@@ -92,7 +92,7 @@ test("an accepted Settings save retains its owner across page navigation", async
       writes += 1;
       return new Promise<Response>((resolve) => { finishSave = resolve; });
     }
-    reads += 1;
+    if (!String(input).includes("scope=management")) reads += 1; // the agent's scope is read ahead quietly
     return Response.json({ status, models: [{ provider: "openrouter", providerName: "OpenRouter", id: status.model, name: "DeepSeek Flash", authConfigured: true }], catalogs: [], instructions: "Original" });
   }) as typeof fetch;
   await dom.render(createElement(DesktopSettingsModal, {

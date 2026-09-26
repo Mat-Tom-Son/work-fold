@@ -548,14 +548,14 @@ export function AppStudioPane({
                   status={`${studio?.previews.length ?? 0} preview${studio?.previews.length === 1 ? "" : "s"}`}
                 />
                 {studio?.previews.length ? (
-                  <div className="app-studio-row-list" aria-label="Development previews">
+                  <div className="app-studio-row-list" aria-label="Development Previews">
                     {studio.previews.map((preview) => (
                       <article className="app-studio-row" key={preview.featureInstallationId}>
                         <span className="app-studio-row-icon" aria-hidden="true"><Box16Regular /></span>
                         <div className="app-studio-row-copy">
                           <div className="app-studio-row-title">
                             <strong>{preview.manifest.title}</strong>
-                            <span className="professional-status-badge enabled">Local preview</span>
+                            <span className="professional-status-badge enabled">Local Preview</span>
                           </div>
                           {preview.manifest.description ? <p>{preview.manifest.description}</p> : null}
                           <small>{preview.manifest.id} · package {preview.version} · reviewed digest {shortDigest(preview.digest)}</small>
@@ -566,7 +566,7 @@ export function AppStudioPane({
                 ) : (
                   <div className="app-studio-empty-row">
                     <Box16Regular aria-hidden="true" />
-                    <div><strong>No development previews</strong></div>
+                    <div><strong>No Development Previews</strong></div>
                   </div>
                 )}
                 <form className="app-studio-release-form" onSubmit={(event) => void prepareRelease(event)}>
@@ -676,7 +676,7 @@ export function AppStudioPane({
                           </div>
                           {release.state === "prepared" ? (
                             <details className="app-studio-release-review" open>
-                              <summary>Review prepared Release</summary>
+                              <summary>Review Prepared Release</summary>
                               <div>
                                 <dl className="app-studio-facts">
                                   <div><dt>App</dt><dd>{release.presentation.title}</dd></div>
@@ -696,7 +696,7 @@ export function AppStudioPane({
                     })}
                   </div>
                 ) : (
-                  <div className="app-studio-empty-row"><Box16Regular aria-hidden="true" /><div><strong>No Releases yet</strong></div></div>
+                  <div className="app-studio-empty-row"><Box16Regular aria-hidden="true" /><div><strong>No Releases Yet</strong></div></div>
                 )}
               </div>
             </section>
@@ -760,7 +760,7 @@ export function AppStudioPane({
                               </button>
                             ) : null}
                             <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "retain")}>Uninstall · retain data</button>
-                            <button className="app-studio-icon-button danger" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "purge")} aria-label={`Uninstall ${instance.presentation.title} from ${instanceSpaceName} and purge its data`} title="Uninstall and purge data">
+                            <button className="app-studio-icon-button danger" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "purge")} aria-label={`Uninstall ${instance.presentation.title} from ${instanceSpaceName} and purge its data`} title="Uninstall and Purge Data">
                               {busyKey === `uninstall:${instance.runtimeInstanceId}` ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}
                             </button>
                           </div>
@@ -769,11 +769,11 @@ export function AppStudioPane({
                     })}
                   </div>
                 ) : (
-                  <div className="app-studio-empty-row"><Apps24Regular aria-hidden="true" /><div><strong>No installed apps</strong></div></div>
+                  <div className="app-studio-empty-row"><Apps24Regular aria-hidden="true" /><div><strong>No Installed Apps</strong></div></div>
                 )}
 
                 <div className="app-studio-retained-heading">
-                  <div><h3>Retained data</h3></div>
+                  <div><h3>Retained Data</h3></div>
                   <span>{studio?.retainedData.length ?? 0}</span>
                 </div>
                 {studio?.retainedData.length ? (
@@ -782,7 +782,7 @@ export function AppStudioPane({
                       <article className="app-studio-retained-row" key={item.retainedDataId}>
                         <div>
                           <strong>{item.featureId}</strong>
-                          <p>Stored on this device</p>
+                          <p>Stored on This Device</p>
                           <small>Retained {formatTimestamp(item.removedAt)} · Release {shortDigest(item.releaseDigest)}</small>
                         </div>
                         <div className="app-studio-retained-actions"><button className="professional-button professional-button-secondary" type="button" disabled={fixtureMode || Boolean(busyKey)} onClick={() => void exportRetainedData(item)}>Export data</button>
@@ -964,7 +964,7 @@ function UpdatePlan({ operation }: { operation: LocalAppUpdateOperation }) {
   return (
     <div className="app-studio-update-plan">
       <div className="app-studio-update-plan-heading">
-        <div><strong>Update plan</strong><span>Exact plan {shortDigest(operation.plan.planDigest)}</span></div>
+        <div><strong>Update Plan</strong><span>Exact plan {shortDigest(operation.plan.planDigest)}</span></div>
         <span>{formatCount(operation.plan.transitions.length, "Feature change")}</span>
       </div>
       <div className="app-studio-transition-list">

@@ -58,8 +58,8 @@ export function RestrictedAppInferenceReceipts({ app, disabled }: {
   }, [app, disabled]);
 
   if (!receipts.length && !error) return null;
-  return <section className="restricted-app-connections restricted-app-inference-receipts" aria-label="Short answers">
-    <div className="restricted-app-connections-heading"><h3>Short answers</h3></div>
+  return <section className="restricted-app-connections restricted-app-inference-receipts" aria-label="Short Answers">
+    <div className="restricted-app-connections-heading"><h3>Short Answers</h3></div>
     {error ? <p role="alert">{error}</p> : null}
     {receipts.map((receipt) => <article className="restricted-app-destination-card" key={`${receipt.digest}:${receipt.id}`}>
       <div className="restricted-app-destination-heading">

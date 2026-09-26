@@ -994,7 +994,15 @@ async function handleViewerRequest(state, request, response, url, method) {
     return writeViewerText(response, 200, "User-agent: *\nDisallow: /\n", method, state, request);
   }
   if (/^\/p\/[A-Za-z0-9._:-]{1,128}$/.test(url.pathname)) {
-    return serveViewerShellFile(state, request, response, method, "index.html", "text/html; charset=utf-8");
+    // The page shell's policy adds exactly inline style and data: images to
+    // the strict viewer policy, so a person-authored HTML page (stripped
+    // desktop-side, placed in a script-less sandboxed srcdoc frame that
+    // inherits this policy) keeps its own design. The frame's additional
+    // document policy removes the shell's same-origin permissions, so CSS
+    // cannot send decrypted page content back to the relay through @import.
+    return serveViewerShellFile(state, request, response, method, "index.html", "text/html; charset=utf-8", {
+      "content-security-policy": viewerPageShellContentSecurityPolicy,
+    });
   }
   // The rung-3 app shell (docs/fold-publishing.md): same origin-isolation and
   // fragment-key rules as pages, its own document so its own CSP. The shell
@@ -1377,6 +1385,8 @@ function writeViewerJson(response, status, value, state, request) {
   });
   response.end(body);
 }
+
+const viewerPageShellContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src blob: data:; connect-src 'self'; frame-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 // The viewer origin never sets cookies, never runs remote script, and renders
 // decrypted documents inertly: blob: frames for PDFs, blob: images, no forms,

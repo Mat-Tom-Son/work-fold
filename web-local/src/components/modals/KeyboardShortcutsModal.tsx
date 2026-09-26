@@ -85,7 +85,7 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
       >
         <div className="modal-title keyboard-shortcuts-title">
           <div>
-            <h2 id="keyboard-shortcuts-title">Keyboard shortcuts</h2>
+            <h2 id="keyboard-shortcuts-title">Keyboard Shortcuts</h2>
           </div>
           <button ref={closeButtonRef} className="ghost-button" type="button" onClick={onClose}>
             Close

@@ -21,9 +21,11 @@ wrapper format or tool registry. Full-trust native code retains full-user
 authority; host facilities cannot sandbox arbitrary shell access.
 
 **Skills & Extensions** owns discovery, installation, source, scope,
-configuration, diagnostics, update, enable/disable and removal. **Everywhere**
-and **This Space only** remain the scope groups; included provenance appears
-within them. Account and OS setup stays on a trusted local surface. Generated
+configuration, diagnostics, update, enable/disable and removal. Since
+2026-09-25 it is a popup dialog opened by the rail's Add button and pinned to
+the Folder it was opened from. Its Installed view starts with an **Included
+with work-fold** strip holding the five included tools; **Everywhere** and
+**This folder only** remain the scope groups below it, side by side. Account and OS setup stays on a trusted local surface. Generated
 Space apps remain separate: they may request Assistant work through
 `assistant.request`, but receive no native desktop-control bridge.
 
@@ -84,11 +86,11 @@ is not rendered as a desktop component.
 
 | Tool | Included implementation | Setup and supported boundary |
 |---|---|---|
-| Computer control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source in the signing lane; Linux x64 Rust helper built from pinned sources. Linux AT-SPI observations and semantic actions depend on target-app support. GNOME Wayland uses explicit portal sharing with a Chat-owned capture/input session; X11 has an upstream capture/input backend. Requested observations and actions, no continuous recorder. |
+| Computer Control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source in the signing lane; Linux x64 Rust helper built from pinned sources. Linux AT-SPI observations and semantic actions depend on target-app support. GNOME Wayland uses explicit portal sharing with a Chat-owned capture/input session; X11 has an upstream capture/input backend. Requested observations and actions, no continuous recorder. |
 | Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Install work-fold from the Chrome Web Store and choose Connect in the selected profile. Native bootstrap and authenticated protocol/capability checks precede use. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
 | Web | `pi-web-access` 0.29.0 pure search and readable-page functions through an additive native factory | DuckDuckGo search needs no key; optional Brave key is entered in tool setup. Explicit HTTP(S) reading, bounded output and cancellation. No automatic cookie/profile import, media service, global fetch replacement or hidden model call. Challenges and rate limits remain visible failures. |
 | Documents | Ordinary JavaScript worker, maintained document libraries and a standard document-work Skill | DOCX/XLSX/PPTX/PDF creation, spreadsheet read/write, PDF text extraction and selected page rendering using bundled dependencies. No separate Node/Python required. Office visual rendering uses the person's existing compatible apps; formulas are preserved, not recalculated; PDF text extraction is not OCR. |
-| Service connections | `pi-mcp-adapter` 2.33.0 using native MCP transport, discovery, schemas and cancellation | Configure HTTP or stdio servers in native Pi files. Trusted setup supports bearer credentials and loopback PKCE OAuth. Stdio commands need their own installed executable/runtime. Sampling is disabled for Pi 0.80.6 compatibility. No automatic imports from other applications. |
+| Service Connections | `pi-mcp-adapter` 2.33.0 using native MCP transport, discovery, schemas and cancellation | Configure HTTP or stdio servers in native Pi files. Trusted setup supports bearer credentials and loopback PKCE OAuth. Stdio commands need their own installed executable/runtime. Sampling is disabled for Pi 0.80.6 compatibility. No automatic imports from other applications. |
 
 Email, calendars, databases and project services remain user-selected
 connections. Included does not mean every account is connected or every server
@@ -162,14 +164,16 @@ performs bounded native connect and tool/resource/prompt discovery, without
 invoking a server tool. Chrome checks its authenticated companion; computer
 checks report actual helper/permission state. Web reports configured or unknown
 until the relevant operation supplies evidence; the default keyless Web path
-is available without setup. Included cards read the existing cold status
-summary and show Ready, Setup needed, Unavailable, or Not checked. Native
+is available without setup. Included tiles in the Installed view's **Included with work-fold** strip read
+the existing cold status summary and show Ready, Setup needed, Unavailable, or
+Not checked (Turned off when the resource is disabled; Chrome shows Connected
+or Not connected), with **Set up** only when a person can act. Native
 enabled/load state stays in Technical details; loading an Extension never
-marks its connection ready. Opening the list launches no helper, browser, or
+marks its connection ready. Opening the popup launches no helper, browser, or
 MCP server. Readiness reflects the last check rather than continuous
 monitoring; reopening the Installed view rereads the host's five-minute
 cache. Explicit checks update the
-owning list, invalidate prior evidence before work starts, and stale responses
+owning tile, invalidate prior evidence before work starts, and stale responses
 cannot cross Spaces or overwrite a newer check. Setup and failures remain visible in
 the same tool detail rather than a new navigation destination.
 

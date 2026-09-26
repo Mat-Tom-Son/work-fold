@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { chatDisplayTitle } from "../lib/format";
 import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
 import { retargetMovedPath } from "../lib/tree";
-import type { AgentExtensionSurfaceView, AssistantToolsView, CapabilitySurface, ConversationSummary, RestrictedAppInstalled, SpaceSummary, SpaceSurfaceTab } from "../types";
+import type { AgentExtensionSurfaceView, CapabilitySurface, ConversationSummary, RestrictedAppInstalled, SpaceSummary, SpaceSurfaceTab } from "../types";
 
 const surfaceTabsStorageKey = "work-fold.space.surface-tabs.v1";
 
@@ -11,7 +11,6 @@ export function useSurfaceTabs({
   space,
   spaces,
   fixtureMode = false,
-  migrateLegacyLibraryMode = false,
   openChatSpaceId,
   onOpenChatSpaceConsumed,
   onSwitchSpace,
@@ -19,13 +18,12 @@ export function useSurfaceTabs({
   space: SpaceSummary;
   spaces: SpaceSummary[];
   fixtureMode?: boolean;
-  migrateLegacyLibraryMode?: boolean;
   openChatSpaceId?: string | null;
   onOpenChatSpaceConsumed?: () => void;
   onSwitchSpace?: (space: SpaceSummary) => void;
 }) {
   const initialStateRef = useRef<SurfaceTabsState | null>(null);
-  const skipNextPersistRef = useRef(!fixtureMode && !migrateLegacyLibraryMode);
+  const skipNextPersistRef = useRef(!fixtureMode);
   const recentSurfaceTabIdsBySpaceRef = useRef<Map<string, string>>(new Map());
   const previousActiveSurfaceTabIdRef = useRef<string | null | undefined>(undefined);
   const previousSpaceCountRef = useRef(spaces.length);
@@ -34,7 +32,7 @@ export function useSurfaceTabs({
     const initialState = fixtureMode
       ? defaultSurfaceTabsState(space)
       : readStoredSurfaceTabsState(space, spaces);
-    initialStateRef.current = migrateLegacyLibrarySurfaceTabState(initialState, space, migrateLegacyLibraryMode);
+    initialStateRef.current = initialState;
   }
   const [surfaceTabs, setSurfaceTabs] = useState<SpaceSurfaceTab[]>(() => initialStateRef.current?.tabs ?? [newChatSurfaceTab(space)]);
   const [activeSurfaceTabId, setActiveSurfaceTabId] = useState<string | null>(() => initialStateRef.current?.activeTabId ?? newChatSurfaceTabId(space.id));
@@ -152,12 +150,6 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openLibrarySurfaceTab(targetSpace: SpaceSummary): void {
-    const tab = librarySurfaceTab(targetSpace);
-    setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
-    setActiveSurfaceTabId(tab.id);
-  }
-
   function openFileSurfaceTab(targetSpace: SpaceSummary, path: string): void {
     const tab = fileSurfaceTab(targetSpace, path);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
@@ -176,20 +168,14 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openAssistantToolsSurfaceTab(targetSpace: SpaceSummary, view: AssistantToolsView = "installed"): void {
-    const tab = assistantToolsSurfaceTab(targetSpace, view);
-    setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
-    setActiveSurfaceTabId(tab.id);
-  }
-
   function openChecksSurfaceTab(targetSpace: SpaceSummary): void {
     const tab = checksSurfaceTab(targetSpace);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openSpaceAppsSurfaceTab(targetSpace: SpaceSummary): void {
-    const tab = spaceAppsSurfaceTab(targetSpace);
+  function openSpaceAutomationsSurfaceTab(targetSpace: SpaceSummary): void {
+    const tab = spaceAutomationsSurfaceTab(targetSpace);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
@@ -309,13 +295,11 @@ export function useSurfaceTabs({
     syncSurfaceTabConversationTitles,
     openChatSurfaceTab,
     openHistorySurfaceTab,
-    openLibrarySurfaceTab,
     openFileSurfaceTab,
     openAppearanceSurfaceTab,
     openAppStudioSurfaceTab,
-    openAssistantToolsSurfaceTab,
     openChecksSurfaceTab,
-    openSpaceAppsSurfaceTab,
+    openSpaceAutomationsSurfaceTab,
     openExtensionSurfaceTab,
     openRestrictedAppSurfaceTab,
     updateRestrictedAppSurfaceTab,
@@ -336,7 +320,7 @@ function newChatSurfaceTab(space: SpaceSummary, options: { fresh?: boolean } = {
     kind: "chat",
     spaceId: space.id,
     conversationId: null,
-    title: "New chat",
+    title: "New Chat",
   };
 }
 
@@ -421,14 +405,6 @@ function normalizeStoredSurfaceTab(value: unknown): SpaceSurfaceTab | null {
       title: record.title,
     };
   }
-  if (record.kind === "library") {
-    return {
-      id: `library:${record.spaceId}`,
-      kind: "library",
-      spaceId: record.spaceId,
-      title: "Library",
-    };
-  }
   if (record.kind === "appearance") {
     return {
       id: record.id,
@@ -445,30 +421,20 @@ function normalizeStoredSurfaceTab(value: unknown): SpaceSurfaceTab | null {
       title: record.title,
     };
   }
-  if (record.kind === "assistant-tools") {
-    if (record.view !== "installed" && record.view !== "discover") return null;
-    return {
-      id: `assistant-tools:${record.spaceId}`,
-      kind: "assistant-tools",
-      spaceId: record.spaceId,
-      view: record.view,
-      title: "Skills & Extensions",
-    };
-  }
-  if (record.kind === "space-apps") {
-    return {
-      id: `space-apps:${record.spaceId}`,
-      kind: "space-apps",
-      spaceId: record.spaceId,
-      title: "Apps",
-    };
-  }
   if (record.kind === "checks") {
     return {
       id: `checks:${record.spaceId}`,
       kind: "checks",
       spaceId: record.spaceId,
       title: "Checks",
+    };
+  }
+  if (record.kind === "space-automations") {
+    return {
+      id: `space-automations:${record.spaceId}`,
+      kind: "space-automations",
+      spaceId: record.spaceId,
+      title: "Automations",
     };
   }
   if (record.kind === "extension") {
@@ -611,28 +577,6 @@ function historySurfaceTab(space: SpaceSummary, checkpointId?: string, title = "
   };
 }
 
-export function librarySurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
-  return {
-    id: `library:${space.id}`,
-    kind: "library",
-    spaceId: space.id,
-    title: "Library",
-  };
-}
-
-export function migrateLegacyLibrarySurfaceTabState(
-  state: SurfaceTabsState,
-  space: SpaceSummary,
-  shouldMigrate: boolean,
-): SurfaceTabsState {
-  if (!shouldMigrate) return state;
-  const tab = librarySurfaceTab(space);
-  return {
-    tabs: upsertSurfaceTab(state.tabs, tab),
-    activeTabId: tab.id,
-  };
-}
-
 function fileSurfaceTab(space: SpaceSummary, path: string): SpaceSurfaceTab {
   return {
     id: fileSurfaceTabId(space.id),
@@ -669,23 +613,16 @@ export function appStudioSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
   };
 }
 
-export function assistantToolsSurfaceTab(space: SpaceSummary, view: AssistantToolsView = "installed"): SpaceSurfaceTab {
+/**
+ * One Folder-owned tab onto the automations that touch this Folder
+ * (docs/fold-routings.md, F15 as amended 2026-09-24).
+ */
+export function spaceAutomationsSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
   return {
-    id: `assistant-tools:${space.id}`,
-    kind: "assistant-tools",
+    id: `space-automations:${space.id}`,
+    kind: "space-automations",
     spaceId: space.id,
-    view,
-    title: "Skills & Extensions",
-  };
-}
-
-/** One Space-owned tab for installed sandboxed apps: their access, connections, automations, and removal. */
-export function spaceAppsSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
-  return {
-    id: `space-apps:${space.id}`,
-    kind: "space-apps",
-    spaceId: space.id,
-    title: "Apps",
+    title: "Automations",
   };
 }
 

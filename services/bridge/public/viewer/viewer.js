@@ -10,6 +10,20 @@
 const envelopeType = "work-fold.viewer-page.v1";
 const maximumPayloadBytes = 2 * 1024 * 1024;
 
+/**
+ * The sandbox for a person-authored HTML page (stripped desktop-side): no
+ * allow-scripts, no allow-same-origin, no allow-forms. The document gets an
+ * opaque origin with no reach back into this shell or its key; the only
+ * power is that a link may open a new window.
+ */
+export const viewerDocumentSandbox = "allow-popups allow-popups-to-escape-sandbox";
+
+// The shell needs same-origin scripts, styles, and its encrypted-page API.
+// A decrypted document needs none of those permissions: in particular,
+// inherited `style-src 'self'` would let CSS @import disclose plaintext in
+// a request to the relay. This additional policy precedes all page content.
+const viewerDocumentPolicy = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
+
 /** Publication id and fragment key from one share link, or nulls. */
 export function parseViewerLocation(pathname, hash) {
   const path = /^\/p\/([A-Za-z0-9._:-]{1,128})$/.exec(String(pathname ?? ""));
@@ -80,9 +94,27 @@ function showBanner(text) {
   banner.hidden = false;
 }
 
-function renderPayload(root, payload) {
+export function renderPayload(root, payload) {
   if (typeof payload.title === "string" && payload.title.trim()) document.title = payload.title.trim();
   root.replaceChildren();
+  if (payload.mediaType === "text/html" && payload.document === true) {
+    // A whole person-authored document, stripped desktop-side, placed in a
+    // script-less sandboxed srcdoc frame. WebKit does not render the same
+    // opaque sandboxed document through a blob: URL under this shell's CSP.
+    // srcdoc keeps the isolation and inherits this origin's CSP, with a
+    // stricter document policy that blocks every load
+    // except embedded data images while preserving authored inline styles.
+    const frame = document.createElement("iframe");
+    frame.className = "viewer-document";
+    frame.setAttribute("sandbox", viewerDocumentSandbox);
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.title = typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : "Shared page";
+    const documentPrefix = `<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${viewerDocumentPolicy}">`;
+    frame.srcdoc = documentPrefix + payload.body;
+    root.classList.add("viewer-root-document");
+    root.append(frame);
+    return;
+  }
   if (payload.mediaType === "text/html") {
     const article = document.createElement("article");
     // Desktop-rendered, escape-first HTML for the closed Markdown/plain-text

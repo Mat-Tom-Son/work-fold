@@ -4,6 +4,7 @@ import {
   ArrowClockwise20Regular,
   Checkmark16Regular,
   Dismiss20Regular,
+  Apps20Regular,
   Delete20Regular,
   Flash20Regular,
   Info20Regular,
@@ -18,17 +19,31 @@ import { api, errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import type { AgentStatus, DesktopUpdateStatus, SpaceSummary } from "../../types";
 import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contract";
+import {
+  pageByteBudgetMaximumMiB,
+  pageServeRateMaximum,
+  setSharedPages,
+  sharedPageHealth,
+  type SharedPageConnection,
+  type SharedPagesResponse,
+  type SharedPageView,
+} from "../../lib/page-sharing";
+import { buildFixturePublications, fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/space-fixture";
+import { showToast } from "../../ui/feedback";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { AssistantSetupPane, type AssistantModelScope } from "../panes/AssistantSetupPane";
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
 import { FoldLimitsPane } from "./FoldLimitsPane";
+import { SettingsAppsPane, type RestrictedAppsState } from "./SettingsAppsPane";
+import { IconCredits } from "./IconCredits";
+import type { RestrictedAppInstalled } from "../../types";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "recently-deleted" | "general" | "desktop" | "about";
+export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "about";
 export type FoldSettingsSection = "routings" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "recently-deleted" | "about";
+type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "about";
 
 /**
  * The tab a Settings page id opens. "remote", "general" and "desktop" are
@@ -43,10 +58,17 @@ export function settingsTabForPage(page: SettingsPage, section?: FoldSettingsSec
   return page;
 }
 
-export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
   onCustomizeSpace?: (spaceId: string) => void;
   space: SpaceSummary | null;
+  /** Settings → Apps lists every installed app by Folder (the Folder-owned Apps tab was retired 2026-09-25). */
+  spaces?: SpaceSummary[];
+  restrictedApps?: RestrictedAppsState | null;
+  onChangeApp?: (app: RestrictedAppInstalled) => void;
+  onOpenAppBuildChat?: (spaceId: string, conversationId: string) => void;
+  onOpenAppResultFile?: (spaceId: string, path: string) => void;
+  onOpenAppStudio?: (spaceId: string, runtimeInstanceId?: string) => void;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
@@ -114,17 +136,18 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
   const tabs: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
     { id: "assistant", label: "AI Models", icon: <Sparkle20Regular /> },
-    { id: "web-access", label: "Web access", icon: <Window20Regular /> },
-    { id: "shared-pages", label: "Shared pages", icon: <Window20Regular /> },
+    { id: "web-access", label: "Web Access", icon: <Window20Regular /> },
+    { id: "shared-pages", label: "Shared Pages", icon: <Window20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
-    { id: "recently-deleted", label: "Recently deleted", icon: <Delete20Regular /> },
+    { id: "apps", label: "Apps", icon: <Apps20Regular /> },
+    { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
   const closeWindowControl = closeToTray?.supported ? (
     <>
       <div className="appearance-settings-row settings-close-window-row">
         <span>
-          <span className="appearance-settings-label" id="window-close-settings-title">Closing the window</span>
+          <span className="appearance-settings-label" id="window-close-settings-title">Closing the Window</span>
           {closeToTrayBusy ? <small><ArrowClockwise20Regular className="spin" /> Updating</small> : closeToTrayNotice ? <small className="settings-save-status" role="status"><Checkmark16Regular />{closeToTrayNotice}</small> : null}
         </span>
         <div className="theme-segmented-control two-options" role="radiogroup" aria-labelledby="window-close-settings-title">
@@ -185,13 +208,18 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
             ) : null}
             {page === "shared-pages" ? (
               <div className="settings-tab-panel" id="settings-panel-shared-pages" role="tabpanel" aria-labelledby="settings-tab-shared-pages">
-                <FoldPublicationsPane />
+                <FoldPublicationsPane fixtureMode={fixtureMode} onOpenWebAccess={() => setPage("web-access")} />
               </div>
             ) : null}
             {page === "automations" ? (
               <div className="settings-tab-panel" id="settings-panel-automations" role="tabpanel" aria-labelledby="settings-tab-automations">
                 <FoldRoutingsPane />
                 <FoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
+              </div>
+            ) : null}
+            {page === "apps" ? (
+              <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
+                <SettingsAppsPane spaces={spaces} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (
@@ -204,6 +232,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                 <section className="settings-section">
                   <WorkFoldLockup className="about-work-fold-brand" />
                   <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workFoldDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
+                  <IconCredits />
                 </section>
                 <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
                   <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
@@ -314,7 +343,7 @@ function RemoteAccessPane() {
         ? "Desktop connected"
         : status.connection === "connecting"
           ? "Connecting"
-          : "Needs attention";
+          : "Needs Attention";
   const remoteSettingsChanged = !status?.configured
     || slug !== (status.slug ?? "")
     || Boolean(password)
@@ -324,7 +353,7 @@ function RemoteAccessPane() {
     <>
       <section className="settings-section remote-access-overview" aria-labelledby="remote-access-title">
         <div className="settings-section-heading">
-          <h3 id="remote-access-title">Your private web address</h3>
+          <h3 id="remote-access-title">Your Private Web Address</h3>
           <span className={`remote-access-state ${status?.connection ?? "stopped"}`}>{connectionLabel}</span>
         </div>
         {status?.url ? <code className="remote-access-url">{status.url}</code> : null}
@@ -348,7 +377,7 @@ function RemoteAccessPane() {
 
       {status?.configured ? (
         <section className="settings-section" aria-labelledby="paired-browsers-title">
-          <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired browsers</h3><span>{status.approvedBrowsers.length}</span></div>
+          <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired Browsers</h3><span>{status.approvedBrowsers.length}</span></div>
           <p>{remoteAccessSettings.pairedBrowserTrust}</p>
           {status.approvedBrowsers.length ? <div className="remote-browser-list">{status.approvedBrowsers.map((browser) => (
             <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
@@ -361,39 +390,6 @@ function RemoteAccessPane() {
       ) : null}
     </>
   );
-}
-
-interface FoldPublicationView {
-  publicationId: string;
-  kind: "page" | "app";
-  spaceId: string;
-  spaceName?: string;
-  /** Page slots only: the one designated Space-relative file. */
-  relativePath?: string;
-  /** Hosted-app slots only: the pinned exposure binding. */
-  app?: {
-    appInstanceId: string;
-    releaseDigest: string;
-    viewerEntry: string;
-    viewerSurface: string[];
-  };
-  title: string;
-  state: "active" | "revoked" | "expired";
-  live: boolean;
-  serveRatePerMinute: number;
-  byteBudgetPerDay: number;
-  snapshotEnabled: boolean;
-  createdAt: string;
-  bridgeSlot: "pending" | "confirmed";
-  bridgeCleanup?: "pending" | "ok";
-  counters?: { served: number; servedBytes: number; lastServedAt: string };
-  lastProblem?: { state: "not-available" | "resting"; reason: string; at: string };
-  viewerPath: string;
-}
-
-interface FoldPublicationsResponse {
-  publications: FoldPublicationView[];
-  status: { damaged: boolean; damageReason?: string; activeCount: number; pendingBridgeWork: number };
 }
 
 function formatPublicationBytes(bytes: number): string {
@@ -410,52 +406,66 @@ function shortReleaseDigest(value: string): string {
 }
 
 /**
- * Settings → Shared pages (docs/fold-publishing.md,
- * plan item 5). Reads and narrowing verbs only: revealing a link is a
- * transient on-demand composition against the viewer origin, and stop
- * sharing, budget cuts, and snapshot off are direct receipted acts on the
- * renderer session. Widening — a new page, raised budgets, snapshot on —
- * does not start here; the fold shares a page, and every such change runs at
- * once and leaves a receipt (docs/receipts-not-gates.md, F19).
+ * Settings → Shared pages (docs/fold-publishing.md, plan item 5; amended
+ * 2026-09-24). Each row carries one quiet page state word — Live, Asleep,
+ * Resting, Not available, Stopped — with the precise reason as its tooltip;
+ * with the main-window glance panel gone, this row is where a page's
+ * problems show. Revealing a link is a transient on-demand composition
+ * against the viewer origin. Stop sharing, Budgets, and Sleep copy are
+ * receipted acts on the renderer session: budgets narrow or widen in place
+ * and the sleep copy turns on or off, while the slot, key, and link stay the
+ * same (docs/receipts-not-gates.md, F19). A new page starts from a file's tab.
  */
-function FoldPublicationsPane() {
-  const remote = window.workFoldDesktop?.remoteAccess;
-  const [data, setData] = useState<FoldPublicationsResponse | null>(null);
-  const [viewerOrigin, setViewerOrigin] = useState<string | null>(null);
+function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMode?: boolean; onOpenWebAccess: () => void }) {
+  const remote = fixtureMode ? undefined : window.workFoldDesktop?.remoteAccess;
+  const [data, setData] = useState<SharedPagesResponse | null>(() => (
+    fixtureMode ? { publications: buildFixturePublications(), status: { damaged: false, activeCount: 4, pendingBridgeWork: 1 } } : null
+  ));
+  const [connection, setConnection] = useState<(SharedPageConnection & { viewerOrigin: string | null }) | null>(() => (
+    fixtureMode ? { configured: true, enabled: true, connection: "connected", viewerOrigin: fixtureViewerOrigin } : null
+  ));
+  const viewerOrigin = connection?.viewerOrigin ?? null;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<{ publicationId: string; link: string } | null>(null);
-  const [narrowing, setNarrowing] = useState<{ publicationId: string; serveRate: string; byteBudgetMiB: string } | null>(null);
+  const [editingBudgets, setEditingBudgets] = useState<{ publicationId: string; serveRate: string; byteBudgetMiB: string } | null>(null);
 
   async function reload() {
+    if (fixtureMode) return;
     try {
-      setData(await api<FoldPublicationsResponse>("/api/settings/publications"));
+      const next = await api<SharedPagesResponse>("/api/settings/publications");
+      setData(next);
+      setSharedPages(next.status.damaged ? [] : next.publications);
       setLoadError(null);
     } catch (caught) {
       setLoadError(errorText(caught));
     }
   }
   useEffect(() => {
+    if (fixtureMode) return;
     let cancelled = false;
-    api<FoldPublicationsResponse>("/api/settings/publications")
+    api<SharedPagesResponse>("/api/settings/publications")
       .then((next) => { if (!cancelled) { setData(next); setLoadError(null); } })
       .catch((caught) => { if (!cancelled) setLoadError(errorText(caught)); });
     if (remote) {
-      void remote.getStatus()
-        .then((status) => { if (!cancelled) setViewerOrigin(status.viewerOrigin); })
-        .catch(() => undefined);
-      const unsubscribe = remote.onStatusChanged((status) => {
-        if (!cancelled) setViewerOrigin(status.viewerOrigin);
-      });
+      const apply = (status: SharedPageConnection & { viewerOrigin: string | null }) => {
+        if (!cancelled) setConnection({ configured: status.configured, enabled: status.enabled, connection: status.connection, viewerOrigin: status.viewerOrigin });
+      };
+      void remote.getStatus().then(apply).catch(() => undefined);
+      const unsubscribe = remote.onStatusChanged(apply);
       return () => { cancelled = true; unsubscribe(); };
     }
     return () => { cancelled = true; };
-  }, [remote]);
+  }, [remote, fixtureMode]);
 
   async function run(key: string, operation: () => Promise<void>) {
     if (busy) return;
+    if (fixtureMode && !key.startsWith("reveal-")) {
+      showToast({ text: foldPublicationsSettings.previewDisabled, tone: "info" });
+      return;
+    }
     setBusy(key);
     setActionError(null);
     setNotice(null);
@@ -469,48 +479,71 @@ function FoldPublicationsPane() {
     }
   }
 
-  async function revealLink(publication: FoldPublicationView) {
+  async function revealLink(publication: SharedPageView) {
     if (!viewerOrigin) {
       setActionError(foldPublicationsSettings.noAddress);
       return;
     }
     await run(`reveal-${publication.publicationId}`, async () => {
-      const response = await api<{ viewerPath: string; key: string }>(
-        `/api/settings/publications/${publication.publicationId}/reveal-link`,
-        { method: "POST", body: {} },
-      );
+      const response = fixtureMode
+        ? { viewerPath: publication.viewerPath, key: fixtureShareLinkKey }
+        : await api<{ viewerPath: string; key: string }>(
+          `/api/settings/publications/${publication.publicationId}/reveal-link`,
+          { method: "POST", body: {} },
+        );
       // Composed transiently, held only in this pane's state until hidden.
       setRevealed({ publicationId: publication.publicationId, link: `${viewerOrigin}${response.viewerPath}#${response.key}` });
     });
   }
 
-  async function applyNarrowing(publication: FoldPublicationView) {
-    if (!narrowing || narrowing.publicationId !== publication.publicationId) return;
-    const serveRate = Number(narrowing.serveRate);
-    const byteBudget = Math.round(Number(narrowing.byteBudgetMiB) * 1024 * 1024);
-    await run(`narrow-${publication.publicationId}`, async () => {
-      await api(`/api/settings/publications/${publication.publicationId}/narrow`, {
-        method: "POST",
-        body: {
-          ...(Number.isFinite(serveRate) && serveRate !== publication.serveRatePerMinute ? { serveRatePerMinute: serveRate } : {}),
-          ...(Number.isFinite(byteBudget) && byteBudget !== publication.byteBudgetPerDay ? { byteBudgetPerDay: byteBudget } : {}),
-        },
-      });
-      setNarrowing(null);
-      setNotice("Budgets tightened");
+  /**
+   * One Save for both budgets: a lower value narrows through the direct
+   * verb, a higher one widens in place, each under its own receipt.
+   */
+  async function saveBudgets(publication: SharedPageView) {
+    if (!editingBudgets || editingBudgets.publicationId !== publication.publicationId) return;
+    const serveRate = Number(editingBudgets.serveRate);
+    const byteBudgetMiB = Number(editingBudgets.byteBudgetMiB);
+    if (!Number.isInteger(serveRate) || serveRate < 1 || serveRate > pageServeRateMaximum
+      || !Number.isFinite(byteBudgetMiB) || byteBudgetMiB <= 0 || byteBudgetMiB > pageByteBudgetMaximumMiB) {
+      setActionError(foldPublicationsSettings.budgetRange(pageServeRateMaximum, pageByteBudgetMaximumMiB));
+      return;
+    }
+    const byteBudget = Math.max(1, Math.round(byteBudgetMiB * 1024 * 1024));
+    const lower: { serveRatePerMinute?: number; byteBudgetPerDay?: number } = {};
+    const higher: { serveRatePerMinute?: number; byteBudgetPerDay?: number } = {};
+    if (serveRate < publication.serveRatePerMinute) lower.serveRatePerMinute = serveRate;
+    if (serveRate > publication.serveRatePerMinute) higher.serveRatePerMinute = serveRate;
+    if (byteBudget < publication.byteBudgetPerDay) lower.byteBudgetPerDay = byteBudget;
+    if (byteBudget > publication.byteBudgetPerDay) higher.byteBudgetPerDay = byteBudget;
+    await run(`budgets-${publication.publicationId}`, async () => {
+      if (Object.keys(lower).length) {
+        await api(`/api/settings/publications/${publication.publicationId}/narrow`, { method: "POST", body: lower });
+      }
+      if (Object.keys(higher).length) {
+        await api(`/api/settings/publications/${publication.publicationId}/widen`, { method: "POST", body: higher });
+      }
+      setEditingBudgets(null);
+      setNotice(foldPublicationsSettings.saved);
+    });
+  }
+
+  function setSleepCopy(publication: SharedPageView, enabled: boolean) {
+    void run(`sleep-copy-${publication.publicationId}`, async () => {
+      await api(
+        enabled
+          ? `/api/settings/publications/${publication.publicationId}/widen`
+          : `/api/settings/publications/${publication.publicationId}/snapshot-off`,
+        { method: "POST", body: enabled ? { snapshotEnabled: true } : {} },
+      );
+      setNotice(foldPublicationsSettings.saved);
     });
   }
 
   const publications = data?.publications ?? [];
   const shown = publications.filter((publication) => publication.state !== "revoked" || publication.bridgeCleanup !== "ok");
-  const stateLine = (publication: FoldPublicationView): string => {
-    if (publication.state === "revoked") {
-      return publication.bridgeCleanup === "ok" ? "No longer shared" : "No longer shared — relay cleanup still confirming";
-    }
-    if (publication.state === "expired") return "Expired";
-    return publication.live ? "Live from this desktop" : "Waiting on the relay to confirm";
-  };
-  const countersLine = (publication: FoldPublicationView): string => {
+  const hasAddress = Boolean(viewerOrigin || connection?.configured);
+  const countersLine = (publication: SharedPageView): string => {
     const counters = publication.counters;
     if (!counters) return "Not served from this desktop yet";
     return `Served ${counters.served} time${counters.served === 1 ? "" : "s"} · ${formatPublicationBytes(counters.servedBytes)} · last ${new Date(counters.lastServedAt).toLocaleString()}`;
@@ -527,151 +560,155 @@ function FoldPublicationsPane() {
       ) : null}
       {notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
       {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
-      {data && !shown.length ? <div className="remote-browser-empty">{foldPublicationsSettings.empty}</div> : null}
+      {data && !shown.length && !hasAddress ? (
+        <div className="remote-browser-empty fold-publication-empty">
+          <span>{foldPublicationsSettings.emptyNoAddress}</span>
+          <button className="secondary-button" type="button" onClick={onOpenWebAccess}>{foldPublicationsSettings.webAccess}</button>
+        </div>
+      ) : null}
+      {data && !shown.length && hasAddress ? <div className="remote-browser-empty">{foldPublicationsSettings.empty}</div> : null}
       {shown.length ? (
         <div className="remote-browser-list fold-publication-list">
-          {shown.map((publication) => (
-            <div className="fold-publication-row" key={publication.publicationId}>
-              <div className="remote-browser-row">
-                <div>
-                  <strong>{publication.title}</strong>
-                  <small>
-                    {publication.kind === "app" && publication.app
-                      ? <>{publication.spaceName ?? publication.spaceId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code> — {stateLine(publication)}</>
-                      : <>{publication.spaceName ?? publication.spaceId}: {publication.relativePath} — {stateLine(publication)}</>}
-                  </small>
-                  {publication.kind === "app" && publication.app ? (
+          {shown.map((publication) => {
+            const health = sharedPageHealth(publication, connection);
+            const editing = editingBudgets?.publicationId === publication.publicationId ? editingBudgets : null;
+            return (
+              <div className="fold-publication-row" key={publication.publicationId}>
+                <div className="remote-browser-row">
+                  <div className="fold-publication-summary" title={health.reason}>
+                    <span className="fold-publication-title">
+                      <strong>{publication.title}</strong>
+                      <span className={`fold-publication-state ${health.state}`}>{foldPublicationsSettings.states[health.state]}</span>
+                    </span>
                     <small>
-                      Viewer entry {publication.app.viewerEntry} · Viewer-readable surface: {publication.app.viewerSurface.join(", ")}
+                      {publication.kind === "app" && publication.app
+                        ? <>{publication.spaceName ?? publication.spaceId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code></>
+                        : <>{publication.spaceName ?? publication.spaceId}: {publication.relativePath}</>}
                     </small>
-                  ) : null}
-                  <small>
-                    {publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day
-                    {publication.kind === "page" ? <>{" · "}{publication.snapshotEnabled ? foldPublicationsSettings.snapshotOn : foldPublicationsSettings.snapshotOff}</> : null}
-                  </small>
-                  <small>{countersLine(publication)}</small>
-                  {publication.lastProblem ? (
-                    <small className="settings-inline-error" role="alert">
-                      {publication.lastProblem.state === "resting" ? "Resting" : "Not reaching viewers"} — {publication.lastProblem.reason}
-                    </small>
-                  ) : null}
-                </div>
-                {publication.state === "active" ? (
-                  <div className="settings-actions">
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      disabled={Boolean(busy) || !viewerOrigin}
-                      title={viewerOrigin ? undefined : foldPublicationsSettings.noAddress}
-                      onClick={() => {
-                        if (revealed?.publicationId === publication.publicationId) setRevealed(null);
-                        else void revealLink(publication);
-                      }}
-                    >
-                      {revealed?.publicationId === publication.publicationId ? foldPublicationsSettings.hideLink : foldPublicationsSettings.revealLink}
-                    </button>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      disabled={Boolean(busy)}
-                      onClick={() => {
-                        setActionError(null);
-                        setNotice(null);
-                        setNarrowing(narrowing?.publicationId === publication.publicationId ? null : {
-                          publicationId: publication.publicationId,
-                          serveRate: String(publication.serveRatePerMinute),
-                          byteBudgetMiB: String(Math.round(publication.byteBudgetPerDay / (1024 * 1024))),
-                        });
-                      }}
-                    >
-                      {foldPublicationsSettings.narrowBudgets}
-                    </button>
-                    {publication.snapshotEnabled ? (
+                    {publication.kind === "app" && publication.app ? (
+                      <small>
+                        Viewer entry {publication.app.viewerEntry} · Viewer-readable surface: {publication.app.viewerSurface.join(", ")}
+                      </small>
+                    ) : null}
+                    <small>{publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day</small>
+                    <small>{countersLine(publication)}</small>
+                  </div>
+                  {publication.state === "active" ? (
+                    <div className="settings-actions">
                       <button
                         className="secondary-button"
                         type="button"
-                        disabled={Boolean(busy)}
-                        onClick={() => void run(`snapshot-off-${publication.publicationId}`, async () => {
-                          await api(`/api/settings/publications/${publication.publicationId}/snapshot-off`, { method: "POST", body: {} });
-                          setNotice("Sleep copy off — the relay's stored copy is deleted");
-                        })}
+                        disabled={Boolean(busy) || !viewerOrigin}
+                        title={viewerOrigin ? undefined : foldPublicationsSettings.noAddress}
+                        onClick={() => {
+                          if (revealed?.publicationId === publication.publicationId) setRevealed(null);
+                          else void revealLink(publication);
+                        }}
                       >
-                        {foldPublicationsSettings.turnSnapshotOff}
+                        {revealed?.publicationId === publication.publicationId ? foldPublicationsSettings.hideLink : foldPublicationsSettings.revealLink}
                       </button>
-                    ) : null}
-                    <button
-                      className="secondary-button danger"
-                      type="button"
-                      disabled={Boolean(busy)}
-                      onClick={() => {
-                        if (!window.confirm(foldPublicationsSettings.stopSharingConfirm)) return;
-                        setRevealed((current) => (current?.publicationId === publication.publicationId ? null : current));
-                        void run(`revoke-${publication.publicationId}`, async () => {
-                          await api(`/api/settings/publications/${publication.publicationId}/revoke`, { method: "POST", body: {} });
-                          setNotice("Stopped sharing");
-                        });
-                      }}
-                    >
-                      {foldPublicationsSettings.stopSharing}
-                    </button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        aria-expanded={Boolean(editing)}
+                        disabled={Boolean(busy)}
+                        onClick={() => {
+                          setActionError(null);
+                          setNotice(null);
+                          setEditingBudgets(editing ? null : {
+                            publicationId: publication.publicationId,
+                            serveRate: String(publication.serveRatePerMinute),
+                            byteBudgetMiB: String(publication.byteBudgetPerDay / (1024 * 1024)),
+                          });
+                        }}
+                      >
+                        {foldPublicationsSettings.budgets}
+                      </button>
+                      <button
+                        className="secondary-button danger"
+                        type="button"
+                        disabled={Boolean(busy)}
+                        onClick={() => {
+                          if (fixtureMode) { showToast({ text: foldPublicationsSettings.previewDisabled, tone: "info" }); return; }
+                          if (!window.confirm(foldPublicationsSettings.stopSharingConfirm)) return;
+                          setRevealed((current) => (current?.publicationId === publication.publicationId ? null : current));
+                          void run(`revoke-${publication.publicationId}`, async () => {
+                            await api(`/api/settings/publications/${publication.publicationId}/revoke`, { method: "POST", body: {} });
+                            setNotice("Stopped sharing");
+                          });
+                        }}
+                      >
+                        {foldPublicationsSettings.stopSharing}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {revealed?.publicationId === publication.publicationId ? (
+                  <div className="fold-publication-link">
+                    <code className="remote-access-url">{revealed.link}</code>
+                    <div className="settings-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link Copied"); }}
+                      >
+                        {foldPublicationsSettings.copyLink}
+                      </button>
+                    </div>
+                    <small>{foldPublicationsSettings.linkMeaning}</small>
                   </div>
                 ) : null}
+                {editing ? (
+                  <div className="fold-publication-budgets">
+                    <label className="settings-field">
+                      <span>{foldPublicationsSettings.servesPerMinute}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={pageServeRateMaximum}
+                        step={1}
+                        value={editing.serveRate}
+                        disabled={Boolean(busy)}
+                        onChange={(event) => setEditingBudgets({ ...editing, serveRate: event.target.value })}
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>{foldPublicationsSettings.mibPerDay}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={pageByteBudgetMaximumMiB}
+                        step={1}
+                        value={editing.byteBudgetMiB}
+                        disabled={Boolean(busy)}
+                        onChange={(event) => setEditingBudgets({ ...editing, byteBudgetMiB: event.target.value })}
+                      />
+                    </label>
+                    <div className="settings-actions">
+                      <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void saveBudgets(publication)}>
+                        {busy === `budgets-${publication.publicationId}` ? "Saving…" : foldPublicationsSettings.saveBudgets}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {/* Sleep copies are a page-only lane: an app at your address is
+                    structurally snapshotless, so app rows carry no toggle. The
+                    retention disclosure rides on the label's tooltip. */}
+                {publication.kind === "page" && publication.state === "active" ? (
+                  <label className="fold-publication-sleep-copy" title={foldPublicationsSettings.snapshotLabel}>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={publication.snapshotEnabled}
+                      disabled={Boolean(busy)}
+                      onChange={(event) => setSleepCopy(publication, event.target.checked)}
+                    />
+                    {" "}{foldPublicationsSettings.sleepCopy}
+                  </label>
+                ) : null}
               </div>
-              {revealed?.publicationId === publication.publicationId ? (
-                <div className="fold-publication-link">
-                  <code className="remote-access-url">{revealed.link}</code>
-                  <div className="settings-actions">
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link copied"); }}
-                    >
-                      {foldPublicationsSettings.copyLink}
-                    </button>
-                  </div>
-                  <small>{foldPublicationsSettings.linkMeaning}</small>
-                </div>
-              ) : null}
-              {narrowing?.publicationId === publication.publicationId ? (
-                <div className="fold-publication-narrow remote-access-fields">
-                  <label className="settings-field">
-                    <span>Serves per minute</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={publication.serveRatePerMinute}
-                      value={narrowing.serveRate}
-                      disabled={Boolean(busy)}
-                      onChange={(event) => setNarrowing({ ...narrowing, serveRate: event.target.value })}
-                    />
-                  </label>
-                  <label className="settings-field">
-                    <span>MiB per day</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={Math.round(publication.byteBudgetPerDay / (1024 * 1024))}
-                      value={narrowing.byteBudgetMiB}
-                      disabled={Boolean(busy)}
-                      onChange={(event) => setNarrowing({ ...narrowing, byteBudgetMiB: event.target.value })}
-                    />
-                  </label>
-                  <small>{foldPublicationsSettings.narrowHint}</small>
-                  <div className="settings-actions">
-                    <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void applyNarrowing(publication)}>
-                      {busy === `narrow-${publication.publicationId}` ? "Saving…" : "Apply"}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              {/* Sleep copies are a page-only lane: an app at your address is
-                  structurally snapshotless, so app rows carry neither the
-                  retention label nor a widening hint that has no act. */}
-              {publication.kind === "page" && publication.state === "active" && publication.snapshotEnabled ? (
-                <small className="fold-publication-snapshot-label">{foldPublicationsSettings.snapshotLabel}</small>
-              ) : null}
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </section>

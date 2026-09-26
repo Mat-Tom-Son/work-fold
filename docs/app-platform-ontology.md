@@ -189,7 +189,7 @@ Feature creates a new id; an old installation identity is never revived.
   meaningful combined risk.
 - **Lifecycle:** update preserves the installation incarnation; disable, remove,
   reinstall, data retention/adoption, export, and purge are distinct operations.
-- **Visibility:** internal. The Apps tab and update review may expose its state
+- **Visibility:** internal. Settings → Apps and update review may expose its state
   without teaching “Feature Installation” as a top-level product noun.
 
 ### Runtime Instance

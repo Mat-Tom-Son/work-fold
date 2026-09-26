@@ -18,13 +18,13 @@ work-fold is for general computer work. Coding is one valid use, not the organiz
 | **Folder** | One understandable place for an activity, backed by an ordinary folder. | Registering a folder does not move or convert it. |
 | **Files** | The ordinary folder contents visible for the selected Folder. | Files are not a separate container or proprietary format. |
 | **Chats** | Conversations grounded in the selected Folder. | A chat does not automatically receive every file in the Folder. |
-| **Library** | Personal materials worth reusing across Folders. | Items are passive and are copied explicitly; they are not prompt context. |
+| **Library** (CLI only) | Retired from the desktop on 2026-09-25. The CLI act-lane `library` family and its server routes remain unchanged for now as a compatibility contract. | It is no longer a tab, an Add destination, or a copy-to-Folder control; a later change removes the family deliberately. |
 | **History** | Checkpoints and recoverable changes associated with a Folder. | It should remain distinct from chat history. |
 | **Checks** | Optional, manual expectations over exact files or bounded file sets a person deliberately designates. | They are not ambient scanning, a permanent rail destination, or proof that an unconfigured Folder is healthy. |
 | **Worker** | The Pi-powered helper in a Folder. | Provider connections are configured in Settings and stay machine-local; model choices are saved separately for each Folder and for the work-fold agent, independently from Folder content. |
-| **Agent tools** | One on-demand work tab to discover and manage what the work-fold agents can do. | It groups Skills and Extensions; restricted Folder apps have a separate Apps tab. |
+| **Skills & Extensions** | One popup dialog, opened by the rail's Add button, to discover and manage what the Workers and the work-fold agent can do. | It groups Skills and Extensions and is pinned to the Folder it was opened from; installed Folder apps are managed in Settings → Apps. |
 | **Skill** | A reusable way of working that helps the Assistant approach a task. | A Skill may contain executable scripts and is not merely a document. |
-| **Extension** | An executable capability or connection available to the Assistant. | It has a stronger trust implication than a Library item. |
+| **Extension** | An executable capability or connection available to the Assistant. | It has a stronger trust implication than an ordinary file. |
 | **App Project** | An optional build-and-publication identity declared for one Space. | Its presentation and identity are machine-local application state, not another portable file or cloud ownership record. |
 | **Feature** | One stable reviewed contribution to an App Project. | A Feature id names a slot; only an exact reviewed revision identifies executable bytes. |
 | **Release** | An immutable content-addressed snapshot of reviewed Features and App presentation. | Preparing, publishing, and installing it are separate local acts; a display version is not executable identity. |
@@ -42,18 +42,28 @@ stable primary navigation then follows these everyday surface nouns:
 - **Chats**
 - **History**
 
-The bottom-rail **Add** action opens **Your Library**, **Skills & Extensions**,
-and **Apps**. App building is not an Add destination: **Build with Worker** on
-Apps opens a fresh Chat seeded with starter text. Library opens as one persistent
-tab per Folder without turning the passive personal collection into Folder
-content; a destination selector can explicitly send a copy to any registered
-Folder. Skills, Extensions, packages, and core tools are managed in the
-Folder-owned **Agent tools** work tab, titled **Skills & Extensions**, while
-installed-app authority lives in the separate Folder-owned **Apps** tab. That
-tab shows **Everywhere** tools for the work-fold agent and every Folder above
-**This Folder only** tools that travel with one Folder. Provider connections,
+An **Automations** entry follows History while an automation's trigger or
+step names the active Folder. It opens that Folder's read-mostly Automations
+tab; **Settings → Automations** remains the place to manage declarations
+(the 2026-09-24 amendment in [Automations](fold-routings.md)).
+
+The bottom-rail **Add** button opens the **Skills & Extensions** popup directly
+(2026-09-25). There is no Add menu: the desktop Library is retired, and its CLI
+`library` family stays only as a compatibility contract pending deliberate
+removal; the Folder-owned Apps tab is retired too. App building is not an Add
+destination and has no button: a person asks a Worker to build an app in a
+Chat. Skills, Extensions, packages, and core tools are managed in the
+**Skills & Extensions** popup, a dialog like Settings and Keyboard shortcuts
+that is pinned to the Folder it was opened from. Its Installed view starts with
+an **Included with work-fold** strip holding the five included tools, then shows
+**Everywhere** tools for the work-fold agent and every Folder beside
+**This folder only** tools that travel with one Folder; the two groups stack on
+narrow widths. Installed Folder apps open from their contributed rail region,
+while **Settings → Apps** lists apps by Folder and owns their grants,
+connections, named automations and run history, local data, update review,
+removal, Worker requests, and the receipts of their model use. Provider connections,
 API keys, supported provider OAuth, scoped model choices, and per-Folder
-**Worker instructions** live in **Settings → Agents**. Credentials are shared
+**Worker instructions** live in **Settings → AI Models**. Credentials are shared
 machine-wide, while model choices and Worker instructions are machine-local
 preferences keyed by portable Folder identity; the work-fold agent has its own
 model choice but no editable Worker instructions. A model change becomes the
@@ -62,11 +72,12 @@ Worker-instruction change reloads that Folder's idle clients and applies to
 subsequent turns, including existing Chats. OpenRouter has an explicit live
 refresh backed by its tool-capable text-model API; the last good result is
 cached outside every Folder and Pi's built-in catalog remains a fallback. A
-restricted Folder app's connection is managed with that app in **Apps**.
+restricted Folder app's connection is managed with that app in **Settings → Apps**.
 
 Each open tab belongs to one Folder. Selecting a tab takes the user back to
-that Folder; selecting a Folder restores its most recent tab. A working Chat
-remains alive when another tab is selected, work-fold is minimized, the Windows
+that Folder; selecting a Folder restores its most recent tab. With four or more
+tabs open, tabs narrow but keep their Folder icon and a normal close button. A
+working Chat remains alive when another tab is selected, work-fold is minimized, the Windows
 window is hidden to the tray, or the last macOS window closes and is recreated.
 Every accepted Worker turn has one stable request id through the transcript,
 kernel task, and bounded machine-local turn journal. Retrying an uncertain
@@ -131,12 +142,17 @@ collision handling require a later explicit design.
 The user should always be able to reveal a Space in the operating system, open its files with other applications, back it up normally, or synchronize it with a desktop sync tool. A Google Drive for desktop folder works because it is a local folder; that is not the same as direct Google Drive API integration.
 
 Settings uses one preferences window with **Appearance**, **AI Models**,
-**Web access**, **Shared pages**, **Automations**, **Recently deleted**, and **About** navigation.
-Automations also carries **Limits**; **Closing the window**, where supported,
+**Web access**, **Shared pages**, **Automations**, **Recently deleted**, and **About** navigation,
+plus an **Apps** page (2026-09-25) that lists installed Folder apps by Folder and
+owns their management. Automations also carries **Limits**, collapsed by default
+under a Limits disclosure and unchanged in meaning; **Closing the window**, where supported,
 lives in Appearance → Interface, and updates live in About. The navigation becomes a single horizontally scrollable row in
 narrow windows; keyboard selection brings the selected item into view. AI Models
 settings separate model defaults, shared provider
-connections, and Space instructions. Unsaved model/instruction drafts survive
+connections, and Space instructions; the scope is chosen with two large buttons —
+**This worker**, naming the Folder, and **work-fold agent** — and the model list
+has a search box and groups models under vendor headings (for OpenRouter, the
+vendor prefix of the model name). Unsaved model/instruction drafts survive
 page and scope changes while that window stays open; credentials are not cached
 across scope changes. Accepted saves retain their completion ownership if the
 window closes, so reopening waits for their result. External settings changes
@@ -157,13 +173,13 @@ Registering a folder is also the host authorization for its existing local Pi co
 | Action | What changes | What does not happen implicitly |
 |---|---|---|
 | Register a folder as a Space | The folder appears in work-fold and its local Pi configuration may load. | Files are not uploaded or converted, and local code is not certified as safe. |
-| Add a Library item to a Space | An independent copy is written under `From Library`. | The original is not changed and the copy is not attached to a chat. |
+| Copy a Library item into a Space (CLI `library copy` only; the desktop no longer offers it) | An independent copy is written under `From Library`. | The original is not changed and the copy is not attached to a chat. |
 | Attach a file to a Chat | That file is made available to the conversation. | Other Space files are not included automatically. |
 | Create a Check proposal | An inert, typed expectation names one sensor and exact primary/reference targets for review. | It is not enabled, run, scheduled, or treated as executable configuration. |
 | Enable a Check | work-fold writes the portable code-free declaration and records an exact-digest, exact-sensor machine grant. | Registration, proposal discovery, and a one-off request never enable standing behavior. |
 | Run a Check | work-fold inspects only its designated targets within hard host limits and admits only independently re-verifiable evidence. | No other Space files are scanned; health failures and stale results never become content findings or a clear state. |
 | Install a personal Skill or Extension | It becomes available through the user's Pi scope. | It is not copied into every Space. |
-| Ask the Assistant to build a Space app | The Assistant writes an ordinary restricted-app package and asks work-fold to inspect it; the inspected digest is installed at once as a Local preview with every declared destination, file permission, notification category, Check-result slot, and automation, and the proposal record is the receipt. | No JavaScript is evaluated during inspection, no secret is collected, and destinations that need a secret are named for the person to connect in the Apps tab. |
+| Ask the Assistant to build a Space app | The Assistant writes an ordinary restricted-app package and asks work-fold to inspect it; the inspected digest is installed at once as a Local preview with every declared destination, file permission, notification category, Check-result slot, and automation, and the proposal record is the receipt. | No JavaScript is evaluated during inspection, no secret is collected, and destinations that need a secret are named for the person to connect in Settings → Apps. |
 | Add a reviewed Space app | The exact reviewed digest becomes a Local preview in that Space's Development Instance, able to reach everything its package declares. | It is not a Release or App Instance, and a destination that needs a secret stays unusable until the person connects it. |
 | Declare an App Project | work-fold records an explicit machine-local title, description, icon, Project identity, and source-Space binding. | No file is added to `.work-fold/`, no account or cloud Project is created, and source is not uploaded. |
 | Prepare a Release | work-fold snapshots every current reviewed Development preview into one verified, immutable, content-addressed v2 Release and records a prepared state. | It is not yet eligible to install, and later source edits cannot alter its bytes. |
@@ -211,7 +227,7 @@ There are two capability scopes:
 - **Everywhere** (personal scope): available to the fold and every Space from the user's Pi agent directory.
 - **This Space only** (project scope): portable configuration stored under the Space's `.pi/` directory and authorized while the folder is registered as a Space.
 
-The **Agent tools** work tab unifies discovery and management without erasing the distinctions that matter. It identifies whether an item is a Skill or Extension, Everywhere or This Space only, active or merely available, direct-imported or package-provided, and healthy or diagnostic-failing. Installed items can be searched, filtered by type and scope, and sorted by name, type, scope, or source. Discover results can be searched, filtered, and sorted by first-party/reference status, downloads, recency, or name.
+The **Skills & Extensions** popup unifies discovery and management without erasing the distinctions that matter. Its Installed view starts with the **Included with work-fold** strip, then shows **Everywhere** and **This folder only** side by side; a row opens its details on click, and adding starts from one Add dialog that asks **Where should it live?** first. It identifies whether an item is a Skill or Extension, Everywhere or This Space only, active or merely available, direct-imported or package-provided, and healthy or diagnostic-failing. Installed items can be searched, filtered by type and scope, and sorted by name, type, scope, or source. Discover results can be searched, filtered, and sorted by first-party/reference status, downloads, recency, or name.
 
 Packages can distribute Skills, Extensions, prompts, themes, and related Pi resources. They remain installation and lifecycle plumbing; the primary UI should describe the capability a person is gaining, show inspected resource types and lifecycle scripts when registry metadata is available, and label unavailable details as unknown rather than absent. A package that includes Extensions or install scripts is a code-execution decision and must not be presented as a harmless Skill-only import. See [Assistant capabilities](assistant-capabilities.md) for the complete compatibility and safety model.
 
@@ -260,7 +276,7 @@ is explicitly a **Local preview** in the source Space's Development Instance.
 App Studio separately declares Project presentation, prepares, publishes, and
 deletes unused Releases, installs one into a chosen registered Space, and
 manages update, rollback, uninstall, retained data, and purge. App Studio is a Space-bound work
-tab reached from Apps, not a fifth top-level rail destination.
+tab reached from an app's details in Settings → Apps, not a fifth top-level rail destination.
 
 ## Management layer
 
@@ -300,13 +316,13 @@ When a design is ambiguous, prefer the option that best preserves these properti
 
 - Create a folder-backed Space or register an existing folder without conversion.
 - Rename a Space, remove a linked-folder registration without deleting its files, or delete a managed Space into Recently deleted.
-- Browse and upload Space files, run Space-scoped Chats, use the Library, and view History.
+- Browse and upload Space files, run Space-scoped Chats, and view History.
 - Search a Space by content as well as by name: matches inside ordinary files and inside Chat transcripts, honouring the Space's ignore rules, skipping binary and oversized files, and disclosing when a bound stopped the search rather than implying a complete answer.
 - Restore content-addressed History checkpoints created around file mutations and Assistant turns. A full checkpoint hashes real bytes rather than trusting metadata, and keeps that cost proportional to the person's own work: it skips version-control internals, installed dependencies, Python virtual environments, self-declared caches (`CACHEDIR.TAG`), work-fold's hidden support directories, directories the person ignored in Files, and directories a `.gitignore` excludes — while every individual file, including a gitignored `.env` or a file hidden from Files, remains recovery material. A targeted mutation checkpoint captures exactly the paths it is asked about.
 - Configure a Pi provider/model with an API key or an advertised Pi provider OAuth flow and use Pi's built-in tools.
 - Discover installed Skills, prompts, Extension commands, and supported built-ins from the Chat composer, and inspect the active model and context-window pressure during a conversation.
 - Show the configured provider/model before a Chat's first send, safely retry transient provider stream failures from completed tool results, preserve terminal partial output and activity as a resumable interruption, and save sanitized setup or unexpected failures in the transcript. A saved reply keeps every text segment the turn produced — what the Assistant said before, between, and after its tool calls — joined as paragraphs in the order it streamed, so a reopened Chat reads the way it did live.
-- Discover and search Personal and registered-Space Skills and Extensions in one Assistant tools work tab, with accurate source, scope, load state, and diagnostics.
+- Discover and search Personal and registered-Space Skills and Extensions in the Skills & Extensions popup, with accurate source, scope, load state, and diagnostics.
 - Browse curated first-party/reference Skills and Extensions alongside community Pi packages, with type filters and explicit provenance.
 - Import standard Skills and compatible skill bundles while preserving their supporting files.
 - Install, update, and remove Pi packages at Personal or registered-Space scope.
@@ -316,7 +332,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Talk to the management conversation above all Spaces through `work-fold manage send|status|result|wait|abort|stop|list`: the same Assistant runtime with personal capabilities plus work-fold's two app-owned management resources, reference attachments, an explicit request/child action trail, machine-local saved transcripts, default single-conversation behavior with an explicit New chat clean slate, and task-scoped outcomes; the menu-bar/tray popover is its visible desktop surface.
 - In the private alpha, optionally reach the saved management conversation at a chosen private `<name>.work-fold.com` address while the desktop is online, after password sign-in and an explicit one-time full-trust desktop confirmation of that browser; browse filtered relative Space trees, delegate through the one management Assistant, and attach bounded uploads, with content-bearing operations carried in signed application-encrypted envelopes through a trusted hosted client and bridge. While a management turn runs, stream bounded live response text and its current activity line to the paired browser, then reconcile the durable reply when it settles; the capability is advertised by the desktop's summary projection, never probed, so an older desktop keeps the polling cadence.
 - Define optional file-presence or model-backed text Checks over designated files through the desktop setup form or inert proposals and explicit machine-local enablement; run, await, inspect evidence-backed problems, and record fingerprint-scoped decisions through the installed CLI, management conversation, and one Space-owned desktop work tab. A conditional Files-toolbar summary and quiet exact-file markers appear only for configured state; unconfigured means unknown, portable declarations remain inert, and opening Checks never starts a model or enables automation. A separately reviewed routing may run Checks on a schedule or after an explicitly designated folder changes.
-- Drop native OS files onto any Chat composer to upload them into that Space's dated `Dropped/` folder and attach them as context in one explicit act; uploads and Library copy-ins record additive History restore points.
+- Drop native OS files onto any Chat composer to upload them into that Space's dated `Dropped/` folder and attach them as context in one explicit act; uploads (and CLI `library copy` copy-ins) record additive History restore points.
 - Steer a running Assistant turn: Enter mid-turn delivers the message through Pi's steering queue, the Assistant reads it after its current step, and the transcript records it as sent mid-turn; if the turn settles first the message becomes the queued draft instead. ⌘/Ctrl+Enter queues one follow-up message behind the running turn as a visible, cancellable draft that sends when the turn settles; Stop returns it to the composer instead of firing it into the stopped turn's aftermath.
 - Attach images to a turn: an attached PNG, JPEG, GIF, or WebP Space file reaches the model as image content (resized locally by Pi's own image pipeline when needed) rather than as a path-only reference, and a pasted screenshot lands in the Space's dated `Dropped/` folder through the same explicit upload path as a dropped file before it is attached.
 - Choose the reasoning level for a Space or fold Chat from its text-only composer control (or `/thinking` in a Space Chat), limited to what the current model supports, persisted in the Pi session, and remembered as the default for new sessions exactly as Pi's own TUI does.
@@ -328,7 +344,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Drive one real Pi turn through the local API with the harness-neutral `work-fold:drive` test driver.
 - Render validated declarative `surface.json` contributions from loaded Pi Extensions as a contributed rail destination, left-pane navigator, and Space-bound view tabs without injecting Extension code into the renderer.
 - Let the Assistant submit a completed, Space-relative restricted-app package through a host-owned proposal tool. work-fold persists a Space-and-Chat-bound, digest-pinned review without evaluating JavaScript; the inspected package is installed at once as a Local preview with every declared power and automation, and destinations needing a secret are named for the person.
-- Give each installed Space app arbitrary reviewed web UI in a sandboxed rail navigator and host-derived persistent Space-owned right tabs, plus optional bounded Assistant actions and named automations in a separate worker sandbox. A machine-wide scheduler shared across Spaces provides four execution slots, FIFO admission, same-job non-overlap, durable cadence, bounded catch-up, and run receipts. The Apps tab manages each job independently alongside exact network/file/notification grants, host-owned encrypted connections, local data, updates that carry eligible authority forward, removal, and the secondary advanced local-package path.
+- Give each installed Space app arbitrary reviewed web UI in a sandboxed rail navigator and host-derived persistent Space-owned right tabs, plus optional bounded Assistant actions and named automations in a separate worker sandbox. A machine-wide scheduler shared across Spaces provides four execution slots, FIFO admission, same-job non-overlap, durable cadence, bounded catch-up, and run receipts. Settings → Apps manages each job independently alongside exact network/file/notification grants, host-owned encrypted connections, local data, updates that carry eligible authority forward, removal, and the secondary advanced local-package path.
 - Provide bounded host-owned JSON storage with active-visible-view invalidation hints, History-covered Space-file grants, exact public-HTTPS or numeric-loopback requests, API-key/bearer/basic/OAuth PKCE connection adapters, and static reviewed system notifications from enabled automation runs.
 - Carry host-owned local App Project, Development Instance, Feature Installation,
   Data Namespace, canonical Feature Revision, and seven-domain authority identity
@@ -387,7 +403,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Add richer multi-Feature composition review and instance diagnostics while
   preserving the current per-Feature authority boundary.
 - Make Space location, storage ownership, History coverage, and executable capability class easier to inspect at a glance.
-- Add Library organization controls such as rename, move, delete, reveal, and bulk operations.
+- Remove the CLI `library` act family and its server routes deliberately; they remain as a compatibility contract after the desktop Library was retired on 2026-09-25.
 - Add named-pack selection for Anthropic marketplace bundles instead of importing every discovered Skill in an archive.
 - Extend the shipped personal act lane with Chat-scoped grants, confirmation and revocation ceremonies, and headless execution, if the surface ever outgrows the per-launch single-user token.
 - Extend the shipped fold and bounded Routing triggers only through deliberate contracts for any new event source, handoff condition, or recovery behavior. Cross-Space coordination stays in the fold; Space Chats remain local to their own work.
@@ -415,7 +431,7 @@ must continue to distinguish accepted direction from shipped behavior.
 
 Before adding a new top-level concept, ask:
 
-1. Can it fit cleanly as Space content, a Chat, a Library material, a Skill, or an Extension?
+1. Can it fit cleanly as Space content, a Chat, a Skill, or an Extension?
 2. Is its scope obvious: personal, one Space, or one Chat?
 3. Can a person understand what it can read, change, or execute?
 4. Does it preserve normal folders and standard Pi compatibility?
@@ -431,3 +447,46 @@ History refuses a restore that would overwrite or delete content its new safety 
 A routing version-3 `files-changed` trigger observes one explicitly reviewed folder and file-type set. Stable edits coalesce after debounce, with a cooldown; enablement is one receipted call and every run is receipted. Observers start from a baseline and pause during any routing work, sleep, or shutdown; changes during those pauses are not replayed. This prevents routing-generated edits from looping. Complete handoffs use one routing's ordered steps (A's Chat → its output files → B's Chat or Check). See [Routings](fold-routings.md).
 
 Text Checks use the fold's configured model in a bounded review request containing only designated UTF-8 files, optional reference text, and reviewed criteria. They return quoted suggestions, cannot run tools or edit files, and become stale when any input changes. The model's assessment is judgment; the host verifies quotations and freshness. See [Checks](checks.md).
+
+
+### 2026-09-25 information architecture amendment
+
+Owner decisions, recorded here in dated form; the body of this document and
+`AGENTS.md` carry them:
+
+- The rail's **Add** button opens the **Skills & Extensions** popup directly.
+  There is no Add menu, and "Agent tools" is no longer a rail or tab concept.
+- The **Library** is retired from the desktop: no Library tab, no Add entry, no
+  copy-to-Folder control, no "Your Library". The CLI act-lane `library` family
+  and its server routes stay unchanged for now as a compatibility contract,
+  pending a deliberate removal in a later change.
+- The Folder-owned **Apps** tab is retired. Installed Folder apps still appear
+  in their contributed rail region and open there. Per-app management — grants,
+  connections, named automations and run history, local data, update review,
+  removal, Worker requests, and the receipts of the app's model use — lives in
+  **Settings → Apps**, which lists apps by Folder. **Build with Worker** is
+  gone; a person asks a Worker to build an app in a Chat.
+- **Skills & Extensions** is a popup dialog like Settings and Keyboard
+  shortcuts, pinned to the Folder it was opened from. Its Installed view starts
+  with an **Included with work-fold** strip holding exactly the five included
+  tools (Chrome, Computer Control, Web, Documents, Service Connections), each
+  with one status word (Ready, Setup needed, Unavailable, Not checked, Turned
+  off; Chrome shows Connected or Not connected) and a **Set up** button only
+  when a person can act. Below the strip, **Everywhere** and **This folder
+  only** sit side by side and stack on narrow widths; rows open their details
+  on click; the per-group Add buttons are gone. The Add dialog asks **Where
+  should it live?** first with the same two-card chooser, then offers a Skill
+  or pack (files) or a Pi package (source). The Discover details dialog shows
+  the description, the where-chooser, what is inside (the Skills and Extensions
+  found), one plain warning when the install can run code on the computer, and
+  a collapsed **Technical details** section holding source, version and
+  license, provenance, dependencies, and install scripts. Package review still
+  discloses install scripts and Extensions before installation.
+- **Settings → AI Models** chooses its scope with two large buttons — **This
+  worker**, naming the Folder, and **work-fold agent** — instead of radio
+  circles; the model list has a search box and groups models under vendor
+  headings (for OpenRouter, the vendor prefix of the model name).
+- **Settings → Automations** collapses its limits under a **Limits**
+  disclosure by default; they stay visible on demand and unchanged in meaning.
+- With four or more tabs open, tabs narrow but keep their Folder icon and a
+  normal close button.

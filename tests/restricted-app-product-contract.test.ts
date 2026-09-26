@@ -22,16 +22,17 @@ const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, profes
 ]);
 
 test("Apps product hierarchy starts with the Assistant and keeps local preview loading advanced", () => {
-  assert.match(apps, /Apps in this folder/);
-  assert.match(apps, /Build with worker/);
-  assert.match(apps, /<details className="restricted-app-advanced"><summary>Advanced local preview/);
-  assert.match(apps, /Add local preview…/);
+  assert.match(apps, /Apps in This Folder/);
+  // Building an app is a plain ask in a Chat; there is no button for it (2026-09-25).
+  assert.doesNotMatch(apps, /Build with worker|onBuildApp/);
+  assert.match(apps, /<details className="restricted-app-advanced"><summary>Advanced Local Preview/);
+  assert.match(apps, /Add Local Preview…/);
   assert.doesNotMatch(capabilities, /Sandboxed app extension|onAddRestrictedApp/);
   assert.doesNotMatch(apps, />Add app</);
 });
 
 test("adding an app shows its declarations and enabled powers with narrowing in Apps", () => {
-  assert.match(apps, /<ReviewDeclarations review=\{review\} \/>[\s\S]*?<details className="restricted-app-package-details"><summary>Package details/);
+  assert.match(apps, /<ReviewDeclarations review=\{review\} \/>[\s\S]*?<details className="restricted-app-package-details"><summary>Package Details/);
   assert.match(apps, /"Add app"/);
   assert.match(apps, /"Update app"/);
   assert.match(apps, /Connections whose destination is unchanged, automation settings, and run history carry over/);
@@ -52,7 +53,7 @@ test("adding an app shows its declarations and enabled powers with narrowing in 
   // A single-file permission is not on when added, and a Check slot binds only
   // when the Space has exactly one Check, so neither claims "On when added".
   assert.match(apps, /state=\{review\.manifest\.permissions\.files\.some\(\(item\) => item\.target === "directory"\) \? "on" : "included"\}/);
-  assert.match(apps, /title="Check results"[\s\S]*?state="included"/);
+  assert.match(apps, /title="Check Results"[\s\S]*?state="included"/);
   assert.match(apps, /Serve \{review\.manifest\.viewer\.entry\} to anyone holding this app's link/);
   assert.match(apps, /viewer-readable \$\{review\.manifest\.viewer\.readable\.length === 1 \? "collection" : "collections"\} declared/);
   assert.match(apps, /Viewer-readable collections: \$\{review\.manifest\.viewer\.readable\.join\(", "\)\}/);
@@ -69,8 +70,8 @@ test("adding an app shows its declarations and enabled powers with narrowing in 
 });
 
 test("Assistant tools owns access, connection, and lifecycle management without credential-erasure jargon", () => {
-  const access = apps.indexOf("Access & connections");
-  const runtime = apps.indexOf("Package & runtime");
+  const access = apps.indexOf("Access & Connections");
+  const runtime = apps.indexOf("Package & Runtime");
   const lifecycle = apps.indexOf("Lifecycle");
   assert.ok(access >= 0 && runtime > access && lifecycle > runtime);
   assert.match(apps, /Allow access/);
@@ -150,8 +151,8 @@ test("owning Chat shows the added-app receipt with a retry for failures and open
   assert.match(chat, /function RestrictedAppAddedNotice/);
   assert.match(chat, /Added \{title\} to this folder\./);
   assert.match(chat, /Still needs you:/);
-  assert.match(chat, />Open app</);
-  assert.match(chat, />Try again</);
+  assert.match(chat, />Open App</);
+  assert.match(chat, />Try Again</);
   assert.doesNotMatch(chat, /installDisabled=\{running\}|closeLabel="Decline"|RestrictedAppReviewDialog/);
   assert.match(chat, /installRestrictedAppProposal\(space\.id, proposal\.conversationId, proposal\.id\)/);
   assert.match(spaceApp, /restrictedAppsState\.upsertApp\(app\)/);

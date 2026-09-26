@@ -38,8 +38,8 @@ export function RestrictedAppCheckAccess({ app, busy, onAppChanged, onError }: {
     } catch (error) { onError(errorText(error)); }
     finally { setLoading(false); }
   }
-  return <section className="restricted-app-connections" aria-label="Check results">
-    <div className="restricted-app-connections-heading"><h3>Check results</h3></div>
+  return <section className="restricted-app-connections" aria-label="Check Results">
+    <div className="restricted-app-connections-heading"><h3>Check Results</h3></div>
     {app.manifest.permissions.checks?.map((permission) => {
       const grant = app.checkGrants?.find((item) => item.permissionId === permission.id);
       return <article className="restricted-app-destination-card" key={permission.id}>

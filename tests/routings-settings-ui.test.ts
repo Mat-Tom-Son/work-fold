@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
+import { useFolderAutomations } from "../web-local/src/hooks/useFolderAutomations.js";
 
 import {
   FoldRoutingsPane,
   type FoldRoutingDetailResponse,
   type FoldRoutingHealth,
   type FoldRoutingHistoryResponse,
+  type FoldRoutingProposalsResponse,
   type FoldRoutingsResponse,
 } from "../web-local/src/components/modals/FoldRoutingsPane.js";
 import { createDomHarness } from "./support/dom.js";
@@ -22,10 +24,10 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
 
 test("General Settings includes Automations without introducing a builder", () => {
   assert.match(settingsSource, /type FoldSettingsSection = "routings" \| "deleted" \| "limits";/);
-  assert.match(settingsSource, /id: "web-access", label: "Web access"/);
-  assert.match(settingsSource, /id: "shared-pages", label: "Shared pages"/);
+  assert.match(settingsSource, /id: "web-access", label: "Web Access"/);
+  assert.match(settingsSource, /id: "shared-pages", label: "Shared Pages"/);
   assert.match(settingsSource, /id: "automations", label: "Automations"/);
-  assert.match(settingsSource, /id: "recently-deleted", label: "Recently deleted"/);
+  assert.match(settingsSource, /id: "recently-deleted", label: "Recently Deleted"/);
   assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<FoldRoutingsPane \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
   // The two residuals `routings show` prints are mirrored here, so both
@@ -45,6 +47,8 @@ test("Routing Settings has no HTTP fallback and stays on the trusted main-window
 
   for (const [method, channel] of [
     ["list", "list"],
+    ["proposals", "proposals"],
+    ["enableProposal", "enable-proposal"],
     ["show", "show"],
     ["history", "history"],
     ["enable", "enable"],
@@ -62,10 +66,10 @@ test("Routing Settings has no HTTP fallback and stays on the trusted main-window
 
 test("Routing actions are gated by enabled, disabled, suspended, and completed health", async (t) => {
   const expectations: Array<{ health: FoldRoutingHealth; shown: string[]; hidden: string[] }> = [
-    { health: "enabled", shown: ["Run a copy now", "Turn off"], hidden: ["Turn on", "Delete", "Stop"] },
-    { health: "disabled", shown: ["Turn on", "Delete"], hidden: ["Run a copy now", "Turn off", "Stop"] },
-    { health: "suspended", shown: ["Turn on", "Delete"], hidden: ["Run a copy now", "Turn off", "Stop"] },
-    { health: "completed", shown: ["Delete"], hidden: ["Run a copy now", "Turn on", "Turn off", "Stop"] },
+    { health: "enabled", shown: ["Run a copy now", "Turn Off"], hidden: ["Turn On", "Delete", "Stop"] },
+    { health: "disabled", shown: ["Turn On", "Delete"], hidden: ["Run a copy now", "Turn Off", "Stop"] },
+    { health: "suspended", shown: ["Turn On", "Delete"], hidden: ["Run a copy now", "Turn Off", "Stop"] },
+    { health: "completed", shown: ["Delete"], hidden: ["Run a copy now", "Turn On", "Turn Off", "Stop"] },
   ];
 
   for (const expectation of expectations) {
@@ -130,11 +134,11 @@ test("Run a copy now invokes the preload bridge, never a network request", async
   });
   await dom.waitFor(() => calls.run === 1);
   assert.equal(calls.run, 1);
-  await dom.waitFor(() => /Run requested/.test(dom.container.textContent ?? ""));
-  assert.match(dom.container.textContent ?? "", /Run requested/);
+  await dom.waitFor(() => /Run Requested/.test(dom.container.textContent ?? ""));
+  assert.match(dom.container.textContent ?? "", /Run Requested/);
 });
 
-test("New automation opens an unsent work-fold agent draft without running or enabling anything", async (t) => {
+test("Automations has no New automation button; the empty state says where to ask (2026-09-25)", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   const calls = installRoutingBridge("disabled");
@@ -143,17 +147,13 @@ test("New automation opens an unsent work-fold agent draft without running or en
     agent: { openFoldDraft: async (draft: string) => { drafts.push(draft); return true; } },
   });
   await dom.render(createElement(FoldRoutingsPane));
-  await dom.waitFor(() => [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .some((button) => button.textContent?.trim() === "New automation"));
-  const newAutomation = [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => button.textContent?.trim() === "New automation");
-  assert.ok(newAutomation);
-  await dom.act(async () => { newAutomation.click(); });
-  await dom.waitFor(() => drafts.length === 1);
-  assert.equal(drafts[0], "Help me set up an automation. Ask what should happen, when, and which folders to use.");
+  await dom.settle();
+  assert.equal([...dom.container.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent?.trim() === "New automation"), false);
+  const empty = dom.container.querySelector(".fold-routings-empty");
+  if (empty) assert.match(empty.textContent ?? "", /ask the work-fold agent/);
+  assert.equal(drafts.length, 0);
   assert.equal(calls.run, 0);
 });
-
 test("an admitted queued run stays visible until its exact history entry settles", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
@@ -186,7 +186,7 @@ test("damaged run history blocks widening actions but leaves narrowing actions a
   await enabledDom.waitFor(() => Boolean(enabledDom.container.querySelector(".fold-routing-inspector-header")));
   const enabledButtons = [...enabledDom.container.querySelectorAll<HTMLButtonElement>(".fold-routing-actions button")];
   assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Run a copy now")?.disabled, true);
-  assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Turn off")?.disabled, false);
+  assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Turn Off")?.disabled, false);
   await enabledDom.cleanup();
 
   const runningDom = await createDomHarness();
@@ -202,7 +202,7 @@ test("damaged run history blocks widening actions but leaves narrowing actions a
   await disabledDom.render(createElement(FoldRoutingsPane));
   await disabledDom.waitFor(() => Boolean(disabledDom.container.querySelector(".fold-routing-inspector-header")));
   const disabledButtons = [...disabledDom.container.querySelectorAll<HTMLButtonElement>(".fold-routing-actions button")];
-  assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Turn on")?.disabled, true);
+  assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Turn On")?.disabled, true);
   assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Delete")?.disabled, false);
   await disabledDom.cleanup();
 });
@@ -226,7 +226,7 @@ test("a late polling response cannot replace a newly selected routing or retarge
   assert.equal(dom.container.querySelector(".fold-routing-inspector-header h4")?.textContent, "Routing B");
 
   const turnOff = [...dom.container.querySelectorAll<HTMLButtonElement>(".fold-routing-actions button")]
-    .find((button) => button.textContent?.trim() === "Turn off");
+    .find((button) => button.textContent?.trim() === "Turn Off");
   assert.ok(turnOff);
   await dom.act(async () => {
     turnOff.click();
@@ -403,5 +403,171 @@ test("missing desktop bridge leaves Automations readable instead of crashing Set
   await dom.render(createElement(FoldRoutingsPane));
   await dom.waitFor(() => Boolean(dom.container.querySelector('[role="alert"]')));
   assert.match(dom.container.textContent ?? "", /available in the desktop app/);
-  assert.ok(dom.container.querySelector("button"), "Settings remains interactive");
+  assert.ok(dom.container.querySelector(".fold-routings"), "Settings remains readable");
+  assert.equal(dom.container.querySelector(".fold-routing-proposals"), null, "no bridge, no pending section");
+});
+
+test("pending proposal files list above the automations and Turn on moves one into the list", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  installRoutingBridge("enabled");
+  const bridge = window.workFoldDesktop!.routings! as unknown as Record<string, unknown>;
+  const readyPath = "/state/management/hourly.work-fold-routing.json";
+  const enabledPaths: string[] = [];
+  let turnedOn = false;
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  Object.assign(window.workFoldDesktop!, { api: {} });
+  globalThis.fetch = (async () => new Response(JSON.stringify({ automations: turnedOn ? [{ routingId: "routing-hourly" }] : [] }), {
+    headers: { "content-type": "application/json" },
+  })) as typeof fetch;
+  function FolderRailState() {
+    const { bySpace } = useFolderAutomations("space-a", false);
+    return createElement("output", { "data-folder-count": true }, String(bySpace["space-a"]?.length ?? "loading"));
+  }
+  const original = bridge.list as () => Promise<FoldRoutingsResponse>;
+  const added = {
+    routingId: "routing-hourly",
+    title: "Hourly hello",
+    health: "enabled" as const,
+    trigger: { kind: "interval" as const, intervalMinutes: 60 },
+    stepCount: 1,
+    spaces: [{ spaceId: "space-a", spaceName: "Client launch" }],
+  };
+  Object.assign(bridge, {
+    list: async () => {
+      const list = await original();
+      return turnedOn ? { ...list, routings: [...list.routings, added] } : list;
+    },
+    proposals: async (): Promise<FoldRoutingProposalsResponse> => ({
+      proposals: [
+        { valid: false, path: "/state/management/broken.work-fold-routing.json", fileName: "broken.work-fold-routing.json", problem: "Not valid JSON." },
+        ...(turnedOn ? [] : [{
+          valid: true as const,
+          path: readyPath,
+          fileName: "hourly.work-fold-routing.json",
+          routingId: "routing-hourly",
+          digest: "a".repeat(64),
+          title: "Hourly hello",
+          trigger: { kind: "interval" as const, intervalMinutes: 60 },
+        }]),
+      ],
+      truncated: false,
+    }),
+    enableProposal: async (path: string) => {
+      enabledPaths.push(path);
+      turnedOn = true;
+      return { routingId: "routing-hourly", requestId: "settings:request-2", enabled: true as const, alreadyEnabled: false, routing: added };
+    },
+  });
+  await dom.render(createElement(Fragment, null, createElement(FoldRoutingsPane), createElement(FolderRailState)));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".fold-routing-proposals")));
+  await dom.waitFor(() => dom.container.querySelector("output")?.textContent === "0");
+
+  const section = dom.container.querySelector<HTMLElement>(".fold-routing-proposals")!;
+  assert.equal(section.querySelector("h5")?.textContent, "Ready to turn on");
+  assert.ok(
+    section.compareDocumentPosition(dom.container.querySelector(".fold-routings-workbench")!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    "the pending section sits above the automations",
+  );
+  const rows = [...section.querySelectorAll<HTMLElement>(".fold-routing-proposal")];
+  assert.equal(rows.length, 2);
+  const invalid = rows.find((row) => row.classList.contains("invalid"))!;
+  assert.match(invalid.textContent ?? "", /broken\.work-fold-routing\.json/);
+  assert.equal(invalid.getAttribute("title"), "Not valid JSON.");
+  assert.equal(invalid.querySelector("button"), null, "an invalid file has no button");
+  const ready = rows.find((row) => !row.classList.contains("invalid"))!;
+  assert.match(ready.textContent ?? "", /Hourly hello/);
+  assert.match(ready.textContent ?? "", /Every 1 hour/);
+  const turnOn = ready.querySelector<HTMLButtonElement>("button")!;
+  assert.equal(turnOn.textContent, "Turn On");
+
+  await dom.act(async () => {
+    turnOn.click();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+  await dom.waitFor(() => enabledPaths.length === 1 && !dom.container.querySelector(".fold-routing-proposal:not(.invalid)"));
+  await dom.waitFor(() => dom.container.querySelector("output")?.textContent === "1");
+  assert.deepEqual(enabledPaths, [readyPath]);
+  await dom.waitFor(() => [...dom.container.querySelectorAll(".fold-routing-list-row")]
+    .some((row) => /Hourly hello/.test(row.textContent ?? "")));
+  await dom.waitFor(() => dom.container.querySelector(".fold-routing-list-row.selected strong")?.textContent === "Hourly hello");
+  assert.match(dom.container.textContent ?? "", /Automation turned on/);
+});
+
+test("invalid-only proposal files remain visible with their repair reason", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  installRoutingBridge("enabled");
+  Object.assign(window.workFoldDesktop!.routings!, {
+    proposals: async (): Promise<FoldRoutingProposalsResponse> => ({
+      proposals: [{ valid: false, path: "/m/broken.work-fold-routing.json", fileName: "broken.work-fold-routing.json", problem: "Not valid JSON." }],
+      truncated: false,
+    }),
+  });
+  await dom.render(createElement(FoldRoutingsPane));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".fold-routing-inspector-header")));
+  await dom.settle();
+  const section = dom.container.querySelector(".fold-routing-proposals")!;
+  assert.equal(section.querySelector("h5")?.textContent, "Automation files");
+  const invalid = section.querySelector(".fold-routing-proposal.invalid")!;
+  assert.match(invalid.textContent ?? "", /broken\.work-fold-routing\.json/);
+  assert.equal(invalid.getAttribute("title"), "Not valid JSON.");
+  assert.equal(invalid.querySelector("button"), null);
+});
+
+test("the Folder filter narrows the one automation list client-side", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  installRoutingBridge("enabled");
+  const summary = (routingId: string, title: string, spaces: Array<{ spaceId: string; spaceName: string }>) => ({
+    routingId,
+    title,
+    health: "enabled" as const,
+    trigger: { kind: "manual" as const },
+    stepCount: 1,
+    spaces,
+  });
+  const alpha = { spaceId: "space-alpha", spaceName: "Alpha" };
+  const beta = { spaceId: "space-beta", spaceName: "Beta" };
+  const listCalls = { count: 0 };
+  Object.assign(window.workFoldDesktop!.routings!, {
+    list: async (): Promise<FoldRoutingsResponse> => {
+      listCalls.count += 1;
+      return {
+        routings: [
+          summary("routing-one", "Alpha only", [alpha]),
+          summary("routing-two", "Alpha to Beta", [alpha, beta]),
+          summary("routing-three", "Beta only", [beta]),
+        ],
+        status: { storeDamaged: false, journalDamaged: false, activeRunCount: 0 },
+      };
+    },
+  });
+  await dom.render(createElement(FoldRoutingsPane));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".fold-routing-folder-filter")));
+  const chips = () => [...dom.container.querySelectorAll<HTMLButtonElement>(".fold-routing-folder-filter button")];
+  const rows = () => [...dom.container.querySelectorAll(".fold-routing-list-row strong")].map((row) => row.textContent);
+  assert.deepEqual(chips().map((chip) => chip.textContent), ["All", "Alpha", "Beta"]);
+  assert.equal(chips()[0]?.getAttribute("aria-pressed"), "true");
+  assert.deepEqual(rows(), ["Alpha only", "Alpha to Beta", "Beta only"]);
+
+  const callsBefore = listCalls.count;
+  await dom.act(async () => { chips()[2]!.click(); });
+  assert.deepEqual(rows(), ["Alpha to Beta", "Beta only"]);
+  assert.equal(chips()[2]?.getAttribute("aria-pressed"), "true");
+  await dom.waitFor(() => dom.container.querySelector(".fold-routing-list-row.selected strong")?.textContent === "Alpha to Beta");
+  assert.equal(listCalls.count, callsBefore, "filtering is client-side");
+
+  await dom.act(async () => { chips()[0]!.click(); });
+  assert.deepEqual(rows(), ["Alpha only", "Alpha to Beta", "Beta only"]);
+});
+
+test("a single automation or a single Folder shows no Folder filter", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  installRoutingBridge("enabled");
+  await dom.render(createElement(FoldRoutingsPane));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".fold-routing-inspector-header")));
+  assert.equal(dom.container.querySelector(".fold-routing-folder-filter"), null);
 });

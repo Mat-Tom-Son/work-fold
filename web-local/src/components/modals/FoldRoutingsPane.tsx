@@ -1,33 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { errorText } from "../../lib/api";
+import { notifyFolderAutomationsChanged } from "../../hooks/useFolderAutomations";
+import {
+  formatRoutingDateTime as formatDateTime,
+  routingTriggerSummary as triggerSummary,
+  type RoutingOutcome,
+  type RoutingTriggerView,
+} from "../../../../src/shared/routing-presentation";
 
 export type FoldRoutingHealth = "enabled" | "disabled" | "suspended" | "completed";
-export type FoldRoutingOutcome = "accepted" | "succeeded" | "failed" | "stopped" | "interrupted" | "skipped" | "lapsed";
+export type FoldRoutingOutcome = RoutingOutcome;
 
 export interface FoldRoutingSpaceRef {
   spaceId: string;
   spaceName?: string;
 }
 
-export type FoldRoutingTriggerView =
-  | { kind: "files-changed"; spaceId: string; watch: { kind: "tree"; path: string; recursive: boolean; extensions: string[] }; debounceSeconds: number; cooldownMinutes: number; summary?: string }
-  | { kind: "manual"; summary?: string }
-  | { kind: "interval"; intervalMinutes: number; summary?: string }
-  | { kind: "at"; at: string; ifMissed: "run" | "skip"; summary?: string }
-  | {
-    kind: "on-settled";
-    summary?: string;
-    source: {
-      kind: "check-run" | "app-automation-run";
-      spaceId: string;
-      spaceName?: string;
-      checkId?: string;
-      appId?: string;
-      automationId?: string;
-      outcomes?: string[];
-    };
-  };
+export type FoldRoutingTriggerView = RoutingTriggerView;
 
 export type FoldRoutingStepView =
   | {
@@ -66,6 +56,8 @@ export interface FoldRoutingSummaryView {
   trigger: FoldRoutingTriggerView;
   fileWatch?: { state: "starting" | "watching" | "paused" | "error"; detail?: string; lastObservedAt?: string; lastTriggeredAt?: string };
   stepCount: number;
+  /** Every Folder the trigger or a step names; drives the Folder filter. */
+  spaces?: FoldRoutingSpaceRef[];
   nextScheduledAt?: string;
   lastScheduledAt?: string;
   activeRun?: { runId: string; startedAt: string };
@@ -145,6 +137,28 @@ export interface FoldRoutingRunResponse {
   accepted: true;
 }
 
+/** A `*.work-fold-routing.json` file the work-fold agent wrote that is not stored yet. */
+export type FoldRoutingProposalView =
+  | {
+    valid: true;
+    path: string;
+    fileName: string;
+    routingId: string;
+    digest: string;
+    title: string;
+    trigger: FoldRoutingTriggerView;
+  }
+  | { valid: false; path: string; fileName: string; problem: string };
+
+export interface FoldRoutingProposalsResponse {
+  proposals: FoldRoutingProposalView[];
+  truncated: boolean;
+}
+
+export interface FoldRoutingEnableProposalResponse extends FoldRoutingEnableResponse {
+  routing: FoldRoutingSummaryView;
+}
+
 const emptyHistory: FoldRoutingHistoryResponse = { runs: [], truncated: false, damagedLineCount: 0 };
 
 /**
@@ -164,7 +178,39 @@ export function FoldRoutingsPane() {
   const [drafting, setDrafting] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
   const [runWatches, setRunWatches] = useState<Record<string, { startedAt: number; runId?: string }>>({});
+  const [proposals, setProposals] = useState<FoldRoutingProposalView[]>([]);
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+
+  // Pending proposal files are a desktop-only read; without the bridge the
+  // section is simply absent and the load error line explains why.
+  const loadProposals = useCallback(async () => {
+    const scan = window.workFoldDesktop?.routings?.proposals;
+    if (!scan) return;
+    const next = await scan();
+    setProposals((current) => sameProposals(current, next.proposals) ? current : next.proposals);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      const scan = window.workFoldDesktop?.routings?.proposals;
+      if (!scan) return;
+      void scan()
+        .then((next) => {
+          if (!cancelled) setProposals((current) => sameProposals(current, next.proposals) ? current : next.proposals);
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 4_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
 
   const selectRouting = useCallback((routingId: string | null) => {
     selectedIdRef.current = routingId;
@@ -288,6 +334,8 @@ export function FoldRoutingsPane() {
     setNotice(null);
     try {
       const nextNotice = await operation();
+      notifyFolderAutomationsChanged();
+      await loadProposals().catch(() => undefined);
       const next = await loadList();
       const nextSelectedId = selectedId && next.routings.some((routing) => routing.routingId === selectedId)
         ? selectedId
@@ -310,7 +358,7 @@ export function FoldRoutingsPane() {
     }
   }
 
-  async function openAutomationDraft(existing?: FoldRoutingDetailView): Promise<void> {
+  async function openAutomationDraft(existing: FoldRoutingDetailView): Promise<void> {
     const openDraft = window.workFoldDesktop?.agent?.openFoldDraft;
     if (!openDraft || drafting) {
       setActionError("Open the work-fold agent in the desktop app to draft an automation.");
@@ -319,9 +367,7 @@ export function FoldRoutingsPane() {
     setDrafting(true);
     setActionError(null);
     try {
-      const draft = existing
-        ? `Review the automation “${existing.title}” (id: ${existing.routingId}). Its current trigger is: ${triggerSummary(existing.trigger)}. Preserve it until I give a clear instruction to change it.`
-        : "Help me set up an automation. Ask what should happen, when, and which folders to use.";
+      const draft = `Review the automation “${existing.title}” (id: ${existing.routingId}). Its current trigger is: ${triggerSummary(existing.trigger)}. Preserve it until I give a clear instruction to change it.`;
       await openDraft(draft);
     } catch (caught) {
       setActionError(errorText(caught));
@@ -331,17 +377,43 @@ export function FoldRoutingsPane() {
   }
 
   const status = data?.status;
-  const routings = data?.routings ?? [];
+  const allRoutings = useMemo(() => data?.routings ?? [], [data?.routings]);
   const storeUnavailable = Boolean(status?.storeDamaged);
   const wideningUnavailable = storeUnavailable || Boolean(status?.journalDamaged);
 
+  // Automations sit above Folders and are managed here, so the Folder filter
+  // is a client-side view over one list. The Folder-owned Automations tab is
+  // a read-mostly window onto the same routings (docs/fold-routings.md,
+  // F15 as amended 2026-09-24).
+  const folderChips = useMemo(() => {
+    const byId = new Map<string, FoldRoutingSpaceRef>();
+    for (const routing of allRoutings) {
+      for (const space of routing.spaces ?? []) {
+        if (!byId.has(space.spaceId) || (!byId.get(space.spaceId)!.spaceName && space.spaceName)) byId.set(space.spaceId, space);
+      }
+    }
+    return [...byId.values()].sort((left, right) => spaceLabel(left).localeCompare(spaceLabel(right)));
+  }, [allRoutings]);
+  const showFolderFilter = allRoutings.length > 1 && folderChips.length > 1;
+  const activeFolder = showFolderFilter && folderFilter && folderChips.some((space) => space.spaceId === folderFilter)
+    ? folderFilter
+    : null;
+  const routings = activeFolder
+    ? allRoutings.filter((routing) => routing.spaces?.some((space) => space.spaceId === activeFolder))
+    : allRoutings;
+
+  function chooseFolder(spaceId: string | null) {
+    setFolderFilter(spaceId);
+    const visible = spaceId
+      ? allRoutings.filter((routing) => routing.spaces?.some((space) => space.spaceId === spaceId))
+      : allRoutings;
+    if (!visible.some((routing) => routing.routingId === selectedIdRef.current)) {
+      selectRouting(visible[0]?.routingId ?? null);
+    }
+  }
+
   return (
     <section className="settings-section fold-routings" aria-label="Automations">
-      <div className="settings-section-actions">
-        <button className="secondary-button" type="button" onClick={() => void openAutomationDraft()} disabled={drafting}>
-          {drafting ? "Opening…" : "New automation"}
-        </button>
-      </div>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {status?.storeDamaged ? (
         <span className="settings-inline-error" role="alert">
@@ -355,8 +427,59 @@ export function FoldRoutingsPane() {
       ) : null}
       {notice ? <span className="settings-save-status" role="status">{notice}</span> : null}
       {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
-      {data && !routings.length ? (
-        <div className="fold-routings-empty">No automations yet.</div>
+      {proposals.length ? (
+        <section className="fold-routing-proposals" aria-labelledby="fold-routing-proposals-title">
+          <h5 id="fold-routing-proposals-title">{proposals.some((proposal) => proposal.valid) ? "Ready to turn on" : "Automation files"}</h5>
+          <ul>
+            {proposals.map((proposal) => proposal.valid ? (
+              <li className="fold-routing-proposal" key={proposal.path}>
+                <div>
+                  <strong>{proposal.title}</strong>
+                  <small>{triggerSummary(proposal.trigger)}</small>
+                </div>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={wideningUnavailable || pending.includes(`enable-proposal:${proposal.path}`)}
+                  onClick={() => void runAction(`enable-proposal:${proposal.path}`, async () => {
+                    const result = await routingBridge().enableProposal(proposal.path);
+                    selectRouting(result.routingId);
+                    setFolderFilter(null);
+                    return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
+                  })}
+                >
+                  {pending.includes(`enable-proposal:${proposal.path}`) ? "Turning on…" : "Turn On"}
+                </button>
+              </li>
+            ) : (
+              <li className="fold-routing-proposal invalid" key={proposal.path} title={proposal.problem}>
+                <div>
+                  <strong>{proposal.fileName}</strong>
+                  <small>Can&apos;t be turned on</small>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {data && !allRoutings.length ? (
+        <div className="fold-routings-empty">No automations yet. To set one up, ask the work-fold agent in the menu bar. Say what should happen, when, and in which folders.</div>
+      ) : null}
+      {showFolderFilter ? (
+        <div className="capabilities-type-chips fold-routing-folder-filter" role="group" aria-label="Folder">
+          <button type="button" className={activeFolder === null ? "active" : ""} aria-pressed={activeFolder === null} onClick={() => chooseFolder(null)}>All</button>
+          {folderChips.map((space) => (
+            <button
+              key={space.spaceId}
+              type="button"
+              className={activeFolder === space.spaceId ? "active" : ""}
+              aria-pressed={activeFolder === space.spaceId}
+              onClick={() => chooseFolder(space.spaceId)}
+            >
+              {spaceLabel(space)}
+            </button>
+          ))}
+        </div>
       ) : null}
       {routings.length ? (
         <div className="fold-routings-workbench">
@@ -427,7 +550,7 @@ export function FoldRoutingsPane() {
                 </section> : null}
                 <dl className="fold-routing-facts">
                   <div><dt>Next</dt><dd>{detail.nextScheduledAt ? formatDateTime(detail.nextScheduledAt) : "—"}</dd></div>
-                  <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not run yet"}</dd></div>
+                  <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not Run Yet"}</dd></div>
                 </dl>
 
                 <section className="fold-routing-detail-section" aria-labelledby="fold-routing-steps-title">
@@ -456,7 +579,7 @@ export function FoldRoutingsPane() {
 
                 <section className="fold-routing-detail-section fold-routing-history" aria-labelledby="fold-routing-history-title">
                   <div className="fold-routing-section-heading">
-                    <h5 id="fold-routing-history-title">Recent runs</h5>
+                    <h5 id="fold-routing-history-title">Recent Runs</h5>
                     {history.truncated ? <span>Newest shown</span> : null}
                   </div>
                   {history.damagedLineCount ? <small className="settings-inline-error">Some older run records could not be read.</small> : null}
@@ -501,7 +624,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
             onClick={() => onRun(`run:${routing.routingId}`, async () => {
               const requested = await routingBridge().run(routing.routingId);
               onRunAdmitted(routing.routingId, requested.runId);
-              return "Run requested";
+              return "Run Requested";
             })}
           >
             {pending.includes(`run:${routing.routingId}`) || runQueued ? "Starting…" : "Run a copy now"}
@@ -530,7 +653,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
               return "Automation turned off";
             })}
           >
-            {pending.includes(`disable:${routing.routingId}`) ? "Turning off…" : "Turn off"}
+            {pending.includes(`disable:${routing.routingId}`) ? "Turning off…" : "Turn Off"}
           </button>
         ) : null}
         {routing.health === "disabled" || routing.health === "suspended" ? (
@@ -543,7 +666,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
               return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
             })}
           >
-            {pending.includes(`enable:${routing.routingId}`) ? "Turning on…" : "Turn on"}
+            {pending.includes(`enable:${routing.routingId}`) ? "Turning on…" : "Turn On"}
           </button>
         ) : null}
         {canDelete ? (
@@ -629,7 +752,7 @@ function RoutingStep({ step }: { step: FoldRoutingStepView }) {
   if (step.kind === "files") {
     return (
       <li>
-        <div className="fold-routing-step-heading"><strong>Copy files</strong><span>{spaceLabel(step.fromSpace)} → {spaceLabel(step.toSpace)}</span></div>
+        <div className="fold-routing-step-heading"><strong>Copy Files</strong><span>{spaceLabel(step.fromSpace)} → {spaceLabel(step.toSpace)}</span></div>
         <p>{filesSourceSummary(step.source)} into <code>{step.to || "/"}</code></p>
       </li>
     );
@@ -677,18 +800,6 @@ function RoutingRun({ run }: { run: FoldRoutingHistoryRunView }) {
   );
 }
 
-function triggerSummary(trigger: FoldRoutingTriggerView): string {
-  if (trigger.summary) return trigger.summary;
-  if (trigger.kind === "files-changed") return `When ${trigger.watch.path} changes · wait ${trigger.debounceSeconds}s · ${trigger.cooldownMinutes} minute cooldown`;
-  if (trigger.kind === "manual") return "Manual only";
-  if (trigger.kind === "interval") return `Every ${formatMinutes(trigger.intervalMinutes)}`;
-  if (trigger.kind === "at") return `Once · ${formatDateTime(trigger.at)}`;
-  const source = trigger.source;
-  const space = source.spaceName ?? source.spaceId;
-  if (source.kind === "check-run") return `After a Check settles in ${space}`;
-  return `After ${source.appId} · ${source.automationId} settles in ${space}`;
-}
-
 function filesSourceSummary(source: Extract<FoldRoutingStepView, { kind: "files" }>["source"]): string {
   if (source.kind === "paths") return source.paths.join(", ");
   if (source.kind === "tree") {
@@ -700,7 +811,7 @@ function filesSourceSummary(source: Extract<FoldRoutingStepView, { kind: "files"
 }
 
 function lastRunSummary(routing: FoldRoutingSummaryView): string {
-  if (!routing.lastRun) return routing.health === "completed" ? "Completed" : "Not run yet";
+  if (!routing.lastRun) return routing.health === "completed" ? "Completed" : "Not Run Yet";
   return `${outcomeLabel(routing.lastRun.outcome)} · ${formatDateTime(routing.lastRun.startedAt)}`;
 }
 
@@ -727,25 +838,18 @@ function outcomeLabel(outcome: FoldRoutingOutcome): string {
 
 function hopLabel(kind: FoldRoutingHistoryHopView["kind"]): string {
   if (kind === "chat") return "Chat";
-  if (kind === "files") return "Copy files";
+  if (kind === "files") return "Copy Files";
   return kind === "fold" ? "Message work-fold agent" : "Run Checks";
-}
-
-function formatMinutes(minutes: number): string {
-  if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)} day${minutes === 24 * 60 ? "" : "s"}`;
-  if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? "" : "s"}`;
-  return `${minutes} minutes`;
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MiB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`;
   return `${bytes} B`;
+}
+
+function sameProposals(left: FoldRoutingProposalView[], right: FoldRoutingProposalView[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function routingBridge() {

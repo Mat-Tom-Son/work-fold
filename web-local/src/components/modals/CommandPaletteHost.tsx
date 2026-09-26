@@ -121,7 +121,7 @@ function CommandPaletteHost({
             aria-controls="command-palette-results"
             aria-activedescendant={activeOptionId}
             aria-describedby="command-palette-hint"
-            aria-label="Command palette"
+            aria-label="Command Palette"
             placeholder="Search commands"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -132,7 +132,7 @@ function CommandPaletteHost({
             <kbd>K</kbd>
           </span>
         </div>
-        <h2 id="command-palette-title" className="sr-only">Command palette</h2>
+        <h2 id="command-palette-title" className="sr-only">Command Palette</h2>
         <div id="command-palette-results" className="command-palette-results" role="listbox" aria-label="Commands">
           {flatResults.length ? groups.map((group) => (
             <section className="command-palette-group" key={group.id}>

@@ -237,6 +237,12 @@ removing live data.
 
 ### Library
 
+*Amended 2026-09-25:* the desktop no longer exposes a Library tab, an Add
+entry, or a copy-to-Folder control. The `library` act family and its server
+routes stay unchanged for now as a compatibility contract, pending a deliberate
+removal in a later change; the human-surface cells below record the retired
+desktop surfaces.
+
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
 | List Library | Library tab | none | direct verb (content-bearing act read) | `library list` | — | n/a | — |
@@ -254,6 +260,11 @@ behavior, and `checks decide` is a fingerprint-scoped finding decision, not
 an authority act.
 
 ### Assistant tools
+
+*Amended 2026-09-25:* the human surface is the **Skills & Extensions** popup
+opened by the rail's Add button; "Add → Skill files" and "Add → package source"
+are the two choices its Add dialog offers after asking **Where should it
+live?**.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
@@ -274,6 +285,10 @@ Restricted Space apps keep their separate reviewed-web lane; nothing here
 touches Pi's package manager or loaded catalog. Installation grants every
 declared power (F21); the grant, connection, and automation rows below are
 the person's narrowing and re-allowing controls.
+
+*Amended 2026-09-25:* the human surfaces named "Apps tab" and "App details"
+below live in **Settings → Apps**, which lists apps by Folder; the Folder-owned
+Apps tab is retired.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
@@ -460,8 +475,9 @@ The ledger's plan items shipped as follows (suites named in
   one receipt. Composition lives in the fold's conversation or in a
   declared routing, never in the protocol.
 - **Library organization controls** (rename, move, delete, reveal, bulk
-  operations) — a roadmap item; until it exists on the desktop, the fold
-  does not get ahead of the human surface.
+  operations) — formerly a roadmap item. The desktop Library was retired on
+  2026-09-25; the `library` family stays only as a compatibility contract
+  pending deliberate removal, so no organization verb will be added.
 - **Driving the desktop UI** — tabs, selection, navigation, preferences,
   and the updater remain outside the act lane, as listed under deliberately
   absent.

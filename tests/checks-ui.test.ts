@@ -52,7 +52,7 @@ test("Checks toolbar distinguishes never-run, stale, attention, and Check health
     needsAttention: 2,
   }), {
     icon: "attention",
-    label: "Needs attention",
+    label: "Needs Attention",
     title: "2 current findings in explicitly designated files",
     tone: "attention",
     count: 2,

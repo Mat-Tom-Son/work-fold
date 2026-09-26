@@ -11,7 +11,12 @@ import type { WorkFoldCheckTaskStatus } from "../../src/local/checks/check-servi
 
 export type SpacePane = "files" | "chats" | "history";
 export type SpaceExtensionRailMode = `app:${string}`;
-export type SpaceRailMode = "spaces" | SpacePane | SpaceExtensionRailMode;
+/**
+ * `automations` is the Folder-owned Automations rail entry. Choosing it opens
+ * the `space-automations` tab and leaves the navigator pane as it was, so it
+ * is never the persisted mode.
+ */
+export type SpaceRailMode = "spaces" | SpacePane | "automations" | SpaceExtensionRailMode;
 export type AppTheme = "light" | "dark";
 export type AppThemePreference = AppTheme | "system";
 export type AppTypographyFont = "default" | "stable" | "verdana" | "aptos";
@@ -208,12 +213,10 @@ export type SpaceSurfaceTab =
   | (SpaceSurfaceTabBase & { kind: "chat"; conversationId: string | null })
   | (SpaceSurfaceTabBase & { kind: "file"; path: string })
   | (SpaceSurfaceTabBase & { kind: "history"; checkpointId?: string })
-  | (SpaceSurfaceTabBase & { kind: "library" })
   | (SpaceSurfaceTabBase & { kind: "appearance" })
   | (SpaceSurfaceTabBase & { kind: "app-studio" })
-  | (SpaceSurfaceTabBase & { kind: "assistant-tools"; view: AssistantToolsView })
-  | (SpaceSurfaceTabBase & { kind: "space-apps" })
   | (SpaceSurfaceTabBase & { kind: "checks" })
+  | (SpaceSurfaceTabBase & { kind: "space-automations" })
   | (SpaceSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
   | (SpaceSurfaceTabBase & {
     kind: "restricted-app";

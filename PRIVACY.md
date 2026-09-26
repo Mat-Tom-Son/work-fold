@@ -27,7 +27,7 @@ By default, work-fold stores:
 
 - Space files in the ordinary folders the user creates or registers.
 - A hidden `.work-fold/` directory inside each Space. Its `space.json` file stores the portable Space identity, and its `conversations/` directory stores that Space's append-only Chat records, including title, archive, and snooze lifecycle events.
-- Library materials, the Space registry, History objects, ignore rules, application settings, per-Space model defaults and Space instructions, and machine-local Chat attention acknowledgements under the local work-fold application-data directory or browser-backed application storage.
+- The Space registry, History objects, ignore rules, application settings, per-Space model defaults and Space instructions, and machine-local Chat attention acknowledgements under the local work-fold application-data directory or browser-backed application storage.
 - Pi settings, sessions, Pi's independent trust decisions, personal Skills, Extensions, and packages under the configured Pi agent directory, normally `~/.pi/agent`.
 - Provider credentials in an application-scoped file encrypted through Electron's operating-system-backed `safeStorage`. work-fold refuses credential operations when that encryption is unavailable.
 - Restricted-app Development-preview receipts and package snapshots; machine-local App Project identity and presentation; immutable content-addressed Release envelopes; prepared/published state; install/update operation journals; local App Instance records; per-automation enablement/cadence state and bounded run receipts; retained-data records; and Tenant-and-Data-Namespace-owned JSON storage under the application-data `restricted-apps` directory. Separately encrypted restricted-app connections bind their exact runtime and installation identities in `restricted-app-connections.bin`.
@@ -145,7 +145,7 @@ MCP settings are not automatically imported. MCP sampling is disabled.
 
 The development branch supports named [app-requested Assistant tasks](docs/app-assistant-tasks.md).
 A request starts a Chat in the owning Space at once, sending the app's
-instructions and input through that Space's usual model and tools; the Apps tab
+instructions and input through that Space's usual model and tools; Settings → Apps
 shows its status and can open or stop it. The successful reply is shared with the
 requesting app, which may use its separately granted capabilities. An app can
 also make one bounded model call with no tools and no transcript, on the Space's
@@ -306,7 +306,7 @@ The shim removes its request and response after completion, and the broker clean
 
 Creating or registering a Space authorizes work-fold to load project Skills, Extensions, packages, scripts, settings, and instructions from Pi-supported locations in that exact folder. This does not upload the whole folder and does not certify its code as safe. Removing the Space revokes work-fold's authorization; the folder and its portable `.work-fold/` data remain according to the linked-versus-managed removal rules above.
 
-Library materials are passive personal files. Adding one to a Space creates an independent local copy under `From Library`; it is not shared with the Assistant until the user attaches it or the Assistant accesses it through an authorized tool.
+The desktop no longer has a Library surface (2026-09-25). The CLI `library` family still stores passive personal files outside every Space; copying one into a Space creates an independent local copy under `From Library`, which is not shared with the Assistant until the user attaches it or the Assistant accesses it through an authorized tool.
 
 The folder's executable configuration can later change through local edits, source control, or a desktop synchronization tool without another registration prompt. Review native Pi Extensions and package changes with the same care as other current-user code. See [Assistant capabilities](docs/assistant-capabilities.md) for the complete distinction.
 

@@ -9,7 +9,7 @@ const entry = served({ kind: "entry", bytes: Buffer.from("<!doctype html><h1>Quo
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function documentFixture() {
-  const dom = new JSDOM('<!doctype html><button id="opener">Open app</button>', { url: "http://localhost/", pretendToBeVisual: true });
+  const dom = new JSDOM('<!doctype html><button id="opener">Open App</button>', { url: "http://localhost/", pretendToBeVisual: true });
   const previous = { document: globalThis.document, window: globalThis.window };
   Object.defineProperty(globalThis, "document", { configurable: true, writable: true, value: dom.window.document });
   Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: dom.window });

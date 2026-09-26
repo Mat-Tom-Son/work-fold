@@ -102,9 +102,9 @@ test("the Interface section ends with any desktop row the Settings window passes
   const store = new ApplicationAppearanceStore(null, true);
   function Screen() {
     const appearance = useApplicationAppearance({ store, fixtureMode: true });
-    return createElement(AppearanceSettingsPane, { appearance, space: null, interfaceExtra: createElement("div", { role: "radiogroup", "aria-label": "Closing the window" }) });
+    return createElement(AppearanceSettingsPane, { appearance, space: null, interfaceExtra: createElement("div", { role: "radiogroup", "aria-label": "Closing the Window" }) });
   }
   await dom.render(createElement(Screen));
   const section = document.querySelector('[aria-labelledby="appearance-interface-title"]')!;
-  assert.equal(section.lastElementChild?.getAttribute("aria-label"), "Closing the window");
+  assert.equal(section.lastElementChild?.getAttribute("aria-label"), "Closing the Window");
 });

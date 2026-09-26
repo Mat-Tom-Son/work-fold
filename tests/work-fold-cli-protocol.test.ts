@@ -139,7 +139,7 @@ test("CLI help covers every landed act family and is honest about what it runs",
       "operation activate", "operation cancel", "uninstall",
     ],
     routings: ["enable", "list", "show", "run", "stop", "disable", "delete", "receipts"],
-    pages: ["share", "share-app", "list", "status", "revoke", "narrow", "snapshot-off"],
+    pages: ["share", "share-app", "list", "status", "revoke", "narrow", "widen", "snapshot-off"],
     trash: ["list", "restore"],
     requests: ["list", "show"],
   };

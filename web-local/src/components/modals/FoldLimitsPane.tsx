@@ -123,8 +123,8 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
   const requests = workFoldRequestLimits;
 
   return (
-    <section className="settings-section" aria-labelledby="fold-limits-title">
-      <div className="settings-section-heading"><h3 id="fold-limits-title">{foldLimitsSettings.heading}</h3></div>
+    <details className="settings-section settings-limits">
+      <summary className="settings-section-heading settings-limits-summary"><h3 id="fold-limits-title">{foldLimitsSettings.heading}</h3></summary>
       {foldLimitsSettings.frozenNote ? <span className="settings-section-note">{foldLimitsSettings.frozenNote}</span> : null}
 
       <h4 id="fold-limits-assistant-title">{foldLimitsSettings.assistantHeading}</h4>
@@ -142,7 +142,7 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
         ]}
       />
 
-      <h4>Live Extension questions</h4>
+      <h4>Live Extension Questions</h4>
       <LimitRows rows={[
         ["Pending Extension questions per Chat", String(workFoldExtensionUiLimits.pendingPerChat)],
         ["Pending Extension questions on this computer", String(workFoldExtensionUiLimits.pendingTotal)],
@@ -159,7 +159,7 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           ["A question an agent asks", kib(requests.maxQuestionTextBytes)],
           ["An answer you give", kib(requests.maxAnswerTextBytes)],
           ["A result summary", kib(requests.maxResultSummaryBytes)],
-          ["Result details", kib(requests.maxResultDataBytes)],
+          ["Result Details", kib(requests.maxResultDataBytes)],
           ["Kept for", `${requests.retentionDays} days`],
         ]}
       />
@@ -187,6 +187,6 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           </button>
         </div>
       ) : null}
-    </section>
+    </details>
   );
 }

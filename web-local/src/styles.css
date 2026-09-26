@@ -205,6 +205,12 @@ textarea,
   padding-top: var(--desktop-titlebar-height);
 }
 
+/* The desktop shell is exactly one window tall (minimum 1100x760), so the
+   document itself must never scroll; only panes inside it do. */
+body:has(> #root > .desktop-chrome-shell) {
+  overflow: hidden;
+}
+
 .desktop-titlebar {
   position: fixed;
   z-index: 10;
@@ -7778,23 +7784,16 @@ textarea,
   padding-inline: 8px 3px;
 }
 
-.surface-tabs.tab-count-compact .surface-tab-close,
-.surface-tabs.tab-count-dense .surface-tab-close {
-  width: 20px;
-  margin-right: 2px;
-}
-
 .surface-tabs.tab-count-dense .surface-tab-main {
   gap: 5px;
   padding-inline: 7px 3px;
 }
 
-.surface-tabs.tab-count-compact .surface-tab-icon,
-.surface-tabs.tab-count-dense .surface-tab-icon {
-  display: none;
+.surface-tab-chat-status {
+  margin-right: 1px;
 }
 
-.surface-tab-chat-status {
+.surface-tab-shared-marker {
   margin-right: 1px;
 }
 
@@ -7939,10 +7938,64 @@ textarea,
     transform 0.16s var(--work-fold-ease-smooth);
 }
 
-.surface-tab-new-chat-trigger {
-  width: 48px;
-  grid-template-columns: 20px 14px;
-  gap: 2px;
+/* One control at rest; hover and focus show its two halves (2026-09-25). */
+.surface-tab-new-chat {
+  display: grid;
+  grid-template-columns: 30px 18px;
+  align-items: stretch;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition:
+    border-color 0.16s var(--work-fold-ease-smooth),
+    box-shadow 0.16s var(--work-fold-ease-smooth);
+}
+
+.surface-tab-new-chat > .surface-tab-action {
+  width: auto;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px 0 0 7px;
+  box-shadow: none;
+  transform: none;
+}
+
+.surface-tab-new-chat-main {
+  padding: 0;
+}
+
+.surface-tab-new-chat > .surface-tab-new-chat-trigger {
+  border-radius: 0 7px 7px 0;
+}
+
+.surface-tab-new-chat:hover,
+.surface-tab-new-chat:focus-within {
+  border-color: var(--space-selection-border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.surface-tab-new-chat:hover > .surface-tab-new-chat-trigger,
+.surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
+}
+
+.surface-tab-new-chat > .surface-tab-action:hover,
+.surface-tab-new-chat > .surface-tab-action:focus-visible {
+  border-color: transparent;
+  background: var(--space-selection-surface, rgba(72, 106, 179, 0.1));
+  box-shadow: none;
+  transform: none;
+}
+
+.surface-tab-new-chat:hover > .surface-tab-new-chat-trigger:hover,
+.surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger:focus-visible {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
+}
+
+.surface-tab-new-chat > .surface-tab-action:active {
+  transform: none;
+  background: var(--space-selection-border);
 }
 
 .surface-tab-space-menu-anchor {
@@ -8484,6 +8537,24 @@ textarea,
   flex-basis: 5px;
   opacity: 0.72;
   box-shadow: none;
+}
+
+/* A file shared as a page: the mark sits right after the name, and the
+   check-attention dot (if any) keeps the far edge. */
+.file-row-entry.is-shared {
+  grid-template-columns: auto minmax(0, max-content) auto minmax(0, 1fr);
+}
+
+.file-shared-marker,
+.surface-tab-shared-marker {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #8a94a6;
+}
+
+.file-shared-marker {
+  margin-left: -3px;
 }
 
 .file-row-entry {
@@ -11109,10 +11180,9 @@ textarea,
 }
 
 .composer-capability-bar {
-  position: absolute;
-  left: 10px;
-  right: 60px;
-  bottom: 8px;
+  /* In flow below the text (2026-09-25): a long draft can no longer scroll under this row. */
+  position: static;
+  padding: 0 60px 8px 10px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -11414,7 +11484,7 @@ textarea,
   resize: none;
   border: 0;
   border-radius: 8px;
-  padding: 15px 58px 42px 15px;
+  padding: 15px 58px 12px 15px;
   outline: 0;
   line-height: var(--work-fold-composer-line-height);
   overflow-y: hidden;
@@ -13501,6 +13571,11 @@ textarea,
 
 .app-shell[data-theme="dark"] .surface-tab-title {
   color: #f8fafc;
+}
+
+.app-shell[data-theme="dark"] .file-shared-marker,
+.app-shell[data-theme="dark"] .surface-tab-shared-marker {
+  color: #8b97aa;
 }
 
 .app-shell[data-theme="dark"] .surface-tab-space {
@@ -17359,9 +17434,32 @@ textarea,
 .fold-publication-row .settings-actions .secondary-button { min-width: 0; }
 .fold-publication-link { display: grid; gap: 6px; }
 .fold-publication-link .remote-access-url { overflow-wrap: anywhere; user-select: all; }
-.fold-publication-link small,
-.fold-publication-snapshot-label { color: #5c6b81; font-size: 0.74rem; }
-.fold-publication-narrow { border-top: 1px dashed #e4e9ef; padding-top: 8px; }
+.fold-publication-link small { color: #5c6b81; font-size: 0.74rem; }
+/* One compact row: two labeled number fields and Save; wraps only when the pane is too narrow for all three. */
+.fold-publication-budgets { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; border-top: 1px dashed #e4e9ef; padding-top: 8px; }
+.fold-publication-budgets .settings-field { flex: 0 0 140px; width: 140px; min-width: 0; }
+.fold-publication-budgets .settings-field input { min-height: 36px; height: 36px; }
+.fold-publication-budgets .settings-actions { flex: 0 0 auto; }
+.fold-publication-budgets .settings-actions .primary-button { min-width: 0; min-height: 36px; height: 36px; padding: 0 16px; }
+.fold-publication-summary { display: grid; gap: 2px; min-width: 0; }
+.fold-publication-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.fold-publication-state { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border: 1px solid #d4dbe5; border-radius: 999px; background: #f4f6f9; color: #4b5a70; font-size: 0.72rem; font-weight: 600; cursor: default; }
+.fold-publication-state.live { color: #17684f; border-color: #b9e1d2; background: #edf8f3; }
+.fold-publication-state.resting { color: #8a5a00; border-color: #efd9a6; background: #fdf6e6; }
+.fold-publication-state.not-available { color: #9b2c2c; border-color: #f0c4c4; background: #fdf0f0; }
+.fold-publication-sleep-copy { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; }
+.fold-publication-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fold-publication-empty .secondary-button { width: auto; }
+.file-share-anchor { position: relative; display: inline-flex; }
+.file-share-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 45; width: min(440px, calc(100vw - 32px)); max-width: calc(100vw - 32px); box-sizing: border-box; display: grid; gap: 8px; padding: 12px; color: #253044; background: #ffffff; border: 1px solid #cfd8e3; border-radius: 8px; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.14); }
+.file-share-popover p { margin: 0; font-size: 0.8rem; }
+.file-share-popover .file-share-meaning { color: #5c6b81; font-size: 0.74rem; }
+/* The link stays on one line: ellipsis at rest, scrolls sideways when focused. */
+.file-share-link { display: block; width: 100%; min-width: 0; box-sizing: border-box; height: 30px; padding: 0 8px; overflow-x: auto; white-space: nowrap; text-overflow: ellipsis; font: 0.74rem ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit; background: #f4f6f9; border: 1px solid #dde3ea; border-radius: 6px; }
+.file-share-link:focus { outline: 2px solid rgba(24, 78, 119, 0.18); border-color: #9fc6dc; text-overflow: clip; }
+.file-share-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-share-actions .secondary-button.compact { width: auto; min-height: 28px; padding: 4px 10px; gap: 6px; font-size: 0.78rem; }
+.file-share-loading { color: #5c6b81; }
 
 /* Settings → Automations. The list is the selector; the right side is
    one plain inspector, so the operational surface stays dense without turning
@@ -17393,6 +17491,82 @@ textarea,
   font-size: 0.82rem;
   line-height: 1.5;
   text-align: center;
+}
+
+/* Proposal files the work-fold agent wrote, waiting for one-click Turn on. */
+.fold-routing-proposals {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.fold-routing-proposals h5 {
+  margin: 0;
+  color: #344054;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.fold-routing-proposals ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.fold-routing-proposal {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+}
+
+.fold-routing-proposal + .fold-routing-proposal {
+  border-top: 1px solid #e4e9ef;
+}
+
+.fold-routing-proposal > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.fold-routing-proposal strong,
+.fold-routing-proposal small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fold-routing-proposal strong {
+  color: #344054;
+  font-size: 0.82rem;
+}
+
+.fold-routing-proposal small {
+  color: #667085;
+  font-size: 0.7rem;
+}
+
+.fold-routing-proposal.invalid strong {
+  color: #667085;
+  font-weight: 600;
+}
+
+.fold-routing-proposal .primary-button {
+  flex: none;
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+}
+
+.fold-routing-folder-filter {
+  justify-self: start;
+  flex-wrap: wrap;
 }
 
 .fold-routings-workbench {
@@ -17839,9 +18013,16 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .fold-publication-row + .fold-publication-row { border-top-color: #303a48; }
-.app-shell[data-theme="dark"] .fold-publication-narrow { border-top-color: #303a48; }
-.app-shell[data-theme="dark"] .fold-publication-link small,
-.app-shell[data-theme="dark"] .fold-publication-snapshot-label { color: #94a3b8; }
+.app-shell[data-theme="dark"] .fold-publication-budgets { border-top-color: #303a48; }
+.app-shell[data-theme="dark"] .fold-publication-state { color: #cbd5e1; border-color: #3c4655; background: #202733; }
+.app-shell[data-theme="dark"] .fold-publication-state.live { color: #8fe0c0; border-color: #285948; background: #142d26; }
+.app-shell[data-theme="dark"] .fold-publication-state.resting { color: #f0cb7a; border-color: #5f4d2b; background: #302817; }
+.app-shell[data-theme="dark"] .fold-publication-state.not-available { color: #f4a0a0; border-color: #6b3838; background: #351d1d; }
+.app-shell[data-theme="dark"] .file-share-popover { color: #e5edf7; background: rgba(17, 24, 39, 0.98); border-color: rgba(148, 163, 184, 0.24); box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45); }
+.app-shell[data-theme="dark"] .file-share-popover .file-share-meaning,
+.app-shell[data-theme="dark"] .file-share-loading { color: #94a3b8; }
+.app-shell[data-theme="dark"] .file-share-link { background: #202733; color: #e5edf7; border-color: #3c4655; }
+.app-shell[data-theme="dark"] .fold-publication-link small { color: #94a3b8; }
 
 .app-shell[data-theme="dark"] .fold-routings-empty,
 .app-shell[data-theme="dark"] .fold-routings-workbench { border-color: #3c4655; }
@@ -17994,4 +18175,51 @@ textarea,
   font-size: 11px;
   padding: 1px 6px;
   white-space: nowrap;
+}
+
+/* Settings → Automations → Limits stays on the page but folded by default (2026-09-25). */
+.settings-limits > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-limits > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-limits > summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease-out;
+  opacity: 0.7;
+}
+
+.settings-limits[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.settings-limits > summary h3 {
+  margin: 0;
+}
+
+/* The split new-chat control keeps its own hover look in the dark theme too. */
+.app-shell[data-theme="dark"] .surface-tab-new-chat > .surface-tab-action:hover,
+.app-shell[data-theme="dark"] .surface-tab-new-chat > .surface-tab-action:focus-visible {
+  border-color: transparent;
+  background: var(--space-selection-surface, rgba(255, 255, 255, 0.08));
+  box-shadow: none;
+  transform: none;
+}
+
+.app-shell[data-theme="dark"] .surface-tab-new-chat:hover > .surface-tab-new-chat-trigger,
+.app-shell[data-theme="dark"] .surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
 }

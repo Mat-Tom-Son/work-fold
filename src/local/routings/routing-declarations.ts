@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { normalizeWorkFoldCheckTargetPath } from "../../shared/checks.js";
 import { workFoldRoutingDeclarationBounds } from "../../shared/fold-limits.js";
+import { folderAutomationRoles, type FolderAutomationRole } from "../../shared/routing-presentation.js";
 import { restrictedAppAutomationIntervalMinutes } from "../agent/restricted-app-manifest.js";
 import { workFoldCheckDigest } from "../checks/check-integrity.js";
 import { workFoldCheckTargetHardLimits } from "../checks/target-resolver.js";
@@ -268,7 +269,7 @@ export interface WorkFoldRoutingDeclaration extends WorkFoldRoutingDefinition {
   createdAt: string;
 }
 
-const maximumProposalBytes = 256 * 1024;
+export const workFoldRoutingDocumentMaxBytes = 256 * 1024;
 
 // Mirrors isSpaceId in src/local/space.ts: routings pin Spaces by stable
 // registered Space id, never by name or path. The CLI may resolve an exact
@@ -356,6 +357,20 @@ export function declarationFromWorkFoldRoutingProposal(
 }
 
 /**
+ * The declaration a proposal enables as: a deterministic content-derived
+ * routing id, so identical proposal content always names one routing. The
+ * CLI's `routings enable --proposal` and Settings' pending-proposal scan both
+ * go through this, so a scanned file's digest is exactly what enabling it pins.
+ */
+export function contentAddressedWorkFoldRoutingDeclaration(
+  proposal: WorkFoldRoutingProposal,
+): { declaration: WorkFoldRoutingDeclaration; digest: string } {
+  const contentId = `routing-${workFoldRoutingDigest(proposal).slice(0, 16)}`;
+  const declaration = declarationFromWorkFoldRoutingProposal(proposal, contentId);
+  return { declaration, digest: workFoldRoutingDigest(declaration) };
+}
+
+/**
  * The digest that pins a routing: enablement records an exact-authority grant
  * over it, receipts carry it, and any edit changes it — an edited routing
  * never coasts on a stale approval. Canonicalization is the same stable JSON
@@ -387,6 +402,30 @@ export function workFoldRoutingReferencedSpaceIds(definition: WorkFoldRoutingDef
 }
 
 /**
+ * What this routing does in one Space, derived from the declaration alone:
+ * the trigger watches it (a folder change, or a Check or app automation
+ * settling there), a files step copies into or out of it, a chat step starts
+ * a conversation there, a check step runs Checks there. Empty exactly when
+ * `workFoldRoutingReferencedSpaceIds` does not name the Space.
+ */
+export function workFoldRoutingSpaceRoles(definition: WorkFoldRoutingDefinition, spaceId: string): FolderAutomationRole[] {
+  const roles = new Set<FolderAutomationRole>();
+  if (definition.trigger.kind === "files-changed" && definition.trigger.space === spaceId) roles.add("watches");
+  if (definition.trigger.kind === "on-settled" && definition.trigger.source.space === spaceId) roles.add("watches");
+  for (const step of definition.steps) {
+    if (step.kind === "files") {
+      if (step.toSpace === spaceId) roles.add("copies-to");
+      if (step.fromSpace === spaceId) roles.add("copies-from");
+    } else if (step.kind === "chat" && step.space === spaceId) {
+      roles.add("chats-here");
+    } else if (step.kind === "check" && step.space === spaceId) {
+      roles.add("checks-here");
+    }
+  }
+  return folderAutomationRoles.filter((role) => roles.has(role));
+}
+
+/**
  * Rechecks the time-sensitive one-time horizon when the routing is enabled.
  * The declaration parser validates only the stable shape because a stored
  * inert proposal must not become syntactically damaged merely as time passes.
@@ -406,7 +445,7 @@ export function assertWorkFoldRoutingAtAdmissionHorizon(
 
 export async function readWorkFoldRoutingProposal(path: string): Promise<WorkFoldRoutingProposal> {
   const resolved = resolve(path);
-  return normalizeWorkFoldRoutingProposal(JSON.parse(await readBoundedOrdinaryFile(resolved)));
+  return normalizeWorkFoldRoutingProposal(JSON.parse(await readWorkFoldRoutingDocument(resolved)));
 }
 
 function normalizeRoutingDefinition(value: unknown, version: WorkFoldRoutingContractVersion): WorkFoldRoutingDefinition {
@@ -775,20 +814,38 @@ function assertKeys(
   if (missing.length) throw new Error(`${label} is missing required field: ${missing[0]}.`);
 }
 
-async function readBoundedOrdinaryFile(path: string): Promise<string> {
+/** The shared bounded, no-follow reader for proposal scans and enablement. */
+export async function readWorkFoldRoutingDocument(path: string): Promise<string> {
   const info = await lstat(path);
   if (info.isSymbolicLink() || !info.isFile()) throw new Error("Routing document must be an ordinary file, not a link or special file.");
-  if (info.size > maximumProposalBytes) throw new Error(`Routing document exceeds ${maximumProposalBytes} bytes.`);
-  const handle = await open(path, constants.O_RDONLY | noFollowFlag());
+  if (info.size > workFoldRoutingDocumentMaxBytes) throw new Error("Routing document exceeds the 256 KiB bound.");
+  // A raced FIFO must not block the app; a raced symlink must not redirect it.
+  const handle = await open(path, constants.O_RDONLY | noFollowFlag() | (constants.O_NONBLOCK ?? 0));
   try {
     const afterOpen = await handle.stat();
-    if (!afterOpen.isFile() || afterOpen.dev !== info.dev || afterOpen.ino !== info.ino) throw new Error("Routing document changed while it was opened.");
-    const source = await handle.readFile("utf8");
-    if (Buffer.byteLength(source, "utf8") > maximumProposalBytes) throw new Error(`Routing document exceeds ${maximumProposalBytes} bytes.`);
-    return source;
+    if (!sameRoutingFile(info, afterOpen)) throw new Error("Routing document changed while it was opened.");
+    // Read the admitted size only: readFile() could allocate without a bound
+    // if another process grew the file after stat. The final metadata checks
+    // also refuse a changed/truncated document instead of parsing mixed bytes.
+    const bytes = Buffer.alloc(afterOpen.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (!read.bytesRead) throw new Error("Routing document changed while it was read.");
+      offset += read.bytesRead;
+    }
+    if (!sameRoutingFile(afterOpen, await handle.stat()) || !sameRoutingFile(afterOpen, await lstat(path))) {
+      throw new Error("Routing document changed while it was read.");
+    }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } finally {
     await handle.close();
   }
+}
+
+function sameRoutingFile(before: Stats, after: Stats): boolean {
+  return after.isFile() && !after.isSymbolicLink() && before.dev === after.dev && before.ino === after.ino
+    && before.size === after.size && before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs;
 }
 
 function noFollowFlag(): number {

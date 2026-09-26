@@ -120,7 +120,7 @@ export function RestrictedAppViewport({
           <Apps24Regular />
           <strong>{app.manifest.title} stopped</strong>
           <span>{message}</span>
-          <button type="button" className="secondary-button" onClick={() => { mountIdRef.current = crypto.randomUUID(); sequenceRef.current = 0; setGeneration((value) => value + 1); }}><ArrowClockwise20Regular />Try again</button>
+          <button type="button" className="secondary-button" onClick={() => { mountIdRef.current = crypto.randomUUID(); sequenceRef.current = 0; setGeneration((value) => value + 1); }}><ArrowClockwise20Regular />Try Again</button>
         </div>
       ) : null}
     </div>

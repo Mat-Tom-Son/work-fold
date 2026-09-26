@@ -94,7 +94,12 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /pages status --publication <id>/);
     assert.match(managementContext, /pages narrow --publication <id> --serve-rate <per-minute>\|--byte-budget <bytes-per-day>/);
     assert.match(managementContext, /pages snapshot-off --publication <id>/);
-    assert.match(managementContext, /Widening back — re-exposing, raising a budget, turning snapshot on — is a fresh `pages share` with its own receipt\./);
+    // Widening in place (docs/fold-publishing.md, amended 2026-09-24): budgets
+    // and snapshot change under a receipt while the link stays; re-exposing
+    // is still a fresh share, and a share with no address refuses.
+    assert.match(managementContext, /Widening in place keeps the slot, key, and link: `pages widen --publication <id> \[--serve-rate <per-minute>\] \[--byte-budget <bytes-per-day>\] \[--snapshot\]`/);
+    assert.match(managementContext, /Re-exposing a revoked page is a fresh `pages share` with a new link\./);
+    assert.match(managementContext, /Sharing needs web access set up/);
     // Hosted-app exposure (docs/fold-publishing.md, rung 3) rides the same
     // pages family: `pages share-app` shares on the call, `--instance` accepts
     // either installed-instance id, the pins resolve host-side from the app's
@@ -110,7 +115,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     // the person as glance change items with the precise reason, and
     // Settings → Automations and Recently deleted hold the person's own direct controls — the share
     // link never rides the fold's lane.
-    assert.match(managementContext, /Page problems surface through the glance/);
+    assert.match(managementContext, /Page problems show in Settings → Shared pages and the glance/);
     assert.match(managementContext, /Share links are revealed only in Settings → Shared pages/);
     assert.match(managementContext, /never enter this lane's output or receipts/);
     assert.match(managementContext, /manage glance --json/);
@@ -153,6 +158,10 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Never run cross-Space work through a Space Chat\./);
     assert.match(managementContext, /work-fold\.routing-proposal/);
     assert.match(managementContext, /Use version 1 for manual, interval, and on-settled triggers/);
+    assert.match(managementContext, /Use version 3 for a folder-change trigger/);
+    assert.match(managementContext, /<name>\.work-fold-routing\.json` directly in this management working folder/);
+    assert.match(managementContext, /appears in Settings → Automations under \*\*Ready to turn on\*\*/);
+    assert.match(managementContext, /do not enable it yourself unless they ask you to/);
     assert.match(managementContext, /Use version 2 for a one-time trigger shaped exactly/);
     assert.match(managementContext, /`ifMissed` is required/);
     assert.match(managementContext, /1 minute through 366 days ahead/);
@@ -240,7 +249,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /Space apps come up able to work/);
     assert.match(skillContent, /grant each declared folder permission over the whole Space/);
     assert.match(skillContent, /bind a Check-result slot when the Space has exactly one Check/);
-    assert.match(skillContent, /still need the person in the Apps tab/);
+    assert.match(skillContent, /still need the person in Settings → Apps/);
     assert.match(skillContent, /apps invoke --space <id> --app <id> --tool <name> --input <json>/);
     assert.match(skillContent, /leave a copy in Recently deleted first/);
     assert.match(skillContent, /trash restore --entry <id>/);

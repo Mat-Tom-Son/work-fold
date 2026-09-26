@@ -271,25 +271,39 @@ test("local API exposes path-safe file operations, undo checkpoints, chat rename
   assert.deepEqual(attachment.attachment, { ...attachment.attachment, mode: "full_original_text", includedInPrompt: true });
 
   const controller = new AbortController();
-  const eventsResponse = await fetch(`${api.origin}/api/spaces/${id}/file-events`, { signal: controller.signal });
+  const eventsResponse = await fetch(`${api.origin}/api/spaces/${id}/file-events`, {
+    signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]),
+  });
   assert.equal(eventsResponse.ok, true);
-  const eventReader = eventsResponse.body?.getReader();
-  const firstEvent = await eventReader?.read();
-  assert.match(new TextDecoder().decode(firstEvent?.value), /"type":"ready"/);
-  await writeFile(join(spaceRoot, "watch-me.txt"), "watch\n", "utf8");
-  let eventTimeout: NodeJS.Timeout | undefined;
-  const changedEvent = await Promise.race([
-    eventReader?.read(),
-    new Promise<never>((_, reject) => {
-      eventTimeout = setTimeout(() => reject(new Error("Timed out waiting for a Space file event.")), 3_000);
-      eventTimeout.unref();
-    }),
-  ]);
-  if (eventTimeout) clearTimeout(eventTimeout);
-  assert.match(new TextDecoder().decode(changedEvent?.value), /"type":"file_event"/);
-  assert.match(new TextDecoder().decode(changedEvent?.value), /watch-me\.txt/);
-  await eventReader?.cancel();
-  controller.abort();
+  assert.ok(eventsResponse.body);
+  const events = readSpaceFileEvents(eventsResponse.body);
+  try {
+    assert.equal((await events.next()).value?.type, "ready");
+    // The server's ready frame means fs.watch has returned, not that the
+    // platform has delivered a native event. Establish that separately before
+    // asserting one post-readiness write. Only this startup probe is repeated;
+    // a lost watch-me.txt event must still fail the test. The fetch signal puts
+    // a hard bound on both startup and target delivery under shared-runner load.
+    const nativeReady = waitForSpaceFileEvent(events, "watch-ready.txt").then(
+      () => ({ ready: true as const }),
+      (error: unknown) => ({ error }),
+    );
+    for (let attempt = 0; ; attempt += 1) {
+      await writeFile(join(spaceRoot, "watch-ready.txt"), `ready ${attempt}\n`, "utf8");
+      const result = await Promise.race([
+        nativeReady,
+        new Promise<null>((resolvePromise) => setTimeout(() => resolvePromise(null), 100)),
+      ]);
+      if (!result) continue;
+      if ("error" in result) throw result.error;
+      break;
+    }
+    await writeFile(join(spaceRoot, "watch-me.txt"), "watch\n", "utf8");
+    await waitForSpaceFileEvent(events, "watch-me.txt");
+  } finally {
+    controller.abort();
+    await events.return();
+  }
 
   const traversal = await fetch(`${api.origin}/api/spaces/${id}/file-info?path=..%2Foutside.txt`);
   assert.equal(traversal.ok, false);
@@ -370,6 +384,71 @@ async function json(url: string, init?: RequestInit): Promise<unknown> {
   assert.equal(response.ok, true, text);
   return JSON.parse(text) as unknown;
 }
+
+interface SpaceFileEvent {
+  type: string;
+  path?: string | null;
+  message?: string;
+}
+
+async function* readSpaceFileEvents(stream: ReadableStream<Uint8Array>): AsyncGenerator<SpaceFileEvent, void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const result = await reader.read();
+      if (result.done) return;
+      buffer += decoder.decode(result.value, { stream: true });
+      let boundary: number;
+      while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        if (frame.startsWith("data: ")) yield JSON.parse(frame.slice(6)) as SpaceFileEvent;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+async function waitForSpaceFileEvent(events: AsyncGenerator<SpaceFileEvent, void>, path: string): Promise<void> {
+  for (;;) {
+    const event = await events.next();
+    assert.equal(event.done, false, `File event stream ended before ${path}.`);
+    if (!event.value) continue;
+    assert.notEqual(event.value.type, "error", event.value.message);
+    if (event.value.type === "file_event" && event.value.path === path) return;
+  }
+}
+
+test("file event assertions preserve split and combined SSE frames", async () => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({ start(controller) {
+    for (const chunk of [
+      'data: {"type":"rea',
+      'dy"}\n\n: keepalive\n\ndata: {"type":"file_event","path":"watch-ready.txt"}\n',
+      '\ndata: {"type":"file_event","path":"watch-me.txt"}\n\n',
+    ]) controller.enqueue(encoder.encode(chunk));
+    controller.close();
+  } });
+  const events = readSpaceFileEvents(stream);
+  assert.equal((await events.next()).value?.type, "ready");
+  await waitForSpaceFileEvent(events, "watch-ready.txt");
+  await waitForSpaceFileEvent(events, "watch-me.txt");
+  assert.equal((await events.next()).done, true);
+});
+
+test("a native readiness event cannot satisfy the subsequent exact file event assertion", async () => {
+  const stream = new ReadableStream<Uint8Array>({ start(controller) {
+    controller.enqueue(new TextEncoder().encode('data: {"type":"file_event","path":"watch-ready.txt"}\n\ndata: {"type":"file_event","path":"watch-ready.txt"}\n\n'));
+    controller.close();
+  } });
+  const events = readSpaceFileEvents(stream);
+  await waitForSpaceFileEvent(events, "watch-ready.txt");
+  await assert.rejects(waitForSpaceFileEvent(events, "watch-me.txt"), /File event stream ended before watch-me\.txt/);
+});
 
 async function ok(url: string, init?: RequestInit): Promise<void> {
   const response = await fetch(url, init);
