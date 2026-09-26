@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { MAIN_CI_JOBS, TAG_CI_JOBS, verifyReleaseCi } from "../scripts/release-ci.mjs";
+import { verifyReleaseMain, verifyReleaseSource } from "../scripts/release-source.mjs";
 
 const repo = "Mat-Tom-Son/work-fold";
 const sha = "a".repeat(40);
@@ -62,7 +66,7 @@ function fixture() {
   return { data, calls, api };
 }
 
-test("release publication requires exact main and lightweight tag evidence", async () => {
+test("optional CI diagnostics inspect exact main and lightweight tag evidence", async () => {
   const f = fixture();
   const evidence = await verifyReleaseCi({ ...options, api: f.api });
   assert.deepEqual(evidence, {
@@ -70,19 +74,73 @@ test("release publication requires exact main and lightweight tag evidence", asy
     mainRun: { id: 11, url: `https://github.com/${repo}/actions/runs/11`, attempt: 1 },
     tagRun: { id: 12, url: `https://github.com/${repo}/actions/runs/12`, attempt: 1 },
   });
-  assert.equal(f.calls.filter((path) => path.endsWith("git/ref/heads/main")).length, 2);
-  assert.equal(f.calls.filter((path) => path.includes("git/ref/tags/")).length, 2);
+  assert.equal(f.calls.filter((path) => path.endsWith("git/ref/heads/main")).length, 4);
+  assert.equal(f.calls.filter((path) => path.includes("git/ref/tags/")).length, 4);
   assert.ok(f.calls.some((path) => path.includes("/attempts/1/jobs")));
   assert.ok(f.calls.every((path) => !path.includes("status=") && !path.includes("conclusion=")));
 });
 
-test("tag workflow checks main evidence without depending on its own unfinished run", async () => {
+test("optional CI diagnostics can inspect main without depending on the tag run", async () => {
   const f = fixture();
   f.data.tagRuns[0]!.status = "in_progress";
   const evidence = await verifyReleaseCi({ ...options, requireTagCi: false, api: f.api });
   assert.equal(evidence.tagObjectSha, tagObjectSha);
   assert.equal(evidence.tagRun, undefined);
   assert.ok(f.calls.every((path) => !path.includes("release-tag.yml")));
+});
+
+test("release source verification reads only canonical main and annotated tag identity twice", async () => {
+  const f = fixture();
+  f.data.mainRuns[0]!.conclusion = "failure";
+  f.data.tagRuns[0]!.status = "queued";
+  const evidence = await verifyReleaseSource({ ...options, api: f.api });
+  assert.deepEqual(evidence, { ...options, tagObjectSha });
+  assert.equal(f.calls.length, 6);
+  assert.equal(f.calls.filter((path) => path.endsWith("git/ref/heads/main")).length, 2);
+  assert.equal(f.calls.filter((path) => path.includes("git/ref/tags/")).length, 2);
+  assert.ok(f.calls.every((path) => !path.includes("/actions/")));
+  const main = fixture();
+  assert.deepEqual(await verifyReleaseMain({ repo, sha, api: main.api }), { repo, sha });
+  assert.deepEqual(main.calls, [`repos/${repo}/git/ref/heads/main`, `repos/${repo}/git/ref/heads/main`]);
+});
+
+test("source verification rejects noncanonical repositories and malformed identity before any API call", async () => {
+  const f = fixture();
+  for (const override of [{ repo: "someone/fork" }, { sha: "main" }, { tag: "latest" }, { expectedTagObjectSha: "" }]) {
+    await assert.rejects(verifyReleaseSource({ ...options, ...override, api: f.api }), /canonical repository|exact commit SHA|versioned source tag|annotated-tag object SHA/);
+  }
+  assert.deepEqual(f.calls, []);
+});
+
+test("source-only validation rejects wrong or moved main, lightweight tags, and recreated annotations", async () => {
+  const mutations = [
+    (f: ReturnType<typeof fixture>) => { f.data.mainRef.object.sha = "c".repeat(40); },
+    (f: ReturnType<typeof fixture>) => { f.data.tagRef.object.type = "commit"; },
+    (f: ReturnType<typeof fixture>) => { f.data.annotation.object.sha = "c".repeat(40); },
+    (f: ReturnType<typeof fixture>) => { f.data.annotation.object.type = "tag"; },
+    (f: ReturnType<typeof fixture>) => { f.data.annotation.tag = "v0.1.0"; },
+  ];
+  for (const mutate of mutations) {
+    const f = fixture();
+    mutate(f);
+    await assert.rejects(verifyReleaseSource({ ...options, api: f.api }), /not the current pushed main|must be an annotated tag|does not point directly/);
+  }
+  const pinned = fixture();
+  await assert.rejects(verifyReleaseSource({ ...options, expectedTagObjectSha: "c".repeat(40), api: pinned.api }), /changed since/);
+  for (const field of ["main", "tag"] as const) {
+    const f = fixture();
+    let mainReads = 0;
+    await assert.rejects(verifyReleaseSource({ ...options, api: async (endpoint: string) => {
+      if (endpoint.endsWith("git/ref/heads/main") && ++mainReads === 2) {
+        if (field === "main") f.data.mainRef.object.sha = "c".repeat(40);
+        else {
+          f.data.tagRef.object.sha = "c".repeat(40);
+          f.data.annotation.sha = "c".repeat(40);
+        }
+      }
+      return f.api(endpoint);
+    } }), /not the current pushed main|changed during source verification/);
+  }
 });
 
 test("main-only preflight requires pushed main but no new source tag", async () => {
@@ -238,5 +296,47 @@ test("CLI rejects noncanonical source repositories and contradictory workflow co
       env: { ...process.env, WORKFOLD_SOURCE_RELEASE_REPO: "", GITHUB_REPOSITORY: "", GITHUB_SHA: "", GITHUB_ACTIONS: "", ...overrides },
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
     }), /canonical source repository|commit does not match|matching pushed source tag/);
+  }
+});
+
+test("tag-check CLI succeeds while Actions is unavailable and verifies the package version's tag", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "work-fold-tag-source-"));
+  try {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const command = fileURLToPath(new URL("../scripts/verify-release-ci.mjs", import.meta.url));
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+    const packageTag = `v${packageJson.version}`;
+    const trace = join(directory, "calls.jsonl");
+    const fakeGh = join(directory, "gh");
+    await writeFile(fakeGh, `#!/usr/bin/env node
+const { appendFileSync } = require("node:fs");
+const endpoint = process.argv.find((argument) => argument.startsWith("repos/"));
+appendFileSync(${JSON.stringify(trace)}, JSON.stringify(endpoint) + "\\n");
+if (!endpoint || endpoint.includes("/actions/")) throw new Error("Actions evidence is unavailable");
+const responses = ${JSON.stringify({
+      [`repos/${repo}/git/ref/heads/main`]: { ref: "refs/heads/main", object: { type: "commit", sha: head } },
+      [`repos/${repo}/git/ref/tags/${packageTag}`]: { ref: `refs/tags/${packageTag}`, object: { type: "tag", sha: tagObjectSha } },
+      [`repos/${repo}/git/tags/${tagObjectSha}`]: { sha: tagObjectSha, tag: packageTag, object: { type: "commit", sha: head } },
+    })};
+if (!responses[endpoint]) throw new Error("Unexpected source request " + endpoint);
+console.log(JSON.stringify(responses[endpoint]));
+`, "utf8");
+    await chmod(fakeGh, 0o755);
+    const output = execFileSync(process.execPath, [command, "--tag-check"], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`,
+        WORKFOLD_SOURCE_RELEASE_REPO: "", GITHUB_REPOSITORY: repo, GITHUB_SHA: head,
+        GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: `refs/tags/${packageTag}`,
+        GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/release-tag.yml@refs/tags/${packageTag}`,
+      },
+    });
+    assert.deepEqual(JSON.parse(output), { repo, sha: head, tag: packageTag, tagObjectSha });
+    const calls = (await readFile(trace, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as string);
+    assert.equal(calls.length, 6);
+    assert.ok(calls.every((path) => !path.includes("/actions/")));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });

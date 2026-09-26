@@ -68,7 +68,7 @@ Use the smallest lane that proves the behavior under test:
 | Desktop integration | `npm run desktop:smoke` | Prepared, unpackaged Electron behavior using development state. |
 | Structural package | `npm run desktop:make:mac` | Ad hoc, separately identified DMG/ZIP package and verification; never install it as production. |
 | Interactive release candidate | `npm run desktop:rc:mac` | Developer ID-signed and app-notarized production bundle without DMG/ZIP assembly, DMG notarization, updater artifacts, or publication. |
-| Distribution candidate | `npm run desktop:make:mac:release` | Complete signed/notarized DMG and ZIP set plus strict local verification. |
+| Distribution candidate | `npm run desktop:make:mac:release` | Requires the exact-commit local-check receipt; produces the complete signed/notarized DMG and ZIP set plus strict verification. |
 | Public release | `npm run desktop:release:mac` | Fresh distribution candidate followed by guarded draft-first publication. |
 
 The app-only release-candidate lane is the normal packaged UI/desktop QA loop.
@@ -162,9 +162,11 @@ Build the fast app-only candidate for interactive QA:
 npm run desktop:rc:mac
 ```
 
-Build the complete distribution candidate without publishing:
+After the final commit is locally verified, build the complete distribution
+candidate without publishing:
 
 ```bash
+npm run desktop:release:mac:check
 npm run desktop:make:mac:release
 ```
 
@@ -204,15 +206,19 @@ Gatekeeper result before skipping work. It fails closed if inputs, environment,
 or artifacts changed; run a fresh `desktop:make:mac:release` in that case. Do
 not hand-edit the state file. The full verifier still runs before publication.
 
-A frozen distribution build may overlap PR or main CI. Finish the version bump
-and release notes first, and do not modify source while packaging. Once the
-reviewed change is merged, inspect status again on the final `main` checkout.
-A compatible source/configuration fingerprint and exact artifact receipts allow
-`:resume` to reuse completed Apple work even when the merge changed the commit
-id without changing build inputs. A mismatch requires a fresh build; elapsed
-time or a similar-looking app is not evidence of compatibility. Changes only
-to release tooling or documentation do not require a new version or an Apple
-submission to validate the process.
+Finish review, versioning, and release notes, merge to `main`, and run the local
+release check on that exact commit before building. Do not change source or run
+dependency installs during packaging. The local-check receipt pins the final
+SHA and cannot carry across a merge even when its tree matches. A full signed
+build requires that receipt before starting, and publication requires the build
+to have started after the receipt completed. A fresh local check reinstalls
+dependencies, so an older build must be replaced with a subsequent fresh build.
+Only a compatible checkpoint from after the current check may reuse completed
+Apple work. A shared per-worktree lock serializes checks, all macOS builds,
+and publication to prevent dependency installation or preparation from racing
+packaging. The app-only RC lane needs no receipt, but holds the same lock for preparation.
+Changes only to release tooling or documentation need local verification, not
+a new version or an Apple submission.
 
 ## Public releases
 
@@ -232,28 +238,43 @@ legacy release repository must never receive these artifacts.
 npm run desktop:release:mac
 ```
 
-Publication requires full CI for the exact release commit on pushed canonical
-`main`, followed by lightweight `Release tag verification` for its annotated
-source tag. Full CI has seven required jobs: Repository & TypeScript, four
-Application tests shards, Web bridge tests, and Electron integration. The tag
-workflow uses Node 24 on Ubuntu without installing dependencies; it verifies
-the package version, annotated tag, current canonical `main`, and the latest
-exact-commit main push run. It does not repeat the full suite or publish.
-Both required runs must succeed on their first attempt. A failed pushed tag
-remains immutable evidence; do not rerun it to qualify the candidate. Correct
-the cause, advance the package version, and create a new commit and tag.
+Publication requires a successful local check of the exact release commit on
+an Apple-silicon Mac with Node 24, supported npm, and Google Chrome installed
+for the real CSS tests:
 
-Use `npm run desktop:release:mac:ci -- --main-only` before tagging and
-`npm run desktop:release:mac:ci` to check the complete CI evidence afterward.
-The publisher performs these checks before upload and immediately before
-publishing the draft. It also requires a clean worktree whose `HEAD` equals
-canonical `main`, the matching source tag, public source and feed repositories,
-an unused `v<version>` in the feed, and a compatible source fingerprint and
-artifact receipts. These guards also apply when invoking the publisher directly.
-It verifies the local release again, uploads all assets as a draft, checks remote
-names, sizes, and GitHub digests, then publishes the release as latest. It does
-not require a source-repository GitHub Release or any Windows artifact. There
-is no dirty-worktree or CI bypass.
+```bash
+npm run desktop:release:mac:check
+npm run desktop:release:mac:check -- --status
+```
+
+The first command runs fresh root and bridge `npm ci`, `npm run check`, the
+complete `npm test`, bridge tests, and `npm run desktop:prepare`. Fresh installs
+explicitly enable permitted scripts and development dependencies, reject dry-run
+behavior, and use `/bin/sh`; the check also clears test-filter environment flags.
+Only success writes `out/release-checks/local-verification.json`, binding the
+SHA, tree, build-input fingerprint, Node/npm versions, dependency lockfile hashes, and each
+completed stage. Publication requires that same toolchain and dependency state.
+A new run removes old evidence before starting; a failure or source change cannot leave a valid
+success receipt. The status command is read-only. Run the checks after the
+final merge; an identical tree at another commit does not inherit the receipt.
+
+Full GitHub CI remains an independent background check for PRs and `main`.
+`Release tag verification` checks source identity only, without a dependency
+install or a main-CI wait. Neither Actions result is a publication dependency.
+`npm run desktop:release:mac:ci` remains available for optional CI diagnostics.
+
+The publisher validates the local receipt, current canonical `main`, annotated
+source tag, and source-bound signed artifact checkpoint begun after that
+check completed, before upload and immediately before publication. It requires a clean pushed source tree, public
+source and feed repositories, and an unused `v<version>` in the feed. Direct
+publisher invocation has the same requirements. It verifies the local release,
+uploads all assets as a draft, checks remote names, sizes, and GitHub digests,
+then publishes as latest. No source-repository GitHub Release or Windows
+artifact is required. Never hand-edit the local receipt or build checkpoint.
+
+A failure before tagging is corrected by fixing, committing, and rerunning the
+local checks. Once pushed, a candidate tag is immutable: retain a failed tag and
+fix forward with a higher unique version, commit, and tag.
 
 See [macOS release runbook](macos-release.md) for the exact repeatable procedure and recovery rules.
 
@@ -283,7 +304,10 @@ Do not diagnose this with `security find-generic-password ... -g`: `-g` requests
 - `.agents/skills/ship-macos-release/SKILL.md`: standard project Skill that selects and executes these same documented lanes.
 - `scripts/finalize-mac-release-artifacts.mjs`: final DMG signing, notarization, stapling, and post-signing metadata refresh.
 - `scripts/write-mac-release-manifest.mjs`: release evidence and artifact hashes.
-- `scripts/verify-release-ci.mjs`: exact-commit main CI and lightweight source-tag evidence checks.
+- `scripts/check-local-release.mjs`: full local release check and read-only receipt status.
+- `scripts/local-release-verification.mjs`: exact-source receipts, dependency evidence, and shared release-work lock.
+- `scripts/release-source.mjs`: canonical main and annotated source-tag identity checks.
+- `scripts/verify-release-ci.mjs`: optional GitHub CI diagnostics and source-only tag workflow entrypoint.
 - `.github/workflows/release-tag.yml`: dependency-free source-tag verification.
 - `scripts/publish-mac-release.mjs`: guarded draft-first public publisher.
 - `scripts/verify-mac-release.mjs`: bundle, signature, updater, manifest, checksum, and mounted-DMG verification.

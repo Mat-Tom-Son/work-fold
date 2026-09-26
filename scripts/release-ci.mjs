@@ -1,7 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { githubApi, verifyReleaseMain, verifyReleaseSource } from "./release-source.mjs";
+export { githubApi } from "./release-source.mjs";
 
-const execFileAsync = promisify(execFile);
 export const MAIN_CI_JOBS = Object.freeze([
   "Repository & TypeScript",
   "Application tests (1/4)",
@@ -13,18 +12,16 @@ export const MAIN_CI_JOBS = Object.freeze([
 ]);
 export const TAG_CI_JOBS = Object.freeze(["Release tag verification"]);
 
-// Both callers use GitHub's source-repository evidence. The tag workflow checks
-// main; the local publisher additionally checks the independent tag receipt.
+// Optional diagnostic only. Publication uses local verification and the
+// independent source-ref verifier, without waiting for GitHub Actions.
 export async function verifyReleaseCi({
   repo, sha, tag, requireTagCi = true, mainOnly = false, expectedTagObjectSha, api = githubApi,
 }) {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo ?? "")) throw new Error("Invalid release source repository.");
-  if (!/^[a-f0-9]{40}$/.test(sha ?? "")) throw new Error("Release verification requires an exact commit SHA.");
-  if (!mainOnly && !/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(tag ?? "")) {
-    throw new Error("Release verification requires a versioned source tag.");
-  }
   if (mainOnly && expectedTagObjectSha) throw new Error("Main-only verification cannot check a pinned source tag.");
   const prefix = `repos/${repo}`;
+  const readSource = () => mainOnly
+    ? verifyReleaseMain({ repo, sha, api })
+    : verifyReleaseSource({ repo, sha, tag, expectedTagObjectSha, api });
   const source = await readSource();
   const mainRun = await verifyWorkflow("ci.yml", "main", MAIN_CI_JOBS);
   const tagRun = !mainOnly && requireTagCi
@@ -35,26 +32,6 @@ export async function verifyReleaseCi({
   const current = await readSource();
   if (source.tagObjectSha !== current.tagObjectSha) throw new Error(`Source tag ${tag} changed during CI verification.`);
   return { repo, sha, ...(mainOnly ? {} : { tag, tagObjectSha: source.tagObjectSha }), mainRun, ...(tagRun ? { tagRun } : {}) };
-
-  async function readSource() {
-    const main = await api(`${prefix}/git/ref/heads/main`);
-    if (main?.ref !== "refs/heads/main" || main.object?.type !== "commit" || main.object.sha !== sha) {
-      throw new Error(`Release commit ${sha} is not the current pushed main commit in ${repo}.`);
-    }
-    if (mainOnly) return {};
-    const ref = await api(`${prefix}/git/ref/tags/${encodeURIComponent(tag)}`);
-    if (ref?.ref !== `refs/tags/${tag}` || ref.object?.type !== "tag" || !/^[a-f0-9]{40}$/.test(ref.object.sha ?? "")) {
-      throw new Error(`Source tag ${tag} must be an annotated tag in ${repo}.`);
-    }
-    if (expectedTagObjectSha && ref.object.sha !== expectedTagObjectSha) {
-      throw new Error(`Source tag ${tag} changed since the release was verified.`);
-    }
-    const annotated = await api(`${prefix}/git/tags/${ref.object.sha}`);
-    if (annotated?.sha !== ref.object.sha || annotated.tag !== tag || annotated.object?.type !== "commit" || annotated.object.sha !== sha) {
-      throw new Error(`Annotated source tag ${tag} does not point directly to the exact release commit ${sha}.`);
-    }
-    return { tagObjectSha: ref.object.sha };
-  }
 
   async function verifyWorkflow(filename, branch, requiredJobs) {
     const workflow = await api(`${prefix}/actions/workflows/${filename}`);
@@ -138,12 +115,4 @@ export function assertSuccessfulJobs(jobs, requiredNames, runId, sha) {
   for (const name of requiredNames) {
     if (!names.has(name)) throw new Error(`CI run ${runId} is missing required job ${name}.`);
   }
-}
-
-export async function githubApi(endpoint) {
-  const { stdout } = await execFileAsync("gh", [
-    "api", "--hostname", "github.com", "--method", "GET", endpoint,
-    "--header", "Accept: application/vnd.github+json", "--header", "X-GitHub-Api-Version: 2022-11-28",
-  ], { encoding: "utf8", timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
-  return JSON.parse(stdout);
 }

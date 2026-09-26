@@ -109,7 +109,7 @@ test("Mac-only CI and publication keep credentials out of the application", () =
   assert.doesNotMatch(macPublisher, /allow-dirty|allowDirty/);
 });
 
-test("CI tests every PR/main file in four shards and verifies tags without repeating the suite", () => {
+test("background CI tests every PR/main file in four shards and verifies source tags independently", () => {
   const require = createRequire(import.meta.url);
   const workflow = require("js-yaml").load(read(".github/workflows/ci.yml"));
   assert.ok(workflow.on.push.branches.includes("main"));
@@ -140,12 +140,12 @@ test("CI tests every PR/main file in four shards and verifies tags without repea
   const publishedJobNames = jobs.flatMap((job) => job === workflow.jobs.tests
     ? workflow.jobs.tests.strategy.matrix.shard.map((shard: number) => job.name.replace("${{ matrix.shard }}", String(shard)))
     : [job.name]);
-  assert.deepEqual(publishedJobNames.sort(), [...MAIN_CI_JOBS].sort(), "the release verifier must require exactly the jobs CI runs");
+  assert.deepEqual(publishedJobNames.sort(), [...MAIN_CI_JOBS].sort(), "the optional CI diagnostic must inspect exactly the jobs CI runs");
   assert.ok(jobs.some((job) => job.steps.some((step) => step.uses?.startsWith("actions/upload-artifact@") && step.if === "failure()")));
 
   const tagWorkflow = require("js-yaml").load(read(".github/workflows/release-tag.yml"));
   assert.deepEqual(tagWorkflow.on, { push: { tags: ["v*"] } });
-  assert.deepEqual(tagWorkflow.permissions, { contents: "read", actions: "read" });
+  assert.deepEqual(tagWorkflow.permissions, { contents: "read" }, "source-tag verification must not depend on Actions evidence");
   assert.equal(tagWorkflow.concurrency["cancel-in-progress"], false);
   assert.equal(tagWorkflow.concurrency.group, "release-tag-${{ github.run_id }}");
   assert.deepEqual(Object.keys(tagWorkflow.jobs), ["verify"]);

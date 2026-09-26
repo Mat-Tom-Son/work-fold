@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { formatDuration } from "./mac-release-state.mjs";
+import { withReleaseVerificationLock } from "./local-release-verification.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 loadLocalReleaseEnvironment();
@@ -28,35 +29,37 @@ const envPatch = {
   WORKFOLD_REQUIRE_CODE_SIGNING: "1",
 };
 
-await timedStage("prepare", () => runNpmScript("desktop:prepare", envPatch));
-await rm(join(rootDir, outputDirectory), { recursive: true, force: true });
-await timedStage("package + sign + app notarization", () => run(process.execPath, [
-  builderCli,
-  "--config",
-  "electron-builder.desktop.cjs",
-  "--mac",
-  `--${arch}`,
-  "--dir",
-  "--publish",
-  "never",
-], envPatch));
-await timedStage("packaged asset verification", () => run(process.execPath, [
-  join(rootDir, "scripts", "verify-packaged-app-assets.mjs"),
-  "--platform",
-  "darwin",
-  "--package-dir",
-  packageDirectory,
-], envPatch));
-await timedStage("signed candidate verification", () => run(process.execPath, [
-  join(rootDir, "scripts", "verify-mac-release-candidate.mjs"),
-  "--app",
-  appPath,
-  "--arch",
-  arch,
-], envPatch));
+await withReleaseVerificationLock(rootDir, "interactive candidate build", async () => {
+  await timedStage("prepare", () => runNpmScript("desktop:prepare", envPatch));
+  await rm(join(rootDir, outputDirectory), { recursive: true, force: true });
+  await timedStage("package + sign + app notarization", () => run(process.execPath, [
+    builderCli,
+    "--config",
+    "electron-builder.desktop.cjs",
+    "--mac",
+    `--${arch}`,
+    "--dir",
+    "--publish",
+    "never",
+  ], envPatch));
+  await timedStage("packaged asset verification", () => run(process.execPath, [
+    join(rootDir, "scripts", "verify-packaged-app-assets.mjs"),
+    "--platform",
+    "darwin",
+    "--package-dir",
+    packageDirectory,
+  ], envPatch));
+  await timedStage("signed candidate verification", () => run(process.execPath, [
+    join(rootDir, "scripts", "verify-mac-release-candidate.mjs"),
+    "--app",
+    appPath,
+    "--arch",
+    arch,
+  ], envPatch));
 
-console.log(`\nSigned and notarized ${identity.productName} release candidate: ${join(rootDir, appPath)}`);
-console.log("This app-only candidate is for interactive QA; the public release lane still creates and verifies DMG/ZIP updater artifacts.");
+  console.log(`\nSigned and notarized ${identity.productName} release candidate: ${join(rootDir, appPath)}`);
+  console.log("This app-only candidate is for interactive QA; the public release lane still creates and verifies DMG/ZIP updater artifacts.");
+});
 
 function assertReleaseCredentials() {
   if (!value(process.env.WORKFOLD_MAC_SIGN_IDENTITY) && !value(process.env.CSC_NAME)) {

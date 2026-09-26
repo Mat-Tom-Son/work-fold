@@ -24,14 +24,22 @@ that proves the requested behavior.
    and deletion of a failed GitHub draft as separate external actions requiring
    explicit user authorization. Existing authorization in the conversation
    counts; do not ask again for an action the user already authorized.
-6. Before tagging, run `npm run desktop:release:mac:ci -- --main-only` to
-   verify the latest exact-release-SHA push run on canonical `main` passed all
-   seven CI jobs on its first attempt. After the annotated source tag is pushed,
-   run `npm run desktop:release:mac:ci` to also require successful first-attempt
-   `Release tag verification`. The tag workflow verifies version and source
-   identity against main CI; it does not repeat the full test suite. If either
-   run fails, stop. Never rerun to qualify, move, reuse, or delete the pushed
-   tag; advance to a higher version and create a new commit and tag.
+6. Finish release inputs and merge to `main`, then run
+   `npm run desktop:release:mac:check` on that final clean commit with Node 24
+   on an Apple-silicon Mac with supported npm and Google Chrome for the real
+   CSS tests. It performs fresh root/bridge installs, repository and TypeScript
+   checks, full application and bridge tests, and Electron
+   preparation. A successful receipt pins the exact SHA, tree, build-input
+   fingerprint, runtime, and completed stages. Use `-- --status` to validate it
+   read-only. An older commit's receipt cannot carry across a merge.
+7. The full signed build requires a valid local receipt before it starts.
+   Publication requires source-bound signed artifacts built after that receipt
+   completed, under the same Node/npm and dependency state. The publisher
+   requires canonical pushed `main` and its matching annotated source tag; it does not wait on GitHub Actions. Main/PR
+   CI remains background evidence, tag verification checks source identity,
+   and `desktop:release:mac:ci` is an optional diagnostic. Fix and recheck local
+   failures before tagging without consuming a version. A failed candidate's
+   pushed tag remains immutable; fix forward with a higher version and new tag.
 
 ## Choose the lane
 
@@ -50,15 +58,18 @@ that proves the requested behavior.
   publication prerequisite.
 
 Do not use a signed or packaged lane to check ordinary UI copy or styling.
-Release-tooling-only changes need focused tests and normal CI, not a new app
-version or an Apple submission.
+Release-tooling-only changes need focused and normal local checks, not a new
+app version or an Apple submission.
 
-A frozen distribution build may overlap PR/main CI. Finish release inputs
-first, and never edit source while packaging. After the merge, inspect status
-on the final `main` checkout and reuse the build only if its fingerprint and
-artifact receipts still validate. Use `:resume` to avoid repeating completed
-signing and notarization; a changed commit id alone does not justify rebuilding
-when the checked build inputs are identical.
+Run the local release check on final `main` before building; do not edit source
+or run dependency installs while packaging. The shared per-worktree lock
+serializes local checks, all macOS builds, and publication; the app-only RC
+lane needs no verification receipt but holds the same lock. Use `:resume` only when the build began after the current
+check succeeded and its fingerprint and artifact receipts still validate. A
+fresh check reinstalls dependencies and therefore needs a subsequent fresh
+distribution build. A compatible build checkpoint cannot substitute for a
+local-check receipt at the exact release SHA. Keep the same Node/npm toolchain
+and dependency state; hidden lockfile hashes detect ordinary dependency drift.
 
 ## Keep candidate, installed, and published versions distinct
 
@@ -86,14 +97,17 @@ verify the offered version and leave installation and relaunch unclaimed.
    `npm run desktop:release:mac:resume`.
 4. Start a fresh build when status reports changed source, package version,
    architecture, Node runtime, signing identity, feed, or artifact bytes.
+   Changed source, Node/npm, or dependencies also requires fresh local checks.
 
 Never edit `out/builder/work-fold-mac-release-state.json`. A checkpoint is
 ignored recovery data, not proof by itself. Resume must validate the source
 fingerprint, exact artifact receipts, signed app, notarization staple, and
-Gatekeeper result. Publication must still run the strict verifier and GitHub
-guards, before upload and immediately before publishing the draft. Direct
-publisher invocation has the same source-fingerprint, artifact-receipt, and
-exact-commit CI requirements.
+Gatekeeper result. Never edit `out/release-checks/local-verification.json`
+either: starting or failing a local check invalidates old evidence, and source
+changes during the run fail. Publication checks the local receipt, canonical
+source identity, and signed artifact evidence before upload and immediately
+before publishing the draft, including when the publisher is invoked directly.
+The strict verifier still runs; GitHub Actions status is not required.
 
 ## Verify and report
 
@@ -105,7 +119,7 @@ argument parsing or documentation.
 For a real distribution candidate, retain and report:
 
 - the version, architecture, source commit, and selected release lane;
-- per-stage timings and the status/resume result;
+- exact-commit local-check receipt, per-stage timings, and status/resume results;
 - Developer ID, hardened-runtime, notarization-staple, and Gatekeeper outcomes;
 - exact DMG, ZIP, blockmap, updater metadata, checksum, and manifest results;
 - installed-app and updater evidence required by the runbook;
