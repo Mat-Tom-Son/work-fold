@@ -39,9 +39,8 @@ const backgroundBytes = await sharp(background)
   .png()
   .toBuffer();
 
-await Promise.all([
-  writeFile(join(outDir, "dmg-background.png"), backgroundBytes),
-  writeFile(join(assetsDir, "dmg-background.png"), backgroundBytes),
-]);
+// Font rendering varies between build hosts. Installer artwork belongs only
+// in ignored output so preparation cannot dirty its own source identity.
+await writeFile(join(outDir, "dmg-background.png"), backgroundBytes);
 
 console.log(`Generated work-fold DMG background at ${join(outDir, "dmg-background.png")}`);

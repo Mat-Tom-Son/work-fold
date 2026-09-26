@@ -78,6 +78,34 @@ helper outputs; independent child processes created by a script are outside
 that worker's cancellation boundary. See the reviewed dependency mitigations
 in [the integration notes](patches/included-tools/README.md).
 
+Linux candidates bundle the reviewed Rust computer helper, with runtime
+installation disabled and executable hashes checked before use. AT-SPI
+observations and semantic actions remain full trust. GNOME Wayland sharing uses
+one explicitly selected monitor through the XDG ScreenCast/RemoteDesktop portal,
+ASHPD, GStreamer/PipeWire, libei and the compositor's libxkbcommon keymap. Trusted
+setup assigns the grant to one existing Chat; the native Pi tools require that
+Chat's live accepted turn and one OS-backed seat lease. A monitor is a separate
+visual target, without an invented application or accessibility identity.
+Keyboard input affects the focused application on that desktop. Stop fences
+access immediately, terminates and reaps the helper, and never replays uncertain
+effects. Portal revocation, GNOME screen lock, sleep, host death, Chat disposal,
+archive and Folder removal end sharing. No restore token or automatic regrant
+is stored. Full-trust Extensions retain their ordinary native authority; this
+is coordination, not a sandbox against arbitrary native code. Linux credential stores reject Electron's `basic_text`
+fallback and require GNOME Keyring/libsecret or KWallet. The native CLI preserves
+the same read/act protocol and private launch token under
+`$XDG_CONFIG_HOME/work-fold/cli` (default `~/.config/work-fold/cli`). Linux packages
+retain Chromium sandboxing and hardened fuses. Linux refuses `--no-sandbox`
+before starting its host, including when an AppImage launcher injects that switch
+after a failed namespace check. Use the DEB/RPM's supported sandbox integration;
+do not disable the sandbox to launch an AppImage. Linux does not support Electron's
+runtime embedded-ASAR integrity enforcement, so build-time ASAR hashes are
+verification evidence, not equivalent to macOS code signing. Linux candidates
+have no automatic updater or public Linux feed. Local APT/RPM/AppImage signing
+and tamper-rejection tests exist; production key custody and hosting remain
+unconfigured. See
+[Linux builds](docs/linux-build.md).
+
 MCP setup is a trusted local operation bound to an open setup session and an
 exact registered Space/runtime. Credential writes and OAuth token commits
 recheck the selected configuration revision inside the same capability fence.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -70,7 +70,7 @@ test("Chrome native registration preserves exact origin, stable copied binaries 
   await mkdir(sourceDirectory);
   await writeFile(join(sourceDirectory, "work-fold-chrome-host"), "synthetic binary v1");
   await writeFile(join(sourceDirectory, "source.json"), JSON.stringify({ schema: "work-fold.chrome-native-host-source.v1", origin, nativeHostName: distribution.nativeHostName, bootstrapVersion: 1 }));
-  const options = { sourceDirectory, stateRoot, chromeUserDataRoot, distribution, enabled: true, verifySignature: false };
+  const options = { sourceDirectory, stateRoot, chromeUserDataRoot, distribution, enabled: true, verifySignature: false, platform: "darwin" as const };
   const registration = new ChromeNativeHostRegistration(options);
   const manifestPath = join(chromeUserDataRoot, "NativeMessagingHosts", `${distribution.nativeHostName}.json`);
   await assert.rejects(() => new ChromeNativeHostRegistration({ ...options, enabled: false }).register(true), /installed work-fold/);
@@ -95,4 +95,23 @@ test("Chrome native registration preserves exact origin, stable copied binaries 
   await assert.rejects(() => registration.register(false), /registration was removed/);
   await registration.register(true);
   assert.equal(JSON.parse(await readFile(manifestPath, "utf8")).path, second.path);
+});
+
+test("Linux Chrome registration verifies binary provenance and pins the app launch path", async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-linux-chrome-registration-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sourceDirectory = join(root, "source"), stateRoot = join(root, "state"), chromeUserDataRoot = join(root, "chrome");
+  await mkdir(sourceDirectory);
+  const bytes = Buffer.from("synthetic Linux host");
+  await writeFile(join(sourceDirectory, "work-fold-chrome-host"), bytes);
+  await writeFile(join(sourceDirectory, "source.json"), JSON.stringify({ schema: "work-fold.chrome-native-host-source.v1", origin,
+    nativeHostName: distribution.nativeHostName, bootstrapVersion: 1, target: "x86_64-unknown-linux-gnu", binarySha256: createHash("sha256").update(bytes).digest("hex") }));
+  const registration = new ChromeNativeHostRegistration({ sourceDirectory, stateRoot, chromeUserDataRoot, distribution, enabled: true, platform: "linux", appPath: "/opt/work-fold/work-fold-desktop" });
+  await registration.register(true);
+  const manifest = JSON.parse(await readFile(join(chromeUserDataRoot, "NativeMessagingHosts", `${distribution.nativeHostName}.json`), "utf8"));
+  const receipt = JSON.parse(await readFile(join(stateRoot, "chrome/native-host/registration.json"), "utf8"));
+  assert.deepEqual(manifest.allowed_origins, [origin]); assert.equal(receipt.binary, manifest.path);
+  assert.equal(receipt.appPath, "/opt/work-fold/work-fold-desktop");
+  await writeFile(join(sourceDirectory, "work-fold-chrome-host"), "altered host");
+  await assert.rejects(() => registration.register(true), /packaged provenance/);
 });

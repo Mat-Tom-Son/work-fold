@@ -3,10 +3,19 @@ import { createJiti } from "jiti";
 import { resolvePiRuntime, type PiRuntimeProvider, type ResolvedPiRuntime } from "./pi-runtime-config.js";
 import type { ChromeConnectionState, ChromeConnectionSummary, ChromeSetupAction } from "../../shared/chrome-connection.js";
 import { includedToolDefinitions, type IncludedToolId, type IncludedToolStatus } from "../../shared/included-tools.js";
+import type { ComputerSessionSummary } from "../../shared/computer-session.js";
+import type { NativeComputerOwner } from "./computer-session.js";
 
 const jiti = createJiti(import.meta.url, { moduleCache: true });
 const checks = new Map<string, { revision: number; status?: IncludedToolStatus }>();
 const checkKey = (runtime: ResolvedPiRuntime, id: IncludedToolId) => `${runtime.config.includedTools?.stateRoot}:${id}`;
+
+function computerStatus(summary: ComputerSessionSummary, accessibility?: IncludedToolStatus): IncludedToolStatus {
+  if (accessibility && Date.now() - Date.parse(accessibility.checkedAt) >= 5 * 60_000) accessibility = undefined;
+  return { id: "computer", state: summary.state === "active" ? "ready" : summary.state === "error" ? "unavailable" : accessibility?.state ?? "setup_required",
+    detail: summary.detail, checkedAt: summary.checkedAt, computerSession: summary,
+    facts: { ...accessibility?.facts, platform: "linux", session: "wayland" } };
+}
 
 /** Explicit projection: native leases, profile identities and bootstrap proofs stay in the host. */
 function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
@@ -36,6 +45,8 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
   if (!runtime.config.includedTools) return [];
   return includedToolDefinitions.map(({ id }) => {
     if (id === "chrome") return chromeStatus(runtime.config.includedTools?.chromeConnection?.status());
+    if (id === "computer" && runtime.config.includedTools?.computerSession) return computerStatus(
+      runtime.config.includedTools.computerSession.status(), checks.get(checkKey(runtime, id))?.status);
     const now = new Date().toISOString();
     if (id === "web") return runtime.authStorage.get("work-fold:web:brave")?.type === "api_key"
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
@@ -46,14 +57,24 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
   });
 }
 
-export type IncludedSetupAction = ChromeSetupAction | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave";
+export type IncludedSetupAction = ChromeSetupAction | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave" | "share-screen" | "stop-sharing";
 export interface IncludedSetupResult { status: IncludedToolStatus }
 
 /** Trusted local setup only. Secrets and permission prompts never enter an Assistant turn. */
-export async function setupIncludedTool(cwd: string, id: IncludedToolId, action: IncludedSetupAction, input: { secret?: string }, provider?: PiRuntimeProvider, signal?: AbortSignal): Promise<IncludedSetupResult> {
+export async function setupIncludedTool(cwd: string, id: IncludedToolId, action: IncludedSetupAction, input: { secret?: string; owner?: NativeComputerOwner }, provider?: PiRuntimeProvider, signal?: AbortSignal): Promise<IncludedSetupResult> {
   const runtime = await resolvePiRuntime(cwd, provider, { requestProjectTrust: false });
   const config = runtime.config.includedTools;
   if (!config) throw new Error("Included Assistant tools are unavailable in this host.");
+  if (id === "computer" && ["share-screen", "stop-sharing"].includes(action)) {
+    const service = config.computerSession;
+    if (!service) throw new Error("Screen sharing requires the work-fold desktop app in a supported Wayland session.");
+    if (action === "stop-sharing") await service.stop();
+    else {
+      if (!input.owner) throw new Error("Choose a Chat for screen sharing.");
+      await service.start(input.owner, signal);
+    }
+    return { status: computerStatus(service.status(), checks.get(checkKey(runtime, id))?.status) };
+  }
   if (id === "chrome") {
     if (!["connect-chrome", "disconnect-chrome", "change-chrome-profile", "check"].includes(action)) throw new Error("Unknown Chrome setup action.");
     const service = config.chromeConnection;
@@ -96,7 +117,7 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
     const result = action === "check" ? await computer.probeIncludedComputer(config, { launch: true, signal }) : await computer.setupIncludedComputer(config, action, signal);
     status = { ...status, state: result.status === "ready" ? "ready" : result.status === "unavailable" || result.status === "error" ? "unavailable" : "setup_required",
       detail: result.reason ?? (result.status === "ready" ? "Computer control is ready." : "Allow work-fold Computer in Accessibility and Screen Recording, then recheck."),
-      facts: { accessibility: result.accessibility === true, screenRecording: result.screenRecording === true, ...(result.helper?.bundleId ? { helper: String(result.helper.bundleId) } : {}), ...(result.helper?.appPath ? { path: String(result.helper.appPath) } : {}) },
+      facts: { ...(result.platform ? { platform: String(result.platform) } : {}), ...(result.sessionType ? { session: String(result.sessionType) } : {}), accessibility: result.accessibility === true, screenRecording: result.screenRecording === true, ...(result.helper?.bundleId ? { helper: String(result.helper.bundleId) } : {}), ...(result.helper?.appPath ? { path: String(result.helper.appPath) } : {}) },
     };
   } else if (id === "documents") {
     if (action !== "check") throw new Error("Unknown document setup action.");
@@ -110,7 +131,7 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
   } else {
     status = checks.get(key)?.status ?? { id, state: "unknown", detail: "A newer setup check started.", checkedAt: new Date().toISOString() };
   }
-  return { status };
+  return { status: id === "computer" && config.computerSession ? computerStatus(config.computerSession.status(), status) : status };
 }
 
 /** Host shutdown follows session disposal, so one Chat never stops a peer's helper. */

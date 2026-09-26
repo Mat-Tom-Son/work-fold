@@ -1,5 +1,21 @@
+diff --git a/docs/architecture.md b/docs/architecture.md
+index fd426dc..941344b 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -106,9 +106,9 @@ delivery alone is never treated as semantic success.
+ 
+ One action is represented by an array of length one. A multi-action transaction is appropriate only when no intermediate observation is needed. The runtime validates one base state, acquires one resource lane, and sends the steps as one native helper transaction. The helper captures one pre-transaction root baseline, executes and verifies steps in order, and stops on the first failed or invalidated step. Partial results include `stoppedAt`, so callers know the exact checked boundary and must re-observe before continuing. The helper performs one final root-delta settle and the bridge produces one final observation. There is no alternate sequential protocol. This is not a mechanism for parallel actions within one UI resource.
+ 
+-The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Editable-region clicks establish foreground focus for following unscoped keyboard steps in the same transaction. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed AX value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
++The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Clicks or presses on focusable controls establish foreground focus for following unscoped keyboard steps in the same transaction. In the normal interactive delivery mode, keypresses use one foreground HID delivery because application command handling belongs to the active key window and a pid-targeted event can be accepted without reaching it. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed AX value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
+ 
+-With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. With `headless: false` (the default), credible semantic activation may begin in the background, editable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
++With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. Actions that require raw pointer or keyboard input fail before effect; direct AX value writes remain available where the platform supports them. With `headless: false` (the default), credible semantic activation may begin in the background, focusable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Normal interactive keypresses use foreground delivery directly and are never replayed after an `unknown` result. Before the first HID press, macOS confirms that the pinned process is frontmost and the selected native window still matches the observed window; a nested modal target must also have a bounded, same-process ancestry to that root, and a parent focused window requires the focused UI element to be inside the exact modal branch. Failed focus fails before input. An explicit `PI_COMPUTER_USE_DELIVERY_POLICY=background` or `ax_only` retains that boundary and prohibits foreground escalation; `foreground` requests foreground delivery for the action. Focus-preserving native keyboard requests validate the selected window without raising or re-focusing it between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
+ 
+ The agent-facing `act_ui.headless` flag determines whether foreground execution is prohibited. Fallback-capable multi-action calls execute one checked action at a time, retain click-established focus, and stop on a checked `didnt`; strict-headless calls retain native transactional batching.
+ 
 diff --git a/extensions/computer-use.ts b/extensions/computer-use.ts
-index eec9992..5580d00 100644
+index eec9992..16a675e 100644
 --- a/extensions/computer-use.ts
 +++ b/extensions/computer-use.ts
 @@ -1,6 +1,8 @@
@@ -11,13 +27,33 @@ index eec9992..5580d00 100644
  	ensureComputerUseSetup,
  	executeAct,
  	executeEvaluateBrowser,
-@@ -179,8 +181,25 @@ function formatConfigStatus(): string {
+@@ -17,6 +19,8 @@ import {
+ 	shutdownComputerUseSession,
+ } from "../src/bridge.ts";
+ import { getLoadedComputerUseConfig, loadComputerUseConfig } from "../src/config.ts";
++import { SharedScreenTools, type SharedScreenBackend } from "../src/shared-screen.ts";
++import { ResourceScheduler } from "../src/runtime.ts";
+ 
+ const stateId = Type.String({ description: "Required state id owning every @e ref used by this operation" });
+ const point = { x: Type.Number(), y: Type.Number() };
+@@ -55,7 +59,7 @@ const findTool = defineTool({
+ 		app: Type.Optional(Type.String({ description: "Exact normalized app name", maxLength: 256 })),
+ 		bundleId: Type.Optional(Type.String({ description: "Exact bundle id" })),
+ 		pid: Type.Optional(Type.Number({ description: "Exact process id" })),
+-		kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("menu"), Type.Literal("sheet"), Type.Literal("popover"), Type.Literal("dialog"), Type.Literal("browser_page")], { description: "Exact root kind" })),
++		kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("menu"), Type.Literal("sheet"), Type.Literal("popover"), Type.Literal("dialog"), Type.Literal("browser_page"), Type.Literal("shared_screen")], { description: "Exact root kind" })),
+ 	}),
+ 	execute: executeFind,
+ });
+@@ -179,8 +183,29 @@ function formatConfigStatus(): string {
  	].join("\n");
  }
  
 -export default function computerUseExtension(pi: ExtensionAPI): void {
 -	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool]) pi.registerTool(tool);
 +export interface ComputerUseExtensionOptions extends ComputerUseRuntimeOptions {
++  /** Optional explicitly granted monitor targets alongside native app roots. */
++  sharedScreens?: SharedScreenBackend;
 +  /** Setup is explicit in embedded applications; native terminal hosts may retain startup setup. */
 +  setupOnStart?: boolean;
 +  restoreObservations?: boolean;
@@ -25,7 +61,9 @@ index eec9992..5580d00 100644
 +}
 +
 +export default function computerUseExtension(pi: ExtensionAPI, options: ComputerUseExtensionOptions = {}): void {
-+  const runtime = createComputerUseRuntime(options);
++  const scheduler = options.scheduler ?? new ResourceScheduler();
++  const runtime = createComputerUseRuntime({ ...options, scheduler });
++  const shared = options.sharedScreens ? new SharedScreenTools(options.sharedScreens, scheduler) : undefined;
 +  const executors = [runtime.executeFind, runtime.executeObserve, runtime.executeSearchUi, runtime.executeExpandUi, runtime.executeInspectUi, runtime.executeAct, runtime.executeReadText, runtime.executeWaitFor, runtime.executeLaunchBrowser, runtime.executeNavigateBrowser, runtime.executeEvaluateBrowser];
 +  const tools = [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool];
 +  for (const [index, tool] of tools.entries()) {
@@ -33,13 +71,13 @@ index eec9992..5580d00 100644
 +    const exactRoot = tool.name === "observe_ui" && options.requireExplicitRoot;
 +    pi.registerTool({ ...tool,
 +      ...(exactRoot ? { description: "Observe one exact root returned by find_roots and return its bounded UI outline.", parameters: Type.Object({ root: Type.String({ description: "Exact @r ref issued by find_roots" }), mode: Type.Optional(Type.Union([Type.Literal("semantic"), Type.Literal("visual"), Type.Literal("fused")])) }) } : {}),
-+      execute: executors[index],
++      execute: shared ? (...args: Parameters<typeof executors[number]>) => shared.execute(tool.name, args[1], args[2], (signal) => (executors[index] as any)(args[0], args[1], signal, args[3], args[4])) : executors[index],
 +    } as any);
 +  }
  
  	pi.registerCommand("computer-use", {
  		description: "Show pi-computer-use configuration",
-@@ -192,12 +211,12 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
+@@ -192,12 +217,16 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
  
  	pi.on("session_start", async (_event, ctx) => {
  		loadComputerUseConfig(ctx.cwd);
@@ -53,9 +91,597 @@ index eec9992..5580d00 100644
  
  	pi.on("session_shutdown", async () => {
 -		await shutdownComputerUseSession();
-+		await runtime.shutdownComputerUseSession();
++        try { await shared?.close(); }
++        finally {
++          await runtime.shutdownComputerUseSession();
++          if (!options.scheduler) await scheduler.close();
++        }
  	});
  }
+diff --git a/native/linux/bridge-rs/src/atspi.rs b/native/linux/bridge-rs/src/atspi.rs
+index c90c85d..69f6a0d 100644
+--- a/native/linux/bridge-rs/src/atspi.rs
++++ b/native/linux/bridge-rs/src/atspi.rs
+@@ -185,13 +185,8 @@ impl AtspiClient {
+     }
+ 
+     async fn application_pid(&self, accessible: &AccessibleRef) -> u64 {
+-        let application_id = match self.proxy(accessible, "org.a11y.atspi.Application").await {
+-            Ok(proxy) => proxy.get_property::<i32>("Id").await.unwrap_or(0),
+-            Err(_) => 0,
+-        };
+-        if let Some(pid) = positive_application_pid(application_id) {
+-            return pid;
+-        }
++        // Application.Id is an arbitrary accessibility registry identifier,
++        // not an OS process id. Correlate the actual D-Bus peer instead.
+         let Ok(bus) = Proxy::new(
+             &self.connection,
+             DBUS_DESTINATION,
+@@ -209,7 +204,7 @@ impl AtspiClient {
+             )
+             .await
+             .ok();
+-        fallback_application_pid(application_id, connection_pid)
++        connection_pid.unwrap_or(0) as u64
+     }
+ 
+     pub async fn list_roots(
+@@ -524,16 +519,6 @@ fn relative_coordinate(value: i32, origin: i32) -> i32 {
+     value.saturating_sub(origin)
+ }
+ 
+-fn positive_application_pid(application_id: i32) -> Option<u64> {
+-    u64::try_from(application_id).ok().filter(|pid| *pid > 0)
+-}
+-
+-fn fallback_application_pid(application_id: i32, connection_pid: Option<u32>) -> u64 {
+-    positive_application_pid(application_id)
+-        .or_else(|| connection_pid.filter(|pid| *pid > 0).map(u64::from))
+-        .unwrap_or(0)
+-}
+-
+ fn unavailable(error: impl std::fmt::Display) -> ProtocolError {
+     ProtocolError::new(
+         format!("AT-SPI2 is unavailable: {error}"),
+@@ -585,15 +570,6 @@ mod tests {
+         assert_eq!(relative_coordinate(355, 100), 255);
+     }
+ 
+-    #[test]
+-    fn application_pid_prefers_positive_atspi_id_then_bus_fallback() {
+-        assert_eq!(fallback_application_pid(42, Some(99)), 42);
+-        assert_eq!(fallback_application_pid(0, Some(99)), 99);
+-        assert_eq!(fallback_application_pid(-1, Some(99)), 99);
+-        assert_eq!(fallback_application_pid(0, Some(0)), 0);
+-        assert_eq!(fallback_application_pid(0, None), 0);
+-    }
+-
+     #[tokio::test]
+     #[ignore = "requires a live session AT-SPI bus"]
+     async fn connects_through_get_address_method() {
+diff --git a/native/linux/bridge-rs/src/state.rs b/native/linux/bridge-rs/src/state.rs
+index 189fead..bb2fba4 100644
+--- a/native/linux/bridge-rs/src/state.rs
++++ b/native/linux/bridge-rs/src/state.rs
+@@ -1,5 +1,7 @@
+ use std::collections::{HashMap, VecDeque};
++use std::io::Read;
+ use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::OnceLock;
+ 
+ use crate::atspi::{AccessibleRef, NodeSnapshot, RootSnapshot};
+ use crate::{ErrorCode, ProtocolError};
+@@ -14,8 +16,9 @@ pub struct LookRecord {
+     pub image_height: u16,
+ }
+ 
+-#[derive(Debug, Default)]
++#[derive(Debug)]
+ pub struct HelperState {
++    generation: String,
+     roots: HashMap<String, RootSnapshot>,
+     root_refs: HashMap<AccessibleRef, String>,
+     looks: HashMap<String, LookRecord>,
+@@ -24,6 +27,25 @@ pub struct HelperState {
+     next_look: u64,
+ }
+ 
++fn fresh_generation() -> String {
++    let mut bytes = [0u8; 16];
++    std::fs::File::open("/dev/urandom")
++        .and_then(|mut file| file.read_exact(&mut bytes))
++        .expect("Cannot create an unambiguous Linux helper session");
++    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
++}
++
++impl Default for HelperState {
++    fn default() -> Self {
++        Self {
++            generation: fresh_generation(),
++            roots: HashMap::new(), root_refs: HashMap::new(),
++            looks: HashMap::new(), look_order: VecDeque::new(),
++            next_root: 0, next_look: 0,
++        }
++    }
++}
++
+ impl HelperState {
+     pub fn replace_roots(&mut self, roots: Vec<RootSnapshot>) -> Vec<(String, RootSnapshot)> {
+         let mut next = HashMap::new();
+@@ -35,7 +57,7 @@ impl HelperState {
+                 .cloned()
+                 .unwrap_or_else(|| {
+                     self.next_root += 1;
+-                    format!("@w{}", self.next_root)
++                    format!("@w{}_{}", self.generation, self.next_root)
+                 });
+             self.root_refs
+                 .insert(root.accessible.clone(), reference.clone());
+@@ -69,7 +91,7 @@ impl HelperState {
+         base: Option<&LookRecord>,
+     ) -> (String, Vec<NodeSnapshot>) {
+         self.next_look += 1;
+-        let look_id = format!("look_{}", self.next_look);
++        let look_id = format!("look_{}_{}", self.generation, self.next_look);
+         let mut nodes = base.map(|record| record.nodes.clone()).unwrap_or_default();
+         let existing_refs = base
+             .map(|record| {
+@@ -175,7 +197,8 @@ impl HelperState {
+ 
+ pub fn fresh_state_id() -> String {
+     static NEXT: AtomicU64 = AtomicU64::new(1);
+-    format!("w-{}", NEXT.fetch_add(1, Ordering::Relaxed))
++    static GENERATION: OnceLock<String> = OnceLock::new();
++    format!("w-{}-{}", GENERATION.get_or_init(fresh_generation), NEXT.fetch_add(1, Ordering::Relaxed))
+ }
+ 
+ #[cfg(test)]
+@@ -213,6 +236,21 @@ mod tests {
+         assert!(state.root(&first[0].0).is_none());
+     }
+ 
++    #[test]
++    fn restarted_helper_cannot_rebind_old_roots_looks_or_elements() {
++        let mut first = HelperState::default();
++        let old_root = first.replace_roots(vec![root(1)])[0].0.clone();
++        let (old_look, old_nodes) = first.insert_look(root(1), vec![NodeSnapshot::minimal(accessible(1))], None);
++        let mut restarted = HelperState::default();
++        let new_root = restarted.replace_roots(vec![root(2)])[0].0.clone();
++        let (new_look, _) = restarted.insert_look(root(2), vec![NodeSnapshot::minimal(accessible(2))], None);
++        assert_ne!(old_root, new_root);
++        assert_ne!(old_look, new_look);
++        assert!(restarted.root(&old_root).is_none());
++        assert_eq!(restarted.look(&old_look).unwrap_err().code, ErrorCode::StaleLook);
++        assert_eq!(restarted.element(&new_look, &old_nodes[0].reference).unwrap_err().code, ErrorCode::StaleRef);
++    }
++
+     #[test]
+     fn look_history_is_bounded_and_refs_are_look_scoped() {
+         let mut state = HelperState::default();
+diff --git a/after/native/macos/agent_cursor.swift b/native/macos/agent_cursor.swift
+new file mode 100644
+index 0000000..0efeac7
+--- /dev/null
++++ b/native/macos/agent_cursor.swift
+@@ -0,0 +1,159 @@
++import AppKit
++import SwiftUI
++
++/// Visual-only cursor; native action delivery remains authoritative.
++@MainActor
++final class AgentCursor {
++    typealias IdleHideScheduler = @MainActor (@escaping @MainActor () -> Void) -> Task<Void, Never>
++
++    static let shared = AgentCursor(scheduleIdleHide: scheduleDefaultIdleHide)
++
++    private var overlay: AgentCursorOverlayWindow?
++    private var idleHideTask: Task<Void, Never>?
++    private var idleGeneration: UInt = 0
++    private let scheduleIdleHide: IdleHideScheduler
++
++    init(scheduleIdleHide: @escaping IdleHideScheduler) {
++        self.scheduleIdleHide = scheduleIdleHide
++    }
++
++    func animate(to point: CGPoint, above windowId: UInt32) {
++        idleHideTask?.cancel()
++        idleHideTask = nil
++        idleGeneration &+= 1
++
++        let window = ensureWindow()
++        if !window.isVisible { window.orderFrontRegardless() }
++        window.order(.above, relativeTo: Int(windowId))
++
++        let renderer = AgentCursorRenderer.shared
++        if renderer.position.x < -100 {
++            let frame = NSScreen.main?.frame ?? .zero
++            renderer.setInitialPosition(CGPoint(
++                x: min(max(point.x - 140, frame.minX + 2), frame.maxX - 2),
++                y: min(max(point.y - 140, frame.minY + 2), frame.maxY - 2)
++            ))
++        }
++        renderer.moveTo(point: point)
++
++        let generation = idleGeneration
++        idleHideTask = scheduleIdleHide { [weak self, weak window] in
++            guard let self, let window else { return }
++            guard generation == idleGeneration, self.overlay === window else { return }
++
++            renderer.cancelAnimation()
++            window.orderOut(nil)
++            window.contentView = nil
++            window.close()
++            overlay = nil
++            idleHideTask = nil
++        }
++    }
++
++    private static func scheduleDefaultIdleHide(_ hide: @escaping @MainActor () -> Void) -> Task<Void, Never> {
++        Task { @MainActor in
++            try? await Task.sleep(for: .seconds(8))
++            guard !Task.isCancelled else { return }
++            hide()
++        }
++    }
++
++    private func ensureWindow() -> AgentCursorOverlayWindow {
++        if let overlay { return overlay }
++        let window = AgentCursorOverlayWindow(
++            contentRect: NSScreen.main?.frame ?? NSScreen.screens.first?.frame ?? .zero,
++            styleMask: .borderless,
++            backing: .buffered,
++            defer: false
++        )
++        window.contentView = NSHostingView(rootView: AgentCursorView())
++        overlay = window
++        return window
++    }
++}
++
++/// Main-display-only, click-through overlay that can never take focus.
++private final class AgentCursorOverlayWindow: NSWindow {
++    override var canBecomeKey: Bool { false }
++    override var canBecomeMain: Bool { false }
++
++    override init(contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
++        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
++        isOpaque = false
++        backgroundColor = .clear
++        hasShadow = false
++        ignoresMouseEvents = true
++        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
++        isReleasedWhenClosed = false
++        hidesOnDeactivate = false
++    }
++}
++
++@MainActor
++private struct AgentCursorView: View {
++    @Bindable private var renderer = AgentCursorRenderer.shared
++
++    var body: some View {
++        TimelineView(.animation(minimumInterval: 1.0 / 120.0, paused: !renderer.isAnimating)) { context in
++            Canvas { graphics, _ in
++                renderer.tick(now: context.date.timeIntervalSinceReferenceDate)
++                drawCursor(in: graphics)
++            }
++            .ignoresSafeArea()
++            .allowsHitTesting(false)
++        }
++    }
++
++    private func drawCursor(in graphics: GraphicsContext) {
++        let point = renderer.position
++        guard point.x > -100 else { return }
++
++        let bloom = Color(nsColor: NSColor(red: 1, green: 0x78 / 255, blue: 0x18 / 255, alpha: 1))
++        let radius: CGFloat = 22
++        graphics.fill(
++            Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)),
++            with: .radialGradient(
++                Gradient(colors: [bloom.opacity(0.55), bloom.opacity(0.15), bloom.opacity(0)]),
++                center: point,
++                startRadius: 0,
++                endRadius: radius
++            )
++        )
++
++        let points = [
++            CGPoint(x: 14, y: 0),
++            CGPoint(x: -8, y: -9),
++            CGPoint(x: -3, y: 0),
++            CGPoint(x: -8, y: 9),
++        ]
++        var shape = Path()
++        for index in points.indices {
++            let previous = points[(index + points.count - 1) % points.count]
++            let current = points[index]
++            let next = points[(index + 1) % points.count]
++            let entry = CGPoint(x: current.x + (previous.x - current.x) * 0.16, y: current.y + (previous.y - current.y) * 0.16)
++            let exit = CGPoint(x: current.x + (next.x - current.x) * 0.16, y: current.y + (next.y - current.y) * 0.16)
++            if index == points.startIndex { shape.move(to: entry) } else { shape.addLine(to: entry) }
++            shape.addQuadCurve(to: exit, control: current)
++        }
++        shape.closeSubpath()
++
++        let transformed = shape.applying(
++            CGAffineTransform(translationX: point.x, y: point.y)
++                .rotated(by: CGFloat(renderer.heading + .pi))
++        )
++        graphics.fill(
++            transformed,
++            with: .linearGradient(
++                Gradient(colors: [
++                    Color(red: 1, green: 0xD0 / 255, blue: 0x76 / 255),
++                    Color(red: 1, green: 0x78 / 255, blue: 0x18 / 255),
++                    Color(red: 0xE8 / 255, green: 0x4A / 255, blue: 0x0C / 255),
++                ]),
++                startPoint: CGPoint(x: point.x + 14, y: point.y - 9),
++                endPoint: CGPoint(x: point.x - 8, y: point.y + 9)
++            )
++        )
++        graphics.stroke(transformed, with: .color(.white), lineWidth: 2)
++    }
++}
+diff --git a/after/native/macos/agent_cursor_motion.swift b/native/macos/agent_cursor_motion.swift
+new file mode 100644
+index 0000000..c682942
+--- /dev/null
++++ b/native/macos/agent_cursor_motion.swift
+@@ -0,0 +1,252 @@
++import CoreGraphics
++import Foundation
++import Observation
++
++/// Main-actor Dubins-path animation state consumed by the SwiftUI overlay.
++@Observable
++@MainActor
++final class AgentCursorRenderer {
++    static let shared = AgentCursorRenderer()
++
++    private(set) var position = CGPoint(x: -200, y: -200)
++    private(set) var heading: Double = .pi / 4
++    private(set) var isAnimating = false
++
++    private var path: PlannedPath?
++    private var spring: Spring?
++    private var distanceSoFar: Double = 0
++    private var lastFrameTime: CFTimeInterval?
++    private var springTarget: (point: CGPoint, heading: Double)?
++
++    func moveTo(point clickPoint: CGPoint) {
++        let endAngle = Double.pi / 4
++        let targetPoint = CGPoint(
++            x: clickPoint.x + CGFloat(cos(endAngle) * 16),
++            y: clickPoint.y + CGFloat(sin(endAngle) * 16)
++        )
++        path = planPath(
++            x0: Double(position.x), y0: Double(position.y), th0: heading + .pi,
++            x1: Double(targetPoint.x), y1: Double(targetPoint.y), th1: endAngle + .pi,
++            R: 80, endVisualHeading: endAngle, targetPoint: targetPoint)
++        spring = nil
++        springTarget = nil
++        distanceSoFar = 0
++        lastFrameTime = nil
++        isAnimating = true
++    }
++
++    func setInitialPosition(_ point: CGPoint) {
++        position = point
++        cancelAnimation()
++    }
++
++    func cancelAnimation() {
++        path = nil
++        spring = nil
++        springTarget = nil
++        distanceSoFar = 0
++        lastFrameTime = nil
++        isAnimating = false
++    }
++
++    func tick(now: CFTimeInterval) {
++        guard isAnimating else { return }
++        let previous = lastFrameTime ?? now
++        let dt = min(0.05, now - previous)
++        lastFrameTime = now
++
++        if let path {
++            let progress = min(1.0, distanceSoFar / max(path.length, 1))
++            let profile = 16 * progress * progress * (1 - progress) * (1 - progress)
++            let minimumSpeed = progress < 0.5 ? 300.0 : 200.0
++            let speed = minimumSpeed + (900 - minimumSpeed) * profile
++            distanceSoFar += speed * dt
++
++            if distanceSoFar >= path.length {
++                let endState = path.sample(at: path.length)
++                spring = Spring(
++                    ox: 0,
++                    oy: 0,
++                    vx: cos(endState.heading) * speed * 0.8,
++                    vy: sin(endState.heading) * speed * 0.8
++                )
++                springTarget = (path.targetPoint, path.endVisualHeading)
++                position = path.targetPoint
++                heading = path.endVisualHeading
++                self.path = nil
++                distanceSoFar = 0
++            } else {
++                let state = path.sample(at: distanceSoFar)
++                position = CGPoint(x: state.x, y: state.y)
++                heading = rotateToward(current: heading, desired: state.heading + .pi, maxStep: 14 * dt)
++            }
++        } else if var spring, let target = springTarget {
++            let substep = dt / 4
++            for _ in 0..<4 {
++                spring.vx += (-400 * spring.ox - 17 * spring.vx) * substep
++                spring.vy += (-400 * spring.oy - 17 * spring.vy) * substep
++                spring.ox += spring.vx * substep
++                spring.oy += spring.vy * substep
++            }
++            position = CGPoint(x: target.point.x + CGFloat(spring.ox), y: target.point.y + CGFloat(spring.oy))
++            heading = target.heading
++            if hypot(spring.ox, spring.oy) < 0.3 && hypot(spring.vx, spring.vy) < 2 {
++                position = target.point
++                self.spring = nil
++                springTarget = nil
++                lastFrameTime = nil
++                isAnimating = false
++            } else {
++                self.spring = spring
++            }
++        }
++    }
++
++    private func rotateToward(current: Double, desired: Double, maxStep: Double) -> Double {
++        var difference = desired - current
++        while difference > .pi { difference -= 2 * .pi }
++        while difference < -.pi { difference += 2 * .pi }
++        return current + max(-maxStep, min(maxStep, difference))
++    }
++}
++
++private struct Spring { var ox, oy, vx, vy: Double }
++
++struct DubinsPlannedPath {
++    enum Kind { case dubins, linear }
++    let kind: Kind
++    let length: Double
++    let endVisualHeading: Double
++    let targetPoint: CGPoint
++    let x0, y0, th0, R, seg1, seg2, seg3: Double
++    let types: [Character]
++    let x1, y1, th1: Double
++
++    struct State { let x, y, heading: Double }
++
++    func sample(at s: Double) -> State {
++        switch kind { case .linear: return sampleLinear(s); case .dubins: return sampleDubins(s) }
++    }
++
++    private func sampleLinear(_ s: Double) -> State {
++        let u = max(0, min(1, s / length))
++        var diff = th1 - th0
++        while diff > .pi  { diff -= 2 * .pi }
++        while diff < -.pi { diff += 2 * .pi }
++        return State(x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u, heading: th0 + diff * u)
++    }
++
++    private func sampleDubins(_ sIn: Double) -> State {
++        guard sIn > 0 else { return State(x: x0, y: y0, heading: th0) }
++        let L1 = seg1 * R, L2 = seg2 * R, L3 = seg3 * R
++        let s = min(sIn, L1 + L2 + L3)
++        var x = x0, y = y0, th = th0
++
++        func advance(length L: Double, type: Character) {
++            if type == "S" { x += cos(th) * L; y += sin(th) * L }
++            else {
++                let dth = L / R * (type == "L" ? 1.0 : -1.0)
++                let perp: Double = (type == "L") ? .pi / 2 : -.pi / 2
++                let cx = x + cos(th + perp) * R, cy = y + sin(th + perp) * R
++                let ang = atan2(y - cy, x - cx)
++                x = cx + cos(ang + dth) * R; y = cy + sin(ang + dth) * R; th += dth
++            }
++        }
++        if s <= L1 { advance(length: s, type: types[0]); return State(x: x, y: y, heading: th) }
++        advance(length: L1, type: types[0])
++        if s <= L1 + L2 { advance(length: s - L1, type: types[1]); return State(x: x, y: y, heading: th) }
++        advance(length: L2, type: types[1])
++        advance(length: s - L1 - L2, type: types[2])
++        return State(x: x, y: y, heading: th)
++    }
++}
++
++private typealias PlannedPath = DubinsPlannedPath
++
++private func mod2pi(_ x: Double) -> Double {
++    let tau = 2 * Double.pi; let r = x - tau * floor(x / tau); return r < 0 ? r + tau : r
++}
++
++private struct DubinsSolution { let t, p, q: Double; let types: [Character]; var length: Double { t + p + q } }
++
++private func dubinsLSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp0 = d + sin(a) - sin(b)
++    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))
++    guard p2 >= 0 else { return nil }
++    let tmp1 = atan2(cos(b) - cos(a), tmp0)
++    return DubinsSolution(t: mod2pi(-a + tmp1), p: sqrt(p2), q: mod2pi(b - tmp1), types: ["L","S","L"])
++}
++private func dubinsRSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp0 = d - sin(a) + sin(b)
++    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))
++    guard p2 >= 0 else { return nil }
++    let tmp1 = atan2(cos(a) - cos(b), tmp0)
++    return DubinsSolution(t: mod2pi(a - tmp1), p: sqrt(p2), q: mod2pi(-b + tmp1), types: ["R","S","R"])
++}
++private func dubinsLSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let p2 = -2 + d * d + 2 * cos(a - b) + 2 * d * (sin(a) + sin(b))
++    guard p2 >= 0 else { return nil }
++    let p = sqrt(p2)
++    let tmp1 = atan2(-cos(a) - cos(b), d + sin(a) + sin(b)) - atan2(-2, p)
++    return DubinsSolution(t: mod2pi(-a + tmp1), p: p, q: mod2pi(-mod2pi(b) + tmp1), types: ["L","S","R"])
++}
++private func dubinsRSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let p2 = d * d - 2 + 2 * cos(a - b) - 2 * d * (sin(a) + sin(b))
++    guard p2 >= 0 else { return nil }
++    let p = sqrt(p2)
++    let tmp1 = atan2(cos(a) + cos(b), d - sin(a) - sin(b)) - atan2(2, p)
++    return DubinsSolution(t: mod2pi(a - tmp1), p: p, q: mod2pi(b - tmp1), types: ["R","S","L"])
++}
++private func dubinsRLR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))) / 8
++    guard abs(tmp) <= 1 else { return nil }
++    let p = mod2pi(2 * .pi - acos(tmp))
++    let t = mod2pi(a - atan2(cos(a) - cos(b), d - sin(a) + sin(b)) + p / 2)
++    return DubinsSolution(t: t, p: p, q: mod2pi(a - b - t + p), types: ["R","L","R"])
++}
++private func dubinsLRL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))) / 8
++    guard abs(tmp) <= 1 else { return nil }
++    let p = mod2pi(2 * .pi - acos(tmp))
++    let t = mod2pi(-a + atan2(-cos(a) + cos(b), d + sin(a) - sin(b)) + p / 2)
++    return DubinsSolution(t: t, p: p, q: mod2pi(mod2pi(b) - a - t + p), types: ["L","R","L"])
++}
++
++private func planPath(x0: Double, y0: Double, th0: Double,
++                      x1: Double, y1: Double, th1: Double,
++                      R: Double, endVisualHeading: Double,
++                      targetPoint: CGPoint) -> PlannedPath {
++    if let p = planDubins(x0: x0, y0: y0, th0: th0, x1: x1, y1: y1, th1: th1,
++                          R: R, endVisualHeading: endVisualHeading, targetPoint: targetPoint) {
++        return p
++    }
++    let D = max(1, hypot(x1 - x0, y1 - y0))
++    return PlannedPath(kind: .linear, length: D, endVisualHeading: endVisualHeading,
++                       targetPoint: targetPoint, x0: x0, y0: y0, th0: th0, R: R,
++                       seg1: 0, seg2: 0, seg3: 0, types: [], x1: x1, y1: y1, th1: th1)
++}
++
++private func planDubins(x0: Double, y0: Double, th0: Double,
++                        x1: Double, y1: Double, th1: Double,
++                        R: Double, endVisualHeading: Double,
++                        targetPoint: CGPoint) -> PlannedPath? {
++    let dx = x1 - x0, dy = y1 - y0, D = hypot(dx, dy)
++    guard D > 0.5 else { return nil }
++    let d = D / R, theta = mod2pi(atan2(dy, dx))
++    let a = mod2pi(th0 - theta), b = mod2pi(th1 - theta)
++    let solvers: [(Double, Double, Double) -> DubinsSolution?] = [
++        dubinsLSL, dubinsRSR, dubinsLSR, dubinsRSL, dubinsRLR, dubinsLRL,
++    ]
++    var best: DubinsSolution?; var bestLen = Double.infinity
++    for s in solvers {
++        if let sol = s(d, a, b), sol.length.isFinite, sol.length >= 0, sol.length < bestLen {
++            bestLen = sol.length; best = sol
++        }
++    }
++    guard let b = best else { return nil }
++    return PlannedPath(kind: .dubins, length: (b.t + b.p + b.q) * R,
++                       endVisualHeading: endVisualHeading, targetPoint: targetPoint,
++                       x0: x0, y0: y0, th0: th0, R: R,
++                       seg1: b.t, seg2: b.p, seg3: b.q, types: b.types,
++                       x1: x1, y1: y1, th1: th1)
++}
 diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
 index 0642385..69da3de 100644
 --- a/native/macos/bridge.swift
@@ -623,7 +1249,7 @@ index 0642385..69da3de 100644
  	}
  
  	/// Prefer physical key codes for characters represented by the US layout.
-diff --git a/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
+diff --git a/after/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
 new file mode 100644
 index 0000000..69726f2
 --- /dev/null
@@ -792,7 +1418,7 @@ index 0000000..69726f2
 +        if Thread.isMainThread { remove() } else { DispatchQueue.main.sync(execute: remove) }
 +    }
 +}
-diff --git a/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
+diff --git a/after/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
 new file mode 100644
 index 0000000..3035a8a
 --- /dev/null
@@ -872,7 +1498,7 @@ index b9657a4..c442dd4 100755
  	"agent_cursor_motion.swift",
  	"bridge.swift",
  ].map((file) => path.join(rootDir, "native", "macos", file));
-diff --git a/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
+diff --git a/after/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
 new file mode 100644
 index 0000000..9ff6376
 --- /dev/null
@@ -985,7 +1611,7 @@ index 0000000..9ff6376
 + }
 + console.log('PASS embedded catalog, factory isolation, exact targets, state/output ownership, keyboard focus/delivery, shared scheduler shutdown and concurrent configuration');
 +}finally{Object.assign(backend,original);await scheduler.close();await rm(root,{recursive:true,force:true})}
-diff --git a/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
+diff --git a/after/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
 new file mode 100644
 index 0000000..22b3f4e
 --- /dev/null
@@ -1348,6 +1974,19 @@ index ea057ca..6d939d2 100644
 +  const loaded = loadComputerUseConfig(cwd);
 +  return configContext.run(loaded, work);
  }
+diff --git a/src/contract.ts b/src/contract.ts
+index 660ed48..5201362 100644
+--- a/src/contract.ts
++++ b/src/contract.ts
+@@ -12,7 +12,7 @@ export interface FindParams {
+ 	bundleId?: string;
+ 	pid?: number;
+ 	/** Filters on the platform's best-effort presentation hint; only window vs transient is guaranteed. */
+-	kind?: "window" | "menu" | "sheet" | "popover" | "dialog" | "browser_page";
++	kind?: "window" | "menu" | "sheet" | "popover" | "dialog" | "browser_page" | "shared_screen";
+ }
+ 
+ export interface StateTargetParams {
 diff --git a/src/output.ts b/src/output.ts
 index 2cfa6b6..88b5563 100644
 --- a/src/output.ts
@@ -1405,6 +2044,106 @@ index 2cfa6b6..88b5563 100644
 +}
 +
 +export const { applyOutputEnvelope, boundToolError, readStoredOutput, clearStoredOutputs } = createStoredOutputs();
+diff --git a/src/platform/linux/helper.ts b/src/platform/linux/helper.ts
+index 66142ad..ba42470 100644
+--- a/src/platform/linux/helper.ts
++++ b/src/platform/linux/helper.ts
+@@ -85,6 +85,7 @@ export class LinuxHelperClient {
+ 	private installPromise?: Promise<void>;
+ 	private child?: ChildProcessWithoutNullStreams;
+ 	private processPromise?: Promise<ChildProcessWithoutNullStreams>;
++	private stopping?: Promise<void>;
+ 	private buffer = "";
+ 	private pending = new Map<string, Pending<unknown>>();
+ 	private readonly helperPath: string;
+@@ -117,6 +118,11 @@ export class LinuxHelperClient {
+ 	}
+ 
+ 	async ensureInstalled(signal?: AbortSignal): Promise<void> {
++        signal?.throwIfAborted();
++        if (process.env.PI_COMPUTER_USE_NO_RUNTIME_INSTALL === "1") {
++            if (!(await isExecutable(this.helperPath))) throw new Error("The bundled Linux computer helper is missing or not executable. Reinstall work-fold.");
++            return;
++        }
+ 		if ((await isExecutable(this.helperPath)) && this.installChecked) return;
+ 		if (!this.installPromise) {
+ 			const installPromise = (async () => {
+@@ -140,6 +146,7 @@ export class LinuxHelperClient {
+ 
+ 	private async process(signal?: AbortSignal): Promise<ChildProcessWithoutNullStreams> {
+ 		await this.ensureInstalled(signal);
++		if (this.stopping) await waitForShared(this.stopping, signal);
+ 		if (this.processPromise) return await waitForShared(this.processPromise, signal);
+ 		if (this.child && this.child.exitCode === null && !this.child.killed) return this.child;
+ 		if (!this.processPromise) {
+@@ -158,7 +165,7 @@ export class LinuxHelperClient {
+ 		child.stdout.setEncoding("utf8");
+ 		child.stderr.setEncoding("utf8");
+ 		child.stdin.setDefaultEncoding("utf8");
+-		child.stdout.on("data", (chunk: string) => this.onStdout(chunk));
++		child.stdout.on("data", (chunk: string) => { if (this.child === child) this.onStdout(chunk); });
+ 		child.on("exit", (code, signalName) => {
+ 			if (this.child !== child) return;
+ 			this.child = undefined;
+@@ -204,28 +211,45 @@ export class LinuxHelperClient {
+ 	}
+ 
+ 	async command<T>(cmd: string, args: Record<string, unknown> = {}, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
+-		const child = await this.process(options?.signal);
+-		const id = randomUUID();
++        options?.signal?.throwIfAborted();
++        const child = await this.process(options?.signal);
++        options?.signal?.throwIfAborted();
++        if (child.killed) throw new Error("Linux helper is stopping. Observe again before continuing.");
++        const id = randomUUID();
+ 		const timeoutMs = options?.timeoutMs ?? COMMAND_TIMEOUT_MS;
+ 		return await new Promise<T>((resolve, reject) => {
+-			const onAbort = () => {
+-				this.pending.delete(id);
+-				clearTimeout(timer);
+-				reject(new Error("Operation aborted."));
+-			};
+-			const timer = setTimeout(() => {
+-				options?.signal?.removeEventListener("abort", onAbort);
+-				this.pending.delete(id);
+-				reject(new Error(`Helper command '${cmd}' timed out after ${timeoutMs}ms.`));
+-			}, timeoutMs);
++            let stopping = false;
++            const stop = (message: string) => {
++                if (stopping) return;
++                stopping = true;
++                clearTimeout(timer);
++                options?.signal?.removeEventListener("abort", onAbort);
++                // A dispatched operation may already have effects. Drain the
++                // helper before releasing the shared physical-input scheduler.
++                // Never replay it, and invalidate every old native reference.
++                const interrupted = Object.assign(new Error(message), { code: "interrupted_unknown" });
++                const finish = () => { this.pending.delete(id); reject(interrupted); };
++                if (child.exitCode !== null || child.signalCode !== null) { finish(); return; }
++                this.pending.delete(id);
++                const drain = new Promise<void>(resolve => child.once("close", resolve));
++                this.stopping = drain;
++                void drain.then(() => { if (this.stopping === drain) this.stopping = undefined; });
++                child.once("close", finish);
++                child.kill("SIGTERM");
++                const killTimer = setTimeout(() => child.kill("SIGKILL"), 500);
++                child.once("close", () => clearTimeout(killTimer));
++            };
++            const onAbort = () => stop("Computer operation interrupted; its external effects are uncertain. Observe again before continuing.");
++            const timer = setTimeout(() => stop(`Computer helper '${cmd}' timed out; its external effects are uncertain.`), timeoutMs);
+ 			this.pending.set(id, {
+ 				resolve: (value) => { options?.signal?.removeEventListener("abort", onAbort); resolve(value as T); },
+ 				reject: (error) => { options?.signal?.removeEventListener("abort", onAbort); reject(error); },
+ 				timer,
+ 			});
+ 			options?.signal?.addEventListener("abort", onAbort, { once: true });
++            if (options?.signal?.aborted) { onAbort(); return; }
+ 			child.stdin.write(`${JSON.stringify({ protocolVersion: LINUX_HELPER_PROTOCOL_VERSION, id, cmd, args })}\n`, (error) => {
+-				if (!error) return;
++				if (!error || stopping) return;
+ 				options?.signal?.removeEventListener("abort", onAbort);
+ 				this.pending.delete(id);
+ 				clearTimeout(timer);
 diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
 index 930d217..338c123 100644
 --- a/src/platform/macos/helper.ts
@@ -1758,442 +2497,124 @@ index b479f4f..65fa350 100644
  	}
  
  	get size(): number {
-diff --git a/native/macos/agent_cursor.swift b/native/macos/agent_cursor.swift
+diff --git a/after/src/shared-screen.ts b/src/shared-screen.ts
 new file mode 100644
-index 0000000..0efeac7
+index 0000000..da2aa2d
 --- /dev/null
-+++ b/native/macos/agent_cursor.swift
-@@ -0,0 +1,159 @@
-+import AppKit
-+import SwiftUI
++++ b/src/shared-screen.ts
+@@ -0,0 +1,115 @@
++import { randomUUID } from "node:crypto";
++import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
++import { ResourceScheduler, StateStore } from "./runtime.ts";
 +
-+/// Visual-only cursor; native action delivery remains authoritative.
-+@MainActor
-+final class AgentCursor {
-+    typealias IdleHideScheduler = @MainActor (@escaping @MainActor () -> Void) -> Task<Void, Never>
-+
-+    static let shared = AgentCursor(scheduleIdleHide: scheduleDefaultIdleHide)
-+
-+    private var overlay: AgentCursorOverlayWindow?
-+    private var idleHideTask: Task<Void, Never>?
-+    private var idleGeneration: UInt = 0
-+    private let scheduleIdleHide: IdleHideScheduler
-+
-+    init(scheduleIdleHide: @escaping IdleHideScheduler) {
-+        self.scheduleIdleHide = scheduleIdleHide
-+    }
-+
-+    func animate(to point: CGPoint, above windowId: UInt32) {
-+        idleHideTask?.cancel()
-+        idleHideTask = nil
-+        idleGeneration &+= 1
-+
-+        let window = ensureWindow()
-+        if !window.isVisible { window.orderFrontRegardless() }
-+        window.order(.above, relativeTo: Int(windowId))
-+
-+        let renderer = AgentCursorRenderer.shared
-+        if renderer.position.x < -100 {
-+            let frame = NSScreen.main?.frame ?? .zero
-+            renderer.setInitialPosition(CGPoint(
-+                x: min(max(point.x - 140, frame.minX + 2), frame.maxX - 2),
-+                y: min(max(point.y - 140, frame.minY + 2), frame.maxY - 2)
-+            ))
-+        }
-+        renderer.moveTo(point: point)
-+
-+        let generation = idleGeneration
-+        idleHideTask = scheduleIdleHide { [weak self, weak window] in
-+            guard let self, let window else { return }
-+            guard generation == idleGeneration, self.overlay === window else { return }
-+
-+            renderer.cancelAnimation()
-+            window.orderOut(nil)
-+            window.contentView = nil
-+            window.close()
-+            overlay = nil
-+            idleHideTask = nil
-+        }
-+    }
-+
-+    private static func scheduleDefaultIdleHide(_ hide: @escaping @MainActor () -> Void) -> Task<Void, Never> {
-+        Task { @MainActor in
-+            try? await Task.sleep(for: .seconds(8))
-+            guard !Task.isCancelled else { return }
-+            hide()
-+        }
-+    }
-+
-+    private func ensureWindow() -> AgentCursorOverlayWindow {
-+        if let overlay { return overlay }
-+        let window = AgentCursorOverlayWindow(
-+            contentRect: NSScreen.main?.frame ?? NSScreen.screens.first?.frame ?? .zero,
-+            styleMask: .borderless,
-+            backing: .buffered,
-+            defer: false
-+        )
-+        window.contentView = NSHostingView(rootView: AgentCursorView())
-+        overlay = window
-+        return window
-+    }
++/** An explicitly granted monitor is a separate target kind. It has no PID,
++ * application identity or invented accessibility tree. Embedders provide this
++ * optional backend; the existing Pi tools, state store and scheduler own use. */
++export interface SharedScreenTarget { id: string; kind: "shared_screen"; title: string }
++export type SharedScreenAction =
++  | { action: "click"; x: number; y: number; button?: "left" | "right" | "middle"; count?: number }
++  | { action: "moveMouse"; x: number; y: number }
++  | { action: "typeText"; text: string }
++  | { action: "keypress"; keys: string[] }
++  | { action: "scroll"; x: number; y: number; scrollX: number; scrollY: number }
++  | { action: "drag"; path: Array<{ x: number; y: number }> };
++export interface SharedScreenObservation {
++  targetId: string; observationId: string; kind: "shared_screen";
++  frame: { width: number; height: number; capturedAtMs: number; sha256: string };
++  inputAvailable: boolean; image: { mimeType: "image/png"; data: string };
++  inputSent?: boolean; actionCount?: number;
 +}
-+
-+/// Main-display-only, click-through overlay that can never take focus.
-+private final class AgentCursorOverlayWindow: NSWindow {
-+    override var canBecomeKey: Bool { false }
-+    override var canBecomeMain: Bool { false }
-+
-+    override init(contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
-+        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
-+        isOpaque = false
-+        backgroundColor = .clear
-+        hasShadow = false
-+        ignoresMouseEvents = true
-+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-+        isReleasedWhenClosed = false
-+        hidesOnDeactivate = false
-+    }
++export interface SharedScreenBackend {
++  list(signal?: AbortSignal): Promise<SharedScreenTarget[]>;
++  observe(targetId: string, signal?: AbortSignal): Promise<SharedScreenObservation>;
++  act(targetId: string, observationId: string, actions: SharedScreenAction[], signal?: AbortSignal): Promise<SharedScreenObservation>;
++  shutdown?(): Promise<void>;
 +}
++type Record = { observation: SharedScreenObservation; root: string; point?: { x: number; y: number } };
 +
-+@MainActor
-+private struct AgentCursorView: View {
-+    @Bindable private var renderer = AgentCursorRenderer.shared
-+
-+    var body: some View {
-+        TimelineView(.animation(minimumInterval: 1.0 / 120.0, paused: !renderer.isAnimating)) { context in
-+            Canvas { graphics, _ in
-+                renderer.tick(now: context.date.timeIntervalSinceReferenceDate)
-+                drawCursor(in: graphics)
-+            }
-+            .ignoresSafeArea()
-+            .allowsHitTesting(false)
-+        }
++export class SharedScreenTools {
++  private readonly roots = new Map<string, SharedScreenTarget>();
++  private readonly states = new StateStore<Record>(8);
++  private readonly lifetime = new AbortController();
++  private readonly pending = new Set<Promise<unknown>>();
++  constructor(private readonly backend: SharedScreenBackend, private readonly scheduler: ResourceScheduler) {}
++  async close() {
++    this.lifetime.abort(); this.roots.clear(); this.states.clear();
++    await this.backend.shutdown?.();
++    await Promise.allSettled(this.pending);
++  }
++  async execute(tool: string, params: any, signal: AbortSignal | undefined, native: (signal?: AbortSignal) => Promise<AgentToolResult<any>>): Promise<AgentToolResult<any>> {
++    const combined = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal;
++    combined.throwIfAborted();
++    const operation = this.run(tool, params, combined, native);
++    this.pending.add(operation);
++    return operation.finally(() => this.pending.delete(operation));
++  }
++  private async run(tool: string, params: any, signal: AbortSignal, native: (signal?: AbortSignal) => Promise<AgentToolResult<any>>): Promise<AgentToolResult<any>> {
++    if (tool === "find_roots") {
++      if (params.pid || params.app || params.bundleId || (params.kind && params.kind !== "shared_screen")) return native(signal);
++      const targets = (await this.backend.list(signal)).filter(target => !params.text || target.title.toLocaleLowerCase().includes(params.text.toLocaleLowerCase()));
++      // Remove roots that no longer exist; stale refs never adopt a new grant.
++      for (const [ref, old] of this.roots) if (!targets.some(target => target.id === old.id)) this.roots.delete(ref);
++      const roots = targets.map(target => {
++        const previous = [...this.roots].find(([, old]) => old.id === target.id)?.[0];
++        const ref = previous ?? `@r-shared-${randomUUID()}`;
++        this.roots.set(ref, target);
++        return { kind: "shared_screen", windowRef: ref, title: target.title, windowTitle: target.title };
++      });
++      let result: AgentToolResult<any>;
++      try { result = params.kind === "shared_screen" ? { content: [], details: { windows: [] } } : await native(signal); }
++      catch (error) {
++        if (!roots.length || signal.aborted) throw error;
++        result = { content: [{ type: "text", text: "Application accessibility roots are unavailable. The explicitly shared screen remains available as a visual target." }], details: { windows: [] } };
++      }
++      if (!roots.length) return result;
++      return { content: [...result.content, { type: "text", text: roots.map(root => `${root.windowRef} shared_screen: ${root.title}. Use observe_ui with this exact root. This is a monitor, not an application window.`).join("\n") }],
++        details: { ...result.details, windows: [...(result.details?.windows ?? []), ...roots] } };
 +    }
-+
-+    private func drawCursor(in graphics: GraphicsContext) {
-+        let point = renderer.position
-+        guard point.x > -100 else { return }
-+
-+        let bloom = Color(nsColor: NSColor(red: 1, green: 0x78 / 255, blue: 0x18 / 255, alpha: 1))
-+        let radius: CGFloat = 22
-+        graphics.fill(
-+            Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)),
-+            with: .radialGradient(
-+                Gradient(colors: [bloom.opacity(0.55), bloom.opacity(0.15), bloom.opacity(0)]),
-+                center: point,
-+                startRadius: 0,
-+                endRadius: radius
-+            )
-+        )
-+
-+        let points = [
-+            CGPoint(x: 14, y: 0),
-+            CGPoint(x: -8, y: -9),
-+            CGPoint(x: -3, y: 0),
-+            CGPoint(x: -8, y: 9),
-+        ]
-+        var shape = Path()
-+        for index in points.indices {
-+            let previous = points[(index + points.count - 1) % points.count]
-+            let current = points[index]
-+            let next = points[(index + 1) % points.count]
-+            let entry = CGPoint(x: current.x + (previous.x - current.x) * 0.16, y: current.y + (previous.y - current.y) * 0.16)
-+            let exit = CGPoint(x: current.x + (next.x - current.x) * 0.16, y: current.y + (next.y - current.y) * 0.16)
-+            if index == points.startIndex { shape.move(to: entry) } else { shape.addLine(to: entry) }
-+            shape.addQuadCurve(to: exit, control: current)
-+        }
-+        shape.closeSubpath()
-+
-+        let transformed = shape.applying(
-+            CGAffineTransform(translationX: point.x, y: point.y)
-+                .rotated(by: CGFloat(renderer.heading + .pi))
-+        )
-+        graphics.fill(
-+            transformed,
-+            with: .linearGradient(
-+                Gradient(colors: [
-+                    Color(red: 1, green: 0xD0 / 255, blue: 0x76 / 255),
-+                    Color(red: 1, green: 0x78 / 255, blue: 0x18 / 255),
-+                    Color(red: 0xE8 / 255, green: 0x4A / 255, blue: 0x0C / 255),
-+                ]),
-+                startPoint: CGPoint(x: point.x + 14, y: point.y - 9),
-+                endPoint: CGPoint(x: point.x - 8, y: point.y + 9)
-+            )
-+        )
-+        graphics.stroke(transformed, with: .color(.white), lineWidth: 2)
++    const selected = tool === "observe_ui" ? this.roots.get(params.root) : undefined;
++    if (selected) {
++      if (params.mode === "semantic") throw new Error("A shared screen is visual-only. Use visual or fused observation; no accessibility identity has been established.");
++      const resourceKey = "shared-screen-seat";
++      const result = await this.scheduler.read(resourceKey, () => this.backend.observe(selected.id, signal));
++      return this.save(tool, params.root, result.value, result.epoch);
 +    }
-+}
-diff --git a/native/macos/agent_cursor_motion.swift b/native/macos/agent_cursor_motion.swift
-new file mode 100644
-index 0000000..c682942
---- /dev/null
-+++ b/native/macos/agent_cursor_motion.swift
-@@ -0,0 +1,252 @@
-+import CoreGraphics
-+import Foundation
-+import Observation
-+
-+/// Main-actor Dubins-path animation state consumed by the SwiftUI overlay.
-+@Observable
-+@MainActor
-+final class AgentCursorRenderer {
-+    static let shared = AgentCursorRenderer()
-+
-+    private(set) var position = CGPoint(x: -200, y: -200)
-+    private(set) var heading: Double = .pi / 4
-+    private(set) var isAnimating = false
-+
-+    private var path: PlannedPath?
-+    private var spring: Spring?
-+    private var distanceSoFar: Double = 0
-+    private var lastFrameTime: CFTimeInterval?
-+    private var springTarget: (point: CGPoint, heading: Double)?
-+
-+    func moveTo(point clickPoint: CGPoint) {
-+        let endAngle = Double.pi / 4
-+        let targetPoint = CGPoint(
-+            x: clickPoint.x + CGFloat(cos(endAngle) * 16),
-+            y: clickPoint.y + CGFloat(sin(endAngle) * 16)
-+        )
-+        path = planPath(
-+            x0: Double(position.x), y0: Double(position.y), th0: heading + .pi,
-+            x1: Double(targetPoint.x), y1: Double(targetPoint.y), th1: endAngle + .pi,
-+            R: 80, endVisualHeading: endAngle, targetPoint: targetPoint)
-+        spring = nil
-+        springTarget = nil
-+        distanceSoFar = 0
-+        lastFrameTime = nil
-+        isAnimating = true
++    const record = typeof params.stateId === "string" ? this.states.get(params.stateId) : undefined;
++    if (!record) {
++      if (typeof params.root === "string" && params.root.startsWith("@r-shared-") || typeof params.stateId === "string" && params.stateId.startsWith("@shared-")) throw new Error("Shared-screen state is unavailable. Find the current shared screen and observe it again.");
++      return native(signal);
 +    }
-+
-+    func setInitialPosition(_ point: CGPoint) {
-+        position = point
-+        cancelAnimation()
-+    }
-+
-+    func cancelAnimation() {
-+        path = nil
-+        spring = nil
-+        springTarget = nil
-+        distanceSoFar = 0
-+        lastFrameTime = nil
-+        isAnimating = false
-+    }
-+
-+    func tick(now: CFTimeInterval) {
-+        guard isAnimating else { return }
-+        let previous = lastFrameTime ?? now
-+        let dt = min(0.05, now - previous)
-+        lastFrameTime = now
-+
-+        if let path {
-+            let progress = min(1.0, distanceSoFar / max(path.length, 1))
-+            let profile = 16 * progress * progress * (1 - progress) * (1 - progress)
-+            let minimumSpeed = progress < 0.5 ? 300.0 : 200.0
-+            let speed = minimumSpeed + (900 - minimumSpeed) * profile
-+            distanceSoFar += speed * dt
-+
-+            if distanceSoFar >= path.length {
-+                let endState = path.sample(at: path.length)
-+                spring = Spring(
-+                    ox: 0,
-+                    oy: 0,
-+                    vx: cos(endState.heading) * speed * 0.8,
-+                    vy: sin(endState.heading) * speed * 0.8
-+                )
-+                springTarget = (path.targetPoint, path.endVisualHeading)
-+                position = path.targetPoint
-+                heading = path.endVisualHeading
-+                self.path = nil
-+                distanceSoFar = 0
-+            } else {
-+                let state = path.sample(at: distanceSoFar)
-+                position = CGPoint(x: state.x, y: state.y)
-+                heading = rotateToward(current: heading, desired: state.heading + .pi, maxStep: 14 * dt)
-+            }
-+        } else if var spring, let target = springTarget {
-+            let substep = dt / 4
-+            for _ in 0..<4 {
-+                spring.vx += (-400 * spring.ox - 17 * spring.vx) * substep
-+                spring.vy += (-400 * spring.oy - 17 * spring.vy) * substep
-+                spring.ox += spring.vx * substep
-+                spring.oy += spring.vy * substep
-+            }
-+            position = CGPoint(x: target.point.x + CGFloat(spring.ox), y: target.point.y + CGFloat(spring.oy))
-+            heading = target.heading
-+            if hypot(spring.ox, spring.oy) < 0.3 && hypot(spring.vx, spring.vy) < 2 {
-+                position = target.point
-+                self.spring = nil
-+                springTarget = nil
-+                lastFrameTime = nil
-+                isAnimating = false
-+            } else {
-+                self.spring = spring
-+            }
-+        }
-+    }
-+
-+    private func rotateToward(current: Double, desired: Double, maxStep: Double) -> Double {
-+        var difference = desired - current
-+        while difference > .pi { difference -= 2 * .pi }
-+        while difference < -.pi { difference += 2 * .pi }
-+        return current + max(-maxStep, min(maxStep, difference))
-+    }
++    if (tool !== "act_ui") throw new Error("This shared screen has no semantic UI tree. Inspect its image and use pixel coordinates with act_ui.");
++    if (!record.value.observation.inputAvailable) throw new Error("This shared screen is capture-only. Its input permission or coordinate mapping is unavailable.");
++    if (params.expect) throw new Error("A visual-only screen cannot verify a semantic expect condition. Inspect the successor image to verify the outcome.");
++    if (!Array.isArray(params.actions) || params.actions.length < 1 || params.actions.length > 20) throw new Error("Use 1 to 20 actions.");
++    let point = record.value.point;
++    const actions: SharedScreenAction[] = params.actions.map((action: any) => {
++      if (action.ref !== undefined || ["press", "setText"].includes(action.action)) throw new Error("Shared-screen actions require pixel coordinates, not accessibility refs.");
++      switch (action.action) {
++        case "click": case "moveMouse":
++          point = { x: action.x, y: action.y };
++          return { action: action.action, ...point, ...(action.action === "click" ? { button: action.button, count: action.clickCount } : {}) };
++        case "drag": point = action.path?.at(-1); return { action: "drag", path: action.path };
++        case "typeText": return { action: "typeText", text: action.text };
++        case "keypress": return { action: "keypress", keys: action.keys };
++        case "scroll":
++          if (!point) throw new Error("Move or click at the intended location before scrolling a shared screen.");
++          return { action: "scroll", ...point, scrollX: action.scrollX ?? 0, scrollY: action.scrollY ?? 0 };
++        default: throw new Error("Unsupported shared-screen action.");
++      }
++    });
++    const result = await this.scheduler.write(record.resourceKey, record.epoch, () => this.backend.act(
++      record.value.observation.targetId, record.value.observation.observationId, actions, signal));
++    return this.save(tool, record.value.root, result.value, result.epoch, point);
++  }
++  private save(tool: string, root: string, observation: SharedScreenObservation, epoch: number, point?: { x: number; y: number }): AgentToolResult<any> {
++    const stateId = `@shared-${observation.observationId}`;
++    this.states.set({ stateId, resourceKey: "shared-screen-seat", epoch, value: { root, observation, point } });
++    return { content: [{ type: "text", text: `${tool === "act_ui" ? "Input sent; verify the result in this image." : "Shared-screen observation."} State ${stateId}. Coordinates are relative to this ${observation.frame.width} × ${observation.frame.height} image. ${observation.inputAvailable ? "Keyboard input affects the desktop's focused application." : "Capture only; input is unavailable."}` },
++      { type: "image", mimeType: "image/png", data: observation.image.data }],
++      details: { tool, kind: "shared_screen", stateId, root: { ref: root, kind: "shared_screen", title: "Shared screen" },
++        capture: { stateId, width: observation.frame.width, height: observation.frame.height, timestamp: observation.frame.capturedAtMs, coordinateSpace: "shared-screen-image-pixels" },
++        inputAvailable: observation.inputAvailable, ...(observation.inputSent ? { inputSent: true, actionCount: observation.actionCount } : {}) } };
++  }
 +}
-+
-+private struct Spring { var ox, oy, vx, vy: Double }
-+
-+struct DubinsPlannedPath {
-+    enum Kind { case dubins, linear }
-+    let kind: Kind
-+    let length: Double
-+    let endVisualHeading: Double
-+    let targetPoint: CGPoint
-+    let x0, y0, th0, R, seg1, seg2, seg3: Double
-+    let types: [Character]
-+    let x1, y1, th1: Double
-+
-+    struct State { let x, y, heading: Double }
-+
-+    func sample(at s: Double) -> State {
-+        switch kind { case .linear: return sampleLinear(s); case .dubins: return sampleDubins(s) }
-+    }
-+
-+    private func sampleLinear(_ s: Double) -> State {
-+        let u = max(0, min(1, s / length))
-+        var diff = th1 - th0
-+        while diff > .pi  { diff -= 2 * .pi }
-+        while diff < -.pi { diff += 2 * .pi }
-+        return State(x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u, heading: th0 + diff * u)
-+    }
-+
-+    private func sampleDubins(_ sIn: Double) -> State {
-+        guard sIn > 0 else { return State(x: x0, y: y0, heading: th0) }
-+        let L1 = seg1 * R, L2 = seg2 * R, L3 = seg3 * R
-+        let s = min(sIn, L1 + L2 + L3)
-+        var x = x0, y = y0, th = th0
-+
-+        func advance(length L: Double, type: Character) {
-+            if type == "S" { x += cos(th) * L; y += sin(th) * L }
-+            else {
-+                let dth = L / R * (type == "L" ? 1.0 : -1.0)
-+                let perp: Double = (type == "L") ? .pi / 2 : -.pi / 2
-+                let cx = x + cos(th + perp) * R, cy = y + sin(th + perp) * R
-+                let ang = atan2(y - cy, x - cx)
-+                x = cx + cos(ang + dth) * R; y = cy + sin(ang + dth) * R; th += dth
-+            }
-+        }
-+        if s <= L1 { advance(length: s, type: types[0]); return State(x: x, y: y, heading: th) }
-+        advance(length: L1, type: types[0])
-+        if s <= L1 + L2 { advance(length: s - L1, type: types[1]); return State(x: x, y: y, heading: th) }
-+        advance(length: L2, type: types[1])
-+        advance(length: s - L1 - L2, type: types[2])
-+        return State(x: x, y: y, heading: th)
-+    }
-+}
-+
-+private typealias PlannedPath = DubinsPlannedPath
-+
-+private func mod2pi(_ x: Double) -> Double {
-+    let tau = 2 * Double.pi; let r = x - tau * floor(x / tau); return r < 0 ? r + tau : r
-+}
-+
-+private struct DubinsSolution { let t, p, q: Double; let types: [Character]; var length: Double { t + p + q } }
-+
-+private func dubinsLSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let tmp0 = d + sin(a) - sin(b)
-+    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))
-+    guard p2 >= 0 else { return nil }
-+    let tmp1 = atan2(cos(b) - cos(a), tmp0)
-+    return DubinsSolution(t: mod2pi(-a + tmp1), p: sqrt(p2), q: mod2pi(b - tmp1), types: ["L","S","L"])
-+}
-+private func dubinsRSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let tmp0 = d - sin(a) + sin(b)
-+    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))
-+    guard p2 >= 0 else { return nil }
-+    let tmp1 = atan2(cos(a) - cos(b), tmp0)
-+    return DubinsSolution(t: mod2pi(a - tmp1), p: sqrt(p2), q: mod2pi(-b + tmp1), types: ["R","S","R"])
-+}
-+private func dubinsLSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let p2 = -2 + d * d + 2 * cos(a - b) + 2 * d * (sin(a) + sin(b))
-+    guard p2 >= 0 else { return nil }
-+    let p = sqrt(p2)
-+    let tmp1 = atan2(-cos(a) - cos(b), d + sin(a) + sin(b)) - atan2(-2, p)
-+    return DubinsSolution(t: mod2pi(-a + tmp1), p: p, q: mod2pi(-mod2pi(b) + tmp1), types: ["L","S","R"])
-+}
-+private func dubinsRSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let p2 = d * d - 2 + 2 * cos(a - b) - 2 * d * (sin(a) + sin(b))
-+    guard p2 >= 0 else { return nil }
-+    let p = sqrt(p2)
-+    let tmp1 = atan2(cos(a) + cos(b), d - sin(a) - sin(b)) - atan2(2, p)
-+    return DubinsSolution(t: mod2pi(a - tmp1), p: p, q: mod2pi(b - tmp1), types: ["R","S","L"])
-+}
-+private func dubinsRLR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))) / 8
-+    guard abs(tmp) <= 1 else { return nil }
-+    let p = mod2pi(2 * .pi - acos(tmp))
-+    let t = mod2pi(a - atan2(cos(a) - cos(b), d - sin(a) + sin(b)) + p / 2)
-+    return DubinsSolution(t: t, p: p, q: mod2pi(a - b - t + p), types: ["R","L","R"])
-+}
-+private func dubinsLRL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
-+    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))) / 8
-+    guard abs(tmp) <= 1 else { return nil }
-+    let p = mod2pi(2 * .pi - acos(tmp))
-+    let t = mod2pi(-a + atan2(-cos(a) + cos(b), d + sin(a) - sin(b)) + p / 2)
-+    return DubinsSolution(t: t, p: p, q: mod2pi(mod2pi(b) - a - t + p), types: ["L","R","L"])
-+}
-+
-+private func planPath(x0: Double, y0: Double, th0: Double,
-+                      x1: Double, y1: Double, th1: Double,
-+                      R: Double, endVisualHeading: Double,
-+                      targetPoint: CGPoint) -> PlannedPath {
-+    if let p = planDubins(x0: x0, y0: y0, th0: th0, x1: x1, y1: y1, th1: th1,
-+                          R: R, endVisualHeading: endVisualHeading, targetPoint: targetPoint) {
-+        return p
-+    }
-+    let D = max(1, hypot(x1 - x0, y1 - y0))
-+    return PlannedPath(kind: .linear, length: D, endVisualHeading: endVisualHeading,
-+                       targetPoint: targetPoint, x0: x0, y0: y0, th0: th0, R: R,
-+                       seg1: 0, seg2: 0, seg3: 0, types: [], x1: x1, y1: y1, th1: th1)
-+}
-+
-+private func planDubins(x0: Double, y0: Double, th0: Double,
-+                        x1: Double, y1: Double, th1: Double,
-+                        R: Double, endVisualHeading: Double,
-+                        targetPoint: CGPoint) -> PlannedPath? {
-+    let dx = x1 - x0, dy = y1 - y0, D = hypot(dx, dy)
-+    guard D > 0.5 else { return nil }
-+    let d = D / R, theta = mod2pi(atan2(dy, dx))
-+    let a = mod2pi(th0 - theta), b = mod2pi(th1 - theta)
-+    let solvers: [(Double, Double, Double) -> DubinsSolution?] = [
-+        dubinsLSL, dubinsRSR, dubinsLSR, dubinsRSL, dubinsRLR, dubinsLRL,
-+    ]
-+    var best: DubinsSolution?; var bestLen = Double.infinity
-+    for s in solvers {
-+        if let sol = s(d, a, b), sol.length.isFinite, sol.length >= 0, sol.length < bestLen {
-+            bestLen = sol.length; best = sol
-+        }
-+    }
-+    guard let b = best else { return nil }
-+    return PlannedPath(kind: .dubins, length: (b.t + b.p + b.q) * R,
-+                       endVisualHeading: endVisualHeading, targetPoint: targetPoint,
-+                       x0: x0, y0: y0, th0: th0, R: R,
-+                       seg1: b.t, seg2: b.p, seg3: b.q, types: b.types,
-+                       x1: x1, y1: y1, th1: th1)
-+}
-diff --git a/docs/architecture.md b/docs/architecture.md
-index fd426dc..941344b 100644
---- a/docs/architecture.md
-+++ b/docs/architecture.md
-@@ -106,9 +106,9 @@ delivery alone is never treated as semantic success.
- 
- One action is represented by an array of length one. A multi-action transaction is appropriate only when no intermediate observation is needed. The runtime validates one base state, acquires one resource lane, and sends the steps as one native helper transaction. The helper captures one pre-transaction root baseline, executes and verifies steps in order, and stops on the first failed or invalidated step. Partial results include `stoppedAt`, so callers know the exact checked boundary and must re-observe before continuing. The helper performs one final root-delta settle and the bridge produces one final observation. There is no alternate sequential protocol. This is not a mechanism for parallel actions within one UI resource.
- 
--The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Editable-region clicks establish foreground focus for following unscoped keyboard steps in the same transaction. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed AX value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
-+The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Clicks or presses on focusable controls establish foreground focus for following unscoped keyboard steps in the same transaction. In the normal interactive delivery mode, keypresses use one foreground HID delivery because application command handling belongs to the active key window and a pid-targeted event can be accepted without reaching it. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed AX value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
- 
--With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. With `headless: false` (the default), credible semantic activation may begin in the background, editable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
-+With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. Actions that require raw pointer or keyboard input fail before effect; direct AX value writes remain available where the platform supports them. With `headless: false` (the default), credible semantic activation may begin in the background, focusable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Normal interactive keypresses use foreground delivery directly and are never replayed after an `unknown` result. Before the first HID press, macOS confirms that the pinned process is frontmost and the selected native window still matches the observed window; a nested modal target must also have a bounded, same-process ancestry to that root, and a parent focused window requires the focused UI element to be inside the exact modal branch. Failed focus fails before input. An explicit `PI_COMPUTER_USE_DELIVERY_POLICY=background` or `ax_only` retains that boundary and prohibits foreground escalation; `foreground` requests foreground delivery for the action. Focus-preserving native keyboard requests validate the selected window without raising or re-focusing it between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
- 
- The agent-facing `act_ui.headless` flag determines whether foreground execution is prohibited. Fallback-capable multi-action calls execute one checked action at a time, retain click-established focus, and stop on a checked `didnt`; strict-headless calls retain native transactional batching.
- 

@@ -456,6 +456,44 @@ test("a final registry-write failure remains idempotently recoverable after mana
   assert.deepEqual(await listPendingSpaceRemovals(), []);
 });
 
+for (const legacyIdentity of [false, true]) {
+  test(`removal recovery preserves an inode-reusing replacement (${legacyIdentity ? "legacy" : "creation-time"} identity)`, async () => {
+    const space = await createManagedSpace(`Inode reuse ${legacyIdentity}`, contentRoot);
+    const manifest = await readFile(spaceManifestFile(space.spaceRoot), "utf8");
+    await beginSpaceRemoval(space.id, contentRoot);
+    await markSpaceRemovalAppStateRemoved(space.id);
+    await finalizeSpaceRemoval(space.id, {
+      async persistRegistry(registry) {
+        if (!registry.pendingRemovals.length) throw new Error("final write interrupted");
+        await persistSpaceRegistryForTest(registry);
+      },
+    });
+    await mkdir(space.spaceRoot);
+    const sentinel = join(space.spaceRoot, "replacement.txt");
+    await writeFile(sentinel, "unrelated replacement");
+    // A copied portable identity alone cannot authorize a new directory.
+    if (!legacyIdentity) {
+      await mkdir(dirname(spaceManifestFile(space.spaceRoot)));
+      await writeFile(spaceManifestFile(space.spaceRoot), manifest);
+    }
+    const replacement = await stat(space.spaceRoot, { bigint: true });
+    const registry = JSON.parse(await readFile(spaceRegistryFile(), "utf8"));
+    const identity = registry.pendingRemovals.find((item: { spaceId: string }) => item.spaceId === space.id).managedRootIdentity;
+    // Deterministically model the allocator reusing dev/ino. Older records
+    // lack birthtime; newer records distinguish the directory incarnation.
+    identity.device = replacement.dev.toString();
+    identity.inode = replacement.ino.toString();
+    if (legacyIdentity) delete identity.birthtimeNs;
+    else if (identity.birthtimeNs !== undefined) identity.birthtimeNs = (replacement.birthtimeNs + 1n).toString();
+    await writeFile(spaceRegistryFile(), JSON.stringify(registry));
+    const recovered = await finalizeSpaceRemoval(space.id);
+    assert.equal(recovered.cleanupPending, false);
+    assert.equal(recovered.deleted, true);
+    assert.equal(await readFile(sentinel, "utf8"), "unrelated replacement");
+    assert.deepEqual(await listPendingSpaceRemovals(), []);
+  });
+}
+
 test("an unclaimed replacement folder or junction keeps managed removal pending", async () => {
   const space = await createManagedSpace("Removal replacement guard", contentRoot);
   await writeFile(join(space.spaceRoot, "approved-original.txt"), "original", "utf8");

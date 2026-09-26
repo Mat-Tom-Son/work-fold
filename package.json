@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.4.36",
+  "version": "0.4.48",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",
@@ -16,10 +16,12 @@
   },
   "main": "dist/desktop/desktop/src/main.js",
   "productName": "work-fold",
+  "desktopName": "work-fold.desktop",
   "engines": {
     "node": ">=22.19.0"
   },
   "scripts": {
+    "start": "electron .",
     "postinstall": "node scripts/normalize-pi-dependencies.mjs && node scripts/prepare-included-tools.mjs",
     "build": "npm run desktop:prepare",
     "check": "npm run repo:check && npm run local:check && npm run desktop:check",
@@ -37,7 +39,7 @@
     "desktop:icons": "node scripts/generate-desktop-icons.mjs && node scripts/generate-dmg-background.mjs",
     "desktop:check": "tsc --noEmit -p tsconfig.desktop.json",
     "desktop:compile": "node scripts/clean-desktop-dist.mjs && tsc -p tsconfig.desktop.json",
-    "desktop:prepare": "npm run desktop:computer-helper && npm run desktop:chrome-native-host && npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:preload:smoke && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
+    "desktop:prepare": "npm run desktop:computer-helper && npm run desktop:linux-native-hosts && npm run desktop:chrome-native-host && npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:preload:smoke && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
     "desktop:package": "npm run desktop:prepare && electron-forge package && node scripts/verify-packaged-app-assets.mjs --package-dir out/work-fold-win32-x64",
     "desktop:package:smoke": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win --x64 --dir --publish never && npm run desktop:verify:packaged-assets -- --package-dir out/builder/win-unpacked",
     "desktop:make": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win nsis --x64 --publish never && npm run desktop:verify:release",
@@ -56,7 +58,7 @@
     "desktop:reset:mac-safe-storage": "node scripts/reset-mac-safe-storage.mjs",
     "desktop:verify:installed:mac": "node scripts/verify-installed-mac-app.mjs",
     "desktop:make:zip": "npm run desktop:prepare && node scripts/make-desktop.mjs && npm run desktop:verify:packaged-assets",
-    "desktop:smoke": "npm run desktop:prepare && electron dist/desktop/desktop/src/main.js",
+    "desktop:smoke": "npm run desktop:prepare && npm start",
     "desktop:preflight": "node scripts/desktop-preflight.mjs",
     "desktop:restricted-app:smoke": "electron scripts/restricted-app-electron-smoke.mjs",
     "desktop:preload:smoke": "electron scripts/desktop-preload-electron-smoke.mjs",
@@ -65,13 +67,20 @@
     "desktop:verify:release:mac": "node scripts/verify-mac-release.mjs",
     "desktop:computer-helper": "node scripts/build-computer-helper.mjs",
     "desktop:chrome-native-host": "node scripts/build-chrome-native-host.mjs",
-    "chrome:build": "node scripts/build-chrome-store.mjs"
+    "chrome:build": "node scripts/build-chrome-store.mjs",
+    "desktop:linux-native-hosts": "node scripts/build-linux-native-hosts.mjs",
+    "desktop:linux-native-tests": "node scripts/test-linux-native.mjs",
+    "desktop:test:linux-dev": "node scripts/linux-installed-smoke.mjs --development",
+    "desktop:package:linux": "node scripts/build-linux-desktop.mjs --dir",
+    "desktop:make:linux": "node scripts/build-linux-desktop.mjs",
+    "desktop:stage:linux": "node scripts/stage-linux-repository.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.6",
     "@earendil-works/pi-coding-agent": "0.80.6",
     "@injaneity/pi-computer-use": "0.5.1",
     "@napi-rs/canvas": "1.0.9",
+    "acorn": "8.16.0",
     "brace-expansion": "5.0.9",
     "docx": "9.7.1",
     "electron-updater": "6.8.9",
@@ -86,8 +95,7 @@
     "pptxgenjs": "4.0.1",
     "protobufjs": "7.6.5",
     "undici-pi-reviewed": "npm:undici@8.10.0",
-    "ws": "^8.21.2",
-    "acorn": "8.16.0"
+    "ws": "^8.21.2"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
@@ -110,6 +118,7 @@
     "jsdom": "^29.1.1",
     "lucide-react": "^1.8.0",
     "material-icon-theme": "^5.36.1",
+    "puppeteer-core": "25.12.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",

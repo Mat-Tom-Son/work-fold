@@ -86,7 +86,7 @@ is not rendered as a desktop component.
 
 | Tool | Included implementation | Setup and supported boundary |
 |---|---|---|
-| Computer Control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source and included in the app signing lane. Accessibility and Screen Recording setup names the actual helper. Requested observations and actions, no continuous recorder. |
+| Computer Control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source in the signing lane; Linux x64 Rust helper built from pinned sources. Linux AT-SPI observations and semantic actions depend on target-app support. GNOME Wayland uses explicit portal sharing with a Chat-owned capture/input session; X11 has an upstream capture/input backend. Requested observations and actions, no continuous recorder. |
 | Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Install work-fold from the Chrome Web Store and choose Connect in the selected profile. Native bootstrap and authenticated protocol/capability checks precede use. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
 | Web | `pi-web-access` 0.29.0 pure search and readable-page functions through an additive native factory | DuckDuckGo search needs no key; optional Brave key is entered in tool setup. Explicit HTTP(S) reading, bounded output and cancellation. No automatic cookie/profile import, media service, global fetch replacement or hidden model call. Challenges and rate limits remain visible failures. |
 | Documents | Ordinary JavaScript worker, maintained document libraries and a standard document-work Skill | DOCX/XLSX/PPTX/PDF creation, spreadsheet read/write, PDF text extraction and selected page rendering using bundled dependencies. No separate Node/Python required. Office visual rendering uses the person's existing compatible apps; formulas are preserved, not recalculated; PDF text extraction is not OCR. |
@@ -98,7 +98,7 @@ starts. Factories stay cold during catalog inspection; credentials are read
 when an operation needs them. The document worker imports its libraries on
 requested execution or an explicit health check.
 
-The packaged Computer helper runs from a private, versioned directory outside
+The packaged macOS Computer helper runs from a private, versioned directory outside
 the enclosing work-fold app bundle so macOS attributes its Screen Recording
 permission to `work-fold Computer`. On first requested setup or tool execution,
 the host copies the exact signed bundle, verifies its bytes and signature, and
@@ -109,6 +109,34 @@ prove capture works; readiness uses the actual helper's permission evidence.
 Changed helper bytes fail ordinary tool execution. Explicit Computer setup can
 repair them from the verified app copy after accepted work has stopped; the
 existing global capability fence holds through idle-helper shutdown and repair.
+
+The Linux helper runs from the app's immutable resources after its executable
+hash is checked, with runtime setup/download disabled. It uses the same Pi
+factory and a shared scheduler. Aborting a dispatched command terminates and
+awaits the helper, invalidates its observations and reports uncertain effects
+without replay; other Chats may need to observe again. GNOME Wayland adds an
+optional shared-screen backend to these same eight Pi tools, their state store
+and scheduler. The native host event bus provides session-bound list, observe,
+act and release facilities; catalog mode receives none. Trusted Computer setup
+assigns a portal grant to one existing Chat. Each operation checks the explicit
+Chat and accepted-turn identity, consumes a current observation for input, and
+holds an OS-backed seat lease until the turn settles. Ending, archiving or
+removing the owner stops sharing even if its Pi client has not initialized.
+
+A shared monitor has its own target kind and no PID, window id or semantic tree.
+Visual observation returns the granted PipeWire frame. Pixel actions use the
+portal/EIS mapping and compositor geometry, including qualified fractional
+scaling; semantic refs and semantic outcome assertions are rejected for that
+target. libei and libxkbcommon own input transport and keymap interpretation.
+No model call opens a chooser or restores a grant. Portal closure, native GNOME/KDE lock,
+sleep, app exit and Stop revoke it. Input is whole-seat work: keyboard events
+affect the focused application, and the successor image verifies what happened.
+The helper requires an identifiable GNOME or KDE session and revokes sharing if
+its native lock service loses or changes ownership. KDE helper qualification is
+limited to a single connected monitor; a multiple-monitor response is refused
+before capture. The installed-desktop support baseline remains GNOME.
+See [Linux builds](linux-build.md) and the [native acceptance harness](../scripts/linux-wayland-probe/README.md)
+for packaging, supported geometry/layouts and remaining qualification.
 
 Documents run full trust in a worker so Stop can terminate a synchronous loop.
 Each worker has a 512 MiB V8 heap limit to contain accidental allocation loops;

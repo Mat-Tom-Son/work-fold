@@ -29,6 +29,7 @@ instruction to implement its contents.
 | Web access and sharing | [Bridge operations](../services/bridge/README.md), [Publishing and viewers](fold-publishing.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |
 | Desktop interaction and appearance | [Desktop parity](ui-parity.md), [Collaboration experience](collaboration-experience.md), [Visual system](visual-design.md), [Application appearance](application-appearance.md), [Space customization](space-customization.md) |
 | Mac distribution | [Build lanes](macos-build.md), [Release procedure](macos-release.md), [Release notes and candidate history](releases/README.md) |
+| Linux candidates | [Build, packaging and desktop acceptance](linux-build.md) |
 
 The App platform's [ontology](app-platform-ontology.md),
 [publication/data contracts](app-platform-publication-data.md), and
@@ -68,6 +69,7 @@ viewer pages and app views are a separate shipped capability.
 |---|---|
 | [Checks expansion](checks-expansion.md) | Shipped decisions reconciled with remaining proposals; the Checks register wins |
 | [Next product directions](next-product-directions.md) | Proposed priorities for discussion, not accepted scope |
+| [Linux completion plan](linux-roadmap.md) | Researched proposal for installed desktop acceptance, Wayland computer work, real upgrades and public Linux distribution; not shipped capabilities |
 | [Extensions and computer work](extension-foundation.md) | Shared Extension design, first interaction implementation, inclusion candidates and outstanding compatibility/release work |
 | [Feedback during Assistant work](tool-feedback.md) | General native-tool feedback contract, adversarial review decisions, local model-context inspection and implementation evidence |
 | [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Design rationale behind wave B and the dated 0.4.23 gap assessment; the built specification is the collaboration contract |
