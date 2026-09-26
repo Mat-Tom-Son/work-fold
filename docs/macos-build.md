@@ -204,6 +204,16 @@ Gatekeeper result before skipping work. It fails closed if inputs, environment,
 or artifacts changed; run a fresh `desktop:make:mac:release` in that case. Do
 not hand-edit the state file. The full verifier still runs before publication.
 
+A frozen distribution build may overlap PR or main CI. Finish the version bump
+and release notes first, and do not modify source while packaging. Once the
+reviewed change is merged, inspect status again on the final `main` checkout.
+A compatible source/configuration fingerprint and exact artifact receipts allow
+`:resume` to reuse completed Apple work even when the merge changed the commit
+id without changing build inputs. A mismatch requires a fresh build; elapsed
+time or a similar-looking app is not evidence of compatibility. Changes only
+to release tooling or documentation do not require a new version or an Apple
+submission to validate the process.
+
 ## Public releases
 
 The active public desktop release is the signed, notarized Apple-silicon Mac build. The source repository carries the exact source tag, while the separate Mac feed owns only the distribution artifacts:
@@ -222,14 +232,28 @@ legacy release repository must never receive these artifacts.
 npm run desktop:release:mac
 ```
 
-Publication starts only after GitHub CI succeeds for the exact release commit
-on pushed `main` and succeeds again for the matching pushed source tag. These
-are separate runs over the same SHA: the tag run catches tag-only release
-conditions without making tag creation itself a publisher. A failed pushed tag
-remains immutable evidence; correct the source, advance the package version,
-and create a new commit and tag.
+Publication requires full CI for the exact release commit on pushed canonical
+`main`, followed by lightweight `Release tag verification` for its annotated
+source tag. Full CI has seven required jobs: Repository & TypeScript, four
+Application tests shards, Web bridge tests, and Electron integration. The tag
+workflow uses Node 24 on Ubuntu without installing dependencies; it verifies
+the package version, annotated tag, current canonical `main`, and the latest
+exact-commit main push run. It does not repeat the full suite or publish.
+Both required runs must succeed on their first attempt. A failed pushed tag
+remains immutable evidence; do not rerun it to qualify the candidate. Correct
+the cause, advance the package version, and create a new commit and tag.
 
-The publisher requires a clean worktree whose `HEAD` equals `origin/main`, the matching source tag, public source and feed repositories, and an unused `v<version>` tag in the feed. It verifies the local release again, uploads all assets as a draft, checks remote names, sizes, and GitHub digests, then publishes the release as latest. It does not require a source-repository GitHub Release or any Windows artifact. There is no dirty-worktree bypass.
+Use `npm run desktop:release:mac:ci -- --main-only` before tagging and
+`npm run desktop:release:mac:ci` to check the complete CI evidence afterward.
+The publisher performs these checks before upload and immediately before
+publishing the draft. It also requires a clean worktree whose `HEAD` equals
+canonical `main`, the matching source tag, public source and feed repositories,
+an unused `v<version>` in the feed, and a compatible source fingerprint and
+artifact receipts. These guards also apply when invoking the publisher directly.
+It verifies the local release again, uploads all assets as a draft, checks remote
+names, sizes, and GitHub digests, then publishes the release as latest. It does
+not require a source-repository GitHub Release or any Windows artifact. There
+is no dirty-worktree or CI bypass.
 
 See [macOS release runbook](macos-release.md) for the exact repeatable procedure and recovery rules.
 
@@ -259,6 +283,8 @@ Do not diagnose this with `security find-generic-password ... -g`: `-g` requests
 - `.agents/skills/ship-macos-release/SKILL.md`: standard project Skill that selects and executes these same documented lanes.
 - `scripts/finalize-mac-release-artifacts.mjs`: final DMG signing, notarization, stapling, and post-signing metadata refresh.
 - `scripts/write-mac-release-manifest.mjs`: release evidence and artifact hashes.
+- `scripts/verify-release-ci.mjs`: exact-commit main CI and lightweight source-tag evidence checks.
+- `.github/workflows/release-tag.yml`: dependency-free source-tag verification.
 - `scripts/publish-mac-release.mjs`: guarded draft-first public publisher.
 - `scripts/verify-mac-release.mjs`: bundle, signature, updater, manifest, checksum, and mounted-DMG verification.
 - `scripts/verify-installed-mac-app.mjs`: installed version/feed/signature/notarization verification without Keychain reads.

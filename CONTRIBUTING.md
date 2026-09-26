@@ -84,10 +84,13 @@ changes, run `npm run desktop:prepare`; that includes real Electron sandbox
 probes. See [verification lanes](docs/development.md#verification) for details.
 
 Open a **draft pull request** for development CI, or run CI manually from
-Actions. PR updates cancel obsolete PR runs. Main and version tags run
-independently, including queued runs. Electron failures save synthetic
-lifecycle state and available screenshots in the run's diagnostics artifact.
-Inspect the failing step and evidence before rerunning.
+Actions. PR updates cancel obsolete PR runs. Full main runs and the separate
+lightweight release-tag verification retain independent runs, including queued
+runs. Application tests run in four parallel shards; the full local command is
+still `npm test`. Electron failures save synthetic lifecycle state and available
+screenshots in the run's diagnostics artifact. Inspect failures before retrying
+development checks; a failed release candidate must follow the runbook's
+immutable-tag and fix-forward rules.
 
 Describe the problem, resulting behavior, and validation in your PR. Update
 the owning docs when behavior changes. Keep changes focused; preserve unrelated
@@ -95,8 +98,9 @@ work and keep credentials, local settings, and generated output out of commits.
 [AGENTS.md](AGENTS.md) defines the shared product, authority, and compatibility
 rules for every contributor and harness.
 
-Mac publication is a maintainer operation with separate authorization and exact
-main/tag CI requirements. Use the [release runbook](docs/macos-release.md).
+Mac publication is a maintainer operation with separate authorization, full
+exact-commit main CI, and lightweight tag-verification requirements. Use the
+[release runbook](docs/macos-release.md).
 Windows packaging remains inactive and does not gate Mac work.
 
 ## Bugs, security, and license

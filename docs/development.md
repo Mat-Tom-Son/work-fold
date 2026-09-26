@@ -122,12 +122,23 @@ repository instruction source.
 - `npm test` runs the application suite. While editing, run a focused file with
   `node --import tsx --test tests/documentation-contract.test.ts`, substituting
   the relevant test file. Use the full suite before handing off behavior changes.
+  CI divides the same discovered test files into four disjoint shards; reproduce
+  one with `npm test -- --shard=1/4` (through `4/4`). Every file belongs to exactly
+  one shard; an unsharded `npm test` still runs everything.
 - `npm ci --prefix services/bridge` and `npm test --prefix services/bridge` run
   the bridge suite. It uses an in-memory test database; a live PostgreSQL server
   or Railway account is not required for those tests.
 - `npm run desktop:prepare` verifies desktop resources, compiled code, native
   preloads, and the real restricted-app sandbox. After a compiled native change,
   `npm run desktop:restricted-app:smoke` is the focused sandbox probe.
+
+Full CI runs on PRs and pushed `main` with seven jobs: Repository & TypeScript,
+four Application tests shards, Web bridge tests, and Electron integration.
+Version tags run only `Release tag verification`, which checks the annotated
+tag, package version, current canonical `main`, and successful first-attempt
+main CI for that exact commit. It does not repeat dependency installation or
+tests. The [release runbook](macos-release.md) defines publication eligibility
+and immutable failed-candidate handling.
 
 Async tests should wait on the owned completion signal and verify persistence
 separately. Avoid arbitrary sleeps or assuming a journal write appears within

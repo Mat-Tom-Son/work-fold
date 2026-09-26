@@ -3,10 +3,19 @@ import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { parseTestShard, selectTestFiles } from "./test-selection.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const testsDir = join(rootDir, "tests");
 const tsxCli = join(rootDir, "node_modules", "tsx", "dist", "cli.mjs");
+
+let shard;
+try {
+  shard = parseTestShard(process.argv.slice(2));
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 
 if (!isSupportedTestNode(process.versions.node)) {
   console.error(
@@ -23,13 +32,16 @@ function isSupportedTestNode(version) {
 }
 
 const entries = await readdir(testsDir, { withFileTypes: true });
-const files = entries
+const allFiles = entries
   .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
-  .map((entry) => join(testsDir, entry.name))
-  .sort((left, right) => left.localeCompare(right));
+  .map((entry) => join(testsDir, entry.name));
 
-if (!files.length) {
+if (!allFiles.length) {
   throw new Error(`No test files found in ${testsDir}`);
+}
+const files = selectTestFiles(allFiles, shard);
+if (shard) {
+  console.log(`Application test shard ${shard.index}/${shard.count}: ${files.length} of ${allFiles.length} files.`);
 }
 
 // Electron downloads its binary on first require. Resolve it once before the

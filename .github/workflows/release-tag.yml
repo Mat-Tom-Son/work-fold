@@ -1,0 +1,29 @@
+name: Release tag verification
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  actions: read
+
+# Candidate tags retain independent evidence, including queued runs.
+concurrency:
+  group: release-tag-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Release tag verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Verify tagged source and exact main CI
+        run: node scripts/verify-release-ci.mjs --tag-check
+        env:
+          GH_TOKEN: ${{ github.token }}
