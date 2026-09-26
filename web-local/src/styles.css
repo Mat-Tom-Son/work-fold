@@ -7954,6 +7954,7 @@ body:has(> #root > .desktop-chrome-shell) {
 .surface-tab-new-chat > .surface-tab-action {
   width: auto;
   height: 32px;
+  padding: 0;
   border: 0;
   border-radius: 7px 0 0 7px;
   box-shadow: none;
@@ -7961,7 +7962,7 @@ body:has(> #root > .desktop-chrome-shell) {
 }
 
 .surface-tab-new-chat-main {
-  padding-left: 2px;
+  padding: 0;
 }
 
 .surface-tab-new-chat > .surface-tab-new-chat-trigger {
