@@ -13,11 +13,12 @@ test("desktop release configuration uses the isolated work-fold identities and f
   const identity = JSON.parse(read("src/shared/product-identity.json"));
   const require = createRequire(import.meta.url);
   const builderPath = join(rootDir, "electron-builder.desktop.cjs");
-  const builder = require(builderPath);
   const previousPlatform = process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM;
   const previousRepo = process.env.WORKFOLD_MAC_RELEASE_REPO;
   const previousUnsignedMac = process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD;
   const previousOutput = process.env.WORKFOLD_DESKTOP_OUTPUT_DIR;
+  process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM = "win32";
+  const builder = require(builderPath);
   process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM = "darwin";
   process.env.WORKFOLD_MAC_RELEASE_REPO = identity.macReleaseRepositoryName;
   delete require.cache[require.resolve(builderPath)];
