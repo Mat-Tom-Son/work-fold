@@ -479,7 +479,7 @@ test("Try it displays its completed result without enabling the proposal", async
   await dom.act(() => { [...dom.container.querySelectorAll("button")].find((item) => item.textContent === "Try it")!.click(); });
   await dom.waitFor(() => Boolean(dom.container.querySelector('[role="dialog"]')));
   await dom.act(() => { [...dom.container.querySelectorAll('[role="dialog"] button')].find((item) => item.textContent === "Try it")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true })); });
-  await dom.waitFor(() => (dom.container.textContent ?? "").includes("Trial result"));
+  await dom.waitFor(() => (dom.container.textContent ?? "").includes("Trial Result"));
   assert.equal(requested.filter((url) => url.endsWith("/try")).length, 1);
   assert.equal(requested.some((url) => url.endsWith("/enable") || url.endsWith("/run")), false);
   assert.match(dom.container.textContent ?? "", /live results unchanged/);

@@ -24,10 +24,10 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
 
 test("General Settings includes Automations without introducing a builder", () => {
   assert.match(settingsSource, /type FoldSettingsSection = "routings" \| "deleted" \| "limits";/);
-  assert.match(settingsSource, /id: "web-access", label: "Web access"/);
-  assert.match(settingsSource, /id: "shared-pages", label: "Shared pages"/);
+  assert.match(settingsSource, /id: "web-access", label: "Web Access"/);
+  assert.match(settingsSource, /id: "shared-pages", label: "Shared Pages"/);
   assert.match(settingsSource, /id: "automations", label: "Automations"/);
-  assert.match(settingsSource, /id: "recently-deleted", label: "Recently deleted"/);
+  assert.match(settingsSource, /id: "recently-deleted", label: "Recently Deleted"/);
   assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<FoldRoutingsPane \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
   // The two residuals `routings show` prints are mirrored here, so both
@@ -66,10 +66,10 @@ test("Routing Settings has no HTTP fallback and stays on the trusted main-window
 
 test("Routing actions are gated by enabled, disabled, suspended, and completed health", async (t) => {
   const expectations: Array<{ health: FoldRoutingHealth; shown: string[]; hidden: string[] }> = [
-    { health: "enabled", shown: ["Run a copy now", "Turn off"], hidden: ["Turn on", "Delete", "Stop"] },
-    { health: "disabled", shown: ["Turn on", "Delete"], hidden: ["Run a copy now", "Turn off", "Stop"] },
-    { health: "suspended", shown: ["Turn on", "Delete"], hidden: ["Run a copy now", "Turn off", "Stop"] },
-    { health: "completed", shown: ["Delete"], hidden: ["Run a copy now", "Turn on", "Turn off", "Stop"] },
+    { health: "enabled", shown: ["Run a copy now", "Turn Off"], hidden: ["Turn On", "Delete", "Stop"] },
+    { health: "disabled", shown: ["Turn On", "Delete"], hidden: ["Run a copy now", "Turn Off", "Stop"] },
+    { health: "suspended", shown: ["Turn On", "Delete"], hidden: ["Run a copy now", "Turn Off", "Stop"] },
+    { health: "completed", shown: ["Delete"], hidden: ["Run a copy now", "Turn On", "Turn Off", "Stop"] },
   ];
 
   for (const expectation of expectations) {
@@ -134,11 +134,11 @@ test("Run a copy now invokes the preload bridge, never a network request", async
   });
   await dom.waitFor(() => calls.run === 1);
   assert.equal(calls.run, 1);
-  await dom.waitFor(() => /Run requested/.test(dom.container.textContent ?? ""));
-  assert.match(dom.container.textContent ?? "", /Run requested/);
+  await dom.waitFor(() => /Run Requested/.test(dom.container.textContent ?? ""));
+  assert.match(dom.container.textContent ?? "", /Run Requested/);
 });
 
-test("New automation opens an unsent work-fold agent draft without running or enabling anything", async (t) => {
+test("Automations has no New automation button; the empty state says where to ask (2026-09-25)", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   const calls = installRoutingBridge("disabled");
@@ -147,17 +147,13 @@ test("New automation opens an unsent work-fold agent draft without running or en
     agent: { openFoldDraft: async (draft: string) => { drafts.push(draft); return true; } },
   });
   await dom.render(createElement(FoldRoutingsPane));
-  await dom.waitFor(() => [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .some((button) => button.textContent?.trim() === "New automation"));
-  const newAutomation = [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => button.textContent?.trim() === "New automation");
-  assert.ok(newAutomation);
-  await dom.act(async () => { newAutomation.click(); });
-  await dom.waitFor(() => drafts.length === 1);
-  assert.equal(drafts[0], "Help me set up an automation. Ask what should happen, when, and which folders to use.");
+  await dom.settle();
+  assert.equal([...dom.container.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent?.trim() === "New automation"), false);
+  const empty = dom.container.querySelector(".fold-routings-empty");
+  if (empty) assert.match(empty.textContent ?? "", /ask the work-fold agent/);
+  assert.equal(drafts.length, 0);
   assert.equal(calls.run, 0);
 });
-
 test("an admitted queued run stays visible until its exact history entry settles", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
@@ -190,7 +186,7 @@ test("damaged run history blocks widening actions but leaves narrowing actions a
   await enabledDom.waitFor(() => Boolean(enabledDom.container.querySelector(".fold-routing-inspector-header")));
   const enabledButtons = [...enabledDom.container.querySelectorAll<HTMLButtonElement>(".fold-routing-actions button")];
   assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Run a copy now")?.disabled, true);
-  assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Turn off")?.disabled, false);
+  assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Turn Off")?.disabled, false);
   await enabledDom.cleanup();
 
   const runningDom = await createDomHarness();
@@ -206,7 +202,7 @@ test("damaged run history blocks widening actions but leaves narrowing actions a
   await disabledDom.render(createElement(FoldRoutingsPane));
   await disabledDom.waitFor(() => Boolean(disabledDom.container.querySelector(".fold-routing-inspector-header")));
   const disabledButtons = [...disabledDom.container.querySelectorAll<HTMLButtonElement>(".fold-routing-actions button")];
-  assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Turn on")?.disabled, true);
+  assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Turn On")?.disabled, true);
   assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Delete")?.disabled, false);
   await disabledDom.cleanup();
 });
@@ -230,7 +226,7 @@ test("a late polling response cannot replace a newly selected routing or retarge
   assert.equal(dom.container.querySelector(".fold-routing-inspector-header h4")?.textContent, "Routing B");
 
   const turnOff = [...dom.container.querySelectorAll<HTMLButtonElement>(".fold-routing-actions button")]
-    .find((button) => button.textContent?.trim() === "Turn off");
+    .find((button) => button.textContent?.trim() === "Turn Off");
   assert.ok(turnOff);
   await dom.act(async () => {
     turnOff.click();
@@ -407,7 +403,7 @@ test("missing desktop bridge leaves Automations readable instead of crashing Set
   await dom.render(createElement(FoldRoutingsPane));
   await dom.waitFor(() => Boolean(dom.container.querySelector('[role="alert"]')));
   assert.match(dom.container.textContent ?? "", /available in the desktop app/);
-  assert.ok(dom.container.querySelector("button"), "Settings remains interactive");
+  assert.ok(dom.container.querySelector(".fold-routings"), "Settings remains readable");
   assert.equal(dom.container.querySelector(".fold-routing-proposals"), null, "no bridge, no pending section");
 });
 
@@ -484,7 +480,7 @@ test("pending proposal files list above the automations and Turn on moves one in
   assert.match(ready.textContent ?? "", /Hourly hello/);
   assert.match(ready.textContent ?? "", /Every 1 hour/);
   const turnOn = ready.querySelector<HTMLButtonElement>("button")!;
-  assert.equal(turnOn.textContent, "Turn on");
+  assert.equal(turnOn.textContent, "Turn On");
 
   await dom.act(async () => {
     turnOn.click();

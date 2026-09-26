@@ -123,7 +123,7 @@ test("a folder permission grants over the whole Space; a single-file permission 
       (error: Error & { code?: string }) => {
         assert.equal(error.code, "usage");
         assert.match(error.message, /needs one file/);
-        assert.match(error.message, /Apps tab/);
+        assert.match(error.message, /Settings → Apps/);
         assert.doesNotMatch(error.message, /unavailable/);
         return true;
       },

@@ -18,7 +18,7 @@ test("app catalog updates and removal preserve a sibling installation of the sam
     const catalog = useRestrictedApps({ activeSpaceId: "source", fixtureMode: true, fixtureApps, onError });
     return createElement("div", null,
       createElement("button", { id: "update", onClick: () => catalog.upsertApp({ ...preview, version: "2", digest: "b".repeat(64) }) }, "Update preview"),
-      createElement("button", { id: "remove", onClick: () => catalog.removeApp("source", preview.featureInstallationId) }, "Remove preview"),
+      createElement("button", { id: "remove", onClick: () => catalog.removeApp("source", preview.featureInstallationId) }, "Remove Preview"),
       createElement("button", { id: "reinstall", onClick: () => catalog.upsertApp({ ...preview, featureInstallationId: "feature-installation_new" }) }, "Reinstall preview"),
       ...(catalog.appsBySpace.source ?? []).map((app) => createElement("output", {
         key: app.featureInstallationId, "data-installation": app.featureInstallationId,

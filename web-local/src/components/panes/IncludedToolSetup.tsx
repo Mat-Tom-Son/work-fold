@@ -67,7 +67,7 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
     }
     finally { if (request.current === controller) request.current = null; if (alive.current && !controller.signal.aborted) setBusy(false); }
   }
-  const label = !enabled ? "Turned off" : includedToolReadiness(status ?? undefined).label;
+  const label = !enabled ? "Turned Off" : includedToolReadiness(status ?? undefined).label;
   const needsSetup = enabled && status?.state !== "ready";
   const requirement = enabled && status && ["setup_required", "unavailable"].includes(status.state) ? status.detail : null;
   return <section className="included-tool-setup" aria-label={`${tool.title} setup`} aria-busy={busy}>
@@ -75,7 +75,7 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
     {requirement ? <p>{requirement}</p> : null}
     {error ? <p className="included-tool-error" role="alert">{error}</p> : null}
     {tool.id === "computer" ? <>
-      {needsSetup ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set up permissions</button> : null}
+      {needsSetup ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set Up Permissions</button> : null}
       <details className="included-tool-optional"><summary>Permissions</summary>
         <div className="included-tool-actions">
           <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("accessibility")}>Accessibility</button>
@@ -84,7 +84,7 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
         {status?.facts ? <dl className="included-tool-facts">{Object.entries(status.facts).map(([key, value]) => <div key={key}><dt>{key === "accessibility" ? "Accessibility" : key === "screenRecording" ? "Screen Recording" : key}</dt><dd>{typeof value === "boolean" ? value ? "Allowed" : "Not verified" : value}</dd></div>)}</dl> : null}
       </details>
     </> : null}
-    {tool.id === "web" ? <details className="included-tool-optional"><summary>Brave Search</summary><form onSubmit={(event) => { event.preventDefault(); void act("connect-brave"); }}><label>API key<input type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} disabled={busy} /></label><div className="included-tool-actions"><button type="submit" className="professional-button professional-button-primary" disabled={busy || !enabled || !secret.trim()}>Connect</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("disconnect-brave")}>Use DuckDuckGo</button></div></form></details> : null}
+    {tool.id === "web" ? <details className="included-tool-optional"><summary>Brave Search</summary><form onSubmit={(event) => { event.preventDefault(); void act("connect-brave"); }}><label>API Key<input type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} disabled={busy} /></label><div className="included-tool-actions"><button type="submit" className="professional-button professional-button-primary" disabled={busy || !enabled || !secret.trim()}>Connect</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("disconnect-brave")}>Use DuckDuckGo</button></div></form></details> : null}
     {tool.id === "mcp" ? <IncludedMcpSetup spaceId={spaceId} enabled={enabled} /> : null}
   </section>;
 }

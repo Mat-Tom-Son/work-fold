@@ -4,6 +4,7 @@ import {
   ArrowClockwise20Regular,
   Checkmark16Regular,
   Dismiss20Regular,
+  Apps20Regular,
   Delete20Regular,
   Flash20Regular,
   Info20Regular,
@@ -34,12 +35,15 @@ import { AssistantSetupPane, type AssistantModelScope } from "../panes/Assistant
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
 import { FoldLimitsPane } from "./FoldLimitsPane";
+import { SettingsAppsPane, type RestrictedAppsState } from "./SettingsAppsPane";
+import { IconCredits } from "./IconCredits";
+import type { RestrictedAppInstalled } from "../../types";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "recently-deleted" | "general" | "desktop" | "about";
+export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "about";
 export type FoldSettingsSection = "routings" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "recently-deleted" | "about";
+type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "about";
 
 /**
  * The tab a Settings page id opens. "remote", "general" and "desktop" are
@@ -54,10 +58,17 @@ export function settingsTabForPage(page: SettingsPage, section?: FoldSettingsSec
   return page;
 }
 
-export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
   onCustomizeSpace?: (spaceId: string) => void;
   space: SpaceSummary | null;
+  /** Settings → Apps lists every installed app by Folder (the Folder-owned Apps tab was retired 2026-09-25). */
+  spaces?: SpaceSummary[];
+  restrictedApps?: RestrictedAppsState | null;
+  onChangeApp?: (app: RestrictedAppInstalled) => void;
+  onOpenAppBuildChat?: (spaceId: string, conversationId: string) => void;
+  onOpenAppResultFile?: (spaceId: string, path: string) => void;
+  onOpenAppStudio?: (spaceId: string, runtimeInstanceId?: string) => void;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
@@ -125,17 +136,18 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
   const tabs: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
     { id: "assistant", label: "AI Models", icon: <Sparkle20Regular /> },
-    { id: "web-access", label: "Web access", icon: <Window20Regular /> },
-    { id: "shared-pages", label: "Shared pages", icon: <Window20Regular /> },
+    { id: "web-access", label: "Web Access", icon: <Window20Regular /> },
+    { id: "shared-pages", label: "Shared Pages", icon: <Window20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
-    { id: "recently-deleted", label: "Recently deleted", icon: <Delete20Regular /> },
+    { id: "apps", label: "Apps", icon: <Apps20Regular /> },
+    { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
   const closeWindowControl = closeToTray?.supported ? (
     <>
       <div className="appearance-settings-row settings-close-window-row">
         <span>
-          <span className="appearance-settings-label" id="window-close-settings-title">Closing the window</span>
+          <span className="appearance-settings-label" id="window-close-settings-title">Closing the Window</span>
           {closeToTrayBusy ? <small><ArrowClockwise20Regular className="spin" /> Updating</small> : closeToTrayNotice ? <small className="settings-save-status" role="status"><Checkmark16Regular />{closeToTrayNotice}</small> : null}
         </span>
         <div className="theme-segmented-control two-options" role="radiogroup" aria-labelledby="window-close-settings-title">
@@ -205,6 +217,11 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                 <FoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
               </div>
             ) : null}
+            {page === "apps" ? (
+              <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
+                <SettingsAppsPane spaces={spaces} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
+              </div>
+            ) : null}
             {page === "recently-deleted" ? (
               <div className="settings-tab-panel" id="settings-panel-recently-deleted" role="tabpanel" aria-labelledby="settings-tab-recently-deleted">
                 <FoldRecentlyDeletedPane />
@@ -215,6 +232,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                 <section className="settings-section">
                   <WorkFoldLockup className="about-work-fold-brand" />
                   <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workFoldDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
+                  <IconCredits />
                 </section>
                 <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
                   <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
@@ -325,7 +343,7 @@ function RemoteAccessPane() {
         ? "Desktop connected"
         : status.connection === "connecting"
           ? "Connecting"
-          : "Needs attention";
+          : "Needs Attention";
   const remoteSettingsChanged = !status?.configured
     || slug !== (status.slug ?? "")
     || Boolean(password)
@@ -335,7 +353,7 @@ function RemoteAccessPane() {
     <>
       <section className="settings-section remote-access-overview" aria-labelledby="remote-access-title">
         <div className="settings-section-heading">
-          <h3 id="remote-access-title">Your private web address</h3>
+          <h3 id="remote-access-title">Your Private Web Address</h3>
           <span className={`remote-access-state ${status?.connection ?? "stopped"}`}>{connectionLabel}</span>
         </div>
         {status?.url ? <code className="remote-access-url">{status.url}</code> : null}
@@ -359,7 +377,7 @@ function RemoteAccessPane() {
 
       {status?.configured ? (
         <section className="settings-section" aria-labelledby="paired-browsers-title">
-          <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired browsers</h3><span>{status.approvedBrowsers.length}</span></div>
+          <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired Browsers</h3><span>{status.approvedBrowsers.length}</span></div>
           <p>{remoteAccessSettings.pairedBrowserTrust}</p>
           {status.approvedBrowsers.length ? <div className="remote-browser-list">{status.approvedBrowsers.map((browser) => (
             <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
@@ -632,7 +650,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                       <button
                         className="secondary-button"
                         type="button"
-                        onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link copied"); }}
+                        onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link Copied"); }}
                       >
                         {foldPublicationsSettings.copyLink}
                       </button>

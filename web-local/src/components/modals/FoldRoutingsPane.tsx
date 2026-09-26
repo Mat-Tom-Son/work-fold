@@ -358,7 +358,7 @@ export function FoldRoutingsPane() {
     }
   }
 
-  async function openAutomationDraft(existing?: FoldRoutingDetailView): Promise<void> {
+  async function openAutomationDraft(existing: FoldRoutingDetailView): Promise<void> {
     const openDraft = window.workFoldDesktop?.agent?.openFoldDraft;
     if (!openDraft || drafting) {
       setActionError("Open the work-fold agent in the desktop app to draft an automation.");
@@ -367,9 +367,7 @@ export function FoldRoutingsPane() {
     setDrafting(true);
     setActionError(null);
     try {
-      const draft = existing
-        ? `Review the automation “${existing.title}” (id: ${existing.routingId}). Its current trigger is: ${triggerSummary(existing.trigger)}. Preserve it until I give a clear instruction to change it.`
-        : "Help me set up an automation. Ask what should happen, when, and which folders to use.";
+      const draft = `Review the automation “${existing.title}” (id: ${existing.routingId}). Its current trigger is: ${triggerSummary(existing.trigger)}. Preserve it until I give a clear instruction to change it.`;
       await openDraft(draft);
     } catch (caught) {
       setActionError(errorText(caught));
@@ -416,11 +414,6 @@ export function FoldRoutingsPane() {
 
   return (
     <section className="settings-section fold-routings" aria-label="Automations">
-      <div className="settings-section-actions">
-        <button className="secondary-button" type="button" onClick={() => void openAutomationDraft()} disabled={drafting}>
-          {drafting ? "Opening…" : "New automation"}
-        </button>
-      </div>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {status?.storeDamaged ? (
         <span className="settings-inline-error" role="alert">
@@ -455,7 +448,7 @@ export function FoldRoutingsPane() {
                     return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
                   })}
                 >
-                  {pending.includes(`enable-proposal:${proposal.path}`) ? "Turning on…" : "Turn on"}
+                  {pending.includes(`enable-proposal:${proposal.path}`) ? "Turning on…" : "Turn On"}
                 </button>
               </li>
             ) : (
@@ -470,7 +463,7 @@ export function FoldRoutingsPane() {
         </section>
       ) : null}
       {data && !allRoutings.length ? (
-        <div className="fold-routings-empty">No automations yet.</div>
+        <div className="fold-routings-empty">No automations yet. To set one up, ask the work-fold agent in the menu bar. Say what should happen, when, and in which folders.</div>
       ) : null}
       {showFolderFilter ? (
         <div className="capabilities-type-chips fold-routing-folder-filter" role="group" aria-label="Folder">
@@ -557,7 +550,7 @@ export function FoldRoutingsPane() {
                 </section> : null}
                 <dl className="fold-routing-facts">
                   <div><dt>Next</dt><dd>{detail.nextScheduledAt ? formatDateTime(detail.nextScheduledAt) : "—"}</dd></div>
-                  <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not run yet"}</dd></div>
+                  <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not Run Yet"}</dd></div>
                 </dl>
 
                 <section className="fold-routing-detail-section" aria-labelledby="fold-routing-steps-title">
@@ -586,7 +579,7 @@ export function FoldRoutingsPane() {
 
                 <section className="fold-routing-detail-section fold-routing-history" aria-labelledby="fold-routing-history-title">
                   <div className="fold-routing-section-heading">
-                    <h5 id="fold-routing-history-title">Recent runs</h5>
+                    <h5 id="fold-routing-history-title">Recent Runs</h5>
                     {history.truncated ? <span>Newest shown</span> : null}
                   </div>
                   {history.damagedLineCount ? <small className="settings-inline-error">Some older run records could not be read.</small> : null}
@@ -631,7 +624,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
             onClick={() => onRun(`run:${routing.routingId}`, async () => {
               const requested = await routingBridge().run(routing.routingId);
               onRunAdmitted(routing.routingId, requested.runId);
-              return "Run requested";
+              return "Run Requested";
             })}
           >
             {pending.includes(`run:${routing.routingId}`) || runQueued ? "Starting…" : "Run a copy now"}
@@ -660,7 +653,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
               return "Automation turned off";
             })}
           >
-            {pending.includes(`disable:${routing.routingId}`) ? "Turning off…" : "Turn off"}
+            {pending.includes(`disable:${routing.routingId}`) ? "Turning off…" : "Turn Off"}
           </button>
         ) : null}
         {routing.health === "disabled" || routing.health === "suspended" ? (
@@ -673,7 +666,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
               return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
             })}
           >
-            {pending.includes(`enable:${routing.routingId}`) ? "Turning on…" : "Turn on"}
+            {pending.includes(`enable:${routing.routingId}`) ? "Turning on…" : "Turn On"}
           </button>
         ) : null}
         {canDelete ? (
@@ -759,7 +752,7 @@ function RoutingStep({ step }: { step: FoldRoutingStepView }) {
   if (step.kind === "files") {
     return (
       <li>
-        <div className="fold-routing-step-heading"><strong>Copy files</strong><span>{spaceLabel(step.fromSpace)} → {spaceLabel(step.toSpace)}</span></div>
+        <div className="fold-routing-step-heading"><strong>Copy Files</strong><span>{spaceLabel(step.fromSpace)} → {spaceLabel(step.toSpace)}</span></div>
         <p>{filesSourceSummary(step.source)} into <code>{step.to || "/"}</code></p>
       </li>
     );
@@ -818,7 +811,7 @@ function filesSourceSummary(source: Extract<FoldRoutingStepView, { kind: "files"
 }
 
 function lastRunSummary(routing: FoldRoutingSummaryView): string {
-  if (!routing.lastRun) return routing.health === "completed" ? "Completed" : "Not run yet";
+  if (!routing.lastRun) return routing.health === "completed" ? "Completed" : "Not Run Yet";
   return `${outcomeLabel(routing.lastRun.outcome)} · ${formatDateTime(routing.lastRun.startedAt)}`;
 }
 
@@ -845,7 +838,7 @@ function outcomeLabel(outcome: FoldRoutingOutcome): string {
 
 function hopLabel(kind: FoldRoutingHistoryHopView["kind"]): string {
   if (kind === "chat") return "Chat";
-  if (kind === "files") return "Copy files";
+  if (kind === "files") return "Copy Files";
   return kind === "fold" ? "Message work-fold agent" : "Run Checks";
 }
 

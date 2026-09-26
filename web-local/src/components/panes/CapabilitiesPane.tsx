@@ -1,5 +1,6 @@
-import type { IncludedToolDefinition, IncludedToolId, IncludedToolStatus } from "../../../../src/shared/included-tools";
+import { includedToolDefinitions, type IncludedToolDefinition, type IncludedToolId, type IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { IncludedToolSetup } from "./IncludedToolSetup";
+import { IncludedToolIcon } from "./IncludedToolIcon";
 import {
   useEffect,
   useMemo,
@@ -17,11 +18,11 @@ import {
   ArrowUpload16Regular,
   Bookmark16Regular,
   BookToolbox20Regular,
+  ChevronRight16Regular,
   Box16Regular,
   Code16Regular,
   Delete16Regular,
   Dismiss20Regular,
-  Info20Regular,
   Open16Regular,
   PlugConnected20Regular,
   Search20Regular,
@@ -103,7 +104,6 @@ export function CapabilitiesPane({
   status,
   view,
   fixtureMode = false,
-  onOpenSettings,
   onError,
   onCatalogChanged,
   onViewChange,
@@ -112,7 +112,6 @@ export function CapabilitiesPane({
   status: AgentStatus;
   view: AssistantToolsView;
   fixtureMode?: boolean;
-  onOpenSettings: () => void;
   onError: (message: string | null) => void;
   onCatalogChanged?: (catalog: AgentCatalog) => void;
   onViewChange: (view: AssistantToolsView) => void;
@@ -141,6 +140,7 @@ export function CapabilitiesPane({
   const importRef = useRef<HTMLInputElement>(null);
   const installedViewRef = useRef<HTMLElement>(null);
   const discoverViewRef = useRef<HTMLElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
   const catalogRequestRef = useRef(0);
   const readinessRevisions = useRef(new Map<IncludedToolId, number>());
   const discoverRequestRef = useRef(0);
@@ -262,7 +262,9 @@ export function CapabilitiesPane({
     () => filterAndSortCapabilities(resources, query, typeFilter),
     [resources, query, typeFilter],
   );
-  const personalResources = visibleResources.filter((item) => item.scope === "global");
+  // The strip holds the five included Extensions; an included Skill (like document-work) is an ordinary Everywhere row.
+  const includedResources = visibleResources.filter((item) => item.scope === "global" && item.included && item.kind === "extension");
+  const everywhereResources = visibleResources.filter((item) => item.scope === "global" && !(item.included && item.kind === "extension"));
   const spaceResources = visibleResources.filter((item) => item.scope === "project");
   const installedTotal = resources.length;
   const installedVisible = visibleResources.length;
@@ -287,8 +289,27 @@ export function CapabilitiesPane({
     window.requestAnimationFrame(() => {
       const panel = nextView === "installed" ? installedViewRef.current : discoverViewRef.current;
       panel?.focus({ preventScroll: true });
-      panel?.scrollIntoView({ block: "start" });
+      resetPaneScroll();
     });
+  }
+
+  /**
+   * Only this pane scrolls. Scrolling the panel into view instead would also
+   * drag every scrollable ancestor, which pushed the title and the whole app
+   * shell out of view.
+   */
+  function resetPaneScroll() {
+    paneRef.current?.scrollTo({ top: 0 });
+  }
+
+  function changeQuery(value: string) {
+    setQuery(value);
+    resetPaneScroll();
+  }
+
+  function changeTypeFilter(value: CapabilityTypeFilter) {
+    setTypeFilter(value);
+    resetPaneScroll();
   }
 
   function handleViewTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
@@ -417,7 +438,7 @@ export function CapabilitiesPane({
       body: remove
         ? `${item.source} will be removed from ${scopeDescription(item.scope)}. Resources managed by that package will stop loading.`
         : `${item.source} will be checked and updated in ${scopeDescription(item.scope)}. Pinned versions and refs remain pinned.`,
-      confirmLabel: remove ? "Remove package" : "Update package",
+      confirmLabel: remove ? "Remove Package" : "Update Package",
       tone: remove ? "danger" : "default",
     });
     if (!confirmed) return;
@@ -464,15 +485,7 @@ export function CapabilitiesPane({
   }
 
   return (
-    <div className="space-pane-content capabilities-pane assistant-tools-pane professional-surface professional-assistant">
-      {!status.configured ? (
-        <CapabilityNotice
-          icon={<Info20Regular />}
-          title="Assistant not set up yet"
-          action={<button className="professional-button professional-button-secondary" type="button" onClick={onOpenSettings}>Open Settings</button>}
-        />
-      ) : null}
-
+    <div ref={paneRef} className="space-pane-content capabilities-pane assistant-tools-pane professional-surface professional-assistant">
       <header className="assistant-tools-header">
         <div>
           <h1>Skills &amp; Extensions</h1>
@@ -492,39 +505,38 @@ export function CapabilitiesPane({
             query={query}
             typeFilter={typeFilter}
             discoverSort={discoverSort}
-            onQueryChange={setQuery}
-            onTypeChange={setTypeFilter}
+            onQueryChange={changeQuery}
+            onTypeChange={changeTypeFilter}
             onDiscoverSortChange={setDiscoverSort}
           />
           {!catalog ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading Skills and Extensions</div> : null}
           {readiness?.spaceId === space.id && readiness.error ? <div className="inline-error" role="alert">Setup status could not be loaded: {readiness.error}</div> : null}
           {catalog && !installedVisible && installedTotal ? <CapabilityEmpty title="No matching tools" /> : null}
           {catalog ? (
-            <div className="capabilities-scope-groups">
-              <ScopeGroup
-                scope="global"
-                spaceName={space.name}
-                items={personalResources}
-                includedStatuses={includedStatuses}
-                hiddenByQuery={hasInstalledQuery && personalResources.length === 0 && resources.some((item) => item.scope === "global")}
-                onSelect={setSelectedCapability}
-                onAdd={() => openAddDialog("global")}
-              />
-              <ScopeGroup
-                scope="project"
-                spaceName={space.name}
-                items={spaceResources}
-                includedStatuses={includedStatuses}
-                hiddenByQuery={hasInstalledQuery && spaceResources.length === 0 && resources.some((item) => item.scope === "project")}
-                onSelect={setSelectedCapability}
-                onAdd={() => openAddDialog("project")}
-              />
-            </div>
+            <>
+              <IncludedToolsStrip items={includedResources} statuses={includedStatuses} onSelect={setSelectedCapability} />
+              <div className="capabilities-scope-columns">
+                <ScopeGroup
+                  scope="global"
+                  spaceName={space.name}
+                  items={everywhereResources}
+                  hiddenByQuery={hasInstalledQuery && everywhereResources.length === 0 && resources.some((item) => item.scope === "global" && !(item.included && item.kind === "extension"))}
+                  onSelect={setSelectedCapability}
+                />
+                <ScopeGroup
+                  scope="project"
+                  spaceName={space.name}
+                  items={spaceResources}
+                  hiddenByQuery={hasInstalledQuery && spaceResources.length === 0 && resources.some((item) => item.scope === "project")}
+                  onSelect={setSelectedCapability}
+                />
+              </div>
+            </>
           ) : null}
           {catalog && !query.trim() ? (
             <section className="capabilities-panel capabilities-supporting-details" aria-labelledby="capabilities-supporting-title">
               <div className="capabilities-supporting-heading">
-                <h3 id="capabilities-supporting-title">Built-in tools and packages</h3>
+                <h3 id="capabilities-supporting-title">Built-in Tools and Packages</h3>
               </div>
               <div className="capabilities-supporting-list">
                 <CoreToolsSection tools={catalog.tools} management={catalog.toolManagement} />
@@ -536,16 +548,16 @@ export function CapabilitiesPane({
       ) : (
         <section ref={discoverViewRef} id="capabilities-discover-panel" className="capabilities-view-content" role="tabpanel" aria-labelledby="capabilities-discover-tab" tabIndex={-1}>
           <div className="capabilities-view-heading">
-            <div><h2>Pi catalog</h2></div>
-            <div className="capabilities-view-actions">{catalogHref ? <ExternalSourceLink href={catalogHref} label="Browse the catalog" /> : null}</div>
+            <div><h2>Pi Catalog</h2></div>
+            <div className="capabilities-view-actions">{catalogHref ? <ExternalSourceLink href={catalogHref} label="Browse the Catalog" /> : null}</div>
           </div>
           <CapabilityToolbar
             view="discover"
             query={query}
             typeFilter={typeFilter}
             discoverSort={discoverSort}
-            onQueryChange={setQuery}
-            onTypeChange={setTypeFilter}
+            onQueryChange={changeQuery}
+            onTypeChange={changeTypeFilter}
             onDiscoverSortChange={setDiscoverSort}
           />
           <section className="capabilities-panel capabilities-discover-panel" aria-label="Catalog results">
@@ -568,6 +580,9 @@ export function CapabilitiesPane({
       {addOpen ? (
         <AddCapabilityDialog
           busy={busy}
+          scope={installScope}
+          spaceName={space.name}
+          onScopeChange={setInstallScope}
           packageSource={packageSource}
           onClose={() => setAddOpen(false)}
           onChooseFiles={() => importRef.current?.click()}
@@ -632,7 +647,7 @@ function CapabilityToolbar({
           ))}
         </div>
         {view === "discover" ? (
-          <label className="capabilities-sort"><span>Sort</span><select aria-label="Catalog sort" value={discoverSort} onChange={(event) => onDiscoverSortChange(event.target.value as DiscoverSort)}><option value="official">First-party first</option><option value="downloads">Most downloads</option><option value="recent">Recently updated</option><option value="name">Name</option></select></label>
+          <label className="capabilities-sort"><span>Sort</span><select aria-label="Catalog sort" value={discoverSort} onChange={(event) => onDiscoverSortChange(event.target.value as DiscoverSort)}><option value="official">First-Party First</option><option value="downloads">Most Downloads</option><option value="recent">Recently Updated</option><option value="name">Name</option></select></label>
         ) : null}
       </div>
     </section>
@@ -640,17 +655,15 @@ function CapabilityToolbar({
 }
 
 /**
- * One rung of the hierarchy: Personal tools serve the work-fold agent and every worker;
- * This folder's tools live in its folder and travel with it.
+ * One of the two homes a tool can have: Everywhere serves the work-fold agent
+ * and every Worker; This folder only lives in the Folder and travels with it.
  */
-function ScopeGroup({ scope, spaceName, items, includedStatuses, hiddenByQuery, onSelect, onAdd }: {
+function ScopeGroup({ scope, spaceName, items, hiddenByQuery, onSelect }: {
   scope: AgentCapabilityScope;
   spaceName: string;
   items: InstalledCapability[];
-  includedStatuses: IncludedToolStatus[];
   hiddenByQuery: boolean;
   onSelect: (item: InstalledCapability) => void;
-  onAdd: () => void;
 }) {
   const personal = scope === "global";
   const titleId = `capabilities-scope-${scope}-title`;
@@ -658,21 +671,68 @@ function ScopeGroup({ scope, spaceName, items, includedStatuses, hiddenByQuery, 
     <section className={`capabilities-panel capabilities-scope-group scope-${scope}`} aria-labelledby={titleId}>
       <div className="capabilities-scope-heading">
         <div>
-          <h3 id={titleId}>{personal ? "Everywhere" : "This folder only"}</h3>
-          {!personal ? <p>{spaceName}</p> : null}
+          <h3 id={titleId}>{personal ? "Everywhere" : "This Folder Only"}</h3>
+          <p>{personal ? "work-fold agent and all workers" : spaceName}</p>
         </div>
         <span className="capabilities-scope-count">{items.length}</span>
       </div>
       {items.length ? (
-        <div className="capabilities-resource-list">{items.map((item) => <InstalledCapabilityCard key={item.id} item={item} readiness={includedStatuses.find((status) => status.id === item.included?.id)} onSelect={() => onSelect(item)} />)}</div>
+        <div className="capabilities-resource-list">{items.map((item) => <InstalledCapabilityRow key={item.id} item={item} onSelect={() => onSelect(item)} />)}</div>
       ) : (
         <div className="capabilities-scope-empty">
           <p>{hiddenByQuery ? "Nothing here matches the search." : "Nothing here yet."}</p>
-          {!hiddenByQuery ? <button className="professional-button professional-button-secondary" type="button" onClick={onAdd}><Add16Regular />{personal ? "Add for everywhere" : "Add to this folder"}</button> : null}
         </div>
       )}
     </section>
   );
+}
+
+/** The five tools that ship with work-fold, in the order they are shown. */
+const includedToolOrder: IncludedToolId[] = ["chrome", "computer", "web", "documents", "mcp"];
+
+/** Every included tool with its status word, so setup state is visible without opening anything. */
+function IncludedToolsStrip({ items, statuses, onSelect }: {
+  items: InstalledCapability[];
+  statuses: IncludedToolStatus[];
+  onSelect: (item: InstalledCapability) => void;
+}) {
+  const ordered = includedToolOrder
+    .map((id) => items.find((item) => item.included?.id === id))
+    .filter((item): item is InstalledCapability => Boolean(item));
+  if (!ordered.length) return null;
+  return (
+    <section className="capabilities-included" aria-labelledby="capabilities-included-title">
+      <div className="capabilities-scope-heading">
+        <div><h3 id="capabilities-included-title">Included with work-fold</h3></div>
+      </div>
+      <div className="capabilities-included-grid">
+        {ordered.map((item) => <IncludedToolTile key={item.id} item={item} readiness={statuses.find((status) => status.id === item.included?.id)} onSelect={() => onSelect(item)} />)}
+      </div>
+    </section>
+  );
+}
+
+function IncludedToolTile({ item, readiness, onSelect }: { item: InstalledCapability; readiness?: IncludedToolStatus; onSelect: () => void }) {
+  const state = includedToolState(item, readiness);
+  // The whole tile opens the tool; "Set Up" is a plain pointer to what waits inside, not a second control.
+  return (
+    <button className={`capabilities-included-tile tone-${state.tone}`} type="button" onClick={onSelect}>
+      <span className="capabilities-included-name">
+        <span className="capabilities-included-icon">{item.included ? <IncludedToolIcon id={item.included.id} /> : null}</span>
+        <strong>{item.name}</strong>
+      </span>
+      <span className="capabilities-included-status"><span className="capabilities-status-dot" aria-hidden="true" />{state.label}</span>
+      {state.setup ? <span className="capabilities-included-setup">Set Up<ChevronRight16Regular aria-hidden="true" /></span> : null}
+    </button>
+  );
+}
+
+/** The one status word a tile shows, and whether a person can act on it. */
+function includedToolState(item: InstalledCapability, readiness: IncludedToolStatus | undefined): { label: string; tone: "enabled" | "error" | "attention" | "neutral"; setup: boolean } {
+  if (!item.enabled) return { label: "Turned Off", tone: "neutral", setup: false };
+  if (["error", "blocked", "missing"].includes(item.status)) return { label: statusLabel(item.status), tone: "error", setup: false };
+  const state = includedToolReadiness(readiness);
+  return { label: state.label, tone: state.setup ? "attention" : state.tone === "enabled" ? "enabled" : state.tone === "error" ? "error" : "neutral", setup: state.setup };
 }
 
 /** The work-fold agent above, folders below; filled pills show where a tool is available. */
@@ -685,16 +745,16 @@ function ScopeHierarchyGlyph({ scope }: { scope: AgentCapabilityScope }) {
     </g>
   );
   return (
-    <svg className="capabilities-hierarchy-glyph large" viewBox="0 0 150 60" width={150} height={60} aria-hidden="true" focusable="false">
+    <svg className="capabilities-hierarchy-glyph large" viewBox="0 0 170 60" width={170} height={60} aria-hidden="true" focusable="false">
       <g className="links">
-        <path d="M75 22 L75 30 L19 30 L19 38" />
-        <path d="M75 22 L75 38" />
-        <path d="M75 22 L75 30 L131 30 L131 38" />
+        <path d="M85 22 L85 30 L27 30 L27 38" />
+        <path d="M85 22 L85 38" />
+        <path d="M85 22 L85 30 L143 30 L143 38" />
       </g>
-      {pill(44, 4, 62, "work-fold agent", personal, "fold")}
-      {pill(2, 38, 34, "Folder", personal, "a")}
-      {pill(58, 38, 34, "Folder", personal, "b")}
-      {pill(112, 38, 36, "Here", true, "here")}
+      {pill(35, 4, 100, "work-fold agent", personal, "fold")}
+      {pill(4, 38, 46, "Folder", personal, "a")}
+      {pill(62, 38, 46, "Folder", personal, "b")}
+      {pill(120, 38, 46, "Here", true, "here")}
     </svg>
   );
 }
@@ -708,7 +768,7 @@ function ScopeChooser({ value, spaceName, disabled, onChange }: {
 }) {
   const options: Array<{ scope: AgentCapabilityScope; title: string; detail: string }> = [
     { scope: "global", title: "Everywhere", detail: "work-fold agent and all workers" },
-    { scope: "project", title: "This folder only", detail: spaceName },
+    { scope: "project", title: "This Folder Only", detail: spaceName },
   ];
   return (
     <fieldset className="capabilities-scope-chooser" disabled={disabled}>
@@ -741,7 +801,7 @@ function PackageManagementSection({ packages, packageBusy, onPackageAction }: {
       <div className="capabilities-package-list">{packages.map((item) => {
         const updateKey = `update:${item.scope}:${item.source}`;
         const removeKey = `remove:${item.scope}:${item.source}`;
-        return <article className="capabilities-package-row" key={`${item.scope}:${item.source}`}><div><strong>{item.displayName || item.source}</strong><span>{scopeLabel(item.scope)}{item.filtered ? " · filtered resources" : ""}{item.installedPath ? ` · ${item.installedPath}` : ""}</span></div><span className={item.updateAvailable || item.loaded ? "professional-status-badge enabled" : "professional-status-badge"}>{packageStatusLabel(item)}</span><div className="capabilities-package-actions"><button className="professional-button professional-button-secondary" type="button" disabled={Boolean(packageBusy)} onClick={() => onPackageAction(item, "update")}>{packageBusy === updateKey ? <ArrowSync16Regular className="spin" /> : null}Update</button><button className="minimal-icon-button" type="button" disabled={Boolean(packageBusy)} onClick={() => onPackageAction(item, "remove")} aria-label={`Remove ${item.displayName || item.source}`} title="Remove package">{packageBusy === removeKey ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}</button></div></article>;
+        return <article className="capabilities-package-row" key={`${item.scope}:${item.source}`}><div><strong>{item.displayName || item.source}</strong><span>{scopeLabel(item.scope)}{item.filtered ? " · filtered resources" : ""}{item.installedPath ? ` · ${item.installedPath}` : ""}</span></div><span className={item.updateAvailable || item.loaded ? "professional-status-badge enabled" : "professional-status-badge"}>{packageStatusLabel(item)}</span><div className="capabilities-package-actions"><button className="professional-button professional-button-secondary" type="button" disabled={Boolean(packageBusy)} onClick={() => onPackageAction(item, "update")}>{packageBusy === updateKey ? <ArrowSync16Regular className="spin" /> : null}Update</button><button className="minimal-icon-button" type="button" disabled={Boolean(packageBusy)} onClick={() => onPackageAction(item, "remove")} aria-label={`Remove ${item.displayName || item.source}`} title="Remove Package">{packageBusy === removeKey ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}</button></div></article>;
       })}</div>
     </details>
   );
@@ -752,7 +812,7 @@ function CoreToolsSection({ tools, management }: { tools: AgentTool[]; managemen
   if (!coreTools.length) return null;
   return (
     <details className="capabilities-core-tools capabilities-management-section" data-management-mode={management?.mode}>
-      <summary><span><Code16Regular aria-hidden="true" /><strong>Core tools</strong></span><small>{coreTools.length} built in</small></summary>
+      <summary><span><Code16Regular aria-hidden="true" /><strong>Core Tools</strong></span><small>{coreTools.length} built in</small></summary>
       <div className="capabilities-core-tools-body">
         <div className="capabilities-core-tool-list">{coreTools.map((tool) => (
           <article className="capabilities-core-tool-row" key={`${tool.source}:${tool.name}`}>
@@ -769,18 +829,19 @@ function isCoreTool(tool: AgentTool): boolean {
   return tool.core === true || tool.kind === "core" || (tool.core === undefined && tool.kind === undefined && /^(?:pi|built-?in)$/i.test(tool.source.trim()));
 }
 
-function InstalledCapabilityCard({ item, readiness, onSelect }: { item: InstalledCapability; readiness?: IncludedToolStatus; onSelect: () => void }) {
-  // The one button carries the state: "Set up" only for a known state that needs it.
-  const setup = item.enabled
-    && !["error", "blocked", "missing"].includes(item.status)
-    && Boolean(item.included)
-    && includedToolReadiness(readiness).setup;
+/** One installed Skill or Extension; the whole row opens its details. */
+function InstalledCapabilityRow({ item, onSelect }: { item: InstalledCapability; onSelect: () => void }) {
+  const trouble = ["error", "blocked", "missing"].includes(item.status);
+  const detail = item.description || (item.kind === "extension" ? `${item.tools.length} tools · ${item.commands.length} commands` : "");
   return (
-    <article className="capabilities-resource-card">
+    <button className="capabilities-resource-card" type="button" onClick={onSelect}>
       <CapabilityMonogram name={item.name} kind={item.kind} />
-      <div className="capabilities-resource-copy"><div className="capabilities-resource-title"><strong>{item.name}</strong><span>{item.kind === "skill" ? "Skill" : "Extension"}</span></div>{item.description ? <p>{item.description}</p> : null}{item.kind === "extension" ? <small>{item.tools.length} tools · {item.commands.length} commands</small> : null}</div>
-      <div className="capabilities-resource-actions"><button className={`professional-button ${setup ? "professional-button-primary" : "professional-button-secondary"}`} type="button" onClick={onSelect}>{setup ? "Set up" : "Details"}</button></div>
-    </article>
+      <span className="capabilities-resource-copy">
+        <span className="capabilities-resource-title"><strong>{item.name}</strong><span>{item.kind === "skill" ? "Skill" : "Extension"}</span>{!item.enabled ? <span className="capabilities-resource-state">Turned Off</span> : trouble ? <span className="capabilities-resource-state error">{statusLabel(item.status)}</span> : null}</span>
+        {detail ? <span className="capabilities-resource-detail">{detail}</span> : null}
+      </span>
+      <ChevronRight16Regular className="capabilities-resource-chevron" aria-hidden="true" />
+    </button>
   );
 }
 
@@ -801,7 +862,7 @@ function DiscoverCapabilities({ items, total, loading, error, diagnostics, trunc
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {loading && !items.length ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading catalog…</div> : null}
       {items.length ? <div className="capabilities-discover-list">{items.map((item) => <DiscoverCapabilityCard key={item.id} item={item} busy={reviewingItemId === item.id} disabled={Boolean(reviewingItemId) || !canInstallDiscoverItem(item)} onInstall={() => onInstall(item)} />)}</div> : !loading && !error ? <CapabilityEmpty title="No catalog matches" /> : null}
-      {items.length < total ? <button className="professional-button professional-button-secondary capabilities-load-more" type="button" disabled={loading} onClick={onLoadMore}>{loading ? <ArrowSync16Regular className="spin" /> : null}Load more</button> : null}
+      {items.length < total ? <button className="professional-button professional-button-secondary capabilities-load-more" type="button" disabled={loading} onClick={onLoadMore}>{loading ? <ArrowSync16Regular className="spin" /> : null}Load More</button> : null}
       {truncated && !loading ? <p className="capabilities-results-summary capabilities-window-note">First {npmSearchWindowSize} npm matches</p> : null}
     </div>
   );
@@ -813,14 +874,17 @@ function DiscoverCapabilityCard({ item, busy, disabled, onInstall }: { item: Cap
   return (
     <article className="capabilities-discover-card">
       <CapabilityMonogram name={item.name} kind={item.types.includes("extension") ? "extension" : "skill"} />
-      <div className="capabilities-resource-copy"><div className="capabilities-resource-title"><strong>{item.name}</strong>{item.types.map((type) => <span key={type}>{type === "skill" ? "Skill" : "Extension"}</span>)}{item.official ? <span className="capabilities-official-mark" title="On Pi's first-party / reference list. That says where it comes from, not that it was safety-reviewed."><Bookmark16Regular aria-hidden="true" /><span className="sr-only">First-party / reference</span></span> : null}</div><p>{item.description}</p><div className="capabilities-resource-meta">{item.author ? <span>{item.author}</span> : null}{typeof item.downloads === "number" ? <span>{item.downloads.toLocaleString()} downloads</span> : null}{repositoryHref ? <ExternalSourceLink href={repositoryHref} label="View source" /> : null}</div></div>
-      {installable ? <button className="professional-button professional-button-secondary" type="button" disabled={disabled} onClick={onInstall}>{busy ? <ArrowSync16Regular className="spin" /> : null}Details</button> : <span className="professional-status-badge">Reference only</span>}
+      <div className="capabilities-resource-copy"><div className="capabilities-resource-title"><strong>{item.name}</strong>{item.types.map((type) => <span key={type}>{type === "skill" ? "Skill" : "Extension"}</span>)}{item.official ? <span className="capabilities-official-mark" title="On Pi's first-party / reference list. That says where it comes from, not that it was safety-reviewed."><Bookmark16Regular aria-hidden="true" /><span className="sr-only">First-party / reference</span></span> : null}</div><p>{item.description}</p><div className="capabilities-resource-meta">{item.author ? <span>{item.author}</span> : null}{typeof item.downloads === "number" ? <span>{item.downloads.toLocaleString()} downloads</span> : null}{repositoryHref ? <ExternalSourceLink href={repositoryHref} label="View Source" /> : null}</div></div>
+      {installable ? <button className="professional-button professional-button-secondary" type="button" disabled={disabled} onClick={onInstall}>{busy ? <ArrowSync16Regular className="spin" /> : null}Details</button> : <span className="professional-status-badge">Reference Only</span>}
     </article>
   );
 }
 
 function AddCapabilityDialog({
   busy,
+  scope,
+  spaceName,
+  onScopeChange,
   packageSource,
   onClose,
   onChooseFiles,
@@ -828,6 +892,9 @@ function AddCapabilityDialog({
   onReviewPackage,
 }: {
   busy: boolean;
+  scope: AgentCapabilityScope;
+  spaceName: string;
+  onScopeChange: (scope: AgentCapabilityScope) => void;
   packageSource: string;
   onClose: () => void;
   onChooseFiles: () => void;
@@ -840,15 +907,16 @@ function AddCapabilityDialog({
       <section ref={dialogRef} tabIndex={-1} className="capability-dialog capability-add-dialog" role="dialog" aria-modal="true" aria-labelledby="capabilities-add-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title"><div><h2 id="capabilities-add-title">Add a Skill or Extension</h2></div><button className="minimal-icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Close"><Dismiss20Regular /></button></div>
         <div className="capability-dialog-body capabilities-add-panel">
+          <ScopeChooser value={scope} spaceName={spaceName} disabled={busy} onChange={onScopeChange} />
           <div className="capabilities-add-options">
             <div className="capabilities-add-option">
               <span className="professional-icon-tile" aria-hidden="true"><BookToolbox20Regular /></span>
-              <div><strong>Skill or pack</strong><span>SKILL.md, .skill, or ZIP</span></div>
-              <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onChooseFiles}><ArrowUpload16Regular />Choose files</button>
+              <div><strong>Skill or Pack</strong><span>SKILL.md, .skill, or ZIP</span></div>
+              <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onChooseFiles}><ArrowUpload16Regular />Choose Files</button>
             </div>
             <form className="capabilities-add-option capabilities-package-option" onSubmit={onReviewPackage}>
               <span className="professional-icon-tile" aria-hidden="true"><Box16Regular /></span>
-              <label><strong>Pi package</strong><input value={packageSource} onChange={(event) => onPackageSourceChange(event.target.value)} placeholder="npm package, git URL, or local path" aria-label="Pi package source" /></label>
+              <label><strong>Pi Package</strong><input value={packageSource} onChange={(event) => onPackageSourceChange(event.target.value)} placeholder="npm package, git URL, or local path" aria-label="Pi package source" /></label>
               <button className="professional-button professional-button-secondary" type="submit" disabled={busy || !packageSource.trim()}>Continue</button>
             </form>
           </div>
@@ -866,22 +934,90 @@ function InstallReviewDialog({ pending, spaceName, busy, onClose, onScopeChange,
   const catalogPackageInstall = catalogInstall && pending.item.sourceKind !== "bundle";
   const executablePackageInstall = packageInstall || catalogPackageInstall;
   const extensionInstall = executablePackageInstall || (catalogInstall && (pending.item.types.includes("extension") || Boolean(pending.item.extensions?.length)));
-  const title = pending.kind === "skill-files" ? "Review Skill import" : catalogInstall ? `Review ${pending.item.name}` : `Review ${pending.item?.name ?? "Pi package"}`;
+  const title = pending.kind === "skill-files" ? "Review Skill import" : catalogInstall ? pending.item.name : "Review Pi package";
   const source = pending.kind === "skill-files" ? pending.files.map((file) => file.name).join(", ") : catalogInstall ? pending.item.installSource || pending.item.name : pending.source;
+  const repositoryHref = catalogInstall ? safeExternalHref(pending.item.repositoryUrl || pending.item.homepageUrl || pending.item.npmUrl) : "";
+  const unpinned = executablePackageInstall && mutableGitSource(source);
+  const inside = reviewContents(pending);
+  const insideCount = inside.reduce((sum, group) => sum + group.items.length, 0);
+  const insideLabel = inside.length === 1 ? `${insideCount} ${insideCount === 1 ? inside[0]!.label.replace(/s$/, "") : inside[0]!.label}` : `${insideCount} items`;
   return (
     <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
-      <section ref={dialogRef} tabIndex={-1} className="capability-dialog" role="dialog" aria-modal="true" aria-labelledby="capability-install-review-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-title"><div><h2 id="capability-install-review-title">{title}</h2></div><button className="minimal-icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Close review"><Dismiss20Regular /></button></div>
+      <section ref={dialogRef} tabIndex={-1} className="capability-dialog capability-review-dialog" role="dialog" aria-modal="true" aria-labelledby="capability-install-review-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-title">
+          <div>
+            <h2 id="capability-install-review-title">{title}</h2>
+            {catalogInstall ? <p className="capability-review-byline"><span>{pending.item.types.map(capabilityTypeLabel).join(" and ")}</span>{pending.item.author ? <span>{pending.item.author}</span> : null}{repositoryHref ? <ExternalSourceLink href={repositoryHref} label="View Source" /> : null}</p> : null}
+          </div>
+          <button className="minimal-icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Close review"><Dismiss20Regular /></button>
+        </div>
         <div className="capability-dialog-body">
+          {catalogInstall && pending.item.description ? <p className="capability-review-description">{pending.item.description}</p> : null}
           <ScopeChooser value={pending.scope} spaceName={spaceName} disabled={busy} onChange={onScopeChange} />
-          <dl className="capability-review-facts"><div><dt>Source</dt><dd>{source}</dd></div>{catalogInstall && pending.item.official ? <div><dt>Provenance</dt><dd>Pi's first-party / reference list — where it comes from, not a safety review</dd></div> : null}{catalogInstall && (pending.item.version || pending.item.license) ? <div><dt>Version</dt><dd>{[pending.item.version ? `v${pending.item.version}` : null, pending.item.license].filter(Boolean).join(" · ")}</dd></div> : null}{pending.kind !== "skill-files" ? <div><dt>Advertised contents</dt><dd>{pending.kind === "package" ? pending.item?.types.map(capabilityTypeLabel).join(", ") || "Package-defined Pi resources" : pending.item.types.map(capabilityTypeLabel).join(", ")}</dd></div> : <div><dt>Files</dt><dd>{pending.files.length}</dd></div>}{catalogInstall ? <><div><dt>Dependencies</dt><dd>{typeof pending.item.dependencyCount === "number" ? pending.item.dependencyCount : "Unknown / not inspected"}</dd></div><div><dt>Install scripts</dt><dd>{installScriptSummary(pending.item)}</dd></div></> : null}</dl>
-          {catalogInstall ? <CapabilityPackageContents item={pending.item} /> : null}
-          <div className={extensionInstall ? "capability-code-warning danger" : "capability-code-warning"}><ShieldCheckmark20Regular aria-hidden="true" /><div><strong>{extensionInstall ? "This can run code on your computer" : "Skills can include scripts"}</strong><p>{executablePackageInstall ? `Install scripts and Extensions run with your account’s full file, process, and network access.${mutableGitSource(source) ? " This git source is not pinned to a commit." : ""}` : "The Assistant may run scripts included in this Skill."}</p></div></div>
+          {inside.length ? (
+            <section className="capability-review-inside" aria-labelledby="capability-review-inside-title">
+              <div className="capabilities-scope-heading"><div><h3 id="capability-review-inside-title">What's Inside</h3></div><span className="capabilities-scope-count">{insideLabel}</span></div>
+              {inside.map((group) => (
+                <div className="capability-review-group" key={group.label}>
+                  {inside.length > 1 ? <span className="capability-review-group-label">{group.label}</span> : null}
+                  <div className="capability-review-items">{group.items.map((name) => <span className="capability-review-item" key={name}>{name}</span>)}</div>
+                </div>
+              ))}
+            </section>
+          ) : null}
+          <div className={extensionInstall ? "capability-code-warning danger" : "capability-code-warning"}>
+            <ShieldCheckmark20Regular aria-hidden="true" />
+            <div>
+              <strong>{extensionInstall ? "This can run code on your computer" : "Skills can include scripts"}</strong>
+              <p>{extensionInstall ? `${executablePackageInstall ? "Setup scripts and Extensions in this package" : "Extensions in this package"} run with the same access you have.${unpinned ? " The source isn't pinned to a version." : ""}` : "The Worker may run scripts included in this Skill."}</p>
+            </div>
+          </div>
+          <details className="capability-technical-details">
+            <summary>Technical Details</summary>
+            <div className="capability-technical-body">
+              <dl className="capability-review-facts">
+                <div><dt>Source</dt><dd>{source}</dd></div>
+                {catalogInstall && pending.item.official ? <div><dt>Provenance</dt><dd>On Pi's first-party / reference list. That says where it comes from, not that it was safety-reviewed.</dd></div> : null}
+                {catalogInstall && (pending.item.version || pending.item.license) ? <div><dt>Version</dt><dd>{[pending.item.version ? `v${pending.item.version}` : null, pending.item.license].filter(Boolean).join(" · ")}</dd></div> : null}
+                {packageInstall ? <div><dt>Advertised contents</dt><dd>{pending.item?.types.map(capabilityTypeLabel).join(", ") || "Package-defined Pi resources"}</dd></div> : null}
+                {pending.kind === "skill-files" ? <div><dt>Files</dt><dd>{pending.files.length}</dd></div> : null}
+                {catalogInstall ? <><div><dt>Dependencies</dt><dd>{typeof pending.item.dependencyCount === "number" ? pending.item.dependencyCount : "Not inspected"}</dd></div><div><dt>Install scripts</dt><dd>{installScriptDetail(pending.item)}</dd></div></> : null}
+                {unpinned ? <div><dt>Pinned</dt><dd>No. This git source is not pinned to a commit.</dd></div> : null}
+              </dl>
+            </div>
+          </details>
         </div>
         <div className="capability-dialog-footer"><button ref={cancelRef} className="professional-button professional-button-secondary" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="professional-button professional-button-primary" type="button" onClick={onInstall} disabled={busy}>{busy ? <ArrowSync16Regular className="spin" /> : null}{pending.kind === "skill-files" ? "Import Skill" : "Install"}</button></div>
       </section>
     </div>
   );
+}
+
+/** What the person is about to install, as plain names grouped by kind. */
+function reviewContents(pending: PendingInstall): Array<{ label: string; items: string[] }> {
+  if (pending.kind === "skill-files") return [{ label: "Files", items: pending.files.map((file) => file.name) }];
+  if (pending.kind !== "catalog") return [];
+  const item = pending.item;
+  return [
+    { label: "Skills", items: item.skills ?? [] },
+    { label: "Extensions", items: item.extensions ?? [] },
+    { label: "Prompts", items: item.prompts ?? [] },
+    { label: "Themes", items: item.themes ?? [] },
+  ].filter((group) => group.items.length).map((group) => ({ ...group, items: group.items.map(reviewItemName) }));
+}
+
+/** "skills/documents/SKILL.md" reads as "documents"; other paths keep their file name without the extension. */
+function reviewItemName(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  const last = parts.at(-1) ?? path;
+  if (/^skill\.md$/i.test(last) && parts.length >= 2) return parts.at(-2)!;
+  return last.replace(/\.[^.]+$/, "");
+}
+
+function installScriptDetail(item: CapabilityDiscoverDetailsItem): string {
+  if (item.installScripts === undefined) return "Not inspected";
+  if (!item.installScripts.length) return "None declared";
+  return item.installScripts.map((script) => `${script.name}: ${script.command}`).join("; ");
 }
 
 export function CapabilityDetailsDialog({ item, spaceId, busy, onClose, onRemove, onToggle, onReadinessChange }: { item: InstalledCapability; spaceId: string; busy: boolean; onClose: () => void; onRemove?: () => void; onToggle?: () => void; onReadinessChange?: (status: IncludedToolStatus | null) => void }) {
@@ -894,7 +1030,7 @@ export function CapabilityDetailsDialog({ item, spaceId, busy, onClose, onRemove
           {item.included ? <IncludedToolSetup key={`${spaceId}:${item.included.id}`} spaceId={spaceId} tool={item.included} enabled={item.enabled} onStatusChange={onReadinessChange} /> : null}
           {item.diagnostics.length ? <div className="professional-diagnostics" role="status">{item.diagnostics.map((diagnostic, index) => <span className={diagnostic.type} key={`${diagnostic.message}:${index}`}>{diagnostic.message}</span>)}</div> : null}
           <details className="capability-technical-details">
-            <summary>Technical details</summary>
+            <summary>Technical Details</summary>
             <div className="capability-technical-body">
               <dl className="capability-review-facts">
                 {item.included ? <><div><dt>Extension</dt><dd>{statusLabel(item.status)}</dd></div><div><dt>Enabled</dt><dd>{item.enabled ? "Yes" : "No"}</dd></div></> : null}
@@ -909,7 +1045,7 @@ export function CapabilityDetailsDialog({ item, spaceId, busy, onClose, onRemove
           {item.kind === "skill" && item.content ? <details className="capability-technical-details"><summary>Instructions</summary><div className="markdown-preview capability-skill-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{stripSkillFrontmatter(item.content)}</ReactMarkdown></div></details> : null}
         </div>
         <div className="capability-dialog-footer">
-          {onToggle ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onToggle}>{item.enabled ? "Turn off" : "Turn on"}</button> : null}
+          {onToggle ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onToggle}>{item.enabled ? "Turn Off" : "Turn On"}</button> : null}
           {onRemove ? <button className="professional-button professional-button-danger capability-details-remove" type="button" disabled={busy} onClick={onRemove}>{busy ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}Remove Skill</button> : null}
           <button className="professional-button professional-button-primary" type="button" onClick={onClose} disabled={busy}>Done</button>
         </div>
@@ -920,22 +1056,6 @@ export function CapabilityDetailsDialog({ item, spaceId, busy, onClose, onRemove
 
 function CapabilityStringList({ title, items }: { title: string; items: string[] }) {
   return items.length ? <section className="capability-string-list"><h3>{title}</h3><div>{items.map((item) => <code key={item}>{item}</code>)}</div></section> : null;
-}
-
-function CapabilityPackageContents({ item }: { item: CapabilityDiscoverDetailsItem }) {
-  const groups: Array<{ label: string; values: string[] | undefined }> = [
-    { label: "Skills", values: item.skills },
-    { label: "Extensions", values: item.extensions },
-    { label: "Prompts", values: item.prompts },
-    { label: "Themes", values: item.themes },
-  ];
-  return (
-    <section className="capability-package-contents" aria-labelledby="capability-package-contents-title">
-      <h3 id="capability-package-contents-title">Inspected package contents</h3>
-      <div>{groups.map((group) => <div key={group.label}><strong>{group.label}</strong><span>{group.values === undefined ? "Unknown / not inspected" : group.values.length ? group.values.join(", ") : "None found"}</span></div>)}</div>
-      <div className="capability-install-script-list"><strong>Install scripts</strong>{item.installScripts === undefined ? <span>Unknown / not inspected</span> : item.installScripts.length ? item.installScripts.map((script) => <code key={`${script.name}:${script.command}`}>{script.name}: {script.command}</code>) : <span>Inspected; none declared</span>}</div>
-    </section>
-  );
 }
 
 /**
@@ -971,10 +1091,6 @@ function GitHubMark() {
       <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
     </svg>
   );
-}
-
-function CapabilityNotice({ icon, title, detail, action, tone = "neutral" }: { icon: ReactNode; title: string; detail?: string; action?: ReactNode; tone?: "neutral" | "success" }) {
-  return <aside className={`trust-banner professional-notice professional-notice-${tone}`}><span className="professional-notice-icon" aria-hidden="true">{icon}</span><div className="professional-notice-copy"><strong>{title}</strong>{detail ? <span>{detail}</span> : null}</div>{action ? <div className="professional-notice-action">{action}</div> : null}</aside>;
 }
 
 function CapabilityEmpty({ title }: { title: string }) {
@@ -1151,12 +1267,6 @@ function capabilityTypeLabel(value: "skill" | "extension"): string {
 
 function canInstallDiscoverItem(item: CapabilityDiscoverItem): boolean {
   return Boolean(item.installSource || item.sourceKind === "bundle");
-}
-
-function installScriptSummary(item: CapabilityDiscoverDetailsItem): string {
-  if (item.installScripts === undefined) return "Unknown / not inspected";
-  if (!item.installScripts.length) return "Inspected; none declared";
-  return item.installScripts.map((script) => script.name).join(", ");
 }
 
 function mutableGitSource(source: string): boolean {

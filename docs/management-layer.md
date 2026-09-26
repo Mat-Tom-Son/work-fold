@@ -53,7 +53,7 @@ selector extension, not a protocol-v1 inventory or authority change.
 
 work-fold now has a small management layer over its existing product model. It gives the renderer, command line, test harnesses, and future Assistant-facing adapters one semantic view of Spaces, running work, and Pi capabilities without creating another data store or agent framework.
 
-This is infrastructure, not another navigation item. **work-fold**, **Folder**, **Files**, **Chats**, **Library**, **History**, and **Agent tools** remain the user-facing nouns. The management layer makes their underlying state inspectable in a consistent, versioned form.
+This is infrastructure, not another navigation item. **work-fold**, **Folder**, **Files**, **Chats**, **History**, and **Skills & Extensions** remain the user-facing nouns. The management layer makes their underlying state inspectable in a consistent, versioned form.
 
 The development extension UI adapter treats the fold as its own valid scope.
 `GET /api/management/conversations/:id/extension-ui` and its Space equivalent
@@ -572,7 +572,7 @@ App-requested Assistant tasks use the same `acceptConversationTurn`, kernel
 task, History, cancellation and durable turn journal as a normal Space Chat.
 A request is journaled and dispatched in one call with exact installation,
 authority and input pins; the native bridge cannot read arbitrary Chats, and
-the trusted Apps tab offers Details, Open Chat and Stop. See
+the trusted Settings → Apps page offers Details, Open Chat and Stop. See
 [App-requested Assistant work](app-assistant-tasks.md).
 
 | Area | Source | Primary tests |

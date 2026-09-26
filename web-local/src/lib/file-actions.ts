@@ -5,7 +5,7 @@ import { fileExtension } from "./tree";
 import type { ChangeEntry, TreeEntry } from "../types";
 
 function nativeOpenLabel(entry: TreeEntry, platform: DesktopPlatform = desktopPlatform()): { text: string; office: boolean } {
-  if (entry.kind === "folder") return { text: "Open folder", office: false };
+  if (entry.kind === "folder") return { text: "Open Folder", office: false };
   const extension = fileExtension(entry.path);
   if ([".doc", ".docm", ".dot", ".dotm", ".xls", ".xlsb", ".xlsm", ".ppt", ".pptm"].includes(extension)) return { text: revealInFileManagerLabel(platform), office: true };
   if ([".docx", ".dotx"].includes(extension)) return { text: "Open in Word", office: true };

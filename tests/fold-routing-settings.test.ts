@@ -75,7 +75,7 @@ test("trusted Settings manages routings with receipted enablement, bounded run h
   const history = await api.routingSettings.history(declaration.id);
   assert.equal(history.runs[0]?.outcome, "succeeded");
   assert.equal(history.runs[0]?.runId, accepted.runId, "the admitted id is the stable UI status channel");
-  assert.equal(history.runs[0]?.cause, "Run now");
+  assert.equal(history.runs[0]?.cause, "Run Now");
   assert.ok(history.runs[0]?.hops[0]?.evidence?.some((item) => item.label === "Files" && item.value === "1"));
 
   const domainPath = join(stateRoot, "routings", "receipts.jsonl");

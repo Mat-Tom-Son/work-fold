@@ -70,7 +70,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-color-title">
       <h3 id="appearance-color-title">Color</h3>
-      <Choice label="Color mode" value={p.mode} onChange={(mode) => update({ mode })} options={[["system", "Device setting"], ["light", "Light"], ["dark", "Dark"]]} />
+      <Choice label="Color Mode" value={p.mode} onChange={(mode) => update({ mode })} options={[["system", "Device setting"], ["light", "Light"], ["dark", "Dark"]]} />
       <Choice label="Palette" value={p.palette} onChange={(palette) => update({ palette })} options={Object.entries(applicationPalettes).map(([value, palette]) => [value as ApplicationAppearance["palette"], palette.name])} />
       <div className="appearance-settings-row"><div><span className="appearance-settings-label">Accent</span></div><div className="appearance-settings-accent">
         <select aria-label="Accent source" value={p.accent === "system" ? "system" : "custom"} onChange={(event) => { update({ accent: event.target.value === "system" ? "system" : applicationPalettes[p.palette].accent }); setAccentError(null); setAccentDraft(null); }}><option value="system">Device accent</option><option value="custom">Custom color</option></select>
@@ -101,9 +101,9 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
       <Choice label="Transparency" detail={appearance.device.transparency ? "Enabled by your device" : undefined} value={p.transparency} onChange={(transparency) => update({ transparency })} options={[["system", "Device setting"], ["opaque", "Opaque surfaces"]]} />
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-saved-title">
-      <h3 id="appearance-saved-title">Saved presets</h3>
+      <h3 id="appearance-saved-title">Saved Presets</h3>
       <form className="appearance-settings-save" onSubmit={(event) => { event.preventDefault(); runPreset(() => { store.savePreset(presetName); setPresetName(""); }); }}>
-        <input aria-label="Preset name" placeholder="Name this look" maxLength={60} value={presetName} onChange={(event) => setPresetName(event.target.value)} /><button type="submit" disabled={!presetName.trim() || presetBusy}>Save preset</button><button type="button" disabled={presetBusy} onClick={() => fileRef.current?.click()}>{presetBusy ? "Importing…" : "Import"}</button>
+        <input aria-label="Preset name" placeholder="Name this look" maxLength={60} value={presetName} onChange={(event) => setPresetName(event.target.value)} /><button type="submit" disabled={!presetName.trim() || presetBusy}>Save Preset</button><button type="button" disabled={presetBusy} onClick={() => fileRef.current?.click()}>{presetBusy ? "Importing…" : "Import"}</button>
         <input ref={fileRef} hidden type="file" accept=".json,application/json" aria-label="Import appearance preset" onChange={(event) => { void importFile(event.target.files?.[0]); event.currentTarget.value = ""; }} />
       </form>
       {appearance.presets.map((preset) => <div className="appearance-settings-saved" key={preset.name}><span>{preset.name}</span><div className="appearance-settings-actions"><button type="button" aria-label={`Apply ${preset.name}`} onClick={() => store.applyPreset(preset.preferences)}>Apply</button><button type="button" aria-label={`Export ${preset.name}`} onClick={() => runPreset(() => exportPreset(preset))}>Export</button><button type="button" aria-label={`Remove ${preset.name}`} onClick={() => runPreset(() => store.removePreset(preset.name))}>Remove</button></div></div>)}

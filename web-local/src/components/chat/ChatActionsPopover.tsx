@@ -143,7 +143,7 @@ export function ChatActionsPopover({
           {lifecycleView === "snoozed" ? (
             <button type="button" disabled={busy} onClick={() => void handleLifecycle({ snoozedUntil: null })}>
               <RotateCcw size={14} />
-              <span><strong>Resume now</strong></span>
+              <span><strong>Resume Now</strong></span>
             </button>
           ) : lifecycleView !== "archived" ? (
             <button type="button" disabled={busy} onClick={() => setView("snooze")}>
@@ -199,7 +199,7 @@ export function ChatActionsPopover({
             <ChevronLeft size={14} />Actions
           </button>
           <div className="chat-actions-heading">
-            <strong>Snooze until</strong>
+            <strong>Snooze Until</strong>
             <span>This Chat will return to Active automatically.</span>
           </div>
           {snoozePresets.map((preset) => (

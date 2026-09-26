@@ -112,7 +112,7 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
   const pendingLabel = action === "check" ? "Checking…" : action === "disconnect-chrome" ? "Disconnecting…" : action === "change-chrome-profile" ? "Changing profile…" : action ? "Connecting…" : null;
   const cancelObservation = () => { setWatching(false); readRequest.current?.abort(); };
   return <section className="included-tool-setup" aria-label="Chrome setup" aria-busy={Boolean(action)}>
-    <div className="included-tool-status"><strong role="status">{!enabled ? "Turned off" : pendingLabel ?? presentation.label}</strong>
+    <div className="included-tool-status"><strong role="status">{!enabled ? "Turned Off" : pendingLabel ?? presentation.label}</strong>
       <button type="button" className="professional-button professional-button-secondary" disabled={!enabled || Boolean(action)} onClick={() => void act("check")}>Check</button>
     </div>
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}

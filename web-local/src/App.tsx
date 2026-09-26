@@ -21,6 +21,7 @@ import { CreateSpaceModal } from "./components/modals/CreateSpaceModal";
 import { DesktopSettingsModal, type SettingsPage } from "./components/modals/DesktopSettingsModal";
 import { FileVersionHistoryModal } from "./components/modals/FileVersionHistoryModal";
 import { KeyboardShortcutsModal } from "./components/modals/KeyboardShortcutsModal";
+import { AssistantToolsModal } from "./components/modals/AssistantToolsModal";
 import { TextInputModal } from "./components/modals/TextInputModal";
 import { subscribeControlEvents } from "./lib/control-events";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
@@ -28,13 +29,12 @@ import { FileDetailsPane } from "./components/panes/FileDetailsPane";
 import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
 import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
-import { SpaceAppsPane } from "./components/panes/SpaceAppsPane";
 import { SpaceAutomationsPane } from "./components/panes/SpaceAutomationsPane";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
 import { SpaceAppearancePanel, SpaceModeRail, SpaceNameEditor, SpacePaneHeader } from "./components/panes/spaceChrome";
 import { FileContentSearch } from "./components/panes/FileContentSearch";
-import { ChatsPane, HistoryPane, LibraryPane, SpacesPane, type AssistantModelScope } from "./components/panes/spacePanes";
+import { ChatsPane, HistoryPane, SpacesPane, type AssistantModelScope } from "./components/panes/spacePanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
 import { useSharedPages } from "./hooks/useSharedPages";
 import { activeSharedPageFor, isShareablePath, sharedPathsForSpace } from "./lib/page-sharing";
@@ -53,7 +53,7 @@ import { useSpaceChecks } from "./hooks/useSpaceChecks";
 import { useFolderAutomations } from "./hooks/useFolderAutomations";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
 import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle";
-import { appBuildDraft, appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
+import { appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
 import { canOpenDirectly, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { chatDisplayTitle, formatItemCount } from "./lib/format";
@@ -65,7 +65,7 @@ import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry,
 import { normalizeSpaceCustomizations } from "./lib/space-customization";
 import { spaceIdentityFor, spaceIdentityStyle } from "./lib/space-identity";
 import { removeSpaceConfirmText, surfacePanelDomId, surfaceTabDomId, spaceHeaderSourceBadgeLabel } from "./lib/space-ui";
-import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpacePane, SpaceRailMode, SpaceSummary } from "./types";
+import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AssistantToolsView, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpacePane, SpaceRailMode, SpaceSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
 import { spaceIconOptions } from "./space-icons";
 
@@ -73,7 +73,9 @@ const fixtureRequested = new URLSearchParams(window.location.search).get("fixtur
 const supportedSpaceIconNames = new Set(spaceIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])]));
 
 interface DroppedUploadFile { file: File; relativePath: string }
-type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-space";
+type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-space" | "app-change-chat" | "open-app-build-chat" | "open-app-result-file" | "open-app-studio";
+/** A cross-cutting request handled by the open Folder view; app navigation from Settings carries the app or Chat it names. */
+type DesktopAction = { id: number; command: DesktopActionCommand | "open-checks"; spaceId?: string; app?: RestrictedAppInstalled; conversationId?: string; runtimeInstanceId?: string; path?: string };
 interface PendingDelete {
   spaceId: string;
   path: string;
@@ -114,8 +116,11 @@ export function App() {
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const activeChecksControlRef = useRef<SpaceChecksControl | null>(null);
   const [pendingSpaceOpen, setPendingSpaceOpen] = useState<{ id: number; spaceId: string; view?: "checks" } | null>(null);
-  const [desktopAction, setDesktopAction] = useState<{ id: number; command: DesktopActionCommand | "open-checks"; spaceId?: string } | null>(null);
+  const [desktopAction, setDesktopAction] = useState<DesktopAction | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
+  const handleRestrictedAppError = useCallback((caught: unknown) => setError(errorText(caught)), []);
+  // Installed apps live above the Folder view so Settings → Apps and the rail read one list.
+  const restrictedAppsState = useRestrictedApps({ activeSpaceId: boot ? activeSpaceId : "", spaces: boot?.spaces, fixtureMode: Boolean(fixture), onError: handleRestrictedAppError });
   const showDesktopTitleBar = window.workFoldDesktop?.app.platform === "win32";
 
   const openKeyboardShortcuts = useCallback(() => {
@@ -294,27 +299,28 @@ export function App() {
     } catch (caught) { setError(errorText(caught)); }
   }
 
-  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your folders and workers."} action={error ? <button className="secondary-button" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try again</button> : undefined} /></div>;
+  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your folders and workers."} action={error ? <button className="secondary-button" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try Again</button> : undefined} /></div>;
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeSpace ? <SpaceAppearanceProvider palette={appearance.preferences.palette}><SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} assistantConfigurationRevision={assistantConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /></SpaceAppearanceProvider> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
+    {activeSpace ? <SpaceAppearanceProvider palette={appearance.preferences.palette}><SpaceView space={activeSpace} spaces={boot.spaces} restrictedAppsStore={restrictedAppsState} agent={boot.agent} assistantConfigurationRevision={assistantConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /></SpaceAppearanceProvider> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
-    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={activeSpace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
+    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={activeSpace} spaces={boot.spaces} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", spaceId: app.sourceSpaceId, app }); }} onOpenAppBuildChat={(spaceId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", spaceId, conversationId }); }} onOpenAppResultFile={(spaceId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", spaceId, path }); }} onOpenAppStudio={(spaceId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", spaceId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
     {shortcutsOpen ? <KeyboardShortcutsModal onClose={closeKeyboardShortcuts} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
 }
 
-function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchSpace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onChecksControlChange, onOpenSettings, onOpenShortcuts, onError }: {
+function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigurationRevision, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchSpace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onChecksControlChange, onOpenSettings, onOpenShortcuts, onError }: {
   space: SpaceSummary;
   spaces: SpaceSummary[];
+  restrictedAppsStore: ReturnType<typeof useRestrictedApps>;
   agent: BootstrapResponse["agent"];
   assistantConfigurationRevision: number;
   appearance?: SpaceAppearanceState;
   fixture: SpaceUiFixture | null;
-  desktopAction: { id: number; command: DesktopActionCommand | "open-checks"; spaceId?: string } | null;
+  desktopAction: DesktopAction | null;
   updateStatus: DesktopUpdateStatus | null;
   themePreference: AppThemePreference;
   onThemePreferenceChange: (theme: AppThemePreference) => void;
@@ -392,9 +398,6 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [historyRefreshRequest, setHistoryRefreshRequest] = useState(0);
-  const [libraryTree, setLibraryTree] = useState<TreeEntry[]>(() => fixture?.library ?? []);
-  const [libraryOpenRequests, setLibraryOpenRequests] = useState<Record<string, number>>({});
-  const libraryTreeRequestRef = useRef(0);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [uploadTargetPath, setUploadTargetPath] = useState("");
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -410,10 +413,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     space,
     spaces,
     fixtureMode: Boolean(fixture),
-    migrateLegacyLibraryMode: initialStoredModeRef.current === "library",
     onSwitchSpace,
   });
-  const handleRestrictedAppError = useCallback((caught: unknown) => onError(errorText(caught)), [onError]);
   useEffect(() => {
     function openResult(event: Event) {
       const { spaceId, path } = (event as CustomEvent<{ spaceId: string; path: string }>).detail;
@@ -423,12 +424,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     window.addEventListener("work-fold:open-result-file", openResult);
     return () => window.removeEventListener("work-fold:open-result-file", openResult);
   }, [spaces, tabs.openFileSurfaceTab]);
-  const restrictedAppsState = useRestrictedApps({
-    activeSpaceId: space.id,
-    spaces,
-    fixtureMode: Boolean(fixture),
-    onError: handleRestrictedAppError,
-  });
+  const restrictedAppsState = restrictedAppsStore;
+  const [assistantToolsView, setAssistantToolsView] = useState<AssistantToolsView | null>(null);
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
   const checks = useSpaceChecks(space, Boolean(fixture), activeTab?.kind !== "checks");
   const folderAutomations = useFolderAutomations(space.id, Boolean(fixture));
@@ -471,28 +468,6 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     window.requestAnimationFrame(() => { if (returnFocus?.isConnected) returnFocus.focus(); });
   }, []);
 
-  const refreshLibraryTree = useCallback(async () => {
-    const requestId = ++libraryTreeRequestRef.current;
-    if (fixture) {
-      setLibraryTree(fixture.library);
-      return;
-    }
-    try {
-      const result = await api<{ tree: TreeEntry[] }>("/api/resources/tree");
-      if (libraryTreeRequestRef.current === requestId) setLibraryTree(result.tree);
-    } catch (caught) {
-      if (libraryTreeRequestRef.current === requestId) onError(errorText(caught));
-    }
-  }, [fixture, onError]);
-
-  function openLibrary(targetSpace: SpaceSummary): void {
-    setLibraryOpenRequests((current) => ({
-      ...current,
-      [targetSpace.id]: (current[targetSpace.id] ?? 0) + 1,
-    }));
-    tabs.openLibrarySurfaceTab(targetSpace);
-  }
-
   useEffect(() => { if (!fixture) localStorage.setItem("work-fold.space.mode", activeMode); }, [activeMode, fixture]);
   // Manage folders replaces the pane's content; Done and Escape return to
   // whatever the person was doing before they opened it.
@@ -501,7 +476,6 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   useEffect(() => {
     if (tree.status === "ready" && activeTab?.kind !== "checks") void checks.refresh();
   }, [activeTab?.kind, checks.refresh, tree.status, tree.tree]);
-  useEffect(() => { void refreshLibraryTree(); }, [refreshLibraryTree]);
   useEffect(() => {
     if (!isMacOS() || !window.workFoldDesktop?.space.previewFile) return;
     function previewSelectedFile(event: KeyboardEvent) {
@@ -594,7 +568,15 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     else if (desktopAction.command === "customize-space") { const target = spaces.find((item) => item.id === desktopAction.spaceId); if (target) tabs.openAppearanceSurfaceTab(target); }
     else if (desktopAction.command === "new-chat") openChat(space, null);
     else if (desktopAction.command === "reload-space-state") void refreshSpaceState();
-    else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") tabs.openAssistantToolsSurfaceTab(space, "installed");
+    else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") setAssistantToolsView("installed");
+    else if (desktopAction.command === "app-change-chat" && desktopAction.app) void startAppChangeChat(desktopAction.app).catch((caught) => onError(errorText(caught)));
+    else if (desktopAction.command === "open-app-build-chat" && desktopAction.spaceId && desktopAction.conversationId) void openAppBuildChat(desktopAction.spaceId, desktopAction.conversationId).catch((caught) => onError(errorText(caught)));
+    else if (desktopAction.command === "open-app-result-file" && desktopAction.spaceId && desktopAction.path) {
+      const target = spaces.find((item) => item.id === desktopAction.spaceId);
+      if (target) tabs.openFileSurfaceTab(target, desktopAction.path);
+      else onError("The result's folder is unavailable.");
+    }
+    else if (desktopAction.command === "open-app-studio" && desktopAction.spaceId) openAppStudio(desktopAction.spaceId, desktopAction.runtimeInstanceId);
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
     else if (desktopAction.command === "close-tab" && tabs.activeSurfaceTabId) tabs.closeSurfaceTab(tabs.activeSurfaceTabId);
   }, [desktopAction?.id, openCommandPalette]);
@@ -679,7 +661,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
       return;
     }
     onError(null);
-    await Promise.all([onRefreshBootstrap(), tree.refresh(false), loadConversationGroups(), refreshLibraryTree()]);
+    await Promise.all([onRefreshBootstrap(), tree.refresh(false), loadConversationGroups()]);
     setHistoryRefreshRequest((current) => current + 1);
     showToast({ text: `${space.name} refreshed`, tone: "success" });
   }
@@ -799,7 +781,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     const confirmed = await requestConfirm({ title: target.location.storage === "linked" ? `Remove ${target.name}?` : `Delete ${target.name}?`, body: removeSpaceConfirmText(target, {
       ...appStudio,
       incomingPreparedOperationCount: appRemovalImpact.incomingPreparedOperationCount,
-    }), confirmLabel: target.location.storage === "linked" ? "Remove folder" : "Delete folder", tone: "danger" });
+    }), confirmLabel: target.location.storage === "linked" ? "Remove folder" : "Delete Folder", tone: "danger" });
     if (!confirmed) return;
     const suspendedChecks = target.id === activeSpaceIdRef.current;
     let removed = false;
@@ -842,11 +824,6 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   }
 
   /** Opens a fresh Chat with the app-building starter text, cursor at the end. */
-  function startAppBuildChat(targetSpace: SpaceSummary) {
-    const surfaceTabId = tabs.openChatSurfaceTab(targetSpace, null);
-    setDraftRequest({ id: ++draftRequestId.current, text: appBuildDraft(targetSpace.name), spaceId: targetSpace.id, surfaceTabId });
-  }
-
   async function startAppChangeChat(app: RestrictedAppInstalled) {
     const source = spaces.find((item) => item.id === app.sourceSpaceId);
     if (!source) throw new Error("The app's source folder is unavailable. Refresh folders before changing it.");
@@ -867,6 +844,13 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     if (!conversation) throw new Error("That build Chat is no longer available.");
     setConversationGroups((current) => ({ ...current, [source.id]: conversations }));
     openChat(source, conversation);
+  }
+
+  function openAppStudio(sourceSpaceId: string, runtimeInstanceId?: string): void {
+    const source = spaces.find((item) => item.id === sourceSpaceId);
+    if (!source) { onError("The app's source folder is unavailable."); return; }
+    setAppStudioNavigation(runtimeInstanceId ? { id: crypto.randomUUID(), sourceSpaceId: source.id, runtimeInstanceId } : null);
+    tabs.openAppStudioSurfaceTab(source);
   }
 
   function openChatActions(
@@ -1154,7 +1138,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   async function saveRestorePoint() {
     if (fixture) return;
     try {
-      const result = await api<{ created: boolean }>(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } });
+      const result = await api<{ created: boolean }>(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } });
       setHistoryRefreshRequest((current) => current + 1);
       setActiveMode("history");
       showToast(result.created
@@ -1278,11 +1262,10 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
 
   const commands = useMemo<CommandPaletteCommand[]>(() => [
     ...(["files", "chats", "history"] as SpacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
-    { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", defaultVisible: true, run: () => openLibrary(space) },
-    { id: "go:space-apps", groupId: "go-to" as const, groupLabel: "Go to", label: "Apps", defaultVisible: true, run: () => tabs.openSpaceAppsSurfaceTab(space) },
-    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Skills & Extensions", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(space, "installed") },
+    { id: "go:space-apps", groupId: "go-to" as const, groupLabel: "Go to", label: "Apps", defaultVisible: true, run: () => onOpenSettings("apps") },
+    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Skills & Extensions", defaultVisible: true, run: () => setAssistantToolsView("installed") },
     ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : undefined, defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }]),
-    { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
+    { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => setAssistantToolsView("discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This folder" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
     ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go to", label: restrictedAppRailLabel(app, restrictedApps), detail: "App · This folder", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId)) })),
     ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch Space", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.name, item.spaceRoot], run: () => onSwitchSpace(item) })),
@@ -1305,11 +1288,11 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
       ];
     }),
     { id: "action:new-chat", groupId: "actions", groupLabel: "Actions", label: "New Chat", keywords: ["chat", "conversation", "assistant"], defaultVisible: true, run: () => openChat(space, null) },
-    ...(!fixture ? [{ id: "action:save-restore-point", groupId: "actions" as const, groupLabel: "Actions", label: "Save restore point", keywords: ["history", "checkpoint", "backup"], defaultVisible: true, run: () => { void saveRestorePoint(); } }] : []),
-    { id: "action:new-space", groupId: "actions", groupLabel: "Actions", label: "Create a new folder", defaultVisible: true, run: onCreateSpace },
-    { id: "action:open-folder", groupId: "actions", groupLabel: "Actions", label: "Add an existing folder", defaultVisible: true, run: onOpenFolder },
+    ...(!fixture ? [{ id: "action:save-restore-point", groupId: "actions" as const, groupLabel: "Actions", label: "Save Restore Point", keywords: ["history", "checkpoint", "backup"], defaultVisible: true, run: () => { void saveRestorePoint(); } }] : []),
+    { id: "action:new-space", groupId: "actions", groupLabel: "Actions", label: "Create a New Folder", defaultVisible: true, run: onCreateSpace },
+    { id: "action:open-folder", groupId: "actions", groupLabel: "Actions", label: "Add an Existing Folder", defaultVisible: true, run: onOpenFolder },
     { id: "action:settings", groupId: "actions", groupLabel: "Actions", label: "Settings", defaultVisible: true, run: onOpenSettings },
-    { id: "action:shortcuts", groupId: "actions", groupLabel: "Actions", label: "Keyboard shortcuts", run: onOpenShortcuts },
+    { id: "action:shortcuts", groupId: "actions", groupLabel: "Actions", label: "Keyboard Shortcuts", run: onOpenShortcuts },
     ...(["light", "dark", "system"] as AppThemePreference[]).map((preference) => ({ id: `theme:${preference}`, groupId: "actions" as const, groupLabel: "Actions", label: preference === "system" ? "Use device theme" : `Use ${preference} theme`, detail: themePreference === preference ? "Current" : undefined, keywords: ["appearance", "color", "mode"], run: () => onThemePreferenceChange(preference) })),
   ], [checks.status, conversationGroups, fixture, restrictedApps, surfaces, themePreference, tree.selectedPath, tree.tree, spaces, space.id]);
 
@@ -1336,9 +1319,9 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   }
 
   return <main className={paneResize.sidebarResizing ? "space-layout resizing" : "space-layout"} ref={paneResize.spaceLayoutRef} style={layoutStyle}>
-    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenApps={() => tabs.openSpaceAppsSurfaceTab(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} automations={hasFolderAutomations ? { active: activeTab?.kind === "space-automations" && activeTab.spaceId === space.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenAssistantTools={setAssistantToolsView} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} automations={hasFolderAutomations ? { active: activeTab?.kind === "space-automations" && activeTab.spaceId === space.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel" onKeyDown={activeMode === "spaces" ? leaveManageFoldersOnEscape : undefined}>
-      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} />
+      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} onNewChat={() => openChat(space, null)} onOpenAppearance={() => tabs.openAppearanceSurfaceTab(space)} {...(!fixture && typeof window.workFoldDesktop?.space.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
       {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRemove={(target) => void removeSpace(target)} onDone={leaveManageFolders} /> : null}
       {activeMode === "files" ? <div className="local-files-panel">
         <input
@@ -1420,46 +1403,6 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
           <div className="space-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={spaceIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
               <FileDetailsPane space={targetSpace} path={tab.path} entry={targetSpace.id === space.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetSpace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetSpace, path)} onRename={targetSpace.id === space.id ? renameEntry : undefined} canOpenWith={canOpenWith} shareRequestId={shareRequest && shareRequest.spaceId === targetSpace.id && shareRequest.path === tab.path ? shareRequest.id : undefined} onOpenSettings={openSharingSettings} />
-            ) : tab.kind === "library" ? (
-              <LibraryPane
-                space={targetSpace}
-                spaces={spaces}
-                tree={libraryTree}
-                fixtureMode={Boolean(fixture)}
-                destinationResetRequest={libraryOpenRequests[targetSpace.id] ?? 0}
-                onRefresh={refreshLibraryTree}
-                onError={onError}
-              />
-            ) : tab.kind === "assistant-tools" ? (
-              <CapabilitiesPane
-                space={targetSpace}
-                status={agent}
-                view={tab.view}
-                fixtureMode={Boolean(fixture)}
-                onViewChange={(view) => tabs.openAssistantToolsSurfaceTab(targetSpace, view)}
-                onOpenSettings={() => onOpenSettings("assistant")}
-                onError={onError}
-                onCatalogChanged={(catalog) => updateSurfaceCatalog(targetSpace.id, catalog)}
-              />
-            ) : tab.kind === "space-apps" ? (
-              <SpaceAppsPane
-                space={targetSpace}
-                apps={restrictedAppsState.appsBySpace[targetSpace.id] ?? []}
-                loading={restrictedAppsState.loadingSpaceIds.has(targetSpace.id)}
-                fixtureMode={Boolean(fixture)}
-                onBuildApp={() => startAppBuildChat(targetSpace)}
-                onChangeApp={startAppChangeChat}
-                onOpenBuildChat={openAppBuildChat}
-                onOpenAppStudio={(sourceSpaceId, runtimeInstanceId) => {
-                  const source = sourceSpaceId ? spaces.find((item) => item.id === sourceSpaceId) : targetSpace;
-                  if (!source) { onError("The app's source Space is unavailable."); return; }
-                  setAppStudioNavigation(runtimeInstanceId ? { id: crypto.randomUUID(), sourceSpaceId: source.id, runtimeInstanceId } : null);
-                  tabs.openAppStudioSurfaceTab(source);
-                }}
-                onUpsertApp={restrictedAppsState.upsertApp}
-                onRemoveApp={(featureInstallationId) => restrictedAppsState.removeApp(targetSpace.id, featureInstallationId)}
-                onError={onError}
-              />
             ) : tab.kind === "space-automations" ? (
               <SpaceAutomationsPane
                 space={targetSpace}
@@ -1546,6 +1489,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
     {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onClose={() => setChatActions(null)} /> : null}
     {versionHistory ? <FileVersionHistoryModal space={versionHistory.space} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}
+    {assistantToolsView ? <AssistantToolsModal space={space} status={agent} initialView={assistantToolsView} fixtureMode={Boolean(fixture)} onError={onError} onCatalogChanged={(catalog) => updateSurfaceCatalog(space.id, catalog)} onClose={() => setAssistantToolsView(null)} /> : null}
     {commandPaletteOpen ? <CommandPaletteHost commands={commands} onClose={closeCommandPalette} /> : null}
   </main>;
 }

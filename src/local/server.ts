@@ -7612,7 +7612,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (filePermission && filePermission.target !== "directory" && !requestedPath) {
         throw new WorkFoldCliError(
           "usage",
-          `This permission needs one file. Name it with --path <space-path>, or pick it for “${declaration}” in the app's Apps tab, under Space files.`,
+          `This permission needs one file. Name it with --path <space-path>, or pick it for “${declaration}” in Settings → Apps, under Space files.`,
         );
       }
       const kind = input.kind === "network"
@@ -7665,7 +7665,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (adapterKind !== "oauth2-pkce") {
         throw new WorkFoldCliError(
           "permissionDenied",
-          "This destination takes a secret typed on the desktop. Connect it from the app's Apps tab.",
+          "This destination takes a secret typed on the desktop. Connect it from Settings → Apps.",
         );
       }
       const context: FoldActOutcome<RestrictedAppConnectionStatus> = {};
@@ -10277,7 +10277,7 @@ function routingSettingsCause(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const cause = value as Record<string, unknown>;
   if (cause.kind === "files-changed") return `Folder changed · ${cause.changedCount} file(s)`;
-  if (cause.kind === "run-now") return "Run now";
+  if (cause.kind === "run-now") return "Run Now";
   if ((cause.kind === "scheduled" || cause.kind === "resume") && typeof cause.slotAt === "string") {
     return cause.kind === "resume" ? `Caught up from ${cause.slotAt}` : `Scheduled for ${cause.slotAt}`;
   }
@@ -12664,7 +12664,7 @@ function createAppConnectionSaveAdapter(
       return { issue: "The destination no longer declares the pinned credential adapter." };
     }
     if (act.pins.adapterKind !== "oauth2-pkce") {
-      return { issue: "This destination takes a secret typed on the desktop. Connect it from the app's Apps tab." };
+      return { issue: "This destination takes a secret typed on the desktop. Connect it from Settings → Apps." };
     }
     return { app, destination };
   };

@@ -27,7 +27,7 @@ export function chatDraftRequestForTab(
  * the person finishes the sentence with what the app should do.
  */
 export function appBuildDraft(spaceName: string): string {
-  return `Build a new app for this Space (${spaceName}). When it's ready, install a local preview for me to try.\n\nWhat it should do: `;
+  return `Build a new app for this Folder (${spaceName}). When it's ready, install a local preview for me to try.\n\nWhat it should do: `;
 }
 
 export function appChangeDraft(change: RestrictedAppChangeDraft): string {

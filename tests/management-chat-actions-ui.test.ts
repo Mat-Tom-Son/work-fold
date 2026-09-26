@@ -58,6 +58,6 @@ test("management history renames the selected chat and handles deletion failure 
   failDelete = false;
   await dom.act(() => deleteButton().click());
   await dom.waitFor(() => dom.container.querySelectorAll(".fold-chat-item").length === 0);
-  assert.equal(dom.container.querySelector(".popover-chat-title")?.textContent, "New chat");
+  assert.equal(dom.container.querySelector(".popover-chat-title")?.textContent, "New Chat");
   assert.deepEqual(mutations, ["rename", "delete", "delete"]);
 });

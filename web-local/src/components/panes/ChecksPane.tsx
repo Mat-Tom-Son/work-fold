@@ -387,7 +387,7 @@ export function ChecksPane({
       </header>
 
       {configuring ? <CheckSetup spaceId={spaceId} onCancel={() => setConfiguring(false)} onSaved={async () => { setConfiguring(false); await loadOverview(true); }} /> : null}
-      {error ? <div className="checks-health-message error" role="alert"><AlertCircle size={15} /><span>{error}</span><button type="button" onClick={() => void loadOverview(true)}>Try again</button></div> : null}
+      {error ? <div className="checks-health-message error" role="alert"><AlertCircle size={15} /><span>{error}</span><button type="button" onClick={() => void loadOverview(true)}>Try Again</button></div> : null}
       {running ? <div className="checks-running" aria-live="polite"><Loader2 className="spin" size={15} /><span>Checking only the designated files…</span></div> : null}
       {overviewUnavailable
         ? <div className="checks-status-line check-error"><span aria-hidden="true" /><p>Check results are unavailable. Try refreshing.</p></div>
@@ -407,15 +407,15 @@ export function ChecksPane({
         </div> : null}
       </section> : null}
 
-      {trialResult ? <section className="checks-section checks-trial" aria-label="Trial result">
-        <h2>Trial result</h2><p>Trial · {new Date(trialResult.startedAt).toLocaleString()} · live results unchanged.</p>
+      {trialResult ? <section className="checks-section checks-trial" aria-label="Trial Result">
+        <h2>Trial Result</h2><p>Trial · {new Date(trialResult.startedAt).toLocaleString()} · live results unchanged.</p>
         <p>{trialResult.state === "succeeded" ? `${formatItemCount(trialResult.admittedCount, "finding")} in this trial.` : trialResult.error || "The trial did not finish."}</p>
         {trialResult.findings.map((finding) => <article key={finding.id}><strong>{finding.title}</strong><p>{finding.targetPath}</p>{finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}>{evidence.quote}</blockquote> : null)}<p>{finding.detail}</p></article>)}
       </section> : null}
 
       {Boolean(overview?.findings.length || running || overviewUnavailable) ? <section className="checks-section" aria-labelledby={`checks-findings-${spaceId}`}>
         <div className="checks-section-heading">
-          <div><h2 id={`checks-findings-${spaceId}`}>Needs attention</h2></div>
+          <div><h2 id={`checks-findings-${spaceId}`}>Needs Attention</h2></div>
           {!overviewUnavailable && overview?.findings.length ? <span>{overview.findings.length}</span> : null}
         </div>
         {overviewUnavailable ? (
@@ -436,7 +436,7 @@ export function ChecksPane({
                       {targetExists ? <button type="button" onClick={() => onOpenFile(finding.targetPath)}>{finding.targetPath}</button> : <code>{finding.targetPath}</code>}
                       {check ? <span>{check.title}</span> : null}
                     </div>
-                    {finding.evidence.some((evidence) => evidence.kind === "text-span") ? <p><strong>Model suggestion</strong></p> : null}
+                    {finding.evidence.some((evidence) => evidence.kind === "text-span") ? <p><strong>Model Suggestion</strong></p> : null}
                     {finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}><p>{evidence.quote}</p></blockquote> : null)}
                     {finding.detail ? <p>{finding.detail}</p> : null}
                     {finding.remediation ? <p className="checks-remediation">{finding.remediation}</p> : null}
@@ -457,7 +457,7 @@ export function ChecksPane({
 
       {!overviewUnavailable && overview?.healthErrors.length ? (
         <section className="checks-section checks-health" aria-labelledby={`checks-health-${spaceId}`}>
-          <div className="checks-section-heading"><div><h2 id={`checks-health-${spaceId}`}>Check health</h2></div></div>
+          <div className="checks-section-heading"><div><h2 id={`checks-health-${spaceId}`}>Check Health</h2></div></div>
           <ul>{overview.healthErrors.map((message, index) => <li key={`${message}-${index}`}>{message}</li>)}</ul>
         </section>
       ) : null}
@@ -473,7 +473,7 @@ export function ChecksPane({
                 <details open={check.authority !== "enabled"}><summary className="checks-definition-main"><strong>{check.title}</strong><span className={`checks-authority ${check.authority}`}>{authorityLabel(check.authority)}</span></summary>
                 {check.criteria ? <p>{check.criteria}</p> : null}
                 {check.execution === "model" ? <p>Text review · fold model · suggestions only</p> : null}
-                <button type="button" className="professional-button professional-button-secondary" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Turn off" : "Turn on"}</button>
+                <button type="button" className="professional-button professional-button-secondary" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Turn Off" : "Turn On"}</button>
                 <button type="button" className="professional-button professional-button-secondary" disabled={running || !check.digest} onClick={() => void tryCheck(check)}>Try it</button>
                 <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => void askFold(check)}>Change with fold</button>
                 <div className="checks-target-list">

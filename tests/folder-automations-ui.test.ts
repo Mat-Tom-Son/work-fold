@@ -58,17 +58,17 @@ test("the preview renders Home projects' two automations from fixture data with 
   assert.match(on!, /When Kitchen refresh changes/);
   assert.match(on!, /Watches this folder · Copies files from here/);
   assert.match(on!, /Last run /);
-  assert.deepEqual(buttonsIn(rows[0]!), ["Run now", "Turn off"]);
+  assert.deepEqual(buttonsIn(rows[0]!), ["Run Now", "Turn Off"]);
   assert.match(off!, /Off/);
   assert.match(off!, /Every 30 minutes/);
   assert.match(off!, /Starts a Chat here/);
-  assert.match(off!, /Not run yet/);
-  assert.deepEqual(buttonsIn(rows[1]!), ["Turn on"]);
+  assert.match(off!, /Not Run Yet/);
+  assert.deepEqual(buttonsIn(rows[1]!), ["Turn On"]);
 
   await dom.act(async () => { (rows[0]!.querySelector("button") as HTMLButtonElement).click(); });
   assert.equal(fetches, 0, "preview actions never reach the network");
 
-  const all = [...dom.container.querySelectorAll("button")].find((button) => button.textContent === "All automations");
+  const all = [...dom.container.querySelectorAll("button")].find((button) => button.textContent === "All Automations");
   assert.ok(all);
   await dom.act(async () => { all.click(); });
   assert.equal(opened, 1);
@@ -103,7 +103,7 @@ test("Turn off posts the Folder-scoped act and refreshes; an emptied list says s
   };
   await dom.render(createElement(SpaceAutomationsPane, { ...props, automations: [running] }));
   const row = dom.container.querySelector(".folder-automation-row")!;
-  assert.deepEqual(buttonsIn(row), ["Turn off"], "Run now shows only while On");
+  assert.deepEqual(buttonsIn(row), ["Turn Off"], "Run now shows only while On");
   assert.match(row.textContent ?? "", /Running/);
   assert.match(row.textContent ?? "", /· Failed/);
   await dom.act(async () => { (row.querySelector("button") as HTMLButtonElement).click(); });

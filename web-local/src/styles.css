@@ -205,6 +205,12 @@ textarea,
   padding-top: var(--desktop-titlebar-height);
 }
 
+/* The desktop shell is exactly one window tall (minimum 1100x760), so the
+   document itself must never scroll; only panes inside it do. */
+body:has(> #root > .desktop-chrome-shell) {
+  overflow: hidden;
+}
+
 .desktop-titlebar {
   position: fixed;
   z-index: 10;
@@ -7778,20 +7784,9 @@ textarea,
   padding-inline: 8px 3px;
 }
 
-.surface-tabs.tab-count-compact .surface-tab-close,
-.surface-tabs.tab-count-dense .surface-tab-close {
-  width: 20px;
-  margin-right: 2px;
-}
-
 .surface-tabs.tab-count-dense .surface-tab-main {
   gap: 5px;
   padding-inline: 7px 3px;
-}
-
-.surface-tabs.tab-count-compact .surface-tab-icon,
-.surface-tabs.tab-count-dense .surface-tab-icon {
-  display: none;
 }
 
 .surface-tab-chat-status {
@@ -7943,10 +7938,64 @@ textarea,
     transform 0.16s var(--work-fold-ease-smooth);
 }
 
-.surface-tab-new-chat-trigger {
-  width: 48px;
-  grid-template-columns: 20px 14px;
-  gap: 2px;
+/* One control at rest; hover and focus show its two halves (2026-09-25). */
+.surface-tab-new-chat {
+  display: grid;
+  grid-template-columns: 30px 18px;
+  align-items: stretch;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition:
+    border-color 0.16s var(--work-fold-ease-smooth),
+    box-shadow 0.16s var(--work-fold-ease-smooth);
+}
+
+.surface-tab-new-chat > .surface-tab-action {
+  width: auto;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px 0 0 7px;
+  box-shadow: none;
+  transform: none;
+}
+
+.surface-tab-new-chat-main {
+  padding: 0;
+}
+
+.surface-tab-new-chat > .surface-tab-new-chat-trigger {
+  border-radius: 0 7px 7px 0;
+}
+
+.surface-tab-new-chat:hover,
+.surface-tab-new-chat:focus-within {
+  border-color: var(--space-selection-border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.surface-tab-new-chat:hover > .surface-tab-new-chat-trigger,
+.surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
+}
+
+.surface-tab-new-chat > .surface-tab-action:hover,
+.surface-tab-new-chat > .surface-tab-action:focus-visible {
+  border-color: transparent;
+  background: var(--space-selection-surface, rgba(72, 106, 179, 0.1));
+  box-shadow: none;
+  transform: none;
+}
+
+.surface-tab-new-chat:hover > .surface-tab-new-chat-trigger:hover,
+.surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger:focus-visible {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
+}
+
+.surface-tab-new-chat > .surface-tab-action:active {
+  transform: none;
+  background: var(--space-selection-border);
 }
 
 .surface-tab-space-menu-anchor {
@@ -11131,10 +11180,9 @@ textarea,
 }
 
 .composer-capability-bar {
-  position: absolute;
-  left: 10px;
-  right: 60px;
-  bottom: 8px;
+  /* In flow below the text (2026-09-25): a long draft can no longer scroll under this row. */
+  position: static;
+  padding: 0 60px 8px 10px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -11436,7 +11484,7 @@ textarea,
   resize: none;
   border: 0;
   border-radius: 8px;
-  padding: 15px 58px 42px 15px;
+  padding: 15px 58px 12px 15px;
   outline: 0;
   line-height: var(--work-fold-composer-line-height);
   overflow-y: hidden;
@@ -18127,4 +18175,51 @@ textarea,
   font-size: 11px;
   padding: 1px 6px;
   white-space: nowrap;
+}
+
+/* Settings → Automations → Limits stays on the page but folded by default (2026-09-25). */
+.settings-limits > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-limits > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-limits > summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease-out;
+  opacity: 0.7;
+}
+
+.settings-limits[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.settings-limits > summary h3 {
+  margin: 0;
+}
+
+/* The split new-chat control keeps its own hover look in the dark theme too. */
+.app-shell[data-theme="dark"] .surface-tab-new-chat > .surface-tab-action:hover,
+.app-shell[data-theme="dark"] .surface-tab-new-chat > .surface-tab-action:focus-visible {
+  border-color: transparent;
+  background: var(--space-selection-surface, rgba(255, 255, 255, 0.08));
+  box-shadow: none;
+  transform: none;
+}
+
+.app-shell[data-theme="dark"] .surface-tab-new-chat:hover > .surface-tab-new-chat-trigger,
+.app-shell[data-theme="dark"] .surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
 }

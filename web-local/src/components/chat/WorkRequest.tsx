@@ -45,7 +45,7 @@ export function WorkRequest({ work, error, busy, act, refresh, onOpenFile = open
       </details> : null}
       {work.result ? <div className="work-result">
         {showResultSummary ? <p className="work-result-summary">{work.result.summary}</p> : null}
-        {showResultFiles && work.result.files.length ? <ul className="work-result-files" aria-label="Result files">{work.result.files.map((file) => <li key={`${file.spaceId}:${file.path}`}>
+        {showResultFiles && work.result.files.length ? <ul className="work-result-files" aria-label="Result Files">{work.result.files.map((file) => <li key={`${file.spaceId}:${file.path}`}>
           <button type="button" className="work-file-button" onClick={() => { setFileError(null); void Promise.resolve().then(() => onOpenFile(file.spaceId, file.path)).catch((caught) => setFileError(caught instanceof Error ? caught.message : "Could not open this file.")); }} title={`${file.spaceName} · ${file.path}`}>
             <span>{file.path.split("/").at(-1)}</span><small>{file.spaceName} · Open file</small>
           </button>

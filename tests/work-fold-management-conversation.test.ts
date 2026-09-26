@@ -249,7 +249,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /Space apps come up able to work/);
     assert.match(skillContent, /grant each declared folder permission over the whole Space/);
     assert.match(skillContent, /bind a Check-result slot when the Space has exactly one Check/);
-    assert.match(skillContent, /still need the person in the Apps tab/);
+    assert.match(skillContent, /still need the person in Settings → Apps/);
     assert.match(skillContent, /apps invoke --space <id> --app <id> --tool <name> --input <json>/);
     assert.match(skillContent, /leave a copy in Recently deleted first/);
     assert.match(skillContent, /trash restore --entry <id>/);

@@ -716,7 +716,7 @@
 .professional-assistant .assistant-scope-control {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 24px;
+  gap: 10px;
   min-width: 0;
   margin: 0;
   padding: 0 0 22px;
@@ -730,18 +730,44 @@
   font-weight: 500;
 }
 
+/* Two large buttons, not two small circles (2026-09-25). */
 .professional-assistant .assistant-scope-control label {
+  position: relative;
+  flex: 1 1 200px;
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-  max-width: 100%;
+  min-height: 56px;
+  padding: 12px 16px;
+  border: 1.5px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
   cursor: pointer;
 }
 
+.professional-assistant .assistant-scope-control label:hover {
+  background: var(--ui-surface-subtle);
+}
+
+.professional-assistant .assistant-scope-control label.active {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+
+.professional-assistant .assistant-scope-control label:focus-within {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
 .professional-assistant .assistant-scope-control input {
-  margin: 3px 0 0;
-  accent-color: var(--ui-accent);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .professional-assistant .assistant-scope-control span {
@@ -749,7 +775,7 @@
   gap: 3px;
   min-width: 0;
   color: var(--ui-text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -5513,3 +5539,386 @@
 .folder-automation-actions:empty { display: none; }
 .folder-automations-empty { margin: 0; color: var(--ui-text-muted); font-size: 13px; line-height: 1.5; }
 .folder-automations-footer { display: flex; }
+
+/* Skills & Extensions as a popup (2026-09-25): the pane keeps its own scroll inside a Settings-sized dialog. */
+.assistant-tools-modal {
+  position: relative;
+  width: min(1080px, calc(100vw - 48px));
+  height: min(920px, calc(100vh - 48px));
+  display: grid;
+  overflow: hidden;
+  color: var(--ui-text);
+  background: var(--ui-canvas);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-xl);
+  box-shadow: var(--ui-shadow-lg);
+}
+
+.assistant-tools-modal > .space-pane-content {
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  padding: 24px 28px 28px;
+}
+
+/* The close control sits in the window corner, above the title row. */
+.assistant-tools-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+}
+
+.assistant-tools-modal .assistant-tools-header {
+  padding-right: 52px;
+}
+
+/* Installed view (2026-09-25): included tools first, then the two homes side by side. */
+.capabilities-included {
+  display: grid;
+  gap: 10px;
+}
+
+.capabilities-included-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* The whole tile is the control (2026-09-25). */
+.capabilities-included-tile {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-height: 124px;
+  padding: 14px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
+}
+
+.capabilities-included-tile:hover {
+  background: var(--ui-surface-subtle);
+  border-color: var(--ui-border-strong);
+}
+
+.capabilities-included-tile:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+.capabilities-included-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--ui-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.capabilities-included-name strong {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.capabilities-included-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ui-text-muted);
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+.capabilities-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ui-text-subtle);
+}
+
+.capabilities-included-tile.tone-enabled .capabilities-status-dot {
+  background: var(--ui-success);
+}
+
+.capabilities-included-tile.tone-attention .capabilities-status-dot {
+  background: var(--ui-attention);
+}
+
+.capabilities-included-tile.tone-error .capabilities-status-dot {
+  background: var(--ui-danger);
+}
+
+.capabilities-included-setup {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  align-self: flex-start;
+  margin-top: auto;
+  color: var(--ui-accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.capabilities-included-tile:hover .capabilities-included-setup {
+  text-decoration: underline;
+}
+
+.capabilities-scope-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+button.capabilities-resource-card {
+  width: 100%;
+  align-items: center;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.capabilities-resource-card:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
+}
+
+.capabilities-resource-detail {
+  display: block;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capabilities-resource-title > .capabilities-resource-state {
+  color: var(--ui-text-muted);
+  background: transparent;
+  border: 1px dashed var(--ui-border-strong);
+}
+
+.capabilities-resource-title > .capabilities-resource-state.error {
+  color: var(--ui-danger);
+  border-color: var(--ui-danger);
+}
+
+.capabilities-resource-chevron {
+  flex: 0 0 auto;
+  color: var(--ui-text-subtle);
+}
+
+/* Review dialog (2026-09-25): what matters first, the developer facts folded away. */
+.capability-review-dialog .capability-dialog-body {
+  display: grid;
+  gap: 24px;
+  padding: 22px;
+}
+
+.capability-review-byline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 4px 0 0;
+  color: var(--ui-text-muted);
+  font-size: 13px;
+}
+
+.capability-review-byline > span + span::before,
+.capability-review-byline > span + a::before {
+  content: "·";
+  margin-right: 10px;
+  color: var(--ui-text-subtle);
+}
+
+.capability-review-description {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.capability-review-inside {
+  display: grid;
+  gap: 10px;
+}
+
+.capability-review-group {
+  display: grid;
+  gap: 6px;
+}
+
+.capability-review-group-label {
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.capability-review-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.capability-review-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 6px;
+  color: var(--ui-text);
+  background: var(--ui-surface-subtle);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+@media (max-width: 900px) {
+  .capabilities-included-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .capabilities-included-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .capabilities-scope-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Settings → AI Models: a searchable model list with vendor headings (2026-09-25). */
+.model-catalog {
+  display: grid;
+  gap: 8px;
+}
+
+.model-catalog-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-text-subtle);
+  background: var(--ui-surface);
+}
+
+.model-catalog-search:focus-within {
+  border-color: var(--ui-accent);
+}
+
+.model-catalog-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+}
+
+.model-catalog-list {
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+}
+
+.model-catalog-vendor {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px 4px;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface);
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.model-catalog-option {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-catalog-option:hover:not(:disabled) {
+  background: var(--ui-surface-subtle);
+}
+
+.model-catalog-option:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
+}
+
+.model-catalog-option.selected {
+  background: var(--ui-accent-soft);
+  font-weight: 600;
+}
+
+.model-catalog-name {
+  min-width: 0;
+}
+
+.model-catalog-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-subtle);
+  font-size: 11.5px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-catalog-empty {
+  padding: 12px;
+  color: var(--ui-text-muted);
+  font-size: 13px;
+}
+
+.capabilities-included-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--ui-text);
+  background: var(--ui-surface-subtle);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+}

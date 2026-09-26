@@ -110,7 +110,7 @@ test("turning an automation back on acts on the click and leaves a receipt, with
     createElement(ConfirmDialogHost, null)));
 
   const button = (label: string) => Array.from(document.querySelectorAll("button")).find((item) => item.textContent === label);
-  await dom.act(() => button("Review access")!.click());
+  await dom.act(() => button("Review Access")!.click());
   await dom.waitFor(() => Boolean(button("Enable")));
   await dom.act(() => button("Enable")!.click());
   await dom.waitFor(() => writes.length > 0);

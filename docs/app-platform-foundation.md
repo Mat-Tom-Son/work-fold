@@ -103,7 +103,7 @@ The complete definitions and journey tests live in
    destinations, whole-Space directory access, notifications, and automations
    ([Receipts, not gates](receipts-not-gates.md), F21). Connections require setup;
    individual-file access requires a chosen file. The person can revoke or
-   narrow these defaults in Apps.
+   narrow these defaults in Settings → Apps.
 5. **Immutable bytes and live policy remain separate.** The App Release digest
    covers its closed executable and evidence graph. Review, signature, scan,
    registry, delisting, block-launch, and incident records are append-only
@@ -314,8 +314,8 @@ jobs.
 
 ### Implemented local product boundary
 
-The local milestone above is exposed through the Space-owned Apps tab and the Space-bound
-App Studio tab. It includes language-neutral declaration and artifact vectors
+The local milestone above is exposed through Settings → Apps, which lists apps by
+Folder, and the Space-bound App Studio tab. It includes language-neutral declaration and artifact vectors
 checked by two code-independent executables, strict opaque identities and
 seven-domain authority, an explicit registry of
 Project/Development-Instance/installation/data records, effect-time host

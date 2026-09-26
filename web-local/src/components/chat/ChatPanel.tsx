@@ -1156,7 +1156,7 @@ export function ChatPanel({
     setMessages((current) => [...current, localUserMessage]);
     scrollMessagesToBottom("auto");
     if (fixtureMode) {
-      const fixtureConversation = conversation ?? { id: "fixture-chat", title: "New chat", updatedAt: new Date(now).toISOString() };
+      const fixtureConversation = conversation ?? { id: "fixture-chat", title: "New Chat", updatedAt: new Date(now).toISOString() };
       setConversation(fixtureConversation);
       onConversationActivated?.(fixtureConversation);
       commitConversations((current) => current.some((item) => item.id === fixtureConversation.id) ? current : [fixtureConversation, ...current]);
@@ -1711,7 +1711,7 @@ export function ChatPanel({
             <small>{lifecycleView === "archived" ? "Restore it before continuing the conversation." : "Resume it now to continue before its scheduled return."}</small>
           </span>
           <button type="button" onClick={() => void onResumeConversation?.()}>
-            {lifecycleView === "archived" ? "Restore" : "Resume now"}
+            {lifecycleView === "archived" ? "Restore" : "Resume Now"}
           </button>
         </div>
       ) : null}
@@ -1727,7 +1727,7 @@ export function ChatPanel({
           if (draft.trim() && !running && !requestBusy) void sendMessage();
         }}
       >
-        {dragActive ? <div className="composer-drop-affordance" aria-hidden="true">Attach to chat</div> : null}
+        {dragActive ? <div className="composer-drop-affordance" aria-hidden="true">Attach to Chat</div> : null}
         {suggestedNextPrompt ? (
           <div className="suggested-prompt-row">
             <button
@@ -1930,7 +1930,7 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
           <strong>Couldn’t add {title}</strong>
           <p>{proposal.error ?? "The app package could not be added."}</p>
           <div className="restricted-app-task-actions">
-            <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onRetry}>Try again</button>
+            <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onRetry}>Try Again</button>
             <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onDismiss}>Dismiss</button>
           </div>
         </div>
@@ -1950,7 +1950,7 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
         <strong>Added {title} to this folder.</strong>
         {still.length ? <p>Still needs you: {still.join(" · ")}.</p> : <p>Every declared destination, folder, notification, and automation is on. Turn any of them off in Apps.</p>}
         <div className="restricted-app-task-actions">
-          {onOpen ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onOpen}>Open app</button> : null}
+          {onOpen ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onOpen}>Open App</button> : null}
           <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onDismiss}>Close</button>
         </div>
       </div>

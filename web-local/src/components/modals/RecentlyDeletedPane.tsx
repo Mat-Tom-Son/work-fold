@@ -53,8 +53,8 @@ const kindLabels: Record<RecentlyDeletedKind, string> = {
   file: "File",
   folder: "Folder",
   space: "Folder",
-  "app-storage": "App data",
-  "app-retained": "App data",
+  "app-storage": "App Data",
+  "app-retained": "App Data",
 };
 
 const uncoveredLabels: Record<"too_large" | "unreadable" | "symbolic_link" | "excluded", string> = {

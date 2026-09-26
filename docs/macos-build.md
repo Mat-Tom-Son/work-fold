@@ -129,7 +129,7 @@ WORKFOLD_DESKTOP_STATE_DIR=/tmp/work-fold-macos-smoke \
   out/mac-rc/mac-arm64/work-fold.app/Contents/MacOS/work-fold
 ```
 
-That app-only path exists after `npm run desktop:rc:mac`; the complete distribution candidate remains at `out/builder/mac-arm64/work-fold.app`. The ad hoc executable is `out/builder/mac-arm64/work-fold Local Smoke.app/Contents/MacOS/work-fold Local Smoke`. Exercise onboarding, Space creation/registration, Files, Chats, History, Add, the Space-owned Library and Assistant tools tabs, Settings, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
+That app-only path exists after `npm run desktop:rc:mac`; the complete distribution candidate remains at `out/builder/mac-arm64/work-fold.app`. The ad hoc executable is `out/builder/mac-arm64/work-fold Local Smoke.app/Contents/MacOS/work-fold Local Smoke`. Exercise onboarding, Space creation/registration, Files, Chats, History, the Skills & Extensions popup, Settings including Settings → Apps, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
 
 The packaged CLI can be tested directly:
 

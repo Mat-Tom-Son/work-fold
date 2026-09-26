@@ -31,7 +31,7 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
 - Checks run only when a person or authenticated agent action requests a run.
   Opening the Checks work tab refreshes recorded status and re-verifies saved
   evidence, but does not run a sensor. Automatic runs require a separately enabled routing (schedule, folder-change, or settled-event trigger). Opening a tab never enables one.
-- Checks do not occupy the primary rail or the Add menu. The management
+- Checks do not occupy the primary rail, and the rail's Add button opens only Skills & Extensions. The management
   conversation and installed CLI remain agent-facing surfaces. In the desktop,
   a conditional summary at the Files edge opens one reusable Space-owned Checks
   work tab. The command palette also opens Checks before configuration, and Tell the fold what to check starts authoring; a manual proposal form is secondary. Unconfigured Spaces have no Files badge or marker.

@@ -23,6 +23,11 @@ interface Request {
   body: Record<string, unknown> | null;
   finish: (body: unknown, status?: number) => void;
 }
+/** The model the list currently shows as chosen. */
+function selectedModel(dom: { container: HTMLElement }): string | undefined {
+  return dom.container.querySelector('#assistant-model [role="option"][aria-selected="true"]')?.getAttribute("data-model-id") ?? undefined;
+}
+
 async function setup(t: TestContext) {
   const dom = await createDomHarness();
   const previous = globalThis.fetch;
@@ -50,8 +55,13 @@ async function setup(t: TestContext) {
   };
   const finish = async (request: Request, body: unknown, responseStatus = 200) => { await dom.act(async () => { request.finish(body, responseStatus); }); };
   const select = async (selector: string, value: string) => { await dom.act(() => {
-    const field = dom.container.querySelector<HTMLSelectElement>(selector)!;
-    field.value = value;
+    const field = dom.container.querySelector<HTMLElement>(selector)!;
+    if (field.getAttribute("role") === "listbox") {
+      // The model list (2026-09-25): options are buttons that carry their model id.
+      field.querySelector<HTMLButtonElement>(`[role="option"][data-model-id="${value}"]`)!.click();
+      return;
+    }
+    (field as HTMLSelectElement).value = value;
     field.dispatchEvent(new Event("change", { bubbles: true }));
   }); };
   const type = async (selector: string, value: string) => { await dom.act(() => {
@@ -83,7 +93,7 @@ test("obsolete scope reads and Strict Mode replay cannot overwrite the current t
   assert.ok(spaceRead.init.signal?.aborted);
   await ui.finish(foldRead, modelResponse({ status: { ...status, model: "model-b" }, instructions: null }));
   await ui.finish(spaceRead, { error: "Space id is required." }, 400);
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "model-b");
+  assert.equal(selectedModel(ui.dom), "model-b");
   assert.equal(ui.dom.container.querySelector("textarea"), null);
   assert.doesNotMatch(ui.dom.container.textContent!, /Space id is required|Space not found/);
   assert.ok(ui.requests.every((request) => !request.path.endsWith("scope=space")));
@@ -101,15 +111,17 @@ test("model writes submit once, remain bound to the original Space and cannot fi
   assert.equal(ui.requests.filter((item) => item.path === "/api/agent/configure").length, 1);
   assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "openrouter", model: "model-b" });
   assert.equal(ui.dom.container.querySelector<HTMLSelectElement>('select[aria-label="Provider"]')?.disabled, true);
+  // The work-fold agent's scope is read alongside so switching scopes never reloads; count only this Space's reads.
+  const spaceReads = () => ui.requests.filter((item) => /scope=space/.test(item.path));
   await ui.render(space("b"));
-  assert.equal(ui.requests.length, 2, "replacement read waits for the accepted write to settle");
+  assert.equal(spaceReads().length, 1, "replacement read waits for the accepted write to settle");
   await ui.finish(write, { status: { ...status, model: "model-b" } });
-  await ui.dom.waitFor(() => ui.requests.length === 3);
-  assert.match(ui.requests[2]!.path, /spaceId=b/);
-  await ui.finish(ui.requests[2]!, modelResponse({ instructions: "B instructions" }));
+  await ui.dom.waitFor(() => spaceReads().length === 2);
+  assert.match(spaceReads()[1]!.path, /spaceId=b/);
+  await ui.finish(spaceReads()[1]!, modelResponse({ instructions: "B instructions" }));
   assert.deepEqual(ui.callbacks, [], "old Space cannot replace the current app status");
   assert.deepEqual(ui.changes, []);
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "model-a");
+  assert.equal(selectedModel(ui.dom), "model-a");
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "B instructions");
   assert.doesNotMatch(ui.dom.container.textContent!, /Model saved/);
 });
@@ -125,15 +137,15 @@ test("refresh is provider-owned and preserves edits made while the same provider
   await ui.type("#assistant-api-key", "synthetic-secret-for-anthropic");
   await ui.finish(refresh, { ...modelResponse(), refresh: { modelCount: 2 } });
   assert.equal(ui.dom.container.querySelector<HTMLSelectElement>('select[aria-label="Provider"]')?.value, "anthropic");
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "claude");
+  assert.equal(selectedModel(ui.dom), "claude");
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "synthetic-secret-for-anthropic");
   assert.doesNotMatch(ui.dom.container.textContent!, /models refreshed/);
   await ui.select('select[aria-label="Provider"]', "openrouter");
   await ui.dom.act(() => ui.button("Refresh").click());
   await ui.select("#assistant-model", "model-b");
   await ui.finish(ui.requests.at(-1)!, { ...modelResponse(), refresh: { modelCount: 2 } });
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "model-b");
-  assert.equal(ui.button("Save model").disabled, false);
+  assert.equal(selectedModel(ui.dom), "model-b");
+  assert.equal(ui.button("Save Model").disabled, false);
   assert.deepEqual(ui.changes, [], "catalog refresh does not save a model");
 });
 
@@ -148,7 +160,7 @@ test("instructions keep newer edits through an in-flight save and errors stay wi
   await ui.type("textarea", "Newer edit");
   await ui.finish(write, { instructions: "First edit" });
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Newer edit");
-  assert.equal(ui.button("Save instructions").disabled, false);
+  assert.equal(ui.button("Save Instructions").disabled, false);
   assert.doesNotMatch(ui.dom.container.querySelector('[aria-labelledby="assistant-instructions-heading"]')!.textContent!, /Instructions saved/);
   await ui.submit("instructions");
   await ui.finish(ui.requests.at(-1)!, { error: "An Assistant turn is still running." }, 409);
@@ -167,13 +179,13 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.finish(ui.requests[0]!, modelResponse());
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
   assert.match(ui.dom.container.textContent!, /API key saved on this computer/);
-  await ui.dom.act(() => ui.button("Remove API key").click());
+  await ui.dom.act(() => ui.button("Remove API Key").click());
   await ui.finish(ui.requests.at(-1)!, modelResponse({ models: models.map((item) => ({ ...item, authConfigured: false })), status: { ...status, configured: false } }));
   await ui.type("#assistant-api-key", "do-not-send-to-another-provider");
   await ui.select('select[aria-label="Provider"]', "anthropic");
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "");
   await ui.type("#assistant-api-key", "synthetic-new-provider-key");
-  assert.equal(ui.button("Save model").disabled, true, "model action cannot silently submit a connection key");
+  assert.equal(ui.button("Save Model").disabled, true, "model action cannot silently submit a connection key");
   await ui.submit("connection", true);
   const write = ui.requests.at(-1)!;
   assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "anthropic", model: "claude", apiKey: "synthetic-new-provider-key" });
@@ -181,7 +193,7 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.finish(write, { status: { ...status, provider: "anthropic", model: "claude" } });
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
   assert.match(ui.dom.container.textContent!, /Connected and model saved/);
-  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Worker instructions"]);
+  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Worker Instructions"]);
 });
 
 
@@ -191,14 +203,14 @@ test("outside settings changes refresh clean forms without replacing unsaved dra
   await ui.finish(ui.requests[0]!, modelResponse());
   await ui.hint();
   await ui.finish(ui.requests.at(-1)!, modelResponse({ status: { ...status, model: "model-b" } }));
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "model-b");
+  assert.equal(selectedModel(ui.dom), "model-b");
   assert.doesNotMatch(ui.dom.container.textContent!, /Loading Assistant settings/);
   await ui.type("textarea", "Local unsaved instructions");
   await ui.hint();
   await ui.finish(ui.requests.at(-1)!, modelResponse({ status: { ...status, model: "model-b" }, instructions: "Changed using CLI" }));
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Local unsaved instructions");
-  assert.ok(ui.button("Reload saved settings"));
-  await ui.dom.act(() => ui.button("Reload saved settings").click());
+  assert.ok(ui.button("Reload Saved Settings"));
+  await ui.dom.act(() => ui.button("Reload Saved Settings").click());
   await ui.finish(ui.requests.at(-1)!, modelResponse({ status: { ...status, model: "model-b" }, instructions: "Changed using CLI" }));
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Changed using CLI");
 });
@@ -218,9 +230,9 @@ test("an outside read begun before a local save cannot replace its result or lat
   await ui.type("textarea", "Even newer local instructions");
   await ui.finish(write, { instructions: "Instructions being saved" });
   await ui.finish(outsideRead, modelResponse({ status: { ...status, model: "model-b" }, instructions: "Older outside value" }));
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "model-a");
+  assert.equal(selectedModel(ui.dom), "model-a");
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Even newer local instructions");
-  assert.equal(ui.button("Save instructions").disabled, false);
+  assert.equal(ui.button("Save Instructions").disabled, false);
   assert.doesNotMatch(ui.dom.container.textContent!, /Saved settings have changed/);
 });
 
@@ -271,7 +283,7 @@ test("scope round trips preserve model and instruction drafts, omit credentials 
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "");
   await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="management"]')!.click());
   await ui.finish(ui.requests.at(-1)!, modelResponse({ instructions: null }));
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "model-b");
+  assert.equal(selectedModel(ui.dom), "model-b");
   await ui.render(null);
   await ui.render(space("a"));
   await ui.finish(ui.requests.at(-1)!, modelResponse());
@@ -288,12 +300,14 @@ test("closing and reopening Settings waits for an accepted write before loading 
   const accepted = ui.requests.at(-1)!;
   await ui.dom.render(null);
   await ui.render(space("a"));
-  assert.equal(ui.requests.length, 2, "the new dialog still owns the previous accepted operation's completion");
+  // The work-fold agent's scope is read ahead once a form has loaded; only this Space's reads count here.
+  const own = () => ui.requests.filter((item) => !/scope=management/.test(item.path));
+  assert.equal(own().length, 2, "the new dialog still owns the previous accepted operation's completion");
   await ui.finish(accepted, { status: { ...status, model: "model-b" } });
-  await ui.dom.waitFor(() => ui.requests.length === 3);
-  await ui.finish(ui.requests.at(-1)!, modelResponse({ status: { ...status, model: "model-b" } }));
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "model-b");
-  assert.equal(ui.button("Save model").disabled, true);
+  await ui.dom.waitFor(() => own().length === 3);
+  await ui.finish(own().at(-1)!, modelResponse({ status: { ...status, model: "model-b" } }));
+  assert.equal(selectedModel(ui.dom), "model-b");
+  assert.equal(ui.button("Save Model").disabled, true);
 });
 
 test("a control hint during initial loading invalidates that read instead of showing a stale default", async (t) => {
@@ -306,7 +320,7 @@ test("a control hint during initial loading invalidates that read instead of sho
   assert.equal(obsolete.init.signal?.aborted, true);
   await ui.finish(fresh, modelResponse({ status: { ...status, model: "model-b" } }));
   await ui.finish(obsolete, modelResponse());
-  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#assistant-model")?.value, "model-b");
+  assert.equal(selectedModel(ui.dom), "model-b");
 });
 
 
@@ -322,4 +336,63 @@ test("delayed model focus accepts the parent modal's owned opening focus", async
   assert.equal(document.activeElement?.id, "modal-close");
   await ui.finish(ui.requests.at(-1)!, modelResponse());
   assert.equal(document.activeElement?.id, "assistant-model");
+});
+
+async function returnToCachedSpace(ui: Awaited<ReturnType<typeof setup>>): Promise<Request> {
+  await ui.render(space("a"));
+  await ui.finish(ui.requests[0]!, modelResponse());
+  const prefetched = ui.requests.at(-1)!;
+  assert.match(prefetched.path, /scope=management$/);
+  await ui.finish(prefetched, modelResponse({ instructions: null }));
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="management"]')!.click());
+  await ui.finish(ui.requests.at(-1)!, modelResponse({ instructions: null }));
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="space"]')!.click());
+  assert.equal(selectedModel(ui.dom), "model-a", "the cached form remains usable while its quiet read is pending");
+  assert.doesNotMatch(ui.dom.container.textContent!, /Loading Assistant settings/);
+  const quietRead = ui.requests.at(-1)!;
+  assert.match(quietRead.path, /scope=space&spaceId=a/);
+  return quietRead;
+}
+
+test("a cached scope's quiet read cannot replace a model saved after that read began", async (t) => {
+  const ui = await setup(t);
+  const quietRead = await returnToCachedSpace(ui);
+  await ui.select("#assistant-model", "model-b");
+  await ui.submit("model");
+  await ui.finish(ui.requests.at(-1)!, { status: { ...status, model: "model-b" } });
+  await ui.finish(quietRead, modelResponse());
+  assert.equal(selectedModel(ui.dom), "model-b");
+  assert.equal(ui.button("Save Model").disabled, true);
+  assert.match(ui.dom.container.textContent!, /Model saved/);
+
+  // A later scope revisit must also use the accepted save, not re-cache the
+  // stale quiet response as the saved model.
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="management"]')!.click());
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="space"]')!.click());
+  assert.equal(selectedModel(ui.dom), "model-b");
+});
+
+test("a cached scope's obsolete load error cannot hide successfully saved instructions", async (t) => {
+  const ui = await setup(t);
+  const quietRead = await returnToCachedSpace(ui);
+  await ui.type("textarea", "Saved after the quiet read started");
+  await ui.submit("instructions");
+  await ui.finish(ui.requests.at(-1)!, { instructions: "Saved after the quiet read started" });
+  await ui.finish(quietRead, { error: "An obsolete read failed" }, 500);
+  assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Saved after the quiet read started");
+  assert.equal(ui.button("Save Instructions").disabled, true);
+  assert.match(ui.dom.container.textContent!, /Instructions saved/);
+  assert.doesNotMatch(ui.dom.container.textContent!, /An obsolete read failed/);
+});
+
+test("a newer control-event refresh supersedes a cached scope's older quiet read", async (t) => {
+  const ui = await setup(t);
+  const quietRead = await returnToCachedSpace(ui);
+  await ui.hint();
+  const outsideRead = ui.requests.at(-1)!;
+  assert.notEqual(outsideRead, quietRead);
+  await ui.finish(outsideRead, modelResponse({ status: { ...status, model: "model-b" }, instructions: "Updated externally" }));
+  await ui.finish(quietRead, modelResponse());
+  assert.equal(selectedModel(ui.dom), "model-b");
+  assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Updated externally");
 });
