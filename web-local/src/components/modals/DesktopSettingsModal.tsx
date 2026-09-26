@@ -36,6 +36,7 @@ import type { ApplicationAppearanceController } from "../../hooks/useApplication
 import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
 import { FoldLimitsPane } from "./FoldLimitsPane";
 import { SettingsAppsPane, type RestrictedAppsState } from "./SettingsAppsPane";
+import { IconCredits } from "./IconCredits";
 import type { RestrictedAppInstalled } from "../../types";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
@@ -57,7 +58,7 @@ export function settingsTabForPage(page: SettingsPage, section?: FoldSettingsSec
   return page;
 }
 
-export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
   onCustomizeSpace?: (spaceId: string) => void;
   space: SpaceSummary | null;
@@ -66,6 +67,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
   restrictedApps?: RestrictedAppsState | null;
   onChangeApp?: (app: RestrictedAppInstalled) => void;
   onOpenAppBuildChat?: (spaceId: string, conversationId: string) => void;
+  onOpenAppResultFile?: (spaceId: string, path: string) => void;
   onOpenAppStudio?: (spaceId: string, runtimeInstanceId?: string) => void;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
@@ -217,7 +219,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
             ) : null}
             {page === "apps" ? (
               <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
-                <SettingsAppsPane spaces={spaces} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenAppStudio={onOpenAppStudio} />
+                <SettingsAppsPane spaces={spaces} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (
@@ -230,6 +232,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
                 <section className="settings-section">
                   <WorkFoldLockup className="about-work-fold-brand" />
                   <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workFoldDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
+                  <IconCredits />
                 </section>
                 <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
                   <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>

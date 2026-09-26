@@ -73,9 +73,9 @@ const fixtureRequested = new URLSearchParams(window.location.search).get("fixtur
 const supportedSpaceIconNames = new Set(spaceIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])]));
 
 interface DroppedUploadFile { file: File; relativePath: string }
-type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-space" | "app-change-chat" | "open-app-build-chat" | "open-app-studio";
+type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-space" | "app-change-chat" | "open-app-build-chat" | "open-app-result-file" | "open-app-studio";
 /** A cross-cutting request handled by the open Folder view; app navigation from Settings carries the app or Chat it names. */
-type DesktopAction = { id: number; command: DesktopActionCommand | "open-checks"; spaceId?: string; app?: RestrictedAppInstalled; conversationId?: string; runtimeInstanceId?: string };
+type DesktopAction = { id: number; command: DesktopActionCommand | "open-checks"; spaceId?: string; app?: RestrictedAppInstalled; conversationId?: string; runtimeInstanceId?: string; path?: string };
 interface PendingDelete {
   spaceId: string;
   path: string;
@@ -120,7 +120,7 @@ export function App() {
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const handleRestrictedAppError = useCallback((caught: unknown) => setError(errorText(caught)), []);
   // Installed apps live above the Folder view so Settings → Apps and the rail read one list.
-  const restrictedAppsState = useRestrictedApps({ activeSpaceId, spaces: boot?.spaces, fixtureMode: Boolean(fixture), onError: handleRestrictedAppError });
+  const restrictedAppsState = useRestrictedApps({ activeSpaceId: boot ? activeSpaceId : "", spaces: boot?.spaces, fixtureMode: Boolean(fixture), onError: handleRestrictedAppError });
   const showDesktopTitleBar = window.workFoldDesktop?.app.platform === "win32";
 
   const openKeyboardShortcuts = useCallback(() => {
@@ -306,7 +306,7 @@ export function App() {
     {activeSpace ? <SpaceAppearanceProvider palette={appearance.preferences.palette}><SpaceView space={activeSpace} spaces={boot.spaces} restrictedAppsStore={restrictedAppsState} agent={boot.agent} assistantConfigurationRevision={assistantConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /></SpaceAppearanceProvider> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
-    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={activeSpace} spaces={boot.spaces} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", spaceId: app.sourceSpaceId, app }); }} onOpenAppBuildChat={(spaceId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", spaceId, conversationId }); }} onOpenAppStudio={(spaceId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", spaceId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
+    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={activeSpace} spaces={boot.spaces} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", spaceId: app.sourceSpaceId, app }); }} onOpenAppBuildChat={(spaceId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", spaceId, conversationId }); }} onOpenAppResultFile={(spaceId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", spaceId, path }); }} onOpenAppStudio={(spaceId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", spaceId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
     {shortcutsOpen ? <KeyboardShortcutsModal onClose={closeKeyboardShortcuts} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
@@ -571,6 +571,11 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") setAssistantToolsView("installed");
     else if (desktopAction.command === "app-change-chat" && desktopAction.app) void startAppChangeChat(desktopAction.app).catch((caught) => onError(errorText(caught)));
     else if (desktopAction.command === "open-app-build-chat" && desktopAction.spaceId && desktopAction.conversationId) void openAppBuildChat(desktopAction.spaceId, desktopAction.conversationId).catch((caught) => onError(errorText(caught)));
+    else if (desktopAction.command === "open-app-result-file" && desktopAction.spaceId && desktopAction.path) {
+      const target = spaces.find((item) => item.id === desktopAction.spaceId);
+      if (target) tabs.openFileSurfaceTab(target, desktopAction.path);
+      else onError("The result's folder is unavailable.");
+    }
     else if (desktopAction.command === "open-app-studio" && desktopAction.spaceId) openAppStudio(desktopAction.spaceId, desktopAction.runtimeInstanceId);
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
     else if (desktopAction.command === "close-tab" && tabs.activeSurfaceTabId) tabs.closeSurfaceTab(tabs.activeSurfaceTabId);

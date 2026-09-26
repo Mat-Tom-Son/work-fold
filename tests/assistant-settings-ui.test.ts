@@ -337,3 +337,62 @@ test("delayed model focus accepts the parent modal's owned opening focus", async
   await ui.finish(ui.requests.at(-1)!, modelResponse());
   assert.equal(document.activeElement?.id, "assistant-model");
 });
+
+async function returnToCachedSpace(ui: Awaited<ReturnType<typeof setup>>): Promise<Request> {
+  await ui.render(space("a"));
+  await ui.finish(ui.requests[0]!, modelResponse());
+  const prefetched = ui.requests.at(-1)!;
+  assert.match(prefetched.path, /scope=management$/);
+  await ui.finish(prefetched, modelResponse({ instructions: null }));
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="management"]')!.click());
+  await ui.finish(ui.requests.at(-1)!, modelResponse({ instructions: null }));
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="space"]')!.click());
+  assert.equal(selectedModel(ui.dom), "model-a", "the cached form remains usable while its quiet read is pending");
+  assert.doesNotMatch(ui.dom.container.textContent!, /Loading Assistant settings/);
+  const quietRead = ui.requests.at(-1)!;
+  assert.match(quietRead.path, /scope=space&spaceId=a/);
+  return quietRead;
+}
+
+test("a cached scope's quiet read cannot replace a model saved after that read began", async (t) => {
+  const ui = await setup(t);
+  const quietRead = await returnToCachedSpace(ui);
+  await ui.select("#assistant-model", "model-b");
+  await ui.submit("model");
+  await ui.finish(ui.requests.at(-1)!, { status: { ...status, model: "model-b" } });
+  await ui.finish(quietRead, modelResponse());
+  assert.equal(selectedModel(ui.dom), "model-b");
+  assert.equal(ui.button("Save Model").disabled, true);
+  assert.match(ui.dom.container.textContent!, /Model saved/);
+
+  // A later scope revisit must also use the accepted save, not re-cache the
+  // stale quiet response as the saved model.
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="management"]')!.click());
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLInputElement>('input[value="space"]')!.click());
+  assert.equal(selectedModel(ui.dom), "model-b");
+});
+
+test("a cached scope's obsolete load error cannot hide successfully saved instructions", async (t) => {
+  const ui = await setup(t);
+  const quietRead = await returnToCachedSpace(ui);
+  await ui.type("textarea", "Saved after the quiet read started");
+  await ui.submit("instructions");
+  await ui.finish(ui.requests.at(-1)!, { instructions: "Saved after the quiet read started" });
+  await ui.finish(quietRead, { error: "An obsolete read failed" }, 500);
+  assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Saved after the quiet read started");
+  assert.equal(ui.button("Save Instructions").disabled, true);
+  assert.match(ui.dom.container.textContent!, /Instructions saved/);
+  assert.doesNotMatch(ui.dom.container.textContent!, /An obsolete read failed/);
+});
+
+test("a newer control-event refresh supersedes a cached scope's older quiet read", async (t) => {
+  const ui = await setup(t);
+  const quietRead = await returnToCachedSpace(ui);
+  await ui.hint();
+  const outsideRead = ui.requests.at(-1)!;
+  assert.notEqual(outsideRead, quietRead);
+  await ui.finish(outsideRead, modelResponse({ status: { ...status, model: "model-b" }, instructions: "Updated externally" }));
+  await ui.finish(quietRead, modelResponse());
+  assert.equal(selectedModel(ui.dom), "model-b");
+  assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Updated externally");
+});

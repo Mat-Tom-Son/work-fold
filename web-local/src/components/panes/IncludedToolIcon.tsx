@@ -1,9 +1,12 @@
 import type { IncludedToolId } from "../../../../src/shared/included-tools";
 
 /**
- * Icons for the five tools that ship with work-fold. Chrome, Computer Control,
- * Web and Documents are Arcticons (CC BY-SA 4.0, https://arcticons.com); the
- * Service Connections mark is the MCP logo from Boxicons (CC BY 4.0).
+ * @license Artwork: Arcticons Team and contributors, CC BY-SA 4.0
+ * (https://creativecommons.org/licenses/by-sa/4.0/); Boxicons MCP, CC BY 4.0
+ * (https://creativecommons.org/licenses/by/4.0/). Adapted for React/theme colors;
+ * Arcticons strokes widened and paths simplified, under CC BY-SA 4.0.
+ * Sources, modifications, and license notices: THIRD_PARTY_NOTICES.md.
+ * These artwork licenses are separate from work-fold's MIT-licensed code.
  */
 export function IncludedToolIcon({ id, size = 20 }: { id: IncludedToolId; size?: number }) {
   const line = { fill: "none", stroke: "currentColor", strokeWidth: 2.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };

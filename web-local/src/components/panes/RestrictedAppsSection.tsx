@@ -69,6 +69,7 @@ export function RestrictedAppsSection({
   fixtureMode = false,
   onChangeApp,
   onOpenBuildChat,
+  onOpenResultFile,
   onOpenAppStudio,
   onUpsertApp,
   onRemoveApp,
@@ -85,6 +86,7 @@ export function RestrictedAppsSection({
   presentation?: "section" | "page";
   onChangeApp?: (app: RestrictedAppInstalled) => Promise<void>;
   onOpenBuildChat?: (spaceId: string, conversationId: string) => Promise<void>;
+  onOpenResultFile?: (spaceId: string, path: string) => Promise<void>;
   onOpenAppStudio: (spaceId?: string, runtimeInstanceId?: string) => void;
   onUpsertApp: (app: RestrictedAppInstalled) => void;
   onRemoveApp: (featureInstallationId: string) => void;
@@ -211,7 +213,7 @@ export function RestrictedAppsSection({
 
       {sourceOpen ? <RestrictedAppSourceDialog sourcePath={sourcePath} busy={busy} onSourcePathChange={setSourcePath} onSubmit={inspect} onClose={() => { if (!busy) setSourceOpen(false); }} /> : null}
       {review ? <RestrictedAppReviewDialog review={review.value} sourcePath={review.sourcePath} updating={apps.some((app) => app.runtimeInstanceKind === "development" && app.manifest.id === review.value.manifest.id)} busy={busy} onInstall={() => void install()} onClose={() => { if (!busy) setReview(null); }} /> : null}
-      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenAppStudio={(runtimeInstanceId) => { setSelectedInstallationId(null); onOpenAppStudio(selectedApp.sourceSpaceId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedInstallationId(null); }} /> : null}
+      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenResultFile={onOpenResultFile} onOpenAppStudio={(runtimeInstanceId) => { setSelectedInstallationId(null); onOpenAppStudio(selectedApp.sourceSpaceId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedInstallationId(null); }} /> : null}
     </section>
   );
 }
@@ -356,13 +358,14 @@ function ReviewAuthorityGroup({ icon, title, summary, state, children }: { icon:
   </section>;
 }
 
-function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRemove, onOpenBuildChat, onOpenAppStudio, onError, onClose }: {
+function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRemove, onOpenBuildChat, onOpenResultFile = openWorkFile, onOpenAppStudio, onError, onClose }: {
   app: RestrictedAppInstalled;
   busy: boolean;
   fixtureMode: boolean;
   onAppChanged: (app: RestrictedAppInstalled) => void;
   onRemove: () => void;
   onOpenBuildChat?: (spaceId: string, conversationId: string) => Promise<void>;
+  onOpenResultFile?: (spaceId: string, path: string) => Promise<void>;
   onOpenAppStudio: (runtimeInstanceId?: string) => void;
   onError: (message: string | null) => void;
   onClose: () => void;
@@ -633,7 +636,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
       <div className="modal-title"><div><h2 id="restricted-app-details-title">{app.manifest.title}</h2><p>{app.runtimeInstanceKind === "development" ? "Local Preview" : "Feature in installed App"} · This folder · Restricted runtime</p></div><button className="minimal-icon-button" type="button" disabled={busy || Boolean(actionBusy)} onClick={onClose} aria-label="Close app details"><Dismiss20Regular /></button></div>
       <div className="capability-dialog-body">
         <p className="capability-details-summary">{app.manifest.description}</p>
-        {app.manifest.assistantActions?.length ? <RestrictedAppAssistantTasks key={`${app.featureInstallationId}:${app.digest}`} app={app} disabled={busy || Boolean(actionBusy) || fixtureMode} onOpenFile={async (spaceId, path) => { await openWorkFile(spaceId, path); onClose(); }} onOpenChat={onOpenBuildChat ? async (spaceId, conversationId) => { await onOpenBuildChat(spaceId, conversationId); onClose(); } : undefined} /> : null}
+        {app.manifest.assistantActions?.length ? <RestrictedAppAssistantTasks key={`${app.featureInstallationId}:${app.digest}`} app={app} disabled={busy || Boolean(actionBusy) || fixtureMode} onOpenFile={async (spaceId, path) => { await onOpenResultFile(spaceId, path); onClose(); }} onOpenChat={onOpenBuildChat ? async (spaceId, conversationId) => { await onOpenBuildChat(spaceId, conversationId); onClose(); } : undefined} /> : null}
         {/* `assistant.infer` needs no grant beyond installation, so its
             disclosure is after the fact and belongs here, under the app
             (docs/receipts-not-gates.md, F22). */}

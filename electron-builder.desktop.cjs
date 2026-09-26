@@ -44,7 +44,7 @@ module.exports = {
     output: outputDirectory,
     buildResources: "desktop/assets",
   },
-  files: ["package.json", "LICENSE", "dist/desktop/**/*", "resources/included-tools/**/*"],
+  files: ["package.json", "LICENSE", "THIRD_PARTY_NOTICES.md", "dist/desktop/**/*", "resources/included-tools/**/*"],
   extraFiles: [
     {
       from: "desktop/cli",

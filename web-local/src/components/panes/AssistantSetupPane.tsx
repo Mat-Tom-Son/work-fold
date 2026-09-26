@@ -200,6 +200,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
 
   useEffect(() => {
     const controller = new AbortController();
+    const revision = localRevision.current;
     // A scope that was shown before comes back at once from what it last
     // showed; the read below then refreshes it without a spinner.
     const cached = loadAttempt === 0 ? initialResultRef.current : undefined;
@@ -209,7 +210,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       // A new target may open while the previous target's accepted write is
       // finishing. Read after it settles, rather than displaying old auth.
       await waitForMutation();
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || revision !== localRevision.current || isMutating()) return;
       const result = fixtureMode ? {
         models: [
           { provider: "openrouter", providerName: "OpenRouter", id: "deepseek/deepseek-v4.1-flash", name: "DeepSeek: DeepSeek V4.1 Flash — Fast reasoning and general tasks", authConfigured: true, authSource: "stored" as const, authType: "api_key" as const, oauthSupported: false },
@@ -219,7 +220,9 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         status: { ...status, configured: true, provider: "openrouter", model: "deepseek/deepseek-v4.1-flash" },
         instructions: scope === "space" ? "Keep answers concise and test changes in this folder." : null,
       } : await api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null }>(`/api/agent/models?${assistantScopeParams(scope, space)}`, { signal: controller.signal });
-      if (controller.signal.aborted) return;
+      // Cached forms stay editable during this read. A save or a newer
+      // accepted refresh owns the displayed settings once it has completed.
+      if (controller.signal.aborted || revision !== localRevision.current || isMutating()) return;
       if (cached) {
         // Quiet refresh: leave a form the person is editing alone, like an outside change would.
         if (settingsSnapshot(result) === currentForm.current.snapshot) return;
@@ -228,7 +231,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       applyLoadedSettings(result, true);
     }
     void load().catch((caught) => {
-      if (!controller.signal.aborted) setLoadError(errorText(caught));
+      if (!controller.signal.aborted && revision === localRevision.current && !isMutating()) setLoadError(errorText(caught));
     }).finally(() => { if (!controller.signal.aborted) { setLoading(false); onLoadedRef.current?.(); } });
     return () => controller.abort();
     // This component's key owns its exact scope. Parent status updates must
@@ -299,7 +302,10 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
           // An outside write can refresh a clean form in place. Dirty drafts
           // remain visible until the person explicitly reloads saved values.
           if (currentForm.current.dirty || refresh.current) setExternalChange(true);
-          else applyLoadedSettings(result);
+          else {
+            localRevision.current += 1;
+            applyLoadedSettings(result);
+          }
         }).catch(() => {
           if (!disposed && !read.signal.aborted && revision === localRevision.current) setExternalChange(true);
         });

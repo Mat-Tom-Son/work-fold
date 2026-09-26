@@ -937,8 +937,8 @@ asking for secrets inside the app:
 try {
   await bridge.request({ destinationId: "records-api", method: "GET", path: "/v1/records" });
 } catch (error) {
-  if (error?.code === "NETWORK_DENIED") showStatus("Allow this destination in the Apps tab.");
-  else if (error?.code === "AUTH_REQUIRED") showStatus("Connect this destination in the Apps tab.");
+  if (error?.code === "NETWORK_DENIED") showStatus("Allow this destination in Settings → Apps.");
+  else if (error?.code === "AUTH_REQUIRED") showStatus("Connect this destination in Settings → Apps.");
   else showStatus(error?.message || "The connection is unavailable.");
 }
 ```
