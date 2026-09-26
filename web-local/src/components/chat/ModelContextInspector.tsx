@@ -184,11 +184,11 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
   return <div className="model-context-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={dialogRef} className="model-context-inspector" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
       <header className="model-context-heading">
-        <div><h2 id={titleId}>Model context</h2><p>{scopeLabel}</p></div>
+        <div><h2 id={titleId}>Model Context</h2><p>{scopeLabel}</p></div>
         <button ref={closeRef} type="button" className="model-context-icon" onClick={onClose} aria-label="Close context inspector"><X size={18} /></button>
       </header>
       <div className="model-context-recording">
-        <label><input type="checkbox" checked={state?.enabled ?? false} disabled={!state || busy} onChange={(event) => void changeRecording({ enabled: event.target.checked })} /><strong>Record model context</strong></label>
+        <label><input type="checkbox" checked={state?.enabled ?? false} disabled={!state || busy} onChange={(event) => void changeRecording({ enabled: event.target.checked })} /><strong>Record Model Context</strong></label>
         <div className="model-context-actions">
           <button type="button" onClick={() => void refresh()} disabled={loading || busy}><RefreshCw size={13} aria-hidden="true" />Refresh</button>
           <button type="button" onClick={() => void changeRecording({ clear: true })} disabled={!state || busy}>Clear all</button>

@@ -195,8 +195,8 @@ test("the header exposes the active chat title and New chat directly", async () 
   assert.match(source, /<h1 className="popover-chat-title">\{chatTitle\}<\/h1>/);
   assert.doesNotMatch(source, /<WorkFoldLockup className="popover-brand"/);
   assert.match(source, /className="popover-new-chat"/);
-  assert.match(source, /aria-label="New chat"/);
-  assert.match(source, />\s*<SquarePen aria-hidden="true" \/>\s*<span>New chat<\/span>/);
+  assert.match(source, /aria-label="New Chat"/);
+  assert.match(source, />\s*<SquarePen aria-hidden="true" \/>\s*<span>New Chat<\/span>/);
   assert.doesNotMatch(source, /popover-overflow-menu|aria-haspopup="menu"|Ellipsis|role="menuitem"/);
   assert.match(source, /startingNewChatRef\.current = id === null/);
   assert.match(source, /body\.newConversation = true/);

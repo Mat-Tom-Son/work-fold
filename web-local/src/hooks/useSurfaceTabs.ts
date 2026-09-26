@@ -320,7 +320,7 @@ function newChatSurfaceTab(space: SpaceSummary, options: { fresh?: boolean } = {
     kind: "chat",
     spaceId: space.id,
     conversationId: null,
-    title: "New chat",
+    title: "New Chat",
   };
 }
 

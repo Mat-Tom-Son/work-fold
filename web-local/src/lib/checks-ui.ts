@@ -32,7 +32,7 @@ export function checksToolbarPresentation(status: ChecksStatus | null, unavailab
   if (status.needsAttention > 0) {
     return {
       icon: "attention",
-      label: "Needs attention",
+      label: "Needs Attention",
       title: `${formatItemCount(status.needsAttention, "current finding")} in explicitly designated files`,
       tone: "attention",
       count: status.needsAttention,

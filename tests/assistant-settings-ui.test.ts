@@ -111,12 +111,14 @@ test("model writes submit once, remain bound to the original Space and cannot fi
   assert.equal(ui.requests.filter((item) => item.path === "/api/agent/configure").length, 1);
   assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "openrouter", model: "model-b" });
   assert.equal(ui.dom.container.querySelector<HTMLSelectElement>('select[aria-label="Provider"]')?.disabled, true);
+  // The work-fold agent's scope is read alongside so switching scopes never reloads; count only this Space's reads.
+  const spaceReads = () => ui.requests.filter((item) => /scope=space/.test(item.path));
   await ui.render(space("b"));
-  assert.equal(ui.requests.length, 2, "replacement read waits for the accepted write to settle");
+  assert.equal(spaceReads().length, 1, "replacement read waits for the accepted write to settle");
   await ui.finish(write, { status: { ...status, model: "model-b" } });
-  await ui.dom.waitFor(() => ui.requests.length === 3);
-  assert.match(ui.requests[2]!.path, /spaceId=b/);
-  await ui.finish(ui.requests[2]!, modelResponse({ instructions: "B instructions" }));
+  await ui.dom.waitFor(() => spaceReads().length === 2);
+  assert.match(spaceReads()[1]!.path, /spaceId=b/);
+  await ui.finish(spaceReads()[1]!, modelResponse({ instructions: "B instructions" }));
   assert.deepEqual(ui.callbacks, [], "old Space cannot replace the current app status");
   assert.deepEqual(ui.changes, []);
   assert.equal(selectedModel(ui.dom), "model-a");
@@ -143,7 +145,7 @@ test("refresh is provider-owned and preserves edits made while the same provider
   await ui.select("#assistant-model", "model-b");
   await ui.finish(ui.requests.at(-1)!, { ...modelResponse(), refresh: { modelCount: 2 } });
   assert.equal(selectedModel(ui.dom), "model-b");
-  assert.equal(ui.button("Save model").disabled, false);
+  assert.equal(ui.button("Save Model").disabled, false);
   assert.deepEqual(ui.changes, [], "catalog refresh does not save a model");
 });
 
@@ -158,7 +160,7 @@ test("instructions keep newer edits through an in-flight save and errors stay wi
   await ui.type("textarea", "Newer edit");
   await ui.finish(write, { instructions: "First edit" });
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Newer edit");
-  assert.equal(ui.button("Save instructions").disabled, false);
+  assert.equal(ui.button("Save Instructions").disabled, false);
   assert.doesNotMatch(ui.dom.container.querySelector('[aria-labelledby="assistant-instructions-heading"]')!.textContent!, /Instructions saved/);
   await ui.submit("instructions");
   await ui.finish(ui.requests.at(-1)!, { error: "An Assistant turn is still running." }, 409);
@@ -177,13 +179,13 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.finish(ui.requests[0]!, modelResponse());
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
   assert.match(ui.dom.container.textContent!, /API key saved on this computer/);
-  await ui.dom.act(() => ui.button("Remove API key").click());
+  await ui.dom.act(() => ui.button("Remove API Key").click());
   await ui.finish(ui.requests.at(-1)!, modelResponse({ models: models.map((item) => ({ ...item, authConfigured: false })), status: { ...status, configured: false } }));
   await ui.type("#assistant-api-key", "do-not-send-to-another-provider");
   await ui.select('select[aria-label="Provider"]', "anthropic");
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "");
   await ui.type("#assistant-api-key", "synthetic-new-provider-key");
-  assert.equal(ui.button("Save model").disabled, true, "model action cannot silently submit a connection key");
+  assert.equal(ui.button("Save Model").disabled, true, "model action cannot silently submit a connection key");
   await ui.submit("connection", true);
   const write = ui.requests.at(-1)!;
   assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "anthropic", model: "claude", apiKey: "synthetic-new-provider-key" });
@@ -191,7 +193,7 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.finish(write, { status: { ...status, provider: "anthropic", model: "claude" } });
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
   assert.match(ui.dom.container.textContent!, /Connected and model saved/);
-  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Worker instructions"]);
+  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Worker Instructions"]);
 });
 
 
@@ -207,8 +209,8 @@ test("outside settings changes refresh clean forms without replacing unsaved dra
   await ui.hint();
   await ui.finish(ui.requests.at(-1)!, modelResponse({ status: { ...status, model: "model-b" }, instructions: "Changed using CLI" }));
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Local unsaved instructions");
-  assert.ok(ui.button("Reload saved settings"));
-  await ui.dom.act(() => ui.button("Reload saved settings").click());
+  assert.ok(ui.button("Reload Saved Settings"));
+  await ui.dom.act(() => ui.button("Reload Saved Settings").click());
   await ui.finish(ui.requests.at(-1)!, modelResponse({ status: { ...status, model: "model-b" }, instructions: "Changed using CLI" }));
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Changed using CLI");
 });
@@ -230,7 +232,7 @@ test("an outside read begun before a local save cannot replace its result or lat
   await ui.finish(outsideRead, modelResponse({ status: { ...status, model: "model-b" }, instructions: "Older outside value" }));
   assert.equal(selectedModel(ui.dom), "model-a");
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Even newer local instructions");
-  assert.equal(ui.button("Save instructions").disabled, false);
+  assert.equal(ui.button("Save Instructions").disabled, false);
   assert.doesNotMatch(ui.dom.container.textContent!, /Saved settings have changed/);
 });
 
@@ -298,12 +300,14 @@ test("closing and reopening Settings waits for an accepted write before loading 
   const accepted = ui.requests.at(-1)!;
   await ui.dom.render(null);
   await ui.render(space("a"));
-  assert.equal(ui.requests.length, 2, "the new dialog still owns the previous accepted operation's completion");
+  // The work-fold agent's scope is read ahead once a form has loaded; only this Space's reads count here.
+  const own = () => ui.requests.filter((item) => !/scope=management/.test(item.path));
+  assert.equal(own().length, 2, "the new dialog still owns the previous accepted operation's completion");
   await ui.finish(accepted, { status: { ...status, model: "model-b" } });
-  await ui.dom.waitFor(() => ui.requests.length === 3);
-  await ui.finish(ui.requests.at(-1)!, modelResponse({ status: { ...status, model: "model-b" } }));
+  await ui.dom.waitFor(() => own().length === 3);
+  await ui.finish(own().at(-1)!, modelResponse({ status: { ...status, model: "model-b" } }));
   assert.equal(selectedModel(ui.dom), "model-b");
-  assert.equal(ui.button("Save model").disabled, true);
+  assert.equal(ui.button("Save Model").disabled, true);
 });
 
 test("a control hint during initial loading invalidates that read instead of showing a stale default", async (t) => {

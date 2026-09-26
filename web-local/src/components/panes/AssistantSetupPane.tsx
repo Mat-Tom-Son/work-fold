@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ModelCatalogList } from "./ModelCatalogList";
 import { RefreshCw } from "lucide-react";
 import { api, errorText } from "../../lib/api";
@@ -51,7 +51,6 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
   // scope=space request while waiting for state to catch up.
   const scope = selection.identity === identity ? selection.scope : defaultScope;
   useEffect(() => { setSelection({ identity, scope: defaultScope }); }, [identity]);
-  const target = scope === "space" ? `space:${space!.id}` : "management";
   const currentSpaceTarget = useRef<string | null>(null);
   currentSpaceTarget.current = space ? `space:${space.id}` : null;
   const drafts = useRef(new Map<string, AssistantDraft>());
@@ -86,18 +85,38 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
     focusRequest.current.pending = false;
     setSelection({ identity, scope: next });
   }
-  function editDraft(edit: (draft: AssistantDraft) => AssistantDraft) {
-    if (target !== "management" && target !== currentSpaceTarget.current) return;
-    drafts.current.set(target, edit(drafts.current.get(target) ?? {}));
+  function editDraftFor(draftTarget: string, edit: (draft: AssistantDraft) => AssistantDraft) {
+    if (draftTarget !== "management" && draftTarget !== currentSpaceTarget.current) return;
+    drafts.current.set(draftTarget, edit(drafts.current.get(draftTarget) ?? {}));
   }
+  const target = scope === "space" ? `space:${space!.id}` : "management";
+  // What each scope last showed. Switching scopes mounts from here at once and
+  // refreshes quietly, instead of clearing the form behind a spinner; the
+  // other scope is read ahead as soon as the visible one has loaded.
+  const loaded = useRef(new Map<string, AssistantSettingsResponse>());
+  const [prefetchTick, setPrefetchTick] = useState(0);
+  useEffect(() => {
+    if (!space || props.fixtureMode || prefetchTick === 0) return;
+    const other: AssistantModelScope = scope === "space" ? "management" : "space";
+    const otherTarget = other === "space" ? `space:${space.id}` : "management";
+    if (loaded.current.has(otherTarget)) return;
+    const controller = new AbortController();
+    void (async () => {
+      await (assistantMutation?.done ?? Promise.resolve());
+      if (controller.signal.aborted) return;
+      const result = await api<AssistantSettingsResponse>(`/api/agent/models?${assistantScopeParams(other, space)}`, { signal: controller.signal });
+      if (!controller.signal.aborted && !loaded.current.has(otherTarget)) loaded.current.set(otherTarget, result);
+    })().catch(() => { /* the switch loads normally */ });
+    return () => controller.abort();
+  }, [prefetchTick, scope, space?.id, props.fixtureMode]);
 
   return (
     <div className={embedded ? "assistant-settings-panel professional-assistant" : "space-pane-content assistant-pane professional-surface professional-assistant"}>
       {space ? <fieldset className="assistant-scope-control">
-        <legend>Model defaults for</legend>
+        <legend>Model Defaults For</legend>
         <label className={scope === "space" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="space" checked={scope === "space"} onChange={() => changeScope("space")} />
-          <span>This worker<small>{space.name}</small></span>
+          <span>This Folder's Worker<small>{space.name}</small></span>
         </label>
         <label className={scope === "management" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="management" checked={scope === "management"} onChange={() => changeScope("management")} />
@@ -113,14 +132,17 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
         waitForMutation={() => assistantMutation?.done ?? Promise.resolve()}
         isMutating={() => assistantMutation !== null}
         readDraft={() => drafts.current.get(target) ?? {}}
-        editDraft={editDraft}
+        editDraft={(edit) => editDraftFor(target, edit)}
         focusModelWhenReady={focusModelWhenReady}
+        initialResult={loaded.current.get(target)}
+        onSnapshot={(result) => loaded.current.set(target, result)}
+        onLoaded={() => setPrefetchTick((current) => current + 1)}
       />
     </div>
   );
 }
 
-function AssistantScopeSettings({ space, status, scope, fixtureMode = false, active = true, onConfigured, onAssistantChanged, mutationBusy, beginMutation, waitForMutation, isMutating, readDraft, editDraft, focusModelWhenReady }: AssistantSetupProps & {
+function AssistantScopeSettings({ space, status, scope, fixtureMode = false, active = true, onConfigured, onAssistantChanged, mutationBusy, beginMutation, waitForMutation, isMutating, readDraft, editDraft, focusModelWhenReady, initialResult, onSnapshot, onLoaded }: AssistantSetupProps & {
   scope: AssistantModelScope;
   mutationBusy: boolean;
   beginMutation: () => (() => void) | null;
@@ -129,6 +151,12 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   readDraft: () => AssistantDraft;
   editDraft: (edit: (draft: AssistantDraft) => AssistantDraft) => void;
   focusModelWhenReady: (node: HTMLElement | null) => void;
+  /** The last saved settings this scope showed, applied at once while a fresh read runs quietly. */
+  initialResult?: AssistantSettingsResponse;
+  /** The saved settings this scope currently shows, kept for its next mount. */
+  onSnapshot?: (result: AssistantSettingsResponse) => void;
+  /** Called once this scope's first read has finished. */
+  onLoaded?: () => void;
 }) {
   const [scopeStatus, setScopeStatus] = useState(status);
   const [models, setModels] = useState<AgentModel[]>([]);
@@ -136,9 +164,14 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
+  const onSnapshotRef = useRef(onSnapshot);
+  onSnapshotRef.current = onSnapshot;
+  const initialResultRef = useRef(initialResult);
   const [instructions, setInstructions] = useState("");
   const [savedInstructions, setSavedInstructions] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialResult);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [externalChange, setExternalChange] = useState(false);
@@ -159,10 +192,18 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
     live.current = true;
     return () => { live.current = false; refresh.current?.abort(); };
   }, []);
+  // What this scope last showed is on screen before the first paint.
+  useLayoutEffect(() => {
+    const cached = initialResultRef.current;
+    if (cached) applyLoadedSettings(cached, true);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
+    // A scope that was shown before comes back at once from what it last
+    // showed; the read below then refreshes it without a spinner.
+    const cached = loadAttempt === 0 ? initialResultRef.current : undefined;
+    if (!cached) setLoading(true);
     setLoadError(null);
     async function load() {
       // A new target may open while the previous target's accepted write is
@@ -179,11 +220,16 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         instructions: scope === "space" ? "Keep answers concise and test changes in this folder." : null,
       } : await api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null }>(`/api/agent/models?${assistantScopeParams(scope, space)}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
+      if (cached) {
+        // Quiet refresh: leave a form the person is editing alone, like an outside change would.
+        if (settingsSnapshot(result) === currentForm.current.snapshot) return;
+        if (currentForm.current.dirty) { setExternalChange(true); return; }
+      }
       applyLoadedSettings(result, true);
     }
     void load().catch((caught) => {
       if (!controller.signal.aborted) setLoadError(errorText(caught));
-    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    }).finally(() => { if (!controller.signal.aborted) { setLoading(false); onLoadedRef.current?.(); } });
     return () => controller.abort();
     // This component's key owns its exact scope. Parent status updates must
     // not reload and overwrite a person's unsaved model or instructions.
@@ -205,6 +251,11 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   const operationBusy = mutationBusy || refreshing;
   currentForm.current = { dirty: provider !== scopeStatus.provider || model !== scopeStatus.model || instructionsChanged || Boolean(apiKey), loading: loading || Boolean(loadError),
     snapshot: settingsSnapshot({ models, catalogs, status: scopeStatus, instructions: savedInstructions }) };
+
+  useEffect(() => {
+    if (loading || loadError) return;
+    onSnapshotRef.current?.({ models, catalogs, status: scopeStatus, instructions: savedInstructions });
+  }, [loading, loadError, models, catalogs, scopeStatus, savedInstructions]);
 
   function applyLoadedSettings(result: AssistantSettingsResponse, restoreDraft = false) {
     const draft = restoreDraft ? readDraft() : {};
@@ -388,10 +439,10 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   }
 
   if (loading) return <div className="professional-loading-row" role="status"><RefreshCw className="spin" />Loading Assistant settings…</div>;
-  if (loadError) return <div className="assistant-settings-section"><AssistantOperationStatus feedback={{ error: true, text: loadError }} /><button className="professional-button professional-button-secondary" type="button" onClick={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }}>Try again</button></div>;
+  if (loadError) return <div className="assistant-settings-section"><AssistantOperationStatus feedback={{ error: true, text: loadError }} /><button className="professional-button professional-button-secondary" type="button" onClick={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }}>Try Again</button></div>;
 
   return <>
-    {externalChange ? <div className="assistant-external-change"><span>Saved settings have changed.</span><button className="assistant-refresh-models" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload saved settings</button></div> : null}
+    {externalChange ? <div className="assistant-external-change"><span>Saved settings have changed.</span><button className="assistant-refresh-models" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
     <section className="assistant-settings-section" aria-labelledby="assistant-model-heading"><span className="sr-only" id="assistant-model-heading">Model</span>
       <form onSubmit={(event) => { event.preventDefault(); void configure("model"); }}>
         <div className="assistant-form-fields">
@@ -407,18 +458,18 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
           </div>
         </div>
         <div className="assistant-form-actions">
-          <button className="professional-button professional-button-primary" type="submit" disabled={operationBusy || !model || !modelChanged || !authConfigured}>{saving === "model" ? "Saving…" : "Save model"}</button>
+          <button className="professional-button professional-button-primary" type="submit" disabled={operationBusy || !model || !modelChanged || !authConfigured}>{saving === "model" ? "Saving…" : "Save Model"}</button>
           <AssistantOperationStatus feedback={modelFeedback} hint={!models.length ? "No models available." : !authConfigured ? "Connect this provider first." : undefined} />
         </div>
       </form>
     </section>
     <section className="assistant-settings-section" aria-labelledby="assistant-connection-heading"><span className="sr-only" id="assistant-connection-heading">Connection</span>
       <div className="assistant-connection-row">
-        <div><strong>{providerName || "Choose a provider"}</strong><p>{assistantCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
-        {removableAuth ? <button className="professional-button professional-button-secondary" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect account" : "Remove API key"}</button> : null}
+        <div><strong>{providerName || "Choose a provider"}</strong><p>{assistantCredentialStatus(providerAuth) ?? "Not Connected"}</p></div>
+        {removableAuth ? <button className="professional-button professional-button-secondary" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
       </div>
       {!authConfigured && !accountOnly && provider ? <form onSubmit={(event) => { event.preventDefault(); void configure("key"); }}>
-        <label className="professional-field"><span className="professional-field-label">API key</span><input id="assistant-api-key" type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnectionFeedback(null); }} placeholder="Paste a key" autoComplete="off" spellCheck={false} disabled={mutationBusy} /></label>
+        <label className="professional-field"><span className="professional-field-label">API Key</span><input id="assistant-api-key" type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnectionFeedback(null); }} placeholder="Paste a key" autoComplete="off" spellCheck={false} disabled={mutationBusy} /></label>
         <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="submit" disabled={operationBusy || !model || !apiKey.trim()}>{saving === "connection" ? "Connecting…" : "Connect and save model"}</button></div>
       </form> : null}
       {oauthSupported ? <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="button" disabled={operationBusy || !model} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : assistantAccountAction(provider, providerAuth?.authType === "oauth")}</button><span className="professional-field-hint">Also saves the selected model for {scopeLabel}.</span></div> : null}
@@ -427,10 +478,10 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       {subscriptionNote ? <p className="assistant-provider-note">{subscriptionNote}</p> : null}
     </section>
     {scope === "space" ? <section className="assistant-settings-section" aria-labelledby="assistant-instructions-heading">
-      <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Worker instructions</h3></div>
+      <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Worker Instructions</h3></div>
       <form onSubmit={(event) => void saveInstructions(event)}>
-        <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker instructions</span><textarea value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
-        <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save instructions"}</button><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /></div>
+        <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker Instructions</span><textarea value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
+        <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save Instructions"}</button><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /></div>
       </form>
     </section> : null}
   </>;

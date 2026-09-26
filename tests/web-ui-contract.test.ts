@@ -39,7 +39,7 @@ test("publication controls preserve access, retention, and revocation consequenc
   // Settings → Shared pages (docs/fold-publishing.md, plan item 5; amended
   // 2026-09-24): stop sharing, one Budgets control that narrows or widens in
   // place, and a Sleep copy toggle. A new page starts from a file's tab.
-  assert.equal(foldPublicationsSettings.heading, "Pages your fold serves");
+  assert.equal(foldPublicationsSettings.heading, "Pages Your Fold Serves");
   assert.match(foldPublicationsSettings.linkMeaning, /anyone with the link can read this page/i);
   // The snapshot opt-in is an explicitly labeled choice: an encrypted copy
   // stays at the relay so the page outlives desktop sleep, and the label
@@ -47,23 +47,23 @@ test("publication controls preserve access, retention, and revocation consequenc
   assert.match(foldPublicationsSettings.snapshotLabel, /encrypted copy at the relay/i);
   assert.match(foldPublicationsSettings.snapshotLabel, /while your desktop sleeps/i);
   assert.equal(foldPublicationsSettings.budgets, "Budgets");
-  assert.equal(foldPublicationsSettings.sleepCopy, "Sleep copy");
+  assert.equal(foldPublicationsSettings.sleepCopy, "Sleep Copy");
   assert.equal(foldPublicationsSettings.saveBudgets, "Save");
   assert.equal(foldPublicationsSettings.budgetRange(600, 1024), "Choose 1 to 600 serves per minute and 1 to 1024 MiB per day.");
   assert.equal("narrowHint" in foldPublicationsSettings, false, "raising a budget is a control now, not a hint");
   // Empty states point at the next step: web access first, then a file's tab.
   assert.equal(foldPublicationsSettings.emptyNoAddress, "Set up web access to share pages.");
-  assert.equal(foldPublicationsSettings.webAccess, "Web access");
+  assert.equal(foldPublicationsSettings.webAccess, "Web Access");
   assert.equal(foldPublicationsSettings.empty, "No pages are shared. Share a file from its tab.");
   // One quiet state word per row; the reason rides in the tooltip.
   assert.deepEqual(foldPublicationsSettings.states, {
     live: "Live",
     asleep: "Asleep",
     resting: "Resting",
-    "not-available": "Not available",
+    "not-available": "Not Available",
     stopped: "Stopped",
   });
-  assert.equal(foldPublicationsSettings.stopSharing, "Stop sharing");
+  assert.equal(foldPublicationsSettings.stopSharing, "Stop Sharing");
   assert.match(foldPublicationsSettings.stopSharingConfirm, /every copy of its link stops working/i);
   const copy = JSON.stringify(foldPublicationsSettings);
   assert.doesNotMatch(copy, /\bhost(ing|ed)?\b|\bwebsite\b/i, "the words host and website never appear in product copy");
@@ -77,7 +77,7 @@ test("sharing from a file tab says what happened in plain words and never asks f
   assert.equal(fileSharing.sharedToast("Weekly report"), 'Shared "Weekly report"');
   assert.equal(fileSharing.noAddress, "Set up web access before sharing a page.");
   assert.equal(fileSharing.linkInSettings, "Show the link in Settings → Shared pages.");
-  assert.equal(fileSharing.webAccess, "Web access");
+  assert.equal(fileSharing.webAccess, "Web Access");
   for (const label of [fileSharing.share, fileSharing.shared, fileSharing.openSharedPages, fileSharing.webAccess]) {
     assert.doesNotMatch(label, /…|\.\.\.$/, "button labels carry no trailing ellipsis");
   }
@@ -130,12 +130,12 @@ test("Recently deleted says what is waiting, how long, and what work-fold never 
   // nothing work-fold destroys is gone at the moment it happens, and the copy
   // names the retention window and the clean-break rule instead of implying
   // permanence either way.
-  assert.equal(recentlyDeletedSettings.heading, "Recently deleted");
+  assert.equal(recentlyDeletedSettings.heading, "Recently Deleted");
   assert.equal(recentlyDeletedSettings.restore, "Restore");
-  assert.equal(recentlyDeletedSettings.saveCopy, "Save a copy");
-  assert.equal(recentlyDeletedSettings.deleteNow, "Delete now");
+  assert.equal(recentlyDeletedSettings.saveCopy, "Save a Copy");
+  assert.equal(recentlyDeletedSettings.deleteNow, "Delete Now");
   assert.match(recentlyDeletedSettings.deleteNowConfirm, /cannot be brought back/i);
-  assert.match(recentlyDeletedSettings.retentionLabel, /^Keep deleted items for$/);
+  assert.match(recentlyDeletedSettings.retentionLabel, /^Keep Deleted Items For$/);
   assert.match(recentlyDeletedSettings.heldNote, /legacy Workspace records/i);
   assert.match(recentlyDeletedSettings.heldNote, /cannot be deleted/i);
   assert.match(recentlyDeletedSettings.damagedNote, /could not be read/i);

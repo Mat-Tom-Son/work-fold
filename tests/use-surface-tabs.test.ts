@@ -121,7 +121,7 @@ test("file tabs upsert as one retargeting tab per Space", () => {
 test("file tabs follow moved paths and close when their file is deleted", () => {
   const tabs: SurfaceTab[] = [
     fileSurfaceTab(space, "Notes/Draft.md"),
-    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" },
   ];
   const moved = retargetFileSurfaceTabs(tabs, space.id, "Notes", "Archive/Notes");
 
@@ -155,7 +155,7 @@ test("Automations use one canonical Folder-owned tab", () => {
 test("tab restore falls back cleanly when persisted JSON is corrupt", () => {
   withStoredTabs("{not valid json", () => {
     assert.deepEqual(readStoredSurfaceTabsState(space, [space]), {
-      tabs: [{ id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" }],
+      tabs: [{ id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" }],
       activeTabId: "chat:space-1:new",
     });
   });
@@ -164,7 +164,7 @@ test("tab restore falls back cleanly when persisted JSON is corrupt", () => {
 test("tab restore accepts only known, well-formed surface types", () => {
   assert.deepEqual(normalizeStoredSurfaceTabsValue({
     tabs: [
-      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat", extra: true },
+      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat", extra: true },
       { id: "mystery:space-1", kind: "mystery", spaceId: "space-1", title: "Mystery" },
       { id: 4, kind: "file", spaceId: "space-1", path: "Notes.md", title: "Notes.md" },
       { id: "file:space-1", kind: "file", spaceId: "space-1", path: "Notes.md", title: "Notes.md", ignored: "yes" },
@@ -183,7 +183,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
     activeTabId: "file:space-1",
   }), {
     tabs: [
-      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" },
       { id: "file:space-1", kind: "file", spaceId: "space-1", path: "Notes.md", title: "Notes.md" },
       { id: "history:space-1", kind: "history", spaceId: "space-1", checkpointId: undefined, title: "History" },
       { id: "app-studio:space-1", kind: "app-studio", spaceId: "space-1", title: "Renamed Studio" },
@@ -199,12 +199,12 @@ test("tab restore accepts only known, well-formed surface types", () => {
 test("restored tabs belonging to removed Spaces are discarded", () => {
   assert.deepEqual(restoreStoredSurfaceTabsForSpaces({
     tabs: [
-      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" },
       { id: "appearance:space-2", kind: "appearance", spaceId: "space-2", title: "Customize Other Space" },
     ],
     activeTabId: "appearance:space-2",
   }, [space]), {
-    tabs: [{ id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" }],
+    tabs: [{ id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" }],
     activeTabId: "chat:space-1:new",
   });
 });
@@ -227,7 +227,7 @@ test("restricted app tabs close when their installed revision changes", () => {
   const currentDigest = "a".repeat(64);
   const staleDigest = "b".repeat(64);
   const tabs: SurfaceTab[] = [
-    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" },
     {
       id: restrictedAppSurfaceTabId("space-1", "trip-studio", staleDigest, "destination:lisbon", "feature-installation_original"),
       kind: "restricted-app", featureInstallationId: "feature-installation_original",
@@ -269,7 +269,7 @@ test("restricted app tabs close when their installed revision changes", () => {
 test("each Space remembers its most recently active tab", () => {
   const recent = new Map<string, string>([["space-1", "chat:space-1:old"]]);
   const tabs: SurfaceTab[] = [
-    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" },
     { id: "history:space-2", kind: "history", spaceId: "space-2", title: "History" },
   ];
 
@@ -297,7 +297,7 @@ test("activating a draft conversation never steals focus from another surface", 
 
 test("activating a cross-Space tab switches to the tab's Space", () => {
   const tabs: SurfaceTab[] = [
-    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" },
     appStudioSurfaceTab(otherSpace),
   ];
 
@@ -330,9 +330,9 @@ test("App Studio uses one canonical persistent tab per Space", () => {
 
 test("switching Spaces activates the recent tab, then draft, then creates a draft", () => {
   const tabs: SurfaceTab[] = [
-    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" },
     { id: "history:space-2", kind: "history", spaceId: "space-2", title: "History" },
-    { id: "chat:space-2:new", kind: "chat", spaceId: "space-2", conversationId: null, title: "New chat" },
+    { id: "chat:space-2:new", kind: "chat", spaceId: "space-2", conversationId: null, title: "New Chat" },
   ];
 
   assert.deepEqual(surfaceTabActivationForSpace({
@@ -357,7 +357,7 @@ test("switching Spaces activates the recent tab, then draft, then creates a draf
     space: thirdSpace,
   }), {
     tabId: "chat:space-3:new",
-    tabToAdd: { id: "chat:space-3:new", kind: "chat", spaceId: "space-3", conversationId: null, title: "New chat" },
+    tabToAdd: { id: "chat:space-3:new", kind: "chat", spaceId: "space-3", conversationId: null, title: "New Chat" },
   });
 });
 

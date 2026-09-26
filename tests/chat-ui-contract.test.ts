@@ -100,7 +100,7 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
   assert.match(panes, /role="tablist"\s+aria-label="Chat view"/);
   assert.match(panes, /aria-label=\{`Actions for \$\{chat\.title\}`\}/);
   assert.match(chatActions, />Snooze</);
-  assert.match(chatActions, />Resume now</);
+  assert.match(chatActions, />Resume Now</);
   assert.match(chatActions, /Restore to Active/);
   assert.match(chatActions, /<strong>Delete<\/strong>/);
   assert.match(chatActions, /<small>Hide until a time you pick<\/small>/);

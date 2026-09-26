@@ -216,7 +216,7 @@ test("a shared file carries a quiet mark in Files and on its tab", async () => {
   assert.match(app, /isSharedFile=\{\(spaceId, path\) => Boolean\(activeSharedPageFor\(sharedPages, spaceId, path\)\)\}/);
   assert.match(styles, /\.file-row-entry\.is-shared \{\n\s*grid-template-columns: auto minmax\(0, max-content\) auto minmax\(0, 1fr\);/);
   assert.match(styles, /\.app-shell\[data-theme="dark"\] \.file-shared-marker,\n\.app-shell\[data-theme="dark"\] \.surface-tab-shared-marker \{/);
-  assert.equal(fileSharing.sharedMarkLabel, "Shared as a page");
+  assert.equal(fileSharing.sharedMarkLabel, "Shared as a Page");
   assert.equal(fileSharing.sharedMarkTooltip, "Shared as a page. Anyone with the link can read it.");
 });
 

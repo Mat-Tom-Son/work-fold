@@ -7,7 +7,7 @@ names existing Pi concepts, APIs, storage, commands, or schemas.
 
 work-fold uses Pi's native capability system for full-trust Skills and Extensions and includes a separate restricted-app package lane for agent-created browser apps. This guide explains how Skills, Extensions, packages, scopes, and authorization fit the product without confusing them with ordinary files.
 
-The rail's **Add** button opens the **Skills & Extensions** popup directly (2026-09-25): a dialog like Settings and Keyboard shortcuts, pinned to the Space it was opened from. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. It starts with an **Included with work-fold** strip holding exactly the five included tools — Chrome, Computer control, Web, Documents, and Service connections — each with one status word (Ready, Setup needed, Unavailable, Not checked, or Turned off; Chrome shows Connected or Not connected) and a **Set up** button only when a person can act. Below the strip, **Everywhere** (the fold and every Space) and **This folder only** (stored in the Space folder) sit side by side and stack on narrow widths; a row opens its details on click, and the groups have no Add buttons. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. There is no Add menu and no Library tab: the desktop Library was retired on 2026-09-25, and only the CLI act-lane `library` family and its server routes remain, unchanged for now as a compatibility contract.
+The rail's **Add** button opens the **Skills & Extensions** popup directly (2026-09-25): a dialog like Settings and Keyboard shortcuts, pinned to the Space it was opened from. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. It starts with an **Included with work-fold** strip holding exactly the five included tools — Chrome, Computer Control, Web, Documents, and Service Connections — each with one status word (Ready, Setup needed, Unavailable, Not checked, or Turned off; Chrome shows Connected or Not connected) and a **Set up** button only when a person can act. Below the strip, **Everywhere** (the fold and every Space) and **This folder only** (stored in the Space folder) sit side by side and stack on narrow widths; a row opens its details on click, and the groups have no Add buttons. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. There is no Add menu and no Library tab: the desktop Library was retired on 2026-09-25, and only the CLI act-lane `library` family and its server routes remain, unchanged for now as a compatibility contract.
 
 ## Management visibility
 
@@ -140,7 +140,7 @@ setup surface, not an ordinary Chat question. Terminal-only component
 factories remain unsupported.
 
 [Extensions and computer work](extension-foundation.md) defines the included
-Computer control, Chrome, Web, Documents and MCP service connections. Their
+Computer Control, Chrome, Web, Documents and MCP service connections. Their
 pinned versions and reviewed compatibility patches live in
 [the integration manifest](../patches/included-tools/manifest.json). “Included
 with work-fold” describes maintenance, not a different Extension runtime.

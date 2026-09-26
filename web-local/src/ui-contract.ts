@@ -21,31 +21,31 @@ export const welcomeActions = {
  * reserved for App Studio's local Release transition.
  */
 export const foldPublicationsSettings = {
-  heading: "Pages your fold serves",
+  heading: "Pages Your Fold Serves",
   linkMeaning: "Anyone with the link can read this page.",
-  revealLink: "Show link",
-  hideLink: "Hide link",
-  copyLink: "Copy link",
+  revealLink: "Show Link",
+  hideLink: "Hide Link",
+  copyLink: "Copy Link",
   noAddress: "Set up web access to show links.",
   snapshotLabel: "An encrypted copy at the relay stays readable while your desktop sleeps.",
-  sleepCopy: "Sleep copy",
+  sleepCopy: "Sleep Copy",
   budgets: "Budgets",
   servesPerMinute: "Serves per minute",
   mibPerDay: "MiB per day",
   saveBudgets: "Save",
   saved: "Saved",
   budgetRange: (serveRateMaximum: number, byteBudgetMaximumMiB: number) => `Choose 1 to ${serveRateMaximum} serves per minute and 1 to ${byteBudgetMaximumMiB} MiB per day.`,
-  stopSharing: "Stop sharing",
+  stopSharing: "Stop Sharing",
   stopSharingConfirm: "Stop sharing this page? Every copy of its link stops working, and sharing again mints a new link.",
   emptyNoAddress: "Set up web access to share pages.",
-  webAccess: "Web access",
+  webAccess: "Web Access",
   empty: "No pages are shared. Share a file from its tab.",
   previewDisabled: "Changing shared pages is disabled in the preview",
   states: {
     live: "Live",
     asleep: "Asleep",
     resting: "Resting",
-    "not-available": "Not available",
+    "not-available": "Not Available",
     stopped: "Stopped",
   },
 } as const;
@@ -60,14 +60,14 @@ export const fileSharing = {
   shared: "Shared",
   sharedToast: (title: string) => `Shared "${title}"`,
   stoppedToast: (title: string) => `Stopped sharing "${title}"`,
-  linkCopied: "Link copied",
+  linkCopied: "Link Copied",
   linkInSettings: "Show the link in Settings → Shared pages.",
-  openSharedPages: "Open Shared pages",
+  openSharedPages: "Open Shared Pages",
   noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
-  webAccess: "Web access",
+  webAccess: "Web Access",
   previewDisabled: "Sharing is disabled in the preview",
   /** The at-a-glance mark on a shared file's Files row and tab. */
-  sharedMarkLabel: "Shared as a page",
+  sharedMarkLabel: "Shared as a Page",
   sharedMarkTooltip: "Shared as a page. Anyone with the link can read it.",
 } as const;
 
@@ -77,12 +77,12 @@ export const fileSharing = {
  * what it can, and this is where the rest waits.
  */
 export const recentlyDeletedSettings = {
-  heading: "Recently deleted",
+  heading: "Recently Deleted",
   restore: "Restore",
-  saveCopy: "Save a copy",
-  deleteNow: "Delete now",
+  saveCopy: "Save a Copy",
+  deleteNow: "Delete Now",
   deleteNowConfirm: "Delete this for good? It cannot be brought back afterwards.",
-  retentionLabel: "Keep deleted items for",
+  retentionLabel: "Keep Deleted Items For",
   retentionUnit: "days",
   retentionSave: "Save",
   retentionSaved: "Saved",
@@ -102,7 +102,7 @@ export const recentlyDeletedSettings = {
 export const deleteFolderConfirm = {
   title: (name: string) => `Delete ${name}?`,
   body: "Everything in it goes to History, or to Recently deleted if History cannot keep a copy. You can bring it back for 30 days.",
-  confirmLabel: "Delete folder",
+  confirmLabel: "Delete Folder",
 } as const;
 
 /**
@@ -114,16 +114,16 @@ export const deleteFolderConfirm = {
  */
 export const foldLimitsSettings = {
   heading: "Limits",
-  assistantHeading: "App requests",
+  assistantHeading: "App Requests",
   requestsHeading: "Requests",
   continuationsHeading: "Continuations",
   continuationsLabel: "Continue requests when their child results arrive",
   continuationsSaved: "Saved",
   continuationsUnavailable: "This setting needs the work-fold app running.",
   routingsHeading: "Routings",
-  automationsHeading: "App automations",
-  deletedHeading: "Recently deleted",
-  deletedLink: "Open Recently deleted",
+  automationsHeading: "App Automations",
+  deletedHeading: "Recently Deleted",
+  deletedLink: "Open Recently Deleted",
   frozenNote: "",
 } as const;
 
@@ -160,15 +160,15 @@ export const folderAutomations = {
     "chats-here": "Starts a Chat here",
     "checks-here": "Runs a Check here",
   },
-  runNow: "Run now",
-  turnOn: "Turn on",
-  turnOff: "Turn off",
+  runNow: "Run Now",
+  turnOn: "Turn On",
+  turnOff: "Turn Off",
   lastRun: (when: string) => `Last run ${when}`,
-  notRunYet: "Not run yet",
+  notRunYet: "Not Run Yet",
   failed: "Failed",
-  allAutomations: "All automations",
+  allAutomations: "All Automations",
   noneLeft: "No automations touch this folder.",
-  runRequested: "Run requested",
+  runRequested: "Run Requested",
   turnedOn: "Automation turned on",
   turnedOff: "Automation turned off",
   previewDisabled: "Changing automations is disabled in the preview",

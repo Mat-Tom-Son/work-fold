@@ -5542,6 +5542,7 @@
 
 /* Skills & Extensions as a popup (2026-09-25): the pane keeps its own scroll inside a Settings-sized dialog. */
 .assistant-tools-modal {
+  position: relative;
   width: min(1080px, calc(100vw - 48px));
   height: min(920px, calc(100vh - 48px));
   display: grid;
@@ -5560,22 +5561,21 @@
   padding: 24px 28px 28px;
 }
 
-.capabilities-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.capabilities-close {
+/* The close control sits in the window corner, above the title row. */
+.assistant-tools-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
   width: 36px;
   height: 36px;
 }
 
-/* Installed view (2026-09-25): included tools first, then the two homes side by side. */
-.assistant-tools-header > .capabilities-header-actions {
-  display: flex;
+.assistant-tools-modal .assistant-tools-header {
+  padding-right: 52px;
 }
 
+/* Installed view (2026-09-25): included tools first, then the two homes side by side. */
 .capabilities-included {
   display: grid;
   gap: 10px;
@@ -5587,16 +5587,34 @@
   gap: 12px;
 }
 
+/* The whole tile is the control (2026-09-25). */
 .capabilities-included-tile {
   min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 10px;
   min-height: 124px;
   padding: 14px;
+  color: var(--ui-text);
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-lg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
+}
+
+.capabilities-included-tile:hover {
+  background: var(--ui-surface-subtle);
+  border-color: var(--ui-border-strong);
+}
+
+.capabilities-included-tile:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
 }
 
 .capabilities-included-name {
@@ -5604,27 +5622,15 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
   color: var(--ui-text);
-  font-family: var(--work-fold-ui-font);
   font-size: 13.5px;
   font-weight: 600;
   line-height: 1.25;
-  text-align: left;
-  cursor: pointer;
 }
 
 .capabilities-included-name strong {
   min-width: 0;
   font-weight: 600;
-}
-
-.capabilities-included-name:hover strong,
-.capabilities-included-name:focus-visible strong {
-  text-decoration: underline;
 }
 
 .capabilities-included-status {
@@ -5657,11 +5663,18 @@
 }
 
 .capabilities-included-setup {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   align-self: flex-start;
-  min-height: 30px;
   margin-top: auto;
-  padding: 0 11px;
+  color: var(--ui-accent);
   font-size: 13px;
+  font-weight: 600;
+}
+
+.capabilities-included-tile:hover .capabilities-included-setup {
+  text-decoration: underline;
 }
 
 .capabilities-scope-columns {
@@ -5896,4 +5909,16 @@ button.capabilities-resource-card:focus-visible {
   padding: 12px;
   color: var(--ui-text-muted);
   font-size: 13px;
+}
+
+.capabilities-included-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--ui-text);
+  background: var(--ui-surface-subtle);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
 }

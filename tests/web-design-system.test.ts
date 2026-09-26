@@ -48,7 +48,7 @@ test("Files is the first primary surface and Space actions live in the persisten
 
   assert.doesNotMatch(spaceChromeSource, /space-rail-space-selector|space-rail-space-copy/);
   assert.match(spaceChromeSource, /primaryItems\.map/);
-  assert.match(spaceChromeSource, /<span>Use existing folder<\/span>/);
+  assert.match(spaceChromeSource, /<span>Use Existing Folder<\/span>/);
   assert.match(spaceChromeSource, /<span>Create new folder<\/span>/);
   assert.match(spaceChromeSource, /<span>Manage folders<\/span>/);
   assert.match(spaceChromeSource, /aria-current=\{activeMode === item\.mode \? "page" : undefined\}/, "the active icon-only destination must be announced");
@@ -116,7 +116,7 @@ test("Skills & Extensions opens as a popup from the Add button, and apps are man
   assert.match(capabilitiesSource, /Where should it live\?/);
   assert.match(capabilitiesSource, /function ScopeHierarchyGlyph/);
   assert.match(capabilitiesSource, /"work-fold agent"[\s\S]*"Here"/);
-  assert.match(capabilitiesSource, /"Everywhere"[\s\S]*This folder only/);
+  assert.match(capabilitiesSource, /"Everywhere"[\s\S]*This Folder Only/);
   assert.doesNotMatch(capabilitiesSource, /Personal · everywhere|"Personal"/);
   // Catalog rows get a network-free identity tile and name where links go.
   assert.match(capabilitiesSource, /function CapabilityMonogram/);

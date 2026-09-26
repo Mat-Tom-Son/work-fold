@@ -48,7 +48,7 @@ test("installed details keep metadata collapsed while setup, failures and contro
   }) as typeof fetch;
   let toggles = 0;
   await dom.render(createElement(CapabilityDetailsDialog, { item: included("chrome"), spaceId: "workshop", busy: false, onClose() {}, onToggle() { toggles++; } }));
-  await dom.waitFor(() => dom.container.textContent!.includes("Not checked"));
+  await dom.waitFor(() => dom.container.textContent!.includes("Not Checked"));
   const technical = dom.container.querySelector("details")!;
   assert.equal(technical.open, false);
   assert.match(technical.textContent!, /chrome_screenshot/);
@@ -61,7 +61,7 @@ test("installed details keep metadata collapsed while setup, failures and contro
   assert.doesNotMatch(dom.container.textContent!, /Load unpacked|Developer mode|Copy folder path/);
   await dom.act(() => technical.querySelector("summary")!.click());
   assert.equal(technical.open, true);
-  await dom.act(() => button("Turn off").click());
+  await dom.act(() => button("Turn Off").click());
   assert.equal(toggles, 1);
   await dom.render(createElement(CapabilityDetailsDialog, { item: { ...included("chrome"), diagnostics: [{ type: "error", message: "Companion version mismatch" }] }, spaceId: "workshop", busy: false, onClose() {} }));
   assert.match(dom.container.querySelector('.professional-diagnostics[role="status"]')!.textContent!, /Companion version mismatch/);
@@ -122,7 +122,7 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   }) as typeof fetch;
   const props: Parameters<typeof CapabilitiesPane>[0] = {
     space: { id: "first", name: "Workshop" } as never, status: { configured: true } as never,
-    view: "installed", onOpenSettings() {}, onError(message) { assert.fail(message ?? "Unexpected catalog error"); }, onViewChange() {},
+    view: "installed", onError(message) { assert.fail(message ?? "Unexpected catalog error"); }, onViewChange() {},
   };
   await dom.render(createElement(CapabilitiesPane, props));
   // Included tools sit in the strip, each with one status word and a Set up button only when a person can act.
@@ -134,15 +134,15 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   assert.equal(dom.container.querySelector(".capabilities-health"), null, "no tool-count or attention line");
   assert.equal(dom.container.querySelector(".capabilities-scope-heading .capabilities-hierarchy-glyph"), null);
   assert.equal(dom.container.querySelector(".scope-global .capabilities-resource-card"), null, "included tools are not repeated under Everywhere");
-  for (const name of ["Chrome", "Computer control", "Documents"]) {
+  for (const name of ["Chrome", "Computer Control", "Documents"]) {
     assert.equal(setup(name), null, `${name} is unchecked or off, so it never asks for setup`);
   }
-  assert.equal(status("Chrome"), "Not checked");
-  assert.equal(status("Documents"), "Turned off");
+  assert.equal(status("Chrome"), "Not Checked");
+  assert.equal(status("Documents"), "Turned Off");
   assert.doesNotMatch(card("Chrome").textContent!, /Loaded|Ready/);
   assert.deepEqual(writes, [], "catalog inspection must not check, launch, or configure an included tool");
 
-  await dom.act(() => card("Chrome").querySelector("button")!.click());
+  await dom.act(() => card("Chrome").click());
   await dom.waitFor(() => summaryReads.length === 2);
   assert.doesNotMatch(dom.container.querySelector(".capability-details-dialog .modal-title")!.textContent!, /Loaded/);
   assert.match(dom.container.querySelector(".capability-technical-details")!.textContent!, /ExtensionLoadedEnabledYes/);
@@ -161,11 +161,11 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   await dom.act(() => check.click());
   await dom.waitFor(() => dom.container.textContent!.includes("Companion probe failed"));
   await dom.settle();
-  assert.equal(status("Chrome"), "Not checked");
+  assert.equal(status("Chrome"), "Not Checked");
   assert.equal(setup("Chrome"), null);
-  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Not checked");
+  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Not Checked");
   await dom.act(() => [...dom.container.querySelectorAll<HTMLButtonElement>(".capability-dialog-footer button")].find((button) => button.textContent === "Done")!.click());
-  assert.equal(status("Chrome"), "Not checked", "closing details must not restore an earlier result");
+  assert.equal(status("Chrome"), "Not Checked", "closing details must not restore an earlier result");
   assert.equal(setup("Chrome"), null);
 });
 
@@ -189,20 +189,20 @@ test("an installed card offers Set up only for a known state that needs it", asy
   }) as typeof fetch;
   await dom.render(createElement(CapabilitiesPane, {
     space: { id: "first", name: "Workshop" } as never, status: { configured: true } as never,
-    view: "installed", onOpenSettings() {}, onError(message) { assert.fail(message ?? "Unexpected catalog error"); }, onViewChange() {},
+    view: "installed", onError(message) { assert.fail(message ?? "Unexpected catalog error"); }, onViewChange() {},
   }));
   const tile = (name: string) => [...dom.container.querySelectorAll<HTMLElement>(".capabilities-included-tile")].find((item) => item.querySelector("strong")?.textContent === name);
   const setup = (name: string) => tile(name)?.querySelector<HTMLButtonElement>(".capabilities-included-setup");
   const status = (name: string) => tile(name)?.querySelector(".capabilities-included-status")?.textContent;
-  await dom.waitFor(() => setup("Chrome")?.textContent === "Set up");
-  assert.match(setup("Chrome")!.className, /professional-button-primary/);
-  assert.equal(status("Chrome"), "Not connected");
-  assert.equal(setup("Computer control")!.textContent, "Set up");
-  assert.equal(status("Computer control"), "Setup needed");
+  await dom.waitFor(() => setup("Chrome")?.textContent === "Set Up");
+  assert.equal(setup("Chrome")!.textContent, "Set Up");
+  assert.equal(status("Chrome"), "Not Connected");
+  assert.equal(setup("Computer Control")!.textContent, "Set Up");
+  assert.equal(status("Computer Control"), "Setup Needed");
   assert.equal(setup("Documents"), null);
   assert.equal(status("Documents"), "Ready");
   assert.equal(setup(tools[3]!.name), null, "an unchecked tool never asks for setup");
-  assert.equal(status(tools[3]!.name), "Not checked");
+  assert.equal(status(tools[3]!.name), "Not Checked");
   assert.equal(dom.container.querySelector(".capabilities-included-tile .professional-status-badge"), null);
 });
 
@@ -228,7 +228,7 @@ test("late readiness responses cannot cross Spaces or survive a closed setup own
   });
   await dom.settle();
   assert.deepEqual(delivered, ["setup_required"]);
-  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Not connected");
+  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Not Connected");
 });
 
 test("Chrome Store setup observes the authenticated handshake and a refused disconnect preserves the selected connection", async (t) => {
@@ -252,7 +252,7 @@ test("Chrome Store setup observes the authenticated handshake and a refused disc
   }) as typeof fetch;
   const button = (label: string) => [...dom.container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label)!;
   await dom.render(createElement(IncludedChromeSetup, { spaceId: "first", enabled: true }));
-  await dom.waitFor(() => dom.container.textContent!.includes("Not connected"));
+  await dom.waitFor(() => dom.container.textContent!.includes("Not Connected"));
   assert.deepEqual(posts, [], "opening setup reads status without registration or launch");
   await dom.act(() => { button("Connect Chrome").click(); button("Connect Chrome")?.click(); });
   await dom.waitFor(() => dom.container.textContent!.includes("In Chrome, choose Connect."));
@@ -295,7 +295,7 @@ test("missing Store identity has no invented install link and closing setup neve
   }) as typeof fetch;
   const props = { enabled: true, onStatusChange: (status: { chrome?: { state: string } } | null) => { if (status?.chrome) delivered.push(status.chrome.state); } };
   await dom.render(createElement(IncludedChromeSetup, { ...props, spaceId: "first" }));
-  await dom.waitFor(() => dom.container.textContent!.includes("Chrome extension unavailable"));
+  await dom.waitFor(() => dom.container.textContent!.includes("Chrome Extension Unavailable"));
   assert.equal(dom.container.querySelectorAll("a").length, 0);
   assert.equal([...dom.container.querySelectorAll("button")].some((button) => button.textContent === "Connect Chrome"), false);
   state = "not_connected";

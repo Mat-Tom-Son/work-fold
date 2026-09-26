@@ -284,7 +284,7 @@ export function SpaceSurfaceTabBar({
         className={["surface-tabs", groupingActive ? "surface-tabs-grouped" : "", countTier].filter(Boolean).join(" ")}
         data-overflow={overflow ?? undefined}
         role="tablist"
-        aria-label="Open tabs"
+        aria-label="Open Tabs"
         onKeyDown={handleTabListKeyDown}
       >
         {tabGroups.map((group) => {
@@ -318,20 +318,34 @@ export function SpaceSurfaceTabBar({
             if (spaceMenuOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setSpaceMenuOpen(false);
           }}
         >
-          <button
-            ref={menuButtonRef}
-            className="surface-tab-action surface-tab-new-chat-trigger"
-            type="button"
-            onClick={() => setSpaceMenuOpen((current) => !current)}
-            aria-label="Start a new Chat"
-            aria-haspopup="menu"
-            aria-expanded={spaceMenuOpen}
-            aria-controls="new-chat-space-menu"
-            title="Start a new Chat"
-          >
-            <FluentGlyph icon={NewChatIcon} size={18} />
-            <ChevronDown16Regular aria-hidden="true" />
-          </button>
+          <div className="surface-tab-new-chat" role="group" aria-label="New Chat">
+            <button
+              className="surface-tab-action surface-tab-new-chat-main"
+              type="button"
+              onClick={() => {
+                setSpaceMenuOpen(false);
+                const current = spaces.find((item) => item.id === newChatSpaceId);
+                if (current) onNewChatInSpace(current); else setSpaceMenuOpen(true);
+              }}
+              aria-label="Start a new Chat"
+              title="New Chat in this folder"
+            >
+              <FluentGlyph icon={NewChatIcon} size={18} />
+            </button>
+            <button
+              ref={menuButtonRef}
+              className="surface-tab-action surface-tab-new-chat-trigger"
+              type="button"
+              onClick={() => setSpaceMenuOpen((current) => !current)}
+              aria-label="Choose where to start a new Chat"
+              aria-haspopup="menu"
+              aria-expanded={spaceMenuOpen}
+              aria-controls="new-chat-space-menu"
+              title="New Chat in another folder, or open tabs"
+            >
+              <ChevronDown16Regular aria-hidden="true" />
+            </button>
+          </div>
           {spaceMenuOpen ? (
             <div
               ref={menuRef}
@@ -359,14 +373,14 @@ export function SpaceSurfaceTabBar({
                     title={`New Chat in ${item.name}`}
                   >
                     <span className="space-identity-icon"><SpaceIconGlyph icon={Icon} size={14} /></span>
-                    <span className="surface-tab-space-menu-copy"><strong>{item.name}</strong>{current ? <small>Current folder</small> : null}</span>
+                    <span className="surface-tab-space-menu-copy"><strong>{item.name}</strong>{current ? <small>Current Folder</small> : null}</span>
                   </button>
                 );
               })}
               {orderedTabs.length ? (
                 <>
                   <span className="surface-tab-space-menu-separator" role="separator" />
-                  <span className="surface-tab-space-menu-heading">Open tabs</span>
+                  <span className="surface-tab-space-menu-heading">Open Tabs</span>
                   {orderedTabs.map((tab) => {
                     const tabSpace = spaces.find((item) => item.id === tab.spaceId)
                       ?? fallbackSpaceSummary(tab.spaceId, "Folder");
@@ -404,7 +418,7 @@ export function SpaceSurfaceTabBar({
               >
                 <span className="surface-tab-menu-check" aria-hidden="true">{groupBySpace ? <Checkmark16Regular /> : null}</span>
                 <span className="surface-tab-space-menu-copy">
-                  <strong>Group by folder</strong>
+                  <strong>Group by Folder</strong>
                 </span>
               </button>
             </div>

@@ -134,18 +134,18 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
   const tabs: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
     { id: "assistant", label: "AI Models", icon: <Sparkle20Regular /> },
-    { id: "web-access", label: "Web access", icon: <Window20Regular /> },
-    { id: "shared-pages", label: "Shared pages", icon: <Window20Regular /> },
+    { id: "web-access", label: "Web Access", icon: <Window20Regular /> },
+    { id: "shared-pages", label: "Shared Pages", icon: <Window20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
     { id: "apps", label: "Apps", icon: <Apps20Regular /> },
-    { id: "recently-deleted", label: "Recently deleted", icon: <Delete20Regular /> },
+    { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
   const closeWindowControl = closeToTray?.supported ? (
     <>
       <div className="appearance-settings-row settings-close-window-row">
         <span>
-          <span className="appearance-settings-label" id="window-close-settings-title">Closing the window</span>
+          <span className="appearance-settings-label" id="window-close-settings-title">Closing the Window</span>
           {closeToTrayBusy ? <small><ArrowClockwise20Regular className="spin" /> Updating</small> : closeToTrayNotice ? <small className="settings-save-status" role="status"><Checkmark16Regular />{closeToTrayNotice}</small> : null}
         </span>
         <div className="theme-segmented-control two-options" role="radiogroup" aria-labelledby="window-close-settings-title">
@@ -340,7 +340,7 @@ function RemoteAccessPane() {
         ? "Desktop connected"
         : status.connection === "connecting"
           ? "Connecting"
-          : "Needs attention";
+          : "Needs Attention";
   const remoteSettingsChanged = !status?.configured
     || slug !== (status.slug ?? "")
     || Boolean(password)
@@ -350,7 +350,7 @@ function RemoteAccessPane() {
     <>
       <section className="settings-section remote-access-overview" aria-labelledby="remote-access-title">
         <div className="settings-section-heading">
-          <h3 id="remote-access-title">Your private web address</h3>
+          <h3 id="remote-access-title">Your Private Web Address</h3>
           <span className={`remote-access-state ${status?.connection ?? "stopped"}`}>{connectionLabel}</span>
         </div>
         {status?.url ? <code className="remote-access-url">{status.url}</code> : null}
@@ -374,7 +374,7 @@ function RemoteAccessPane() {
 
       {status?.configured ? (
         <section className="settings-section" aria-labelledby="paired-browsers-title">
-          <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired browsers</h3><span>{status.approvedBrowsers.length}</span></div>
+          <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired Browsers</h3><span>{status.approvedBrowsers.length}</span></div>
           <p>{remoteAccessSettings.pairedBrowserTrust}</p>
           {status.approvedBrowsers.length ? <div className="remote-browser-list">{status.approvedBrowsers.map((browser) => (
             <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
@@ -647,7 +647,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                       <button
                         className="secondary-button"
                         type="button"
-                        onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link copied"); }}
+                        onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link Copied"); }}
                       >
                         {foldPublicationsSettings.copyLink}
                       </button>

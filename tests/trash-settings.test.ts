@@ -13,7 +13,7 @@ import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
  * (docs/receipts-not-gates.md, F20). A delete never refuses for lack of
  * coverage: the entry moves here and comes back on request. A deleted managed
  * Space folder comes back with its portable identity, its Chats, and its
- * History. Retention is adjustable, "Delete now" removes one item, and a tree
+ * History. Retention is adjustable, "Delete Now" removes one item, and a tree
  * holding legacy `.workspace/` records is never erased — the clean-break rule.
  */
 

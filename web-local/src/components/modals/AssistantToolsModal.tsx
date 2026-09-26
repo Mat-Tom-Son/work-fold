@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Dismiss20Regular } from "@fluentui/react-icons";
 
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { CapabilitiesPane } from "../panes/CapabilitiesPane";
@@ -6,15 +7,14 @@ import type { AgentCatalog, AgentStatus, AssistantToolsView, SpaceSummary } from
 
 /**
  * Skills & Extensions as a popup like Settings (2026-09-25). The rail's Add
- * button opens it for the Folder that was active, and "This folder only"
+ * button opens it for the Folder that was active, and "This Folder Only"
  * keeps meaning that Folder for as long as the popup is open.
  */
-export function AssistantToolsModal({ space, status, initialView, fixtureMode = false, onOpenSettings, onError, onCatalogChanged, onClose }: {
+export function AssistantToolsModal({ space, status, initialView, fixtureMode = false, onError, onCatalogChanged, onClose }: {
   space: SpaceSummary;
   status: AgentStatus;
   initialView: AssistantToolsView;
   fixtureMode?: boolean;
-  onOpenSettings: () => void;
   onError: (message: string | null) => void;
   onCatalogChanged?: (catalog: AgentCatalog) => void;
   onClose: () => void;
@@ -24,16 +24,15 @@ export function AssistantToolsModal({ space, status, initialView, fixtureMode = 
   return (
     <div className="modal-backdrop assistant-tools-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="assistant-tools-modal" role="dialog" aria-modal="true" aria-label="Skills & Extensions" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="minimal-icon-button assistant-tools-close" type="button" onClick={onClose} aria-label="Close Skills & Extensions"><Dismiss20Regular /></button>
         <CapabilitiesPane
           space={space}
           status={status}
           view={view}
           fixtureMode={fixtureMode}
           onViewChange={setView}
-          onOpenSettings={onOpenSettings}
           onError={onError}
           onCatalogChanged={onCatalogChanged}
-          onClose={onClose}
         />
       </section>
     </div>

@@ -80,11 +80,11 @@ export function SpacesPane({
       <div className="professional-space-actions" aria-label="Add a folder">
         <button className="professional-space-action" type="button" onClick={onOpenFolder}>
           <span className="professional-space-action-icon" aria-hidden="true"><FolderOpen20Regular /></span>
-          <strong>Existing folder</strong>
+          <strong>Existing Folder</strong>
         </button>
         <button className="professional-space-action" type="button" onClick={onCreate}>
           <span className="professional-space-action-icon" aria-hidden="true"><FolderAdd20Regular /></span>
-          <strong>New folder</strong>
+          <strong>New Folder</strong>
         </button>
       </div>
 
@@ -127,7 +127,7 @@ export function SpacesPane({
                         type="button"
                         onClick={() => onRemove(item)}
                         aria-label={`${deletesFolder ? "Delete" : "Remove"} ${item.name}`}
-                        title={deletesFolder ? "Delete folder" : "Remove folder"}
+                        title={deletesFolder ? "Delete Folder" : "Remove folder"}
                       >
                         <Delete16Regular />
                       </button>
@@ -454,7 +454,7 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
     if (fixtureItems) return;
     setBusy(true);
     try {
-      const result = await api<{ created: boolean }>(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } });
+      const result = await api<{ created: boolean }>(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } });
       setNotice(result.created ? "Restore point saved." : "Current files already match the latest restore point.");
       await load();
     }

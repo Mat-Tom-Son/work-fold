@@ -7938,10 +7938,63 @@ body:has(> #root > .desktop-chrome-shell) {
     transform 0.16s var(--work-fold-ease-smooth);
 }
 
-.surface-tab-new-chat-trigger {
-  width: 48px;
-  grid-template-columns: 20px 14px;
-  gap: 2px;
+/* One control at rest; hover and focus show its two halves (2026-09-25). */
+.surface-tab-new-chat {
+  display: grid;
+  grid-template-columns: 30px 18px;
+  align-items: stretch;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition:
+    border-color 0.16s var(--work-fold-ease-smooth),
+    box-shadow 0.16s var(--work-fold-ease-smooth);
+}
+
+.surface-tab-new-chat > .surface-tab-action {
+  width: auto;
+  height: 32px;
+  border: 0;
+  border-radius: 7px 0 0 7px;
+  box-shadow: none;
+  transform: none;
+}
+
+.surface-tab-new-chat-main {
+  padding-left: 2px;
+}
+
+.surface-tab-new-chat > .surface-tab-new-chat-trigger {
+  border-radius: 0 7px 7px 0;
+}
+
+.surface-tab-new-chat:hover,
+.surface-tab-new-chat:focus-within {
+  border-color: var(--space-selection-border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.surface-tab-new-chat:hover > .surface-tab-new-chat-trigger,
+.surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
+}
+
+.surface-tab-new-chat > .surface-tab-action:hover,
+.surface-tab-new-chat > .surface-tab-action:focus-visible {
+  border-color: transparent;
+  background: var(--space-selection-surface, rgba(72, 106, 179, 0.1));
+  box-shadow: none;
+  transform: none;
+}
+
+.surface-tab-new-chat:hover > .surface-tab-new-chat-trigger:hover,
+.surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger:focus-visible {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
+}
+
+.surface-tab-new-chat > .surface-tab-action:active {
+  transform: none;
+  background: var(--space-selection-border);
 }
 
 .surface-tab-space-menu-anchor {
@@ -18154,4 +18207,18 @@ body:has(> #root > .desktop-chrome-shell) {
 
 .settings-limits > summary h3 {
   margin: 0;
+}
+
+/* The split new-chat control keeps its own hover look in the dark theme too. */
+.app-shell[data-theme="dark"] .surface-tab-new-chat > .surface-tab-action:hover,
+.app-shell[data-theme="dark"] .surface-tab-new-chat > .surface-tab-action:focus-visible {
+  border-color: transparent;
+  background: var(--space-selection-surface, rgba(255, 255, 255, 0.08));
+  box-shadow: none;
+  transform: none;
+}
+
+.app-shell[data-theme="dark"] .surface-tab-new-chat:hover > .surface-tab-new-chat-trigger,
+.app-shell[data-theme="dark"] .surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger {
+  box-shadow: inset 1px 0 0 var(--space-selection-border);
 }

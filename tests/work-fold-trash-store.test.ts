@@ -576,7 +576,7 @@ test("retention purge erases only expired entries, holds legacy trees, and runs 
   assert.deepEqual(second, { purged: [fresh.id], held: [legacy.id], failed: [] });
   assert.deepEqual((await reopened.list()).entries.map((item) => item.id), [legacy.id]);
 
-  // "Delete now" also fails closed on a legacy tree that no purge has looked at yet.
+  // "Delete Now" also fails closed on a legacy tree that no purge has looked at yet.
   await mkdir(join(space, "again", ".WORKSPACE"), { recursive: true });
   const again = await reopened.trashTree({ kind: "folder", reason: "files.delete", sourcePath: join(space, "again"), spaceId: "space-1", originalPath: "again", receiptId: null });
   if (process.platform === "win32") {

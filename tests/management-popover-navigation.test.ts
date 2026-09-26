@@ -96,9 +96,9 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   delayOld = true;
   await openHistory(); await choose("Field notes");
   await dom.waitFor(() => finishOld !== null);
-  await click('[aria-label="New chat"]');
+  await click('[aria-label="New Chat"]');
   await dom.act(() => finishOld!());
-  assert.equal(dom.container.querySelector(".popover-chat-title")?.textContent, "New chat");
+  assert.equal(dom.container.querySelector(".popover-chat-title")?.textContent, "New Chat");
   assert.equal(dom.container.querySelector('[role="alert"]'), null);
   assert.equal(dom.container.querySelector("textarea")?.value, "");
   assert.equal(dom.container.textContent?.includes("Transcript older"), false);
@@ -110,7 +110,7 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   running = true;
   await openHistory(); await choose("Workshop plan");
   await dom.waitFor(() => dom.container.querySelector('[aria-label="Stop"]'));
-  await click('[aria-label="New chat"]');
+  await click('[aria-label="New Chat"]');
   assert.equal(dom.container.querySelector("textarea")?.value, "New draft");
   assert.ok(dom.container.querySelector(".fold-background-work"), "running Chat remains reachable");
   await click(".fold-background-work");
@@ -121,7 +121,7 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
 
   emptyDesktop = true; running = false;
   await dom.render(createElement(PopoverApp, { key: "empty-desktop" }));
-  await dom.waitFor(() => dom.container.querySelector(".popover-chat-title")?.textContent === "New chat");
+  await dom.waitFor(() => dom.container.querySelector(".popover-chat-title")?.textContent === "New Chat");
   emptyDesktop = false; // Another surface starts a Chat before this draft sends.
   await input("textarea", "Start my own chat");
   await click(".composer-action");

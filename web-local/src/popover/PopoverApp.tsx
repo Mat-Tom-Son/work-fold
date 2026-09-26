@@ -145,7 +145,7 @@ export function PopoverApp() {
   const [sending, setSending] = useState(false);
   const [startingNewChat, setStartingNewChat] = useState(false);
   const [chats, setChats] = useState<FoldChat[]>(popoverFixtureRequested ? fixtureChats : []);
-  const [chatTitle, setChatTitle] = useState(popoverFixtureRequested ? fixtureChats[0].title : "New chat");
+  const [chatTitle, setChatTitle] = useState(popoverFixtureRequested ? fixtureChats[0].title : "New Chat");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyError, setHistoryError] = useState("");
@@ -525,7 +525,7 @@ export function PopoverApp() {
     pendingSendIdentityRef.current = null;
     setStartingNewChat(id === null);
     setLoadingChat(Boolean(id) && !popoverFixtureRequested);
-    setChatTitle(id ? chats.find((chat) => chat.id === id)?.title || "Untitled chat" : "New chat");
+    setChatTitle(id ? chats.find((chat) => chat.id === id)?.title || "Untitled chat" : "New Chat");
     setRequest(null);
     requestRef.current = null;
     setConversationId(id);
@@ -562,7 +562,7 @@ export function PopoverApp() {
           startingNewChatRef.current = true;
           setStartingNewChat(true);
           setConversationId(null);
-          setChatTitle("New chat");
+          setChatTitle("New Chat");
           setMessages([]);
           setRequest(null);
           requestRef.current = null;
@@ -764,12 +764,12 @@ export function PopoverApp() {
           <button
             className="popover-new-chat"
             type="button"
-            aria-label="New chat"
+            aria-label="New Chat"
             onClick={startNewChat}
             disabled={navigationBusy}
           >
             <SquarePen aria-hidden="true" />
-            <span>New chat</span>
+            <span>New Chat</span>
           </button>
         </div>
       </header>
@@ -788,9 +788,9 @@ export function PopoverApp() {
             <h1>Chats</h1><span>On this desktop</span>
           </div>
           <label className="fold-chat-search"><Search aria-hidden="true" /><input ref={searchRef} type="search" aria-label="Search chats" placeholder="Search chats" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} /></label>
-          {historyError ? <p className="error-line" role="alert">{historyError} <button type="button" onClick={() => void refreshConversation()}>Try again</button></p> : null}
+          {historyError ? <p className="error-line" role="alert">{historyError} <button type="button" onClick={() => void refreshConversation()}>Try Again</button></p> : null}
           <div className="fold-chat-list">
-            {draftsRef.current.get("new")?.text || draftsRef.current.get("new")?.staged.length ? <button className="fold-chat-row" type="button" disabled={navigationBusy} onClick={startNewChat}><span>New chat</span><small>Draft</small></button> : null}
+            {draftsRef.current.get("new")?.text || draftsRef.current.get("new")?.staged.length ? <button className="fold-chat-row" type="button" disabled={navigationBusy} onClick={startNewChat}><span>New Chat</span><small>Draft</small></button> : null}
             {chatsByRecency.map(([label, groupedChats]) => <section className="fold-chat-group" key={label} aria-label={label}>
               <h2>{label}</h2>
               {groupedChats.map((chat) => (

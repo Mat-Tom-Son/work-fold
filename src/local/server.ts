@@ -10277,7 +10277,7 @@ function routingSettingsCause(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const cause = value as Record<string, unknown>;
   if (cause.kind === "files-changed") return `Folder changed · ${cause.changedCount} file(s)`;
-  if (cause.kind === "run-now") return "Run now";
+  if (cause.kind === "run-now") return "Run Now";
   if ((cause.kind === "scheduled" || cause.kind === "resume") && typeof cause.slotAt === "string") {
     return cause.kind === "resume" ? `Caught up from ${cause.slotAt}` : `Scheduled for ${cause.slotAt}`;
   }

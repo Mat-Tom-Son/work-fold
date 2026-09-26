@@ -68,8 +68,8 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
   }
   const unavailable = disabled || busy;
   if (!tasks.length && !error) return null;
-  return <section className="restricted-app-connections restricted-app-assistant-tasks" aria-label="Assistant requests">
-    <div className="restricted-app-connections-heading"><h3>Assistant requests</h3></div>
+  return <section className="restricted-app-connections restricted-app-assistant-tasks" aria-label="Assistant Requests">
+    <div className="restricted-app-connections-heading"><h3>Assistant Requests</h3></div>
     {error ? <p role="alert">{error}</p> : null}
     {tasks.map((task) => <article className="restricted-app-destination-card" key={task.id} tabIndex={-1}>
       <div className="restricted-app-task-heading"><strong>{task.title}</strong><span className="professional-status-badge">{restrictedAppAssistantTaskStatusLabel(task)}</span></div>
@@ -86,12 +86,12 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
       </div>
       {task.status === "waiting" ? <AppTaskQuestion app={app} task={task} onOpenFile={onOpenFile} /> : null}
       {detail?.task.id === task.id ? <div className="restricted-app-task-review">
-        <details><summary>Request details</summary>
+        <details><summary>Request Details</summary>
           <pre tabIndex={0} aria-label="Assistant request">{detail.instructions}{"\n\n"}{JSON.stringify(JSON.parse(detail.inputJson), null, 2)}</pre>
           {restrictedAppAssistantTaskUsageLine(task) ? <p className="restricted-app-task-usage">{restrictedAppAssistantTaskUsageLine(task)}</p> : null}
         </details>
         {task.status !== "waiting" && detail.taskId ? <ConnectedWorkRequest path={`/api/tasks/${encodeURIComponent(detail.taskId)}/work`} showResultSummary={false} showResultFiles={false} showStop={false} onOpenFile={onOpenFile} /> : null}
-        {detail.task.result?.data === undefined ? null : <details><summary>Result details</summary><pre tabIndex={0} aria-label="Assistant result details">{JSON.stringify(detail.task.result.data, null, 2)}</pre></details>}
+        {detail.task.result?.data === undefined ? null : <details><summary>Result Details</summary><pre tabIndex={0} aria-label="Assistant result details">{JSON.stringify(detail.task.result.data, null, 2)}</pre></details>}
         <button className="professional-button professional-button-secondary" disabled={busy} onClick={() => setDetail(null)}>Close</button>
       </div> : null}
     </article>)}

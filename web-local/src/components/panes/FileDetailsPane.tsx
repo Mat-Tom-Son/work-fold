@@ -120,8 +120,8 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOp
           {canOpenWith ? <button className="secondary-button compact no-margin" type="button" onClick={() => void onOpenLocal(path, "open-with")}><AppWindow size={14} />Open with</button> : null}
           {isShareablePath(path) ? <FileShareControl spaceId={space.id} path={path} fileName={fileName} fixtureMode={fixtureMode} shareRequestId={shareRequestId} onOpenSettings={onOpenSettings} /> : null}
           <button className="minimal-icon-button" type="button" title={revealLabel} aria-label={revealLabel} onClick={() => void onOpenLocal(path, "reveal")}><FolderOpen size={15} /></button>
-          <button className="minimal-icon-button" type="button" title="Attach to chat" aria-label="Attach to chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={15} /></button>
-          <button className="minimal-icon-button" type="button" title="Version history" aria-label="Version history" onClick={() => onShowVersionHistory(path)}><History size={15} /></button>
+          <button className="minimal-icon-button" type="button" title="Attach to Chat" aria-label="Attach to Chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={15} /></button>
+          <button className="minimal-icon-button" type="button" title="Version History" aria-label="Version History" onClick={() => onShowVersionHistory(path)}><History size={15} /></button>
           {onRename ? <button className="minimal-icon-button" type="button" title="Rename" aria-label="Rename" onClick={() => onRename(path)}><PencilLine size={15} /></button> : null}
         </div>
       </header>

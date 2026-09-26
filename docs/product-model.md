@@ -469,7 +469,7 @@ Owner decisions, recorded here in dated form; the body of this document and
 - **Skills & Extensions** is a popup dialog like Settings and Keyboard
   shortcuts, pinned to the Folder it was opened from. Its Installed view starts
   with an **Included with work-fold** strip holding exactly the five included
-  tools (Chrome, Computer control, Web, Documents, Service connections), each
+  tools (Chrome, Computer Control, Web, Documents, Service Connections), each
   with one status word (Ready, Setup needed, Unavailable, Not checked, Turned
   off; Chrome shows Connected or Not connected) and a **Set up** button only
   when a person can act. Below the strip, **Everywhere** and **This folder
