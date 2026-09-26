@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
+import { assertLocalReleaseVerification, assertVerifiedBuildOrder, withReleaseVerificationLock } from "./local-release-verification.mjs";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
@@ -62,10 +63,14 @@ const envPatch = {
     : { WORKFOLD_MAC_RELEASE_BUILD: "0", WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD: "1", WORKFOLD_REQUIRE_CODE_SIGNING: "0", CSC_IDENTITY_AUTO_DISCOVERY: "false" }),
 };
 
-if (releaseBuild) await buildResumableRelease();
-else await buildUnsignedSmoke();
+await withReleaseVerificationLock(rootDir, releaseBuild ? "distribution build" : "structural smoke build", async (lockToken) => {
+  if (releaseBuild) {
+    const verification = await assertLocalReleaseVerification(rootDir, { lockToken });
+    await buildResumableRelease(verification);
+  } else await buildUnsignedSmoke();
+});
 
-async function buildResumableRelease() {
+async function buildResumableRelease(verification) {
   const descriptor = {
     productName: identity.productName,
     version,
@@ -85,6 +90,7 @@ async function buildResumableRelease() {
     state = await readReleaseState(statePath);
     if (!state) throw new Error("No saved macOS release checkpoint exists. Run a fresh signed candidate first.");
     assertCompatibleReleaseState(state, descriptor, fingerprint);
+    assertVerifiedBuildOrder(state, verification);
     await validateResumeCheckpoint(state);
     console.log(`[${identity.productName} macOS release] Resuming at ${nextIncompleteStage(state) ?? "completed verification"}.`);
   } else {
@@ -96,6 +102,7 @@ async function buildResumableRelease() {
       descriptor,
       fingerprint,
       startedAt: new Date(Date.now() - prepare.durationMs).toISOString(),
+      localVerificationRunId: verification.runId,
       stages: { prepare },
     });
   }

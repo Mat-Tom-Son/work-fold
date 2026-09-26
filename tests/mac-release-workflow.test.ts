@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,12 +7,15 @@ import {
   assertArtifactReceipt,
   assertCompatibleReleaseState,
   captureArtifactReceipt,
+  computeReleaseFingerprint,
   formatDuration,
   nextIncompleteStage,
   readReleaseState,
+  releaseStatePath,
   summarizeReleaseState,
   writeReleaseState,
 } from "../scripts/mac-release-state.mjs";
+import { assertPublishableMacState } from "../scripts/mac-publication-state.mjs";
 
 const descriptor = {
   productName: "work-fold",
@@ -111,10 +114,45 @@ test("macOS release commands expose separate RC, fresh, resume, status, and publ
   assert.match(packageJson.scripts["desktop:rc:mac"], /build-mac-release-candidate/);
   assert.match(packageJson.scripts["desktop:make:mac:release:resume"], /--release --resume/);
   assert.match(packageJson.scripts["desktop:release:mac:status"], /mac-release-status/);
+  assert.match(packageJson.scripts["desktop:release:mac:ci"], /verify-release-ci/);
   assert.match(packageJson.scripts["desktop:release:mac:resume"], /make:mac:release:resume/);
   assert.match(builder, /assertCompatibleReleaseState/);
   assert.match(builder, /assertSignedAppCheckpoint/);
   assert.match(builder, /captureArtifactReceipt/);
   assert.match(candidate, /WORKFOLD_DESKTOP_OUTPUT_DIR: outputDirectory/);
   assert.match(candidate, /--dir/);
+});
+
+test("direct publication requires a complete checkpoint bound to current source and every asset", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "work-fold-publication-state-"));
+  try {
+    await mkdir(join(directory, "out", "builder"), { recursive: true });
+    await writeFile(join(directory, "package.json"), JSON.stringify({ version: descriptor.version }));
+    const assets = ["candidate.zip", "latest-mac.yml"];
+    for (const asset of assets) await writeFile(join(directory, "out", "builder", asset), asset);
+    const receipt = await captureArtifactReceipt(directory, assets.map((name) => `out/builder/${name}`));
+    const state = {
+      productName: descriptor.productName,
+      descriptor,
+      fingerprint: await computeReleaseFingerprint(directory, descriptor),
+      stages: Object.fromEntries(["prepare", "package", "packaged-assets", "finalize", "manifest", "verify"].map((stage) => [stage, {
+        completedAt: "2026-09-25T00:00:00.000Z", ...(stage === "verify" ? { receipt } : {}),
+      }])),
+    };
+    const path = releaseStatePath(directory, descriptor.productName);
+    await assert.rejects(assertPublishableMacState(directory, descriptor, assets), /complete signed release checkpoint/);
+    await writeReleaseState(path, { ...state, stages: { prepare: state.stages.prepare } });
+    await assert.rejects(assertPublishableMacState(directory, descriptor, assets), /complete signed release checkpoint/);
+    await writeReleaseState(path, state);
+    await assertPublishableMacState(directory, descriptor, assets);
+    await assert.rejects(assertPublishableMacState(directory, descriptor, [...assets, "absent.dmg"]), /every publication artifact/);
+    await assert.rejects(assertPublishableMacState(directory, descriptor, [assets[0]!]), /every publication artifact/);
+    await writeFile(join(directory, "package.json"), JSON.stringify({ version: descriptor.version, changed: true }));
+    await assert.rejects(assertPublishableMacState(directory, descriptor, assets), /Release inputs changed/);
+    await writeFile(join(directory, "package.json"), JSON.stringify({ version: descriptor.version }));
+    await writeFile(join(directory, "out", "builder", assets[0]!), "tampered byte");
+    await assert.rejects(assertPublishableMacState(directory, descriptor, assets), /changed (size|contents)/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

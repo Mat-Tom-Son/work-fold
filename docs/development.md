@@ -122,12 +122,40 @@ repository instruction source.
 - `npm test` runs the application suite. While editing, run a focused file with
   `node --import tsx --test tests/documentation-contract.test.ts`, substituting
   the relevant test file. Use the full suite before handing off behavior changes.
+  CI divides the same discovered test files into four disjoint shards; reproduce
+  one with `npm test -- --shard=1/4` (through `4/4`). Every file belongs to exactly
+  one shard; an unsharded `npm test` still runs everything.
 - `npm ci --prefix services/bridge` and `npm test --prefix services/bridge` run
   the bridge suite. It uses an in-memory test database; a live PostgreSQL server
   or Railway account is not required for those tests.
 - `npm run desktop:prepare` verifies desktop resources, compiled code, native
   preloads, and the real restricted-app sandbox. After a compiled native change,
   `npm run desktop:restricted-app:smoke` is the focused sandbox probe.
+
+Full CI runs in the background on PRs and pushed `main` with seven jobs:
+Repository & TypeScript, four Application tests shards, Web bridge tests, and
+Electron integration. Version tags run only `Release tag verification`, which
+checks the annotated tag, package version, and canonical source identity. It
+does not repeat dependency installation or tests, or wait for main CI.
+
+Public Mac releases use `npm run desktop:release:mac:check` on the final clean,
+committed release SHA with Node 24, supported npm, and Google Chrome on an
+Apple-silicon Mac. Chrome runs the real CSS tests. This performs fresh
+root and bridge installs, `check`, the complete unsharded `npm test`, bridge
+tests, and `desktop:prepare`, then saves an ignored receipt at
+`out/release-checks/local-verification.json`. It records the exact source SHA,
+tree, build-input fingerprint, runtime, and successful stages; starting or
+failing a run invalidates the old receipt, and source changes during the run
+fail verification. `npm run desktop:release:mac:check -- --status` checks that
+receipt without running the stages. A receipt cannot carry across a merge or
+other commit change, even when the tree matches. The full signed build must
+start after that check succeeds; a fresh check reinstalls dependencies and
+requires a subsequent fresh build. Publication verifies matching Node/npm and
+dependency state, including hidden lockfile hashes. A shared per-worktree lock
+serializes local checks, all macOS builds, and publication so installation or
+preparation cannot race packaging. Test-filter environment flags cannot narrow
+the release check. GitHub Actions status is not a publication dependency. See
+the [release runbook](macos-release.md).
 
 Async tests should wait on the owned completion signal and verify persistence
 separately. Avoid arbitrary sleeps or assuming a journal write appears within
