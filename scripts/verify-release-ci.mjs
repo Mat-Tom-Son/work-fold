@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyReleaseCi } from "./release-ci.mjs";
+import { verifyReleaseSource } from "./release-source.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const identity = JSON.parse(readFileSync(new URL("../src/shared/product-identity.json", import.meta.url), "utf8"));
@@ -26,7 +27,7 @@ if (process.env.GITHUB_ACTIONS === "true" && options.includes("--tag-check")) {
   }
 }
 
-const evidence = await verifyReleaseCi({
-  repo, sha, tag, mainOnly: options.includes("--main-only"), requireTagCi: !options.includes("--tag-check"),
-});
+const evidence = options.includes("--tag-check")
+  ? await verifyReleaseSource({ repo, sha, tag })
+  : await verifyReleaseCi({ repo, sha, tag, mainOnly: options.includes("--main-only") });
 console.log(JSON.stringify(evidence, null, 2));

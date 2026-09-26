@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
+import { assertLocalReleaseVerification, assertVerifiedBuildOrder } from "./local-release-verification.mjs";
 import {
   assertCompatibleReleaseState,
   computeReleaseFingerprint,
@@ -36,6 +37,8 @@ if (state) {
   try {
     const fingerprint = await computeReleaseFingerprint(rootDir, descriptor);
     assertCompatibleReleaseState(state, descriptor, fingerprint);
+    const verification = await assertLocalReleaseVerification(rootDir);
+    assertVerifiedBuildOrder(state, verification);
     compatible = true;
   } catch (error) {
     incompatibility = error instanceof Error ? error.message : String(error);

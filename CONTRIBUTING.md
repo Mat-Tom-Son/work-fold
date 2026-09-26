@@ -83,14 +83,13 @@ For bridge changes, also run `npm ci --prefix services/bridge` and
 changes, run `npm run desktop:prepare`; that includes real Electron sandbox
 probes. See [verification lanes](docs/development.md#verification) for details.
 
-Open a **draft pull request** for development CI, or run CI manually from
-Actions. PR updates cancel obsolete PR runs. Full main runs and the separate
-lightweight release-tag verification retain independent runs, including queued
-runs. Application tests run in four parallel shards; the full local command is
-still `npm test`. Electron failures save synthetic lifecycle state and available
-screenshots in the run's diagnostics artifact. Inspect failures before retrying
-development checks; a failed release candidate must follow the runbook's
-immutable-tag and fix-forward rules.
+Open a **draft pull request** for background CI, or run CI manually from
+Actions. PR updates cancel obsolete PR runs. Main runs and the lightweight
+source-tag verification retain independent runs, including queued runs.
+Application tests run in four parallel shards; the full local command is still
+`npm test`. Electron failures save synthetic lifecycle state and available
+screenshots in the run's diagnostics artifact. Inspect failures and fix their
+cause; the release runbook defines local verification and immutable tags.
 
 Describe the problem, resulting behavior, and validation in your PR. Update
 the owning docs when behavior changes. Keep changes focused; preserve unrelated
@@ -98,8 +97,11 @@ work and keep credentials, local settings, and generated output out of commits.
 [AGENTS.md](AGENTS.md) defines the shared product, authority, and compatibility
 rules for every contributor and harness.
 
-Mac publication is a maintainer operation with separate authorization, full
-exact-commit main CI, and lightweight tag-verification requirements. Use the
+Mac publication is a maintainer operation with separate authorization and an
+exact-commit local verification receipt from `npm run desktop:release:mac:check`,
+followed by a signed build under the same Node/npm and dependency state. The
+local lane needs Node 24 and Google Chrome on an Apple-silicon Mac. GitHub
+Actions runs independently and does not gate publication. Use the
 [release runbook](docs/macos-release.md).
 Windows packaging remains inactive and does not gate Mac work.
 

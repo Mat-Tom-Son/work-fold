@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 # Candidate tags retain independent evidence, including queued runs.
 concurrency:
@@ -23,7 +22,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-      - name: Verify tagged source and exact main CI
+      - name: Verify annotated tag and exact pushed source
         run: node scripts/verify-release-ci.mjs --tag-check
         env:
           GH_TOKEN: ${{ github.token }}
