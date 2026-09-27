@@ -59,6 +59,7 @@ test("a delegated turn sees an opaque handle and its assignment, never the paren
   assert.match(rendered, /Refer to it as parent-[0-9a-f]{16}; that handle is all you get, and no command takes it/);
   assert.match(rendered, /Your assignment is the message in this turn/);
   assert.match(rendered, /chat ask --to parent/);
+  assert.match(rendered, /report back with chat report before your final reply, then give the complete useful answer in that reply/);
 
   const explicit = buildSpaceTurnContext({
     spaceId: "space-1",
@@ -122,6 +123,10 @@ test("the operations guide names the verbs and the rules, stays bounded, and fol
   assert.match(guide, /accepts a task id only while that exact turn is your own and running/);
   assert.match(guide, /not yours to read.*hand it off, or ask/s);
   assert.match(guide, /Never write cross-Space context into this Chat/);
+  assert.match(guide, /Direct Chat answers need no `chat report`; replies are saved/);
+  assert.match(guide, /Report delegated work, requested reports, or structured data and deliverables/);
+  assert.match(guide, /After all tools, including any chat report, give the complete answer as your final reply/);
+  assert.match(guide, /repeat essential earlier findings/);
   assert.ok(Buffer.byteLength(guide, "utf8") < workFoldSpaceOperationsGuideMaxBytes, "the guide stays under its budget");
   assert.doesNotMatch(guide, bannedWords);
   assert.doesNotMatch(guide, bannedNames);
@@ -181,6 +186,9 @@ test("the local API composes a Space turn's context from acceptance, never from 
     assert.equal(delegatedEvent.spaceTurn!.history?.status, "captured", "actual capture reaches the prompt hook");
     const history = delegatedEvent.spaceTurn!.history;
     if (history?.status === "captured") {
+      // The prompt hook can precede the post-turn capture. Read History only
+      // once this fixture's turn has released that operation's fence.
+      await waitFor(() => !["accepted", "running"].includes(api.requests.byTaskId(delegated.taskId)!.turns[0]!.state));
       const checkpoints = await api.actFacade.historyList({ space: space.id });
       assert.ok(checkpoints.checkpoints.some((checkpoint) => checkpoint.checkpointId === history.checkpointId));
     }

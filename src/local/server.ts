@@ -11019,7 +11019,7 @@ async function composeContinuationMessage(
   lines.push(
     "",
     root.owner.spaceId
-      ? "Bring these selected results together for your assignment. Answer questions addressed to you, then use chat report for your result and end your turn. Child files remain in their source Space until explicitly copied."
+      ? "Bring these selected results together for your assignment. Answer questions addressed to you. Submit any needed chat report before your final reply, then give the complete useful answer in that reply. Child files remain in their source Space until explicitly copied."
       : `The whole record: work-fold requests show --request ${root.requestId} --json. Bring these results together for the person; answer what is yours to answer; if the request is finished, say so and end your turn.`,
   );
   return clampUtf8(lines.join("\n"), workFoldRoutingDeclarationBounds.maxResolvedMessageBytes);

@@ -154,7 +154,6 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       <h4 id="fold-limits-requests-title">{foldLimitsSettings.requestsHeading}</h4>
       <LimitRows
         rows={[
-          ["Worker turns running together", String(requests.maxConcurrentChildrenPerRoot)],
           ["Model spending for one request", requests.providerBudgetUsd === null ? "No limit" : `$${formatNumber(requests.providerBudgetUsd)}`],
           ["A question an agent asks", kib(requests.maxQuestionTextBytes)],
           ["An answer you give", kib(requests.maxAnswerTextBytes)],

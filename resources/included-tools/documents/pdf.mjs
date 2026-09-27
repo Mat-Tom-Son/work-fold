@@ -81,7 +81,13 @@ export function pdfHelpers({ pdfjs, canvas, pdfRoot, versions, limits, boundedRe
             const maxScale = Math.min(Math.sqrt(limits.pagePixels / (region.width * region.height)), limits.canvasDimension / region.width, limits.canvasDimension / region.height);
             let scale = Math.min(requestedScale, maxScale);
             let width = Math.ceil(region.width * scale), height = Math.ceil(region.height * scale);
-            if (width * height > limits.pagePixels) { scale *= Math.sqrt(limits.pagePixels / (width * height)) * 0.99999; width = Math.ceil(region.width * scale); height = Math.ceil(region.height * scale); }
+            // The canvas owns whole pixels: ceil can exceed the continuous
+            // area bound even after an approximate square-root correction.
+            // Cross a pixel boundary, then verify the actual allocation again.
+            while (width * height > limits.pagePixels || width > limits.canvasDimension || height > limits.canvasDimension) {
+              scale *= Math.min(width > 1 ? (width - 1) / width : 1, height > 1 ? (height - 1) / height : 1) * (1 - Number.EPSILON);
+              width = Math.ceil(region.width * scale); height = Math.ceil(region.height * scale);
+            }
             if (options.fitToBudget === false && scale < requestedScale) throw new Error(`Page ${number} exceeds the canvas budget; choose a smaller region/scale or enable fitToBudget.`);
             const viewport = page.getViewport({ scale });
             const surface = canvas.createCanvas(width, height);

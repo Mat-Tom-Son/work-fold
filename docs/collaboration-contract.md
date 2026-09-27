@@ -127,17 +127,19 @@ request but never replays subsequent routing effects.
 ## Execution and transport bounds
 
 Requests, questions, reports, and continuations do not have a built-in
-lifetime or count quota. They remain explicit, durable records until they
-settle, are stopped, or retention removes settled data. Concurrent work and
-transport fields stay bounded so cancellation, scheduling, and persistence
-remain reliable.
+lifetime, delegation-depth, or count quota. They remain explicit, durable
+records until they settle, are stopped, or retention removes settled data.
+Each Chat runs one turn or compaction at a time. Different Chats and
+Folders, including management Chats, can run concurrently; delegated children
+have no separate slot limit or waiting queue. Transport fields remain bounded.
 
 | Bound | Value | On hit |
 |---|---|---|
-| Concurrent children per root | 8 | new child work waits for a slot |
 | Question text | 16 KiB | the write is refused before it is recorded |
+| Answer text | 16 KiB | the write is refused before it is recorded |
 | Result summary | 32 KiB | the write is refused before it is recorded |
 | Result data | 256 KiB | the write is refused before it is recorded |
+| Provider budget per root | no default cap; a host may set one | request fails when the configured cap is exceeded |
 
 ## Apps
 

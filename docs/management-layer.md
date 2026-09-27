@@ -284,7 +284,8 @@ A **request** carries its id, kind (`management`, `space`, `app`, `routing`,
 `cli`), root id, parent task id, owner scope (management, or a Space id plus
 conversation id), app installation where one applies, initiating surface,
 created-at, state, its turns, child request ids, question ids, results,
-rolled-up usage, and a deadline. Its state comes from one vocabulary:
+rolled-up usage, and a nullable deadline retained for compatibility. New
+requests have no deadline. Its state comes from one vocabulary:
 `working`, `waiting`, `handed_off`, `done`, `partial`, `failed`, `stopped`,
 `expired`. A **question** carries its id, request id, task id, respondent
 (`person` or `parent`), text, asked-at, state (`open`, `answered`, `expired`,
@@ -321,32 +322,37 @@ request as `waiting`. When every child of an owning request has
 settled when the owning Chat is idle and selected child results have not been delivered, the host composes one deterministic
 follow-up turn in that conversation — a `system`-actor turn joined to the root,
 naming each settled child, its outcome, the files it chose, and any question
-still open beneath it. It is counted against the per-root bound; past that
-bound a settle is recorded rather than narrated. Continuations never follow a
-root Stop, a request that ran out of time or hit a bound, or a restart, and a
-person can turn them off in Settings → Automations → Limits.
+still open beneath it. Delivered child turns are recorded so a result is not
+delivered twice. There is no continuation-count quota. Continuations never
+follow a root Stop, an expired legacy request, a configured spending-cap
+failure, or a restart, and a person can turn them off in Settings → Automations
+→ Limits.
 
 Only the assignment text, the answer text, released report summaries, and
 copied files ever enter a Space Chat. The request graph itself, other Spaces'
 results, and the fold's transcript stay above Spaces.
 
-The bounds are generous defaults in Settings → Automations → Limits
-(`src/shared/fold-limits.ts`), and every refusal names the number it hit:
+Requests have no built-in lifetime, child-count, delegation-depth, or
+continuation-count quota. One Chat runs one turn or compaction at a time;
+different Chats and Folders, including management Chats, can run concurrently.
+Delegated children have no separate slot limit or waiting queue.
+
+Settings → Automations → Limits (`src/shared/fold-limits.ts`) shows the actual
+request transport bounds, optional spending budget, and retention:
 
 | Limit | Default | On hit |
 |---|---|---|
-| Request deadline | 24 hours | request `expired`; open questions expire; no continuation |
-| Child tasks per root request | 32 | `chat send`/`chat handoff` refused, names this limit |
-| Delegation depth | 4 | same |
-| Concurrent children per root | 8 | same |
-| Continuation turns per root | 4 | further settles are recorded, not narrated |
 | Provider budget per root | unlimited (a host may set a cap) | request `failed`, names the cap |
-| Question lifetime | the request deadline | question `expired` |
+| Question text | 16 KiB | the write is refused before it is recorded |
+| Answer text | 16 KiB | the write is refused before it is recorded |
+| Result summary | 32 KiB | the write is refused before it is recorded |
+| Result data | 256 KiB | the write is refused before it is recorded |
 
 Envelope bounds travel with the same machinery: a summary of at most 32 KiB,
 structured details of at most 256 KiB validated against the declared schema
-when there is one, at most 32 named files, and question and answer text of at
-most 16 KiB each. Settled request graphs are kept for 30 days.
+when there is one, and question and answer text of at most 16 KiB each. Named
+result files have no separate count quota; the containing transport envelope
+still has its byte bound. Settled request graphs are kept for 30 days.
 
 ### Work presentation for trusted surfaces
 

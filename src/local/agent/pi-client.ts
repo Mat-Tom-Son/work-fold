@@ -1598,7 +1598,7 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
         turn.delegated.assignmentIsThisMessage
           ? "Your assignment is the message in this turn."
           : `Your assignment from that request:\n${turn.delegated.assignment ?? ""}${turn.delegated.assignmentTruncated ? "\n[The assignment was cut at 16 KB.]" : ""}`,
-        "Report back with chat report when the assignment is done, and ask with chat ask --to parent when you need that request to decide something.",
+        "When the assignment is done, report back with chat report before your final reply, then give the complete useful answer in that reply. Ask with chat ask --to parent when you need that request to decide something.",
       );
     }
     lines.push(

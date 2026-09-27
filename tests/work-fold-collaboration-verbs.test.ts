@@ -696,6 +696,7 @@ test("a Space receives a child result that finished before its own turn, exactly
     await waitFor(async () => h.pending.some((p) => p.taskId === continued.turns[1]!.taskId));
     assert.ok(continued.deliveredChildTaskIds.includes(child.taskId));
     assert.match(continued.content, /Selected fact/);
+    assert.match(continued.content, /Submit any needed chat report before your final reply, then give the complete useful answer in that reply/);
     assert.doesNotMatch(continued.content, /requests show/);
     assert.equal(continued.assignment, "/hold Assemble a brief.");
     assert.match(JSON.stringify(h.pending.find((p) => p.taskId === continued.turns[1]!.taskId)?.spaceTurn), /Assemble a brief/);

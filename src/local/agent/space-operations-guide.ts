@@ -39,6 +39,8 @@ export function workFoldSpaceOperationsGuide(executable = "work-fold"): string {
     "",
     "### Report, ask, answer, hand off",
     "",
+    "Direct Chat answers need no `chat report`; replies are saved. Report delegated work, requested reports, or structured data and deliverables.",
+    "",
     `- \`${cmd} chat report --space <id> --task <this turn's task id> --summary "<what you did>" [--data '<json>'] [--file <space-path>]... [--outcome succeeded|partial|failed] --json\` attaches one result to this task. \`--file\` names deliverables that already exist in this Space. Say \`partial\` or \`failed\` when that is true, and name any limit that stopped the work.`,
     `- \`${cmd} chat ask --space <id> --task <this turn's task id> --question "<text>" [--to person|parent] --json\` records a question and leaves this task waiting. Your turn then ends; one answer starts one fresh turn here carrying it. Never busy-wait, promise to stay awake, or hold a turn open.`,
     `- \`${cmd} chat answer --space <the Space that asked> --question <id> --answer "<text>" --json\` answers a question waiting on you and starts that asker's one continuation. Name the asking Space, never your own: for a question handed up to you that is the Space you handed work to. A second answer, an expired question, and an answer from the wrong Space are refused.`,
@@ -69,7 +71,7 @@ export function workFoldSpaceOperationsGuide(executable = "work-fold"): string {
     "",
     "### Finish",
     "",
-    "End with the outcome, useful file links, what you verified and material limits. Keep routine receipt and checkpoint identifiers in supporting details unless needed to recover or diagnose. An act is done when its receipt says it executed; report failures and refusals honestly, and never retry a failed act on your own. For deletion, say where it can be recovered. Ask a question only when an answer is needed; put it on its own final line.",
+    "After all tools, including any chat report, give the complete answer as your final reply; repeat essential earlier findings. Include outcomes, file links, verification and limits. Keep routine ids in supporting details. Read receipts before claiming success; never retry failed acts yourself. For deletion, name its recovery location. Put necessary questions on their own final line.",
   ].join("\n");
 }
 

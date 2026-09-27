@@ -399,6 +399,33 @@ test("PDF crop inspects small detail and oversized requested scale fits the canv
   assert.equal(value.crop.artifact.sha256, sha256(await readFile(value.crop.artifact.path)));
 });
 
+test("PDF fitting respects rounded pixel and dimension limits before image emission", async (t) => {
+  const setup = await fixture(t, `import{writeFile}from'node:fs/promises';export default async({libraries,resolve,openPdf,emitImage})=>{
+    const pdf=await libraries.pdfLib.PDFDocument.create();
+    for(const size of [[1683.779527559055,2383.937007874016],[2383.937007874016,1683.779527559055],[40000,200]])pdf.addPage(size).drawText('Rounding boundary',{x:40,y:40,size:12});
+    await writeFile(resolve('boundary.pdf'),await pdf.save());const handle=await openPdf('boundary.pdf');
+    try{
+      const fit=await handle.render();const crop=await handle.render({pages:[1],scale:10,region:{x:0.125,y:0.25,width:1683.5,height:2383.5}});
+      const pages=[...fit.pages,...crop.pages];const emissions=[];for(const page of pages)emissions.push(await emitImage(page.path));
+      let refusal='';try{await handle.render({pages:[1],fitToBudget:false})}catch(error){refusal=error.message}
+      return{pages,emissions,refusal};
+    }finally{await handle.close()}};`);
+  const result = await runDocumentScript(setup);
+  const value = JSON.parse(result.value);
+  assert.equal(value.pages.length, 4);
+  assert.equal(result.images.length, 4, "every fitted render is accepted by the real image-emission boundary");
+  for (const [index, page] of value.pages.entries()) {
+    assert.ok(page.width * page.height <= 4_000_000, `render ${index} is within the integer pixel budget`);
+    assert.ok(page.width <= 32767 && page.height <= 32767);
+    assert.equal(page.fitted, true);
+    assert.equal(value.emissions[index].admitted, true);
+    const png = await readFile(page.artifact.path);
+    assert.equal(png.readUInt32BE(16), page.width);
+    assert.equal(png.readUInt32BE(20), page.height);
+  }
+  assert.match(value.refusal, /exceeds the canvas budget/);
+});
+
 test("native document failure keeps evidence content and only its own result gets error status", async (t) => {
   const setup = await fixture(t, "export default async({progress})=>{await progress({completed:1});throw Error('failed after progress')};");
   const extension = await createJiti(import.meta.url).import<{ default: (pi: unknown) => void }>("../resources/included-tools/documents/index.ts");
