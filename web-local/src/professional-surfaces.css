@@ -5890,8 +5890,13 @@ button.capabilities-resource-card:focus-visible {
   background: var(--ui-surface);
 }
 
+/* The box takes focus as the list opens, so it shows a firmer border rather than a ring. */
 .model-catalog-search:focus-within {
-  border-color: var(--ui-accent);
+  border-color: var(--ui-border-strong);
+}
+
+.app-shell .settings-window .model-catalog-search input:focus-visible {
+  outline: none;
 }
 
 .model-catalog-search input {
