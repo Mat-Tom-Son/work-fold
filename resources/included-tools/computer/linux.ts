@@ -54,7 +54,7 @@ export async function probeLinuxComputer(config: IncludedComputerConfig, options
       status: result.accessibility ? "ready" : "setup_required", accessibility: result.accessibility === true,
       screenRecording: !wayland && result.screenRecording === true,
       reason: !result.accessibility ? "Linux accessibility is unavailable. Enable accessibility in your desktop session, then check again."
-        : wayland ? "Accessibility actions are ready. Use desktop sharing setup to share a screen with a chosen Chat for Wayland screenshots and physical input."
+        : wayland ? "Accessibility actions are ready. Use desktop sharing setup to share a screen with work-fold for Wayland screenshots and physical input in any Chat."
           : "Linux accessibility and X11 computer control are ready.",
       helper: { appPath: config.helperAppPath },
     };
@@ -70,17 +70,26 @@ export async function shutdownLinuxComputer() {
 }
 export async function linuxComputer(pi: ExtensionAPI, config: IncludedComputerConfig, screens?: Partial<ComputerHostFacilities>) {
   const runtime = await native(config);
+  const sharedScreens = screens?.listSharedScreens && screens.observeSharedScreen && screens.actOnSharedScreen ? {
+    list: screens.listSharedScreens, observe: screens.observeSharedScreen, act: screens.actOnSharedScreen,
+    shutdown: screens.releaseSharedScreenSession,
+  } : undefined;
+  const screenGuidance: Record<string, string> = {
+    find_roots: 'For Wayland screenshots and physical input, discover the granted monitor with kind: "shared_screen". It represents a whole monitor, so omit application-title, PID and application filters when finding it.',
+    observe_ui: 'For a shared_screen root, use mode: "visual" or "fused". It has no semantic tree; an application accessibility root is separate from the shared monitor.',
+    act_ui: 'For shared_screen states, use physical actions without refs. To scroll, first moveMouse to x/y inside the intended area, then scroll with scrollY/scrollX and no ref; these can be in one actions array. To drag, supply a path of x/y points. For keyboard shortcuts, pass separate key names, for example keys: ["ctrl", "a"], not ["ctrl+a"]. Keyboard input affects the focused application; click the intended field first and verify the successor image.',
+  };
   const api = new Proxy(pi, { get(target, key, receiver) {
     if (key !== "registerTool") return Reflect.get(target, key, receiver);
-    return (tool: Parameters<ExtensionAPI["registerTool"]>[0]) => pi.registerTool({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => {
+    return (tool: Parameters<ExtensionAPI["registerTool"]>[0]) => pi.registerTool({ ...tool,
+      description: sharedScreens && screenGuidance[tool.name] ? `${tool.description}\n\n${screenGuidance[tool.name]}` : tool.description,
+      ...(sharedScreens && screenGuidance[tool.name] ? { promptGuidelines: [...(tool.promptGuidelines ?? []), screenGuidance[tool.name]] } : {}),
+      execute: async (...args: Parameters<typeof tool.execute>) => {
       args[2]?.throwIfAborted(); await verify(config); args[2]?.throwIfAborted();
       return tool.execute(...args);
     } });
   } });
   return runtime.factory(api, { scheduler: runtime.scheduler, setupOnStart: false, restoreObservations: false,
-    ...(screens?.listSharedScreens && screens.observeSharedScreen && screens.actOnSharedScreen ? { sharedScreens: {
-      list: screens.listSharedScreens, observe: screens.observeSharedScreen, act: screens.actOnSharedScreen,
-      shutdown: screens.releaseSharedScreenSession,
-    } } : {}),
+    ...(sharedScreens ? { sharedScreens } : {}),
     requireExplicitRoot: true, enableCdp: false, browserTools: false, interactiveSetup: false });
 }

@@ -197,24 +197,20 @@ try {
     if (!button) throw new Error('Computer Control tile unavailable'); button.click();
   });
   const section = 'section[aria-label="Wayland screen sharing"]';
-  const chooseChat = async () => {
-    const selector = `${section} select`, value = `space:${conversationId}`;
-    // The setup panel renders before its asynchronous Chat list arrives.
-    // Selecting an absent option silently clears the select in Puppeteer.
-    await page.waitForFunction((selector, value) => [...(document.querySelector(selector)?.options || [])].some(option => option.value === value),
-      { polling: 100 }, selector, value);
-    assert.deepEqual(await page.select(selector, value), [value]);
+  const waitShareReady = async () => {
+    await page.waitForFunction(selector => [...document.querySelectorAll(`${selector} button`)].some(button => button.textContent === 'Share desktop' && !button.disabled), { polling: 100 }, section);
+    assert.equal(await page.$(`${section} select`), null, 'Sharing must not require selecting a Chat');
   };
-  await chooseChat();
-  await clickText('Choose screen');
+  await waitShareReady();
+  await clickText('Share desktop');
   await ui('wait');
   await clickText('Stop sharing');
   await ui('closed');
-  await page.waitForSelector(`${section} select`);
-  console.log('PASS packaged setup: explicit Chat selection and Stop closes the real pending chooser');
-  await chooseChat();
-  await clickText('Choose screen'); await ui('choose-input');
-  await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('This screen is shared with the chosen Chat.'), { polling: 100 }, section);
+  await waitShareReady();
+  console.log('PASS packaged setup: no Chat selection and Stop closes the real pending chooser');
+  await waitShareReady();
+  await clickText('Share desktop'); await ui('choose-input');
+  await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('Shared with all chats and the work-fold agent.'), { polling: 100 }, section);
   // Capture the actual compositor through the shipped path. CDP screenshots
   // are not the product's Wayland backend and may stall on a background page.
   phase = 'setup_snapshot';
@@ -234,12 +230,12 @@ try {
   assert.equal(await readFile('/tmp/workfold-input-fixture/saved.txt', 'utf8'), expected);
   fixture.kill('SIGTERM'); fixture = undefined;
   await clickText('Stop sharing');
-  await page.waitForSelector(`${section} select`);
+  await waitShareReady();
   console.log('PASS packaged UI → warm Chat → actual Pi → bundled portal/capture/input → exact saved bytes → Stop');
   if (testSuspend) {
-    await chooseChat();
-    await clickText('Choose screen'); await ui('choose-input');
-    await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('This screen is shared with the chosen Chat.'), { polling: 100 }, section);
+    await waitShareReady();
+    await clickText('Share desktop'); await ui('choose-input');
+    await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('Shared with all chats and the work-fold agent.'), { polling: 100 }, section);
     phase = 'continuity'; continuityStarted = false;
     task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Complete after this disposable computer wakes from sleep.');
     await until(async () => continuityStarted);
@@ -265,19 +261,19 @@ try {
     page.setDefaultTimeout(testTime(30_000));
     automation = await page.createCDPSession();
     await automation.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-    await page.waitForSelector(`${section} select`);
-    assert.ok(!(await page.$eval(section, el => el.textContent)).includes('This screen is shared with the chosen Chat.'));
+    await waitShareReady();
+    assert.ok(!(await page.$eval(section, el => el.textContent)).includes('Shared with all chats and the work-fold agent.'));
     releaseContinuity();
     assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
     assert.equal(app.exitCode, null);
-    await chooseChat();
-    await clickText('Choose screen'); await ui('choose-input');
-    await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('This screen is shared with the chosen Chat.'), { polling: 100 }, section);
+    await waitShareReady();
+    await clickText('Share desktop'); await ui('choose-input');
+    await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('Shared with all chats and the work-fold agent.'), { polling: 100 }, section);
     phase = 'setup_snapshot'; snapshotRequests = 0;
     task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Verify the newly granted screen after waking without sending input.');
     assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
     assert.equal(snapshotRequests, 3);
-    await clickText('Stop sharing'); await page.waitForSelector(`${section} select`);
+    await clickText('Stop sharing'); await waitShareReady();
     console.log('PASS real guest suspend/resume: accepted turn persisted, sharing stayed revoked, fresh chooser grant captured successfully');
   }
   await page.$eval('[aria-label="Close details"]', button => button.click());
@@ -288,13 +284,12 @@ try {
   await page.evaluate(spaceId => window.workFoldDesktop.space.revealFolder(spaceId), spaceId);
   await ui('folder-visible');
   console.log('PASS packaged native folder dialog/cancel and Show folder opens the exact Folder in Nautilus');
-  await page.evaluate(() => window.workFoldDesktop.window.setCloseToTray(true));
+
   await automation.send('Emulation.setFocusEmulationEnabled', { enabled: false });
   phase = 'continuity'; continuityStarted = false;
   task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Complete after this window is minimized.');
   await until(async () => continuityStarted);
-  // Use the compositor's actual close-window shortcut. JavaScript window.close
-  // is a web-content lifecycle command, not a desktop window-manager action.
+  // Exercise the compositor's actual minimize shortcut and native restore.
   await run(executable, launchArgs, { env, cwd: repoRoot, timeout: testTime(15_000) });
   const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
   const { NativeWaylandTransport } = await jiti.import('/work/src/local/agent/wayland-transport.ts');
@@ -307,17 +302,17 @@ try {
     const initial = await driver.call('observe', { lease });
     // Wayland may turn programmatic focus into a notification. A real click
     // on this known fixture's exposed title bar establishes the intended target
-    // before Alt+F4; otherwise that shortcut could close Nautilus instead.
-    await driver.call('act', { lease, observation: initial.observationId, actions: [{ action: 'click', x: 100, y: 50 }] });
+    // before Super+H; otherwise that shortcut could minimize Nautilus instead.
+    await driver.call('act', { lease, observation: initial.observationId, actions: [{ action: 'click', x: 600, y: 50 }] });
     await delay(150);
-    assert.equal(await page.evaluate(() => document.hasFocus()), true, 'The work-fold renderer must own focus before closing its window');
+    assert.equal(await page.evaluate(() => document.hasFocus()), true, 'The work-fold renderer must own focus before minimizing its window');
     const observation = await driver.call('observe', { lease });
     await writeFile(join(root, 'before-minimize.png'), Buffer.from(observation.image.data, 'base64'));
-    await driver.call('act', { lease, observation: observation.observationId, actions: [{ action: 'keypress', keys: ['Alt', 'F4'] }] });
+    await driver.call('act', { lease, observation: observation.observationId, actions: [{ action: 'keypress', keys: ['Super', 'h'] }] });
     await delay(500); assert.equal(app.exitCode, null);
     const minimized = await driver.call('observe', { lease });
     await writeFile(join(root, 'after-minimize.png'), Buffer.from(minimized.image.data, 'base64'));
-    assert.ok(await changedDesktop(observation.image.data, minimized.image.data) > .15, 'Native close must remove the main window from the compositor image');
+    assert.ok(await changedDesktop(observation.image.data, minimized.image.data) > .15, 'Native minimize must remove the main window from the compositor image');
     // Chromium can suspend debugger evaluations on a minimized renderer. Check
     // the actual compositor and host-owned task instead of executing hidden JS.
     releaseContinuity();
@@ -333,17 +328,16 @@ try {
     assert.equal(await page.evaluate(() => document.hasFocus()), true, 'The named native switcher entry must focus work-fold');
     assert.match(await page.evaluate(() => document.body.innerText), /Skills & Extensions/);
     await run(executable, launchArgs, { env, cwd: repoRoot, timeout: testTime(15_000) });
-    console.log('PASS accepted turn survives main-window close/minimize, persists, desktop switcher restores it, and a second instance joins the running app');
-    // Exercise the normal compositor close path with background retention off.
+    console.log('PASS accepted turn survives main-window minimize, persists, desktop switcher restores it, and a second instance joins the running app');
+    // Exercise the normal compositor close path: Linux Close always quits.
     // An OS signal in finally is cleanup, never evidence of a successful Quit.
-    await page.evaluate(() => window.workFoldDesktop.window.setCloseToTray(false));
     const beforeQuit = await driver.call('observe', { lease });
     await driver.call('act', { lease, observation: beforeQuit.observationId, actions: [{ action: 'keypress', keys: ['Alt', 'F4'] }] });
     await until(async () => app.exitCode !== null || app.signalCode !== null, 20_000);
     assert.equal(app.exitCode, 0, 'Native Quit must exit successfully');
     assert.equal(app.signalCode, null, 'Native Quit must not require a process signal');
     assert.equal(existsSync(join(state, 'cli', 'act-token.json')), false, 'Quit must remove the per-launch act token');
-    console.log('PASS native close with background retention off quits cleanly and removes the per-launch CLI token');
+    console.log('PASS native close quits cleanly and removes the per-launch CLI token');
   } finally { await driver.close(); }
   console.log(`Evidence: ${root}`);
 } catch (error) {

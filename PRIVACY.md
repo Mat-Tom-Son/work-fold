@@ -86,14 +86,16 @@ explicitly prepared companion; account content and external actions carry
 that profile's normal permissions. Computer control captures selected native
 observations using macOS permissions granted to its helper. Linux candidates use
 AT-SPI accessibility, the upstream X11 backend, and explicit GNOME Wayland
-screen sharing. In Computer setup the person chooses a Chat, then a monitor in
-the desktop portal. The helper receives that granted stream while sharing is
+screen sharing. In Computer setup the person shares a monitor with work-fold
+through the desktop portal. This makes the monitor available to all full-trust
+Folder Chats and the work-fold agent, including new Chats, one controller at a
+time. The helper receives that granted stream while sharing is
 active and retains a bounded latest frame in memory. Only requested observations
 enter Pi's ordinary tool results, session and model-provider context; the helper
 does not write a recording or save a restore token. Images may include content
 outside the selected Folder. Keyboard input goes to the desktop's focused
-application. Stop sharing, screen lock, sleep, app exit or removal of the owning
-Chat/Folder ends the grant. See [Linux builds](docs/linux-build.md) for the
+application. Stop sharing, screen lock, sleep, app exit or removal of the currently controlling
+Chat/Folder ends the grant. Normal turn completion and idle Chat removal do not. See [Linux builds](docs/linux-build.md) for the
 qualified desktop and input limits.
 
 The Chrome extension's random installation ID and connection proof stay in

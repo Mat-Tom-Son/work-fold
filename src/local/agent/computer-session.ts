@@ -8,7 +8,7 @@ const ownerKey = (owner: NativeComputerOwner) => JSON.stringify([owner.scope, ow
 const id = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value);
 const conversationId = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/.test(value);
 
-/** One app-owned grant, explicitly assigned to a Chat before a turn begins.
+/** One app-owned grant, available to all full-trust Chats with one controlling turn.
  * Native full-trust Extensions can use these same optional host facilities. */
 export class ComputerSessionService {
   #launch: () => Promise<WaylandTransport>;
@@ -17,7 +17,7 @@ export class ComputerSessionService {
   #target?: string;
   #generation = 0;
   #state: ComputerSessionSummary["state"] = "idle";
-  #detail = "Start sharing a screen for a chosen Chat.";
+  #detail = "Share a screen with work-fold to use it from any Chat.";
   #devices = 0;
   #lease?: { taskId: string; id: string };
   #busyTask?: string;
@@ -37,14 +37,13 @@ export class ComputerSessionService {
       controlInUse: Boolean(this.#lease || this.#busyTask), detail: this.#detail, checkedAt: new Date().toISOString() };
   }
 
-  async start(owner: NativeComputerOwner, signal?: AbortSignal): Promise<ComputerSessionSummary> {
+  async start(signal?: AbortSignal): Promise<ComputerSessionSummary> {
     signal?.throwIfAborted();
     if (this.#closing) await this.#closing;
     if (this.#closed || this.#faulted) throw new Error("Restart work-fold before sharing this desktop again.");
-    if (this.#state === "active" || this.#state === "requesting") throw new Error("Stop the existing screen share before choosing another Chat.");
-    if (!conversationId(owner.conversationId) || (owner.scope === "space" ? !conversationId(owner.spaceId) : owner.spaceId !== undefined)) throw new Error("Choose an existing Chat for desktop sharing.");
+    if (this.#state === "active" || this.#state === "requesting") throw new Error("Stop the existing screen share before choosing another screen.");
     const generation = ++this.#generation;
-    this.#owner = { ...owner, spaceRoot: resolve(owner.spaceRoot) };
+    this.#owner = undefined;
     this.#state = "requesting"; this.#detail = "Choose a screen in the desktop sharing dialog.";
     let transport: WaylandTransport | undefined;
     try {
@@ -63,7 +62,7 @@ export class ComputerSessionService {
       if (result.state !== "active" || !id(result.targetId) || !Number.isInteger(result.devicesGranted) || (result.devicesGranted & ~3) !== 0) throw new Error("Invalid desktop sharing response.");
       this.#target = result.targetId; this.#devices = result.devicesGranted;
       this.#state = "active";
-      this.#detail = "This screen is shared with the chosen Chat. Keyboard input affects the focused application on this desktop.";
+      this.#detail = "Shared with all Chats and the work-fold agent. One Chat controls the desktop at a time. Keyboard input affects the focused application.";
       return this.status();
     } catch (error) {
       if (generation === this.#generation) {
@@ -112,10 +111,12 @@ export class ComputerSessionService {
       this.#lease = undefined;
       try { await transport?.call("end", { lease: lease.id }); }
       catch { await this.stop(); }
+      finally { this.#owner = undefined; }
     });
   }
 
   forSession(owner: NativeComputerOwner, turn: () => ComputerTurn | undefined): ComputerHostFacilities {
+    if (!conversationId(owner.conversationId) || (owner.scope === "space" ? !conversationId(owner.spaceId) : owner.scope !== "management" || owner.spaceId !== undefined)) throw new Error("Desktop control requires a valid Chat identity.");
     const run = <T>(signal: AbortSignal | undefined, operation: (transport: WaylandTransport, lease: string, target: string) => Promise<T>): Promise<T> => {
       const accepted = turn();
       if (!accepted || !conversationId(accepted.taskId) || accepted.cancelled || accepted.settled) return Promise.reject(new Error("Desktop control requires this Chat's live accepted turn."));
@@ -124,14 +125,15 @@ export class ComputerSessionService {
         const assertCurrent = () => {
           signal?.throwIfAborted();
           if (turn() !== accepted || accepted.cancelled || accepted.settled || this.#closed || this.#faulted
-            || generation !== this.#generation || this.#state !== "active" || !this.#matches(owner) || !this.#transport || !this.#target) {
-            throw new Error("This Chat no longer owns the shared screen. Check desktop sharing setup.");
+            || generation !== this.#generation || this.#state !== "active" || !this.#transport || !this.#target) {
+            throw new Error("This turn no longer has access to the shared screen. Check desktop sharing setup.");
           }
         };
         assertCurrent();
         const transport = this.#transport!, target = this.#target!;
-        if (this.#lease && this.#lease.taskId !== accepted.taskId) throw new Error("Another accepted turn is using the desktop seat.");
+        if (this.#lease && (this.#lease.taskId !== accepted.taskId || !this.#matches(owner))) throw new Error("Another Chat is using the desktop. Wait for its turn to finish, then try again.");
         this.#busyTask = accepted.taskId;
+        this.#owner = { ...owner, spaceRoot: resolve(owner.spaceRoot) };
         try {
           if (!this.#lease) {
             const result = await transport.call<{ lease: string; targetId: string }>("begin", { turn: accepted.taskId }, signal);
@@ -144,7 +146,10 @@ export class ComputerSessionService {
           const result = await operation(transport, this.#lease.id, target);
           assertCurrent();
           return result;
-        } finally { if (this.#busyTask === accepted.taskId) this.#busyTask = undefined; }
+        } finally {
+          if (this.#busyTask === accepted.taskId) this.#busyTask = undefined;
+          if (!this.#lease) this.#owner = undefined;
+        }
       });
     };
     const observation = async (transport: WaylandTransport, method: string, args: Record<string, unknown>, target: string, signal?: AbortSignal) => {
@@ -161,7 +166,7 @@ export class ComputerSessionService {
     };
     return {
       releaseSharedScreenSession: () => this.releaseSession(owner),
-      listSharedScreens: signal => !this.#matches(owner) || this.#state !== "active" ? Promise.resolve([])
+      listSharedScreens: signal => this.#state !== "active" ? Promise.resolve([])
         : run(signal, async (_transport, _lease, target) => [{ id: target, kind: "shared_screen", title: "Shared screen" }]),
       observeSharedScreen: (targetId, signal) => run(signal, async (transport, lease, target) => {
         if (targetId !== target) throw new Error("Shared-screen target changed. Find and observe it again.");

@@ -1003,6 +1003,7 @@ async function createMainWindow(): Promise<void> {
     title: productName,
     icon: resolveWindowIcon(),
     autoHideMenuBar: process.platform === "win32",
+    ...(process.platform === "linux" ? { titleBarStyle: "hidden" as const } : {}),
     ...(process.platform === "win32" ? {
       ...(micaSupported ? { backgroundMaterial: "mica" as const } : {}),
       titleBarStyle: "hidden",
@@ -1067,7 +1068,14 @@ async function createMainWindow(): Promise<void> {
     void desktopHostPromise?.then((host) => host.restrictedAppHost.unmountUiOwner(rendererWebContentsId));
   });
   configureWindowStatePersistence(mainWindow);
-  if (state?.isMaximized) mainWindow.maximize();
+  if (state?.isMaximized) {
+    // Wayland must map the initial surface before restoring maximized state;
+    // maximizing during construction can leave Electron unable to unmaximize.
+    if (process.platform === "linux") {
+      const window = mainWindow;
+      window.once("ready-to-show", () => { if (!window.isDestroyed()) window.maximize(); });
+    } else mainWindow.maximize();
+  }
   // First reveal only: renderer recoveries can re-emit ready-to-show, and a
   // window the person hid (Windows close-to-tray, minimize) must not
   // resurface because an autonomous reload finished painting.
@@ -1077,13 +1085,14 @@ async function createMainWindow(): Promise<void> {
   mainWindow.on("blur", () => railTooltipOverlay?.hide());
   mainWindow.on("hide", () => railTooltipOverlay?.hide());
   mainWindow.on("minimize", () => railTooltipOverlay?.hide());
+  const publishWindowState = () => mainWindow?.webContents.send("work-fold:window:maximized", mainWindow.isMaximized());
+  mainWindow.on("maximize", publishWindowState);
+  mainWindow.on("unmaximize", publishWindowState);
   mainWindow.on("close", (event) => {
     if (quitting || quittingForUpdate || !quitCoordinator.shouldPreventNativeQuit()) return;
-    if (process.platform === "linux" && desktopPreferences.closeToTray) {
-      // GNOME may not display status icons. Retain a taskbar-visible window so
-      // background work and the management surface are always recoverable.
+    if (process.platform === "linux") {
       event.preventDefault();
-      mainWindow?.minimize();
+      requestApplicationQuit();
       return;
     }
     // Close-to-tray is Windows behavior; the macOS menu-bar item must not
@@ -1383,6 +1392,18 @@ function registerIpc(): void {
     assertTrustedRenderer(event);
     return closeToTrayStatus();
   });
+  ipcMain.handle("work-fold:window:control", (event, action: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (process.platform !== "linux" || !mainWindow || mainWindow.isDestroyed()) throw new Error("Window controls are unavailable.");
+    switch (action) {
+      case "state": break;
+      case "minimize": mainWindow.minimize(); break;
+      case "toggle-maximize": if (mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize(); break;
+      case "quit": requestApplicationQuit(); break;
+      default: throw new Error("Unknown window action.");
+    }
+    return { maximized: mainWindow?.isMaximized() ?? false };
+  });
   ipcMain.handle("work-fold:window:set-close-to-tray", (event, value: unknown) => {
     assertTrustedRenderer(event);
     if (typeof value !== "boolean") throw new Error("Close-to-background preference must be a boolean.");
@@ -1531,7 +1552,7 @@ function configureMenu(): void {
     });
   }
   Menu.setApplicationMenu(Menu.buildFromTemplate(buildApplicationMenuTemplate()));
-  if (process.platform === "win32" && mainWindow) {
+  if (["win32", "linux"].includes(process.platform) && mainWindow) {
     mainWindow.setAutoHideMenuBar(false);
     mainWindow.setMenuBarVisibility(false);
   }
@@ -2310,7 +2331,7 @@ function maybeShowTrayNotice(): void {
 function closeToTrayStatus(): { supported: boolean; enabled: boolean } {
   // A macOS menu-bar item is a management surface, not close-to-tray support:
   // closing the last macOS window already keeps the app alive via the Dock.
-  return { supported: process.platform === "linux" || (process.platform === "win32" && tray !== null), enabled: desktopPreferences.closeToTray };
+  return { supported: process.platform === "win32" && tray !== null, enabled: process.platform === "win32" && desktopPreferences.closeToTray };
 }
 
 function configurePowerMonitor(): void {

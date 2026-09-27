@@ -132,6 +132,10 @@ impl Keyboard {
         let mut codes = Vec::new();
         for name in names {
             ensure!(name.len() <= 64 && !name.contains('\0'), "Invalid key name");
+            ensure!(
+                !name.contains('+') || name == "+",
+                "Pass shortcut keys separately, for example keys: [\"ctrl\", \"a\"], not [\"ctrl+a\"]."
+            );
             let alias = match name.to_ascii_lowercase().as_str() {
                 "ctrl" | "control" => "Control_L",
                 "alt" => "Alt_L",
@@ -146,7 +150,7 @@ impl Keyboard {
             let symbol = xkb::keysym_from_name(alias, xkb::KEYSYM_CASE_INSENSITIVE);
             let code = self
                 .unshifted_symbol(symbol)
-                .context("Shortcut key is absent from the compositor keymap")?;
+                .with_context(|| format!("Shortcut key {name:?} is absent from the compositor keymap. Use separate key names, for example [\"ctrl\", \"a\"]."))?;
             ensure!(!codes.contains(&code), "Repeated shortcut key");
             codes.push(code);
         }
@@ -241,5 +245,22 @@ mod tests {
         held.modifiers[0] = 1;
         assert!(held.text("a").is_err());
         assert!(Keyboard::parse(b"bad").is_err());
+    }
+
+    #[test]
+    fn combined_shortcut_names_explain_how_to_recover() {
+        let keyboard = Keyboard::parse(&fixture("us")).unwrap();
+        let error = keyboard.shortcut(&["ctrl+a".into()]).unwrap_err();
+        assert!(error.to_string().contains("keys separately"));
+        assert_eq!(
+            keyboard.shortcut(&["ctrl".into(), "a".into()]).unwrap(),
+            vec![29, 30]
+        );
+        assert!(keyboard.shortcut(&["ctrl".into(), "ctrl".into()]).is_err());
+        assert!(keyboard
+            .shortcut(&["not-a-key".into()])
+            .unwrap_err()
+            .to_string()
+            .contains("not-a-key"));
     }
 }

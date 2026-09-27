@@ -83,13 +83,16 @@ installation disabled and executable hashes checked before use. AT-SPI
 observations and semantic actions remain full trust. GNOME Wayland sharing uses
 one explicitly selected monitor through the XDG ScreenCast/RemoteDesktop portal,
 ASHPD, GStreamer/PipeWire, libei and the compositor's libxkbcommon keymap. Trusted
-setup assigns the grant to one existing Chat; the native Pi tools require that
-Chat's live accepted turn and one OS-backed seat lease. A monitor is a separate
+setup grants sharing to work-fold for its full-trust Folder Chats and management
+agent, without requiring an existing conversation. Native Pi tools still require
+a specific Chat's live accepted turn and one exclusive OS-backed seat lease.
+The active controller is reported in setup; other Chats cannot interleave input. A monitor is a separate
 visual target, without an invented application or accessibility identity.
 Keyboard input affects the focused application on that desktop. Stop fences
 access immediately, terminates and reaps the helper, and never replays uncertain
-effects. Portal revocation, GNOME screen lock, sleep, host death, Chat disposal,
-archive and Folder removal end sharing. No restore token or automatic regrant
+effects. Portal revocation, GNOME screen lock, sleep, host death, or disposal of
+the controlling Chat/Folder end sharing. Ordinary completion releases its lease;
+idle Chat/Folder removal leaves the app-wide grant available. No restore token or automatic regrant
 is stored. Full-trust Extensions retain their ordinary native authority; this
 is coordination, not a sandbox against arbitrary native code. Linux credential stores reject Electron's `basic_text`
 fallback and require GNOME Keyring/libsecret or KWallet. The native CLI preserves

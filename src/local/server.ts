@@ -2835,24 +2835,15 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/included-tools/setup") {
-    const body = await readJsonBody<{ spaceId?: string; id?: IncludedToolId; action?: IncludedSetupAction; secret?: string; conversationId?: string; scope?: "space" | "management" }>(state, req);
+    const body = await readJsonBody<{ spaceId?: string; id?: IncludedToolId; action?: IncludedSetupAction; secret?: string }>(state, req);
     if (!body.spaceId || !includedToolDefinitions.some((item) => item.id === body.id) || typeof body.action !== "string") throw badRequest("A Space, included tool, and setup action are required.");
     if (body.secret !== undefined && typeof body.secret !== "string") throw badRequest("The connection key must be text.");
     const space = await getSpace(body.spaceId);
-    let computerOwner: import("./agent/computer-session.js").NativeComputerOwner | undefined;
-    if (body.id === "computer" && body.action === "share-screen") {
-      if (!body.conversationId || !["space", "management"].includes(body.scope ?? "")) throw badRequest("Choose an existing Chat for screen sharing.");
-      const root = body.scope === "management" ? workFoldManagementRoot() : space.spaceRoot;
-      const conversation = (await listConversations(root)).find(item => item.id === body.conversationId);
-      if (!conversation || conversation.archivedAt) throw badRequest("Choose an available Chat for screen sharing.");
-      computerOwner = { scope: body.scope!, conversationId: conversation.id, spaceRoot: root,
-        ...(body.scope === "space" ? { spaceId: space.id } : {}) };
-    }
     const signal = new AbortController();
     const closed = () => { if (!res.writableEnded) signal.abort(); };
     res.once("close", closed);
     try {
-      const operation = () => setupIncludedTool(space.spaceRoot, body.id!, body.action!, { secret: body.secret, owner: computerOwner }, state.runtimeProvider, signal.signal);
+      const operation = () => setupIncludedTool(space.spaceRoot, body.id!, body.action!, { secret: body.secret }, state.runtimeProvider, signal.signal);
       // A recheck may restart the physical helper. Never interrupt an accepted turn.
       const result = body.action === "check" && body.id !== "computer" || body.id === "computer" && body.action === "stop-sharing"
         ? await operation() : await runCapabilityMutation(state, space, "global", operation, {
@@ -11557,8 +11548,8 @@ async function invalidateAllClients(state: LocalApiState): Promise<void> {
   }
 }
 
-/** A trusted setup grant can precede creation of any Pi client. Revoke it by
- * its explicit owner when that Chat/Folder leaves the live application. */
+/** Removing the controlling Chat/Folder revokes input. Idle app-wide sharing
+ * survives unrelated Chat lifecycle changes. */
 async function stopComputerSharingForScope(state: LocalApiState, root: string, spaceId?: string, conversationId?: string): Promise<void> {
   const service = (await state.runtimeProvider.resolveRuntime(root)).includedTools?.computerSession;
   const owner = service?.status().owner;

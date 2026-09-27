@@ -4,7 +4,6 @@ import { resolvePiRuntime, type PiRuntimeProvider, type ResolvedPiRuntime } from
 import type { ChromeConnectionState, ChromeConnectionSummary, ChromeSetupAction } from "../../shared/chrome-connection.js";
 import { includedToolDefinitions, type IncludedToolId, type IncludedToolStatus } from "../../shared/included-tools.js";
 import type { ComputerSessionSummary } from "../../shared/computer-session.js";
-import type { NativeComputerOwner } from "./computer-session.js";
 
 const jiti = createJiti(import.meta.url, { moduleCache: true });
 const checks = new Map<string, { revision: number; status?: IncludedToolStatus }>();
@@ -61,7 +60,7 @@ export type IncludedSetupAction = ChromeSetupAction | "request-permissions" | "a
 export interface IncludedSetupResult { status: IncludedToolStatus }
 
 /** Trusted local setup only. Secrets and permission prompts never enter an Assistant turn. */
-export async function setupIncludedTool(cwd: string, id: IncludedToolId, action: IncludedSetupAction, input: { secret?: string; owner?: NativeComputerOwner }, provider?: PiRuntimeProvider, signal?: AbortSignal): Promise<IncludedSetupResult> {
+export async function setupIncludedTool(cwd: string, id: IncludedToolId, action: IncludedSetupAction, input: { secret?: string }, provider?: PiRuntimeProvider, signal?: AbortSignal): Promise<IncludedSetupResult> {
   const runtime = await resolvePiRuntime(cwd, provider, { requestProjectTrust: false });
   const config = runtime.config.includedTools;
   if (!config) throw new Error("Included Assistant tools are unavailable in this host.");
@@ -70,8 +69,7 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
     if (!service) throw new Error("Screen sharing requires the work-fold desktop app in a supported Wayland session.");
     if (action === "stop-sharing") await service.stop();
     else {
-      if (!input.owner) throw new Error("Choose a Chat for screen sharing.");
-      await service.start(input.owner, signal);
+      await service.start(signal);
     }
     return { status: computerStatus(service.status(), checks.get(checkKey(runtime, id))?.status) };
   }

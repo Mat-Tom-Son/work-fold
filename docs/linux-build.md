@@ -149,11 +149,18 @@ An existing encrypted profile cannot currently start after its keyring prompts
 are cancelled; it shows an unlock-and-restart error and preserves the encrypted
 file. Its ordinary folders remain accessible outside the app.
 
-Closing the main window with **Keep work-fold running** enabled minimizes it,
-so it remains accessible when GNOME does not display tray icons. Where a tray
-exists, it also provides the management window. On Wayland that window lets the
-compositor choose its position. Explicit Quit retains the existing turn-draining
-behavior.
+Linux uses one compact title row with File/Edit/View/Help and explicit Minimize,
+Maximize/Restore, and Close buttons. Minimize keeps accepted turns running.
+Close (including the compositor's close action) quits the application through
+its existing turn-draining shutdown path, just like explicit Quit. Linux does
+not expose the Windows-only **Keep work-fold running** preference.
+Where a tray exists, it also provides the management window. GNOME needs a
+compatible AppIndicator extension to display that tray. On Wayland the
+compositor chooses the management window's position.
+On Fedora GNOME, install `gnome-shell-extension-appindicator`, log out and back
+in, and enable **AppIndicator and KStatusNotifierItem Support** in Extensions.
+The top-bar work-fold menu's **work-fold agent** entry opens the management
+conversation. Minimize keeps that entry available; Close quits and removes it.
 
 ## Included tools
 
@@ -162,7 +169,7 @@ behavior.
 - **Computer:** the pinned Rust Linux helper provides AT-SPI window/control
   observations and semantic actions where applications expose them. The X11
   backend also provides screenshots and physical input. On GNOME Wayland, use
-  **Skills & Extensions → Computer control → Share a screen**, choose the intended Chat,
+  **Skills & Extensions → Computer control → Share desktop**,
   then select a monitor and allow remote interaction in the desktop chooser.
   The bundled portal helper adds visual observations, pointer movement, clicks,
   scrolling, drag paths, typing and shortcuts to the same Pi computer tools.
@@ -296,11 +303,14 @@ state only after receiving a frame and negotiating input. Images reach Pi and
 the selected model only through a requested observation/action. The capture
 pipeline keeps its latest frame in memory while sharing is active.
 
-A grant belongs to one explicitly selected Chat. Each accepted turn acquires a
-separate control lease; an OS file lock prevents two work-fold instances from
-controlling the same seat at once. Stop, Chat disposal/archive, Folder removal,
-app shutdown, helper loss, screen lock and suspend revoke sharing. Wake never
-resumes it. Keyboard input follows the desktop's focus, so sharing a monitor
+A grant belongs to work-fold and is available to all Folder Chats and the
+work-fold agent, including new Chats. Setup needs no existing conversation or
+first message. Each accepted turn acquires exclusive control until it settles;
+another Chat receives a busy result during that turn. An OS file lock also
+prevents two work-fold instances from controlling the same seat at once. Normal
+turn completion and idle Chat/Folder removal preserve sharing. Stop, disposal
+of the controlling Chat/Folder, app shutdown, helper loss, screen lock and
+suspend revoke sharing. Wake never resumes it. Keyboard input follows the desktop's focus, so sharing a monitor
 does not confine keystrokes to one application. Full-trust Pi capabilities remain
 full-trust; restricted Folder apps do not receive this bridge.
 
@@ -319,7 +329,7 @@ qualify a physical GDM session, GPU, sleep/wake or default host security policy.
 The packaged desktop test additionally exercises the actual setup UI, cancellation,
 a warm Chat using the shipped helper, native folder chooser/cancel, Nautilus
 reveal, and task completion while the main window is minimized. Native input
-establishes focus before closing; actual compositor frames verify minimize and
+establishes focus before minimizing; actual compositor frames verify minimize and
 desktop-switcher restore. DOM-driven setup controls use temporary DevTools focus
 emulation while obscured; it is removed before native focus and continuity
 checks. A Wayland programmatic focus request can legitimately

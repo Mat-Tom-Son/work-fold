@@ -86,7 +86,7 @@ is not rendered as a desktop component.
 
 | Tool | Included implementation | Setup and supported boundary |
 |---|---|---|
-| Computer Control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source in the signing lane; Linux x64 Rust helper built from pinned sources. Linux AT-SPI observations and semantic actions depend on target-app support. GNOME Wayland uses explicit portal sharing with a Chat-owned capture/input session; X11 has an upstream capture/input backend. Requested observations and actions, no continuous recorder. |
+| Computer Control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source in the signing lane; Linux x64 Rust helper built from pinned sources. Linux AT-SPI observations and semantic actions depend on target-app support. GNOME Wayland uses explicit portal sharing with a app-wide capture/input session; X11 has an upstream capture/input backend. Requested observations and actions, no continuous recorder. |
 | Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Install work-fold from the Chrome Web Store and choose Connect in the selected profile. Native bootstrap and authenticated protocol/capability checks precede use. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
 | Web | `pi-web-access` 0.29.0 pure search and readable-page functions through an additive native factory | DuckDuckGo search needs no key; optional Brave key is entered in tool setup. Explicit HTTP(S) reading, bounded output and cancellation. No automatic cookie/profile import, media service, global fetch replacement or hidden model call. Challenges and rate limits remain visible failures. |
 | Documents | Ordinary JavaScript worker, maintained document libraries and a standard document-work Skill | DOCX/XLSX/PPTX/PDF creation, spreadsheet read/write, PDF text extraction and selected page rendering using bundled dependencies. No separate Node/Python required. Office visual rendering uses the person's existing compatible apps; formulas are preserved, not recalculated; PDF text extraction is not OCR. |
@@ -118,16 +118,25 @@ without replay; other Chats may need to observe again. GNOME Wayland adds an
 optional shared-screen backend to these same eight Pi tools, their state store
 and scheduler. The native host event bus provides session-bound list, observe,
 act and release facilities; catalog mode receives none. Trusted Computer setup
-assigns a portal grant to one existing Chat. Each operation checks the explicit
-Chat and accepted-turn identity, consumes a current observation for input, and
-holds an OS-backed seat lease until the turn settles. Ending, archiving or
-removing the owner stops sharing even if its Pi client has not initialized.
+creates an app-wide portal grant without choosing or creating a Chat. Folder
+Chats and the work-fold agent can use it, including Chats created later. Each
+operation checks its explicit Chat and accepted-turn identity, consumes a current
+observation for input, and holds an OS-backed seat lease until the turn settles.
+Another Chat receives a busy result while that turn controls the desktop. Normal
+completion releases control without ending sharing. Cancelling or disposing the
+controlling Chat stops sharing; removing an idle Chat or Folder does not.
 
 A shared monitor has its own target kind and no PID, window id or semantic tree.
 Visual observation returns the granted PipeWire frame. Pixel actions use the
 portal/EIS mapping and compositor geometry, including qualified fractional
 scaling; semantic refs and semantic outcome assertions are rejected for that
 target. libei and libxkbcommon own input transport and keymap interpretation.
+The Linux tool descriptions explain monitor discovery (`kind: "shared_screen"`,
+without application filters), visual observation, physical scrolling after
+positioning the pointer (no accessibility ref), drag paths, and separate shortcut key
+names (`["ctrl", "a"]`). A combined chord such as `["ctrl+a"]` is rejected
+with corrective guidance during input preflight, rather than reported as an
+unavailable compositor key. Unknown individual keys identify the failing name.
 No model call opens a chooser or restores a grant. Portal closure, native GNOME/KDE lock,
 sleep, app exit and Stop revoke it. Input is whole-seat work: keyboard events
 affect the focused application, and the successor image verifies what happened.

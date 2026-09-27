@@ -120,7 +120,7 @@ try {
   assert.equal(service.status().state, "idle", "Semantic text entry does not open a portal or acquire the physical seat");
   console.log("PASS actual Pi semantic tools → owned AT-SPI editor → exact multilingual saved bytes, including combining accents and emoji; no portal or physical input. Provider responses are scripted.");
   phase = "visual"; requests = 0;
-  const sharing = service.start(owner);
+  const sharing = service.start();
   await Promise.all([sharing, ui("choose-input")]);
   const accepted = `task-${randomUUID()}`;
   const response = await client.prompt("Complete the isolated Wayland native acceptance fixture.", { managementTaskId: accepted });

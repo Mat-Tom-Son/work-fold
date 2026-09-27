@@ -2,14 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
 
-type Choice = { scope: "space" | "management"; id: string; title: string };
-type Conversation = { id: string; title: string; archivedAt?: string | null };
 export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
   spaceId: string; enabled: boolean; onStatusChange?(status: IncludedToolStatus): void;
 }) {
   const [status, setStatus] = useState<IncludedToolStatus>();
-  const [choices, setChoices] = useState<Choice[]>([]);
-  const [selected, setSelected] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const activeRequest = useRef<AbortController | null>(null);
@@ -28,15 +24,6 @@ export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
       } catch (error) { if (!closed) setError(errorText(error)); }
       finally { if (!closed) timer = setTimeout(() => void refresh(), 2_000); }
     };
-    void Promise.all([
-      api<{ conversations: Conversation[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/conversations`, { signal: signal.signal }),
-      api<{ conversations: Conversation[] }>("/api/management/conversations", { signal: signal.signal }),
-    ]).then(([space, management]) => {
-      if (!closed) setChoices([
-        ...space.conversations.filter(chat => !chat.archivedAt).slice(0, 100).map(chat => ({ ...chat, scope: "space" as const })),
-        ...management.conversations.filter(chat => !chat.archivedAt).slice(0, 100).map(chat => ({ ...chat, scope: "management" as const })),
-      ]);
-    }).catch(error => { if (!closed) setError(errorText(error)); });
     void refresh();
     return () => { closed = true; signal.abort(); clearTimeout(timer); activeRequest.current?.abort(); };
   }, [spaceId]);
@@ -47,11 +34,10 @@ export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
     activeRequest.current?.abort();
     const controller = new AbortController(); activeRequest.current = controller;
     ++generation.current; setBusy(true); setError(undefined);
-    const choice = choices.find(item => `${item.scope}:${item.id}` === selected);
     try {
       const result = await api<{ status: IncludedToolStatus }>("/api/agent/included-tools/setup", {
         method: "POST", signal: controller.signal,
-        body: { spaceId, id: "computer", action, ...(choice ? { scope: choice.scope, conversationId: choice.id } : {}) },
+        body: { spaceId, id: "computer", action },
       });
       if (!controller.signal.aborted) { setStatus(result.status); listener.current?.(result.status); }
     } catch (error) { if (!controller.signal.aborted) setError(errorText(error)); }
@@ -59,24 +45,19 @@ export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
   }
   const sharing = status?.computerSession;
   const current = sharing?.owner;
-  const named = current && choices.find(choice => choice.id === current.conversationId && choice.scope === current.scope);
   const live = sharing && ["requesting", "active", "stopping"].includes(sharing.state);
+  const failure = error || (sharing?.state === "error" ? sharing.detail : undefined);
+  const active = sharing?.state === "active";
   return <section className="included-tool-optional" aria-label="Wayland screen sharing">
-    <h4>Share a screen</h4>
-    <p>Choose the Chat that may use this screen. Keyboard input goes to the focused application on the desktop. Sharing ends on Stop, lock, sleep, or app exit.</p>
-    {current ? <p>Chat with {current.scope === "management" ? "work-fold agent" : "Worker"}: {named?.title ?? current.conversationId}</p> : null}
-    {!live ? <label>Chat<select value={selected} disabled={busy || !enabled} onChange={event => setSelected(event.target.value)}>
-      <option value="">Choose a Chat</option>
-      {choices.map(choice => <option key={`${choice.scope}:${choice.id}`} value={`${choice.scope}:${choice.id}`}>
-        {choice.scope === "management" ? "work-fold agent — " : "Worker — "}{choice.title}
-      </option>)}
-    </select></label> : null}
-    {!choices.length && !live ? <p>Create a Chat, then reopen this setup.</p> : null}
+    <p>{active ? "Shared with all chats and the work-fold agent." : "Share your screen with any chat."}</p>
+    {!live ? <p>Choose <strong>Allow interaction</strong> to enable clicks and typing.</p> : null}
+    {active && (!sharing.pointer || !sharing.keyboard) ? <p>Full control is off. Share again with <strong>Allow interaction</strong>.</p> : null}
+    {current ? <p role="status">{current.scope === "management" ? "work-fold agent" : "Folder Worker"} is using your screen.</p> : null}
+    {sharing?.state === "requesting" ? <p role="status">Choose a screen in the Linux dialog.</p> : sharing?.state === "stopping" ? <p role="status">Stopping sharing…</p> : null}
     <div className="included-tool-actions">
-      {!live ? <button className="professional-button professional-button-primary" type="button" disabled={busy || !enabled || !selected} onClick={() => void act("share-screen")}>Choose screen</button> : null}
+      {!live ? <button className="professional-button professional-button-primary" type="button" disabled={busy || !enabled} onClick={() => void act("share-screen")}>Share desktop</button> : null}
       {live || busy ? <button className="professional-button professional-button-secondary" type="button" disabled={sharing?.state === "stopping"} onClick={() => void act("stop-sharing")}>Stop sharing</button> : null}
     </div>
-    {sharing ? <p role="status">{sharing.detail}</p> : null}
-    {error ? <p className="included-tool-error" role="alert">{error}</p> : null}
+    {failure ? <p className="included-tool-error" role="alert">{failure}</p> : null}
   </section>;
 }

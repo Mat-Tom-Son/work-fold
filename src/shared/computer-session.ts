@@ -7,6 +7,7 @@ export interface ComputerSessionOwner {
 }
 export interface ComputerSessionSummary {
   state: "idle" | "requesting" | "active" | "stopping" | "error";
+  /** The current controlling Chat, absent while the app-wide grant is idle. */
   owner?: ComputerSessionOwner;
   capture: boolean;
   pointer: boolean;
