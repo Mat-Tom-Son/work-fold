@@ -95,6 +95,25 @@ test("a file import that completes after leaving Appearance cannot save into the
   assert.equal(store.getSnapshot().presets.length, 0);
 });
 
+test("the Worker steps choice reaches the document, and Reset only offers itself away from the defaults", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup()); mediaEnvironment();
+  const { useApplicationAppearance } = await import("../web-local/src/hooks/useApplicationAppearance.js");
+  const { AppearanceSettingsPane } = await import("../web-local/src/components/modals/AppearanceSettingsPane.js");
+  const store = new ApplicationAppearanceStore(null, true);
+  function Screen() { const appearance = useApplicationAppearance({ store, fixtureMode: true }); return createElement(AppearanceSettingsPane, { appearance, space: null }); }
+  await dom.render(createElement(Screen));
+  const reset = () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Reset")!;
+  assert.equal(document.documentElement.dataset.appearanceChatSteps, "every");
+  await dom.act(() => changeSelect("Worker steps", "current"));
+  assert.equal(document.documentElement.dataset.appearanceChatSteps, "current");
+  assert.equal(store.getSnapshot().preferences.chatSteps, "current");
+  assert.equal(reset().disabled, false);
+  await dom.act(() => reset().click());
+  assert.equal(document.documentElement.dataset.appearanceChatSteps, "every");
+  assert.equal(reset().disabled, true);
+  assert.equal(document.querySelector('[aria-label="Original preset"]')?.getAttribute("aria-pressed"), "true");
+});
+
 test("the Interface section ends with any desktop row the Settings window passes in", async (t) => {
   const dom = await createDomHarness(); t.after(() => dom.cleanup()); mediaEnvironment();
   const { useApplicationAppearance } = await import("../web-local/src/hooks/useApplicationAppearance.js");

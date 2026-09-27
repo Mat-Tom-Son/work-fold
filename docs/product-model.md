@@ -160,8 +160,8 @@ refresh clean forms and offer an explicit reload when drafts are present.
 
 [Application appearance](application-appearance.md) adds editable presets,
 application palettes and accent, separate interface/conversation typography,
-reading width and spacing, list density, quiet messages, and accessibility
-preferences. The desktop and menu-bar chat share device-local preferences;
+reading width and spacing, list density, quiet messages, which Worker steps
+stay visible while a turn runs, and accessibility preferences. The desktop and menu-bar chat share device-local preferences;
 the paired web fold retains its browser appearance. Typed appearance files are
 inert data. Undo and reset operate on these preferences without changing Space
 colors, icons, or banners; Customize this Space opens the existing work tab.
