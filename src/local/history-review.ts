@@ -8,6 +8,8 @@ import {
   type HistoryFileComparison,
   type HistoryFileObservation,
   type HistoryFileRead,
+  type HistoryFileReadOptions,
+  type HistoryFileRange,
   type HistoryTextDiff,
 } from "../shared/history-review.js";
 import { getSpaceCheckpoint, type SpaceCheckpoint } from "./history.js";
@@ -20,12 +22,16 @@ import { spaceHistoryRoot } from "./state-paths.js";
 /** Reads only content owned by this checkpoint and path, never an arbitrary blob hash. */
 export async function readHistoryFile(
   spaceRoot: string,
-  input: { path: string; checkpointId: string },
+  input: HistoryFileReadOptions,
 ): Promise<HistoryFileRead> {
   return withSpaceHistoryOperation(spaceRoot, async () => {
     const { root, path } = await reviewPath(spaceRoot, input.path);
+    if (input.signal?.aborted) throw Object.assign(new Error("History read cancelled."), { name: "AbortError" });
     const observation = await checkpointObservation(root, path, input.checkpointId);
-    return { schemaVersion: 1, path, observation, limits: { ...HISTORY_REVIEW_LIMITS } };
+    if (input.expectedSha256 !== undefined && (!/^[a-f0-9]{64}$/u.test(input.expectedSha256) || input.expectedSha256 !== observation.hashSha256)) throw requestError("The selected History source does not match expectedSha256.", 409);
+    const range = input.offsetBytes !== undefined || input.lengthBytes !== undefined
+      ? await checkpointRange(root, path, observation, input) : undefined;
+    return { schemaVersion: 1, path, observation, limits: { ...HISTORY_REVIEW_LIMITS }, ...(range ? { range } : {}) };
   });
 }
 
@@ -117,6 +123,72 @@ async function checkpointObservation(root: string, path: string, checkpointId: s
   }
   if (result.bytes.length !== file.sizeBytes || digest(result.bytes) !== hash) return { ...metadata, status: "unavailable", reason: "corrupt_blob" };
   return { ...metadata, hashVerified: true, ...classifyBytes(result.bytes) };
+}
+
+/** Verifies the entire immutable source with fixed memory before releasing any range. */
+async function checkpointRange(root: string, path: string, observation: HistoryFileObservation, input: HistoryFileReadOptions): Promise<HistoryFileRange | undefined> {
+  const offset = input.offsetBytes ?? 0;
+  const length = input.lengthBytes ?? HISTORY_REVIEW_LIMITS.maxFileBytes;
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 4 || length > HISTORY_REVIEW_LIMITS.maxFileBytes) {
+    throw requestError(`History ranges require a nonnegative byte offset and 4–${HISTORY_REVIEW_LIMITS.maxFileBytes} bytes per page.`, 400);
+  }
+  if (input.expectedSha256 !== undefined && (!/^[a-f0-9]{64}$/u.test(input.expectedSha256) || input.expectedSha256 !== observation.hashSha256)) {
+    throw requestError("The selected History source does not match expectedSha256.", 409);
+  }
+  if (!observation.hashSha256 || observation.sizeBytes === undefined || !["text", "binary", "too_large"].includes(observation.status)) return undefined;
+  const hash = observation.hashSha256;
+  const totalBytes = observation.sizeBytes;
+  if (offset > totalBytes) throw requestError("History byte offset is beyond the saved file.", 400);
+  const base = { offsetBytes: offset, lengthBytes: 0, totalBytes, nextOffsetBytes: null, complete: false, hashSha256: hash, hashVerified: false };
+  const blobPath = join(spaceHistoryRoot(root), "objects", hash.slice(0, 2), hash.slice(2));
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  const abort = () => { if (input.signal?.aborted) throw Object.assign(new Error("History read cancelled."), { name: "AbortError" }); };
+  try {
+    abort();
+    const initial = await lstat(blobPath, { bigint: true });
+    if (!initial.isFile() || initial.size !== BigInt(totalBytes)) return { ...base, status: "unavailable", reason: "corrupt_blob" };
+    handle = await open(blobPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const before = await handle.stat({ bigint: true });
+    if (!sameFile(initial, before)) return { ...base, status: "unavailable", reason: "changed_during_read" };
+    const digest = createHash("sha256");
+    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+    let binaryReason: "binary_content" | "invalid_utf8" | undefined;
+    const buffer = Buffer.alloc(64 * 1024);
+    const selected = Buffer.alloc(Math.min(length + 3, totalBytes - offset));
+    let position = 0;
+    while (position < totalBytes) {
+      abort();
+      const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, totalBytes - position), position);
+      if (!bytesRead) break;
+      const chunk = buffer.subarray(0, bytesRead);
+      digest.update(chunk);
+      if (!binaryReason) {
+        try { if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/u.test(decoder.decode(chunk, { stream: true }))) binaryReason = "binary_content"; }
+        catch { binaryReason = "invalid_utf8"; }
+      }
+      const from = Math.max(position, offset);
+      const to = Math.min(position + bytesRead, offset + selected.length);
+      if (to > from) chunk.copy(selected, from - offset, from - position, to - position);
+      position += bytesRead;
+    }
+    if (!binaryReason) { try { decoder.decode(); } catch { binaryReason = "invalid_utf8"; } }
+    abort();
+    await reviewPath(root, path);
+    const after = await handle.stat({ bigint: true });
+    const current = await lstat(blobPath, { bigint: true });
+    if (!sameFile(before, after) || !sameFile(after, current)) return { ...base, status: "unavailable", reason: "changed_during_read" };
+    if (position !== totalBytes || digest.digest("hex") !== hash) return { ...base, status: "unavailable", reason: "corrupt_blob" };
+    if (binaryReason) return { ...base, status: "binary", reason: binaryReason, hashVerified: true };
+    if (selected.length && (selected[0]! & 0xc0) === 0x80) throw requestError("History byte offset must start at a UTF-8 character boundary. Use nextOffsetBytes from the previous page.", 400);
+    let count = Math.min(length, selected.length);
+    while (count < selected.length && count > 0 && (selected[count]! & 0xc0) === 0x80) count -= 1;
+    const end = offset + count;
+    return { ...base, status: "text", lengthBytes: count, nextOffsetBytes: end < totalBytes ? end : null,
+      complete: offset === 0 && end === totalBytes, hashVerified: true, text: selected.subarray(0, count).toString("utf8") };
+  } catch (error) {
+    if ((error as Error).name === "AbortError" || (error as { statusCode?: number }).statusCode) throw error;
+    return { ...base, status: "unavailable", reason: (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing_blob" : "unreadable" };
+  } finally { await handle?.close().catch(() => undefined); }
 }
 
 function validCheckpoint(checkpoint: SpaceCheckpoint): boolean {

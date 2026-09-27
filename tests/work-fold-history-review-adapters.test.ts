@@ -228,3 +228,29 @@ test("History API and CLI reject cross-Folder checkpoints, unsafe paths, nested 
   assert.notEqual(nestedCli.exitCode, 0);
   assert.doesNotMatch(JSON.stringify(nestedCli), /PRIVATE_NESTED_CONTENT/);
 });
+
+test("CLI and HTTP expose working History pages/ranges and narrowed Search continuation", async (t) => {
+  const {api,space,request,execute}=await fixture(t);
+  const saved="😀saved line\n".repeat(20000);
+  await writeFile(join(space.spaceRoot,"large.txt"),saved);
+  const checkpoint=await createSpaceCheckpoint(space.spaceRoot);
+  const first=JSON.parse((await execute(request(["history","list","--space",space.id,"--limit","1","--json"]))).stdout).data;
+  assert.equal(first.checkpoints.length,1); assert.ok(first.total>1); assert.ok(first.nextCursor);
+  const next=JSON.parse((await execute(request(["history","list","--space",space.id,"--limit","1","--cursor",first.nextCursor,"--json"]))).stdout).data;
+  assert.notEqual(next.checkpoints[0].checkpointId,first.checkpoints[0].checkpointId);
+  const rangeArgs=["history","read","--space",space.id,"--path","large.txt","--checkpoint",checkpoint.checkpointId,"--offset-bytes","0","--length-bytes","65536"];
+  const range=JSON.parse((await execute(request([...rangeArgs,"--json"]))).stdout).data.review.range;
+  assert.equal(range.hashVerified,true); assert.ok(range.nextOffsetBytes>0); assert.ok(saved.startsWith(range.text));
+  const human=await execute(request(rangeArgs)); assert.match(human.stdout,/Continue with --offset-bytes/);
+  const readResponse=await fetch(`${api.origin}/api/spaces/${space.id}/history/read?${new URLSearchParams({path:"large.txt",checkpointId:checkpoint.checkpointId,offsetBytes:String(range.nextOffsetBytes),lengthBytes:"65536",expectedSha256:range.hashSha256})}`,{headers:{"x-work-fold-session":sessionToken}});
+  assert.equal(readResponse.status,200); const read=await readResponse.json() as any; assert.equal(read.review.range.offsetBytes,range.nextOffsetBytes);
+  const listResponse=await fetch(`${api.origin}/api/spaces/${space.id}/history/checkpoints?limit=1`,{headers:{"x-work-fold-session":sessionToken}});
+  const listed=await listResponse.json() as any; assert.ok(listed.nextCursor); assert.equal(listed.total,first.total);
+  const searchArgs=["search","--space",space.id,"--query","saved","--path","large.txt","--scope","files","--limit","1","--json"];
+  const searchRun=await execute(request(searchArgs)); assert.equal(searchRun.exitCode,0,searchRun.stderr);
+  const search=JSON.parse(searchRun.stdout).data; assert.equal(search.files[0].line,1); assert.ok(search.nextCursor);
+  const continued=await fetch(`${api.origin}/api/spaces/${space.id}/search?${new URLSearchParams({q:"saved",path:"large.txt",scope:"files",limit:"1",cursor:search.nextCursor})}`,{headers:{"x-work-fold-session":sessionToken}});
+  assert.equal(continued.status,200); const page=await continued.json() as any; assert.equal(page.files[0].line,2);
+  const mismatch=await fetch(`${api.origin}/api/spaces/${space.id}/search?${new URLSearchParams({q:"different",path:"large.txt",scope:"files",cursor:search.nextCursor})}`,{headers:{"x-work-fold-session":sessionToken}});
+  assert.equal(mismatch.status,409);
+});

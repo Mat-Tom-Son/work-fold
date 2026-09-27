@@ -2390,7 +2390,7 @@ function ContextModeIcon({ attachment }: { attachment: ContextAttachment }) {
 
 function ContextAttachmentPopover({ attachment, onClose }: { attachment: ContextAttachment; onClose: () => void }) {
   const chatSpacePercent = attachment.budgetTokens > 0 ? Math.round((attachment.estimatedTokens / attachment.budgetTokens) * 100) : 0;
-  const chatSpaceLabel = chatSpacePercent === 0 ? "under 1%" : `about ${chatSpacePercent}% of the limit`;
+  const chatSpaceLabel = attachment.budgetStatus === "preview" ? "Assessed when sending" : chatSpacePercent === 0 ? "under 1%" : `about ${chatSpacePercent}% of the limit`;
   return (
     <div className="context-meta-popover">
       <div className="context-meta-title">

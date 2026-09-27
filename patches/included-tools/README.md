@@ -24,6 +24,16 @@ results, session-owned cleanup, unknown-effect cancellation and no replay remain
 the upstream tool path. See [distribution](../../docs/chrome-extension-distribution.md)
 and the package's maintained `docs/EMBEDDED-HOST.md` for the additive interface.
 
+Text snapshots return the actual selected body range, its page revision, capture time
+and target. `textOffset` with `expectedTextVersion` continues a page and rejects
+changed text or URLs by exact comparison, including ordinary HTTP pages. Compact snapshots preserve their complete captured JSON in private
+temporary files; large results also use native Pi `read` instead of clipping
+JSON. Files remain available for the owning session, including reload, and are
+removed on session shutdown. Storage is bounded at 32 MiB per result and 256 MiB
+per session, without eviction; failures say the result was not stored. Native
+structure remains sampled, with captured control/query counts and refinement
+guidance. Explicit navigation/wait timeouts also govern the companion deadline.
+
 ## MCP 2.33.0
 
 The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.
@@ -35,6 +45,12 @@ The public setup helpers reuse upstream configuration merging, credential storag
 Pi 0.80.6 does not supply the `ModelRegistry.complete` method used by this adapter's sampling implementation, so the included configuration disables MCP sampling. The upstream package pins its MCP client/core SDK to commit `3b205e7dd2f997b6a87e479e36421f7eaa2058e0`; the root lockfile pins those downloads. Re-test this seam before changing either native runtime or adapter versions.
 
 Legacy stdio elicitation does not carry a reliable originating `tools/call` id. A question arriving on a reused transport remains owned by its Chat when its original turn has settled; it must not borrow the currently running task's identity. Explicit Stop still cancels the Chat's callbacks. Manual non-loopback OAuth callback entry is not exposed by the included desktop setup.
+
+Structured MCP results accompany text summaries in model-visible content, unless
+an existing JSON block already contains the same value. The native output guard
+spills large combined results without replaying the call. Searches distinguish
+undiscovered lazy servers from empty catalogs and provide the existing `connect`
+operation; discovery itself remains cold until explicitly requested.
 
 ## Web 0.29.0
 

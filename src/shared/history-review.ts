@@ -42,6 +42,37 @@ export interface HistoryFileRead {
   path: string;
   observation: HistoryFileObservation;
   limits: HistoryReviewLimits;
+  /** Explicit byte-range read; observation.text retains its complete-file meaning. */
+  range?: HistoryFileRange;
+}
+
+export interface HistoryFileReadOptions {
+  path: string;
+  checkpointId: string;
+  offsetBytes?: number;
+  lengthBytes?: number;
+  expectedSha256?: string;
+  signal?: AbortSignal;
+}
+
+export interface HistoryFileRange {
+  status: "text" | "binary" | "unavailable";
+  offsetBytes: number;
+  lengthBytes: number;
+  totalBytes: number;
+  nextOffsetBytes: number | null;
+  complete: boolean;
+  hashSha256: string;
+  hashVerified: boolean;
+  text?: string;
+  reason?: HistoryFileReason;
+}
+
+export interface HistoryPageOptions { cursor?: string; limit?: number; }
+export interface HistoryPageInfo {
+  total: number;
+  nextCursor: string | null;
+  sourceVersion: string;
 }
 
 export interface HistoryTextDiff {

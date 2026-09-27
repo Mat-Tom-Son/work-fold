@@ -236,8 +236,9 @@ identities. Documents adds ordinary bundled libraries and a cancellable
 JavaScript worker, with PDF text/render helpers and deliberately selected PNG
 emission. Its render evidence pins captured source bytes, page, scale,
 renderer, dimensions and digests. Office files can be structurally inspected
-with those libraries; visual inspection uses existing compatible applications,
-and spreadsheet formulas are not recalculated. MCP keeps upstream transport,
+with those libraries; the optional installed-engine adapter renders Office files
+through LibreOffice, recalculates XLSX copies through Calc, and recognizes page-image
+text through Tesseract. Engine availability is explicit; those programs are not bundled. MCP keeps upstream transport,
 discovery, schemas and cancellation; configured servers follow their native lifecycle, with lazy connections
 starting on use. See [the integration contract](extension-foundation.md) and
 [document-work Skill](../resources/included-tools/documents/skills/documents/SKILL.md)
@@ -324,8 +325,57 @@ write the same file.
 PowerPoint and spreadsheet attachments follow their package manifest relationship
 order. A reader that cannot resolve all declared parts returns the existing
 path-only reference with a reason, rather than claiming partial extraction is full.
-The 500-slide/worksheet cap, per-part decompression bounds, 64 MiB cumulative XML
-bound and extracted-output bound are enforced; malformed, unsupported or unresolved
+Per-part decompression bounds, the 64 MiB cumulative XML bound and the extracted-output
+bound are enforced, with no independent slide/worksheet count ceiling; malformed, unsupported or unresolved
 packages take the same fallback. Worksheet shared strings do not bypass output
 limits. These are text-extraction guarantees, not claims about visual layout or
 formula recalculation.
+
+
+## Continued access to bounded evidence (2026-09-27)
+
+A response budget is not a ceiling on the task. The model chooses relevant files,
+pages, regions, ranges, and deadlines. Integrations preserve complete available
+observations in ordinary files or provide usable continuation tied to the observed
+source. They report exclusions and changed sources instead of claiming an incomplete
+search or projection is complete. No generic result protocol, second model loop,
+automatic mutation replay, or new authority mode is introduced.
+
+Document scripts have no default deadline; optional deadlines and Stop terminate
+the owned worker. PDF handles reuse immutable source bytes, allow explicit page
+selection without a count ceiling, and provide text/render continuation. Cropped
+regions and fitting keep canvas allocations bounded. Image-response overflow becomes
+an artifact reference. A later exception preserves prior selected images, logs,
+observations and progress as a failed native result; progress is not a final return.
+Large structured returns remain valid JSON and point to full files. Retained run
+evidence lives under machine-local `document-artifacts/` or an explicit ordinary
+artifacts directory until deliberately removed. Temporary render scratch is separate.
+
+Chrome text mode returns body-text ranges with a source revision, and full captured
+results can spill to files readable by native Pi. Retrying a wait uses its advertised
+deadline. MCP retains accompanying structured results and cursors through its existing
+output guard; a cold undiscovered server is identified with its connect path. These
+changes live in the reviewed native patches, not a parallel tool implementation.
+
+Search streams ordinary text without a per-file size exclusion, exposes scope and
+coverage, and continues through page budgets. History lists and verified text ranges
+continue through the same CLI/HTTP domain services. See the management guide for
+version, cursor, and consistency details.
+
+Attachment bodies are loaded after the live model is resolved. Admission accounts
+for conversation usage, reconstructed system/tool context, the new user/host text,
+and response/estimation reserve. It uses native Pi estimates and leaves compaction
+to Pi. An explicit environment budget may narrow capacity, never widen the actual
+model window. Extraction previews do not promise inline admission. Files whose
+bodies cannot fit remain accessible by reference. If the reference metadata itself
+cannot fit, a private retained JSON manifest preserves every selected path and the
+model receives its location, source digest, ownership context and retention policy.
+There is no independent 32-path cutoff. Word text includes referenced
+headers, footers and notes; unsupported content and layout scope are disclosed.
+Model output-length exhaustion preserves partial work and ends with an explicit
+incomplete failure, rather than recording a successful final answer or replaying work.
+
+Native bash remains available for ordinary full-trust file/process work. This change
+does not install a PTY/job scheduler: native bash has no default command deadline and
+spills large output. The document worker and engine adapter own their own cancellation;
+arbitrary child processes created by a user script remain outside worker ownership.

@@ -374,9 +374,9 @@ Authenticated `history read`/`history diff` and the corresponding local API rout
 resolve an explicit registered Folder, checkpoint and relative path before reading
 saved content. They do not accept arbitrary object hashes or expose file bytes in
 content-free protocol v1. They reject reserved paths, symlinks and nested registered
-Folder traversal, verify bounded saved bytes, and disclose unavailable or incomplete
+Folder traversal, verify saved bytes, and disclose unavailable or incomplete
 evidence. Reads create no capture or restoration; remote and restricted-app operation
-allowlists are unchanged. See [the History review contract](docs/management-layer.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
+allowlists are unchanged. Large saved-text ranges stream-verify the complete checkpoint-owned object before releasing a bounded UTF-8 range. List and Search continuation cursors bind scope and source identities and expire on host restart; cursors grant no additional authority. Search streams ordinary files, honors ignore/internal/nested-Folder exclusions, and discloses unreadable or changed coverage. See [the History review contract](docs/management-layer.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
 
 Only selected built-in edit details may enter portable work-trail metadata, within
 per-edit/per-turn bounds and after Folder path checks at tool start and completion.

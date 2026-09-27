@@ -31,6 +31,8 @@ export interface ConversationContextAttachment {
   reason: string | null;
   estimatedTokens: number;
   budgetTokens: number;
+  /** Preview describes extraction; actual model admission happens at dispatch. */
+  budgetStatus?: "preview";
   provenance: string[];
   warnings: string[];
   userLabel: string;
@@ -49,17 +51,18 @@ export async function previewConversationContextAttachment(
 ): Promise<ConversationContextAttachment> {
   const loaded = await loadAttachment(spaceRoot, normalizePath(input.path), chatContextBudgetTokens(), chatContextBudgetTokens());
   const { text: _text, image: _image, ...attachment } = loaded;
-  return attachment;
+  return { ...attachment, budgetStatus: "preview", detail: `${attachment.detail} This is an extraction preview. Inline inclusion is decided when sending, using the selected model and current conversation; the file path remains available to tools.` };
 }
 
 export async function loadConversationContextAttachmentsForTurn(
   spaceRoot: string,
   paths: string[],
+  availableTokens?: number,
 ): Promise<LoadedConversationContextAttachment[]> {
-  const budgetTokens = chatContextBudgetTokens();
+  const budgetTokens = chatContextBudgetTokens(availableTokens);
   let remaining = budgetTokens;
   const result: LoadedConversationContextAttachment[] = [];
-  for (const sourcePath of [...new Set(paths.map(normalizePath).filter(Boolean))].slice(0, 32)) {
+  for (const sourcePath of [...new Set(paths.map(normalizePath).filter(Boolean))]) {
     const attachment = await loadAttachment(spaceRoot, sourcePath, remaining, budgetTokens);
     if (attachment.includedInPrompt) remaining -= attachment.estimatedTokens;
     result.push(attachment);
@@ -81,7 +84,8 @@ async function loadAttachment(
     const info = await stat(path);
     if (!info.isFile()) throw new Error("Only files can be attached to chat context.");
     sourceSizeBytes = info.size;
-    if (sourceSizeBytes > 32 * 1024 * 1024) throw new Error("The file is larger than the 32 MB chat attachment limit.");
+    if (remaining <= 0) throw new Error("No inline attachment capacity remains for this model and conversation. Read the file with tools.");
+    if (sourceSizeBytes > 32 * 1024 * 1024) throw new Error("The file exceeds the 32 MB inline extraction budget. It remains available by path; inspect it with tools in the ranges needed.");
     const bytes = await readFile(path);
     const imageMimeType = imageAttachmentMimeType(sourceFileName, bytes);
     if (imageMimeType) {
@@ -227,8 +231,8 @@ export async function readableAttachmentText(
     return {
       text: await extractWordText(bytes),
       mode: "full_extracted_text",
-      provenance: ["Readable text extracted locally from the Word OOXML package."],
-      warnings: [],
+      provenance: ["Text extracted from the Word body and its referenced headers, footers, footnotes, and endnotes. Repeated parts appear once; this is not page order or visual layout."],
+      warnings: ["Comments, revision history, field instructions, charts, embedded objects, and image text are not included. Inspect the original document for those details."],
     };
   }
   if (spreadsheetExtensions.has(extension)) {
@@ -261,16 +265,73 @@ const spreadsheetExtensions = new Set([".xlsx", ".xlsm", ".xltx", ".xltm"]);
 const presentationExtensions = new Set([".pptx", ".pptm", ".potx", ".potm"]);
 
 async function extractWordText(bytes: Buffer): Promise<string> {
-  const archive = await JSZip.loadAsync(bytes);
-  const xml = await readZipText(archive, "word/document.xml", 16 * 1024 * 1024);
-  if (!xml) throw new Error("The Word package has no readable document part.");
-  return xmlText(xml, [
-    [/<w:tab\b[^>]*\/>/gi, "\t"],
-    [/<w:(?:br|cr)\b[^>]*\/>/gi, "\n"],
-    [/<\/w:p>/gi, "\n"],
-    [/<\/w:tr>/gi, "\n"],
-    [/<\/w:tc>/gi, "\t"],
-  ]);
+  const parts = await officeParts(bytes);
+  // Minimal body-only packages remain readable, with the same explicit scope
+  // disclosure as complete packages. Real package relationships win.
+  const main = parts.has("_rels/.rels") ? await officeMainPart(parts) : "word/document.xml";
+  const references: Array<{ type: "header" | "footer" | "footnotes" | "endnotes"; id: string }> = [];
+  const reserve = officeTextBudget();
+  function wordText(xml: string, path: string, root: string, noteIds?: Set<string>): string {
+    const output: string[] = [];
+    const seenNotes = new Set<string>();
+    const visible = (ancestors: SaxesTagNS[]) => !ancestors.some((tag) => officeNamespaces.word.includes(tag.uri)
+      && (tag.local === "del" || tag.local === "moveFrom" || tag.local.endsWith("PrChange")));
+    const included = (ancestors: SaxesTagNS[]) => visible(ancestors) && (!noteIds || ancestors.some((tag) =>
+      (officeTag(tag, "footnote", "word") || officeTag(tag, "endnote", "word")) && noteIds.has(officeAttribute(tag, "id", "word"))));
+    parseOfficeXml(xml, path, root, "word", {
+      open(tag, ancestors) {
+        if (noteIds && visible(ancestors) && (officeTag(tag, "footnote", "word") || officeTag(tag, "endnote", "word"))) {
+          const id = officeAttribute(tag, "id", "word");
+          if (noteIds.has(id)) {
+            if (seenNotes.has(id)) throw new Error(`${path} has a duplicate referenced note ${id}.`);
+            seenNotes.add(id);
+          }
+        }
+        if (root === "document" && visible(ancestors)) {
+          for (const [local, type, namespace] of [
+            ["headerReference", "header", "relationship"], ["footerReference", "footer", "relationship"],
+            ["footnoteReference", "footnotes", "word"], ["endnoteReference", "endnotes", "word"],
+          ] as const) {
+            if (officeTag(tag, local, "word")) references.push({ type, id: officeAttribute(tag, "id", namespace) });
+          }
+        }
+        if (!included(ancestors)) return;
+        if (officeTag(tag, "tab", "word")) output.push("\t");
+        if (officeTag(tag, "br", "word") || officeTag(tag, "cr", "word")) output.push("\n");
+      },
+      text(value, ancestors) {
+        if (included(ancestors) && officeTag(ancestors.at(-1), "t", "word")) {
+          reserve(value); output.push(value);
+        }
+      },
+      close(tag, ancestors) {
+        if (!included(ancestors)) return;
+        if (officeTag(tag, "p", "word") || officeTag(tag, "tr", "word")) output.push("\n");
+        if (officeTag(tag, "tc", "word")) output.push("\t");
+      },
+    });
+    if (noteIds && [...noteIds].some((id) => !seenNotes.has(id))) throw new Error(`${path} is missing a referenced note; complete text cannot be extracted.`);
+    const result = output.join("").replace(/[ \t]+\n/g, "\n").trim();
+    return result;
+  }
+  const result = [wordText(await parts.read(main, 16 * 1024 * 1024), main, "document")];
+  if (!references.length) return result[0]!;
+  const relationships = await officeRelationships(parts, main);
+  const seen = new Set<string>();
+  for (const reference of references) {
+    if (!reference.id) throw new Error(`${main} has a text reference without an identity.`);
+    const notes = reference.type === "footnotes" || reference.type === "endnotes";
+    const candidates = notes ? [...relationships.values()].filter((relationship) => officeRelationshipType(relationship, reference.type)) : [relationships.get(reference.id)].filter((item): item is OfficeRelationship => !!item);
+    if (candidates.length !== 1) throw new Error(`${main} has a missing or ambiguous ${reference.type} relationship.`);
+    const path = officeRelationshipPath(main, candidates[0]!, reference.type);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const ids = notes ? new Set(references.filter((item) => item.type === reference.type).map((item) => item.id)) : undefined;
+    const root = reference.type === "header" ? "hdr" : reference.type === "footer" ? "ftr" : reference.type;
+    const text = wordText(await parts.read(path, 16 * 1024 * 1024), path, root, ids);
+    result.push(`${reference.type[0]!.toUpperCase()}${reference.type.slice(1)} (${path})\n\n${text}`);
+  }
+  return result.join("\n\n");
 }
 
 async function extractPresentationText(bytes: Buffer): Promise<string> {
@@ -360,6 +421,7 @@ async function extractSpreadsheetText(bytes: Buffer): Promise<string> {
 }
 
 const officeNamespaces = {
+  word: ["http://schemas.openxmlformats.org/wordprocessingml/2006/main", "http://purl.oclc.org/ooxml/wordprocessingml/main"],
   presentation: ["http://schemas.openxmlformats.org/presentationml/2006/main", "http://purl.oclc.org/ooxml/presentationml/main"],
   spreadsheet: ["http://schemas.openxmlformats.org/spreadsheetml/2006/main", "http://purl.oclc.org/ooxml/spreadsheetml/main"],
   drawing: ["http://schemas.openxmlformats.org/drawingml/2006/main", "http://purl.oclc.org/ooxml/drawingml/main"],
@@ -367,7 +429,7 @@ const officeNamespaces = {
   package: ["http://schemas.openxmlformats.org/package/2006/relationships"],
 };
 type OfficeNamespace = keyof typeof officeNamespaces;
-type OfficeParts = { read(path: string, maxBytes: number): Promise<string> };
+type OfficeParts = { has(path: string): boolean; read(path: string, maxBytes: number): Promise<string> };
 type OfficeRelationship = { id: string; type: string; target: string; mode: string };
 
 /** Shared-string references can amplify small XML into arbitrarily large text. */
@@ -384,6 +446,7 @@ async function officeParts(bytes: Buffer): Promise<OfficeParts> {
   const archive = await JSZip.loadAsync(bytes);
   let remaining = 64 * 1024 * 1024;
   return {
+    has(path) { return !!archive.file(path); },
     async read(path, maxBytes) {
       const text = await readZipText(archive, path, Math.min(maxBytes, remaining));
       if (text === null) throw new Error(`The Office package is missing required part ${path}; complete text cannot be extracted.`);
@@ -491,7 +554,6 @@ async function orderedOfficeParts(parts: OfficeParts, main: string, root: "prese
       const name = officeAttribute(tag, "name");
       if (!id || (type === "worksheet" && !name)) throw new Error(`${main} has a ${type} with missing identity; complete text cannot be extracted.`);
       refs.push({ id, name });
-      if (refs.length > 500) throw new Error(`The Office package exceeds the 500 ${type}s extraction limit; complete text cannot be attached. Inspect the file with tools.`);
     },
   });
   if (!refs.length) throw new Error(`The Office package has no readable ${type}s in its document manifest.`);
@@ -541,24 +603,6 @@ async function readZipText(archive: JSZip, path: string, maxBytes: number): Prom
   catch { throw new Error(`${path} is not valid UTF-8 XML; complete text cannot be extracted.`); }
 }
 
-function xmlText(xml: string, replacements: Array<[RegExp, string]>): string {
-  let prepared = xml;
-  for (const [pattern, replacement] of replacements) prepared = prepared.replace(pattern, replacement);
-  prepared = prepared.replace(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi, "$1").replace(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/gi, "$1");
-  return decodeXml(prepared.replace(/<[^>]+>/g, "")).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function decodeXml(value: string): string {
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
-}
-
 function pathOnlyAttachment(input: {
   sourcePath: string;
   sourceFileName: string;
@@ -579,9 +623,12 @@ function pathOnlyAttachment(input: {
   };
 }
 
-export function chatContextBudgetTokens(): number {
+export function chatContextBudgetTokens(availableTokens = Math.ceil(64 * 1024 * 1024 / 3.5)): number {
   const configured = Number(process.env.WORKFOLD_CHAT_CONTEXT_BUDGET_TOKENS);
-  return Number.isFinite(configured) && configured > 1000 ? Math.floor(configured) : 90_000;
+  // Without a live model this is only the extraction-memory bound, not a
+  // promise that this much text fits a prompt. Production dispatch supplies
+  // the live remaining capacity. An explicit user configuration may narrow it.
+  return Number.isFinite(configured) && configured > 0 ? Math.min(availableTokens, Math.floor(configured)) : availableTokens;
 }
 
 export function estimateTokens(text: string): number {

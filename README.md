@@ -30,7 +30,7 @@ As a project grows, ask for a custom **app** in its sidebar, add **Checks** to r
 
 What the Assistant does happens right away and leaves a record you can read in the app. Nothing it deletes is gone for good: **History** keeps versions of your files, and anything History cannot keep waits in **Recently deleted** for 30 days. Sharing a page, an app's access, and anything running on a schedule can all be turned off afterwards.
 
-Use **Compare** in Version History or a selected Folder restore point to read saved text beside the current file before restoring. Binary, oversized, uncaptured, and incomplete comparisons explain their limits.
+Use **Compare** in Version History or a selected Folder restore point to read saved text beside the current file before restoring. Binary, oversized, uncaptured, and incomplete comparisons explain their limits. The authenticated CLI offers paged `history list`/`versions`, verified `history read --offset-bytes 0` ranges for large saved text, and streaming `search` with `--path` narrowing and `--cursor` continuation; see `work-fold help history` and `work-fold help search`.
 
 ## Try it
 

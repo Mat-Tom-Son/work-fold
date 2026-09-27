@@ -349,7 +349,7 @@ The fold popover keeps per-chat text and attachment drafts in renderer memory wh
 ### Saved-file comparisons and edit excerpts
 
 History read/diff results may contain bounded complete UTF-8 text from the selected
-saved/current file and a bounded difference. They travel through authenticated local
+saved/current file, explicit verified ranges of a large saved file, and a bounded difference. Search pages may contain matching snippets from ordinary files larger than 1 MiB; ignore rules and internal/nested-Folder exclusions still apply. Continuation cursors are transient, scope-bound positions (including bounded scan context), expire on host restart, and are not receipt content. They travel through authenticated local
 API or act-lane responses; CLI receipt records never include those bytes. The
 content-free read lane and paired-web allowlist gain no file-reading operation.
 Comparison itself contacts no model provider; a Worker that requests it can use the
@@ -362,3 +362,20 @@ outside the Folder, within nested Folder identities or reserved metadata, and th
 symlinks are excluded. Raw tool results are not copied. Optional assistant segment
 metadata stores offsets/classifications, not a second copy of message text. Management
 transcripts remain machine-local; paired-web projections keep their existing fields.
+
+
+Document runs can retain selected render artifacts, complete overflow returns, logs,
+and observation metadata in machine-local `document-artifacts/` (or the ordinary
+artifact directory explicitly selected for the run). They remain until deliberately
+removed so the Worker can retrieve evidence after a bounded response or failure.
+Installed-engine conversions remove their private input copy and temporary Office
+profile; the selected output and diagnostic log remain. These files are not uploaded
+merely by creation. Only deliberately selected tool observations enter model context.
+
+When a large attachment selection's path metadata cannot fit in model context,
+the complete selection is retained as a private JSON manifest under machine-local
+`attachment-artifacts/`. It contains names, paths, sizes and turn ownership, not
+file contents. The model receives its path and can inspect selected files with
+ordinary tools. These manifests remain until deliberately removed; standalone
+runtimes without application/session storage use explicitly identified system
+temporary storage instead. Creating a manifest does not upload the selected files.

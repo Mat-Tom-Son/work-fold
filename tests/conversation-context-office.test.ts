@@ -1,4 +1,32 @@
 import assert from "node:assert/strict";
+
+test("Word text includes referenced headers, footers and notes while excluding orphan and deleted text", async () => {
+  const archive = new JSZip();
+  const w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+  archive.file("_rels/.rels", relationships([{ id: "document", target: "custom/main.xml", type: "officeDocument" }]));
+  archive.file("custom/main.xml", `<w:document xmlns:w="${w}" xmlns:r="${documentRelationships}"><w:body><w:p><w:r><w:t>BODY_MARKER &amp; value</w:t><w:footnoteReference w:id="2"/></w:r><w:del><w:r><w:t>DELETED_MARKER</w:t><w:footnoteReference w:id="3"/></w:r></w:del></w:p><w:sectPr><w:headerReference r:id="head"/><w:footerReference r:id="foot"/></w:sectPr></w:body></w:document>`);
+  archive.file("custom/_rels/main.xml.rels", relationships([
+    { id: "head", target: "../text/header.xml", type: "header" },
+    { id: "foot", target: "../text/footer.xml", type: "footer" },
+    { id: "notes", target: "../text/notes.xml", type: "footnotes" },
+  ]));
+  archive.file("text/header.xml", `<w:hdr xmlns:w="${w}"><w:p><w:r><w:t>HEADER_MARKER</w:t></w:r></w:p></w:hdr>`);
+  archive.file("text/footer.xml", `<w:ftr xmlns:w="${w}"><w:p><w:r><w:t>FOOTER_MARKER</w:t></w:r></w:p></w:ftr>`);
+  archive.file("text/orphan.xml", `<w:hdr xmlns:w="${w}"><w:p><w:r><w:t>ORPHAN_MARKER</w:t></w:r></w:p></w:hdr>`);
+  archive.file("text/notes.xml", `<w:footnotes xmlns:w="${w}"><w:footnote w:id="2"><w:p><w:r><w:t>NOTE_MARKER</w:t></w:r></w:p></w:footnote><w:footnote w:id="3"><w:p><w:r><w:t>UNREFERENCED_NOTE</w:t></w:r></w:p></w:footnote></w:footnotes>`);
+  const extracted = await readableAttachmentText("word.docx", await archive.generateAsync({ type: "nodebuffer" }));
+  for (const marker of ["BODY_MARKER & value", "HEADER_MARKER", "FOOTER_MARKER", "NOTE_MARKER"]) assert.ok(extracted.text.includes(marker), marker);
+  assert.doesNotMatch(extracted.text, /ORPHAN_MARKER|DELETED_MARKER|UNREFERENCED_NOTE/);
+  assert.match(extracted.provenance.join(" "), /referenced headers, footers/);
+  assert.match(extracted.warnings.join(" "), /Comments, revision history/);
+  const notes = (await archive.file("text/notes.xml")!.async("string"));
+  archive.file("text/notes.xml", notes.replace('w:id="2"', 'w:id="20"'));
+  await assert.rejects(readableAttachmentText("word.docx", await archive.generateAsync({ type: "nodebuffer" })), /missing a referenced note/);
+  archive.file("text/notes.xml", notes);
+  archive.remove("text/header.xml");
+  await assert.rejects(readableAttachmentText("word.docx", await archive.generateAsync({ type: "nodebuffer" })), /missing required part/);
+});
+
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -97,17 +125,15 @@ test("Excel attachment text follows named workbook sheets and shared-string rela
 });
 
 for (const kind of ["pptx", "xlsx"] as const) {
-  test(`${kind}: 500 referenced parts attach completely, but 501 never silently truncate`, async (t) => {
+  test(`${kind}: more than 500 referenced parts remain readable within extraction memory`, async (t) => {
     const withinLimit = await attachment(t, kind, officeFixture(kind, 500));
     assert.equal(withinLimit.mode, "full_extracted_text");
     assert.match(withinLimit.text!, /MARKER_500_END/);
     assert.ok(withinLimit.estimatedTokens < withinLimit.budgetTokens);
     const overLimit = await attachment(t, kind, officeFixture(kind, 501));
-    assert.equal(overLimit.mode, "path_only_reference");
-    assert.equal(overLimit.includedInPrompt, false);
-    assert.equal(overLimit.text, null);
-    assert.match(overLimit.reason!, /500 (slides|worksheets) extraction limit/);
-    assert.match(overLimit.detail, /complete text cannot be attached/);
+    assert.equal(overLimit.mode, "full_extracted_text");
+    assert.equal(overLimit.includedInPrompt, true);
+    assert.match(overLimit.text!, /MARKER_501_END/);
   });
 
   const main = kind === "pptx" ? "ppt/presentation.xml" : "xl/workbook.xml";

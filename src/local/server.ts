@@ -178,8 +178,9 @@ import {
   createSpaceMutationCheckpoint,
   discardSpaceCheckpoint,
   getSpaceCheckpoint,
-  listFileVersions,
   listSpaceCheckpoints,
+  listSpaceCheckpointPage,
+  listFileVersionPage,
   restoreFileVersion,
   restoreSpaceCheckpoint,
   previewSpaceCheckpointRestore,
@@ -2294,6 +2295,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         includeFiles: scope !== "chats",
         includeChats: scope !== "files",
         signal: controller.signal,
+        path: url.searchParams.get("path") ?? undefined,
+        cursor: url.searchParams.get("cursor") ?? undefined,
+        maxMatches: optionalBoundedInteger(url.searchParams.get("limit"), "limit"),
       });
       if (!controller.signal.aborted && !res.destroyed) sendJson(res, result);
     } catch (error) {
@@ -2556,7 +2560,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const checkpointCollectionMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/history\/checkpoints$/);
   if (checkpointCollectionMatch && method === "GET") {
     const space = await getSpace(checkpointCollectionMatch[1]);
-    sendJson(res, { checkpoints: await listSpaceCheckpoints(space.spaceRoot) });
+    sendJson(res, await listSpaceCheckpointPage(space.spaceRoot, { cursor: url.searchParams.get("cursor") ?? undefined, limit: optionalBoundedInteger(url.searchParams.get("limit"), "limit") }));
     return;
   }
   if (checkpointCollectionMatch && method === "POST") {
@@ -2590,7 +2594,19 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (historyReviewMatch[2] === "read") {
       const checkpointId = url.searchParams.get("checkpointId")?.trim();
       if (!checkpointId) throw badRequest("A checkpointId is required.");
-      sendJson(res, { review: await readHistoryFile(space.spaceRoot, { path, checkpointId }) });
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      req.once("aborted", abort); res.once("close", abort);
+      try {
+        const review = await readHistoryFile(space.spaceRoot, {
+          path, checkpointId, signal: controller.signal,
+          offsetBytes: optionalBoundedInteger(url.searchParams.get("offsetBytes"), "offsetBytes"),
+          lengthBytes: optionalBoundedInteger(url.searchParams.get("lengthBytes"), "lengthBytes"),
+          expectedSha256: url.searchParams.get("expectedSha256") ?? undefined,
+        });
+        if (!controller.signal.aborted && !res.destroyed) sendJson(res, { review });
+      } catch (error) { if (!controller.signal.aborted) throw error; }
+      finally { req.off("aborted", abort); res.off("close", abort); }
     } else {
       const fromCheckpointId = url.searchParams.get("fromCheckpointId")?.trim();
       if (!fromCheckpointId) throw badRequest("A fromCheckpointId is required.");
@@ -2607,7 +2623,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const space = await getSpace(fileVersionsMatch[1]);
     const path = url.searchParams.get("path")?.trim();
     if (!path) throw badRequest("A Space-relative file path is required.");
-    sendJson(res, { path, versions: await listFileVersions(space.spaceRoot, path) });
+    sendJson(res, { path, ...await listFileVersionPage(space.spaceRoot, path, { cursor: url.searchParams.get("cursor") ?? undefined, limit: optionalBoundedInteger(url.searchParams.get("limit"), "limit") }) });
     return;
   }
   if (method === "POST" && fileVersionsMatch) {
@@ -6428,8 +6444,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     },
     async historyList(input) {
       const space = await resolveSpace(input.space);
-      const checkpoints = await runActOperation(() => listSpaceCheckpoints(space.spaceRoot));
-      return { space: toActSpaceRef(space), checkpoints: checkpoints.map(toActCheckpointSummary) };
+      const page = await runActOperation(() => listSpaceCheckpointPage(space.spaceRoot, input));
+      return { space: toActSpaceRef(space), ...page, checkpoints: page.checkpoints.map(toActCheckpointSummary) };
     },
     async historySave(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -6482,8 +6498,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = await resolveSpace(input.space);
       const path = input.path.trim();
       if (!path) throw new WorkFoldCliError("usage", "A Space-relative file path is required.");
-      const versions = await runActOperation(() => listFileVersions(space.spaceRoot, path));
-      return { space: toActSpaceRef(space), path, versions: versions.map(toActFileVersionRef) };
+      const page = await runActOperation(() => listFileVersionPage(space.spaceRoot, path, input));
+      return { space: toActSpaceRef(space), path, ...page, versions: page.versions.map(toActFileVersionRef) };
     },
     async historyRead(input) {
       const space = await resolveSpace(input.space);
@@ -6640,6 +6656,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const result = await runActOperation(() => searchSpace(space.spaceRoot, query, {
         includeFiles: scope !== "chats",
         includeChats: scope !== "files",
+        path: input.path, cursor: input.cursor, maxMatches: input.limit,
       }));
       return { space: toActSpaceRef(space), scope, ...result };
     },
@@ -11118,9 +11135,9 @@ async function runAgentTurn(
   changeTurnCount(state, 1);
   try {
     client = await getClient(state, spaceId, spaceRoot, conversationId);
-    const contextAttachments = managementAttachments
-      ? await loadManagementAttachmentsForTurn(managementAttachments)
-      : await loadConversationContextAttachmentsForTurn(spaceRoot, contextPaths);
+    const loadContextAttachments = (budgetTokens: number) => managementAttachments
+      ? loadManagementAttachmentsForTurn(managementAttachments, budgetTokens)
+      : loadConversationContextAttachmentsForTurn(spaceRoot, contextPaths, budgetTokens);
     const attachedLinks = managementAttachments ? managementAttachmentLinks(managementAttachments) : [];
     const managementSpaces = spaceId === workFoldManagementScopeId
       ? (await state.kernel.getSpaces({ kind: "renderer" })).spaces.map((space) => ({
@@ -11160,7 +11177,7 @@ async function runAgentTurn(
     throwIfTurnCancelled(state, taskId);
     promptStarted = true;
     const finalText = await client.prompt(content, {
-      contextAttachments,
+      loadContextAttachments,
       selectedPath,
       ...(spaceId === workFoldManagementScopeId ? { managementTaskId: taskId } : {}),
       ...(managementSpaces ? { managementSpaces } : {}),
@@ -11607,11 +11624,11 @@ function capabilityRegistrySort(value: string | null): CapabilitySort | undefine
   throw badRequest("Capability sort must be official, downloads, recent, or name.");
 }
 
-function optionalBoundedInteger(value: string | null, label: "offset" | "limit"): number | undefined {
+function optionalBoundedInteger(value: string | null, label: "offset" | "limit" | "offsetBytes" | "lengthBytes"): number | undefined {
   if (value === null || value === "") return undefined;
   const parsed = Number(value);
   const minimum = label === "limit" ? 1 : 0;
-  if (!Number.isInteger(parsed) || parsed < minimum) throw badRequest(`Capability ${label} is invalid.`);
+  if (!Number.isInteger(parsed) || parsed < minimum) throw badRequest(`${label} is invalid.`);
   return parsed;
 }
 
@@ -13948,7 +13965,7 @@ function normalizeSelectedPath(spaceRoot: string, value: string | null | undefin
 function normalizeContextPaths(spaceRoot: string, value: unknown): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw badRequest("Chat context paths must be an array of strings.");
-  const paths = [...new Set(value.map((item) => normalizeSpaceRelativePath(item)).filter(Boolean))].slice(0, 32);
+  const paths = [...new Set(value.map((item) => normalizeSpaceRelativePath(item)).filter(Boolean))];
   for (const path of paths) {
     try { resolveSpacePath(spaceRoot, path); } catch (error) { throw badRequest(errorMessage(error)); }
   }

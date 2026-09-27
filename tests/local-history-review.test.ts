@@ -6,7 +6,7 @@ import test, { type TestContext } from "node:test";
 
 import { HISTORY_REVIEW_LIMITS } from "../src/shared/history-review.js";
 import { compareHistoryFile, readHistoryFile } from "../src/local/history-review.js";
-import { createSpaceCheckpoint, createSpaceMutationCheckpoint, type SpaceCheckpoint } from "../src/local/history.js";
+import { createSpaceCheckpoint, createSpaceMutationCheckpoint, listSpaceCheckpointPage, listFileVersionPage, type SpaceCheckpoint } from "../src/local/history.js";
 import { configureWorkFoldStateRoot, spaceHistoryRoot } from "../src/local/state-paths.js";
 import { registerLinkedSpace } from "../src/local/space.js";
 
@@ -281,4 +281,62 @@ test("a detected outside write during current reading returns unavailable with n
   assert.equal(compared.after.text, undefined);
   assert.equal(compared.after.hashSha256, undefined);
   assert.equal(compared.change, "unknown");
+});
+
+test("verified UTF-8 byte ranges retrieve an entire large snapshot without restoring it", async (t) => {
+  const {root}=await fixture(t);
+  const original=`header\n${"abc😀é\n".repeat(24000)}tail`;
+  await writeFile(join(root,"large.txt"),original);
+  const checkpoint=await createSpaceCheckpoint(root);
+  await writeFile(join(root,"large.txt"),"current stays intact");
+  let offset=0; let reconstructed=""; let hash: string | undefined; let pages=0;
+  while(true) {
+    const result=await readHistoryFile(root,{path:"large.txt",checkpointId:checkpoint.checkpointId,offsetBytes:offset,lengthBytes:65537,expectedSha256:hash});
+    assert.equal(result.observation.status,"too_large"); assert.equal(result.observation.text,undefined);
+    assert.equal(result.range?.status,"text"); assert.equal(result.range?.hashVerified,true);
+    assert.equal(result.range?.offsetBytes,offset); assert.ok(result.range!.lengthBytes<=65537);
+    assert.doesNotMatch(result.range!.text!,/\ufffd/);
+    reconstructed+=result.range!.text; hash=result.range!.hashSha256; pages++;
+    if(result.range!.nextOffsetBytes===null) break;
+    offset=result.range!.nextOffsetBytes;
+  }
+  assert.equal(reconstructed,original); assert.ok(pages>2);
+  assert.equal(await readFile(join(root,"large.txt"),"utf8"),"current stays intact");
+  await assert.rejects(readHistoryFile(root,{path:"large.txt",checkpointId:checkpoint.checkpointId,offsetBytes:0,expectedSha256:"0".repeat(64)}),/expectedSha256/);
+  await assert.rejects(readHistoryFile(root,{path:"large.txt",checkpointId:checkpoint.checkpointId,offsetBytes:11}),/UTF-8 character boundary/);
+  const handle=await open(blobPath(root,checkpoint,"large.txt"),"r+"); await handle.write(Buffer.from("X"),0,1,original.length-10); await handle.close();
+  const corrupted=await readHistoryFile(root,{path:"large.txt",checkpointId:checkpoint.checkpointId,offsetBytes:0,lengthBytes:32});
+  assert.equal(corrupted.range?.reason,"corrupt_blob"); assert.equal(corrupted.range?.text,undefined,"corruption outside the requested range prevents release");
+});
+
+test("History pages expose all retained checkpoints and versions beyond the former scan ceiling", async (t) => {
+  const {root}=await fixture(t);
+  await writeFile(join(root,"note.txt"),"old version");
+  const old=await createSpaceCheckpoint(root);
+  await writeFile(join(root,"note.txt"),"recent version");
+  const recent=await createSpaceCheckpoint(root);
+  const directory=join(spaceHistoryRoot(root),"checkpoints");
+  // Separate retained manifests reproduce a large journal without thousands of captures.
+  for(let index=0;index<1001;index++) {
+    const checkpointId=`cp-page-fixture-${String(index).padStart(6,"0")}`;
+    await writeFile(join(directory,`${checkpointId}.json`),JSON.stringify({...recent,checkpointId,createdAt:new Date(Date.parse(recent.createdAt)+index+1).toISOString()}));
+  }
+  const first=await listSpaceCheckpointPage(root,{limit:50});
+  assert.equal(first.checkpoints.length,50); assert.equal(first.total,1003); assert.ok(first.nextCursor);
+  let cursor=first.nextCursor; const ids=first.checkpoints.map(checkpoint=>checkpoint.checkpointId);
+  while(cursor) { const page=await listSpaceCheckpointPage(root,{cursor,limit:200}); assert.equal(page.sourceVersion,first.sourceVersion); ids.push(...page.checkpoints.map(checkpoint=>checkpoint.checkpointId)); cursor=page.nextCursor; }
+  assert.equal(ids.length,1003); assert.equal(new Set(ids).size,1003); assert.ok(ids.includes(old.checkpointId));
+  const versionFirst=await listFileVersionPage(root,"note.txt",{limit:1});
+  assert.equal(versionFirst.total,2); assert.ok(versionFirst.nextCursor);
+  const versionLast=await listFileVersionPage(root,"note.txt",{limit:1,cursor:versionFirst.nextCursor!});
+  assert.equal(versionLast.versions[0]!.hashSha256,old.files[0]!.hashSha256); assert.equal(versionLast.nextCursor,null);
+  await assert.rejects(listFileVersionPage(root,"other.txt",{cursor:versionFirst.nextCursor!}),/another selection/);
+  await rm(join(directory,`${recent.checkpointId}.json`));
+  await assert.rejects(listSpaceCheckpointPage(root,{cursor:first.nextCursor!}),/History changed/);
+});
+
+test("History range reads honor cancellation before reading saved content", async (t) => {
+  const {root}=await fixture(t); await writeFile(join(root,"note.txt"),"saved");
+  const checkpoint=await createSpaceCheckpoint(root); const controller=new AbortController(); controller.abort();
+  await assert.rejects(readHistoryFile(root,{path:"note.txt",checkpointId:checkpoint.checkpointId,offsetBytes:0,signal:controller.signal}),{name:"AbortError"});
 });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { open, readFile, writeFile, mkdir, mkdtemp } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import { createRequire, registerHooks } from "node:module";
 import { dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -60,7 +60,13 @@ async function boundedRead(path, limit) {
     const info = await handle.stat();
     if (!info.isFile() || info.size > limit) throw new Error(`${path} must be a file of at most ${limit} bytes.`);
     const buffer = Buffer.alloc(Math.min(info.size + 1, limit + 1));
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const part = await handle.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (!part.bytesRead) break;
+      bytesRead += part.bytesRead;
+    }
+    if (bytesRead > info.size) throw new Error(`${path} grew during capture; inspect the current source before trying again.`);
     if (bytesRead > limit) throw new Error(`${path} exceeds ${limit} bytes.`);
     return buffer.subarray(0, bytesRead);
   } finally { await handle.close(); }
@@ -108,109 +114,60 @@ async function main() {
   const absolute = (path) => resolve(cwd, path);
   const pdfRoot = dirname(bundledResolve("pdfjs-dist/package.json"));
 
-  async function withPdf(path, options, callback) {
-    const sourcePath = absolute(path);
-    const bytes = await boundedRead(sourcePath, limits.pdfBytes);
-    const source = { path: sourcePath, sha256: digest(bytes), bytes: bytes.length };
-    const loading = pdfjs.getDocument({
-      data: Uint8Array.from(bytes), password: options.password,
-      // PDF.js's Node data factory passes these directly to fs.readFile.
-      standardFontDataUrl: join(pdfRoot, "standard_fonts") + "/",
-      cMapUrl: join(pdfRoot, "cmaps") + "/", cMapPacked: true,
-      wasmUrl: join(pdfRoot, "wasm") + "/",
-      isEvalSupported: false, useSystemFonts: false, useWorkerFetch: false,
-    });
-    try {
-      const document = await loading.promise;
-      const selected = options.pages ?? Array.from({ length: Math.min(document.numPages, limits.pdfPages) }, (_, i) => i + 1);
-      if (!Array.isArray(selected) || !selected.length || selected.length > limits.pdfPages || new Set(selected).size !== selected.length || selected.some((n) => !Number.isInteger(n) || n < 1 || n > document.numPages)) {
-        throw new Error(`Choose 1–${limits.pdfPages} distinct page numbers between 1 and ${document.numPages}.`);
-      }
-      return await callback(document, selected, { source, totalPages: document.numPages, omittedPages: document.numPages - selected.length, renderer: `pdfjs-dist@${versions["pdfjs-dist"]}` });
-    } finally { await loading.destroy(); }
-  }
-
+  // The entrypoint is unpacked, while helpers remain in the application archive.
+  const { createOutput } = await import(new URL("./output.mjs", bundledUrl));
+  const { pdfHelpers } = await import(new URL("./pdf.mjs", bundledUrl));
+  const output = createOutput({ root: workerData.artifactsRoot, limits, post: (message) => parentPort.postMessage(message) });
+  const pdf = pdfHelpers({ pdfjs, canvas, pdfRoot, versions, limits, boundedRead, absolute, reviewRoot: workerData.reviewRoot, imageOrigins, output });
+  parentPort.postMessage({ metadata: { versions, runtime } });
   const context = {
     cwd, args: workerData.args, versions,
     script: { path: workerData.script.path, sha256: workerData.script.sha256 },
     libraries: { docx, ExcelJS: exceljs.default, PptxGenJS: pptxgenjs.default, pdfLib, pdfjs, canvas, JSZip: zip.default },
     resolve: absolute,
-    async readPdf(path, options = {}) {
-      return withPdf(path, options, async (document, selected, provenance) => {
-        let remaining = limits.textBytes;
-        const pages = [];
-        for (const number of selected) {
-          const page = await document.getPage(number);
-          const content = await page.getTextContent();
-          const text = content.items.map((item) => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("");
-          const buffer = Buffer.from(text);
-          const admitted = buffer.subarray(0, remaining);
-          remaining -= admitted.length;
-          pages.push({ page: number, text: admitted.toString("utf8"), truncated: admitted.length < buffer.length });
-          page.cleanup();
-        }
-        return { ...provenance, pages };
-      });
-    },
-    async renderPdf(path, options = {}) {
-      const scale = options.scale ?? 1.5;
-      if (!Number.isFinite(scale) || scale <= 0 || scale > 4) throw new Error("PDF scale must be greater than 0 and at most 4.");
-      return withPdf(path, options, async (document, selected, provenance) => {
-        const temporary = options.outputDir === undefined;
-        const outputDir = temporary ? await mkdtemp(join(workerData.reviewRoot, "pdf-")) : absolute(options.outputDir);
-        await mkdir(outputDir, { recursive: true });
-        const pages = [];
-        for (const number of selected) {
-          const page = await document.getPage(number);
-          const viewport = page.getViewport({ scale });
-          const width = Math.ceil(viewport.width), height = Math.ceil(viewport.height);
-          if (width * height > limits.pagePixels) throw new Error(`Page ${number} exceeds ${limits.pagePixels} pixels; lower scale.`);
-          const surface = canvas.createCanvas(width, height);
-          await page.render({ canvasContext: surface.getContext("2d"), viewport }).promise;
-          const png = surface.toBuffer("image/png");
-          const outputPath = join(outputDir, `page-${number}-${provenance.source.sha256.slice(0, 12)}-scale-${scale}.png`);
-          // Never overwrite an existing render, including a person's unrelated file.
-          await writeFile(outputPath, png, { flag: "wx" });
-          const record = { ...provenance, page: number, scale, width, height, path: outputPath, sha256: digest(png), temporary };
-          imageOrigins.set(outputPath, record);
-          pages.push(record);
-          page.cleanup();
-        }
-        return { ...provenance, pages };
-      });
+    openPdf: pdf.openPdf, readPdf: pdf.readPdf, renderPdf: pdf.renderPdf,
+    async progress(value) {
+      const result = await output.result(value, "progress");
+      await output.observe({ kind: "progress", ...result });
+      parentPort.postMessage({ progress: result });
+      return result;
     },
     async emitImage(path) {
-      if (images.length >= limits.images) throw new Error(`At most ${limits.images} images can enter one tool result.`);
       const imagePath = absolute(path);
-      const bytes = await boundedRead(imagePath, limits.imageBytes);
+      const bytes = await boundedRead(imagePath, limits.pngBytes);
       if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new Error("emitImage accepts PNG files. Convert other formats with the bundled canvas library.");
       // The standard PNG metadata reader inspects IHDR before a native decoder
       // can allocate memory for a highly compressed, oversized image.
       const dimensions = imageSize(bytes);
       if (dimensions.type !== "png" || !Number.isInteger(dimensions.width) || !Number.isInteger(dimensions.height) || dimensions.width <= 0 || dimensions.height <= 0) throw new Error("The selected PNG has invalid dimensions.");
       if (dimensions.width * dimensions.height > limits.pagePixels) throw new Error("The selected image exceeds the pixel limit.");
-      if (imageBytes + bytes.length > limits.totalImageBytes) throw new Error("Selected images exceed the 8 MiB combined limit.");
       const sha256 = digest(bytes);
       const origin = imageOrigins.get(imagePath);
       if (origin && origin.sha256 !== sha256) throw new Error("A rendered image changed before emission. Render it again to preserve source provenance.");
       const decoded = await canvas.loadImage(bytes);
       if (decoded.width * decoded.height > limits.pagePixels) throw new Error("The selected image exceeds the pixel limit.");
       if (decoded.width !== dimensions.width || decoded.height !== dimensions.height) throw new Error("The selected PNG's decoded dimensions disagree with its header.");
-      imageBytes += bytes.length;
-      images.push({ data: bytes.toString("base64"), mimeType: "image/png", provenance: origin ?? { path: imagePath, sha256, width: decoded.width, height: decoded.height } });
-      return { path: imagePath, sha256 };
+      const artifact = origin?.artifact ?? await output.artifact("image.png", bytes, "image/png");
+      const provenance = origin ?? { path: imagePath, sha256, width: decoded.width, height: decoded.height, artifact };
+      const image = { data: bytes.toString("base64"), mimeType: "image/png", provenance };
+      // Budget serialized bytes, including metadata: tiny images cannot create
+      // an unbounded response through a nominal PNG-byte budget.
+      const cost = Buffer.byteLength(JSON.stringify(image));
+      const admitted = bytes.length <= limits.imageBytes && imageBytes + cost <= limits.totalImageBytes;
+      const selection = { path: imagePath, sha256, artifact, admitted,
+        ...(!admitted ? { reason: bytes.length > limits.imageBytes ? "image-byte-budget" : "response-image-budget", continuation: bytes.length > limits.imageBytes ? "Crop or downscale the retained PNG with libraries.canvas, then emit that image; do not rerun the producing script." : "The retained PNG can be inspected in a later document_run; do not rerun the producing script." } : {}) };
+      await output.observe({ kind: "image-selection", ...selection, provenance });
+      if (admitted) { imageBytes += cost; images.push(image); parentPort.postMessage({ image }); }
+      return selection;
     },
   };
   // Ordinary top-level JS executes normally. A default function receives helpers;
   // CJS module.exports is also exposed as default by native import().
-  const module = await import(scriptUrl);
-  const value = typeof module.default === "function" ? await module.default(context) : undefined;
-  const serialized = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value);
-  const bytes = Buffer.from(serialized ?? "");
-  return {
-    value: bytes.subarray(0, limits.textBytes).toString("utf8"), valueTruncated: bytes.length > limits.textBytes,
-    images, versions, runtime, script: context.script, cwd,
-  };
+  try {
+    const module = await import(scriptUrl);
+    const value = typeof module.default === "function" ? await module.default(context) : undefined;
+    return { ...await output.result(value), versions, runtime, script: context.script, cwd };
+  } finally { await pdf.close(); }
 }
 
 try { parentPort.postMessage({ result: await main() }); }

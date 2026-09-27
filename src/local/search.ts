@@ -1,233 +1,240 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { constants, type BigIntStats } from "node:fs";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { relative, sep } from "node:path";
 
 import { isOfficeLockFileName } from "./office-lock-files.js";
 import { listConversations, readConversation } from "./agent/chat-store.js";
+import { decodeRetrievalCursor, encodeRetrievalCursor, retrievalError } from "./retrieval-cursor.js";
 import { isAlwaysHiddenSpaceEntry, isSpaceIgnored, readSpaceIgnoreState } from "./space-ignore.js";
-import { ensureSafeSpaceRoot } from "./space.js";
+import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, nestedRegisteredSpacePaths, resolveSpacePath } from "./space.js";
 
-export interface SpaceFileMatch {
-  path: string;
-  line: number;
-  preview: string;
+export interface SpaceFileMatch { path: string; line: number; preview: string; }
+export interface SpaceChatMatch { conversationId: string; title: string; role: "user" | "assistant" | "system"; createdAt: string; preview: string; }
+export interface SpaceSearchCoverage {
+  /** Counters describe this page, including excluded directory roots, not their descendants. */
+  ignored: number; internal: number; symbolicLink: number; binary: number; unreadable: number; changed: number; nonRegular: number;
+  scannedBytes: number;
+  /** Live observations, not an atomic filesystem snapshot. */
+  consistency: "live";
+  complete: boolean;
 }
-
-export interface SpaceChatMatch {
-  conversationId: string;
-  title: string;
-  role: "user" | "assistant" | "system";
-  createdAt: string;
-  preview: string;
-}
-
 export interface SpaceSearchResult {
-  query: string;
-  files: SpaceFileMatch[];
-  chats: SpaceChatMatch[];
-  /** True when a bound stopped the search before the Space was exhausted. */
-  truncated: boolean;
-  scannedFiles: number;
+  query: string; files: SpaceFileMatch[]; chats: SpaceChatMatch[]; truncated: boolean; scannedFiles: number;
+  nextCursor: string | null; coverage: SpaceSearchCoverage;
 }
-
 export interface SpaceSearchOptions {
-  includeFiles?: boolean;
-  includeChats?: boolean;
-  maxMatches?: number;
-  maxScannedFiles?: number;
+  includeFiles?: boolean; includeChats?: boolean; maxMatches?: number; maxScannedFiles?: number;
+  /** Deprecated spelling, now a resumable page byte budget; never excludes a large file. */
   maxFileBytes?: number;
-  signal?: AbortSignal;
+  maxScannedBytes?: number;
+  path?: string; cursor?: string; signal?: AbortSignal;
 }
+interface DirectoryPosition { path: string; after: string | null; version: string; }
+interface FilePosition { path: string; version: string; offset: number; line: number; tail: string; matched: boolean; sampled?: boolean; }
+interface SearchCursor { scope: string; stack: DirectoryPosition[]; current?: FilePosition; filesDone: boolean; chatIndex: number; messageIndex: number; chatVersion?: string; transcriptVersion?: string; incomplete: boolean; }
 
-const defaultMaxMatches = 200;
-const defaultMaxScannedFiles = 5_000;
-const defaultMaxFileBytes = 1024 * 1024;
-const maxQueryLength = 200;
-const maxSearchDepth = 32;
-const maxSearchedConversations = 500;
-const previewRadius = 80;
-const maxPreviewLength = 240;
-
-/**
- * Substring search across a Space's ordinary files and its Chat transcripts.
- *
- * Every bound here exists because a Space is an arbitrary folder that may hold
- * a dependency tree, a media library, or a decade of transcripts. The search
- * stops at the first bound it reaches and says so, rather than reading an
- * unbounded amount of the user's disk to answer one query.
- */
-export async function searchSpace(
-  spaceRoot: string,
-  rawQuery: string,
-  options: SpaceSearchOptions = {},
-): Promise<SpaceSearchResult> {
+/** Fixed allocations and resumable page budgets; ordinary text files have no size ceiling. */
+export async function searchSpace(spaceRoot: string, rawQuery: string, options: SpaceSearchOptions = {}): Promise<SpaceSearchResult> {
   const query = rawQuery.trim();
-  if (!query) throw Object.assign(new Error("Enter something to search for."), { statusCode: 400 });
-  if (query.length > maxQueryLength) throw Object.assign(new Error("Search text is too long."), { statusCode: 400 });
-
+  if (!query) throw retrievalError("Enter something to search for.");
+  if (query.length > 200) throw retrievalError("Search text is too long.");
   const root = ensureSafeSpaceRoot(spaceRoot);
-  throwIfSearchAborted(options.signal);
-  const needle = query.toLocaleLowerCase();
-  const maxMatches = boundedCount(options.maxMatches, defaultMaxMatches, 1_000);
-  const maxScannedFiles = boundedCount(options.maxScannedFiles, defaultMaxScannedFiles, 50_000);
-  const maxFileBytes = boundedCount(options.maxFileBytes, defaultMaxFileBytes, 16 * 1024 * 1024);
-
-  const state = { files: [] as SpaceFileMatch[], scannedFiles: 0, truncated: false };
-  if (options.includeFiles !== false) {
-    const ignorePatterns = (await readSpaceIgnoreState(root)).patterns;
-    await searchFiles(root, root, needle, ignorePatterns, { maxMatches, maxScannedFiles, maxFileBytes }, state, options.signal);
-  }
-
-  const chats = options.includeChats === false ? [] : await searchChats(root, needle, maxMatches, state, options.signal);
-  throwIfSearchAborted(options.signal);
-  return { query, files: state.files, chats, truncated: state.truncated, scannedFiles: state.scannedFiles };
-}
-
-interface SearchBounds {
-  maxMatches: number;
-  maxScannedFiles: number;
-  maxFileBytes: number;
-}
-
-interface SearchState {
-  files: SpaceFileMatch[];
-  scannedFiles: number;
-  truncated: boolean;
-}
-
-function searchExhausted(bounds: SearchBounds, state: SearchState): boolean {
-  return state.files.length >= bounds.maxMatches || state.scannedFiles >= bounds.maxScannedFiles;
-}
-
-async function searchFiles(
-  root: string,
-  directory: string,
-  needle: string,
-  ignorePatterns: string[],
-  bounds: SearchBounds,
-  state: SearchState,
-  signal?: AbortSignal,
-  depth = 0,
-): Promise<void> {
-  throwIfSearchAborted(signal);
-  if (searchExhausted(bounds, state)) return;
-  if (depth > maxSearchDepth) {
-    state.truncated = true;
-    return;
-  }
-  const entries = (await readdir(directory, { withFileTypes: true }).catch(() => []))
-    .sort((left, right) => left.name.localeCompare(right.name));
-  for (const entry of entries) {
-    throwIfSearchAborted(signal);
-    // Checked per entry, not just per directory: a bound reached deep in one
-    // subtree must stop the whole walk rather than let every sibling folder
-    // rediscover it.
-    if (searchExhausted(bounds, state)) {
-      state.truncated = true;
-      return;
+  assertSpaceDoesNotContainState(root);
+  aborted(options.signal);
+  if (options.includeFiles === false && options.path) throw retrievalError("Search path narrows files; use files or all scope.");
+  const selected = options.path ? relative(await realpath(root), await realpath(resolveSpacePath(root, options.path))).split(sep).join("/") : "";
+  const ignore = (await readSpaceIgnoreState(root)).patterns;
+  const nested = await nestedRegisteredSpacePaths(root);
+  const scope = digest(JSON.stringify([root, query, selected, options.includeFiles !== false, options.includeChats !== false, ignore, nested]));
+  const cursor = options.cursor ? decodeRetrievalCursor<SearchCursor>(options.cursor) : undefined;
+  if (cursor && cursor.scope !== scope) throw retrievalError("Search selection or ignore rules changed. Start the search again.", 409);
+  const state: SearchCursor = cursor ?? { scope, stack: [], filesDone: options.includeFiles === false, chatIndex: 0, messageIndex: 0, incomplete: false };
+  const files: SpaceFileMatch[] = []; const chats: SpaceChatMatch[] = [];
+  let resultBytes = 0; let resultBudgetReached = false;
+  const admit = (match: SpaceFileMatch | SpaceChatMatch): boolean => {
+    const bytes = Buffer.byteLength(JSON.stringify(match));
+    if (resultBytes + bytes > 512 * 1024) { resultBudgetReached = true; return false; }
+    resultBytes += bytes; return true;
+  };
+  const coverage: SpaceSearchCoverage = { ignored: 0, internal: 0, symbolicLink: 0, binary: 0, unreadable: 0, changed: 0, nonRegular: 0, scannedBytes: 0, consistency: "live", complete: false };
+  const maxMatches = count(options.maxMatches, 200, 1000);
+  const maxFiles = count(options.maxScannedFiles, 5000, 50000);
+  const maxBytes = count(options.maxScannedBytes ?? options.maxFileBytes, 8 * 1024 * 1024, 64 * 1024 * 1024);
+  let scannedFiles = 0; let visited = 0;
+  const directoryEntries = new Map<string, { entries: import("node:fs").Dirent[]; index: number }>();
+  const excluded = (path: string): boolean => {
+    if (path.split("/").some((name) => isAlwaysHiddenSpaceEntry(name) || isOfficeLockFileName(name))) { coverage.internal++; return true; }
+    if (nested.some((child) => path === child || path.startsWith(`${child}/`))) { coverage.internal++; return true; }
+    if (isSpaceIgnored(path, ignore)) { coverage.ignored++; return true; }
+    return false;
+  };
+  const safe = async (path: string): Promise<BigIntStats> => {
+    aborted(options.signal);
+    // Recheck ancestors on every open; a continuation cannot follow a replaced symlink.
+    const absolute = resolveSpacePath(root, path);
+    const info = await lstat(absolute, { bigint: true });
+    if (info.isSymbolicLink()) throw retrievalError("Search source became a symbolic link. Start the search again.", 409);
+    return info;
+  };
+  if (!cursor && !state.filesDone) {
+    if (selected && excluded(selected)) state.filesDone = true;
+    else {
+      const info = await safe(selected);
+      if (info.isDirectory()) state.stack.push({ path: selected, after: null, version: identity(info) });
+      else if (info.isFile()) state.current = filePosition(selected, info);
+      else { coverage.nonRegular++; state.filesDone = true; }
     }
-    if (entry.isSymbolicLink() || isAlwaysHiddenSpaceEntry(entry.name) || isOfficeLockFileName(entry.name)) continue;
-    const path = join(directory, entry.name);
-    const relativePath = toPosix(relative(root, path));
-    // Search deliberately honours the ignore rules the person already set on
-    // the Files surface, so an excluded dependency tree stays excluded here.
-    if (isSpaceIgnored(relativePath, ignorePatterns)) continue;
-    if (entry.isDirectory()) {
-      await searchFiles(root, path, needle, ignorePatterns, bounds, state, signal, depth + 1);
+  }
+  for (const frame of state.stack) {
+    if (identity(await safe(frame.path).catch(() => { throw retrievalError("A searched directory changed. Start the search again.", 409); })) !== frame.version) throw retrievalError("A searched directory changed. Start the search again.", 409);
+  }
+  while (!state.filesDone && !resultBudgetReached && files.length < maxMatches && scannedFiles < maxFiles && visited < maxFiles && coverage.scannedBytes < maxBytes) {
+    aborted(options.signal);
+    if (state.current) {
+      const current = state.current;
+      const initial = await safe(current.path).catch((error) => {
+        if (cursor) throw retrievalError("A searched file changed or disappeared. Start the search again.", 409);
+        if ((error as { statusCode?: number }).statusCode) throw error;
+        coverage.unreadable++; state.incomplete = true; return null;
+      });
+      if (initial && identity(initial) !== current.version) throw retrievalError("A searched file changed. Start the search again.", 409);
+      scannedFiles++;
+      if (!initial || await scanFile(root, current, initial, query.toLocaleLowerCase(), maxMatches, maxBytes, files, coverage, admit, options.signal)) delete state.current;
+      if (!state.current && !state.stack.length) state.filesDone = true;
       continue;
     }
-    if (!entry.isFile()) continue;
-    const info = await stat(path).catch(() => null);
-    if (!info?.isFile()) continue;
-    if (info.size > bounds.maxFileBytes) continue;
-    state.scannedFiles += 1;
-    const bytes = await readFile(path).catch(() => null);
-    if (!bytes || looksBinary(bytes)) continue;
-    collectFileMatches(relativePath, bytes.toString("utf8"), needle, bounds.maxMatches, state);
-  }
-}
-
-function collectFileMatches(path: string, text: string, needle: string, maxMatches: number, state: SearchState): void {
-  const lines = text.split(/\r?\n/);
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const at = line.toLocaleLowerCase().indexOf(needle);
-    if (at < 0) continue;
-    if (state.files.length >= maxMatches) {
-      state.truncated = true;
-      return;
-    }
-    state.files.push({ path, line: index + 1, preview: preview(line, at, needle.length) });
-  }
-}
-
-async function searchChats(
-  root: string,
-  needle: string,
-  maxMatches: number,
-  state: SearchState,
-  signal?: AbortSignal,
-): Promise<SpaceChatMatch[]> {
-  const matches: SpaceChatMatch[] = [];
-  // Chat search has to read transcripts, which is exactly the work the Chat
-  // list was changed to avoid. Newest Chats are searched first and the rest
-  // are disclosed as unsearched rather than read without limit.
-  const conversations = await listConversations(root).catch(() => []);
-  throwIfSearchAborted(signal);
-  if (conversations.length > maxSearchedConversations) state.truncated = true;
-  for (const conversation of conversations.slice(0, maxSearchedConversations)) {
-    throwIfSearchAborted(signal);
-    if (matches.length >= maxMatches) {
-      state.truncated = true;
-      break;
-    }
-    for (const message of await readConversation(root, conversation.id).catch(() => [])) {
-      throwIfSearchAborted(signal);
-      // Lifecycle and title bookkeeping are not conversation content.
-      if (message.kind === "conversation_lifecycle" || message.kind === "conversation_title" || message.kind === "assistant_continuation") continue;
-      const normalizedContent = message.content.replace(/\s+/g, " ");
-      const at = normalizedContent.toLocaleLowerCase().indexOf(needle);
-      if (at < 0) continue;
-      if (matches.length >= maxMatches) {
-        state.truncated = true;
-        break;
+    const frame = state.stack.at(-1);
+    if (!frame) { state.filesDone = true; break; }
+    let listing = directoryEntries.get(frame.path);
+    if (!listing) {
+      const entries = await readdir(resolveSpacePath(root, frame.path), { withFileTypes: true }).catch(() => null);
+      if (!entries) { coverage.unreadable++; state.incomplete = true; state.stack.pop(); continue; }
+      // Sort once per directory/page, then advance by index. A wide directory
+      // must not be sorted or searched again for every individual entry.
+      entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+      let index = 0;
+      if (frame.after !== null) {
+        let end = entries.length;
+        while (index < end) {
+          const middle = Math.floor((index + end) / 2);
+          if (entries[middle]!.name <= frame.after) index = middle + 1;
+          else end = middle;
+        }
       }
-      matches.push({
-        conversationId: conversation.id,
-        title: conversation.title,
-        role: message.role,
-        createdAt: message.createdAt,
-        preview: preview(normalizedContent, at, needle.length),
-      });
+      listing = { entries, index }; directoryEntries.set(frame.path, listing);
     }
+    const entry = listing.entries[listing.index++];
+    if (!entry) { state.stack.pop(); directoryEntries.delete(frame.path); continue; }
+    frame.after = entry.name; visited++;
+    const path = frame.path ? `${frame.path}/${entry.name}` : entry.name;
+    if (excluded(path)) continue;
+    if (entry.isSymbolicLink()) { coverage.symbolicLink++; continue; }
+    const info = await safe(path).catch(() => null);
+    if (!info) { coverage.unreadable++; state.incomplete = true; continue; }
+    if (info.isDirectory()) state.stack.push({ path, after: null, version: identity(info) });
+    else if (info.isFile()) state.current = filePosition(path, info);
+    else coverage.nonRegular++;
   }
-  return matches;
+  // Empty stack after the final file has an exact end, not a fake extra page.
+  if (!state.current && !state.stack.length) state.filesDone = true;
+  let chatsDone = options.includeChats === false;
+  if (state.filesDone && !chatsDone) {
+    const conversations = await listConversations(root);
+    const version = digest(JSON.stringify(conversations));
+    if (state.chatVersion && state.chatVersion !== version) throw retrievalError("Chats changed. Start the search again.", 409);
+    state.chatVersion = version;
+    let inspected = 0;
+    while (state.chatIndex < conversations.length && !resultBudgetReached && chats.length + files.length < maxMatches && inspected < maxFiles) {
+      aborted(options.signal);
+      const conversation = conversations[state.chatIndex]!;
+      const messages = await readConversation(root, conversation.id);
+      const transcriptVersion = digest(JSON.stringify(messages));
+      if (state.transcriptVersion && state.transcriptVersion !== transcriptVersion) throw retrievalError("A searched Chat changed. Start the search again.", 409);
+      state.transcriptVersion = transcriptVersion; inspected++;
+      while (state.messageIndex < messages.length && chats.length + files.length < maxMatches) {
+        const message = messages[state.messageIndex++]!;
+        if (["conversation_lifecycle", "conversation_title", "assistant_continuation"].includes(message.kind ?? "")) continue;
+        const text = message.content.replace(/\s+/g, " ");
+        const at = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+        if (at >= 0) {
+          const match = { conversationId: conversation.id, title: conversation.title, role: message.role, createdAt: message.createdAt, preview: preview(text, at, query.length) };
+          if (!admit(match)) { state.messageIndex--; break; }
+          chats.push(match);
+        }
+      }
+      if (state.messageIndex < messages.length) break;
+      state.chatIndex++; state.messageIndex = 0; delete state.transcriptVersion;
+    }
+    chatsDone = state.chatIndex >= conversations.length;
+  }
+  aborted(options.signal);
+  state.incomplete ||= coverage.unreadable > 0 || coverage.changed > 0;
+  const more = !state.filesDone || !chatsDone;
+  coverage.complete = !more && !state.incomplete;
+  return { query, files, chats, scannedFiles, truncated: !coverage.complete, nextCursor: more ? encodeRetrievalCursor(state) : null, coverage };
 }
 
-function preview(line: string, at: number, length: number): string {
-  const start = Math.max(0, at - previewRadius);
-  const snippet = line.slice(start, at + length + previewRadius).trim();
-  const prefixed = start > 0 ? `…${snippet}` : snippet;
-  return prefixed.length > maxPreviewLength ? `${prefixed.slice(0, maxPreviewLength)}…` : prefixed;
+async function scanFile(root: string, current: FilePosition, initial: BigIntStats, needle: string, maxMatches: number, maxBytes: number, files: SpaceFileMatch[], coverage: SpaceSearchCoverage, admit: (match: SpaceFileMatch) => boolean, signal?: AbortSignal): Promise<boolean> {
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  const resultStart = files.length;
+  try {
+    handle = await open(resolveSpacePath(root, current.path), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    if (identity(await handle.stat({ bigint: true })) !== current.version) throw retrievalError("A searched file changed. Start the search again.", 409);
+    if (!current.sampled) {
+      const sample = Buffer.alloc(Math.min(8192, maxBytes - coverage.scannedBytes));
+      const { bytesRead } = await handle.read(sample, 0, sample.length, 0);
+      coverage.scannedBytes += bytesRead; current.sampled = true;
+      if (looksBinary(sample.subarray(0, bytesRead))) { coverage.binary++; return true; }
+    }
+    const buffer = Buffer.alloc(64 * 1024 + 4);
+    while (current.offset < Number(initial.size) && files.length < maxMatches && coverage.scannedBytes < maxBytes) {
+      aborted(signal);
+      const size = Math.min(64 * 1024, Math.max(4, maxBytes - coverage.scannedBytes), Number(initial.size) - current.offset);
+      const { bytesRead } = await handle.read(buffer, 0, Math.min(size + 3, buffer.length), current.offset);
+      if (!bytesRead) break;
+      let length = Math.min(size, bytesRead);
+      while (length < bytesRead && length > 0 && (buffer[length]! & 0xc0) === 0x80) length--;
+      if (!length) length = Math.min(4, bytesRead);
+      let text: string;
+      try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length)); }
+      catch { files.splice(resultStart); coverage.binary++; return true; }
+      const parts = text.match(/[^\n]*\n|[^\n]+$/gu) ?? [];
+      for (const part of parts) {
+        if (files.length >= maxMatches) break;
+        const terminated = part.endsWith("\n");
+        const body = terminated ? part.slice(0, -1).replace(/\r$/u, "") : part;
+        const joined = current.tail + body;
+        const at = current.matched ? -1 : joined.toLocaleLowerCase().indexOf(needle);
+        if (at >= 0) {
+          const match = { path: current.path, line: current.line, preview: preview(joined, at, needle.length) };
+          if (!admit(match)) {
+            if (identity(await handle.stat({ bigint: true })) !== current.version) throw retrievalError("A searched file changed. Start the search again.", 409);
+            return false;
+          }
+          files.push(match); current.matched = true;
+        }
+        const consumed = Buffer.byteLength(part);
+        current.offset += consumed; coverage.scannedBytes += consumed;
+        current.tail = terminated ? "" : joined.slice(-(needle.length + 80));
+        if (terminated) { current.line++; current.matched = false; }
+      }
+    }
+    const after = await handle.stat({ bigint: true });
+    const pathAfter = await lstat(resolveSpacePath(root, current.path), { bigint: true });
+    if (identity(after) !== current.version || identity(pathAfter) !== current.version) {
+      files.splice(resultStart); coverage.changed++; return true;
+    }
+    return current.offset >= Number(initial.size);
+  } catch (error) {
+    if ((error as Error).name === "AbortError" || (error as { statusCode?: number }).statusCode) throw error;
+    files.splice(resultStart); coverage.unreadable++; return true;
+  } finally { await handle?.close().catch(() => undefined); }
 }
-
-function looksBinary(bytes: Buffer): boolean {
-  const sample = bytes.subarray(0, Math.min(bytes.length, 8192));
-  if (sample.includes(0)) return true;
-  let controls = 0;
-  for (const byte of sample) if (byte < 9 || (byte > 13 && byte < 32)) controls += 1;
-  return sample.length > 0 && controls / sample.length > 0.1;
-}
-
-function boundedCount(value: number | undefined, fallback: number, maximum: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback;
-  return Math.min(Math.max(Math.floor(value), 1), maximum);
-}
-
-function throwIfSearchAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  throw Object.assign(new Error("Search cancelled."), { name: "AbortError" });
-}
-
-function toPosix(path: string): string {
-  return path.split(sep).join("/");
-}
+function filePosition(path: string, info: BigIntStats): FilePosition { return { path, version: identity(info), offset: 0, line: 1, tail: "", matched: false }; }
+function identity(info: BigIntStats): string { return [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs, info.mode].join(":"); }
+function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+function preview(line: string, at: number, length: number): string { const start = Math.max(0, at - 80); const value = `${start ? "…" : ""}${line.slice(start, at + length + 80).trim()}`; return value.length > 240 ? `${value.slice(0, 240)}…` : value; }
+function looksBinary(bytes: Buffer): boolean { if (bytes.includes(0)) return true; let controls = 0; for (const byte of bytes) if (byte < 9 || byte > 13 && byte < 32) controls++; return bytes.length > 0 && controls / bytes.length > 0.1; }
+function count(value: number | undefined, fallback: number, maximum: number): number { if (value === undefined) return fallback; if (!Number.isSafeInteger(value) || value < 1 || value > maximum) throw retrievalError(`Search page budget must be between 1 and ${maximum}.`); return value; }
+function aborted(signal?: AbortSignal): void { if (signal?.aborted) throw Object.assign(new Error("Search cancelled."), { name: "AbortError" }); }

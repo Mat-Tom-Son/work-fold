@@ -178,8 +178,9 @@ export function managementAttachmentLinks(refs: readonly ManagementAttachmentRef
  */
 export async function loadManagementAttachmentsForTurn(
   refs: readonly ManagementAttachmentRef[],
+  availableTokens?: number,
 ): Promise<LoadedConversationContextAttachment[]> {
-  const budgetTokens = chatContextBudgetTokens();
+  const budgetTokens = chatContextBudgetTokens(availableTokens);
   let remaining = budgetTokens;
   const loaded: LoadedConversationContextAttachment[] = [];
   for (const ref of refs) {
@@ -203,8 +204,9 @@ async function loadManagementFileAttachment(
   try {
     const info = await lstat(ref.target);
     if (!info.isFile()) throw new Error("The attached path is no longer an ordinary file.");
+    if (remaining <= 0) throw new Error("No inline attachment capacity remains for this model and conversation. Read the file with tools.");
     if (info.size > maxManagementAttachmentFileBytes) {
-      throw new Error("The file is larger than the 32 MB attachment limit.");
+      throw new Error("The file exceeds the 32 MB inline extraction budget. It remains available by path; inspect it with tools in the ranges needed.");
     }
     const bytes = await readFile(ref.target);
     const extracted = await readableAttachmentText(ref.name, bytes);

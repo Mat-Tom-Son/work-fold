@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { appendMessage, readConversation, type ChatMessage } from "../src/local/agent/chat-store.js";
-import { PiConversationClient, type PiChatEvent } from "../src/local/agent/pi-client.js";
+import { PiConversationClient, PiTurnFailure, type PiChatEvent } from "../src/local/agent/pi-client.js";
 import { localEditPath, parseAssistantPresentation, projectNativeEdit, turnPresentation } from "../src/local/agent/turn-presentation.js";
 import { maxAssistantPresentationSegments, maxChatToolEditDiffBytes, maxTurnToolEditDiffBytes } from "../src/shared/chat-presentation.js";
 import { WorkFoldTurnStore } from "../src/local/agent/turn-store.js";
@@ -125,8 +125,12 @@ test("length-limited and tool-only final messages never relabel progress as a fi
     send({ role: "assistant", content: "I am still working." });
     send({}, "length");
   });
-  const partial = await limited.client.prompt("Respond until the provider limit.");
-  assert.equal(partial, "I am still working.");
+  await assert.rejects(limited.client.prompt("Respond until the provider limit."), (error: unknown) => {
+    assert.ok(error instanceof PiTurnFailure);
+    assert.equal(error.partialText, "I am still working.");
+    assert.match(error.message, /response length limit/);
+    return true;
+  });
   assert.deepEqual(limited.client.getTurnPresentation()?.segments.map((segment) => segment.kind), ["progress"]);
 
   const empty = await harness(t, (payload, send) => {
@@ -143,6 +147,60 @@ test("length-limited and tool-only final messages never relabel progress as a fi
   assert.equal(await empty.client.prompt("Inspect notes.txt."), "I will inspect the file.");
   assert.deepEqual(empty.client.getTurnPresentation()?.segments.map((segment) => segment.kind), ["progress"]);
   assert.equal(empty.client.getTurnWorkTrail().find((entry) => entry.toolName === "read")?.edit, undefined);
+});
+
+test("native overflow compaction recovery discards the failed attempt's error and presentation", async (t) => {
+  let requests = 0;
+  const h = await harness(t, (_payload, send, response) => {
+    requests++;
+    if (requests === 3) {
+      send({ role: "assistant", content: "Discard this failed attempt." });
+      response.write(`data: ${JSON.stringify({ error: { message: "prompt is too long", type: "invalid_request_error" } })}\n\n`);
+    } else {
+      send({ role: "assistant", content: requests < 3 ? "Ready." : "Recovered after compaction." });
+      send({}, "stop");
+    }
+  }, `export default function(pi) {
+    pi.on("session_before_compact", async event => ({ compaction: {
+      summary: "Earlier context summarized by the fixture.",
+      firstKeptEntryId: event.preparation.firstKeptEntryId,
+      tokensBefore: event.preparation.tokensBefore,
+    } }));
+  }`);
+  await h.client.prompt("Earlier context. ".repeat(8_000));
+  await h.client.prompt("More earlier context. ".repeat(8_000));
+  const reply = await h.client.prompt("Now recover from the overflow.");
+  assert.equal(reply, "Recovered after compaction.");
+  assert.equal(requests, 4);
+  assert.ok(h.events.some((event) => (event.raw as any)?.type === "compaction_end" && (event.raw as any)?.willRetry));
+  assert.deepEqual(h.client.getTurnPresentation()?.segments.map((segment) => segment.kind), ["final"]);
+});
+
+test("an empty length-stop overflow remains a failure when native Pi cannot resume it", async (t) => {
+  let requests = 0;
+  const h = await harness(t, (_payload, send, response) => {
+    requests++;
+    if (requests === 3) {
+      send({ role: "assistant", content: "" });
+      send({}, "length");
+      response.write(`data: ${JSON.stringify({ id: "usage", object: "chat.completion.chunk", created: 1, model: "presentation", choices: [], usage: { prompt_tokens: 32768, completion_tokens: 0, total_tokens: 32768 } })}\n\n`);
+    } else {
+      send({ role: "assistant", content: "Ready." });
+      send({}, "stop");
+    }
+  }, `export default function(pi) {
+    pi.on("session_before_compact", async event => ({ compaction: {
+      summary: "Earlier context summarized by the fixture.",
+      firstKeptEntryId: event.preparation.firstKeptEntryId,
+      tokensBefore: event.preparation.tokensBefore,
+    } }));
+  }`);
+  await h.client.prompt("Earlier context. ".repeat(8_000));
+  await h.client.prompt("More earlier context. ".repeat(8_000));
+  await assert.rejects(h.client.prompt("Now recover from the overflow."), /Cannot continue from message role: assistant/);
+  assert.equal(requests, 3);
+  assert.ok(h.events.some((event) => (event.raw as any)?.type === "compaction_end" && (event.raw as any)?.willRetry));
+  assert.equal(h.client.getTurnPresentation(), undefined);
 });
 
 test("Stop preserves partial text boundaries without inventing a final segment", async (t) => {

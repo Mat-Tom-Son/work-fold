@@ -151,8 +151,9 @@ details. Setup belongs to that tool: macOS permissions, the Chrome
 companion, optional Brave search credentials, and native MCP server definitions
 and authentication. A saved credential alone does not establish readiness.
 Web defaults to DuckDuckGo without a key. Documents supplies ordinary libraries
-and a cancellable JavaScript worker; Office visual inspection uses existing
-apps, and Excel formulas are preserved rather than recalculated. MCP sampling
+and a cancellable JavaScript worker with continuable PDF observations. Its optional
+installed-engine adapter uses LibreOffice for Office rendering/XLSX recalculation
+and Tesseract for page-image OCR, reporting missing engines explicitly. MCP sampling
 is disabled for the embedded Pi version; stdio servers need their executable
 and runtime installed. Setup details and remaining limits are in the contract.
 

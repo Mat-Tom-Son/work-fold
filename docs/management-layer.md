@@ -709,12 +709,53 @@ not reverified. Current reads carry `observedAt` and reject detected changes dur
 reading; they are not transactional filesystem snapshots. Review never captures,
 restores, or edits files. Interval differences do not attribute edits to a Worker.
 
-Limits are explicit in every version-1 result: 128 KiB per text file, 64 KiB of
+The legacy complete-file observation and diff budgets remain explicit in every
+version-1 result: 128 KiB per complete text observation, 64 KiB of
 difference output, 2,000 lines, 4,096 characters per line, and one million diff
 work cells. Unsupported or incomplete comparison remains explicit in both JSON and
 human CLI output. Folder History and file Version History offer the same read-only
 comparison, including coverage explanations and available saved/current text.
 Existing restore previews and restoration paths keep their semantics.
+
+Search and History retrieval budgets are per-call budgets with explicit continuation.
+`history list` and `history versions` accept `--limit` (1–1,000) and `--cursor`;
+their existing arrays now accompany `total`, `sourceVersion` and `nextCursor`.
+Pass `nextCursor` with the same selection until it is null. A changed retained
+ledger or a cursor from another selection is rejected instead of silently moving
+the page boundary. Retention itself remains the existing local recovery policy.
+The corresponding checkpoint/file-version GET routes accept `limit` and `cursor`.
+
+For a large saved UTF-8 file, use `history read --space <id> --path <file>
+--checkpoint <id> --offset-bytes 0 --length-bytes 65536 --json`. The additive
+`range` contains text, actual byte offset/length, `totalBytes`, `hashSha256`,
+`hashVerified`, and `nextOffsetBytes`. Repeat with that next offset and
+`--expected-sha256 <hash>` until the next offset is null. Each call streams and
+verifies the whole checkpoint-owned object with fixed buffers before releasing
+any selected text, including detecting corruption outside the requested range.
+Ranges preserve UTF-8 character boundaries; arbitrary offsets inside a character
+are rejected. `range.complete` means the one returned range covers the whole
+file. Legacy `observation.text` still means complete content; a large observation
+can be `too_large` while its separate range is available. HTTP uses `offsetBytes`,
+`lengthBytes` and `expectedSha256`. Binary and uncaptured content stay explicit;
+no arbitrary object endpoint, destructive restore, or private-state access is needed.
+
+`search --space <id> --query <text> [--scope files|chats|all] [--path <file-or-folder>]
+[--limit <n>] [--cursor <cursor>] --json` streams ordinary text files regardless
+of size. `path` narrows the file portion; Chat scope stays selected separately.
+The response retains `files`, `chats`, `truncated` and `scannedFiles`, adding
+`nextCursor` and per-page `coverage`. Repeat the same selection with the returned
+cursor until null; a page with no matches can still advance through a large file.
+The defaults are 200 matches, 5,000 visited entries/files and 8 MiB scanned per
+page, with fixed read buffers and a 512 KiB match-payload budget. These do not exclude large files or deep trees.
+Ignored directories, internal metadata/nested Folders, symlinks, binary content,
+unreadable entries and detected changes have separate coverage counts. Directory
+counts name excluded roots, not all descendants. `coverage.complete` is false
+while work remains or any page encountered unreadable/changed content. Search is
+a sequence of live observations, not a transactional snapshot; external changes
+can require a fresh query. Cursors bind the selection/ignore rules and verify
+active directory and file identities. They expire on host restart. Local Search
+GET uses `q`, `scope`, `path`, `limit` and `cursor` with the same service and
+request cancellation. Receipts remain metadata-only and protocol v1 content-free.
 
 A Folder turn's hidden context now includes the actual pre-turn History capture:
 checkpoint id (including deduplicated reuse), captured file count, and skipped

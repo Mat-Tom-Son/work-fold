@@ -8,6 +8,8 @@ import {
   createTargetedHistoryCapturePolicy,
   type HistoryCapturePolicy,
 } from "./history-capture-policy.js";
+import type { HistoryPageInfo, HistoryPageOptions } from "../shared/history-review.js";
+import { decodeRetrievalCursor, encodeRetrievalCursor, retrievalError } from "./retrieval-cursor.js";
 import { isOfficeLockFileName } from "./office-lock-files.js";
 import { spaceHistoryRoot } from "./state-paths.js";
 import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, resolveSpacePath, nestedRegisteredSpacePaths, withSpaceHistoryOperation } from "./space.js";
@@ -222,6 +224,31 @@ export async function listSpaceCheckpoints(spaceRoot: string, limit = 50): Promi
   return (await readCheckpointManifests(root)).slice(0, Math.min(Math.max(limit, 1), 1000));
 }
 
+/** A page of the full retained ledger; the cursor rejects a changed source. */
+export async function listSpaceCheckpointPage(spaceRoot: string, options: HistoryPageOptions = {}): Promise<HistoryPageInfo & { checkpoints: SpaceCheckpoint[] }> {
+  const root = ensureHistoryRoot(spaceRoot);
+  return withSpaceHistoryOperation(root, async () => {
+    const checkpoints = await readCheckpointManifests(root);
+    const page = historyPage(root, "checkpoints", checkpoints, options);
+    return { ...page.info, checkpoints: page.items };
+  });
+}
+
+function historyPage<T>(root: string, selector: string, items: T[], options: HistoryPageOptions): { items: T[]; info: HistoryPageInfo } {
+  const sourceHash = createHash("sha256");
+  for (const item of items) sourceHash.update(JSON.stringify(item)).update("\n");
+  const sourceVersion = sourceHash.digest("hex");
+  const scope = createHash("sha256").update(JSON.stringify([root, selector])).digest("hex");
+  const limit = options.limit ?? 50;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw retrievalError("History page limit must be between 1 and 1000.");
+  const cursor = options.cursor ? decodeRetrievalCursor<{ scope: string; sourceVersion: string; offset: number }>(options.cursor) : undefined;
+  if (cursor && (cursor.scope !== scope || cursor.sourceVersion !== sourceVersion)) throw retrievalError("History changed or this cursor belongs to another selection. Start the listing again.", 409);
+  const offset = cursor?.offset ?? 0;
+  const end = Math.min(items.length, offset + limit);
+  return { items: items.slice(offset, end), info: { total: items.length, sourceVersion,
+    nextCursor: end < items.length ? encodeRetrievalCursor({ scope, sourceVersion, offset: end }) : null } };
+}
+
 export async function getSpaceCheckpoint(spaceRoot: string, checkpointId: string): Promise<SpaceCheckpoint | null> {
   if (!checkpointIdPattern.test(checkpointId)) return null;
   const root = ensureHistoryRoot(spaceRoot);
@@ -315,32 +342,27 @@ async function restoreSpaceCheckpointUnlocked(spaceRoot: string, checkpointId: s
   }
 }
 
-export async function listFileVersions(
-  spaceRoot: string,
-  relativePath: string,
-  limit = 50,
-): Promise<SpaceFileVersion[]> {
+export async function listFileVersions(spaceRoot: string, relativePath: string, limit = 50): Promise<SpaceFileVersion[]> {
+  return (await listFileVersionPage(spaceRoot, relativePath, { limit: Math.min(Math.max(limit, 1), 200) })).versions;
+}
+
+export async function listFileVersionPage(spaceRoot: string, relativePath: string, options: HistoryPageOptions = {}): Promise<HistoryPageInfo & { versions: SpaceFileVersion[] }> {
   const root = ensureHistoryRoot(spaceRoot);
   const path = canonicalPath(root, relativePath, true).path;
-  const versions: SpaceFileVersion[] = [];
-  const seen = new Set<string>();
-  for (const checkpoint of await listSpaceCheckpoints(root, 1000)) {
-    const file = checkpoint.files.find((entry) => entry.path === path);
-    if (!file || seen.has(file.hashSha256) || !(await hasSpaceBlob(root, file.hashSha256))) continue;
-    seen.add(file.hashSha256);
-    versions.push({
-      path,
-      hashSha256: file.hashSha256,
-      sizeBytes: file.sizeBytes,
-      modifiedAt: file.modifiedAt,
-      capturedAt: checkpoint.createdAt,
-      checkpointId: checkpoint.checkpointId,
-      ...(checkpoint.label ? { checkpointLabel: checkpoint.label } : {}),
-      source: "checkpoint",
-    });
-    if (versions.length >= Math.min(Math.max(limit, 1), 200)) break;
-  }
-  return versions;
+  return withSpaceHistoryOperation(root, async () => {
+    const versions: SpaceFileVersion[] = [];
+    const seen = new Set<string>();
+    for (const checkpoint of await readCheckpointManifests(root)) {
+      const file = checkpoint.files.find((entry) => entry.path === path);
+      if (!file || seen.has(file.hashSha256) || !(await hasSpaceBlob(root, file.hashSha256))) continue;
+      seen.add(file.hashSha256);
+      versions.push({ path, hashSha256: file.hashSha256, sizeBytes: file.sizeBytes, modifiedAt: file.modifiedAt,
+        capturedAt: checkpoint.createdAt, checkpointId: checkpoint.checkpointId,
+        ...(checkpoint.label ? { checkpointLabel: checkpoint.label } : {}), source: "checkpoint" });
+    }
+    const page = historyPage(root, `versions:${path}`, versions, options);
+    return { ...page.info, versions: page.items };
+  });
 }
 
 async function restoreFileVersionUnlocked(

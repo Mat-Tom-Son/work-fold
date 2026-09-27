@@ -164,6 +164,7 @@ export interface ContextAttachment {
   reason: string | null;
   estimatedTokens: number;
   budgetTokens: number;
+  budgetStatus?: "preview";
   provenance: string[];
   warnings: string[];
   userLabel: string;

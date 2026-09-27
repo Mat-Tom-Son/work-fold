@@ -89,7 +89,7 @@ is not rendered as a desktop component.
 | Computer Control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source and included in the app signing lane. Accessibility and Screen Recording setup names the actual helper. Requested observations and actions, no continuous recorder. |
 | Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Install work-fold from the Chrome Web Store and choose Connect in the selected profile. Native bootstrap and authenticated protocol/capability checks precede use. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
 | Web | `pi-web-access` 0.29.0 pure search and readable-page functions through an additive native factory | DuckDuckGo search needs no key; optional Brave key is entered in tool setup. Explicit HTTP(S) reading, bounded output and cancellation. No automatic cookie/profile import, media service, global fetch replacement or hidden model call. Challenges and rate limits remain visible failures. |
-| Documents | Ordinary JavaScript worker, maintained document libraries and a standard document-work Skill | DOCX/XLSX/PPTX/PDF creation, spreadsheet read/write, PDF text extraction and selected page rendering using bundled dependencies. No separate Node/Python required. Office visual rendering uses the person's existing compatible apps; formulas are preserved, not recalculated; PDF text extraction is not OCR. |
+| Documents | Ordinary JavaScript worker, maintained document libraries and a standard document-work Skill | DOCX/XLSX/PPTX/PDF creation, spreadsheet read/write, PDF text extraction and selected page rendering using bundled dependencies. No separate Node/Python required. The separate `document_engine` tool detects installed LibreOffice for Office rendering/XLSX recalculation and Tesseract for page-image OCR. These optional engines are not bundled; missing setup is explicit. Built-in PDF text extraction itself is not OCR. |
 | Service Connections | `pi-mcp-adapter` 2.33.0 using native MCP transport, discovery, schemas and cancellation | Configure HTTP or stdio servers in native Pi files. Trusted setup supports bearer credentials and loopback PKCE OAuth. Stdio commands need their own installed executable/runtime. Sampling is disabled for Pi 0.80.6 compatibility. No automatic imports from other applications. |
 
 Email, calendars, databases and project services remain user-selected
@@ -117,8 +117,10 @@ Its provided libraries resolve from the shipped bundle; a script's own imports
 retain ordinary project-first resolution. Run metadata records library origins
 and versions, and failed tools retain bounded engine diagnostics.
 They are not sandboxed and independent child processes are outside the worker's
-cancellation boundary. The helper bounds scripts, time, logs, PDF source size,
-page/pixel count and selected PNGs, with omissions reported in the result.
+cancellation boundary. The helper bounds scripts, response bytes and canvas allocations. PDF source capture
+has a model-overridable memory budget, text/render reads have continuation, and there
+is no page-count or default time ceiling. Optional deadlines and Stop remain effective.
+Complete overflow and partial-failure evidence stays in retained ordinary artifacts.
 Rendering uses captured source bytes and records source/render digests, page,
 scale and renderer identity. `emitImage` selects which PNGs enter native Pi
 content. Files remain normal artifacts where the script writes them; creating
@@ -228,3 +230,26 @@ artifact, and concurrent Chat/Stop tests must preserve unrelated work.
 - [pi-chrome](https://github.com/tianrendong/pi-chrome)
 - [pi-web-access](https://github.com/nicobailon/pi-web-access)
 - [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter)
+
+
+### Optional installed document engines
+
+`document_engine status` detects executable availability without launching applications.
+`render` uses LibreOffice to produce PDF, `recalculate` uses an isolated LibreOffice
+Calc profile configured to recalculate OOXML on load and writes a separate XLSX, and
+`ocr` uses Tesseract on a selected page image. An explicit executable path is supported.
+The engine tool runs in the parent native Extension, owns process-group cancellation
+and session-shutdown cleanup, has no default deadline, and retains a complete log.
+It captures a private source copy, reports source/output SHA-256 and engine version,
+never overwrites the source or an existing output, and removes its temporary profile
+and input copy. Macros are disabled in the isolated Office profile. The result names
+compatibility/recognition limits; successful execution alone does not verify content.
+
+These are optional standard programs with explicit setup, not bundled runtimes or
+automatic downloads. LibreOffice rendering/recalculation has a real installed-engine
+fixture; the Tesseract adapter's deterministic transport/cancellation fixture does not
+certify OCR accuracy. A release claiming that workflow needs the installed-engine
+acceptance case too. [LibreOffice parameters](https://help.libreoffice.org/latest/en-US/text/shared/guide/start_parameters.html),
+[Calc load settings](https://github.com/LibreOffice/core/blob/master/officecfg/registry/schema/org/openoffice/Office/Calc.xcs),
+and [Tesseract CLI](https://tesseract-ocr.github.io/tessdoc/Command-Line-Usage.html)
+define the external interfaces.

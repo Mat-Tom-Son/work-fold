@@ -28,8 +28,8 @@ import type {
   WorkFoldResultEnvelope,
   WorkFoldResultOutcome,
 } from "../requests/request-records.js";
-import type { SpaceChatMatch, SpaceFileMatch } from "../search.js";
-import type { HistoryFileComparison, HistoryFileRead } from "../../shared/history-review.js";
+import type { SpaceChatMatch, SpaceFileMatch, SpaceSearchCoverage } from "../search.js";
+import type { HistoryFileComparison, HistoryFileRead, HistoryFileReadOptions, HistoryPageOptions } from "../../shared/history-review.js";
 
 export interface WorkFoldActSpaceRef {
   id: string;
@@ -880,9 +880,10 @@ export interface WorkFoldActFacade {
    * targeting the Space is active (the kernel-checked rule) — a deliberate
    * strengthening over the desktop's confirm dialog.
    */
-  historyList(input: { space: string }): Promise<{
+  historyList(input: { space: string } & HistoryPageOptions): Promise<{
     space: WorkFoldActSpaceRef;
     checkpoints: WorkFoldActCheckpointSummary[];
+    total?: number; nextCursor?: string | null; sourceVersion?: string;
   }>;
   historySave(input: { space: string; label?: string; parentTaskId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
@@ -900,13 +901,14 @@ export interface WorkFoldActFacade {
     unchangedFileCount: number;
     skippedLargeFileCount: number;
   }>;
-  historyVersions(input: { space: string; path: string }): Promise<{
+  historyVersions(input: { space: string; path: string } & HistoryPageOptions): Promise<{
     space: WorkFoldActSpaceRef;
     path: string;
     versions: WorkFoldActFileVersionRef[];
+    total?: number; nextCursor?: string | null; sourceVersion?: string;
   }>;
   /** Content-bearing, read-only review through the authenticated act lane. */
-  historyRead(input: { space: string; path: string; checkpointId: string }): Promise<{
+  historyRead(input: { space: string } & HistoryFileReadOptions): Promise<{
     space: WorkFoldActSpaceRef;
     review: HistoryFileRead;
   }>;
@@ -989,11 +991,11 @@ export interface WorkFoldActFacade {
   /**
    * Content search over one Space's files and Chats — the same service as
    * `/api/spaces/:id/search`. It honours the person's ignore rules, skips
-   * binary and oversized files, and reports when a bound stopped the search
+   * binary files, and reports when a bound stopped the search
    * rather than implying completeness. The act receipt records the scope
    * only, never the query text.
    */
-  search(input: { space: string; query: string; scope?: "files" | "chats" | "all" }): Promise<{
+  search(input: { space: string; query: string; scope?: "files" | "chats" | "all"; path?: string; cursor?: string; limit?: number }): Promise<{
     space: WorkFoldActSpaceRef;
     scope: "files" | "chats" | "all";
     query: string;
@@ -1001,6 +1003,7 @@ export interface WorkFoldActFacade {
     chats: SpaceChatMatch[];
     truncated: boolean;
     scannedFiles: number;
+    nextCursor?: string | null; coverage?: SpaceSearchCoverage;
   }>;
 
   /**

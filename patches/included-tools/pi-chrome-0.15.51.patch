@@ -1,4 +1,4 @@
-diff --git a/docs/EMBEDDED-HOST.md b/docs/EMBEDDED-HOST.md
+diff --git b/docs/EMBEDDED-HOST.md b/docs/EMBEDDED-HOST.md
 new file mode 100644
 index 0000000..bf82458
 --- /dev/null
@@ -134,7 +134,7 @@ index 0000000..bf82458
 +from the host package. The app distributes its static Store bootstrap separately;
 +no per-user token is placed in that archive. Native messaging authenticates the
 +extension ID, not the profile: selection and proof belong to the host bootstrap.
-diff --git a/extensions/chrome-profile-bridge/browser-extension/host-config.json b/extensions/chrome-profile-bridge/browser-extension/host-config.json
+diff --git b/extensions/chrome-profile-bridge/browser-extension/host-config.json b/extensions/chrome-profile-bridge/browser-extension/host-config.json
 new file mode 100644
 index 0000000..d49bbe1
 --- /dev/null
@@ -142,7 +142,7 @@ index 0000000..d49bbe1
 @@ -0,0 +1 @@
 +{"version":1,"mode":"standalone"}
 diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.js b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
-index 8ba0e2d..89a01c3 100644
+index 8ba0e2d..f2169fd 100644
 --- a/extensions/chrome-profile-bridge/browser-extension/service_worker.js
 +++ b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
 @@ -1,6 +1,50 @@
@@ -345,7 +345,7 @@ index 8ba0e2d..89a01c3 100644
        const payload = await response.json();
        if (payload.type === "command") await handleCommand(payload.command);
      }
-@@ -1160,23 +1211,41 @@ async function pollLoop() {
+@@ -1160,23 +1211,43 @@ async function pollLoop() {
  }
  
  async function handleCommand(command) {
@@ -372,7 +372,9 @@ index 8ba0e2d..89a01c3 100644
 -      () => detachAll(),
 -    );
 -    await postResult({ id: command.id, ok: true, result });
-+    const result = await withTimeout(operation, COMMAND_TIMEOUT_MS, command.action || "Chrome command", () => cancelCommand(context));
++    const requestedTimeout = Number(command.params?.timeoutMs);
++    const commandTimeout = (command.action === "page.waitFor" || command.action === "page.navigate") && Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? requestedTimeout + 1000 : COMMAND_TIMEOUT_MS;
++    const result = await withTimeout(operation, commandTimeout, command.action || "Chrome command", () => cancelCommand(context));
 +    assertCommandActive();
 +    await postResult({ id: command.id, bridgeEpoch: command.bridgeEpoch, ok: true, result });
    } catch (error) {
@@ -396,7 +398,7 @@ index 8ba0e2d..89a01c3 100644
      body: JSON.stringify(result),
    });
  }
-@@ -1246,10 +1315,10 @@ async function groupTab(tab, title, color) {
+@@ -1246,10 +1317,10 @@ async function groupTab(tab, title, color) {
    if (typeof groupId !== "number" || groupId < 0) {
      const existing = await findGroupByTitle(tab.windowId, groupTitle);
      groupId = existing !== null
@@ -410,7 +412,7 @@ index 8ba0e2d..89a01c3 100644
    const grouped = await chrome.tabs.get(tab.id);
    return { tab: await formatTab(grouped), group: await groupRecord(groupId) };
  }
-@@ -1262,7 +1331,7 @@ async function dispatch(action, params) {
+@@ -1262,7 +1333,7 @@ async function dispatch(action, params) {
          extensionVersion: chrome.runtime.getManifest().version,
          bridgeUrl: BRIDGE_URL,
          userAgent: navigator.userAgent,
@@ -419,7 +421,7 @@ index 8ba0e2d..89a01c3 100644
        };
      case "tab.list": {
        const tabs = await chrome.tabs.query({});
-@@ -1281,13 +1350,13 @@ async function dispatch(action, params) {
+@@ -1281,13 +1352,13 @@ async function dispatch(action, params) {
        const existingGroup = await findGroupRecordByTitle(groupTitle);
        const createParams = { url: params.url || "about:blank", active: foregroundRequested(params) };
        if (existingGroup && typeof existingGroup.windowId === "number") createParams.windowId = existingGroup.windowId;
@@ -435,7 +437,7 @@ index 8ba0e2d..89a01c3 100644
          throw error;
        }
      }
-@@ -1309,12 +1378,12 @@ async function dispatch(action, params) {
+@@ -1309,12 +1380,12 @@ async function dispatch(action, params) {
      }
      case "tab.ungroup": {
        const tab = await getTabByParams(params, { createOwnedTarget: false });
@@ -450,7 +452,7 @@ index 8ba0e2d..89a01c3 100644
        return { closed: tab.id };
      }
      case "page.snapshot":
-@@ -1385,7 +1454,7 @@ async function dispatch(action, params) {
+@@ -1385,7 +1456,7 @@ async function dispatch(action, params) {
          await registerInitScript(tab.id, params.initScript);
        }
        const wait = params.waitUntilLoad !== false ? waitForTabComplete(tab.id, params.timeoutMs || 15000) : Promise.resolve(undefined);
@@ -459,7 +461,7 @@ index 8ba0e2d..89a01c3 100644
        try {
          await wait;
        } finally {
-@@ -1483,6 +1552,8 @@ async function getTabByParams(params, { createOwnedTarget = true } = {}) {
+@@ -1483,6 +1554,8 @@ async function getTabByParams(params, { createOwnedTarget = true } = {}) {
      }
    }
    if (!tab?.id) throw new Error("No matching Chrome tab found");
@@ -468,7 +470,25 @@ index 8ba0e2d..89a01c3 100644
    const url = tab.url || "";
    if (url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
      throw new Error(`Chrome blocks extension automation on protected URL: tab=${tab.id} url=${url}`);
-@@ -1750,21 +1821,21 @@ async function unregisterInitScript(tabId) {
+@@ -1663,6 +1736,8 @@ async function snapshotInTab(params) {
+     params.mode || "auto",
+     params.query ?? null,
+     params.maxTextChars ?? null,
++    params.textOffset ?? 0,
++    params.expectedTextVersion ?? null,
+   ];
+   await executeScriptTimed({
+     target: { tabId: tab.id, frameIds: [0] },
+@@ -1692,7 +1767,7 @@ async function snapshotInTab(params) {
+   if (envelope && typeof envelope === "object" && envelope.ok === false) {
+     throw new Error(envelope.error || "Chrome snapshot script failed");
+   }
+-  return envelope?.value;
++  return { ...envelope?.value, targetId: String(tab.id) };
+ }
+ 
+ async function inspectInTab(params) {
+@@ -1750,21 +1825,21 @@ async function unregisterInitScript(tabId) {
    await cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier }).catch(() => undefined);
  }
  
@@ -494,7 +514,7 @@ index 8ba0e2d..89a01c3 100644
    });
  }
  
-@@ -1775,8 +1846,8 @@ function foregroundRequested(params) {
+@@ -1775,8 +1850,8 @@ function foregroundRequested(params) {
  
  async function bringToFront(tab, params) {
    if (!foregroundRequested(params)) return tab;
@@ -505,18 +525,122 @@ index 8ba0e2d..89a01c3 100644
  }
  
  function waitForTabComplete(tabId, timeoutMs) {
+diff --git a/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js b/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js
+index ceee8ce..7127a7d 100644
+--- a/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js
++++ b/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js
+@@ -430,7 +430,7 @@
+   }
+ 
+   function queryMatches(query, elements, map) {
+-    if (!query) return [];
++    if (!query) return { matches: [], coverage: undefined };
+     const candidates = [];
+     for (const element of elements) {
+       const hay = [element.role, element.label, element.selector, element.type, element.href].filter(Boolean).join(" ");
+@@ -438,7 +438,8 @@
+       if (score > 0) candidates.push({ score, kind: "element", ...element });
+     }
+     const textNodes = [];
+-    for (const block of Array.from(document.querySelectorAll("h1,h2,h3,h4,p,li,td,th,label,summary,[role='alert']")).filter(isElementVisible).slice(0, 300)) {
++    const blocks = Array.from(document.querySelectorAll("h1,h2,h3,h4,p,li,td,th,label,summary,[role='alert']")).filter(isElementVisible).slice(0, 300);
++    for (const block of blocks) {
+       const text = textOf(block, 300);
+       const score = tokenScore(text, query);
+       if (score > 0) textNodes.push({ score, kind: "text", uid: rememberElement(block), tag: block.tagName.toLowerCase(), role: roleOf(block), text, rect: rectSummary(block) });
+@@ -447,7 +448,8 @@
+       const score = tokenScore([region.kind, region.label, ...(region.headings || [])].join(" "), query);
+       if (score > 0) candidates.push({ score, kind: "region", ...region });
+     }
+-    return candidates.concat(textNodes).sort((a, b) => b.score - a.score).slice(0, 20);
++    const matches = candidates.concat(textNodes).sort((a, b) => b.score - a.score);
++    return { matches: matches.slice(0, 20), coverage: { matches: matches.length, controls: elements.length, textBlocks: blocks.length } };
+   }
+ 
+   function rectSummary(element) {
+@@ -519,10 +521,10 @@
+     return snippets;
+   }
+ 
+-  function snapshotPage(maxElements, containingText, roleFilter, nearUid, mode, query, maxTextChars) {
++  async function snapshotPage(maxElements, containingText, roleFilter, nearUid, mode, query, maxTextChars, textOffset = 0, expectedTextVersion) {
+     installPiChromeInstrumentation();
+     mode = ["auto", "interactive", "forms", "pageMap", "text", "changes", "full"].includes(mode) ? mode : "auto";
+-    const fullTextLimit = Number(maxTextChars || (mode === "full" ? 30000 : mode === "text" ? 18000 : 6000));
++    const fullTextLimit = Math.max(1, Math.min(30000, Math.trunc(Number(maxTextChars) || (mode === "full" ? 30000 : mode === "text" ? 18000 : 6000))));
+     let candidates = Array.from(document.querySelectorAll('a, button, input, textarea, select, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])'));
+     if (containingText) {
+       const needle = String(containingText).toLowerCase();
+@@ -565,7 +567,22 @@
+     const focused = activeElementSummary();
+     const modal = modalSummary();
+     const bodyText = document.body ? document.body.innerText.replace(/\s+\n/g, "\n").trim() : "";
+-    const text = bodyText.slice(0, fullTextLimit);
++    const observedAt = new Date().toISOString();
++    // A native page revision works on HTTP pages too, where SubtleCrypto is
++    // unavailable. Exact text and URL equality pin continuation, not a weak hash.
++    const textState = getPiChromeState();
++    if (!textState.bodyTextVersion || textState.bodyTextVersion.text !== bodyText || textState.bodyTextVersion.url !== location.href) {
++      const random = crypto.getRandomValues(new Uint32Array(4));
++      textState.bodyTextVersion = { text: bodyText, url: location.href, version: "text:" + Array.from(random, value => value.toString(16).padStart(8, "0")).join("") };
++    }
++    const version = textState.bodyTextVersion.version;
++    if (expectedTextVersion && expectedTextVersion !== version) throw new Error("Chrome page text or URL changed since the previous range. Take a fresh snapshot before combining excerpts.");
++    let start = Math.min(bodyText.length, Math.max(0, Math.trunc(Number(textOffset) || 0)));
++    if (start > 0 && /[\uDC00-\uDFFF]/.test(bodyText[start] ?? "")) start--;
++    let end = Math.min(bodyText.length, start + fullTextLimit);
++    if (end < bodyText.length && /[\uD800-\uDBFF]/.test(bodyText[end - 1] ?? "")) end += end === start + 1 ? 1 : -1;
++    const text = bodyText.slice(start, end);
++    const queryResult = queryMatches(query, queryElements, map);
+     const snapshot = {
+       title: document.title,
+       url: location.href,
+@@ -584,13 +601,17 @@
+       focused: focused || undefined,
+       modal: modal || undefined,
+       text,
+-      textTruncated: bodyText.length > text.length,
++      observedAt,
++      textRange: { start, end, total: bodyText.length, version },
++      ...(end < bodyText.length ? { continuation: { tool: "chrome_snapshot", mode: "text", textOffset: end, expectedTextVersion: version } } : {}),
++      textTruncated: start > 0 || end < bodyText.length,
+       textSnippets: visibleTextSnippets(mode === "text" ? 12000 : 3000),
+       elements,
+       forms,
+       layout,
+       pageMap: map,
+-      matches: queryMatches(query, queryElements, map),
++      matches: queryResult.matches,
++      queryCoverage: queryResult.coverage,
+       filter: { containingText: containingText || undefined, roleFilter: roleFilter || undefined, nearUid: nearUid || undefined },
+     };
+     if (snapshot.modal) snapshot.summary.hints.push("A modal/dialog is visible; interact with it before the underlying page.");
+@@ -627,7 +648,7 @@
+       snapshot.elements = elements.slice(0, 20);
+     } else if (mode !== "full") {
+       snapshot.elements = elements.slice(0, Math.min(maxElements, 40));
+-      snapshot.text = text.slice(0, Math.min(text.length, 6000));
++      snapshot.text = text;
+     }
+     return snapshot;
+   }
 diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profile-bridge/index.ts
-index 1917956..1a79306 100644
+index 1917956..97ed693 100644
 --- a/extensions/chrome-profile-bridge/index.ts
 +++ b/extensions/chrome-profile-bridge/index.ts
-@@ -1,5 +1,6 @@
+@@ -1,8 +1,10 @@
  import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
  import { Type } from "typebox";
-+import { randomUUID, timingSafeEqual } from "node:crypto";
- import { existsSync, readFileSync, statSync } from "node:fs";
+-import { existsSync, readFileSync, statSync } from "node:fs";
++import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
++import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
  import { mkdir, writeFile } from "node:fs/promises";
  import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-@@ -20,7 +21,7 @@ import { dirname, join, resolve } from "node:path";
++import { tmpdir } from "node:os";
+ import { dirname, join, resolve } from "node:path";
+ 
+ /**
+@@ -20,7 +22,7 @@ import { dirname, join, resolve } from "node:path";
  type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
  
  type ToolTextResult = {
@@ -525,7 +649,7 @@ index 1917956..1a79306 100644
  	details?: Record<string, unknown>;
  };
  
-@@ -40,6 +41,7 @@ type PendingCommand = {
+@@ -40,6 +42,7 @@ type PendingCommand = {
  
  type BridgeResult = {
  	id: string;
@@ -533,7 +657,7 @@ index 1917956..1a79306 100644
  	ok: boolean;
  	result?: unknown;
  	error?: string;
-@@ -62,6 +64,8 @@ const PI_CHROME_AUTH_KEY = "__piChromeProfileBridgeAuth__";
+@@ -62,13 +65,56 @@ const PI_CHROME_AUTH_KEY = "__piChromeProfileBridgeAuth__";
  const DEFAULT_HOST = process.env.PI_CHROME_BRIDGE_HOST ?? "127.0.0.1";
  const DEFAULT_PORT = Number(process.env.PI_CHROME_BRIDGE_PORT ?? "17318");
  const DEFAULT_TIMEOUT_MS = 30_000;
@@ -542,7 +666,202 @@ index 1917956..1a79306 100644
  const MAX_TEXT_CHARS = 30_000;
  const MAX_ELEMENTS = 80;
  const BACKGROUND_PARAM_DESCRIPTION = "If true, avoid explicit Chrome focus/tab activation for this call. /chrome background on (default) enforces this for every call and ignores false. Ask the user to run /chrome background off to allow foreground work.";
-@@ -259,27 +263,32 @@ function summarizeActionResult(result: unknown): string | undefined {
+ 
+-function truncateText(text: string, maxChars = MAX_TEXT_CHARS): string {
+-	if (text.length <= maxChars) return text;
+-	return `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} characters]`;
++type ChromeResultStore = { directory?: string; bytes: number; files: Map<string, string> };
++const chromeResultStoresKey = Symbol.for("pi-chrome:result-stores:v1");
++const chromeResultGlobals = globalThis as typeof globalThis & { [chromeResultStoresKey]?: Map<string, ChromeResultStore> };
++const chromeResultStores = chromeResultGlobals[chromeResultStoresKey] ??= new Map<string, ChromeResultStore>();
++function saveChromeResult(owner: string, text: string, extension: string): { path?: string; digest: string; error?: string } {
++  const digest = createHash("sha256").update(text).digest("hex");
++  const store = chromeResultStores.get(owner) ?? { bytes: 0, files: new Map<string, string>() };
++  chromeResultStores.set(owner, store);
++  const key = digest + "." + extension;
++  const existing = store.files.get(key);
++  if (existing) return { path: existing, digest };
++  const bytes = Buffer.byteLength(text);
++  if (bytes > 32 * 1024 * 1024 || store.bytes + bytes > 256 * 1024 * 1024) return { digest, error: "Chrome result storage limit reached (32 MiB per result, 256 MiB per session). Use a narrower native query or text range; this result was not stored." };
++  try {
++    store.directory ??= mkdtempSync(join(tmpdir(), "pi-chrome-results-"));
++    const path = join(store.directory, key);
++    writeFileSync(path, text, { mode: 0o600, flag: "wx" });
++    store.files.set(key, path); store.bytes += bytes;
++    return { path, digest };
++  } catch { return { digest, error: "Chrome result could not be saved. Use a narrower native query or text range; this result was not stored." }; }
++}
++function clearChromeResults(owner: string): void {
++  const store = chromeResultStores.get(owner);
++  if (store?.directory) rmSync(store.directory, { recursive: true, force: true });
++  chromeResultStores.delete(owner);
++}
++function boundChromeResult(result: ToolTextResult, owner: string): ToolTextResult {
++  const actionResult = result.details?.result as { snapshot?: unknown } | undefined;
++  const snapshot = result.details?.snapshot ?? actionResult?.snapshot;
++  const text = result.content.filter(part => part.type === "text").map(part => part.text).join("\n");
++  const large = text.length > MAX_TEXT_CHARS;
++  // Compact observations are summaries of the captured snapshot. Keep that
++  // immutable evidence available through Pi's ordinary read tool, not a replay.
++  if ((!snapshot || (snapshot as { mode?: string }).mode === "full") && !large) return result;
++  const full = snapshot ? safeJson(actionResult?.snapshot ? actionResult : snapshot) : text;
++  const saved = saveChromeResult(owner, full, snapshot ? "json" : "txt");
++  const source = snapshot as { url?: string; observedAt?: string } | undefined;
++  const notice = [
++    source?.url ? "Source: " + source.url : "Chrome result",
++    "Captured: " + (source?.observedAt ?? new Date().toISOString()),
++    "Captured result SHA-256: " + saved.digest,
++    saved.path ? "Complete captured " + (actionResult?.snapshot ? "action result and snapshot JSON" : snapshot ? "snapshot JSON" : "result") + " saved to: " + saved.path + " — use read with offset/limit, or search the file. Captured ranges and sampled structure remain as declared in the snapshot." : saved.error!,
++  ].join("\n");
++  return { ...result, content: [{ type: "text", text: large ? notice : text + "\n\n" + notice }, ...result.content.filter(part => part.type === "image")] };
+ }
+ 
+ function safeJson(value: unknown): string {
+@@ -89,7 +135,7 @@ function rectText(rect: any): string {
+ 
+ function formatChromeSnapshot(snapshot: any): string {
+ 	if (!snapshot || typeof snapshot !== "object") return safeJson(snapshot);
+-	if (snapshot.mode === "full") return truncateText(safeJson(snapshot));
++	if (snapshot.mode === "full") return safeJson(snapshot);
+ 	const lines: string[] = [];
+ 	lines.push(`# Chrome snapshot${snapshot.mode ? ` (${snapshot.mode})` : ""}`);
+ 	lines.push(`${snapshot.title || "(untitled)"}`);
+@@ -99,22 +145,22 @@ function formatChromeSnapshot(snapshot: any): string {
+ 	if (snapshot.summary?.focused) lines.push(`focused: ${snapshot.summary.focused.uid} ${snapshot.summary.focused.role || ""} ${compactLine(snapshot.summary.focused.label)}`);
+ 	if (Array.isArray(snapshot.summary?.hints) && snapshot.summary.hints.length) {
+ 		lines.push("\n## Hints");
+-		for (const hint of snapshot.summary.hints.slice(0, 6)) lines.push(`- ${hint}`);
++		for (const hint of snapshot.summary.hints) lines.push(`- ${hint}`);
+ 	}
+ 	if (snapshot.diff && !snapshot.diff.firstSnapshot) {
+ 		const changed = [
+ 			...(snapshot.diff.changes || []).map((c: any) => c.kind === "textChanged" ? "text changed" : `${c.kind}: ${compactLine(c.before, 50)} → ${compactLine(c.after, 50)}`),
+-			...(snapshot.diff.added || []).slice(0, 4).map((e: any) => `added ${e.uid} ${e.role || ""} ${compactLine(e.label)}`),
+-			...(snapshot.diff.updated || []).slice(0, 4).map((u: any) => `updated ${u.uid} ${compactLine(u.after?.label || u.before?.label)}`),
++			...(snapshot.diff.added || []).map((e: any) => `added ${e.uid} ${e.role || ""} ${compactLine(e.label)}`),
++			...(snapshot.diff.updated || []).map((u: any) => `updated ${u.uid} ${compactLine(u.after?.label || u.before?.label)}`),
+ 		];
+ 		if (changed.length) {
+ 			lines.push("\n## Changed since last snapshot");
+-			for (const item of changed.slice(0, 10)) lines.push(`- ${item}`);
++			for (const item of changed) lines.push(`- ${item}`);
+ 		}
+ 	}
+ 	if (Array.isArray(snapshot.matches) && snapshot.matches.length) {
+ 		lines.push(`\n## Matches for "${snapshot.query}"`);
+-		for (const match of snapshot.matches.slice(0, 12)) {
++		for (const match of snapshot.matches) {
+ 			if (match.kind === "text") lines.push(`- ${match.uid} text ${compactLine(match.text)} @ ${rectText(match.rect)}`);
+ 			else if (match.kind === "region") lines.push(`- ${match.uid} region ${compactLine(match.label)} headings=${(match.headings || []).map((h: string) => compactLine(h, 50)).join(" | ")}`);
+ 			else lines.push(`- ${match.uid} ${match.role || match.tag || "element"}${match.disabled ? " disabled" : ""} ${compactLine(match.label || match.selector)} @ ${rectText(match.rect)}`);
+@@ -122,22 +168,22 @@ function formatChromeSnapshot(snapshot: any): string {
+ 	}
+ 	if (snapshot.mode === "pageMap" && snapshot.pageMap) {
+ 		lines.push("\n## Page map");
+-		for (const region of (snapshot.pageMap.regions || []).slice(0, 18)) {
++		for (const region of (snapshot.pageMap.regions || [])) {
+ 			lines.push(`- ${region.uid} ${region.kind}: ${compactLine(region.label)}`);
+-			for (const action of (region.actions || []).slice(0, 5)) lines.push(`  - ${action.uid} ${action.role || ""}${action.disabled ? " disabled" : ""} ${compactLine(action.label)}`);
++			for (const action of (region.actions || [])) lines.push(`  - ${action.uid} ${action.role || ""}${action.disabled ? " disabled" : ""} ${compactLine(action.label)}`);
+ 		}
+ 		if (snapshot.pageMap.headings?.length) {
+ 			lines.push("\nHeadings:");
+-			for (const h of snapshot.pageMap.headings.slice(0, 20)) lines.push(`- ${h.uid} h${h.level || ""} ${compactLine(h.text)}`);
++			for (const h of snapshot.pageMap.headings) lines.push(`- ${h.uid} h${h.level || ""} ${compactLine(h.text)}`);
+ 		}
+ 	}
+ 	if (Array.isArray(snapshot.layout) && snapshot.layout.length && snapshot.mode !== "changes") {
+ 		lines.push("\n## Layout / context");
+-		for (const section of snapshot.layout.slice(0, snapshot.mode === "pageMap" ? 18 : 8)) {
++		for (const section of snapshot.layout) {
+ 			const bits = [`${section.uid}`, section.role || section.tag, compactLine(section.label || section.text || "(unnamed section)", 110), `@ ${rectText(section.rect)}`];
+ 			lines.push(`- ${bits.filter(Boolean).join(" ")}`);
+-			const fieldLabels = (section.fields || []).slice(0, 4).map((f: any) => `${f.uid} ${compactLine(f.label || f.role, 40)}`);
+-			const actionLabels = (section.actions || []).slice(0, 5).map((a: any) => `${a.uid}${a.disabled ? " disabled" : ""} ${compactLine(a.label || a.role, 40)}`);
++			const fieldLabels = (section.fields || []).map((f: any) => `${f.uid} ${compactLine(f.label || f.role, 40)}`);
++			const actionLabels = (section.actions || []).map((a: any) => `${a.uid}${a.disabled ? " disabled" : ""} ${compactLine(a.label || a.role, 40)}`);
+ 			if (fieldLabels.length) lines.push(`  fields: ${fieldLabels.join("; ")}`);
+ 			if (actionLabels.length) lines.push(`  actions: ${actionLabels.join("; ")}`);
+ 		}
+@@ -146,30 +192,38 @@ function formatChromeSnapshot(snapshot: any): string {
+ 		const fields = snapshot.forms?.fields || [];
+ 		const submits = snapshot.forms?.submits || [];
+ 		if (fields.length || submits.length) lines.push("\n## Forms");
+-		for (const field of fields.slice(0, snapshot.mode === "forms" ? 40 : 12)) {
++		for (const field of fields) {
+ 			const bits = [field.uid, field.role || field.tag, field.required ? "required" : "", field.invalid ? "invalid" : "", field.disabled ? "disabled" : "", compactLine(field.label || field.selector, 90)];
+ 			if (field.value) bits.push(`value=${compactLine(field.value, 50)}`);
+ 			else if (field.valueRedacted) bits.push("value=[redacted]");
+ 			lines.push(`- ${bits.filter(Boolean).join(" ")} @ ${rectText(field.rect)}`);
+ 		}
+-		for (const submit of submits.slice(0, 8)) lines.push(`- ${submit.uid} submit/action${submit.disabled ? " disabled" : ""} ${compactLine(submit.label || submit.selector)} @ ${rectText(submit.rect)}`);
++		for (const submit of submits) lines.push(`- ${submit.uid} submit/action${submit.disabled ? " disabled" : ""} ${compactLine(submit.label || submit.selector)} @ ${rectText(submit.rect)}`);
+ 	}
+ 	if (Array.isArray(snapshot.elements) && snapshot.mode !== "pageMap") {
+ 		lines.push("\n## Visible actions");
+-		for (const el of snapshot.elements.slice(0, snapshot.mode === "interactive" ? 60 : 25)) {
++		for (const el of snapshot.elements) {
+ 			const flags = [el.disabled ? "disabled" : "", el.occluded ? `occluded-by-${el.occluded.tag}` : ""].filter(Boolean).join(",");
+ 			const context = el.context?.label ? ` in ${el.context.uid} ${compactLine(el.context.label, 60)}` : "";
+ 			lines.push(`- ${el.uid} ${el.role || el.tag}${flags ? ` [${flags}]` : ""} ${compactLine(el.label || el.selector)}${context} @ ${rectText(el.rect)}`);
+ 		}
+-		if (snapshot.elements.length > (snapshot.mode === "interactive" ? 60 : 25)) lines.push(`- … ${snapshot.elements.length - (snapshot.mode === "interactive" ? 60 : 25)} more; retry with maxElements or mode=interactive`);
+-	}
+-	if ((snapshot.mode === "text" || snapshot.mode === "auto") && Array.isArray(snapshot.textSnippets) && snapshot.textSnippets.length) {
+-		lines.push("\n## Text snippets");
+-		for (const snip of snapshot.textSnippets.slice(0, snapshot.mode === "text" ? 40 : 14)) lines.push(`- ${snip.uid} ${compactLine(snip.text, snapshot.mode === "text" ? 240 : 160)}`);
+-		if (snapshot.textTruncated) lines.push("- … page text truncated; retry with mode=text or maxTextChars for more");
+ 	}
++	if ((snapshot.mode === "text" || snapshot.mode === "auto") && typeof snapshot.text === "string") {
++    lines.push("\n## Page text", snapshot.text);
++    if (snapshot.textRange) {
++      const range = snapshot.textRange;
++      lines.push(`Characters ${range.start}–${range.end} of ${range.total}. Text version: ${range.version}`);
++      if (range.end < range.total) lines.push(`More page text: chrome_snapshot({ targetId: ${JSON.stringify(snapshot.targetId)}, mode: "text", textOffset: ${range.end}, expectedTextVersion: ${JSON.stringify(range.version)} }). A changed text version requires a fresh observation.`);
++    } else if (snapshot.textTruncated) lines.push("Page text is incomplete. This companion cannot provide verified text ranges; update it to continue with textOffset and expectedTextVersion.");
++  }
++  if (Array.isArray(snapshot.elements) && typeof snapshot.summary?.totalInteractiveVisible === "number") {
++    const total = snapshot.summary.totalInteractiveVisible;
++    lines.push(`Controls returned: ${snapshot.elements.length} of ${total} matching visible controls.`);
++    if (snapshot.elements.length < total) lines.push("More controls are available: use mode:\"interactive\" and increase maxElements, or focus with containingText, roleFilter or nearUid. Structural sections and labels are compact summaries; inspect specific uids for detail.");
++  }
++  if (snapshot.queryCoverage) lines.push(`Query matches returned: ${snapshot.matches?.length ?? 0} of ${snapshot.queryCoverage.matches}; searched ${snapshot.queryCoverage.controls} controls and ${snapshot.queryCoverage.textBlocks} text blocks. Refine the query or use text ranges when this sampled search is insufficient.`);
+ 	lines.push("\nTip: use chrome_snapshot({query:'...', mode:'interactive|forms|pageMap|text|changes|full'}) or nearUid to zoom in.");
+-	return truncateText(lines.join("\n"));
++	return lines.join("\n");
+ }
+ 
+ function formatIncludedSnapshotText(raw: unknown, text: string): string {
+@@ -188,22 +242,22 @@ function formatChromeInspect(inspect: any): string {
+ 	if (inspect.clickSuggestion) lines.push(`suggested click: chrome_click({ uid: "${inspect.clickSuggestion.uid}" }) or x=${inspect.clickSuggestion.x}, y=${inspect.clickSuggestion.y}`);
+ 	if (Array.isArray(inspect.nearbyText) && inspect.nearbyText.length) {
+ 		lines.push("\n## Nearby text");
+-		for (const item of inspect.nearbyText.slice(0, 12)) lines.push(`- ${item.uid} ${compactLine(item.text, 180)}`);
++		for (const item of inspect.nearbyText) lines.push(`- ${item.uid} ${compactLine(item.text, 180)}`);
+ 	}
+ 	if (inspect.formContext) {
+ 		lines.push("\n## Form context");
+-		for (const field of (inspect.formContext.fields || []).slice(0, 20)) lines.push(`- ${field.uid} ${field.role || field.tag}${field.disabled ? " disabled" : ""} ${compactLine(field.label || field.selector)}${field.value ? ` value=${compactLine(field.value, 60)}` : field.valueRedacted ? " value=[redacted]" : ""}`);
+-		for (const action of (inspect.formContext.actions || []).slice(0, 10)) lines.push(`- ${action.uid} action${action.disabled ? " disabled" : ""} ${compactLine(action.label || action.selector)}`);
++		for (const field of (inspect.formContext.fields || [])) lines.push(`- ${field.uid} ${field.role || field.tag}${field.disabled ? " disabled" : ""} ${compactLine(field.label || field.selector)}${field.value ? ` value=${compactLine(field.value, 60)}` : field.valueRedacted ? " value=[redacted]" : ""}`);
++		for (const action of (inspect.formContext.actions || [])) lines.push(`- ${action.uid} action${action.disabled ? " disabled" : ""} ${compactLine(action.label || action.selector)}`);
+ 	}
+ 	if (Array.isArray(inspect.nearbyActions) && inspect.nearbyActions.length) {
+ 		lines.push("\n## Nearby actions");
+-		for (const action of inspect.nearbyActions.slice(0, 18)) lines.push(`- ${action.uid} ${action.role || action.tag}${action.disabled ? " disabled" : ""} ${compactLine(action.label || action.selector)} @ ${rectText(action.rect)}`);
++		for (const action of inspect.nearbyActions) lines.push(`- ${action.uid} ${action.role || action.tag}${action.disabled ? " disabled" : ""} ${compactLine(action.label || action.selector)} @ ${rectText(action.rect)}`);
+ 	}
+ 	if (Array.isArray(inspect.ancestors) && inspect.ancestors.length) {
+ 		lines.push("\n## Ancestors");
+-		for (const a of inspect.ancestors.slice(0, 6)) lines.push(`- ${a.uid} ${a.role || a.tag} ${compactLine(a.label || a.selector, 120)}`);
++		for (const a of inspect.ancestors) lines.push(`- ${a.uid} ${a.role || a.tag} ${compactLine(a.label || a.selector, 120)}`);
+ 	}
+-	return truncateText(lines.join("\n"));
++	return lines.join("\n");
+ }
+ 
+ function extensionRoot(): string {
+@@ -259,27 +313,32 @@ function summarizeActionResult(result: unknown): string | undefined {
  function readRequestBody(request: IncomingMessage): Promise<string> {
  	return new Promise((resolveBody, rejectBody) => {
  		const chunks: Buffer[] = [];
@@ -581,7 +900,7 @@ index 1917956..1a79306 100644
  	const secFetchSite = String(request.headers["sec-fetch-site"] ?? "");
  	return !secFetchSite || secFetchSite === "none" || secFetchSite === "same-origin";
  }
-@@ -297,6 +306,14 @@ function sendJson(response: ServerResponse, status: number, body: unknown, extra
+@@ -297,6 +356,14 @@ function sendJson(response: ServerResponse, status: number, body: unknown, extra
  	response.end(JSON.stringify(body));
  }
  
@@ -596,7 +915,7 @@ index 1917956..1a79306 100644
  class ChromeProfileBridge {
  	private server: Server | undefined;
  	private pending = new Map<string, PendingCommand>();
-@@ -305,12 +322,20 @@ class ChromeProfileBridge {
+@@ -305,12 +372,20 @@ class ChromeProfileBridge {
  	private lastSeenAt: number | undefined;
  	private clientName: string | undefined;
  	private mode: "server" | "client" | undefined;
@@ -617,7 +936,7 @@ index 1917956..1a79306 100644
  	get url(): string {
  		return `http://${this.host}:${this.port}`;
  	}
-@@ -325,6 +350,8 @@ class ChromeProfileBridge {
+@@ -325,6 +400,8 @@ class ChromeProfileBridge {
  	status(): Record<string, unknown> {
  		return {
  			url: this.url,
@@ -626,7 +945,7 @@ index 1917956..1a79306 100644
  			mode: this.mode ?? "starting",
  			connected: this.connected,
  			lastSeenAt: this.lastSeenAt,
-@@ -335,8 +362,10 @@ class ChromeProfileBridge {
+@@ -335,8 +412,10 @@ class ChromeProfileBridge {
  	}
  
  	async start(): Promise<void> {
@@ -638,7 +957,7 @@ index 1917956..1a79306 100644
  	}
  
  	// Try to own the bridge port. On success we are the server; on EADDRINUSE another Pi
-@@ -355,11 +384,13 @@ class ChromeProfileBridge {
+@@ -355,11 +434,13 @@ class ChromeProfileBridge {
  					resolveStart();
  				});
  			});
@@ -652,7 +971,7 @@ index 1917956..1a79306 100644
  			// Another Pi session already owns the bridge port. Use it as the shared
  			// machine-local broker so multiple Pi sessions can control Chrome at once.
  			this.mode = "client";
-@@ -377,45 +408,65 @@ class ChromeProfileBridge {
+@@ -377,45 +458,65 @@ class ChromeProfileBridge {
  	}
  
  	stop(): void {
@@ -724,7 +1043,7 @@ index 1917956..1a79306 100644
  			};
  			const timer = setTimeout(() => {
  				const entry = this.pending.get(id);
-@@ -442,8 +493,9 @@ class ChromeProfileBridge {
+@@ -442,8 +543,9 @@ class ChromeProfileBridge {
  	private timeoutMessage(entry: PendingCommand | undefined, timeoutMs: number): string {
  		const pollAgeMs = this.lastSeenAt === undefined ? undefined : Date.now() - this.lastSeenAt;
  		if (entry?.deliveredAt) {
@@ -735,7 +1054,7 @@ index 1917956..1a79306 100644
  		if (pollAgeMs === undefined || pollAgeMs > 60_000) {
  			return `Timed out after ${timeoutMs}ms: the Chrome extension is not polling (last seen ${pollAgeMs === undefined ? "never" : Math.round(pollAgeMs / 1000) + "s ago"}). Run /chrome onboard, then load the bundled browser-extension folder in your normal Chrome profile and keep that Chrome window open.`;
  		}
-@@ -459,10 +511,10 @@ class ChromeProfileBridge {
+@@ -459,10 +561,10 @@ class ChromeProfileBridge {
  			else signal.addEventListener("abort", forwardAbort, { once: true });
  		}
  		try {
@@ -748,7 +1067,7 @@ index 1917956..1a79306 100644
  				signal: controller.signal,
  			});
  			const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; error?: string };
-@@ -475,18 +527,14 @@ class ChromeProfileBridge {
+@@ -475,18 +577,14 @@ class ChromeProfileBridge {
  			return payload.result;
  		} catch (error) {
  			if ((error as Error).name === "AbortError") {
@@ -773,7 +1092,7 @@ index 1917956..1a79306 100644
  			}
  			throw error;
  		} finally {
-@@ -515,21 +563,33 @@ class ChromeProfileBridge {
+@@ -515,21 +613,33 @@ class ChromeProfileBridge {
  	}
  
  	private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -810,7 +1129,7 @@ index 1917956..1a79306 100644
  			if (!isLocalProcessRequest(request)) {
  				sendJson(response, 403, { ok: false, error: "Chrome commands are accepted only from local Pi processes" });
  				return;
-@@ -538,24 +598,58 @@ class ChromeProfileBridge {
+@@ -538,24 +648,58 @@ class ChromeProfileBridge {
  				action?: string;
  				params?: Record<string, unknown>;
  				timeoutMs?: number;
@@ -872,7 +1191,7 @@ index 1917956..1a79306 100644
  			this.lastSeenAt = Date.now();
  			this.clientName = url.searchParams.get("name") ?? undefined;
  			let aborted = false;
-@@ -573,9 +667,10 @@ class ChromeProfileBridge {
+@@ -573,9 +717,10 @@ class ChromeProfileBridge {
  			if (aborted) {
  				// Long-poll connection died before we could deliver. Requeue any command we pulled
  				// so the next live /next picks it up instead of dropping it on the floor.
@@ -884,7 +1203,7 @@ index 1917956..1a79306 100644
  			// Mark the command as delivered so a later timeout can distinguish "extension never
  			// picked it up" from "extension is running it / failed to post a result".
  			if (command) {
-@@ -588,19 +683,20 @@ class ChromeProfileBridge {
+@@ -588,19 +733,20 @@ class ChromeProfileBridge {
  				response,
  				200,
  				command
@@ -907,7 +1226,7 @@ index 1917956..1a79306 100644
  			const pending = this.pending.get(result.id);
  			if (!pending) {
  				sendJson(response, 404, { ok: false, error: "unknown command id" }, corsHeaders);
-@@ -636,6 +732,100 @@ class ChromeProfileBridge {
+@@ -636,6 +782,100 @@ class ChromeProfileBridge {
  	}
  }
  
@@ -1008,7 +1327,7 @@ index 1917956..1a79306 100644
  const tabActionValues = ["list", "new", "activate", "close", "group", "ungroup", "version"] as const;
  const imageFormatValues = ["png", "jpeg"] as const;
  const waitForValues = ["selector", "expression"] as const;
-@@ -666,7 +856,8 @@ function StringEnum<T extends readonly [string, ...string[]]>(values: T) {
+@@ -666,7 +906,8 @@ function StringEnum<T extends readonly [string, ...string[]]>(values: T) {
  	return Type.Union(values.map((value) => Type.Literal(value)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]);
  }
  
@@ -1018,7 +1337,7 @@ index 1917956..1a79306 100644
  	const instanceToken = Symbol("pi-chrome-instance");
  	const currentRoot = extensionRoot();
  	const globalState = globalThis as typeof globalThis & {
-@@ -674,7 +865,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -674,7 +915,7 @@ export default function (pi: ExtensionAPI): void {
  		[PI_CHROME_AUTH_KEY]?: { until: number | "indefinite" };
  	};
  	const alreadyLoaded = globalState[PI_CHROME_GLOBAL_KEY];
@@ -1027,7 +1346,7 @@ index 1917956..1a79306 100644
  		console.warn(
  			`pi-chrome already loaded from ${alreadyLoaded.root} (v${alreadyLoaded.version}); skipping duplicate from ${currentRoot}.`,
  		);
-@@ -683,13 +874,14 @@ export default function (pi: ExtensionAPI): void {
+@@ -683,13 +924,14 @@ export default function (pi: ExtensionAPI): void {
  	// pi-chrome <=0.15.19 set the singleton flag but did not clear it on reload.
  	// If the stale flag points at this same extension root, replace it instead of
  	// skipping the freshly reloaded extension.
@@ -1046,7 +1365,7 @@ index 1917956..1a79306 100644
  	if (persistedAuth) {
  		if (persistedAuth.until === "indefinite" || persistedAuth.until > Date.now()) {
  			chromeAuthorizedUntil = persistedAuth.until;
-@@ -698,6 +890,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -698,6 +940,7 @@ export default function (pi: ExtensionAPI): void {
  		}
  	}
  	const persistAuth = (): void => {
@@ -1054,10 +1373,12 @@ index 1917956..1a79306 100644
  		if (chromeAuthorizedUntil === undefined) delete globalState[PI_CHROME_AUTH_KEY];
  		else globalState[PI_CHROME_AUTH_KEY] = { until: chromeAuthorizedUntil };
  	};
-@@ -707,6 +900,10 @@ export default function (pi: ExtensionAPI): void {
+@@ -707,6 +950,12 @@ export default function (pi: ExtensionAPI): void {
  	let countdownInterval: NodeJS.Timeout | undefined;
  	// Remembered so bridge sends can tag tabs with this session's group even when ctx isn't handy.
  	let sessionCtx: ExtensionContext | undefined;
++  const fallbackResultOwner = randomUUID();
++  const resultOwner = () => sessionCtx?.sessionManager.getSessionId() ?? fallbackResultOwner;
 +    let releaseWork: (() => void) | undefined;
 +    let workConnectionId: string | undefined;
 +    const finishWork = () => { releaseWork?.(); releaseWork = undefined; workConnectionId = undefined; };
@@ -1065,7 +1386,7 @@ index 1917956..1a79306 100644
  
  	const clearAuthExpiryTimer = (): void => {
  		if (!authExpiryTimer) return;
-@@ -764,6 +961,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -764,6 +1013,7 @@ export default function (pi: ExtensionAPI): void {
  	// this in the background; shutdown must wait before tearing down the bridge.
  	const cleanupAutomationTargetBestEffort = async (timeoutMs = 2_000): Promise<void> => {
  		const sessionKey = sessionKeyFor(sessionCtx);
@@ -1073,7 +1394,7 @@ index 1917956..1a79306 100644
  		if (sessionKey === undefined) return; // Never clean up an unscoped/default session.
  		const controller = new AbortController();
  		let timer: ReturnType<typeof setTimeout> | undefined;
-@@ -795,6 +993,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -795,6 +1045,7 @@ export default function (pi: ExtensionAPI): void {
  	};
  
  	const authSummary = (): string => {
@@ -1081,7 +1402,7 @@ index 1917956..1a79306 100644
  		if (chromeAuthorizedUntil === "indefinite") return "authorized indefinitely";
  		if (typeof chromeAuthorizedUntil === "number") {
  			const remainingMs = chromeAuthorizedUntil - Date.now();
-@@ -884,14 +1083,20 @@ export default function (pi: ExtensionAPI): void {
+@@ -884,14 +1135,20 @@ export default function (pi: ExtensionAPI): void {
  
  	const authorizedBridgeSend = async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> => {
  		requireChromeControlAuthorized();
@@ -1108,7 +1429,7 @@ index 1917956..1a79306 100644
  		}
  		// Scope every action to this session's dedicated automation target and tab group.
  		const sessionKey = sessionKeyFor(sessionCtx);
-@@ -931,7 +1136,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -931,7 +1188,7 @@ export default function (pi: ExtensionAPI): void {
  
  	pi.on("session_start", async (_event, ctx) => {
  		sessionCtx = ctx;
@@ -1117,7 +1438,7 @@ index 1917956..1a79306 100644
  		// Reestablish in-memory state after a /reload restored chromeAuthorizedUntil from globalThis.
  		if (chromeControlAuthorized()) {
  			activateChromeTools();
-@@ -948,11 +1153,14 @@ export default function (pi: ExtensionAPI): void {
+@@ -948,11 +1205,15 @@ export default function (pi: ExtensionAPI): void {
  	pi.on("session_shutdown", async (event) => {
  		clearAuthExpiryTimer();
  		clearCountdownInterval();
@@ -1128,12 +1449,13 @@ index 1917956..1a79306 100644
  		if (event?.reason !== "reload") await cleanupAutomationTargetBestEffort();
  		bridge.stop();
 -		if (globalState[PI_CHROME_GLOBAL_KEY]?.token === instanceToken) {
++    if (event?.reason !== "reload") clearChromeResults(resultOwner());
 +        finishWork();
 +		if (!embedded && globalState[PI_CHROME_GLOBAL_KEY]?.token === instanceToken) {
  			delete globalState[PI_CHROME_GLOBAL_KEY];
  		}
  	});
-@@ -986,11 +1194,15 @@ Usage rules:
+@@ -986,11 +1247,15 @@ Usage rules:
  7. If you hit a native file-picker or privileged browser prompt gate, tell the user; generic clicks/typing/CSP gates are handled by Chrome input.
  8. Run /chrome doctor when in doubt about connectivity or capabilities.
  </chrome-profile-bridge>`;
@@ -1150,7 +1472,7 @@ index 1917956..1a79306 100644
  			ctx.ui.notify("Checking pi-chrome…", "info");
  			const lines: string[] = [
  				`pi-chrome v${PI_CHROME_VERSION}`,
-@@ -1011,7 +1223,7 @@ Usage rules:
+@@ -1011,7 +1276,7 @@ Usage rules:
  				};
  				const latencyMs = Date.now() - started;
  				extensionAlive = true;
@@ -1159,7 +1481,7 @@ index 1917956..1a79306 100644
  					versionMismatch = true;
  					lines.push(
  						`✗ The Chrome companion extension is on an old version (${version.extensionVersion}); this pi-chrome is ${PI_CHROME_VERSION}.`,
-@@ -1113,6 +1325,7 @@ Usage rules:
+@@ -1113,6 +1378,7 @@ Usage rules:
  	};
  
  	const authorizeHandler = async (ctx: ExtensionContext, args: string) => {
@@ -1167,7 +1489,7 @@ index 1917956..1a79306 100644
  		const grant = parseAuthorizeArg(args);
  		if (!grant) {
  			ctx.ui.notify("Unknown authorize duration. Use minutes (15m, 30m, 45) or indefinite.", "warning");
-@@ -1122,13 +1335,15 @@ Usage rules:
+@@ -1122,13 +1388,15 @@ Usage rules:
  	};
  
  	const revokeHandler = (ctx: ExtensionContext) => {
@@ -1184,7 +1506,7 @@ index 1917956..1a79306 100644
  		const proceed = await ctx.ui.confirm(
  			"Install the pi-chrome Chrome extension?",
  			`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
-@@ -1153,7 +1368,7 @@ Usage rules:
+@@ -1153,7 +1421,7 @@ Usage rules:
  		const parts: string[] = [];
  		try {
  			const version = (await bridge.send("tab.version", {}, 5_000)) as { extensionVersion?: string };
@@ -1193,7 +1515,7 @@ index 1917956..1a79306 100644
  				parts.push(`⚠ Chrome extension v${version.extensionVersion} (pi-chrome v${PI_CHROME_VERSION}, reload extension)`);
  			} else {
  				parts.push(`✓ Chrome connected`);
-@@ -1222,9 +1437,16 @@ Usage rules:
+@@ -1222,9 +1490,16 @@ Usage rules:
  	};
  
  	pi.registerCommand("chrome", {
@@ -1211,7 +1533,7 @@ index 1917956..1a79306 100644
  			const raw = prefix;
  			const trimmedRight = raw.replace(/\s+$/, "");
  			const tokens = trimmedRight ? trimmedRight.split(/\s+/) : [];
-@@ -1266,6 +1488,13 @@ Usage rules:
+@@ -1266,6 +1541,13 @@ Usage rules:
  			return filtered.map((c) => ({ value: c.fullValue, label: c.label, description: c.description }));
  		},
  		handler: async (args, ctx) => {
@@ -1225,16 +1547,19 @@ index 1917956..1a79306 100644
  			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
  			if (tokens.length === 0) {
  				await openCommandMenu(ctx);
-@@ -1293,28 +1522,42 @@ Usage rules:
+@@ -1293,28 +1575,44 @@ Usage rules:
  		},
  	});
  
 +	if (embedded) registerChromeTools(pi);
 +
  	function registerChromeTools(pi: ExtensionAPI): void {
++    const registerTool = (tool: Parameters<ExtensionAPI["registerTool"]>[0]) => pi.registerTool({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => boundChromeResult(await tool.execute(...args), resultOwner()) });
++
  		if (chromeToolsRegistered) return;
  		chromeToolsRegistered = true;
  
+-	pi.registerTool({
 +        const backgroundDescription = embedded
 +            ? "Calls stay in the background by default. Set false to bring the targeted tab forward for this call."
 +            : BACKGROUND_PARAM_DESCRIPTION;
@@ -1242,7 +1567,7 @@ index 1917956..1a79306 100644
 +            ? "Calls stay in the background by default; background=false explicitly brings the target forward."
 +            : "Background mode (default) blocks explicit focus/tab activation even with background=false; /chrome background off allows foreground/watch mode.";
 +
- 	pi.registerTool({
++	registerTool({
  		name: "chrome_launch",
  		label: "Chrome Bridge Setup",
 -		description:
@@ -1271,7 +1596,7 @@ index 1917956..1a79306 100644
  			return {
  				content: [
  					{
-@@ -1325,11 +1568,11 @@ Usage rules:
+@@ -1325,19 +1623,19 @@ Usage rules:
  							`1. Open chrome://extensions in the Chrome profile you normally use.\n` +
  							`2. Enable Developer mode.\n` +
  							`3. Click “Load unpacked”.\n` +
@@ -1285,8 +1610,9 @@ index 1917956..1a79306 100644
  			};
  		},
  	});
-@@ -1337,7 +1580,7 @@ Usage rules:
- 	pi.registerTool({
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_tab",
  		label: "Chrome Tab",
 -		description: "List, create, activate, close, group, ungroup, or inspect tabs in the user's existing Chrome profile via the companion extension. New/grouped tabs always use this session's Pi tab group. Background mode keeps new tabs inactive and blocks activate; ask the user to run /chrome background off for foreground/watch mode. activate/close/group/ungroup require a target (targetId/urlIncludes/titleIncludes); with no target they act on this session's pi-chrome automation tab if one exists, and otherwise error rather than touching the user's active tab.",
@@ -1294,7 +1620,7 @@ index 1917956..1a79306 100644
  		promptSnippet: "List/open/activate/close/group existing Chrome tabs through the companion extension.",
  		parameters: Type.Object({
  			action: StringEnum(tabActionValues),
-@@ -1348,6 +1591,7 @@ Usage rules:
+@@ -1348,6 +1646,7 @@ Usage rules:
  			group: Type.Optional(Type.Boolean({ description: "Deprecated; ignored. Pi-created tabs always join this session's own tab group." })),
  			groupTitle: Type.Optional(Type.String({ description: "Deprecated for action=new/group; ignored so one Pi session uses one tab group ('Pi Session: <name-or-id>')." })),
  			groupColor: Type.Optional(Type.String({ description: "Tab group color for action=group/new: grey, blue, red, yellow, green, pink, purple, cyan, or orange. Defaults to blue." })),
@@ -1302,16 +1628,28 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1373,7 +1617,7 @@ Usage rules:
+@@ -1369,11 +1668,11 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_snapshot",
  		label: "Chrome Snapshot",
  		description:
 -			"Inspect a page in the user's existing Chrome profile. Default output is a concise, agent-friendly observation with structural layout/context, stable uids, visible actions, form fields, page hints, and changes since the previous snapshot. Use mode/query/nearUid to zoom instead of dumping the whole page. Background mode (default) blocks explicit focus/tab activation even with background=false. Ask the user to run /chrome background off for foreground/watch mode.",
-+			"Inspect a page in the user's existing Chrome profile. Default output is a concise, agent-friendly observation with structural layout/context, stable uids, visible actions, form fields, page hints, and changes since the previous snapshot. Use mode/query/nearUid to zoom instead of dumping the whole page. " + backgroundBehavior,
++			"Inspect a page in the user's existing Chrome profile. Default output is a concise, agent-friendly observation with structural layout/context, stable uids, visible actions, form fields, page hints, and changes since the previous snapshot. Use mode/query/nearUid to focus the observation. mode=text returns body text; continue with textOffset and expectedTextVersion. Complete captured results are available via native read when an artifact path is returned. " + backgroundBehavior,
  		promptSnippet: "Observe the current Chrome page: concise summary, structural layout, visible actions, forms, page map, query matches, and stable uids.",
  		parameters: Type.Object({
  			targetId: Type.Optional(Type.String()),
-@@ -1386,7 +1630,7 @@ Usage rules:
+@@ -1382,11 +1681,13 @@ Usage rules:
+ 			maxElements: Type.Optional(Type.Number({ default: MAX_ELEMENTS })),
+ 			mode: Type.Optional(StringEnum(snapshotModeValues)),
+ 			query: Type.Optional(Type.String({ description: "Find/rank elements, regions, and text matching this phrase, e.g. 'merge button', 'email error', 'approve PR'." })),
+-			maxTextChars: Type.Optional(Type.Number({ description: "Max body text chars included in the underlying snapshot. Defaults are smaller for concise modes." })),
++			maxTextChars: Type.Optional(Type.Number({ minimum: 1, maximum: 30000, description: "Max body text chars included in the underlying snapshot. Defaults are smaller for concise modes." })),
++			textOffset: Type.Optional(Type.Integer({ minimum: 0, description: "Continue page text at this character offset; pair with expectedTextVersion from the previous snapshot." })),
++			expectedTextVersion: Type.Optional(Type.String({ description: "Reject continuation if page body text changed." })),
  			containingText: Type.Optional(Type.String({ description: "Only return elements whose label/text contains this string (case-insensitive). Useful when the page has many controls." })),
  			roleFilter: Type.Optional(Type.String({ description: "Only return elements matching this ARIA role or tag name (case-insensitive). e.g. 'button', 'link', 'textbox'." })),
  			nearUid: Type.Optional(Type.String({ description: "Sort elements by proximity to this snapshot uid. Useful for finding controls near a known anchor." })),
@@ -1320,7 +1658,22 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1414,7 +1658,7 @@ Usage rules:
+@@ -1397,11 +1698,12 @@ Usage rules:
+ 				DEFAULT_TIMEOUT_MS,
+ 				signal,
+ 			);
+-			return { content: [{ type: "text", text: formatChromeSnapshot(snapshot) }], details: { snapshot } };
++			if ((params.textOffset || params.expectedTextVersion) && !(snapshot as any)?.textRange) throw new Error("This Chrome companion does not support verified text continuation. Update the companion and take a fresh snapshot.");
++				return { content: [{ type: "text", text: formatChromeSnapshot(snapshot) }], details: { snapshot } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_find",
+ 		label: "Chrome Find",
+ 		description:
+@@ -1414,7 +1716,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1329,7 +1682,16 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1442,7 +1686,7 @@ Usage rules:
+@@ -1429,7 +1731,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_inspect",
+ 		label: "Chrome Inspect Element",
+ 		description:
+@@ -1442,7 +1744,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1338,7 +1700,12 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1478,7 +1722,7 @@ Usage rules:
+@@ -1474,11 +1776,11 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_navigate",
  		label: "Chrome Navigate",
  		description:
@@ -1347,9 +1714,12 @@ index 1917956..1a79306 100644
  		promptSnippet: "Navigate a Chrome tab in the user's existing profile.",
  		parameters: Type.Object({
  			url: Type.String(),
-@@ -1488,13 +1732,14 @@ Usage rules:
+@@ -1486,23 +1788,24 @@ Usage rules:
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
  			waitUntilLoad: Type.Optional(Type.Boolean({ default: true })),
- 			timeoutMs: Type.Optional(Type.Number({ default: 15_000 })),
+-			timeoutMs: Type.Optional(Type.Number({ default: 15_000 })),
++			timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 2147480000, default: 15_000 })),
  			initScript: Type.Optional(Type.String({ description: "Optional JavaScript source to run in MAIN world at document_start of the next navigation. Useful for seeding localStorage, stubbing Date.now(), or defining navigator.webdriver=undefined. Requires the companion extension's webNavigation permission." })),
 -			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
 +			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
@@ -1364,7 +1734,8 @@ index 1917956..1a79306 100644
  		},
  	});
  
-@@ -1502,7 +1747,7 @@ Usage rules:
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_evaluate",
  		label: "Chrome Evaluate",
  		description:
@@ -1373,7 +1744,7 @@ index 1917956..1a79306 100644
  		promptSnippet: "Evaluate JavaScript in the active Chrome tab through the companion extension.",
  		parameters: Type.Object({
  			expression: Type.String(),
-@@ -1510,7 +1755,7 @@ Usage rules:
+@@ -1510,7 +1813,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1382,7 +1753,21 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1542,7 +1787,7 @@ Usage rules:
+@@ -1521,11 +1824,11 @@ Usage rules:
+ 				: typeof value === "string"
+ 					? value
+ 					: safeJson(value) ?? "undefined";
+-			return { content: [{ type: "text", text: truncateText(text) }], details: { value: value as Json } };
++			return { content: [{ type: "text", text }], details: { value: value as Json } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_click",
+ 		label: "Chrome Click",
+ 		description:
+@@ -1542,7 +1845,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1391,7 +1776,16 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1573,7 +1818,7 @@ Usage rules:
+@@ -1556,7 +1859,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_type",
+ 		label: "Chrome Type",
+ 		description:
+@@ -1573,7 +1876,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1400,7 +1794,16 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1606,7 +1851,7 @@ Usage rules:
+@@ -1588,7 +1891,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_fill",
+ 		label: "Chrome Fill",
+ 		description:
+@@ -1606,7 +1909,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1409,7 +1812,12 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1625,7 +1870,7 @@ Usage rules:
+@@ -1621,11 +1924,11 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_key",
  		label: "Chrome Key",
  		description:
@@ -1418,7 +1826,7 @@ index 1917956..1a79306 100644
  		promptSnippet: "Press keys in Chrome through the companion extension.",
  		parameters: Type.Object({
  			key: Type.String(),
-@@ -1640,7 +1885,7 @@ Usage rules:
+@@ -1640,7 +1943,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1427,7 +1835,34 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1687,7 +1932,7 @@ Usage rules:
+@@ -1654,7 +1957,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_wait_for",
+ 		label: "Chrome Wait For",
+ 		description: "Poll an existing Chrome tab until a selector exists or a JavaScript expression returns truthy.",
+@@ -1662,7 +1965,7 @@ Usage rules:
+ 		parameters: Type.Object({
+ 			kind: StringEnum(waitForValues),
+ 			value: Type.String({ description: "CSS selector when kind=selector; JavaScript expression when kind=expression." }),
+-			timeoutMs: Type.Optional(Type.Number({ default: 10_000 })),
++			timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 2147480000, default: 10_000 })),
+ 			intervalMs: Type.Optional(Type.Number({ default: 250 })),
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+@@ -1676,7 +1979,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_list_console_messages",
+ 		label: "Chrome Console Messages",
+ 		description:
+@@ -1687,17 +1990,17 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1436,7 +1871,19 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1709,7 +1954,7 @@ Usage rules:
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.console.list", params, DEFAULT_TIMEOUT_MS, signal);
+-			return { content: [{ type: "text", text: truncateText(safeJson(result)) }], details: { result: result as Json } };
++			return { content: [{ type: "text", text: safeJson(result) }], details: { result: result as Json } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_list_network_requests",
+ 		label: "Chrome Network Requests",
+ 		description:
+@@ -1709,17 +2012,17 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1445,7 +1892,19 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1729,7 +1974,7 @@ Usage rules:
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.network.list", params, DEFAULT_TIMEOUT_MS, signal);
+-			return { content: [{ type: "text", text: truncateText(safeJson(result)) }], details: { result: result as Json } };
++			return { content: [{ type: "text", text: safeJson(result) }], details: { result: result as Json } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_get_network_request",
+ 		label: "Chrome Network Request",
+ 		description: "Retrieve one captured fetch/XMLHttpRequest entry, including response body when available, by requestId from chrome_list_network_requests.",
+@@ -1729,31 +2032,31 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1454,7 +1913,15 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1743,17 +1988,17 @@ Usage rules:
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.network.get", params, DEFAULT_TIMEOUT_MS, signal);
+-			return { content: [{ type: "text", text: truncateText(safeJson(result)) }], details: { result: result as Json } };
++			return { content: [{ type: "text", text: safeJson(result) }], details: { result: result as Json } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_screenshot",
  		label: "Chrome Screenshot",
  		description:
@@ -1476,7 +1943,7 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1770,7 +2015,32 @@ Usage rules:
+@@ -1770,7 +2073,32 @@ Usage rules:
  				dimensions?: { width: number; height: number; viewportHeight: number; dpr: number };
  				tiles?: Array<{ y: number; dataUrl: string }>;
  			};
@@ -1510,7 +1977,16 @@ index 1917956..1a79306 100644
  			if (result.fullPage && result.tiles && result.dimensions) {
  				// Stitch via PNG if format is png; otherwise we fall back to writing tile files and a
  				// manifest. We avoid pulling in an image library by writing each tile next to the main
-@@ -1810,7 +2080,7 @@ Usage rules:
+@@ -1797,7 +2125,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_hover",
+ 		label: "Chrome Hover",
+ 		description: "Hover over an element by uid, selector, or x/y using Chrome pointer movement.",
+@@ -1810,7 +2138,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1519,7 +1995,16 @@ index 1917956..1a79306 100644
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.hover", params, DEFAULT_TIMEOUT_MS, signal);
-@@ -1836,7 +2106,7 @@ Usage rules:
+@@ -1818,7 +2146,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_drag",
+ 		label: "Chrome Drag",
+ 		description: "Drag from one uid/selector/point to another using Chrome pointer input.",
+@@ -1836,7 +2164,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1528,7 +2013,16 @@ index 1917956..1a79306 100644
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.drag", params, DEFAULT_TIMEOUT_MS, signal);
-@@ -1858,7 +2128,7 @@ Usage rules:
+@@ -1844,7 +2172,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_tap",
+ 		label: "Chrome Tap (Touch)",
+ 		description:
+@@ -1858,7 +2186,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1537,7 +2031,16 @@ index 1917956..1a79306 100644
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.tap", params, DEFAULT_TIMEOUT_MS, signal);
-@@ -1881,7 +2151,7 @@ Usage rules:
+@@ -1867,7 +2195,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_scroll",
+ 		label: "Chrome Scroll",
+ 		description: "Scroll the page or a specific scrollable element by dispatching real wheel events with momentum-shaped deltas, then applying the scroll. Positive deltaY scrolls down. Pass uid/selector to scroll within a container, otherwise the document scrolls.",
+@@ -1881,7 +2209,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1546,7 +2049,16 @@ index 1917956..1a79306 100644
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.scroll", params, DEFAULT_TIMEOUT_MS, signal);
-@@ -1901,7 +2171,7 @@ Usage rules:
+@@ -1889,7 +2217,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_upload_file",
+ 		label: "Chrome Upload File",
+ 		description: "Attach local files to an <input type=file> element using Chrome DevTools file-input control. Does NOT open the native file picker; works with React/Vue/Angular controlled inputs.",
+@@ -1901,7 +2229,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1569,7 +2081,7 @@ index 9f0af8c..186b8b1 100644
  		"prepublishOnly": "node scripts/sync-manifest-version.js"
  	},
 diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/background-policy.test.mjs
-index e78fa49..8a2e1e8 100644
+index e78fa49..bebcdb0 100644
 --- a/test-suite/unit/background-policy.test.mjs
 +++ b/test-suite/unit/background-policy.test.mjs
 @@ -19,12 +19,12 @@ function section(start, end) {
@@ -1587,7 +2099,7 @@ index e78fa49..8a2e1e8 100644
      async send(action, params, timeout, signal) {
        calls.push({ action, params: clone(params), timeout, signal });
        if (signal?.aborted) throw new Error("Chrome command aborted");
-@@ -37,11 +37,11 @@ function piHarness({ session = "alpha", send } = {}) {
+@@ -37,23 +37,23 @@ function piHarness({ session = "alpha", send } = {}) {
    };
    const Type = new Proxy({}, { get: () => (value = {}) => value });
    const sandbox = {
@@ -1601,7 +2113,12 @@ index e78fa49..8a2e1e8 100644
      requireChromeControlAuthorized() { if (!authorized) throw new Error("Chrome control locked"); },
      sessionCtx: ctx, sessionKeyFor: (c) => c?.key, sessionGroupTitle: (c) => c.title,
      chromeToolsRegistered: false, StringEnum: () => ({}),
-@@ -53,7 +53,7 @@ function piHarness({ session = "alpha", send } = {}) {
+     tabActionValues: [], snapshotModeValues: [], waitForValues: [], imageFormatValues: [],
+-    safeJson: JSON.stringify, truncateText: (s) => s, formatChromeSnapshot: JSON.stringify,
++    safeJson: JSON.stringify, truncateText: (s) => s, formatChromeSnapshot: JSON.stringify, boundChromeResult: result => result, resultOwner: () => "fixture",
+     formatChromeInspect: JSON.stringify, summarizeActionResult: () => "", formatIncludedSnapshotText: (_r, text) => text,
+     workspaceCwd: () => ctx.cwd, ...path,
+     mkdir: async () => {}, writeFile: async (...args) => writes.push(args),
    };
    const registrations = indexSource.slice(indexSource.indexOf("function registerChromeTools(pi:"), indexSource.lastIndexOf("\n}"));
    vm.runInNewContext(stripTypeScriptTypes([
@@ -1658,20 +2175,21 @@ index 3fb4462..b009496 100644
      chromeAuthorizedUntil: until, backgroundEnabled: background,
      hostnameOf: (url) => new URL(url).hostname,
      bridge: {
-diff --git a/test-suite/unit/embedded-host.test.mjs b/test-suite/unit/embedded-host.test.mjs
+diff --git b/test-suite/unit/embedded-host.test.mjs b/test-suite/unit/embedded-host.test.mjs
 new file mode 100644
-index 0000000..21f771b
+index 0000000..86c8023
 --- /dev/null
 +++ b/test-suite/unit/embedded-host.test.mjs
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,248 @@
 +// Actual maintained factory and broker; fake Pi and an HTTP companion, never real Chrome.
 +import assert from 'node:assert/strict';
 +import fs from 'node:fs';
 +import fsp from 'node:fs/promises';
 +import path from 'node:path';
++import { tmpdir } from 'node:os';
 +import vm from 'node:vm';
 +import { createServer } from 'node:http';
-+import { randomUUID, timingSafeEqual } from 'node:crypto';
++import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 +import { stripTypeScriptTypes } from 'node:module';
 +import { test } from 'node:test';
 +const directory=path.resolve(import.meta.dirname,'../../extensions/chrome-profile-bridge');
@@ -1684,9 +2202,9 @@ index 0000000..21f771b
 +async function until(fn){for(let i=0;i<100;i++){if(await fn())return;await pause(5);}assert.fail('condition did not settle');}
 +function moduleHarness(fetchImpl=fetch){
 + let starts=0;
-+ const sandbox={console,Buffer,randomUUID,timingSafeEqual,URL,Symbol,Map,Set,Promise,AbortController,setTimeout,clearTimeout,setInterval,clearInterval,
++ const sandbox={console,Buffer,createHash,randomUUID,timingSafeEqual,URL,Symbol,Map,Set,Promise,AbortController,setTimeout,clearTimeout,setInterval,clearInterval,
 +  process:{env:{},platform:process.platform},__dirname:directory,
-+  Type:new Proxy({},{get:()=>value=>value}),...path,...fs,mkdir:fsp.mkdir,writeFile:fsp.writeFile,
++  tmpdir,Type:new Proxy({},{get:()=>value=>value}),...path,...fs,mkdir:fsp.mkdir,writeFile:fsp.writeFile,
 +  createServer(...a){starts++;return createServer(...a);},fetch:fetchImpl};
 + const javascript=stripTypeScriptTypes(source,{mode:'transform'}).replace(/^import .*;\n/gm,'').replace('export default createChromeExtension();','').replaceAll('export function ','function ').replaceAll('export async function ','async function ');
 + vm.runInNewContext(javascript+'\nglobalThis.factory=createChromeExtension; globalThis.Bridge=ChromeProfileBridge;globalThis.probe=probeChromeConnection;globalThis.startConnection=startChromeConnection;',sandbox);
@@ -1904,11 +2422,26 @@ index 0000000..21f771b
 + const doctor=a.commands.get('chrome').handler('doctor',a.ctx('guidance'));const c=(await(await storeFetch(storeNextUrl(url),f)).json()).command;assert.equal(c.action,'tab.version');await storeReply(url,f,c,{extensionVersion:'1.5.0',capabilities:{protocolVersion:3,cancellation:true}});await doctor;assert.match(a.notices.at(-1),/connected/);assert.doesNotMatch(a.notices.at(-1),/old version|reload/i);
 + await a.events.get('session_shutdown')({reason:'reload'});
 +});
++
++
++test('companion respects an explicit wait timeout beyond its ordinary command deadline', async()=>{
++ const h=workerHarness({timeout:15,dispatch:async()=>{await pause(40);return {observed:true};}});
++ await h.context.run({id:'long-wait',protocolVersion:2,action:'page.waitFor',params:{timeoutMs:80}});
++ assert.equal(h.results[0].ok,true);assert.equal(h.results[0].result.observed,true);
++});
 diff --git a/test-suite/unit/session-cleanup.test.mjs b/test-suite/unit/session-cleanup.test.mjs
-index 7e3285f..7467986 100644
+index 7e3285f..72969b1 100644
 --- a/test-suite/unit/session-cleanup.test.mjs
 +++ b/test-suite/unit/session-cleanup.test.mjs
-@@ -24,9 +24,10 @@ function harness(send, sessionKey = "session:test") {
+@@ -17,6 +17,7 @@ const listener = section('pi.on("session_shutdown",', 'pi.on("before_agent_start
+ function harness(send, sessionKey = "session:test") {
+   const timers = new Map();
+   const events = [];
++  const cleaned = [];
+   let shutdown;
+   const token = Symbol();
+   const globalState = { loaded: { token } };
+@@ -24,14 +25,16 @@ function harness(send, sessionKey = "session:test") {
      AbortController, Promise,
      setTimeout(fn, ms) { const key = Symbol(); timers.set(key, { fn, ms }); return key; },
      clearTimeout(key) { timers.delete(key); },
@@ -1917,7 +2450,35 @@ index 7e3285f..7467986 100644
 +    bridge: { cancelSession() {}, send(...args) { events.push("send"); return send(...args); }, stop() { events.push("stop"); } },
      sessionCtx: {}, sessionKeyFor: () => sessionKey ?? undefined,
 -    clearAuthExpiryTimer() {}, clearCountdownInterval() {},
++    resultOwner: () => sessionKey, clearChromeResults: owner => cleaned.push(owner),
 +    clearAuthExpiryTimer() {}, clearCountdownInterval() {}, finishWork() {},
      globalState, PI_CHROME_GLOBAL_KEY: "loaded", instanceToken: token,
      pi: { on(name, handler) { assert.equal(name, "session_shutdown"); shutdown = handler; } },
    };
+   vm.runInNewContext(`${helper}\n${listener}`, context);
+-  return { shutdown, timers, events, globalState };
++  return { shutdown, timers, events, globalState, cleaned };
+ }
+ 
+ // Delivery must settle before bridge.stop; reload does not issue cleanup at all.
+@@ -53,11 +56,13 @@ function harness(send, sessionKey = "session:test") {
+   assert.deepEqual(h.events, ["send", "stop"]);
+   assert.equal(h.timers.size, 0);
+   assert.equal(h.globalState.loaded, undefined);
++  assert.deepEqual(h.cleaned, ["session:test"]);
+ }
+ {
+   const h = harness(() => { throw new Error("reload must not send"); });
+   await h.shutdown({ reason: "reload" });
+   assert.deepEqual(h.events, ["stop"]);
++  assert.deepEqual(h.cleaned, []);
+   assert.equal(h.timers.size, 0);
+ }
+ 
+@@ -89,5 +94,6 @@ for (const send of [() => Promise.reject(new Error("offline")), () => { throw ne
+   const h = harness(() => { throw new Error("unscoped cleanup must not send"); }, null);
+   await h.shutdown({ reason: "exit" });
+   assert.deepEqual(h.events, ["stop"]);
++  assert.deepEqual(h.cleaned, [null]);
+ }
+ console.log("session-cleanup: shutdown ordering, reload, deadline, failures, and missing identity passed");

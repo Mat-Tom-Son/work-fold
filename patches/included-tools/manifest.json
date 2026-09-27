@@ -5,7 +5,7 @@
     "source": "https://github.com/tianrendong/pi-chrome/tree/4811ee616d2bbd5ead669a7e2f33a0bb14bd43ef",
     "license": "MIT",
     "patch": "pi-chrome-0.15.51.patch",
-    "sha256": "07076c9ad3e481fd7ef7d0794bfa528cb8456b5e98df78263e5116aadfcf1798",
+    "sha256": "578c4945e826d31e3c2870e0e26ae10e102db32ee1382c642bfe972abeabc8e8",
     "files": [
       {
         "path": "docs/EMBEDDED-HOST.md",
@@ -25,17 +25,17 @@
       {
         "path": "extensions/chrome-profile-bridge/browser-extension/service_worker.js",
         "before": "ac1e346d88aaa684d1998b17f899c4b50077d27f01eeb1a3393649013643ee3f",
-        "after": "85c967f7c891675fb5e4ba37499aa4c4c7de1e22dd4bfe4dff19081e39e76d31"
+        "after": "43e52067804c37000c7b86de1eeeda8e1d6bd25c592e15f60f13936959b619c1"
       },
       {
         "path": "extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js",
         "before": "25f9cb6c866846bca9a8b7c7f943e9c1ca1af82e5179b03e8a5550629e95bf9b",
-        "after": "25f9cb6c866846bca9a8b7c7f943e9c1ca1af82e5179b03e8a5550629e95bf9b"
+        "after": "a8f5fa66215122f4125aaf926a4899a44354557311713dd0747cbf838af3a2a4"
       },
       {
         "path": "extensions/chrome-profile-bridge/index.ts",
         "before": "fc38900ea5f9d8e7bb8b1988ff6e172d49c24e50213f9c8905d689187728d187",
-        "after": "391e8aabd380f609256ea7e9d21a4fade841e82159561e4ae93b9766e59cce18"
+        "after": "73ae916af475af82d909a00613df638a6a6593333c6e011a04bd4dde89ef52cc"
       },
       {
         "path": "package.json",
@@ -45,7 +45,7 @@
       {
         "path": "test-suite/unit/background-policy.test.mjs",
         "before": "a1718cf6536685165ed126163df30cf012303fd3c825ccb1c618b6dcd5d847fa",
-        "after": "71916b18011c31d53037a538028e79fabaf240327e344020036a0561e7db9f0b"
+        "after": "13e2c716737320f1354a69632727527e2af7e6c9b383a480d45f616db2288eb6"
       },
       {
         "path": "test-suite/unit/chrome-command.test.mjs",
@@ -55,12 +55,12 @@
       {
         "path": "test-suite/unit/embedded-host.test.mjs",
         "before": null,
-        "after": "34e74187c6bfe2c316f1e7a87005cbe3adf0f151a2a3cb061aa58bab50963d45"
+        "after": "011e549a1bf5deddf4724f45d9b37610606496b937a79ae27bd50572daaeafb4"
       },
       {
         "path": "test-suite/unit/session-cleanup.test.mjs",
         "before": "a19b3d47dfbb7415c973132017bc36d79a859373a561de6cb62080af797ccc87",
-        "after": "2bf7a4749c8aaabf69cba450a905f96582c84a50b6e418c664e2a193e4db2702"
+        "after": "1ff89c6669a4b47df9f095c7130ca25394cfa671272dc0f55deec0d2b27c9b18"
       }
     ]
   },
@@ -175,7 +175,7 @@
     "source": "https://github.com/nicobailon/pi-mcp-adapter/tree/32b67f916745b31a30a80371a86f00f70ba0a561",
     "license": "MIT",
     "patch": "pi-mcp-adapter-2.33.0.patch",
-    "sha256": "d7f9f53af9fb38a353a7899f375941b6c3a768c9c6d3a7c76d7a9862e057ec8c",
+    "sha256": "05ab9c41189593c4dff8df8869aebde6157ca2e41d39eccc736321ba1f718c5c",
     "files": [
       {
         "path": "index.ts",
@@ -195,7 +195,7 @@
       {
         "path": "direct-tools.ts",
         "before": "315dbe7557ae044194dcc939dcbc969a812394d55813d71c4fc1a2939ca1947a",
-        "after": "6d9bfe741ebd99cc04d79eec5d88e3032be4be882c04c93881c0df1bde0650fe"
+        "after": "ad45baee9b75abfdd74bd48ee5e51512b47a927a20eb409d5aaa5a7103ddfd47"
       },
       {
         "path": "config.ts",
@@ -241,6 +241,21 @@
         "path": "mcp-auth.ts",
         "before": "3509e617f8c500a7af57d67cd893612139fff910729a34cdcbc75bd6b2273fac",
         "after": "c3be34a14670d869b64655fe7faf3781ec7486c510172aa3f6971259e82bda7d"
+      },
+      {
+        "path": "tool-registrar.ts",
+        "before": "4bc8f3c25743d6be3a7bbed5ec2425f80a66cbbbeda3d5922302c1961b67a170",
+        "after": "5bc3b8b15e76acbfa6ce24b5d60fd7a2eb05fc928275d2cf62f7428b4713ef47"
+      },
+      {
+        "path": "proxy-modes.ts",
+        "before": "ba56835ab431494504733307138d940edefe04b886689642c5ab6b997cc123be",
+        "after": "fc283c55cebcafbfeac2fe824b01422da5d2d8f11ea2148971af82dbb31924c4"
+      },
+      {
+        "path": "mcp-code.ts",
+        "before": "fecfde07f4c12b754fce355b6595455c9ce46dd52473dfc82f9dd5161a2b6040",
+        "after": "90b6c52839a80e20f746c79850dc9a9267f97a0c159c69cf7f6980b5f9ea46d4"
       }
     ]
   },
