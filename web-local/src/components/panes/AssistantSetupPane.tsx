@@ -213,10 +213,23 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       if (controller.signal.aborted || revision !== localRevision.current || isMutating()) return;
       const result = fixtureMode ? {
         models: [
-          { provider: "openrouter", providerName: "OpenRouter", id: "deepseek/deepseek-v4.1-flash", name: "DeepSeek: DeepSeek V4.1 Flash — Fast reasoning and general tasks", authConfigured: true, authSource: "stored" as const, authType: "api_key" as const, oauthSupported: false },
+          // Enough OpenRouter models, across several vendors, for the dropdown's search box and vendor headings to appear.
+          ...[
+            ["deepseek/deepseek-v4.1-flash", "DeepSeek: DeepSeek V4.1 Flash — Fast reasoning and general tasks"],
+            ["deepseek/deepseek-v4.1", "DeepSeek: DeepSeek V4.1"],
+            ["anthropic/claude-sonnet-4.5", "Anthropic: Claude Sonnet 4.5"],
+            ["anthropic/claude-opus-4.1", "Anthropic: Claude Opus 4.1"],
+            ["openai/gpt-5", "OpenAI: GPT-5"],
+            ["openai/gpt-5-mini", "OpenAI: GPT-5 Mini"],
+            ["google/gemini-2.5-pro", "Google: Gemini 2.5 Pro"],
+            ["google/gemini-2.5-flash", "Google: Gemini 2.5 Flash"],
+            ["meta-llama/llama-4-maverick", "Meta: Llama 4 Maverick"],
+            ["qwen/qwen3-coder", "Qwen: Qwen3 Coder"],
+            ["mistralai/mistral-medium-3.1", "Mistral: Mistral Medium 3.1"],
+          ].map(([id, name]) => ({ provider: "openrouter", providerName: "OpenRouter", id, name, authConfigured: true, authSource: "stored" as const, authType: "api_key" as const, oauthSupported: false })),
           { provider: "anthropic", providerName: "Anthropic", id: "claude-sonnet-4", name: "Claude Sonnet", authConfigured: false, oauthSupported: false },
         ],
-        catalogs: [{ provider: "openrouter", refreshable: true, source: "live" as const, refreshedAt: new Date().toISOString(), modelCount: 1 }],
+        catalogs: [{ provider: "openrouter", refreshable: true, source: "live" as const, refreshedAt: new Date().toISOString(), modelCount: 11 }],
         status: { ...status, configured: true, provider: "openrouter", model: "deepseek/deepseek-v4.1-flash" },
         instructions: scope === "space" ? "Keep answers concise and test changes in this folder." : null,
       } : await api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null }>(`/api/agent/models?${assistantScopeParams(scope, space)}`, { signal: controller.signal });

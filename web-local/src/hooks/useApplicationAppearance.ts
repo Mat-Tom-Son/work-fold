@@ -62,6 +62,7 @@ export function useApplicationAppearance({ fixtureMode = false, store: suppliedS
     root.dataset.appearancePalette = preferences.palette;
     root.dataset.appearanceDensity = preferences.density;
     root.dataset.appearanceMessages = preferences.messages;
+    root.dataset.appearanceChatSteps = preferences.chatSteps;
     root.dataset.appearanceContrast = effective.contrast ? "more" : "system";
     root.dataset.appearanceMotion = effective.motion ? "reduce" : "system";
     root.dataset.appearanceTransparency = effective.transparency ? "opaque" : "system";

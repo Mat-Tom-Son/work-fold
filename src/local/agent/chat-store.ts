@@ -71,6 +71,8 @@ export interface ChatMessageWorkTrailEntry {
   edit?: ChatToolEdit;
   toolName?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
+  /** Thinking only: how long the segment ran, so hidden reasoning persists without text. */
+  durationMs?: number;
 }
 
 export interface ConversationSummary {
@@ -610,6 +612,7 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
       ...(entry.detail === undefined ? {} : { detail: entry.detail }),
       ...(entry.toolName === undefined ? {} : { toolName: entry.toolName }),
       ...(entry.phase === undefined ? {} : { phase: entry.phase }),
+      ...(entry.kind === "thinking" && entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
       ...(includeEdit ? { edit } : {}),
     };
   });
@@ -618,10 +621,14 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
 function isChatMessageWorkTrailEntry(value: unknown): value is ChatMessageWorkTrailEntry {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Partial<ChatMessageWorkTrailEntry>;
+  const validDuration = record.durationMs === undefined
+    || (typeof record.durationMs === "number" && Number.isFinite(record.durationMs) && record.durationMs > 0 && record.durationMs <= 86_400_000);
+  const timedThinking = record.kind === "thinking" && record.durationMs !== undefined;
   return (record.kind === "thinking" || record.kind === "tool")
     && typeof record.text === "string"
-    && record.text.trim().length > 0
+    && (record.text.trim().length > 0 || timedThinking)
     && record.text.length <= 32_000
+    && validDuration
     && (record.detail === undefined || (typeof record.detail === "string" && record.detail.length <= 4_096))
     && (record.toolName === undefined || (typeof record.toolName === "string" && record.toolName.length <= 256))
     && (

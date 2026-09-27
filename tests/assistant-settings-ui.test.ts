@@ -23,9 +23,9 @@ interface Request {
   body: Record<string, unknown> | null;
   finish: (body: unknown, status?: number) => void;
 }
-/** The model the list currently shows as chosen. */
+/** The model the closed dropdown currently shows as chosen. */
 function selectedModel(dom: { container: HTMLElement }): string | undefined {
-  return dom.container.querySelector('#assistant-model [role="option"][aria-selected="true"]')?.getAttribute("data-model-id") ?? undefined;
+  return dom.container.querySelector('#assistant-model[aria-haspopup="listbox"]')?.getAttribute("data-model-id") || undefined;
 }
 
 async function setup(t: TestContext) {
@@ -54,16 +54,19 @@ async function setup(t: TestContext) {
     return dom.render(strict ? createElement(StrictMode, null, component) : component);
   };
   const finish = async (request: Request, body: unknown, responseStatus = 200) => { await dom.act(async () => { request.finish(body, responseStatus); }); };
-  const select = async (selector: string, value: string) => { await dom.act(() => {
+  const select = async (selector: string, value: string) => {
     const field = dom.container.querySelector<HTMLElement>(selector)!;
-    if (field.getAttribute("role") === "listbox") {
-      // The model list (2026-09-25): options are buttons that carry their model id.
-      field.querySelector<HTMLButtonElement>(`[role="option"][data-model-id="${value}"]`)!.click();
+    if (field.getAttribute("aria-haspopup") === "listbox") {
+      // The model dropdown (2026-09-27): open it, then pick the option that carries the model id.
+      if (field.getAttribute("aria-expanded") !== "true") await dom.act(() => field.click());
+      await dom.act(() => dom.container.querySelector<HTMLButtonElement>(`[role="option"][data-model-id="${value}"]`)!.click());
       return;
     }
-    (field as HTMLSelectElement).value = value;
-    field.dispatchEvent(new Event("change", { bubbles: true }));
-  }); };
+    await dom.act(() => {
+      (field as HTMLSelectElement).value = value;
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  };
   const type = async (selector: string, value: string) => { await dom.act(() => {
     const field = dom.container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
     const prototype = field.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;

@@ -110,7 +110,7 @@ finished before deletion.
 
 Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 
-The configured provider and model remain visible in the Chat composer before the first message. Clicking that label opens an inline model picker with the Folder’s saved model pinned first and search when more than eight connected models are available. A selection saves the Folder default for new Chats; existing Chat sessions keep their model. The picker’s **Model settings** link opens **Settings → AI Models** scoped to that Folder. The label always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
+The configured provider and model remain visible in the Chat composer before the first message. Clicking that label opens an inline model picker with the Folder’s saved model pinned first and search when more than eight connected models are available. A selection saves the Folder default for new Chats; existing Chat sessions keep their model. The picker’s **Model settings** link opens **Settings → AI Models** scoped to that Folder. The label always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. In the Chat that trail is the Worker's steps: while a turn runs, each step appears in the order it happened with the active one shimmering and live reasoning in a short panel; once the reply starts, the steps fold into one plain line such as "Read a file, edited a file, ran commands" that opens on click, and a "Thought" row opens its reasoning. Reasoning a model keeps hidden still shows as "Thought for 3s", so a saved thinking entry records its duration. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
 
 ## A Folder is a view of a folder, not a new file format
 
@@ -150,9 +150,10 @@ lives in Appearance → Interface, and updates live in About. The navigation bec
 narrow windows; keyboard selection brings the selected item into view. AI Models
 settings separate model defaults, shared provider
 connections, and Space instructions; the scope is chosen with two large buttons —
-**This worker**, naming the Folder, and **work-fold agent** — and the model list
-has a search box and groups models under vendor headings (for OpenRouter, the
-vendor prefix of the model name). Unsaved model/instruction drafts survive
+**This worker**, naming the Folder, and **work-fold agent** — and the model is a
+dropdown: closed, it shows the chosen model; open, it starts with a search box
+and groups models under vendor headings (for OpenRouter, the vendor prefix of
+the model name), and choosing a model closes it. Unsaved model/instruction drafts survive
 page and scope changes while that window stays open; credentials are not cached
 across scope changes. Accepted saves retain their completion ownership if the
 window closes, so reopening waits for their result. External settings changes
@@ -160,8 +161,8 @@ refresh clean forms and offer an explicit reload when drafts are present.
 
 [Application appearance](application-appearance.md) adds editable presets,
 application palettes and accent, separate interface/conversation typography,
-reading width and spacing, list density, quiet messages, and accessibility
-preferences. The desktop and menu-bar chat share device-local preferences;
+reading width and spacing, list density, quiet messages, which Worker steps
+stay visible while a turn runs, and accessibility preferences. The desktop and menu-bar chat share device-local preferences;
 the paired web fold retains its browser appearance. Typed appearance files are
 inert data. Undo and reset operate on these preferences without changing Space
 colors, icons, or banners; Customize this Space opens the existing work tab.
@@ -484,8 +485,9 @@ Owner decisions, recorded here in dated form; the body of this document and
   discloses install scripts and Extensions before installation.
 - **Settings → AI Models** chooses its scope with two large buttons — **This
   worker**, naming the Folder, and **work-fold agent** — instead of radio
-  circles; the model list has a search box and groups models under vendor
-  headings (for OpenRouter, the vendor prefix of the model name).
+  circles; the model is a dropdown that shows the chosen model closed and opens
+  with a search box and vendor headings (for OpenRouter, the vendor prefix of
+  the model name), closing again on a choice.
 - **Settings → Automations** collapses its limits under a **Limits**
   disclosure by default; they stay visible on demand and unchanged in meaning.
 - With four or more tabs open, tabs narrow but keep their Folder icon and a

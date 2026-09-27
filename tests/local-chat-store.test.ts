@@ -197,6 +197,24 @@ test("chat store preserves bounded thinking and tool trails on successful replie
   });
   const [sanitized] = await readConversation(spaceRoot, "chat-invalid-work-trail");
   assert.equal(sanitized?.workTrail, undefined);
+
+  // Reasoning a model keeps hidden has no text, so its duration is what the
+  // trail keeps; without a duration the empty entry is not a trail at all.
+  const timedTrail: ChatMessage["workTrail"] = [
+    { kind: "thinking", text: "", phase: "complete", durationMs: 2_600 },
+    { kind: "tool", text: "Read complete", detail: "notes.md", toolName: "read", phase: "complete" },
+  ];
+  await appendMessage(spaceRoot, "chat-timed-work-trail", { ...assistantMessage, id: "assistant-timed-work-trail", workTrail: timedTrail });
+  const [timed] = await readConversation(spaceRoot, "chat-timed-work-trail");
+  assert.deepEqual(timed?.workTrail, timedTrail);
+
+  await appendMessage(spaceRoot, "chat-untimed-hidden-thinking", {
+    ...assistantMessage,
+    id: "assistant-untimed-hidden-thinking",
+    workTrail: [{ kind: "thinking", text: "", phase: "complete" }],
+  });
+  const [untimed] = await readConversation(spaceRoot, "chat-untimed-hidden-thinking");
+  assert.equal(untimed?.workTrail, undefined);
 });
 
 test("chat store prefers generated landing title in conversation summaries", async (t) => {

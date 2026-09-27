@@ -95,6 +95,8 @@ export interface PiTurnWorkTrailEntry {
   edit?: ChatToolEdit;
   toolName?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
+  /** Thinking only: how long the segment ran, so hidden reasoning still leaves a trace. */
+  durationMs?: number;
 }
 
 export class PiTurnFailure extends Error {
@@ -218,6 +220,7 @@ export class PiConversationClient extends EventEmitter {
   private turnActivities = new Map<string, PiTurnActivity>();
   private turnWorkTrail = new Map<string, PiTurnWorkTrailEntry>();
   private activeThinkingTrailId: string | null = null;
+  private activeThinkingTrailStartedAt: number | null = null;
   private thinkingTrailSequence = 0;
   private lastToolEventKey = "";
   private nativeEditPaths = new Map<string, string>();
@@ -567,7 +570,7 @@ export class PiConversationClient extends EventEmitter {
   /** A bounded, settled copy of the thinking and tool trail shown for this turn. */
   getTurnWorkTrail(): PiTurnWorkTrailEntry[] {
     return [...this.turnWorkTrail.values()]
-      .filter((entry) => entry.kind === "tool" || entry.text.trim().length > 0)
+      .filter((entry) => entry.kind === "tool" || entry.text.trim().length > 0 || (entry.durationMs ?? 0) > 0)
       .slice(0, 64)
       .map((entry) => ({
         ...entry,
@@ -1042,6 +1045,7 @@ export class PiConversationClient extends EventEmitter {
   private startThinkingTrail(): void {
     const id = `thinking:${++this.thinkingTrailSequence}`;
     this.activeThinkingTrailId = id;
+    this.activeThinkingTrailStartedAt = Date.now();
     this.turnWorkTrail.set(id, { kind: "thinking", text: "", phase: "streaming" });
   }
 
@@ -1057,8 +1061,18 @@ export class PiConversationClient extends EventEmitter {
   private finishThinkingTrail(): void {
     if (!this.activeThinkingTrailId) return;
     const previous = this.turnWorkTrail.get(this.activeThinkingTrailId);
-    if (previous) this.turnWorkTrail.set(this.activeThinkingTrailId, { ...previous, phase: "complete" });
+    // Reasoning a model keeps hidden still took time. The duration lets the
+    // saved trail show "Thought for 3s" where there is no text to show.
+    const durationMs = this.activeThinkingTrailStartedAt === null ? 0 : Math.max(0, Date.now() - this.activeThinkingTrailStartedAt);
+    if (previous) {
+      this.turnWorkTrail.set(this.activeThinkingTrailId, {
+        ...previous,
+        phase: "complete",
+        ...(durationMs > 0 ? { durationMs } : {}),
+      });
+    }
     this.activeThinkingTrailId = null;
+    this.activeThinkingTrailStartedAt = null;
   }
 
   /** The turn's assistant text so far: non-empty segments joined as paragraphs. */
@@ -1292,6 +1306,7 @@ export class PiConversationClient extends EventEmitter {
     this.turnActivities.clear();
     this.turnWorkTrail.clear();
     this.activeThinkingTrailId = null;
+    this.activeThinkingTrailStartedAt = null;
     this.thinkingTrailSequence = 0;
     this.lastToolEventKey = "";
     this.nativeEditPaths.clear();

@@ -10,9 +10,9 @@ import { savedWorkTrailPreviews } from "../../lib/chat-work-trail";
 import { collectSpacePathCandidates, findSpacePathMentions, spacePathCandidate } from "../../lib/space-path-links";
 import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
-import { RuntimeContextPreview } from "./activity";
+import { RuntimeContextPreview, type SpacePathLinkResolver } from "./activity";
 
-export type SpacePathLinkResolver = (paths: string[]) => Promise<Map<string, string>>;
+export type { SpacePathLinkResolver };
 
 const assistantMessageSpacePathCache = new Map<string, {
   content: string;
@@ -28,6 +28,7 @@ interface ChatMessageRowProps {
   showRuntimePreview: boolean;
   runtimePreviews: RuntimePreviewEntry[];
   spaceId: string;
+  spaceRoot: string;
   onOpenSpaceFile?: (path: string) => void;
   resolveSpacePathLinks?: SpacePathLinkResolver;
   onCopyMessage: (messageId: string, content: string) => void | Promise<void>;
@@ -41,6 +42,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   showRuntimePreview,
   runtimePreviews,
   spaceId,
+  spaceRoot,
   onOpenSpaceFile,
   resolveSpacePathLinks,
   onCopyMessage,
@@ -74,7 +76,14 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <article className={`message ${message.role}${suppressEnterAnimation ? " settled" : ""}`}>
       <div className="message-surface">
-        {visibleRuntimePreviews.length ? <RuntimeContextPreview entries={visibleRuntimePreviews} /> : null}
+        {visibleRuntimePreviews.length ? (
+          <RuntimeContextPreview
+            entries={visibleRuntimePreviews}
+            spaceRoot={spaceRoot}
+            onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
+            resolveSpacePathLinks={message.role === "assistant" ? resolveSpacePathLinks : undefined}
+          />
+        ) : null}
         <MarkdownMessage
           content={message.content}
           spaceLinks={message.role === "assistant" ? spaceLinks : null}
@@ -128,6 +137,7 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previous.showRuntimePreview === next.showRuntimePreview
     && sameRuntimePreview
     && previous.spaceId === next.spaceId
+    && previous.spaceRoot === next.spaceRoot
     && previous.onOpenSpaceFile === next.onOpenSpaceFile
     && previous.resolveSpacePathLinks === next.resolveSpacePathLinks
     && previous.onCopyMessage === next.onCopyMessage;
