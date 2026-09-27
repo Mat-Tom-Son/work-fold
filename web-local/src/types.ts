@@ -131,6 +131,8 @@ export interface ChatMessageWorkTrailEntry {
   detail?: string;
   toolName?: string;
   phase?: AgentActivityPhase;
+  /** Thinking only: how long the segment ran, so reasoning a model keeps hidden still shows as "Thought for 3s". */
+  durationMs?: number;
 }
 
 export type AgentActivityPhase = "queued" | "running" | "streaming" | "complete" | "error";
@@ -141,6 +143,9 @@ export interface RuntimePreviewEntry {
   detail?: string;
   toolName?: string;
   phase?: AgentActivityPhase;
+  durationMs?: number;
+  /** Live thinking only: when the segment started, for the running timer. */
+  startedAt?: number;
 }
 
 export interface ChatActionsState {

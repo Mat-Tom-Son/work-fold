@@ -291,29 +291,36 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });
 
-test("reasoning and real tool calls form one compact work trail", () => {
+test("reasoning and real tool calls form one chronological steps strip", () => {
+  // Rows keep the order events arrived in; the strip folds into a plain
+  // summary once reply text starts and hidden reasoning keeps its duration.
   assert.match(activity, /entry\.kind === "thinking"/);
   assert.match(activity, /entry\.kind === "tool"/);
-  assert.match(activity, /runtime-thinking-label/);
+  assert.match(activity, /className="work-steps-summary"/);
   assert.match(activity, /Thinking…/);
-  assert.match(activity, /<div className="runtime-preview-text">[\s\S]*?<ReactMarkdown/);
-  assert.match(activity, /runtime-tool-list/);
-  assert.match(activity, /runtime-tool-row/);
-  assert.match(activity, /phaseLabel/);
-  assert.match(chatPanel, /if \(data\.type === "tool"\)/);
-  assert.match(chatPanel, /kind: "tool"/);
+  assert.match(activity, /Working…/);
+  assert.match(activity, /Thought for \$\{formatDuration\(entry\.durationMs \?\? 0\)\}/);
+  assert.match(activity, /className=\{`work-step-thought\$\{live \? " live" : ""\}`\}[\s\S]*?<ReactMarkdown/);
   assert.match(activity, /repairReasoningMarkdownArtifacts/);
   assert.match(activity, /node\.type === "text"/);
+  assert.match(activity, /spacePathCandidate\(value\.slice\(root\.length \+ 1\)/);
+  assert.match(chatPanel, /if \(data\.type === "tool"\)/);
+  assert.match(chatPanel, /kind: "tool"/);
+  assert.match(chatPanel, /replyStarted=\{Boolean\(streamingAssistant\)\}/);
+  assert.match(chatPanel, /durationMs: Math\.max\(0, endedAt - entry\.startedAt\)/);
+  assert.match(messages, /spaceRoot=\{spaceRoot\}/);
   assert.match(piClient, /event\.detail = previous\?\.detail \|\| event\.detail \|\| ""/);
   assert.match(piClient, /summarizeToolValue\(args\)/);
   assert.doesNotMatch(piClient, /summarizeToolValue\(args \?\? result\)/);
+  assert.match(piClient, /\|\| \(entry\.durationMs \?\? 0\) > 0\)/);
   assert.doesNotMatch(activity, /Brain|["']THINKING["']|Working through the request|AgentActivityEvent/);
   assert.doesNotMatch(activity, /return "Complete"/);
   assert.doesNotMatch(chatPanel, /agent-activity-toggle|agent-activity-log|>Activity</);
-  assert.doesNotMatch(styles, /\.runtime-preview\s*\{[^}]*border-left:/);
-  assert.match(styles, /\.runtime-preview-text\s*\{/);
-  assert.match(styles, /\.runtime-tool-list\s*\{/);
-  assert.match(styles, /\.runtime-tool-row\s*\{/);
+  assert.doesNotMatch(chatPanel, /typing-line|working-message/);
+  assert.match(styles, /\.work-step-thought \{[^}]*min-width: 0;/);
+  assert.match(styles, /\.work-step-thought pre \{[^}]*white-space: pre-wrap;/);
+  assert.match(styles, /\.work-steps\.settled:not\(\.open\) \.work-steps-rows \{[^}]*grid-template-rows: 0fr;/);
+  assert.doesNotMatch(styles, /\.runtime-preview|\.runtime-tool-|\.runtime-thinking|\.typing-line/);
 });
 
 test("manual restore points distinguish a new snapshot from already-covered files", () => {

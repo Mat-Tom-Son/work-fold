@@ -460,13 +460,16 @@ export function ChatPanel({
     const fixtureConversationSummaryValue = fixtureConversation ? fixtureConversationSummary(fixtureConversation) : null;
     const fixtureRunning = fixtureConversation?.running ?? fixtureAgentRunning();
     setError(null);
-    const fixturePreviews = fixtureConversation?.runtimePreviews ?? fixtureRuntimePreviews();
+    // `?agentEvents=1` previews the live steps strip and wins over a Chat's own
+    // saved trail; while it runs, no reply text is shown so the rows stay open.
+    const eventPreviews = fixtureRuntimePreviews();
+    const fixturePreviews = eventPreviews.length ? eventPreviews : fixtureConversation?.runtimePreviews ?? [];
     commitConversations((fixtureConversations ?? []).map(fixtureConversationSummary));
     if (fixtureConversation && fixtureConversationSummaryValue) {
       setConversation(fixtureConversationSummaryValue);
       onConversationActivated?.(fixtureConversationSummaryValue);
       setMessages(fixtureConversation.messages.filter((message) => message.role !== "system"));
-      setStreamingAssistant(fixtureConversation.streamingAssistant ?? (fixtureRunning ? "I’m reading the selected files and checking the generated outputs now." : ""));
+      setStreamingAssistant(fixtureConversation.streamingAssistant ?? (fixtureRunning && !eventPreviews.length ? "I’m reading the selected files and checking the generated outputs now." : ""));
       setContextAttachments(fixtureConversation.contextAttachments ?? []);
       setActiveContextPath(null);
     } else {
@@ -770,6 +773,7 @@ export function ChatPanel({
       kind: "thinking",
       text: "",
       phase: "streaming",
+      startedAt: Date.now(),
     });
   }
 
@@ -791,9 +795,10 @@ export function ChatPanel({
     const id = activeThinkingPreviewIdRef.current;
     if (!id) return;
     activeThinkingPreviewIdRef.current = null;
+    const endedAt = Date.now();
     setRuntimePreviews((current) => current.map((entry) => (
       entry.id === id
-        ? { ...entry, phase: "complete" }
+        ? { ...entry, phase: "complete", ...(entry.startedAt ? { durationMs: Math.max(0, endedAt - entry.startedAt) } : {}) }
         : entry
     )));
   }
@@ -1036,6 +1041,7 @@ export function ChatPanel({
   const hasVisibleRuntimePreview = runtimePreviews.some((entry) => (
     entry.kind === "tool"
     || Boolean(entry.text.trim())
+    || (entry.durationMs ?? 0) > 0
     || entry.phase === "queued"
     || entry.phase === "running"
     || entry.phase === "streaming"
@@ -1659,6 +1665,7 @@ export function ChatPanel({
                 showRuntimePreview={showRuntimePreview}
                 runtimePreviews={runtimePreviews}
                 spaceId={space.id}
+                spaceRoot={space.spaceRoot}
                 onOpenSpaceFile={onOpenSpaceFile}
                 resolveSpacePathLinks={resolveSpacePathLinks}
                 onCopyMessage={copyMessage}
@@ -1666,15 +1673,17 @@ export function ChatPanel({
               />
             );
           })}
-          {running && (streamingAssistant || hasVisibleRuntimePreview) ? (
+          {running ? (
             <article className="message assistant streaming">
-              {hasVisibleRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} running={running} /> : null}
+              <RuntimeContextPreview
+                entries={runtimePreviews}
+                running
+                replyStarted={Boolean(streamingAssistant)}
+                spaceRoot={space.spaceRoot}
+                onOpenSpaceFile={onOpenSpaceFile}
+                resolveSpacePathLinks={resolveSpacePathLinks}
+              />
               {streamingAssistant ? <MarkdownMessage content={streamingAssistant} /> : null}
-            </article>
-          ) : null}
-          {running && !streamingAssistant && !hasVisibleRuntimePreview ? (
-            <article className="message assistant streaming working-message">
-              <div className="typing-line"><Loader2 className="spin" size={14} /> Thinking…</div>
             </article>
           ) : null}
           {!hasTranscript ? (
@@ -2491,28 +2500,45 @@ function fixtureRuntimePreviews(): RuntimePreviewEntry[] {
       kind: "thinking",
       text: "I need to compare the project notes, inspect the spreadsheet, and identify the decisions that need the user’s attention.\n\n**Checking the files**\n\nI’m matching the notes against the budget so the answer can point to the exact files involved.",
       phase: "complete",
-    },
-    {
-      id: "fixture-thinking-formatting",
-      kind: "thinking",
-      text: "**Organizing the result**\n\nI’m separating the cost differences from the open questions so the next action is easy to see.",
-      phase: running ? "streaming" : "complete",
+      durationMs: 6_400,
     },
     {
       id: "fixture-tool-read",
       kind: "tool",
       toolName: "read",
-      text: running ? "Read running" : "Read finished",
-      detail: "Project Notes.docx",
-      phase: running ? "running" : "complete",
+      text: "Read finished",
+      detail: "Kitchen refresh/ideas.md",
+      phase: "complete",
+    },
+    {
+      id: "fixture-thinking-hidden",
+      kind: "thinking",
+      text: "",
+      phase: "complete",
+      durationMs: 2_800,
     },
     {
       id: "fixture-tool-search",
       kind: "tool",
-      toolName: "search",
-      text: "Search finished",
-      detail: "budget variance",
+      toolName: "bash",
+      text: "Bash finished",
+      detail: "rg -n \"allowance|cabinetry\" \"Kitchen refresh/ideas.md\" | head -20 && wc -l \"Kitchen refresh/ideas.md\"",
       phase: "complete",
+    },
+    {
+      id: "fixture-thinking-formatting",
+      kind: "thinking",
+      text: "**Organizing the result**\n\nI’m separating the cost differences from the open questions so the next action is easy to see:\n\n```\n| Option | Best for | Main risk | A note that is only here so the line is long enough to need wrapping inside the thought |\n```",
+      phase: "complete",
+      durationMs: 3_100,
+    },
+    {
+      id: "fixture-tool-read-budget",
+      kind: "tool",
+      toolName: "read",
+      text: running ? "Read running" : "Read finished",
+      detail: "Kitchen refresh/budget.xlsx",
+      phase: running ? "running" : "complete",
     },
   ];
   if (running) {
@@ -2521,6 +2547,7 @@ function fixtureRuntimePreviews(): RuntimePreviewEntry[] {
       kind: "thinking",
       text: "",
       phase: "streaming",
+      startedAt: Date.now() - 1_500,
     });
   }
   return previews;
