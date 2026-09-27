@@ -155,6 +155,20 @@ This contract belongs only to work-fold's new profile and `.work-fold/` data. Th
 
 The Windows installer places `work-fold.cmd`, an extensionless `work-fold` shim, and the private `work-fold-cli.ps1` helper in `<install>\bin`, then adds that directory to the current user's `PATH`. The Mac bundle places the extensionless shim and `work-fold-cli.jxa.js` under `work-fold.app/Contents/bin`; work-fold adds that directory to child-process `PATH` for Pi shell tools without editing a person's Terminal profile.
 
+Linux candidates bundle the extensionless shim and a native `work-fold-cli`
+executable in `bin`, also added to Pi child-process `PATH`. DEB/RPM installs use
+`/opt/work-fold/bin` and a package-owned `/usr/bin/work-fold` link; an unrelated
+command at that path is preserved. The native transport needs no system Node,
+uses the same v1 read/v3 act envelopes, and carries message-file bytes in the
+private request payload. `chat wait`, `manage wait` and `checks wait` retain the
+same bounded polling and waiting-on-a-question behavior. See [Linux builds](linux-build.md).
+
+The unpackaged Linux desktop exposes that same prepared native CLI to Worker
+shells through profile-local development launchers. They pin the running
+development profile and launch Electron with its repository argument; command
+protocols, act tokens, receipts, and domain paths are the same as the installed
+app. This does not install a command into the person's system PATH.
+
 ```powershell
 work-fold context --json
 work-fold spaces list
@@ -501,7 +515,7 @@ Optional Checks reuse this split instead of creating another management plane. `
 The public command does not run Electron as Node; the `RunAsNode` fuse remains disabled. Instead it uses a bounded protocol-v1 file handoff:
 
 1. The shim writes an atomic UUID-named request beneath the owning app's platform profile containing the arguments, current working directory, protocol version, and timestamp. An installed production app uses `%APPDATA%\work-fold\cli\requests` on Windows or `~/Library/Application Support/work-fold/cli/requests` on macOS. An uninstalled Windows package uses `%APPDATA%\work-fold Development\cli\requests`, and the separately identified Mac smoke app uses its own product directory. Packaged child commands receive that exact root through the CLI-only `WORKFOLD_CLI_STATE_DIR`; desktop state selection never reads it.
-2. It starts or contacts the exact installed Windows executable or Mac app executable with that request id. Electron's single-instance handoff routes the request to the existing desktop host when the app is already open.
+2. It starts or contacts the exact installed desktop executable with that request id. Electron's single-instance handoff routes the request to the existing desktop host when the app is already open. Linux uses `$XDG_CONFIG_HOME/work-fold/cli` (default `~/.config/work-fold/cli`) for its private broker files, with the same explicit profile override for isolated tests.
 3. The desktop host claims and serializes the request, executes it through `WorkFoldCliKernelAdapter`, and atomically writes stdout, stderr, structured result, and exit code beneath `responses`.
 4. The shim returns that output and removes its request and response files. The broker also removes stale bounded files during initialization.
 

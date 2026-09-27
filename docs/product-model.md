@@ -10,6 +10,12 @@ Many people already have the right raw material—folders, files, cloud-synchron
 
 work-fold is for general computer work. Coding is one valid use, not the organizing metaphor.
 
+On Linux Wayland, **Share desktop** grants access to work-fold rather than one
+preselected Chat. Existing and new Folder Chats and the work-fold agent can use
+it, with one accepted turn controlling the desktop at a time. Setup requires no
+first message. Stop sharing, screen lock, sleep and app exit end the grant; a
+normally completed turn releases control for the next Chat.
+
 ## The nouns
 
 | Concept | User promise | Boundary |
@@ -79,6 +85,8 @@ that Folder; selecting a Folder restores its most recent tab. With four or more
 tabs open, tabs narrow but keep their Folder icon and a normal close button. A
 working Chat remains alive when another tab is selected, work-fold is minimized, the Windows
 window is hidden to the tray, or the last macOS window closes and is recreated.
+Linux has separate minimize and maximize controls; closing its main window
+quits the application through the normal shutdown path.
 Every accepted Worker turn has one stable request id through the transcript,
 kernel task, and bounded machine-local turn journal. Retrying an uncertain
 delivery returns that original acceptance rather than running the Worker twice.

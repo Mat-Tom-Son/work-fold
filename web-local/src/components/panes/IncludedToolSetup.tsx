@@ -1,5 +1,6 @@
 import { IncludedMcpSetup } from "./IncludedMcpSetup";
 import { IncludedChromeSetup } from "./IncludedChromeSetup";
+import { IncludedWaylandSetup } from "./IncludedWaylandSetup";
 import { useEffect, useRef, useState } from "react";
 import type { IncludedToolDefinition, IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
@@ -69,18 +70,25 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
   }
   const label = !enabled ? "Turned Off" : includedToolReadiness(status ?? undefined).label;
   const needsSetup = enabled && status?.state !== "ready";
+  const linuxComputer = tool.id === "computer" && (window.workFoldDesktop?.app.platform === "linux" || status?.facts?.platform === "linux");
+  const waylandComputer = linuxComputer && Boolean(status?.computerSession);
   const requirement = enabled && status && ["setup_required", "unavailable"].includes(status.state) ? status.detail : null;
   return <section className="included-tool-setup" aria-label={`${tool.title} setup`} aria-busy={busy}>
-    {tool.id !== "mcp" || !enabled ? <div className="included-tool-status"><strong role="status">{label}</strong>{tool.id !== "mcp" ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act(tool.id === "computer" ? "recheck" : "check")}>{busy ? "Checking…" : "Check"}</button> : null}</div> : null}
-    {requirement ? <p>{requirement}</p> : null}
+    {tool.id !== "mcp" || !enabled ? <div className="included-tool-status"><strong role="status">{label}</strong>{tool.id !== "mcp" && !waylandComputer ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act(tool.id === "computer" ? "recheck" : "check")}>{busy ? "Checking…" : "Check"}</button> : null}</div> : null}
+    {!waylandComputer && (requirement || linuxComputer && status?.detail) ? <p>{requirement || status?.detail}</p> : null}
     {error ? <p className="included-tool-error" role="alert">{error}</p> : null}
     {tool.id === "computer" ? <>
-      {needsSetup ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set Up Permissions</button> : null}
+      {linuxComputer && status?.computerSession ? <IncludedWaylandSetup key={spaceId} spaceId={spaceId} enabled={enabled} onStatusChange={next => {
+        setStatus(next); statusListener.current?.(next);
+      }} /> : null}
+      {needsSetup && !linuxComputer ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set Up Permissions</button> : null}
       <details className="included-tool-optional"><summary>Permissions</summary>
-        <div className="included-tool-actions">
+        {waylandComputer ? <p>One chat controls the desktop at a time. Typing goes to the focused app. Locking, sleep, or quitting work-fold ends sharing.</p> : null}
+        {waylandComputer ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act("recheck")}>{busy ? "Checking…" : "Check accessibility"}</button> : null}
+        {!linuxComputer ? <div className="included-tool-actions">
           <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("accessibility")}>Accessibility</button>
           <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("screen-recording")}>Screen Recording</button>
-        </div>
+        </div> : null}
         {status?.facts ? <dl className="included-tool-facts">{Object.entries(status.facts).map(([key, value]) => <div key={key}><dt>{key === "accessibility" ? "Accessibility" : key === "screenRecording" ? "Screen Recording" : key}</dt><dd>{typeof value === "boolean" ? value ? "Allowed" : "Not verified" : value}</dd></div>)}</dl> : null}
       </details>
     </> : null}

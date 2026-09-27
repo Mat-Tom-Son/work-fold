@@ -1,8 +1,20 @@
 # Chrome extension distribution
 
-Status: implemented in source; Store review and installed-Store acceptance are
-separate release requirements. The unpublished item is
-`ophmjbphcjmjcpcdpmfehbldiomkepgk`. Creating an item does not publish an extension.
+Status: implemented in source. The public
+[Chrome Store item](https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk)
+was verified on 2026-09-23: version 1.0.0, updated September 15, 2026. Its listing
+currently describes Apple-silicon Mac support. Linux installed-Store acceptance
+and the corresponding listing update remain release requirements; availability
+in the Store does not establish a working Linux connection.
+
+The source now builds **1.0.1**, an unpublished candidate that keeps new groups
+in the target tab's existing window. The previous grouping call implicitly moved
+tabs into Chrome's current window, which reproduced Linux background-capture
+timeouts. The local 1.0.1 candidate passes real native connection, unfocused
+target-pixel capture, two-Chat ownership, cleanup and browser/host restart on
+Chrome for Testing 154.0.8037.57 Stable (X11 and private GNOME Wayland) and
+155.0.8059.12 Beta (X11). Public Store 1.0.0 retains the failure; Store
+publication and acceptance of the approved update remain separate work.
 
 ## Installation and updates
 
@@ -13,6 +25,10 @@ opens this small setup page once; extension updates do not reopen it or connect
 another profile. The UI shows Connected only after the authenticated HTTP
 transport has negotiated compatible capabilities. A native lease alone means
 Connecting. Setup reads do not launch a browser or enroll a profile.
+On Linux, opening the listing waits for the Chrome process to launch, not for
+the browser to exit. Otherwise a first launch would hold connection setup and
+block the extension's own native bootstrap. A launched process alone does not
+establish Connected; authenticated HTTP negotiation still determines readiness.
 
 Chrome supplies normal extension updates through the same Store item. The
 companion and desktop negotiate bridge major version and required capabilities;
@@ -36,7 +52,7 @@ Store bootstrap is a separate packaged script. Native Messaging is used only
 to connect/resume/disconnect/query status or explicitly open the app; commands
 and images retain the existing loopback HTTP path at `127.0.0.1:17318`.
 
-The signed Swift host accepts only the exact Store origin allowed by its
+The signed Swift host on macOS and native Rust host on Linux accept only the exact Store origin allowed by their
 manifest. Chrome supplies an extension origin, not a profile identifier. The
 extension therefore generates a random installation ID and separate proof in
 trusted-only local extension storage. The app owns selection and stores a proof
@@ -51,7 +67,14 @@ change selection files itself. Desktop setup maintains an atomic user-level
 NativeMessagingHosts manifest pointing to a versioned, byte-verified signed
 helper under the app's private state root. App updates repair their owned
 registration. A development or isolated profile must not replace the normal
-Chrome registration. See [macOS build](macos-build.md) for packaging details.
+Chrome registration. Linux uses a byte-verified executable and the Google Chrome
+manifest under `$XDG_CONFIG_HOME/google-chrome/NativeMessagingHosts` (default
+`~/.config/google-chrome/NativeMessagingHosts`). The private registration receipt
+pins the app executable used by the explicit Open app action. Both implementations
+bound framing and forward only to the private descriptor's loopback endpoint;
+the Linux host disables proxies and redirects. See [macOS build](macos-build.md)
+and [Linux builds](linux-build.md) for packaging details. Linux Store-profile
+acceptance remains separate from native-host protocol tests.
 
 Both Disconnect and Change profile refuse while affected accepted Chrome work
 is active. A turn acquires that fence on its first Chrome operation and retains
@@ -104,6 +127,15 @@ restart and browser suspension recovery, update compatibility, two simultaneous
 Chats, screenshot feedback reaching the model, Stop, and user-tab preservation.
 Synthetic protocol tests are not evidence of Store approval or successful
 installation in a real user's profile.
+
+For a local candidate, the isolated Linux Chrome harness accepts
+`WORKFOLD_CHROME_CANDIDATE_ZIP` pointing to the ZIP from `npm run chrome:build`.
+It verifies the ZIP and file digests, extracts into its disposable profile root,
+and loads it using Chrome for Testing selected by `WORKFOLD_TEST_CHROME`.
+It reports candidate evidence explicitly and refuses a simultaneous Store
+enrollment or managed-install policy. The published-Store lane remains the
+default. Screenshots must contain the requested tab's known pixels while that
+tab stays unfocused, rather than merely returning a nonempty image.
 
 References: [Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
 [MV3 requirements](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements),

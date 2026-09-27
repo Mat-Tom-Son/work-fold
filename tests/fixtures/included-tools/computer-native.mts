@@ -23,10 +23,16 @@ try {
     assert.equal(pi.tools.has("browser_navigate"), false);
   }
   assert.notEqual(created[1].tools.get("find_roots").execute, created[2].tools.get("find_roots").execute);
-  if (process.platform !== "darwin") {
+  if (process.platform !== "darwin" && process.platform !== "linux") {
     const unavailable = await created[1].tools.get("find_roots").execute("unsupported", {});
     assert.equal(unavailable.details.error, "unsupported_platform");
     assert.equal((await computer.setupIncludedComputer(config, "request-permissions")).status, "unavailable");
+  }
+  if (process.platform === "linux") {
+    await assert.rejects(() => created[1].tools.get("find_roots").execute("missing", {}), /ENOENT|bundled/);
+    assert.equal((await computer.setupIncludedComputer(config, "recheck")).status, "unavailable");
+    const aborted = new AbortController(); aborted.abort();
+    await assert.rejects(() => created[1].tools.get("find_roots").execute("cancelled", {}, aborted.signal), /abort/i);
   }
   const result = await computer.probeIncludedComputer(config, { launch: false });
   assert.equal(prepared, 0, "catalog, session startup and non-launching probe never materialize the helper");

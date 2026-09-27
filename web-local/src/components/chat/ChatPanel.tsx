@@ -11,6 +11,7 @@ import { createFixtureContextAttachment, fixtureConversationSummary } from "../.
 import { ApiError, api, createEventSource, errorText, isTransientNetworkError, rawErrorMessage } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
+import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../../lib/keyboard";
 import { displayAssistantModelLabel } from "../../lib/model-display";
 import { thinkingLevelLabel } from "../../lib/thinking-levels";
 import { composerModelFilterThreshold, composerModelListView } from "../../lib/composer-model-list";
@@ -1825,6 +1826,9 @@ export function ChatPanel({
               void attachDroppedNativeFiles(transfer);
             }}
             onKeyDown={(event) => {
+              // Candidate navigation/confirmation belongs to the input method.
+              // Some engines end composition before the final keydown (229).
+              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
               if (commandMenuOpen && event.key === "ArrowDown") {
                 event.preventDefault();
                 setActiveCommandIndex((current) => (current + 1) % commandSuggestions.length);
@@ -1869,7 +1873,7 @@ export function ChatPanel({
                 void sendMessage();
               }
             }}
-            placeholder={running && !pendingSendRef.current ? "Steer (Enter) · Queue (⌘Enter)" : "Message worker"}
+            placeholder={running && !pendingSendRef.current ? `Steer (Enter) · Queue (${desktopShortcutKeyLabel(desktopShortcutModifierKey())}+Enter)` : "Message worker"}
           />
           <div className="composer-capability-bar">
             <button

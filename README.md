@@ -38,6 +38,11 @@ What the Assistant does happens right away and leaves a record you can read in t
 
 Files live on your computer. Content used by the Assistant goes to your chosen model provider. Optional web access is in private alpha and needs your Mac online. See [Privacy](PRIVACY.md) for details.
 
+Linux x64 local candidates can also be built for Ubuntu and Fedora. See the
+[Linux build guide](docs/linux-build.md) for DEB/RPM/AppImage packaging, keyring
+setup and the current Wayland computer-control limits. Public downloads and
+automatic updates remain Mac-only.
+
 ## Help build work-fold
 
 This is an actively developed independent project, and I'd love people to build and maintain it with me. UI polish, reliable tests, clearer onboarding, and real-world bug reports would all help.

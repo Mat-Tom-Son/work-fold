@@ -3,6 +3,7 @@ import { homedir, release } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hostContext } from "../host.ts";
+import { linuxComputer, probeLinuxComputer, shutdownLinuxComputer } from "./linux.ts";
 
 export type IncludedComputerConfig = { helperAppPath: string; stateRoot: string; prepareComputerHelper?: () => Promise<void>; repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void> };
 export type IncludedComputerSetupAction = "request-permissions" | "accessibility" | "screen-recording" | "recheck";
@@ -62,6 +63,7 @@ function runtime(config: IncludedComputerConfig): HostRuntime {
 }
 
 export async function probeIncludedComputer(config: IncludedComputerConfig, options: { launch?: boolean; signal?: AbortSignal } = {}) {
+  if (process.platform === "linux") return probeLinuxComputer(config, options);
   options.signal?.throwIfAborted();
   if (options.launch && supportsIncludedComputer()) await prepareForSetup(config, options.signal);
   options.signal?.throwIfAborted();
@@ -70,6 +72,7 @@ export async function probeIncludedComputer(config: IncludedComputerConfig, opti
 }
 
 export async function setupIncludedComputer(config: IncludedComputerConfig, action: IncludedComputerSetupAction, signal?: AbortSignal) {
+  if (process.platform === "linux") return probeLinuxComputer(config, { launch: true, signal });
   signal?.throwIfAborted();
   if (supportsIncludedComputer()) await prepareForSetup(config, signal);
   signal?.throwIfAborted();
@@ -98,6 +101,7 @@ async function prepareForSetup(config: IncludedComputerConfig, signal?: AbortSig
 
 /** Called after host sessions stop. Never launches a helper just to shut it down. */
 export async function shutdownIncludedComputer(config: IncludedComputerConfig): Promise<void> {
+  if (process.platform === "linux") return shutdownLinuxComputer();
   if (!globals[runtimeKey]) return;
   const { helper, scheduler } = await runtime(config).native;
   await scheduler.close();
@@ -111,6 +115,7 @@ export async function shutdownIncludedComputer(config: IncludedComputerConfig): 
 export default async function includedComputer(pi: ExtensionAPI) {
   const context = hostContext(pi);
   if (!context?.helperAppPath) throw new Error("The included computer Extension requires its bundled helper configuration.");
+  if (process.platform === "linux") return linuxComputer(pi, { helperAppPath: context.helperAppPath, stateRoot: context.stateRoot }, context);
   const native = await runtime({ helperAppPath: context.helperAppPath, stateRoot: context.stateRoot }).native;
   // Each factory owns its states, handles, output references and cancellation.
   // Only scheduling of the shared physical computer crosses Chat boundaries.

@@ -15,13 +15,41 @@ model credentials, Apple signing credentials, and Railway access are separate.
 |---|---|---|
 | Browser UI + local API | `npm run local:dev` | Vite at `http://localhost:5173`, local API at `http://127.0.0.1:4327`; live renderer updates |
 | Native, unpackaged Electron | `npm run desktop:smoke` | Builds and verifies the desktop, then opens Electron; restart after native changes |
+| Native Electron, already prepared | `npm start` | Opens the existing development build without rebuilding helpers or creating packages |
 | Optional hosted relay | See [Bridge development](../services/bridge/README.md#local-development) | Separate dependencies and local PostgreSQL; unnecessary for ordinary desktop work |
 | Packaged Mac candidate | See [Mac build lanes](macos-build.md) | Packaging, signing, and publication are separate from everyday development |
+| Packaged Linux candidate | See [Linux builds](linux-build.md) | Ubuntu/Fedora x64, Rust native helpers, DEB/RPM/AppImage; no public update feed |
 
 The browser preview cannot prove native dialogs, secure storage, preloads, or
 restricted-app WebContentsView behavior. Use the native lane for those changes.
 `desktop:prepare` alone builds and runs automated probes; it does not launch the
 normal interactive app or create an installer.
+
+For native iteration, prepare once with `npm run desktop:prepare`, then use
+`npm start` to reopen the app. This starts Electron from the project root so
+it reads the package version and resolves development resources correctly.
+After renderer edits, run `npm run local:build`; after desktop or local-server
+TypeScript edits, run `npm run desktop:compile`. Quit and reopen the app to
+load those changes. Rebuild a changed native helper with its focused build
+command. Use `npm run local:dev` for live renderer updates in the browser.
+Reserve installers for packaging, installation, upgrade, and release checks;
+the full `desktop:prepare` check still applies before handing off desktop changes.
+
+On Linux, the unpackaged app also puts `work-fold` on Worker shell PATH, using
+the prepared native CLI and launchers in the development profile. Calls use
+that running profile and reopen Electron with the repository argument. Missing
+native CLI output produces a setup error at startup rather than a Worker
+searching for an unavailable command.
+
+`npm run desktop:test:linux-dev` checks the prepared Linux development app
+without making a package. It launches `npm start` with a disposable profile and
+a local scripted provider, then asks real Pi shell tools to find `work-fold`,
+create a file with a History restore point, and finish the file through Pi.
+It also checks Folder, Chat, Library, request, model, and renderer sandbox state.
+Use `-- --profile-root <empty-directory>` to retain the test profile, then
+`-- --profile-root <same-directory> --phase verify` to check a cold restart.
+CI runs both phases on a private Xvfb desktop. This tests integration, not a
+real provider's model decisions or OAuth.
 
 ## Development state and model access
 

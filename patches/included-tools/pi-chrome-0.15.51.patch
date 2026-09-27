@@ -142,7 +142,7 @@ index 0000000..d49bbe1
 @@ -0,0 +1 @@
 +{"version":1,"mode":"standalone"}
 diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.js b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
-index 8ba0e2d..89a01c3 100644
+index 8ba0e2d..2b27b70 100644
 --- a/extensions/chrome-profile-bridge/browser-extension/service_worker.js
 +++ b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
 @@ -1,6 +1,50 @@
@@ -396,21 +396,23 @@ index 8ba0e2d..89a01c3 100644
      body: JSON.stringify(result),
    });
  }
-@@ -1246,10 +1315,10 @@ async function groupTab(tab, title, color) {
+@@ -1246,10 +1315,12 @@ async function groupTab(tab, title, color) {
    if (typeof groupId !== "number" || groupId < 0) {
      const existing = await findGroupByTitle(tab.windowId, groupTitle);
      groupId = existing !== null
 -      ? await chrome.tabs.group({ groupId: existing, tabIds: [tab.id] })
 -      : await chrome.tabs.group({ tabIds: [tab.id] });
 +      ? await checkedChromeCall(() => chrome.tabs.group({ groupId: existing, tabIds: [tab.id] }))
-+      : await checkedChromeCall(() => chrome.tabs.group({ tabIds: [tab.id] }));
++      // Chrome otherwise defaults to the current window and moves this tab out
++      // of its owned window, which can strand background capture on Linux.
++      : await checkedChromeCall(() => chrome.tabs.group({ tabIds: [tab.id], createProperties: { windowId: tab.windowId } }));
    }
 -  await chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false });
 +  await checkedChromeCall(() => chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false }));
    const grouped = await chrome.tabs.get(tab.id);
    return { tab: await formatTab(grouped), group: await groupRecord(groupId) };
  }
-@@ -1262,7 +1331,7 @@ async function dispatch(action, params) {
+@@ -1262,7 +1333,7 @@ async function dispatch(action, params) {
          extensionVersion: chrome.runtime.getManifest().version,
          bridgeUrl: BRIDGE_URL,
          userAgent: navigator.userAgent,
@@ -419,7 +421,7 @@ index 8ba0e2d..89a01c3 100644
        };
      case "tab.list": {
        const tabs = await chrome.tabs.query({});
-@@ -1281,13 +1350,13 @@ async function dispatch(action, params) {
+@@ -1281,13 +1352,13 @@ async function dispatch(action, params) {
        const existingGroup = await findGroupRecordByTitle(groupTitle);
        const createParams = { url: params.url || "about:blank", active: foregroundRequested(params) };
        if (existingGroup && typeof existingGroup.windowId === "number") createParams.windowId = existingGroup.windowId;
@@ -435,7 +437,7 @@ index 8ba0e2d..89a01c3 100644
          throw error;
        }
      }
-@@ -1309,12 +1378,12 @@ async function dispatch(action, params) {
+@@ -1309,12 +1380,12 @@ async function dispatch(action, params) {
      }
      case "tab.ungroup": {
        const tab = await getTabByParams(params, { createOwnedTarget: false });
@@ -450,7 +452,7 @@ index 8ba0e2d..89a01c3 100644
        return { closed: tab.id };
      }
      case "page.snapshot":
-@@ -1385,7 +1454,7 @@ async function dispatch(action, params) {
+@@ -1385,7 +1456,7 @@ async function dispatch(action, params) {
          await registerInitScript(tab.id, params.initScript);
        }
        const wait = params.waitUntilLoad !== false ? waitForTabComplete(tab.id, params.timeoutMs || 15000) : Promise.resolve(undefined);
@@ -459,7 +461,7 @@ index 8ba0e2d..89a01c3 100644
        try {
          await wait;
        } finally {
-@@ -1483,6 +1552,8 @@ async function getTabByParams(params, { createOwnedTarget = true } = {}) {
+@@ -1483,6 +1554,8 @@ async function getTabByParams(params, { createOwnedTarget = true } = {}) {
      }
    }
    if (!tab?.id) throw new Error("No matching Chrome tab found");
@@ -468,7 +470,7 @@ index 8ba0e2d..89a01c3 100644
    const url = tab.url || "";
    if (url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
      throw new Error(`Chrome blocks extension automation on protected URL: tab=${tab.id} url=${url}`);
-@@ -1750,21 +1821,21 @@ async function unregisterInitScript(tabId) {
+@@ -1750,21 +1823,21 @@ async function unregisterInitScript(tabId) {
    await cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier }).catch(() => undefined);
  }
  
@@ -494,7 +496,7 @@ index 8ba0e2d..89a01c3 100644
    });
  }
  
-@@ -1775,8 +1846,8 @@ function foregroundRequested(params) {
+@@ -1775,8 +1848,8 @@ function foregroundRequested(params) {
  
  async function bringToFront(tab, params) {
    if (!foregroundRequested(params)) return tab;
@@ -1568,6 +1570,42 @@ index 9f0af8c..186b8b1 100644
  		"version": "node scripts/sync-manifest-version.js",
  		"prepublishOnly": "node scripts/sync-manifest-version.js"
  	},
+diff --git a/test-suite/unit/automation-target.test.mjs b/test-suite/unit/automation-target.test.mjs
+index 7f46597..72be2df 100644
+--- a/test-suite/unit/automation-target.test.mjs
++++ b/test-suite/unit/automation-target.test.mjs
+@@ -87,14 +87,17 @@ function makeChrome(state, { withWindows = true, withStorage = true, withTabGrou
+         // Chrome closes a window automatically when its final tab is removed.
+         if (tab && ![...tabs.values()].some((other) => other.windowId === tab.windowId)) windows.delete(tab.windowId);
+       },
+-      group: async ({ groupId, tabIds = [] } = {}) => {
++      group: async ({ groupId, tabIds = [], createProperties } = {}) => {
+         let gid = groupId;
+         if (typeof gid !== "number") {
+           gid = alloc.group();
+-          const firstTab = tabs.get(tabIds[0]);
+-          groups.set(gid, { id: gid, title: "", color: "grey", collapsed: false, windowId: firstTab ? firstTab.windowId : userWindowId });
++          // Chrome defaults a new group to the current window, not the first tab's window.
++          groups.set(gid, { id: gid, title: "", color: "grey", collapsed: false, windowId: createProperties?.windowId ?? userWindowId });
++        }
++        for (const tid of tabIds) {
++          const t = tabs.get(tid);
++          if (t) { t.groupId = gid; t.windowId = groups.get(gid).windowId; }
+         }
+-        for (const tid of tabIds) { const t = tabs.get(tid); if (t) t.groupId = gid; }
+         return gid;
+       },
+       ungroup: async (id) => { const ids = Array.isArray(id) ? id : [id]; for (const tid of ids) { const t = tabs.get(tid); if (t) t.groupId = -1; } },
+@@ -227,6 +230,9 @@ async function run() {
+
+     const opened = await w.dispatch("tab.new", { url: "https://pi.test/new-tab", groupTitle, sessionKey: SK });
+     ok(state.groups.size === groupsBefore, "tab.new-group: did not create another same-session group");
++    ok(nav.windowId !== state.userWindowId, "group-window: initial navigation retains its dedicated unfocused window");
++    const status = await w.dispatch("automation.status", { sessionKey: SK });
++    ok(status.windowId === nav.windowId, "group-window: recorded owner and actual tab window agree");
+     ok(opened.tab.groupId === groupId, "tab.new-group: opened tab joined the existing session group");
+     ok(opened.tab.windowId === nav.windowId, "tab.new-group: opened tab was created in the existing group's window");
+
 diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/background-policy.test.mjs
 index e78fa49..8a2e1e8 100644
 --- a/test-suite/unit/background-policy.test.mjs
