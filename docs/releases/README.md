@@ -4,6 +4,12 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## September 27, 2026
+
+[0.4.37](work-fold-0.4.37.md) improves Worker steps and reconnect recovery,
+large-file search, History inspection, document and attachment coverage, and
+tool-result continuation.
+
 ## September 26, 2026
 
 [0.4.36](work-fold-0.4.36.md) brings the Skills & Extensions popup, app
