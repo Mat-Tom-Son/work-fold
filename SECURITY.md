@@ -367,3 +367,20 @@ child reports enter a Space Chat; app task reads remain pinned to their own
 installation. See the contract for stop, expiry and restart behavior.
 
 The popover’s saved-chat list and explicitly selected summary use the authenticated renderer lane and read only management-scope transcripts. The paired web chat list adds request state and an answer indicator only for requests owned by that browser/grant; this does not widen question, answer, result, or Stop authority. Inline Space previews reuse the existing bounded inert preview broker. Preparing a Space/file chat draft is local UI state and does not execute work.
+
+### History comparison and selected edit evidence
+
+Authenticated `history read`/`history diff` and the corresponding local API routes
+resolve an explicit registered Folder, checkpoint and relative path before reading
+saved content. They do not accept arbitrary object hashes or expose file bytes in
+content-free protocol v1. They reject reserved paths, symlinks and nested registered
+Folder traversal, verify bounded saved bytes, and disclose unavailable or incomplete
+evidence. Reads create no capture or restoration; remote and restricted-app operation
+allowlists are unchanged. See [the History review contract](docs/management-layer.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
+
+Only selected built-in edit details may enter portable work-trail metadata, within
+per-edit/per-turn bounds and after Folder path checks at tool start and completion.
+Unknown/overridden tools keep the generic fallback. This projection does not sandbox
+native tools or extensions; Pi remains full trust. Office attachment extraction
+bounds actual decompression and expanded output, and refuses incomplete packages
+instead of silently sending partial text as complete context.

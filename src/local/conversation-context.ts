@@ -1,8 +1,10 @@
 import { readFile, stat } from "node:fs/promises";
-import { basename, extname } from "node:path";
+import { basename, extname, posix } from "node:path";
+import { inflateRaw } from "node:zlib";
 
 import { resizeImage } from "@earendil-works/pi-coding-agent";
 import JSZip from "jszip";
+import { SaxesParser, type SaxesTagNS } from "saxes";
 
 import { OFFICE_OPEN_DOCUMENT_READ_NOTE, officeDocumentLockPresent } from "./office-lock-files.js";
 import { resolveSpacePath } from "./space.js";
@@ -272,60 +274,271 @@ async function extractWordText(bytes: Buffer): Promise<string> {
 }
 
 async function extractPresentationText(bytes: Buffer): Promise<string> {
-  const archive = await JSZip.loadAsync(bytes);
-  const slides = Object.keys(archive.files)
-    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
-    .sort(naturalPartOrder)
-    .slice(0, 500);
-  if (!slides.length) throw new Error("The PowerPoint package has no readable slides.");
+  const parts = await officeParts(bytes);
+  const main = await officeMainPart(parts);
+  const slides = await orderedOfficeParts(parts, main, "presentation", "sldIdLst", "sldId", "slide");
   const output: string[] = [];
+  const reserveText = officeTextBudget();
   for (const [index, slide] of slides.entries()) {
-    const xml = await readZipText(archive, slide, 8 * 1024 * 1024) ?? "";
-    output.push(`Slide ${index + 1}`, xmlText(xml, [[/<\/a:p>/gi, "\n"]]));
+    const text: string[] = [];
+    parseOfficeXml(await parts.read(slide.path, 8 * 1024 * 1024), slide.path, "sld", "presentation", {
+      text(value, ancestors) {
+        if (officeTag(ancestors.at(-1), "t", "drawing")) { reserveText(value); text.push(value); }
+      },
+      close(tag) {
+        if (officeTag(tag, "p", "drawing") || officeTag(tag, "br", "drawing")) { reserveText("\n"); text.push("\n"); }
+      },
+    });
+    const heading = `Slide ${index + 1}`;
+    reserveText(heading, 4);
+    output.push(heading, text.join("").trim());
   }
   return output.join("\n\n");
 }
 
 async function extractSpreadsheetText(bytes: Buffer): Promise<string> {
-  const archive = await JSZip.loadAsync(bytes);
-  const sharedXml = await readZipText(archive, "xl/sharedStrings.xml", 16 * 1024 * 1024) ?? "";
-  const sharedStrings = [...sharedXml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/gi)]
-    .map((match) => extractTaggedText(match[1] ?? "", "t"));
-  const sheets = Object.keys(archive.files)
-    .filter((name) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(name))
-    .sort(naturalPartOrder)
-    .slice(0, 500);
-  if (!sheets.length) throw new Error("The Excel package has no readable worksheets.");
+  const parts = await officeParts(bytes);
+  const main = await officeMainPart(parts);
+  const relationships = await officeRelationships(parts, main);
+  const sheets = await orderedOfficeParts(parts, main, "workbook", "sheets", "sheet", "worksheet", relationships);
+  const sharedReferences = [...relationships.values()].filter((relationship) => officeRelationshipType(relationship, "sharedStrings"));
+  if (sharedReferences.length > 1) throw new Error("The Excel package has ambiguous shared-string relationships; complete cell values cannot be extracted.");
+  const sharedStrings: string[] = [];
+  if (sharedReferences[0]) {
+    const sharedPath = officeRelationshipPath(main, sharedReferences[0], "sharedStrings");
+    let value = "";
+    parseOfficeXml(await parts.read(sharedPath, 16 * 1024 * 1024), sharedPath, "sst", "spreadsheet", {
+      open(tag) { if (officeTag(tag, "si", "spreadsheet")) value = ""; },
+      text(text, ancestors) {
+        if (officeTag(ancestors.at(-1), "t", "spreadsheet") && !ancestors.some((tag) => officeTag(tag, "rPh", "spreadsheet"))) value += text;
+      },
+      // Normalize once: one large shared string can be referenced by many cells.
+      close(tag) { if (officeTag(tag, "si", "spreadsheet")) sharedStrings.push(value.replace(/\s+/g, " ").trim()); },
+    });
+  }
   const output: string[] = [];
+  const reserveText = officeTextBudget();
   for (const [index, sheet] of sheets.entries()) {
-    const xml = await readZipText(archive, sheet, 16 * 1024 * 1024) ?? "";
     const rows: string[] = [];
-    for (const rowMatch of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/gi)) {
-      const cells: string[] = [];
-      for (const cellMatch of (rowMatch[1] ?? "").matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/gi)) {
-        const attributes = cellMatch[1] ?? "";
-        const body = cellMatch[2] ?? "";
-        const type = /\bt="([^"]+)"/i.exec(attributes)?.[1] ?? "";
-        const raw = /<v\b[^>]*>([\s\S]*?)<\/v>/i.exec(body)?.[1] ?? extractTaggedText(body, "t");
-        const value = type === "s" && /^\d+$/.test(raw.trim()) ? sharedStrings[Number(raw.trim())] ?? raw : decodeXml(raw);
-        cells.push(value.replace(/\s+/g, " ").trim());
-      }
-      if (cells.some(Boolean)) rows.push(cells.join("\t"));
-    }
-    output.push(`Worksheet ${index + 1}`, rows.join("\n") || "(no readable cell values)");
+    let cells: string[] = [];
+    let cell: { type: string; raw: string; inline: string } | null = null;
+    parseOfficeXml(await parts.read(sheet.path, 16 * 1024 * 1024), sheet.path, "worksheet", "spreadsheet", {
+      open(tag, ancestors) {
+        if (officeTag(tag, "row", "spreadsheet") && officeTag(ancestors.at(-1), "sheetData", "spreadsheet")) cells = [];
+        if (officeTag(tag, "c", "spreadsheet") && officeTag(ancestors.at(-1), "row", "spreadsheet")) {
+          cell = { type: officeAttribute(tag, "t"), raw: "", inline: "" };
+        }
+      },
+      text(value, ancestors) {
+        if (!cell) return;
+        if (officeTag(ancestors.at(-1), "v", "spreadsheet")) cell.raw += value;
+        if (officeTag(ancestors.at(-1), "t", "spreadsheet") && !ancestors.some((tag) => officeTag(tag, "rPh", "spreadsheet"))) cell.inline += value;
+      },
+      close(tag) {
+        if (officeTag(tag, "c", "spreadsheet") && cell) {
+          let value = (cell.type === "inlineStr" ? cell.inline : cell.raw).replace(/\s+/g, " ").trim();
+          if (cell.type === "s") {
+            const reference = cell.raw.trim();
+            if (!/^\d+$/.test(reference) || sharedStrings[Number(reference)] === undefined) {
+              throw new Error(`${sheet.path} references a missing shared-string value; complete cell values cannot be extracted.`);
+            }
+            value = sharedStrings[Number(reference)]!;
+          }
+          reserveText(value, 1); // Covers the cell separator or row ending too.
+          cells.push(value);
+          cell = null;
+        }
+        if (officeTag(tag, "row", "spreadsheet") && cells.some(Boolean)) rows.push(cells.join("\t"));
+      },
+    });
+    const heading = `Worksheet ${index + 1}: ${sheet.name}`;
+    reserveText(heading, 4);
+    if (!rows.length) reserveText("(no readable cell values)");
+    output.push(heading, rows.join("\n") || "(no readable cell values)");
   }
   return output.join("\n\n");
+}
+
+const officeNamespaces = {
+  presentation: ["http://schemas.openxmlformats.org/presentationml/2006/main", "http://purl.oclc.org/ooxml/presentationml/main"],
+  spreadsheet: ["http://schemas.openxmlformats.org/spreadsheetml/2006/main", "http://purl.oclc.org/ooxml/spreadsheetml/main"],
+  drawing: ["http://schemas.openxmlformats.org/drawingml/2006/main", "http://purl.oclc.org/ooxml/drawingml/main"],
+  relationship: ["http://schemas.openxmlformats.org/officeDocument/2006/relationships", "http://purl.oclc.org/ooxml/officeDocument/relationships"],
+  package: ["http://schemas.openxmlformats.org/package/2006/relationships"],
+};
+type OfficeNamespace = keyof typeof officeNamespaces;
+type OfficeParts = { read(path: string, maxBytes: number): Promise<string> };
+type OfficeRelationship = { id: string; type: string; target: string; mode: string };
+
+/** Shared-string references can amplify small XML into arbitrarily large text. */
+function officeTextBudget(): (text: string, separators?: number) => void {
+  let remaining = 64 * 1024 * 1024;
+  return (text, separators = 0) => {
+    remaining -= Buffer.byteLength(text, "utf8") + separators;
+    if (remaining < 0) throw new Error("The Office package produces too much extracted text to attach safely. Inspect the file with tools.");
+  };
+}
+
+/** Bound decompressed input across parts as well as within each part. No partial text escapes on failure. */
+async function officeParts(bytes: Buffer): Promise<OfficeParts> {
+  const archive = await JSZip.loadAsync(bytes);
+  let remaining = 64 * 1024 * 1024;
+  return {
+    async read(path, maxBytes) {
+      const text = await readZipText(archive, path, Math.min(maxBytes, remaining));
+      if (text === null) throw new Error(`The Office package is missing required part ${path}; complete text cannot be extracted.`);
+      remaining -= Buffer.byteLength(text, "utf8");
+      return text;
+    },
+  };
+}
+
+function officeTag(tag: SaxesTagNS | undefined, local: string, namespace: OfficeNamespace): boolean {
+  return tag?.local === local && officeNamespaces[namespace].includes(tag.uri);
+}
+
+function officeAttribute(tag: SaxesTagNS, local: string, namespace?: OfficeNamespace): string {
+  return Object.values(tag.attributes).find((attribute) => attribute.local === local
+    && (namespace ? officeNamespaces[namespace].includes(attribute.uri) : !attribute.uri))?.value ?? "";
+}
+
+function parseOfficeXml(xml: string, path: string, root: string, namespace: OfficeNamespace, handlers: {
+  open?: (tag: SaxesTagNS, ancestors: SaxesTagNS[]) => void;
+  text?: (text: string, ancestors: SaxesTagNS[]) => void;
+  close?: (tag: SaxesTagNS, ancestors: SaxesTagNS[]) => void;
+}): void {
+  const parser = new SaxesParser({ xmlns: true });
+  const ancestors: SaxesTagNS[] = [];
+  parser.on("error", () => { throw new Error(`${path} contains malformed XML; complete text cannot be extracted.`); });
+  parser.on("doctype", () => { throw new Error(`${path} contains an unsupported XML document type; complete text cannot be extracted.`); });
+  parser.on("opentag", (tag) => {
+    if (!ancestors.length && !officeTag(tag, root, namespace)) throw new Error(`${path} has an unsupported document root; complete text cannot be extracted.`);
+    if (ancestors.length >= 128) throw new Error(`${path} is nested too deeply to extract safely.`);
+    if (tag.local === "AlternateContent" && tag.uri === "http://schemas.openxmlformats.org/markup-compatibility/2006") {
+      throw new Error(`${path} contains alternative content that this text extractor cannot resolve completely.`);
+    }
+    handlers.open?.(tag, ancestors);
+    ancestors.push(tag);
+  });
+  parser.on("text", (text) => handlers.text?.(text, ancestors));
+  parser.on("cdata", (text) => handlers.text?.(text, ancestors));
+  parser.on("closetag", (tag) => {
+    ancestors.pop();
+    handlers.close?.(tag, ancestors);
+  });
+  parser.write(xml).close();
+}
+
+async function officeRelationships(parts: OfficeParts, source: string): Promise<Map<string, OfficeRelationship>> {
+  const path = source ? posix.join(posix.dirname(source), "_rels", `${posix.basename(source)}.rels`) : "_rels/.rels";
+  const relationships = new Map<string, OfficeRelationship>();
+  parseOfficeXml(await parts.read(path, 4 * 1024 * 1024), path, "Relationships", "package", {
+    open(tag, ancestors) {
+      if (ancestors.length !== 1 || !officeTag(tag, "Relationship", "package")) return;
+      const relationship = {
+        id: officeAttribute(tag, "Id"), type: officeAttribute(tag, "Type"),
+        target: officeAttribute(tag, "Target"), mode: officeAttribute(tag, "TargetMode") || "Internal",
+      };
+      if (!relationship.id || !relationship.type || !relationship.target || relationships.has(relationship.id)) {
+        throw new Error(`${path} has a missing or duplicate relationship; complete text cannot be extracted.`);
+      }
+      relationships.set(relationship.id, relationship);
+    },
+  });
+  return relationships;
+}
+
+function officeRelationshipType(relationship: OfficeRelationship, type: string): boolean {
+  return officeNamespaces.relationship.some((namespace) => relationship.type === `${namespace}/${type}`);
+}
+
+function officeRelationshipPath(source: string, relationship: OfficeRelationship, type: string): string {
+  if (!officeRelationshipType(relationship, type) || relationship.mode !== "Internal") {
+    throw new Error(`The Office package has an unsupported ${type} relationship ${relationship.id}; complete text cannot be extracted.`);
+  }
+  const target = relationship.target;
+  if (/^[a-z][a-z\d+.-]*:|^\/\/|[\\?#]/i.test(target)) throw new Error(`The Office package has an invalid part target for ${relationship.id}.`);
+  const segments = target.startsWith("/") || !source ? [] : posix.dirname(source).split("/").filter((part) => part !== ".");
+  for (const encoded of target.split("/")) {
+    let segment: string;
+    try { segment = decodeURIComponent(encoded); } catch { throw new Error(`The Office package has an invalid part target for ${relationship.id}.`); }
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (!segments.length) throw new Error(`The Office package has a part target outside the package for ${relationship.id}.`);
+      segments.pop();
+    } else {
+      if (/[\\/\u0000]/.test(segment)) throw new Error(`The Office package has an invalid part target for ${relationship.id}.`);
+      segments.push(segment);
+    }
+  }
+  return segments.join("/");
+}
+
+async function officeMainPart(parts: OfficeParts): Promise<string> {
+  const candidates = [...(await officeRelationships(parts, "")).values()].filter((relationship) => officeRelationshipType(relationship, "officeDocument"));
+  if (candidates.length !== 1) throw new Error("The Office package has no unique document relationship; complete text cannot be extracted.");
+  return officeRelationshipPath("", candidates[0]!, "officeDocument");
+}
+
+async function orderedOfficeParts(parts: OfficeParts, main: string, root: "presentation" | "workbook", list: string, item: string, type: "slide" | "worksheet", relationships?: Map<string, OfficeRelationship>): Promise<Array<{ path: string; name: string }>> {
+  const namespace = root === "presentation" ? "presentation" : "spreadsheet";
+  const refs: Array<{ id: string; name: string }> = [];
+  parseOfficeXml(await parts.read(main, 4 * 1024 * 1024), main, root, namespace, {
+    open(tag, ancestors) {
+      if (ancestors.length !== 2 || !officeTag(ancestors[1], list, namespace)) return;
+      if (!officeTag(tag, item, namespace)) throw new Error(`${main} has an unsupported entry in its ${type} list; complete text cannot be extracted.`);
+      const id = officeAttribute(tag, "id", "relationship");
+      const name = officeAttribute(tag, "name");
+      if (!id || (type === "worksheet" && !name)) throw new Error(`${main} has a ${type} with missing identity; complete text cannot be extracted.`);
+      refs.push({ id, name });
+      if (refs.length > 500) throw new Error(`The Office package exceeds the 500 ${type}s extraction limit; complete text cannot be attached. Inspect the file with tools.`);
+    },
+  });
+  if (!refs.length) throw new Error(`The Office package has no readable ${type}s in its document manifest.`);
+  const rels = relationships ?? await officeRelationships(parts, main);
+  const seen = new Set<string>();
+  return refs.map(({ id, name }) => {
+    const relationship = rels.get(id);
+    if (!relationship) throw new Error(`${main} references missing ${type} relationship ${id}; complete text cannot be extracted.`);
+    const path = officeRelationshipPath(main, relationship, type);
+    if (seen.has(path)) throw new Error(`${main} contains a duplicate ${type} reference; complete text cannot be extracted.`);
+    seen.add(path);
+    return { path, name };
+  });
 }
 
 async function readZipText(archive: JSZip, path: string, maxBytes: number): Promise<string | null> {
   const entry = archive.file(path);
   if (!entry) return null;
-  const internal = entry as JSZip.JSZipObject & { _data?: { uncompressedSize?: number } };
-  const declaredSize = Number(internal._data?.uncompressedSize ?? 0);
-  if (declaredSize > maxBytes) throw new Error(`${path} is too large to extract safely.`);
-  const text = await entry.async("text");
-  if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error(`${path} is too large to extract safely.`);
-  return text;
+  // JSZip's async("text") allocates all inflated bytes before checking the ZIP's
+  // claimed size. Its loaded-part metadata lets native zlib enforce a real
+  // output bound even when that claim is forged. Both supported ZIP methods
+  // are handled explicitly; never fall back to an unbounded extraction.
+  const internal = entry as JSZip.JSZipObject & { _data?: {
+    uncompressedSize?: number; compression?: { magic?: string }; compressedContent?: Uint8Array;
+  } };
+  const data = internal._data;
+  if (!data || !Number.isSafeInteger(data.uncompressedSize) || data.uncompressedSize! < 0 || !(data.compressedContent instanceof Uint8Array)) {
+    throw new Error(`${path} has unsupported ZIP part metadata; complete text cannot be extracted.`);
+  }
+  const tooLarge = () => new Error(`${path} is too large to extract safely.`);
+  if (data.uncompressedSize! > maxBytes || maxBytes < 1) throw tooLarge();
+  const compressed = data.compressedContent;
+  let bytes: Uint8Array;
+  if (data.compression?.magic === "\x00\x00") {
+    if (compressed.byteLength > maxBytes) throw tooLarge();
+    bytes = compressed;
+  } else if (data.compression?.magic === "\x08\x00") {
+    bytes = await new Promise<Buffer>((resolve, reject) => {
+      inflateRaw(compressed, { maxOutputLength: maxBytes }, (error, result) => {
+        if (error) reject((error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE" ? tooLarge() : error);
+        else resolve(result);
+      });
+    });
+  } else throw new Error(`${path} uses an unsupported ZIP compression method; complete text cannot be extracted.`);
+  if (bytes.byteLength !== data.uncompressedSize) throw new Error(`${path} has an invalid decompressed size; complete text cannot be extracted.`);
+  try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); }
+  catch { throw new Error(`${path} is not valid UTF-8 XML; complete text cannot be extracted.`); }
 }
 
 function xmlText(xml: string, replacements: Array<[RegExp, string]>): string {
@@ -333,17 +546,6 @@ function xmlText(xml: string, replacements: Array<[RegExp, string]>): string {
   for (const [pattern, replacement] of replacements) prepared = prepared.replace(pattern, replacement);
   prepared = prepared.replace(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi, "$1").replace(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/gi, "$1");
   return decodeXml(prepared.replace(/<[^>]+>/g, "")).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function extractTaggedText(xml: string, localName: string): string {
-  const expression = new RegExp(`<(?:(?:\\w+):)?${localName}\\b[^>]*>([\\s\\S]*?)<\\/(?:(?:\\w+):)?${localName}>`, "gi");
-  return [...xml.matchAll(expression)].map((match) => decodeXml((match[1] ?? "").replace(/<[^>]+>/g, ""))).join("");
-}
-
-function naturalPartOrder(left: string, right: string): number {
-  const leftNumber = Number(/(\d+)(?=\.xml$)/i.exec(left)?.[1] ?? 0);
-  const rightNumber = Number(/(\d+)(?=\.xml$)/i.exec(right)?.[1] ?? 0);
-  return leftNumber - rightNumber || left.localeCompare(right);
 }
 
 function decodeXml(value: string): string {

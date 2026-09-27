@@ -85,6 +85,7 @@
     "pi-web-access": "0.29.0",
     "pptxgenjs": "4.0.1",
     "protobufjs": "7.6.5",
+    "saxes": "6.0.0",
     "undici-pi-reviewed": "npm:undici@8.10.0",
     "ws": "^8.21.2",
     "acorn": "8.16.0"

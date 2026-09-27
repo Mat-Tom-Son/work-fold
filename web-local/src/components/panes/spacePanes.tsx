@@ -1,3 +1,4 @@
+import { HistoryFileComparison } from "./HistoryFileComparison";
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import {
   useEffect,
@@ -429,6 +430,9 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   const [preview, setPreview] = useState<HistoryRestorePreview | null>(null);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [previewError, setPreviewError] = useState("");
+  const [comparisonPath, setComparisonPath] = useState("");
+  const [pathInput, setPathInput] = useState("");
+  useEffect(() => { setComparisonPath(""); setPathInput(""); }, [space.id, selectedCheckpointId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -496,6 +500,11 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
       {notice ? <p role="status">{notice}</p> : null}
       {previewError ? <p role="alert">{previewError}</p> : null}
       {!preview && !previewError ? <p role="status">Inspecting current files…</p> : null}
+      {!fixtureItems ? <form className="history-file-picker" onSubmit={(event) => { event.preventDefault(); setComparisonPath(pathInput.trim()); }}>
+        <label>Compare a file <input aria-label="File path to compare" placeholder="notes.txt" value={pathInput} onChange={(event) => setPathInput(event.target.value)} /></label>
+        <button className="professional-button professional-button-secondary" type="submit" disabled={!pathInput.trim()}>Compare with current file</button>
+      </form> : null}
+      {comparisonPath && !fixtureItems ? <HistoryFileComparison spaceId={space.id} path={comparisonPath} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} /> : null}
       {preview ? <>
         {preview.conflicts.map((conflict) => <p role="alert" key={conflict}>{conflict}</p>)}
         {([ ["Restore files", preview.restoreFiles], ["Remove paths", preview.removePaths],
@@ -504,7 +513,7 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
           ["Current content outside History coverage", preview.uncoveredPaths],
         ] as Array<[string, string[]]>).map(([title, paths]) => <section key={title}>
           <h2>{title} · {paths.length}</h2>
-          {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul> : <p>None</p>}
+          {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code>{(title === "Restore files" || title === "Remove paths") && !fixtureItems ? <button className="professional-button professional-button-secondary" type="button" onClick={() => { setPathInput(path); setComparisonPath(path); }}>Compare</button> : null}</li>)}</ul> : <p>None</p>}
         </section>)}
         <button className="professional-button professional-button-primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0 || (preview.restoreFiles.length + preview.removePaths.length + preview.moves.length === 0)} onClick={() => selected && void restore(selected)}>
           {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo these changes" : "Restore these files"}

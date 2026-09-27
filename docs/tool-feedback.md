@@ -296,3 +296,36 @@ regression and did not justify replacing Pi's native compaction behavior.
 - The installed Pi 0.80.6 `createReadTool`, `convertToLlm` and `ToolDefinition`
   exports; work-fold's [Pi client](../src/local/agent/pi-client.ts) constructs
   native sessions and projects their events into bounded UI activity.
+
+## Selected edit evidence and presentation
+
+The host projects only a successful built-in Pi `edit` result's display diff,
+relative path, first changed line when available, and truncation flag into its
+existing tool event and portable Chat work trail. It checks the path at invocation
+and completion, excluding outside-Folder, reserved metadata, symbolic links and
+nested Folder identities. Replaced/unknown tools retain the generic activity
+fallback. Evidence is limited to 16 KiB per edit and 64 KiB per turn; raw results and
+runnable patches are not copied. A display diff describes that tool's observation,
+not a live file preview or proof of the entire task's correctness.
+
+Optional saved `assistantPresentation` metadata preserves native message boundaries
+without changing aggregate message content, old transcripts, or live text events.
+Consumers may use final/progress/command ranges after validation and fall back to
+full content when metadata is absent. Text and edit metadata are validated on
+append and read. Segment metadata is capped at 256 entries. Chat rendering is a
+separate integration; this change supplies the backend contract and keeps existing
+clients readable. Interrupted turns never invent a successful final segment.
+
+Saved-file review uses [bounded History reads and differences](management-layer.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
+That comparison describes an interval's bytes; native edit evidence describes a
+particular tool call. They must not be conflated when other people or programs can
+write the same file.
+
+PowerPoint and spreadsheet attachments follow their package manifest relationship
+order. A reader that cannot resolve all declared parts returns the existing
+path-only reference with a reason, rather than claiming partial extraction is full.
+The 500-slide/worksheet cap, per-part decompression bounds, 64 MiB cumulative XML
+bound and extracted-output bound are enforced; malformed, unsupported or unresolved
+packages take the same fallback. Worksheet shared strings do not bypass output
+limits. These are text-extraction guarantees, not claims about visual layout or
+formula recalculation.

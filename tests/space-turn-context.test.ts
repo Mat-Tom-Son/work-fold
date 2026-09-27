@@ -13,7 +13,7 @@ import {
   workFoldSpaceOperationsGuideHeading,
   workFoldSpaceOperationsGuideMaxBytes,
 } from "../src/local/agent/space-operations-guide.js";
-import { buildSpaceTurnContext, spaceTurnParentHandle } from "../src/local/agent/space-turn-context.js";
+import { buildSpaceTurnContext, spaceTurnHistory, spaceTurnParentHandle } from "../src/local/agent/space-turn-context.js";
 import { startLocalApi } from "../src/local/server.js";
 import { workFoldManagementScopeId } from "../src/local/state-paths.js";
 
@@ -96,6 +96,20 @@ test("parent handles are stable per salt, differ across salts, and refuse an emp
   assert.deepEqual(keys.sort(), ["delegated", "requestId", "spaceId", "taskId"]);
 });
 
+test("History turn context reports actual capture coverage and an unavailable capture honestly", () => {
+  const context = buildSpaceTurnContext({ spaceId: "space-1", taskId: "task-1", requestId: "req-1", handleSalt: "salt" });
+  context.history = spaceTurnHistory({ checkpointId: "cp-test", fileCount: 4,
+    skippedFiles: [{ reason: "excluded" }, { reason: "too_large" }, { reason: "excluded" }] });
+  assert.deepEqual(context.history, { status: "captured", checkpointId: "cp-test", fileCount: 4,
+    skippedFileCount: 3, skippedByReason: { excluded: 2, too_large: 1 } });
+  const rendered = buildTurnContextMessage({ spaceTurn: context });
+  assert.match(rendered, /cp-test/);
+  assert.match(rendered, /skipped entries are not backed up/);
+  assert.deepEqual(spaceTurnHistory(null), { status: "unavailable" });
+  context.history = spaceTurnHistory(null);
+  assert.match(buildTurnContextMessage({ spaceTurn: context }), /"status":"unavailable"/);
+});
+
 test("the operations guide names the verbs and the rules, stays bounded, and follows Space instructions", () => {
   const guide = workFoldSpaceOperationsGuide();
   assert.ok(guide.startsWith(workFoldSpaceOperationsGuideHeading));
@@ -164,6 +178,12 @@ test("the local API composes a Space turn's context from acceptance, never from 
     const delegatedEvent = events.find((event) => event.taskId === delegated.taskId)!;
     assert.ok(delegatedEvent.spaceTurn, "a Space turn carries its identity");
     assert.equal(delegatedEvent.spaceTurn!.spaceId, space.id);
+    assert.equal(delegatedEvent.spaceTurn!.history?.status, "captured", "actual capture reaches the prompt hook");
+    const history = delegatedEvent.spaceTurn!.history;
+    if (history?.status === "captured") {
+      const checkpoints = await api.actFacade.historyList({ space: space.id });
+      assert.ok(checkpoints.checkpoints.some((checkpoint) => checkpoint.checkpointId === history.checkpointId));
+    }
     assert.equal(delegatedEvent.spaceTurn!.taskId, delegated.taskId);
     assert.equal(delegatedEvent.spaceTurn!.requestId, api.requests.byTaskId(delegated.taskId)!.requestId, "the request id is the durable record's, never invented");
     assert.match(delegatedEvent.spaceTurn!.delegated!.parentHandle, /^parent-[0-9a-f]{16}$/);

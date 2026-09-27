@@ -345,3 +345,20 @@ child reports enter a Space Chat; app task reads remain pinned to their own
 installation. See the contract for stop, expiry and restart behavior.
 
 The fold popover keeps per-chat text and attachment drafts in renderer memory while switching saved conversations. The current paired web client shows questions in their owning Chat and does not read or acknowledge the aggregate glance feed. Space/file reference drafts use the existing browser draft storage; preview bytes remain transient and use the same read-only preview limits as Chat result links.
+
+### Saved-file comparisons and edit excerpts
+
+History read/diff results may contain bounded complete UTF-8 text from the selected
+saved/current file and a bounded difference. They travel through authenticated local
+API or act-lane responses; CLI receipt records never include those bytes. The
+content-free read lane and paired-web allowlist gain no file-reading operation.
+Comparison itself contacts no model provider; a Worker that requests it can use the
+returned text in its ordinary provider conversation.
+
+Portable Folder Chat logs may now retain a successful native edit's selected diff,
+relative path and first changed line, up to 16 KiB per edit and 64 KiB per turn.
+These excerpts travel with the Folder just like its existing Chat content. Excerpts
+outside the Folder, within nested Folder identities or reserved metadata, and through
+symlinks are excluded. Raw tool results are not copied. Optional assistant segment
+metadata stores offsets/classifications, not a second copy of message text. Management
+transcripts remain machine-local; paired-web projections keep their existing fields.

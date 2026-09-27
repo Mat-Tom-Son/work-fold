@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import type { HistoryFileComparison, HistoryFileRead } from "../../shared/history-review.js";
 
 import type {
   WorkFoldActChatLifecycleState,
@@ -77,6 +78,8 @@ export type WorkFoldCliActCommandName =
   | "history.save"
   | "history.restore"
   | "history.versions"
+  | "history.read"
+  | "history.diff"
   | "history.restore-file"
   | "search"
   | "library.list"
@@ -186,6 +189,8 @@ export interface WorkFoldCliActParsedCommand {
   /** Optional restore-point label for history.save. */
   label?: string;
   checkpoint?: string;
+  fromCheckpoint?: string;
+  toCheckpoint?: string;
   /**
    * Single Space-relative entry path for file and History verbs, and the
    * exact file an `apps grant --kind files` single-file permission binds to.
@@ -357,6 +362,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--title",
     "--label",
     "--checkpoint",
+    "--from-checkpoint",
+    "--to-checkpoint",
     "--version",
     "--query",
     "--scope",
@@ -472,6 +479,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "files mkdir",
     "files create",
     "history versions",
+    "history read",
+    "history diff",
     "history restore-file",
     "apps grant",
     "pages share",
@@ -1104,6 +1113,23 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         space: requireSpace(),
         path: requireSinglePath("space-path"),
       };
+    case "history read":
+      allowOnlyFlags("--space", "--checkpoint");
+      return {
+        name: "history.read", output, space: requireSpace(),
+        path: requireSinglePath("space-path"),
+        checkpoint: requireBoundedFlag("--checkpoint", "checkpoint-id"),
+      };
+    case "history diff": {
+      allowOnlyFlags("--space", "--from-checkpoint", "--to-checkpoint");
+      const toCheckpoint = optionalBoundedFlag("--to-checkpoint", "checkpoint-id");
+      return {
+        name: "history.diff", output, space: requireSpace(),
+        path: requireSinglePath("space-path"),
+        fromCheckpoint: requireBoundedFlag("--from-checkpoint", "checkpoint-id"),
+        ...(toCheckpoint ? { toCheckpoint } : {}),
+      };
+    }
     case "history restore-file":
       allowOnlyFlags("--space", "--version", "--parent-task");
       return {
@@ -2142,6 +2168,13 @@ async function runActCommand(
       }));
     case "history.versions":
       return toJson(await facade.historyVersions({ space: command.space!, path: command.path! }));
+    case "history.read":
+      return toJson(await facade.historyRead({ space: command.space!, path: command.path!, checkpointId: command.checkpoint! }));
+    case "history.diff":
+      return toJson(await facade.historyDiff({
+        space: command.space!, path: command.path!, fromCheckpointId: command.fromCheckpoint!,
+        ...(command.toCheckpoint ? { toCheckpointId: command.toCheckpoint } : {}),
+      }));
     case "history.restore-file":
       return toJson(await facade.historyRestoreFile({
         space: command.space!,
@@ -3021,6 +3054,23 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const lines = versions.map((version) =>
         `- ${terminalText(version.hashSha256)} — captured ${terminalText(version.capturedAt)} (${terminalText(version.sizeBytes)} bytes)`);
       return `${versions.length} saved version${versions.length === 1 ? "" : "s"} of ${terminalText(record.path)} in ${spaceLabel}:\n${lines.join("\n")}\n`;
+    }
+    case "history.read": {
+      const review = record.review as unknown as HistoryFileRead | undefined;
+      const observation = review?.observation;
+      return `${terminalText(review?.path)} — ${terminalText(observation?.status)} (${terminalText(observation?.checkpointId)})\n`
+        + (typeof observation?.text === "string" ? `${terminalText(observation.text)}\n` : `${terminalText(observation?.reason ?? "No text available.")}\n`);
+    }
+    case "history.diff": {
+      const comparison = record.comparison as unknown as HistoryFileComparison | undefined;
+      const diff = comparison?.diff;
+      const side = (label: string, value: HistoryFileComparison["before"] | undefined) =>
+        `${label}: ${terminalText(value?.checkpointId ?? value?.observedAt ?? value?.source)} — ${terminalText(value?.status)}${value?.reason ? ` (${terminalText(value.reason)})` : ""}\n`;
+      return `${terminalText(comparison?.path)} — ${terminalText(comparison?.change)}\n`
+        + side("Before", comparison?.before) + side("After", comparison?.after)
+        + (diff?.truncated ? "Incomplete text difference: output is limited; do not treat it as complete.\n" : "")
+        + (diff?.reason ? `Comparison limit: ${terminalText(diff.reason)}\n` : "")
+        + (typeof diff?.text === "string" ? `${terminalText(diff.text)}\n` : `${terminalText(diff?.status)}\n`);
     }
     case "history.restore-file":
       return `Restored ${terminalText(record.path)} to version ${terminalText(record.hashSha256)} in ${spaceLabel}.\nSafety restore point: ${terminalText(record.safetyCheckpointId)}\n`;

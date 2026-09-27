@@ -29,6 +29,7 @@ import type {
   WorkFoldResultOutcome,
 } from "../requests/request-records.js";
 import type { SpaceChatMatch, SpaceFileMatch } from "../search.js";
+import type { HistoryFileComparison, HistoryFileRead } from "../../shared/history-review.js";
 
 export interface WorkFoldActSpaceRef {
   id: string;
@@ -125,8 +126,8 @@ export interface WorkFoldActChatLifecycleState {
 
 /**
  * Bounded projection of one History restore point. The act lane deliberately
- * returns manifest summaries, never per-file listings — restore-point content
- * stays inspectable on the desktop History pane.
+ * returns manifest summaries here; explicit history read/diff commands select
+ * bounded file content separately.
  */
 export interface WorkFoldActCheckpointSummary {
   checkpointId: string;
@@ -903,6 +904,15 @@ export interface WorkFoldActFacade {
     space: WorkFoldActSpaceRef;
     path: string;
     versions: WorkFoldActFileVersionRef[];
+  }>;
+  /** Content-bearing, read-only review through the authenticated act lane. */
+  historyRead(input: { space: string; path: string; checkpointId: string }): Promise<{
+    space: WorkFoldActSpaceRef;
+    review: HistoryFileRead;
+  }>;
+  historyDiff(input: { space: string; path: string; fromCheckpointId: string; toCheckpointId?: string }): Promise<{
+    space: WorkFoldActSpaceRef;
+    comparison: HistoryFileComparison;
   }>;
   historyRestoreFile(input: { space: string; path: string; version: string; parentTaskId?: string }): Promise<{
     space: WorkFoldActSpaceRef;

@@ -198,3 +198,30 @@ Loading conventions verified against [Codex instructions](https://developers.ope
 [Claude memory](https://code.claude.com/docs/en/memory#agentsmd), and
 [Claude Skills](https://code.claude.com/docs/en/skills#where-skills-live).
 Repository behavior remains defined by `AGENTS.md`.
+
+
+## Focused harness evaluation
+
+Before proposing a new runtime layer, exercise ordinary content work with the
+existing real-Pi driver in disposable Folders. Keep app state, Pi resources and
+reference fixtures separate as above; an isolated profile is not an OS sandbox.
+The installed CLI addresses its running desktop host, so do not accidentally point
+a development Worker at production management commands. Tests needing that lane
+must supply a matching development broker/host. `work-fold:drive` alone does not
+start the installed desktop's CLI broker.
+
+Useful repeatable cases are narrow edits across prose and a guide with unrelated
+bytes held out; CSV reconciliation with duplicates, refunds and separate currencies;
+a small code repair against independent inputs; and a fresh-Chat comparison of a
+saved file with current bytes. Seed known before/after files and keep expected outputs
+outside model context. Check final claims as well as file bytes: a correct calculation
+can still have an incorrect explanation. Record model, reasoning level, instructions,
+resources and starting bytes, and change one factor at a time. Tool counts are
+observations, not pass criteria. Keep live-provider results separate from deterministic
+regressions and do not report one run as a measured success rate.
+
+The deterministic harness coverage now includes `local-history-review`,
+`work-fold-history-review-adapters`, `conversation-context-office`, `chat-presentation`,
+`history-comparison-ui`, `history-comparison-keyboard`, and `work-fold-turn-store`
+test files. They cover scope, completeness, persistence and UI behavior without
+requiring a paid model or production user data.

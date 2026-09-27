@@ -40,12 +40,14 @@ import {
   type PiChatEvent,
   type PiRuntimeProvider,
 } from "./agent/pi-client.js";
+import { parseAssistantPresentation } from "./agent/turn-presentation.js";
 import {
   maxDurableTurnTextChars,
   WorkFoldTurnReplayConflictError,
   WorkFoldTurnStore,
   type WorkFoldDurableTurnRecord,
 } from "./agent/turn-store.js";
+import { TurnCheckpointWriter } from "./agent/turn-checkpoint-writer.js";
 import {
   RoutedPiExtensionUiBridge,
   type PiExtensionUiEvent,
@@ -163,7 +165,7 @@ import {
 import { WorkFoldRequestStore } from "./requests/request-store.js";
 import { workFoldRequestLimits, workFoldRoutingDeclarationBounds } from "../shared/fold-limits.js";
 import { spaceOperationsGuideForScope } from "./agent/space-operations-guide.js";
-import { buildSpaceTurnContext, spaceTurnParentHandle, type PiSpaceTurnContext } from "./agent/space-turn-context.js";
+import { buildSpaceTurnContext, spaceTurnHistory, spaceTurnParentHandle, type PiSpaceTurnContext } from "./agent/space-turn-context.js";
 import type {
   WorkFoldRemoteFacade,
   WorkFoldRemoteOperation,
@@ -184,6 +186,7 @@ import {
   type SpaceCheckpoint,
   type SpaceFileVersion,
 } from "./history.js";
+import { compareHistoryFile, readHistoryFile } from "./history-review.js";
 import {
   copyResourcesToSpace,
   createResourceFolder,
@@ -708,7 +711,7 @@ interface LocalApiState {
   activeTurnIdsByKey: Map<string, string>;
   /** Mid-turn steering messages already appended, keyed by client key + request id, for idempotent retries. */
   steeredMessages: Map<string, ChatMessage>;
-  turnCheckpointTimers: Map<string, NodeJS.Timeout>;
+  turnCheckpointWriter: TurnCheckpointWriter;
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
   activeTurnPromises: Set<Promise<void>>;
@@ -999,7 +1002,15 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     chatEventLogs: new Map(),
     activeTurnIdsByKey: new Map(),
     steeredMessages: new Map(),
-    turnCheckpointTimers: new Map(),
+    turnCheckpointWriter: new TurnCheckpointWriter({
+      activeTask: (key) => state.activeTurnIdsByKey.get(key),
+      activeTasks: () => state.activeTurnIdsByKey,
+      currentText: (key) => chatEventLog(state, key).assistantText,
+      writeCheckpoint: (taskId, text) => turnStore.checkpoint(taskId, text),
+      reportFailure: (error, operation) => {
+        console.error(`Could not ${operation === "checkpoint" ? "persist" : "flush"} Assistant stream checkpoint: ${errorMessage(error)}`);
+      },
+    }),
     clients: new Map(),
     runningTurns: new Set(),
     activeTurnPromises: new Set(),
@@ -2568,6 +2579,26 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (method === "GET" && checkpointPreviewMatch) {
     const space = await getSpace(checkpointPreviewMatch[1]);
     sendJson(res, { preview: await previewSpaceCheckpointRestore(space.spaceRoot, checkpointPreviewMatch[2]) });
+    return;
+  }
+
+  const historyReviewMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/history\/(read|diff)$/);
+  if (method === "GET" && historyReviewMatch) {
+    const space = await getSpace(historyReviewMatch[1]);
+    const path = url.searchParams.get("path")?.trim();
+    if (!path) throw badRequest("A Folder-relative file path is required.");
+    if (historyReviewMatch[2] === "read") {
+      const checkpointId = url.searchParams.get("checkpointId")?.trim();
+      if (!checkpointId) throw badRequest("A checkpointId is required.");
+      sendJson(res, { review: await readHistoryFile(space.spaceRoot, { path, checkpointId }) });
+    } else {
+      const fromCheckpointId = url.searchParams.get("fromCheckpointId")?.trim();
+      if (!fromCheckpointId) throw badRequest("A fromCheckpointId is required.");
+      const toCheckpointId = url.searchParams.get("toCheckpointId")?.trim();
+      sendJson(res, { comparison: await compareHistoryFile(space.spaceRoot, {
+        path, fromCheckpointId, ...(toCheckpointId ? { toCheckpointId } : {}),
+      }) });
+    }
     return;
   }
 
@@ -6453,6 +6484,16 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!path) throw new WorkFoldCliError("usage", "A Space-relative file path is required.");
       const versions = await runActOperation(() => listFileVersions(space.spaceRoot, path));
       return { space: toActSpaceRef(space), path, versions: versions.map(toActFileVersionRef) };
+    },
+    async historyRead(input) {
+      const space = await resolveSpace(input.space);
+      const review = await runActOperation(() => readHistoryFile(space.spaceRoot, input));
+      return { space: toActSpaceRef(space), review };
+    },
+    async historyDiff(input) {
+      const space = await resolveSpace(input.space);
+      const comparison = await runActOperation(() => compareHistoryFile(space.spaceRoot, input));
+      return { space: toActSpaceRef(space), comparison };
     },
     async historyRestoreFile(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -11071,6 +11112,7 @@ async function runAgentTurn(
   let settledMessageId: string | undefined;
   let settledError: string | undefined;
   let capturedWorkTrail: ReturnType<PiConversationClient["getTurnWorkTrail"]> = [];
+  let capturedPresentation: ReturnType<PiConversationClient["getTurnPresentation"]>;
   let beforeCheckpoint: import("./history.js").SpaceCheckpoint | null = null;
   let afterCheckpoint: import("./history.js").SpaceCheckpoint | null = null;
   changeTurnCount(state, 1);
@@ -11113,6 +11155,7 @@ async function runAgentTurn(
       }
     }
     beforeCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "pre_turn");
+    if (spaceTurn) spaceTurn.history = spaceTurnHistory(beforeCheckpoint);
     await state.beforeAgentPrompt?.({ spaceId, conversationId, taskId, ...(spaceTurn ? { spaceTurn } : {}) });
     throwIfTurnCancelled(state, taskId);
     promptStarted = true;
@@ -11126,6 +11169,7 @@ async function runAgentTurn(
     });
     // Capture synchronously with prompt completion. Shutdown may dispose the
     // client while the server awaits checkpoint persistence below.
+    capturedPresentation = parseAssistantPresentation(client.getTurnPresentation(), finalText);
     capturedWorkTrail = client.getTurnWorkTrail();
     promptStarted = false;
     afterCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
@@ -11136,6 +11180,7 @@ async function runAgentTurn(
       id: randomUUID(),
       role: "assistant" as const,
       content: finalText,
+      ...(capturedPresentation ? { assistantPresentation: capturedPresentation } : {}),
       createdAt: new Date().toISOString(),
       turnId: taskId,
       ...(durable?.requestId ? { requestId: durable.requestId } : {}),
@@ -11167,6 +11212,12 @@ async function runAgentTurn(
       console.warn(`Could not persist a generated Chat title: ${errorMessage(error)}`);
     }
   } catch (error) {
+    // A reused client still holds its previous turn until prompt resets it.
+    // Pre-prompt cancellation/failure must never inherit that turn's evidence.
+    if (promptStarted) {
+      capturedPresentation ??= client?.getTurnPresentation();
+      capturedWorkTrail = client?.getTurnWorkTrail() ?? [];
+    }
     const cancelled = isPiTurnCancelledError(error);
     if (promptStarted) {
       promptStarted = false;
@@ -11181,11 +11232,14 @@ async function runAgentTurn(
     const publicDetail = cancelled
       ? "The Assistant was stopped before it completed this response."
       : assistantFailurePublicDetail(error);
-    const workTrail = capturedWorkTrail.length ? capturedWorkTrail : client?.getTurnWorkTrail() ?? [];
+    const workTrail = capturedWorkTrail;
+    const interruptedContent = assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled);
+    const interruptedPresentation = parseAssistantPresentation(capturedPresentation, interruptedContent);
     const interruptedMessage = {
       id: randomUUID(),
       role: "assistant" as const,
-      content: assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled),
+      content: interruptedContent,
+      ...(interruptedPresentation ? { assistantPresentation: interruptedPresentation } : {}),
       createdAt: new Date().toISOString(),
       turnId: taskId,
       ...(durable?.requestId ? { requestId: durable.requestId } : {}),
@@ -14007,7 +14061,6 @@ const maxChatEventEntries = 512;
 const maxChatEventBytes = 1024 * 1024;
 const maxIdleChatEventLogs = 200;
 const maxChatStreamQueuedBytes = 512 * 1024;
-const turnCheckpointDelayMs = 500;
 
 function resetChatEventTurn(state: LocalApiState, key: string): void {
   const log = chatEventLog(state, key);
@@ -14063,33 +14116,15 @@ function appendChatEvent(state: LocalApiState, key: string, data: unknown): Chat
 }
 
 function scheduleTurnCheckpoint(state: LocalApiState, key: string): void {
-  if (!state.activeTurnIdsByKey.has(key) || state.turnCheckpointTimers.has(key)) return;
-  const timer = setTimeout(() => {
-    state.turnCheckpointTimers.delete(key);
-    const taskId = state.activeTurnIdsByKey.get(key);
-    if (!taskId) return;
-    void state.turnStore.checkpoint(taskId, chatEventLog(state, key).assistantText).catch((error) => {
-      console.error(`Could not persist Assistant stream checkpoint: ${errorMessage(error)}`);
-    });
-  }, turnCheckpointDelayMs);
-  timer.unref();
-  state.turnCheckpointTimers.set(key, timer);
+  state.turnCheckpointWriter.schedule(key);
 }
 
 async function flushTurnCheckpoint(state: LocalApiState, key: string, taskId: string): Promise<void> {
-  const timer = state.turnCheckpointTimers.get(key);
-  if (timer) {
-    clearTimeout(timer);
-    state.turnCheckpointTimers.delete(key);
-  }
-  await state.turnStore.checkpoint(taskId, chatEventLog(state, key).assistantText).catch((error) => {
-    console.error(`Could not flush Assistant stream checkpoint: ${errorMessage(error)}`);
-    return null;
-  });
+  await state.turnCheckpointWriter.flush(key, taskId);
 }
 
 async function flushAllTurnCheckpoints(state: LocalApiState): Promise<void> {
-  await Promise.all([...state.activeTurnIdsByKey].map(([key, taskId]) => flushTurnCheckpoint(state, key, taskId)));
+  await state.turnCheckpointWriter.close();
 }
 
 function parseSseCursor(value: string | string[] | undefined): number | null {

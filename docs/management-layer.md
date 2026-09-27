@@ -687,3 +687,54 @@ still does not reconstruct a request that retention has removed. See
 [browser apps](fold-browser-apps.md) for current-file and installation semantics.
 
 The authenticated renderer can list saved fold Chats at `GET /api/management/conversations` and pin `GET /api/management/summary?conversationId=<id>` to a selected Chat. The transcript and latest request always come from that same id. The paired `management.chats` projection optionally includes `requestState` and `needsAnswer` for browser-owned requests; older clients and host operations remain compatible. This changes no CLI protocol or request authority.
+
+## Bounded History review and durable turn evidence (2026-09-27)
+
+`history read --space <id> --path <relative-file> --checkpoint <id> --json`
+reads a selected saved file. `history diff --space <id> --path <relative-file>
+--from-checkpoint <id> [--to-checkpoint <id>] --json` compares two saved versions,
+or compares with a current-file observation when the second checkpoint is omitted.
+Both are authenticated act-lane reads with metadata-only receipts. Protocol v1
+remains content-free. Local GET routes at `/api/spaces/:id/history/read` and
+`/api/spaces/:id/history/diff` take `path` plus `checkpointId` or
+`fromCheckpointId`/`toCheckpointId` and call the same `history-review.ts` service.
+No remote operation or restricted-app grant is added.
+
+The service verifies checkpoint membership in the selected Folder and the exact
+relative path before opening an object. It rejects internal paths, symlink
+traversal and paths belonging to nested registered Folders. Read results distinguish
+text, binary, too-large, absent, uncaptured and unavailable content. Saved digests
+are verified against read bytes; `hashVerified: false` identifies metadata that was
+not reverified. Current reads carry `observedAt` and reject detected changes during
+reading; they are not transactional filesystem snapshots. Review never captures,
+restores, or edits files. Interval differences do not attribute edits to a Worker.
+
+Limits are explicit in every version-1 result: 128 KiB per text file, 64 KiB of
+difference output, 2,000 lines, 4,096 characters per line, and one million diff
+work cells. Unsupported or incomplete comparison remains explicit in both JSON and
+human CLI output. Folder History and file Version History offer the same read-only
+comparison, including coverage explanations and available saved/current text.
+Existing restore previews and restoration paths keep their semantics.
+
+A Folder turn's hidden context now includes the actual pre-turn History capture:
+checkpoint id (including deduplicated reuse), captured file count, and skipped
+counts by reason, or an unavailable status. It does not claim skipped bytes are
+backed up. Management turns do not imply a checkpoint covers arbitrary external
+files or every Folder. Instructions distinguish ordinary native Pi content work
+from managed product operations, and reserve explicit History saves for useful
+intermediate milestones.
+
+Turn-store retention applies the 1,000-record default to recent terminal records;
+all accepted/running records remain through replay and compaction. Request retention,
+startup reconciliation and no automatic replay remain unchanged. The transient
+`TurnCheckpointWriter` owns batching and draining stream writes, including task-id
+fencing and shutdown, while the turn store continues to own durable records.
+
+Optional `assistantPresentation` on saved assistant messages records at most 256
+native segment boundaries as UTF-16 offsets into unchanged `content`, classified as
+progress, final or command. A successful native stop without tool calls can mark a
+final segment; stopped/incomplete turns keep progress and malformed metadata is
+ignored. Legacy aggregate text and streaming remain unchanged. This is an additive
+backend contract for the separate chat-rendering work, not an automatic change to
+how desktop, management or paired-web replies are displayed. Selected native edit
+evidence is described in [the feedback contract](tool-feedback.md#selected-edit-evidence-and-presentation).

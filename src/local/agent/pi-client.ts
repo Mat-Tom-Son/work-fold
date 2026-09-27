@@ -47,6 +47,8 @@ import { appendSpaceOperationsGuide } from "./space-operations-guide.js";
 import { appendToolFeedbackGuide } from "./tool-feedback-guide.js";
 import type { PiSpaceTurnContext } from "./space-turn-context.js";
 import type { WorkFoldDurableTurnUsage } from "./turn-store.js";
+import { localEditPath, projectNativeEdit, turnPresentation } from "./turn-presentation.js";
+import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit } from "../../shared/chat-presentation.js";
 import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
 import type {
   RestrictedAppInstalled,
@@ -74,6 +76,7 @@ export interface PiChatEvent {
   toolName?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
   detail?: string;
+  edit?: ChatToolEdit;
   raw?: unknown;
 }
 
@@ -88,6 +91,7 @@ export interface PiTurnWorkTrailEntry {
   kind: "thinking" | "tool";
   text: string;
   detail?: string;
+  edit?: ChatToolEdit;
   toolName?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
@@ -191,6 +195,9 @@ export class PiConversationClient extends EventEmitter {
    */
   private assistantSegments: string[] = [];
   private assistantAttemptStartSegment = 0;
+  private finalAssistantSegment: number | null = null;
+  private turnPresentationSucceeded = false;
+  private commandPresentation = false;
   private promptInFlight = false;
   private readonly extensionTurn = new AsyncLocalStorage<PiTurnOwner>();
   private readonly modelCall = new AsyncLocalStorage<{ purpose: string; taskId?: string }>();
@@ -208,6 +215,8 @@ export class PiConversationClient extends EventEmitter {
   private activeThinkingTrailId: string | null = null;
   private thinkingTrailSequence = 0;
   private lastToolEventKey = "";
+  private nativeEditPaths = new Map<string, string>();
+  private turnEditDiffBytes = 0;
   /** In-flight bounded app inference calls; `stop()` aborts them so a runtime rebuild interrupts them honestly. */
   private readonly boundedCalls = new Set<AbortController>();
   /**
@@ -267,6 +276,8 @@ export class PiConversationClient extends EventEmitter {
       const builtInResult = await this.awaitCancellation(this.executeBuiltInCommand(message));
       if (builtInResult !== null) {
         this.assistantSegments = [builtInResult];
+        this.commandPresentation = true;
+        this.turnPresentationSucceeded = true;
         this.emitEvent({ type: "assistant_message", text: builtInResult });
         return builtInResult;
       }
@@ -302,7 +313,13 @@ export class PiConversationClient extends EventEmitter {
       if (!this.assistantText() && session.messages.length > messagesBefore) {
         this.assistantSegments = [lastAssistantText(session.messages)];
       }
-      return this.assistantText() || "Command completed.";
+      const reply = this.assistantText() || "Command completed.";
+      if (!this.assistantText()) {
+        this.assistantSegments = [reply];
+        this.commandPresentation = isRegisteredExtensionCommand(session, message);
+      }
+      this.turnPresentationSucceeded = true;
+      return reply;
     } finally {
       this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
       owner.settled = true;
@@ -538,8 +555,18 @@ export class PiConversationClient extends EventEmitter {
       .slice(0, 64)
       .map((entry) => ({
         ...entry,
+        ...(entry.edit ? { edit: { ...entry.edit } } : {}),
         phase: entry.phase === "error" ? "error" : "complete",
       }));
+  }
+
+  /** Text boundaries only; a stopped or incomplete native response has no final segment. */
+  getTurnPresentation(): AssistantPresentation | undefined {
+    return turnPresentation(
+      this.assistantSegments,
+      this.turnPresentationSucceeded ? this.finalAssistantSegment : null,
+      this.commandPresentation,
+    );
   }
 
   async stop(): Promise<void> {
@@ -847,6 +874,7 @@ export class PiConversationClient extends EventEmitter {
     const raw = event as any;
     normalizeRetryableProviderError(raw.message);
     if (raw.type === "message_start" && raw.message?.role === "assistant") {
+      this.finalAssistantSegment = null;
       this.assistantAttemptStartSegment = this.assistantSegments.length;
       this.assistantSegments.push("");
       return;
@@ -888,6 +916,7 @@ export class PiConversationClient extends EventEmitter {
         // tool result, so the text that attempt streamed is withdrawn too.
         this.pendingAssistantError = null;
         this.assistantSegments.length = Math.min(this.assistantAttemptStartSegment, this.assistantSegments.length);
+        this.finalAssistantSegment = null;
         this.emitEvent({ type: "assistant_message", text: this.assistantText(), raw });
         this.emitEvent({ type: "assistant_thinking", thinkingPhase: "end", raw });
         this.emitEvent({ type: "status", message: "Retrying after a transient provider error.", raw });
@@ -899,6 +928,10 @@ export class PiConversationClient extends EventEmitter {
       this.pendingAssistantError ??= assistantError(finalAssistant);
       const text = assistantText(finalAssistant);
       if (text) this.setCurrentAssistantSegment(text);
+      if (text.trim() && finalAssistant?.stopReason === "stop" && !this.pendingAssistantError
+        && !finalAssistant.content?.some?.((part: any) => part?.type === "toolCall")) {
+        this.finalAssistantSegment = this.assistantSegments.length - 1;
+      }
       if (!this.pendingAssistantError) this.emitEvent({ type: "assistant_message", text: this.assistantText(), raw });
       return;
     }
@@ -932,6 +965,22 @@ export class PiConversationClient extends EventEmitter {
     if (!event) return;
     const toolCallId = event.toolCallId;
     if (!toolCallId) return;
+    if (raw.type === "tool_execution_start" && event.toolName === "edit"
+      && this.runtimeHost?.session.getAllTools().some((tool) => tool.name === "edit" && tool.sourceInfo.source === "builtin")) {
+      const path = localEditPath(this.spaceRoot, raw.args?.path);
+      if (path) this.nativeEditPaths.set(toolCallId, path);
+    }
+    if (raw.type === "tool_execution_end") {
+      const path = this.nativeEditPaths.get(toolCallId);
+      this.nativeEditPaths.delete(toolCallId);
+      if (!raw.isError && event.toolName === "edit" && path && localEditPath(this.spaceRoot, path) === path) {
+        const edit = projectNativeEdit(path, raw.result?.details, maxTurnToolEditDiffBytes - this.turnEditDiffBytes);
+        if (edit) {
+          event.edit = edit;
+          this.turnEditDiffBytes += Buffer.byteLength(edit.diff, "utf8");
+        }
+      }
+    }
     const previous = this.turnActivities.get(toolCallId);
     if (event.phase === "streaming" || event.phase === "complete" || event.phase === "error") {
       // Result payloads are often directory listings, whole file bodies, or
@@ -952,6 +1001,7 @@ export class PiConversationClient extends EventEmitter {
       kind: "tool",
       text: event.message ?? humanize(event.toolName ?? "Assistant tool"),
       ...(event.detail ? { detail: event.detail } : {}),
+      ...(event.edit ? { edit: { ...event.edit } } : {}),
       ...(event.toolName ? { toolName: event.toolName } : {}),
       ...(event.phase ? { phase: event.phase } : {}),
     });
@@ -1202,6 +1252,9 @@ export class PiConversationClient extends EventEmitter {
   private resetTurnState(): void {
     this.assistantSegments = [];
     this.assistantAttemptStartSegment = 0;
+    this.finalAssistantSegment = null;
+    this.turnPresentationSucceeded = false;
+    this.commandPresentation = false;
     this.turnError = null;
     this.pendingAssistantError = null;
     this.retryAttempts = 0;
@@ -1210,6 +1263,8 @@ export class PiConversationClient extends EventEmitter {
     this.activeThinkingTrailId = null;
     this.thinkingTrailSequence = 0;
     this.lastToolEventKey = "";
+    this.nativeEditPaths.clear();
+    this.turnEditDiffBytes = 0;
   }
 
   private throwIfCancellationRequested(): void {
@@ -1416,6 +1471,10 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       JSON.stringify({ spaceId: turn.spaceId, taskId: turn.taskId, requestId: turn.requestId }, null, 2),
       "Pass --space with that Space id and --task with that task id on chat report, chat ask, and chat handoff. A task id is accepted only while that exact turn is yours and running.",
     );
+    if (turn.history) {
+      lines.push("History capture before this turn (host-owned):", JSON.stringify(turn.history),
+        "A captured checkpoint may reuse identical saved content. Coverage is limited to the files captured; skipped entries are not backed up by this checkpoint. Use history read/diff to inspect saved content without restoring. Do not make another save solely to duplicate this checkpoint.");
+    }
     if (turn.answeredQuestionId) {
       // The answer arrives as ordinary message text and a request may hold
       // several open questions, so the host names which one this continues
