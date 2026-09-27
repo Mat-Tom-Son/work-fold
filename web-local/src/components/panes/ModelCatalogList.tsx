@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
+import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import type { AgentModel } from "../../types";
 
 type VendorModel = Pick<AgentModel, "id" | "name" | "provider" | "providerName">;
@@ -48,9 +49,12 @@ export function modelCatalogGroups<T extends VendorModel>(models: T[], query: st
 /** Past this many models the list gets a search box. */
 export const modelCatalogSearchThreshold = 8;
 
+type FocusTarget = "search" | "selected" | "start" | "end";
+
 /**
- * A provider's models as a searchable list with vendor headings, in place of
- * one long native select (2026-09-25).
+ * A provider's models as a dropdown: the closed control shows the chosen
+ * model; open, it starts with a search box (past the threshold) and lists the
+ * models under vendor headings; choosing one closes it again (2026-09-27).
  */
 export function ModelCatalogList({ id, labelledBy, models, value, disabled = false, onChange, controlRef }: {
   id: string;
@@ -59,60 +63,182 @@ export function ModelCatalogList({ id, labelledBy, models, value, disabled = fal
   value: string;
   disabled?: boolean;
   onChange: (id: string) => void;
-  /** The element to focus when the settings open onto the model: the search box when there is one, else the list. */
+  /** The element to focus when the settings open onto the model: the closed control. */
   controlRef?: MutableRefObject<HTMLElement | null>;
 }) {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const groups = useMemo(() => modelCatalogGroups(models, query), [models, query]);
   const vendorCount = useMemo(() => new Set(models.map(modelVendor)).size, [models]);
+  const selected = useMemo(() => models.find((model) => model.id === value) ?? null, [models, value]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const pendingFocus = useRef<FocusTarget | null>(null);
   const showSearch = models.length > modelCatalogSearchThreshold;
+  const listId = `${id}-options`;
 
   useEffect(() => {
-    if (controlRef) controlRef.current = showSearch ? searchRef.current : listRef.current;
+    if (controlRef) controlRef.current = triggerRef.current;
   });
 
   useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
-  }, [value, models]);
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
-  function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const options = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
-    if (!options.length) return;
-    const current = options.findIndex((option) => option === document.activeElement);
-    const selected = options.findIndex((option) => option.getAttribute("aria-selected") === "true");
-    const next = current < 0 ? (selected < 0 ? 0 : selected) : (current + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
-    event.preventDefault();
-    options[next]?.focus();
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  // The Settings window closes on Escape from a document listener, so the
+  // open list claims the key first, on the window, and stops it there.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !pendingFocus.current) return;
+    const target = pendingFocus.current;
+    pendingFocus.current = null;
+    if (target === "search" && searchRef.current) {
+      searchRef.current.focus();
+      listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
+      return;
+    }
+    focusOption(target === "search" ? "selected" : target);
+  }, [open]);
+
+  function options(): HTMLButtonElement[] {
+    return Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? []);
   }
 
+  function focusOption(target: Exclude<FocusTarget, "search">) {
+    const items = options();
+    if (!items.length) return;
+    const selectedIndex = items.findIndex((option) => option.getAttribute("aria-selected") === "true");
+    const index = target === "start" ? 0 : target === "end" ? items.length - 1 : Math.max(0, selectedIndex);
+    items[index]?.focus();
+    items[index]?.scrollIntoView?.({ block: "nearest" });
+  }
+
+  function show(target: FocusTarget) {
+    if (disabled) return;
+    pendingFocus.current = target;
+    setOpen(true);
+  }
+
+  function choose(modelId: string) {
+    onChange(modelId);
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  function triggerKeys(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (open) focusOption(event.key === "ArrowDown" ? "start" : "end");
+      else show(event.key === "ArrowDown" ? "start" : "end");
+    }
+  }
+
+  function searchKeys(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      // The list sits inside the Save Model form; Enter here picks, never saves.
+      event.preventDefault();
+      const first = query.trim() ? groups[0]?.models[0] : undefined;
+      if (first) choose(first.id);
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption(event.key === "ArrowDown" ? "start" : "end");
+    }
+  }
+
+  function listKeys(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") return;
+    const items = options();
+    const next = nextMenuItemIndex(items.findIndex((option) => option === document.activeElement), items.length, event.key as MenuNavigationKey);
+    if (next === null) return;
+    event.preventDefault();
+    items[next]?.focus();
+    items[next]?.scrollIntoView?.({ block: "nearest" });
+  }
+
+  const label = selected ? modelDisplayName(selected) : models.length ? "Choose a model" : "No models available";
   return (
-    <div className="model-catalog">
-      {showSearch ? (
-        <label className="model-catalog-search">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5L14 14" strokeLinecap="round" /></svg>
-          <input ref={searchRef} type="search" value={query} placeholder="Search models" aria-label="Search models" disabled={disabled} onChange={(event) => setQuery(event.target.value)} />
-        </label>
-      ) : null}
-      <div className="model-catalog-list" role="listbox" id={id} aria-labelledby={labelledBy} ref={listRef} tabIndex={-1} onKeyDown={moveFocus}>
-        {groups.map((group) => (
-          <div className="model-catalog-group" role="group" aria-label={group.vendor} key={group.vendor}>
-            {vendorCount > 1 ? <div className="model-catalog-vendor" aria-hidden="true">{group.vendor}</div> : null}
-            {group.models.map((model) => {
-              const selected = model.id === value;
-              return (
-                <button key={model.id} type="button" role="option" aria-selected={selected} data-model-id={model.id} className={selected ? "model-catalog-option selected" : "model-catalog-option"} disabled={disabled} onClick={() => onChange(model.id)}>
-                  <span className="model-catalog-name">{modelDisplayName(model)}</span>
-                  {model.id !== (model.name?.trim() || model.id) ? <span className="model-catalog-id">{model.id}</span> : null}
-                </button>
-              );
-            })}
+    <div
+      className="model-catalog"
+      ref={rootRef}
+      onBlurCapture={(event) => {
+        const next = event.relatedTarget;
+        if (open && !(next instanceof Node && rootRef.current?.contains(next))) setOpen(false);
+      }}
+    >
+      <button
+        ref={triggerRef}
+        id={id}
+        type="button"
+        className={open ? "model-catalog-trigger open" : "model-catalog-trigger"}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-labelledby={`${labelledBy} ${id}`}
+        data-model-id={value}
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : show("search"))}
+        onKeyDown={triggerKeys}
+      >
+        <span className="model-catalog-trigger-text">
+          <span className="model-catalog-name">{label}</span>
+          {selected && selected.id !== (selected.name?.trim() || selected.id) ? <span className="model-catalog-id">{selected.id}</span> : null}
+        </span>
+        <svg className="model-catalog-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open ? (
+        <div className="model-catalog-popover">
+          {showSearch ? (
+            <label className="model-catalog-search">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5L14 14" strokeLinecap="round" /></svg>
+              <input ref={searchRef} type="search" value={query} placeholder="Search models" aria-label="Search models" autoComplete="off" spellCheck={false} onChange={(event) => setQuery(event.target.value)} onKeyDown={searchKeys} />
+            </label>
+          ) : null}
+          <div className="model-catalog-list" role="listbox" id={listId} aria-labelledby={labelledBy} ref={listRef} tabIndex={-1} onKeyDown={listKeys}>
+            {groups.map((group) => (
+              <div className="model-catalog-group" role="group" aria-label={group.vendor} key={group.vendor}>
+                {vendorCount > 1 ? <div className="model-catalog-vendor" aria-hidden="true">{group.vendor}</div> : null}
+                {group.models.map((model) => {
+                  const isSelected = model.id === value;
+                  return (
+                    <button key={model.id} type="button" role="option" aria-selected={isSelected} data-model-id={model.id} className={isSelected ? "model-catalog-option selected" : "model-catalog-option"} onClick={() => choose(model.id)}>
+                      <span className="model-catalog-name">{modelDisplayName(model)}</span>
+                      {model.id !== (model.name?.trim() || model.id) ? <span className="model-catalog-id">{model.id}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {!groups.length ? <div className="model-catalog-empty" role="status">{models.length ? "No matching models" : "No models available."}</div> : null}
           </div>
-        ))}
-        {!groups.length ? <div className="model-catalog-empty" role="status">{models.length ? "No matching models" : "No models available."}</div> : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

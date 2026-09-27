@@ -150,9 +150,10 @@ lives in Appearance → Interface, and updates live in About. The navigation bec
 narrow windows; keyboard selection brings the selected item into view. AI Models
 settings separate model defaults, shared provider
 connections, and Space instructions; the scope is chosen with two large buttons —
-**This worker**, naming the Folder, and **work-fold agent** — and the model list
-has a search box and groups models under vendor headings (for OpenRouter, the
-vendor prefix of the model name). Unsaved model/instruction drafts survive
+**This worker**, naming the Folder, and **work-fold agent** — and the model is a
+dropdown: closed, it shows the chosen model; open, it starts with a search box
+and groups models under vendor headings (for OpenRouter, the vendor prefix of
+the model name), and choosing a model closes it. Unsaved model/instruction drafts survive
 page and scope changes while that window stays open; credentials are not cached
 across scope changes. Accepted saves retain their completion ownership if the
 window closes, so reopening waits for their result. External settings changes
@@ -484,8 +485,9 @@ Owner decisions, recorded here in dated form; the body of this document and
   discloses install scripts and Extensions before installation.
 - **Settings → AI Models** chooses its scope with two large buttons — **This
   worker**, naming the Folder, and **work-fold agent** — instead of radio
-  circles; the model list has a search box and groups models under vendor
-  headings (for OpenRouter, the vendor prefix of the model name).
+  circles; the model is a dropdown that shows the chosen model closed and opens
+  with a search box and vendor headings (for OpenRouter, the vendor prefix of
+  the model name), closing again on a choice.
 - **Settings → Automations** collapses its limits under a **Limits**
   disclosure by default; they stay visible on demand and unchanged in meaning.
 - With four or more tabs open, tabs narrow but keep their Folder icon and a

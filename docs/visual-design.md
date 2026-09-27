@@ -44,7 +44,7 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Chats in the selected Space remain visually primary. Every other registered Space appears afterward as a compact, collapsed disclosure row with its current-view count and aggregate activity across all of its Chats; opening one reveals its matching Chats without making it look like another permanent navigation level.
 - The Skills & Extensions Installed view places the Included with work-fold strip above Everywhere and This folder only, which sit side by side and stack on narrow widths; rows open their details on click.
 - With four or more tabs open, tabs narrow but keep their Space icon and a normal close button.
-- Settings → AI Models chooses its scope with two large buttons (This worker, naming the Space, and work-fold agent) rather than radio circles; its model list has a search box and groups models under vendor headings. Settings → Automations keeps Limits collapsed under a disclosure by default.
+- Settings → AI Models chooses its scope with two large buttons (This worker, naming the Space, and work-fold agent) rather than radio circles; its model is a dropdown that shows the chosen model closed and opens with a search box at the top and vendor headings, closing again on a choice. Settings → Automations keeps Limits collapsed under a disclosure by default.
 - User Chat bubbles use one solid primary Space accent, never a gradient between accent colors. Assistant message headers are text-only and do not repeat a decorative Assistant avatar.
 - Forms use stacked labels and hints with an explicit action row.
 - Notices use `icon | copy | action` and stack only when their own pane becomes narrow.
