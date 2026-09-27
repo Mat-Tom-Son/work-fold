@@ -293,7 +293,7 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
 
 test("reasoning and real tool calls form one chronological steps strip", () => {
   // Rows keep the order events arrived in; the strip folds into a plain
-  // summary once reply text starts and hidden reasoning keeps its duration.
+  // summary once a native final reply is known; hidden reasoning keeps its duration.
   assert.match(activity, /entry\.kind === "thinking"/);
   assert.match(activity, /entry\.kind === "tool"/);
   assert.match(activity, /className="work-steps-summary"/);
@@ -306,7 +306,7 @@ test("reasoning and real tool calls form one chronological steps strip", () => {
   assert.match(activity, /spacePathCandidate\(value\.slice\(root\.length \+ 1\)/);
   assert.match(chatPanel, /if \(data\.type === "tool"\)/);
   assert.match(chatPanel, /kind: "tool"/);
-  assert.match(chatPanel, /replyStarted=\{Boolean\(streamingAssistant\)\}/);
+  assert.match(chatPanel, /replyStarted=\{liveTurnView\.hasFinal\}/);
   assert.match(chatPanel, /durationMs: Math\.max\(0, endedAt - entry\.startedAt\)/);
   assert.match(messages, /spaceRoot=\{spaceRoot\}/);
   assert.match(piClient, /event\.detail = previous\?\.detail \|\| event\.detail \|\| ""/);

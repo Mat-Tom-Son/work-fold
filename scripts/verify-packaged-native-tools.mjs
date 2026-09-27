@@ -13,27 +13,38 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const require = createRequire(import.meta.url);
 
 /** Reject a release containing the unpatched parser, before loading any tools. */
-export async function verifyPackagedImageSize(archivePath) {
+async function verifyPackagedPatch(archivePath, packageName, label) {
   const manifest = JSON.parse(await readFile(join(root, "patches/included-tools/manifest.json"), "utf8"));
-  const entry = manifest.find(item => item.package === "image-size");
-  if (!entry?.files?.length) throw new Error("Missing image-size security patch manifest.");
-  const prefix = "node_modules/image-size";
+  const entry = manifest.find(item => item.package === packageName);
+  if (!entry?.files?.length) throw new Error(`Missing ${label} patch manifest.`);
+  const prefix = `node_modules/${packageName}`;
   const read = path => {
     try { return extractFile(resolve(archivePath), `${prefix}/${path}`); }
-    catch { throw new Error(`Packaged image-size security verification failed: missing ${path}`); }
+    catch { throw new Error(`Packaged ${label} verification failed: missing ${path}`); }
   };
   const metadata = JSON.parse(read("package.json").toString("utf8"));
-  if (metadata.name !== entry.package || metadata.version !== entry.version) throw new Error(`Packaged image-size security verification failed: expected ${entry.package}@${entry.version}`);
+  if (metadata.name !== entry.package || metadata.version !== entry.version) throw new Error(`Packaged ${label} verification failed: expected ${entry.package}@${entry.version}`);
   for (const file of entry.files) {
     const digest = createHash("sha256").update(read(file.path)).digest("hex");
-    if (digest !== file.after) throw new Error(`Packaged image-size security verification failed: ${file.path} does not match the reviewed patch`);
+    if (digest !== file.after) throw new Error(`Packaged ${label} verification failed: ${file.path} does not match the reviewed patch`);
   }
+  return entry;
+}
+
+export async function verifyPackagedImageSize(archivePath) {
+  const entry = await verifyPackagedPatch(archivePath, "image-size", "image-size security");
   return `PASS packaged image-size ${entry.version}: ${entry.files.length} reviewed parser file hashes`;
+}
+
+export async function verifyPackagedPiRecovery(archivePath) {
+  const entry = await verifyPackagedPatch(archivePath, "@earendil-works/pi-coding-agent", "Pi recovery");
+  return `PASS packaged Pi ${entry.version}: reviewed overflow recovery runtime`;
 }
 
 /** Exercise the complete built bytes, with no model, accounts or production app launch. */
 export async function verifyPackagedNativeTools(archivePath) {
   const security = await verifyPackagedImageSize(archivePath);
+  const recovery = await verifyPackagedPiRecovery(archivePath);
   const temporary = await mkdtemp(join(tmpdir(), "workfold-built-native-tools-"));
   try {
     const archive = join(temporary, "application", "app.asar");
@@ -61,7 +72,7 @@ export async function verifyPackagedNativeTools(archivePath) {
       child.once("error", error => { clearTimeout(timer); reject(error); });
       child.once("close", code => { clearTimeout(timer); code === 0 && text.includes("PASS full built-ASAR native tools") ? resolveOutput(text) : reject(new Error(`Packaged native tool smoke ${timedOut ? "timed out" : "failed"}:\n${text}`)); });
     });
-    return `${security}\n${output}`;
+    return `${security}\n${recovery}\n${output}`;
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 

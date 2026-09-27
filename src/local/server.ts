@@ -1,3 +1,4 @@
+import { boundedLiveTurnPresentation } from "./agent/turn-live-presentation.js";
 import { createLocalEventSink, createLocalEventChannel, localEventTarget, parseLocalEventSubscriptions, type LocalEventSink } from "./local-event-stream.js";
 import { localEventStreamLimits, type LocalEventEnvelope } from "../shared/local-event-stream.js";
 import { createIncludedMcpSetup } from "./agent/included-mcp-setup.js";
@@ -761,6 +762,7 @@ interface ChatEventLogEntry {
 
 interface ChatEventLog {
   nextId: number;
+  turnId?: string;
   events: ChatEventLogEntry[];
   bytes: number;
   assistantText: string;
@@ -11340,9 +11342,9 @@ async function runAgentTurn(
       ...(settledError ? { error: settledError } : {}),
     });
     broadcast(state, key, settledStatus === "succeeded"
-      ? { type: "done", conversationId }
-      : { type: "error", conversationId, message: settledError ?? "The Assistant turn did not finish." });
-    broadcast(state, key, turnStateEvent(conversationId, false));
+      ? { type: "done", conversationId, turnId: taskId }
+      : { type: "error", conversationId, turnId: taskId, message: settledError ?? "The Assistant turn did not finish." });
+    broadcast(state, key, turnStateEvent(conversationId, false, taskId));
     changeTurnCount(state, -1);
     // F28: once this turn's own settlement is fully visible, the request
     // graph above it may owe the fold one continuation turn. Fire-and-forget
@@ -13822,7 +13824,7 @@ function openChatStream(
   res: LocalEventSink,
   spaceId: string,
   conversationId: string,
-  lastEventId?: string | string[],
+  _lastEventId?: string | string[],
 ): void {
   if (res.closed) return;
   const key = streamKey(spaceId, conversationId);
@@ -13832,25 +13834,19 @@ function openChatStream(
   // mistake that reservation for a readable accepted message/answer.
   const turnId = state.activeTurnIdsByKey.get(key);
   const running = state.runningTurns.has(key) && Boolean(turnId && state.turnStore.get(turnId)?.userMessagePersisted);
-  const cursor = parseSseCursor(lastEventId);
-  const firstRetainedId = log.events[0]?.id ?? log.nextId;
-  const canReplay = cursor !== null && cursor >= firstRetainedId - 1 && cursor < log.nextId;
-  if (canReplay) {
-    for (const event of log.events) if (event.id > cursor) writeSseEntry(res, event);
-  } else {
-    const snapshotId = log.nextId - 1;
-    writeSseData(res, {
-      type: "turn_snapshot",
-      conversationId,
-      running,
-      turnId: running ? turnId ?? null : null,
-      text: log.assistantText,
-    }, snapshotId > 0 ? snapshotId : undefined);
-  }
-  // Keep the original handshake event for older local consumers while the
-  // richer snapshot provides cursor/text reconciliation to newer renderers.
-  const handshakeId = log.nextId - 1;
-  writeSseData(res, turnStateEvent(conversationId, running), handshakeId > 0 ? handshakeId : undefined);
+  // A reconnect reads current state. Replaying deltas would repeat local
+  // timers/rows and an old process's numeric cursor could match a new log.
+  // No model or tool execution is restarted by this read-only projection.
+  const presentation = (running && turnId ? state.clients.get(key)?.getTurnLivePresentation(turnId) : undefined)
+    ?? boundedLiveTurnPresentation({ text: log.assistantText, workTrail: [], truncated: false });
+  const snapshotId = log.nextId - 1;
+  writeSseData(res, {
+    type: "turn_snapshot", conversationId, running,
+    turnId: turnId ?? log.turnId ?? null,
+    text: presentation.text, presentation,
+  }, snapshotId > 0 ? snapshotId : undefined);
+  // Older consumers retain their original handshake alongside the richer view.
+  writeSseData(res, turnStateEvent(conversationId, running, turnId ?? log.turnId ?? null), snapshotId > 0 ? snapshotId : undefined);
   const streams = state.chatStreams.get(key) ?? new Set<LocalEventSink>();
   streams.add(res);
   state.chatStreams.set(key, streams);
@@ -14084,6 +14080,7 @@ function resetChatEventTurn(state: LocalApiState, key: string): void {
   log.events = [];
   log.bytes = 0;
   log.assistantText = "";
+  delete log.turnId;
 }
 
 function chatEventLog(state: LocalApiState, key: string): ChatEventLog {
@@ -14107,7 +14104,8 @@ function chatEventLog(state: LocalApiState, key: string): ChatEventLog {
 function appendChatEvent(state: LocalApiState, key: string, data: unknown): ChatEventLogEntry {
   const log = chatEventLog(state, key);
   if (data && typeof data === "object" && !Array.isArray(data)) {
-    const event = data as { type?: unknown; text?: unknown };
+    const event = data as { type?: unknown; text?: unknown; turnId?: unknown };
+    if (typeof event.turnId === "string" && event.turnId) log.turnId = event.turnId;
     if (event.type === "assistant_delta" && typeof event.text === "string") {
       const remaining = maxDurableTurnTextChars - log.assistantText.length;
       if (remaining > 0) log.assistantText += event.text.slice(0, remaining);
@@ -14144,12 +14142,6 @@ async function flushAllTurnCheckpoints(state: LocalApiState): Promise<void> {
   await state.turnCheckpointWriter.close();
 }
 
-function parseSseCursor(value: string | string[] | undefined): number | null {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!raw || !/^\d+$/.test(raw)) return null;
-  const parsed = Number(raw);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
-}
 
 function writeSseEntry(response: LocalEventSink, entry: ChatEventLogEntry): void {
   writeSseData(response, entry.data, entry.id);
@@ -14160,6 +14152,13 @@ function writeSseData(response: LocalEventSink, data: unknown, id?: number): voi
 }
 
 function broadcast(state: LocalApiState, key: string, event: unknown): void {
+  if (event && typeof event === "object" && !Array.isArray(event)) {
+    const activeTurnId = state.activeTurnIdsByKey.get(key);
+    const supplied = (event as { turnId?: unknown }).turnId;
+    // Native callbacks from a draining earlier turn cannot alter a newer view.
+    if (typeof supplied === "string" && activeTurnId && supplied !== activeTurnId) return;
+    if (supplied === undefined || supplied === null) event = { ...event, turnId: activeTurnId ?? chatEventLog(state, key).turnId ?? null };
+  }
   const entry = appendChatEvent(state, key, event);
   const listeners = state.chatEventListeners.get(key);
   if (listeners) {
@@ -14425,8 +14424,8 @@ function changeTurnCount(state: LocalApiState, delta: number): void {
   }
 }
 
-function turnStateEvent(conversationId: string, running: boolean): { type: "turn_state"; conversationId: string; running: boolean } {
-  return { type: "turn_state", conversationId, running };
+function turnStateEvent(conversationId: string, running: boolean, turnId?: string | null): { type: "turn_state"; conversationId: string; running: boolean; turnId?: string | null } {
+  return { type: "turn_state", conversationId, running, ...(turnId === undefined ? {} : { turnId }) };
 }
 
 function numberFromEnv(name: string, fallback: number): number {

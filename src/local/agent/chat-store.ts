@@ -4,7 +4,7 @@ import { appendFile, mkdir, open, readFile, readdir, rename, stat, unlink, write
 import { join } from "node:path";
 
 import { spaceConversationDir, spaceStateDir } from "../state-paths.js";
-import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit } from "../../shared/chat-presentation.js";
+import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
 import { parseAssistantPresentation, parseChatToolEdit } from "./turn-presentation.js";
 import {
   normalizeConversationTitle,
@@ -64,16 +64,7 @@ export interface ChatMessageInterruptionActivity {
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
 
-export interface ChatMessageWorkTrailEntry {
-  kind: "thinking" | "tool";
-  text: string;
-  detail?: string;
-  edit?: ChatToolEdit;
-  toolName?: string;
-  phase?: "queued" | "running" | "streaming" | "complete" | "error";
-  /** Thinking only: how long the segment ran, so hidden reasoning persists without text. */
-  durationMs?: number;
-}
+export type ChatMessageWorkTrailEntry = ChatWorkTrailEntry;
 
 export interface ConversationSummary {
   id: string;
@@ -612,6 +603,7 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
       ...(entry.detail === undefined ? {} : { detail: entry.detail }),
       ...(entry.toolName === undefined ? {} : { toolName: entry.toolName }),
       ...(entry.phase === undefined ? {} : { phase: entry.phase }),
+      ...(entry.order === undefined ? {} : { order: entry.order }),
       ...(entry.kind === "thinking" && entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
       ...(includeEdit ? { edit } : {}),
     };
@@ -629,6 +621,7 @@ function isChatMessageWorkTrailEntry(value: unknown): value is ChatMessageWorkTr
     && (record.text.trim().length > 0 || timedThinking)
     && record.text.length <= 32_000
     && validDuration
+    && (record.order === undefined || (Number.isSafeInteger(record.order) && record.order >= 0))
     && (record.detail === undefined || (typeof record.detail === "string" && record.detail.length <= 4_096))
     && (record.toolName === undefined || (typeof record.toolName === "string" && record.toolName.length <= 256))
     && (

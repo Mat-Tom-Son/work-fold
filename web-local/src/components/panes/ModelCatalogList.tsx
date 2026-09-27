@@ -34,9 +34,20 @@ function humanizeVendor(value: string): string {
 export function modelCatalogGroups<T extends VendorModel>(models: T[], query: string): Array<{ vendor: string; models: T[] }> {
   const needle = query.trim().toLowerCase();
   const groups = new Map<string, T[]>();
+  const keyFor = (model: T) => {
+    const slash = model.id.indexOf("/");
+    return (slash > 0 ? model.id.slice(0, slash).replace(/^[^a-z0-9]+/i, "") : modelVendor(model)).toLowerCase();
+  };
+  // Alias ids and ordinary ids name the same vendor. Prefer the catalog's
+  // explicit spelling to a humanized fallback, even when search hides it.
+  const labels = new Map<string, string>();
   for (const model of models) {
-    if (needle && ![model.name ?? "", model.id, modelVendor(model)].some((value) => value.toLowerCase().includes(needle))) continue;
-    const vendor = modelVendor(model);
+    const key = keyFor(model), colon = model.name?.trim().indexOf(":") ?? -1;
+    if (!labels.has(key) || (colon > 0 && colon <= 40)) labels.set(key, modelVendor(model));
+  }
+  for (const model of models) {
+    const vendor = labels.get(keyFor(model))!;
+    if (needle && ![model.name ?? "", model.id, vendor].some((value) => value.toLowerCase().includes(needle))) continue;
     const list = groups.get(vendor) ?? [];
     list.push(model);
     groups.set(vendor, list);
@@ -69,7 +80,7 @@ export function ModelCatalogList({ id, labelledBy, models, value, disabled = fal
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const groups = useMemo(() => modelCatalogGroups(models, query), [models, query]);
-  const vendorCount = useMemo(() => new Set(models.map(modelVendor)).size, [models]);
+  const vendorCount = useMemo(() => modelCatalogGroups(models, "").length, [models]);
   const selected = useMemo(() => models.find((model) => model.id === value) ?? null, [models, value]);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

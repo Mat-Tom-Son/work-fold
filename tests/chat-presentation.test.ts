@@ -31,7 +31,7 @@ test("native edit events retain selected diffs and exact progress/final boundari
   const presentation = h.client.getTurnPresentation();
   assert.deepEqual(presentation, {
     version: 1,
-    segments: [{ start: 0, end: 23, kind: "progress" }, { start: 25, end: content.length, kind: "final" }],
+    segments: [{ start: 0, end: 23, kind: "progress", order: 0 }, { start: 25, end: content.length, kind: "final", order: 2 }],
     truncated: false,
   });
   const completed = h.events.find((event) => event.type === "tool" && event.phase === "complete")!;
@@ -59,10 +59,10 @@ test("native edit events retain selected diffs and exact progress/final boundari
 
   const command = await h.client.prompt("/session");
   assert.equal(h.requests.length, 2, "a built-in command does not run a model");
-  assert.deepEqual(h.client.getTurnPresentation(), { version: 1, segments: [{ start: 0, end: command.length, kind: "command" }], truncated: false });
+  assert.deepEqual(h.client.getTurnPresentation(), { version: 1, segments: [{ start: 0, end: command.length, kind: "command", order: 0 }], truncated: false });
   const extensionCommand = await h.client.prompt("/fixture");
   assert.equal(extensionCommand, "Command completed.");
-  assert.deepEqual(h.client.getTurnPresentation(), { version: 1, segments: [{ start: 0, end: extensionCommand.length, kind: "command" }], truncated: false });
+  assert.deepEqual(h.client.getTurnPresentation(), { version: 1, segments: [{ start: 0, end: extensionCommand.length, kind: "command", order: 0 }], truncated: false });
 });
 
 test("native edits outside the Folder, through symlinks, or into internal metadata keep generic activity only", async (t) => {
@@ -176,7 +176,7 @@ test("native overflow compaction recovery discards the failed attempt's error an
   assert.deepEqual(h.client.getTurnPresentation()?.segments.map((segment) => segment.kind), ["final"]);
 });
 
-test("an empty length-stop overflow remains a failure when native Pi cannot resume it", async (t) => {
+test("native empty length-stop overflow compacts and retries once without retaining the failed assistant", async (t) => {
   let requests = 0;
   const h = await harness(t, (_payload, send, response) => {
     requests++;
@@ -185,7 +185,7 @@ test("an empty length-stop overflow remains a failure when native Pi cannot resu
       send({}, "length");
       response.write(`data: ${JSON.stringify({ id: "usage", object: "chat.completion.chunk", created: 1, model: "presentation", choices: [], usage: { prompt_tokens: 32768, completion_tokens: 0, total_tokens: 32768 } })}\n\n`);
     } else {
-      send({ role: "assistant", content: "Ready." });
+      send({ role: "assistant", content: requests < 3 ? "Ready." : "Recovered from a full input window." });
       send({}, "stop");
     }
   }, `export default function(pi) {
@@ -197,10 +197,46 @@ test("an empty length-stop overflow remains a failure when native Pi cannot resu
   }`);
   await h.client.prompt("Earlier context. ".repeat(8_000));
   await h.client.prompt("More earlier context. ".repeat(8_000));
-  await assert.rejects(h.client.prompt("Now recover from the overflow."), /Cannot continue from message role: assistant/);
-  assert.equal(requests, 3);
+  assert.equal(await h.client.prompt("Now recover from the overflow."), "Recovered from a full input window.");
+  assert.equal(requests, 4, "the existing native recovery makes exactly one retry");
   assert.ok(h.events.some((event) => (event.raw as any)?.type === "compaction_end" && (event.raw as any)?.willRetry));
-  assert.equal(h.client.getTurnPresentation(), undefined);
+  assert.deepEqual(h.client.getTurnPresentation()?.segments.map((segment) => segment.kind), ["final"]);
+});
+
+test("native repeated input overflow stops after one compact-and-retry even at the same compaction timestamp", async (t) => {
+  for (const stop of ["length", "error"] as const) await t.test(stop, async (t) => {
+    let requests = 0;
+    const h = await harness(t, (_payload, send, response) => {
+      requests++;
+      if (requests >= 3) {
+        send({ role: "assistant", content: "" });
+        if (stop === "length") {
+          send({}, "length");
+          response.write(`data: ${JSON.stringify({ id: "usage", object: "chat.completion.chunk", created: 1, model: "presentation", choices: [], usage: { prompt_tokens: 32768, completion_tokens: 0, total_tokens: 32768 } })}\n\n`);
+        } else response.write(`data: ${JSON.stringify({ error: { message: "prompt is too long", type: "invalid_request_error" } })}\n\n`);
+      } else { send({ role: "assistant", content: "Ready." }); send({}, "stop"); }
+    }, `export default function(pi) {
+      let compactionTimestamp;
+      pi.on("session_compact", event => { compactionTimestamp = Date.parse(event.compactionEntry.timestamp); });
+      pi.on("message_end", event => {
+        if (compactionTimestamp !== undefined && event.message.role === "assistant") event.message.timestamp = compactionTimestamp;
+      });
+      pi.on("session_before_compact", async event => ({ compaction: {
+        summary: "Earlier context summarized by the fixture. ".repeat(100),
+        firstKeptEntryId: event.preparation.firstKeptEntryId,
+        tokensBefore: event.preparation.tokensBefore,
+      } }));
+    }`, { enabled: true, reserveTokens: 1024, keepRecentTokens: 64 });
+    await h.client.prompt("Earlier context. ".repeat(8_000));
+    await h.client.prompt("More earlier context. ".repeat(8_000));
+    await assert.rejects(h.client.prompt("Recover once, then report if the input still cannot fit."), /recovery failed after one compact-and-retry/);
+    assert.equal(requests, 4, "two seed turns plus the original attempt and one native retry");
+    assert.equal(new Set(h.events.filter(event => (event.raw as any)?.type === "compaction_end" && (event.raw as any)?.willRetry).map(event => event.raw)).size, 1);
+    assert.equal(h.client.getTurnPresentation(), undefined, "no successful final is invented");
+    const entries = (await readFile((await h.client.getState()).sessionFile!, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    assert.equal(entries.findLast(entry => entry.message?.role === "assistant").message.timestamp,
+      Date.parse(entries.findLast(entry => entry.type === "compaction").timestamp), "fresh retry deliberately shares the compaction timestamp");
+  });
 });
 
 test("Stop preserves partial text boundaries without inventing a final segment", async (t) => {
@@ -214,7 +250,7 @@ test("Stop preserves partial text boundaries without inventing a final segment",
   await streamed;
   await h.client.abort();
   await stopped;
-  assert.deepEqual(h.client.getTurnPresentation(), { version: 1, segments: [{ start: 0, end: 26, kind: "progress" }], truncated: false });
+  assert.deepEqual(h.client.getTurnPresentation(), { version: 1, segments: [{ start: 0, end: 26, kind: "progress", order: 0 }], truncated: false });
 });
 
 test("the local API persists native edit evidence and successful or interrupted segment metadata", async (t) => {
@@ -329,7 +365,8 @@ test("edit path admission rejects symlink parents and rechecks a changed target"
 
 type Send = (delta: Record<string, unknown>, finishReason?: string) => void;
 
-async function harness(t: TestContext, respond: (payload: any, send: Send, response: ServerResponse) => void | "hold", extension?: string) {
+async function harness(t: TestContext, respond: (payload: any, send: Send, response: ServerResponse) => void | "hold", extension?: string,
+  compaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number }) {
   const root = await mkdtemp(join(tmpdir(), "work-fold-native-presentation-"));
   const spaceRoot = join(root, "folder");
   const agentDir = join(root, "pi");
@@ -356,7 +393,7 @@ async function harness(t: TestContext, respond: (payload: any, send: Send, respo
   const modelRegistry = ModelRegistry.inMemory(authStorage);
   modelRegistry.registerProvider("presentation", { api: "openai-completions", baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, apiKey: "synthetic",
     models: [{ id: "presentation", name: "Presentation", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }] });
-  const settingsManager = SettingsManager.inMemory({ defaultProvider: "presentation", defaultModel: "presentation", defaultThinkingLevel: "off" });
+  const settingsManager = SettingsManager.inMemory({ defaultProvider: "presentation", defaultModel: "presentation", defaultThinkingLevel: "off", ...(compaction ? { compaction } : {}) });
   const provider = { async resolveRuntime() { return { agentDir, authStorage, modelRegistry, settingsManager }; } };
   const client = new PiConversationClient("native-presentation", spaceRoot, provider);
   const events: PiChatEvent[] = [];

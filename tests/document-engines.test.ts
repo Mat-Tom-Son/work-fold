@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { watch } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -112,4 +113,27 @@ test("Stop kills a descendant that ignores TERM after its engine parent exits", 
   }
   assert.equal(descendantAlive, false, "an owned descendant must not outlive Stop");
   await assert.rejects(readFile(output), { code: "ENOENT" });
+});
+
+test("Stop during output publication reports interruption and retains the created file and log", { skip: process.platform === "win32", timeout: 15_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-engine-publish-stop-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const executable = join(root, "engine"), source = join(root, "page.png"), output = join(root, "text.txt");
+  const outputBytes = 128 * 1024 * 1024;
+  await writeFile(source, "fixture");
+  // A sparse output keeps the fixture cheap without materializing a large
+  // string or Buffer; the real asynchronous publish/hash path still runs.
+  await writeFile(executable, `#!${process.execPath}\nimport{openSync,ftruncateSync,closeSync,writeSync}from'node:fs';if(process.argv.includes('--version'))console.log('Synthetic');else{const fd=openSync(process.argv[3]+'.txt','w');ftruncateSync(fd,${outputBytes});closeSync(fd);writeSync(1,'output ready\\n');}\n`);
+  await chmod(executable, 0o700);
+  const controller = new AbortController();
+  const watcher = watch(root, (_event, path) => { if (path === "text.txt") controller.abort(); });
+  t.after(() => watcher.close());
+  await assert.rejects(runDocumentEngine({ operation: "ocr", source, output, enginePath: executable, signal: controller.signal, stateRoot: root }), /stopped.*Retained engine log.*Output path to inspect/s);
+  assert.equal(controller.signal.aborted, true);
+  assert.equal((await stat(output)).size, outputBytes, "completed file effects remain available for inspection");
+  assert.equal(await readFile(source, "utf8"), "fixture");
+  const runs = await readdir(join(root, "document-artifacts"));
+  assert.equal(runs.length, 1);
+  assert.match(await readFile(join(root, "document-artifacts", runs[0]!, "engine.log"), "utf8"), /output ready/);
+  await assert.rejects(stat(join(root, "document-artifacts", runs[0]!, "scratch")), { code: "ENOENT" });
 });

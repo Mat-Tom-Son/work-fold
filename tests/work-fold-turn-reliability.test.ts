@@ -218,7 +218,7 @@ test("an explicit retry resumes a durable acceptance that never reached the tran
   }
 });
 
-test("Chat event streams replay retained cursor events after reconnect", async (t) => {
+test("Chat event streams replace retained cursor state with a current snapshot after reconnect", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-turn-stream-replay-"));
   t.after(() => rm(sandbox, { recursive: true, force: true }));
   const agentDir = join(sandbox, "agent");
@@ -256,6 +256,8 @@ test("Chat event streams replay retained cursor events after reconnect", async (
       return transcript.messages.some((message) => message.role === "assistant");
     });
 
+    await waitForAsync(async () => (await api.kernel.getTasks({ kind: "renderer" })).tasks.length === 0);
+
     const response = await fetch(`${api.origin}${conversationPath}/events`, {
       headers: { "last-event-id": "0" },
       signal: controller.signal,
@@ -265,11 +267,15 @@ test("Chat event streams replay retained cursor events after reconnect", async (
     const pump = pumpSse(response, frames).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) throw error;
     });
-    await waitForAsync(async () => frames.some((frame) => frame.data.type === "done"));
+    await waitForAsync(async () => frames.some((frame) => frame.data.type === "extension_ui_snapshot"));
     controller.abort();
     await pump;
-    assert.equal(frames.some((frame) => frame.data.type === "turn_state" && frame.data.running === true), true);
-    assert.equal(frames.some((frame) => frame.data.type === "done"), true);
+    assert.equal(frames.some((frame) => frame.data.type === "turn_state" && frame.data.running === true), false);
+    assert.equal(frames.some((frame) => frame.data.type === "done"), false, "terminal notifications are not replayed");
+    const snapshot = frames.find((frame) => frame.data.type === "turn_snapshot")?.data;
+    assert.equal(snapshot?.running, false);
+    assert.equal(typeof snapshot?.presentation?.text, "string");
+    assert.deepEqual(snapshot?.presentation?.workTrail, []);
     assert.equal(frames.filter((frame) => frame.data.type !== "status" && frame.data.type !== "extension_ui_snapshot").every((frame) => (frame.id ?? 0) > 0), true);
     assert.equal(frames.find((frame) => frame.data.type === "extension_ui_snapshot")?.id, null, "live Extension questions never advance the replay cursor");
     const ids = frames.map((frame) => frame.id).filter((id): id is number => id !== null);

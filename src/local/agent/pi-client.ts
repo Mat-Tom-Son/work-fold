@@ -49,7 +49,8 @@ import { appendToolFeedbackGuide } from "./tool-feedback-guide.js";
 import type { PiSpaceTurnContext } from "./space-turn-context.js";
 import type { WorkFoldDurableTurnUsage } from "./turn-store.js";
 import { localEditPath, projectNativeEdit, turnPresentation } from "./turn-presentation.js";
-import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit } from "../../shared/chat-presentation.js";
+import { boundedLiveTurnPresentation } from "./turn-live-presentation.js";
+import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry, type ChatLiveTurnPresentation } from "../../shared/chat-presentation.js";
 import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
 import type {
   RestrictedAppInstalled,
@@ -73,6 +74,12 @@ export interface PiChatEvent {
   message?: string;
   text?: string;
   thinkingPhase?: "start" | "delta" | "end";
+  turnId?: string | null;
+  workTrailId?: string;
+  order?: number;
+  startedAt?: number;
+  durationMs?: number;
+  assistantPresentation?: AssistantPresentation;
   toolCallId?: string;
   toolName?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
@@ -88,16 +95,7 @@ export interface PiTurnActivity {
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
 
-export interface PiTurnWorkTrailEntry {
-  kind: "thinking" | "tool";
-  text: string;
-  detail?: string;
-  edit?: ChatToolEdit;
-  toolName?: string;
-  phase?: "queued" | "running" | "streaming" | "complete" | "error";
-  /** Thinking only: how long the segment ran, so hidden reasoning still leaves a trace. */
-  durationMs?: number;
-}
+export type PiTurnWorkTrailEntry = ChatWorkTrailEntry;
 
 export class PiTurnFailure extends Error {
   readonly partialText: string;
@@ -201,6 +199,9 @@ export class PiConversationClient extends EventEmitter {
    * saved Chat reads the way it streamed.
    */
   private assistantSegments: string[] = [];
+  private assistantSegmentOrders: Array<number | undefined> = [];
+  private nextPresentationOrder = 0;
+  private presentationTaskId: string | undefined;
   private assistantAttemptStartSegment = 0;
   private finalAssistantSegment: number | null = null;
   private turnPresentationSucceeded = false;
@@ -219,6 +220,7 @@ export class PiConversationClient extends EventEmitter {
   private retryAttempts = 0;
   private turnActivities = new Map<string, PiTurnActivity>();
   private turnWorkTrail = new Map<string, PiTurnWorkTrailEntry>();
+  private turnWorkTrailTruncated = false;
   private activeThinkingTrailId: string | null = null;
   private activeThinkingTrailStartedAt: number | null = null;
   private thinkingTrailSequence = 0;
@@ -268,6 +270,7 @@ export class PiConversationClient extends EventEmitter {
     this.assertNativePromptSettled();
     this.activeExtensionTurn = owner;
     this.resetTurnState();
+    this.presentationTaskId = owner.taskId;
     this.cancellationRequested = null;
     this.promptInFlight = true;
     this.lastTurnUsage = null;
@@ -283,7 +286,8 @@ export class PiConversationClient extends EventEmitter {
 
       const builtInResult = await this.awaitCancellation(this.executeBuiltInCommand(message));
       if (builtInResult !== null) {
-        this.assistantSegments = [builtInResult];
+        this.assistantSegments = [];
+        this.setCurrentAssistantSegment(builtInResult);
         this.commandPresentation = true;
         this.turnPresentationSucceeded = true;
         this.emitEvent({ type: "assistant_message", text: builtInResult });
@@ -330,16 +334,17 @@ export class PiConversationClient extends EventEmitter {
       }
 
       if (!this.assistantText() && session.messages.length > messagesBefore) {
-        this.assistantSegments = [lastAssistantText(session.messages)];
+        this.setCurrentAssistantSegment(lastAssistantText(session.messages));
       }
       const reply = this.assistantText() || "Command completed.";
       if (!this.assistantText()) {
-        this.assistantSegments = [reply];
+        this.setCurrentAssistantSegment(reply);
         this.commandPresentation = isRegisteredExtensionCommand(session, message);
       }
       this.turnPresentationSucceeded = true;
       return reply;
     } finally {
+      if (this.activeThinkingTrailId) this.emitThinkingEvent("end", undefined, undefined);
       this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
       owner.settled = true;
       this.activeExtensionTurn = null;
@@ -585,7 +590,28 @@ export class PiConversationClient extends EventEmitter {
       this.assistantSegments,
       this.turnPresentationSucceeded ? this.finalAssistantSegment : null,
       this.commandPresentation,
+      this.assistantSegmentOrders,
     );
+  }
+
+  /** Read-only reconnect view; unlike the persisted getter this keeps active phases. */
+  getTurnLivePresentation(taskId?: string): ChatLiveTurnPresentation | undefined {
+    if (taskId !== undefined && taskId !== this.presentationTaskId) return undefined;
+    return boundedLiveTurnPresentation({
+      text: this.assistantText(),
+      assistantPresentation: this.liveAssistantPresentation(),
+      workTrail: [...this.turnWorkTrail].map(([id, entry]) => ({
+        ...entry, id,
+        ...(id === this.activeThinkingTrailId && this.activeThinkingTrailStartedAt !== null
+          ? { startedAt: this.activeThinkingTrailStartedAt, durationMs: Math.max(0, Date.now() - this.activeThinkingTrailStartedAt) } : {}),
+      })),
+      truncated: this.turnWorkTrailTruncated,
+    });
+  }
+
+  private liveAssistantPresentation(): AssistantPresentation | undefined {
+    return turnPresentation(this.assistantSegments, this.pendingAssistantError ? null : this.finalAssistantSegment,
+      this.commandPresentation, this.assistantSegmentOrders);
   }
 
   async stop(): Promise<void> {
@@ -902,21 +928,21 @@ export class PiConversationClient extends EventEmitter {
       const subtype = String(raw.assistantMessageEvent?.type ?? "");
       if (subtype.startsWith("toolcall_")) this.emitToolEvent(raw);
       if (subtype === "thinking_start") {
-        this.startThinkingTrail();
-        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "start", raw });
+        this.emitThinkingEvent("start", undefined, raw);
       }
       if (subtype === "thinking_delta") {
         const delta = String(raw.assistantMessageEvent.delta ?? "");
-        this.appendThinkingTrail(delta);
-        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "delta", text: delta, raw });
+        this.emitThinkingEvent("delta", delta, raw);
       }
       if (subtype === "thinking_end") {
-        this.finishThinkingTrail();
-        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "end", raw });
+        this.emitThinkingEvent("end", undefined, raw);
       }
       if (subtype === "text_delta") {
         const delta = String(raw.assistantMessageEvent.delta ?? "");
-        if (delta) this.emitEvent({ type: "assistant_delta", text: this.appendAssistantDelta(delta), raw });
+        if (delta) {
+          const text = this.appendAssistantDelta(delta);
+          this.emitEvent({ type: "assistant_delta", text, order: this.assistantSegmentOrders[this.assistantSegments.length - 1], raw });
+        }
       }
       this.pendingAssistantError ??= assistantError(raw.message);
       return;
@@ -925,7 +951,15 @@ export class PiConversationClient extends EventEmitter {
     if (raw.type === "message_end" || raw.type === "turn_end") {
       this.pendingAssistantError ??= assistantError(raw.message);
       const text = assistantText(raw.message);
-      if (text) this.setCurrentAssistantSegment(text);
+      if (raw.message?.role === "assistant") {
+        if (text) this.setCurrentAssistantSegment(text);
+        if (text.trim() && raw.message.stopReason === "stop" && !this.pendingAssistantError
+          && !raw.message.content?.some?.((part: any) => part?.type === "toolCall")) {
+          this.finalAssistantSegment = this.assistantSegments.length - 1;
+        }
+        // Offsets accompany the exact canonical text, never raw partial deltas.
+        this.emitEvent({ type: "assistant_message", text: this.assistantText(), raw });
+      }
       return;
     }
 
@@ -935,9 +969,10 @@ export class PiConversationClient extends EventEmitter {
         // tool result, so the text that attempt streamed is withdrawn too.
         this.pendingAssistantError = null;
         this.assistantSegments.length = Math.min(this.assistantAttemptStartSegment, this.assistantSegments.length);
+        this.assistantSegmentOrders.length = this.assistantSegments.length;
         this.finalAssistantSegment = null;
         this.emitEvent({ type: "assistant_message", text: this.assistantText(), raw });
-        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "end", raw });
+        this.emitThinkingEvent("end", undefined, raw);
         this.emitEvent({ type: "status", message: "Retrying after a transient provider error.", raw });
         return;
       }
@@ -977,13 +1012,15 @@ export class PiConversationClient extends EventEmitter {
       // the successful continuation or remain in the saved presentation.
       this.pendingAssistantError = null;
       this.assistantSegments.length = Math.min(this.assistantAttemptStartSegment, this.assistantSegments.length);
+      this.assistantSegmentOrders.length = this.assistantSegments.length;
       this.finalAssistantSegment = null;
       this.emitEvent({ type: "assistant_message", text: this.assistantText(), raw });
-      this.emitEvent({ type: "assistant_thinking", thinkingPhase: "end", raw });
+      this.emitThinkingEvent("end", undefined, raw);
       this.emitEvent({ type: "status", message: "Retrying after conversation compaction.", raw });
       return;
     }
     if (raw.type === "compaction_end" && raw.errorMessage) {
+      if (this.pendingAssistantError && raw.reason === "overflow") this.pendingAssistantError = String(raw.errorMessage);
       this.emitEvent({ type: "status", message: `Compaction warning: ${compactText(String(raw.errorMessage))}`, raw });
       return;
     }
@@ -1031,22 +1068,36 @@ export class PiConversationClient extends EventEmitter {
       ...(event.toolName ? { toolName: event.toolName } : {}),
       ...(event.phase ? { phase: event.phase } : {}),
     });
-    this.turnWorkTrail.set(`tool:${toolCallId}`, {
-      kind: "tool",
+    const workTrailId = `tool:${toolCallId}`;
+    const order = this.turnWorkTrail.get(workTrailId)?.order ?? this.nextPresentationOrder++;
+    this.turnWorkTrail.set(workTrailId, {
+      kind: "tool", order,
       text: event.message ?? humanize(event.toolName ?? "Assistant tool"),
       ...(event.detail ? { detail: event.detail } : {}),
       ...(event.edit ? { edit: { ...event.edit } } : {}),
       ...(event.toolName ? { toolName: event.toolName } : {}),
       ...(event.phase ? { phase: event.phase } : {}),
     });
-    this.emitEvent({ ...event, raw });
+    this.emitEvent({ ...event, workTrailId, order, raw });
+  }
+
+  private emitThinkingEvent(thinkingPhase: "start" | "delta" | "end", text: string | undefined, raw: unknown): void {
+    if (thinkingPhase === "start") this.startThinkingTrail();
+    if (thinkingPhase === "delta") this.appendThinkingTrail(text ?? "");
+    const workTrailId = this.activeThinkingTrailId;
+    const startedAt = this.activeThinkingTrailStartedAt;
+    if (thinkingPhase === "end") this.finishThinkingTrail();
+    const entry = workTrailId ? this.turnWorkTrail.get(workTrailId) : undefined;
+    this.emitEvent({ type: "assistant_thinking", thinkingPhase, ...(text === undefined ? {} : { text }),
+      ...(workTrailId ? { workTrailId } : {}), ...(entry?.order === undefined ? {} : { order: entry.order }),
+      ...(startedAt === null ? {} : { startedAt }), ...(entry?.durationMs === undefined ? {} : { durationMs: entry.durationMs }), raw });
   }
 
   private startThinkingTrail(): void {
     const id = `thinking:${++this.thinkingTrailSequence}`;
     this.activeThinkingTrailId = id;
     this.activeThinkingTrailStartedAt = Date.now();
-    this.turnWorkTrail.set(id, { kind: "thinking", text: "", phase: "streaming" });
+    this.turnWorkTrail.set(id, { kind: "thinking", text: "", phase: "streaming", order: this.nextPresentationOrder++ });
   }
 
   private appendThinkingTrail(delta: string): void {
@@ -1054,8 +1105,10 @@ export class PiConversationClient extends EventEmitter {
     if (!this.activeThinkingTrailId) this.startThinkingTrail();
     const id = this.activeThinkingTrailId!;
     const previous = this.turnWorkTrail.get(id);
-    const text = `${previous?.text ?? ""}${delta}`.slice(0, 32_000);
-    this.turnWorkTrail.set(id, { kind: "thinking", text, phase: "streaming" });
+    const combined = `${previous?.text ?? ""}${delta}`;
+    if (combined.length > 32_000) this.turnWorkTrailTruncated = true;
+    const text = combined.slice(0, 32_000);
+    this.turnWorkTrail.set(id, { ...previous, kind: "thinking", text, phase: "streaming" });
   }
 
   private finishThinkingTrail(): void {
@@ -1090,13 +1143,16 @@ export class PiConversationClient extends EventEmitter {
     const index = this.assistantSegments.length - 1;
     const startsSegment = !this.assistantSegments[index]?.trim() && joinAssistantSegments(this.assistantSegments.slice(0, index)).length > 0;
     this.assistantSegments[index] += delta;
+    if (this.assistantSegments[index]?.trim() && this.assistantSegmentOrders[index] === undefined) this.assistantSegmentOrders[index] = this.nextPresentationOrder++;
     return startsSegment && delta.trim() ? `\n\n${delta}` : delta;
   }
 
   /** Replaces the current segment with the message's canonical text once Pi has assembled it. */
   private setCurrentAssistantSegment(text: string): void {
     if (!this.assistantSegments.length) this.assistantSegments.push("");
-    this.assistantSegments[this.assistantSegments.length - 1] = text;
+    const index = this.assistantSegments.length - 1;
+    this.assistantSegments[index] = text;
+    if (text.trim() && this.assistantSegmentOrders[index] === undefined) this.assistantSegmentOrders[index] = this.nextPresentationOrder++;
   }
 
   private async executeBuiltInCommand(input: string): Promise<string | null> {
@@ -1296,6 +1352,9 @@ export class PiConversationClient extends EventEmitter {
 
   private resetTurnState(): void {
     this.assistantSegments = [];
+    this.assistantSegmentOrders = [];
+    this.nextPresentationOrder = 0;
+    this.presentationTaskId = undefined;
     this.assistantAttemptStartSegment = 0;
     this.finalAssistantSegment = null;
     this.turnPresentationSucceeded = false;
@@ -1305,6 +1364,7 @@ export class PiConversationClient extends EventEmitter {
     this.retryAttempts = 0;
     this.turnActivities.clear();
     this.turnWorkTrail.clear();
+    this.turnWorkTrailTruncated = false;
     this.activeThinkingTrailId = null;
     this.activeThinkingTrailStartedAt = null;
     this.thinkingTrailSequence = 0;
@@ -1344,7 +1404,8 @@ export class PiConversationClient extends EventEmitter {
   }
 
   private emitEvent(event: Omit<PiChatEvent, "conversationId">): void {
-    this.emit("event", { ...event, conversationId: this.conversationId } satisfies PiChatEvent);
+    if (event.type === "assistant_message") event.assistantPresentation = this.liveAssistantPresentation();
+    this.emit("event", { ...event, turnId: this.extensionTurn.getStore()?.taskId ?? this.presentationTaskId ?? null, conversationId: this.conversationId } satisfies PiChatEvent);
   }
 }
 

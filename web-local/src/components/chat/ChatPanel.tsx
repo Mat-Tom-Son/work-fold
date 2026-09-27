@@ -29,6 +29,8 @@ import {
   writeStoredPendingChatSend,
 } from "../../lib/format";
 import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHasNewAssistantMessage } from "../../lib/chat-turn-artifacts";
+import { assistantTurnView } from "../../lib/chat-work-trail";
+import type { AssistantPresentation } from "../../../../src/shared/chat-presentation";
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
 import { spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
@@ -171,6 +173,10 @@ export function ChatPanel({
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
   const [streamingAssistant, setStreamingAssistant] = useState("");
+  const [streamingPresentation, setStreamingPresentation] = useState<{ text: string; metadata?: AssistantPresentation }>({ text: "" });
+  const [previewTruncated, setPreviewTruncated] = useState(false);
+  const pendingTextOrderRef = useRef<number | undefined>(undefined);
+  const activeStreamTurnIdRef = useRef<string | null>(null);
   const [runtimePreviews, setRuntimePreviews] = useState<RuntimePreviewEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [contextAttachments, setContextAttachments] = useState<ContextAttachment[]>([]);
@@ -565,10 +571,14 @@ export function ChatPanel({
     };
     source.onmessage = (event) => {
       const data = JSON.parse(event.data) as ChatStreamEvent;
+      if (data.conversationId !== conversationId) return;
+      const turnFrame = data.type === "turn_state" || data.type === "turn_snapshot";
+      if (!turnFrame && data.turnId && activeStreamTurnIdRef.current && data.turnId !== activeStreamTurnIdRef.current) return;
       if (data.type === "turn_state" || data.type === "turn_snapshot") {
         const sendTransitioning = pendingSendRef.current?.conversation.id === conversationId
           || postingPendingSendRef.current;
-        const startingTurn = data.running === true && (!runningRef.current || settlingTurnRef.current);
+        const startingTurn = data.running === true && (!runningRef.current || settlingTurnRef.current
+          || Boolean(data.turnId && activeStreamTurnIdRef.current && data.turnId !== activeStreamTurnIdRef.current));
         if (startingTurn) {
           // An answer or CLI message can start a turn without this composer's
           // send path. Retire the last reply and any older transcript request.
@@ -580,9 +590,21 @@ export function ChatPanel({
           resetTurnArtifactTracking();
           if (!sendTransitioning) void loadMessages(conversationId, false).catch(() => undefined);
         }
+        if (data.running && data.turnId) activeStreamTurnIdRef.current = data.turnId;
         if (data.type === "turn_snapshot" && typeof data.text === "string" && data.running === true) {
-          flushStreamingText();
-          setStreamingAssistant(data.text);
+          // This frame replaces state at its cursor. Replaying it must not
+          // append an older row or restart a thinking timer.
+          cancelStreamingFlush();
+          const snapshot = data.presentation;
+          const text = snapshot?.text ?? data.text;
+          setStreamingAssistant(text);
+          setStreamingPresentation({ text, metadata: snapshot?.assistantPresentation });
+          pendingTextOrderRef.current = undefined;
+          setPreviewTruncated(snapshot?.truncated === true);
+          if (snapshot) {
+            setRuntimePreviews(snapshot.workTrail);
+            activeThinkingPreviewIdRef.current = [...snapshot.workTrail].reverse().find((entry) => entry.kind === "thinking" && ["running", "streaming"].includes(entry.phase ?? ""))?.id ?? null;
+          }
         }
         const decision = observeChatTurnState(turnStateGate, data.running === true, sendTransitioning);
         if (decision === "running") {
@@ -603,15 +625,17 @@ export function ChatPanel({
       }
       if (data.type === "tool") {
         beginTurnArtifactTracking();
-        const toolPreviewId = data.toolCallId?.trim()
+        const toolPreviewId = data.workTrailId ?? (data.toolCallId?.trim()
           ? `tool-${data.toolCallId.trim()}`
-          : `tool-${++runtimePreviewIdRef.current}`;
+          : `tool-${++runtimePreviewIdRef.current}`);
         addRuntimePreview({
           id: toolPreviewId,
           kind: "tool",
           text: data.message?.trim() || data.toolName?.trim() || "Assistant tool",
           ...(data.detail?.trim() ? { detail: data.detail.trim() } : {}),
           ...(data.toolName?.trim() ? { toolName: data.toolName.trim() } : {}),
+          ...(data.order !== undefined ? { order: data.order } : {}),
+          ...(data.edit ? { edit: data.edit } : {}),
           phase: data.phase ?? "running",
         });
       }
@@ -619,20 +643,23 @@ export function ChatPanel({
         beginTurnArtifactTracking();
         runningRef.current = true;
         setRunning(true);
-        if (data.thinkingPhase === "start") startThinkingPreview();
-        if (data.text) appendThinkingPreview(data.text);
-        if (data.thinkingPhase === "end") finishThinkingPreview();
+        if (data.thinkingPhase === "start") startThinkingPreview(data);
+        if (data.text) appendThinkingPreview(data.text, data);
+        if (data.thinkingPhase === "end") finishThinkingPreview(data);
       }
       if (data.type === "assistant_delta" && data.text) {
         beginTurnArtifactTracking();
         runningRef.current = true;
         setRunning(true);
+        pendingTextOrderRef.current = data.order;
         queueStreamingText(data.text);
       }
       if (data.type === "assistant_message" && typeof data.text === "string") {
         beginTurnArtifactTracking();
         flushStreamingText();
         setStreamingAssistant(data.text);
+        setStreamingPresentation({ text: data.text, metadata: data.assistantPresentation });
+        pendingTextOrderRef.current = undefined;
       }
       if (data.type === "extension_ui_request" && data.request) {
         if (data.request.method === "notify") {
@@ -765,22 +792,23 @@ export function ChatPanel({
     });
   }
 
-  function startThinkingPreview() {
-    const id = `thinking-${++runtimePreviewIdRef.current}`;
+  function startThinkingPreview(event?: ChatStreamEvent) {
+    const id = event?.workTrailId ?? `thinking-${++runtimePreviewIdRef.current}`;
     activeThinkingPreviewIdRef.current = id;
     addRuntimePreview({
       id,
       kind: "thinking",
       text: "",
       phase: "streaming",
-      startedAt: Date.now(),
+      startedAt: event?.startedAt ?? Date.now(),
+      ...(event?.order !== undefined ? { order: event.order } : {}),
     });
   }
 
-  function appendThinkingPreview(text: string) {
-    let id = activeThinkingPreviewIdRef.current;
+  function appendThinkingPreview(text: string, event?: ChatStreamEvent) {
+    let id = event?.workTrailId ?? activeThinkingPreviewIdRef.current;
     if (!id) {
-      startThinkingPreview();
+      startThinkingPreview(event);
       id = activeThinkingPreviewIdRef.current;
     }
     if (!id) return;
@@ -791,14 +819,14 @@ export function ChatPanel({
     )));
   }
 
-  function finishThinkingPreview() {
-    const id = activeThinkingPreviewIdRef.current;
+  function finishThinkingPreview(event?: ChatStreamEvent) {
+    const id = event?.workTrailId ?? activeThinkingPreviewIdRef.current;
     if (!id) return;
     activeThinkingPreviewIdRef.current = null;
     const endedAt = Date.now();
     setRuntimePreviews((current) => current.map((entry) => (
       entry.id === id
-        ? { ...entry, phase: "complete", ...(entry.startedAt ? { durationMs: Math.max(0, endedAt - entry.startedAt) } : {}) }
+        ? { ...entry, phase: "complete", ...(event?.durationMs !== undefined ? { durationMs: event.durationMs } : entry.startedAt ? { durationMs: Math.max(0, endedAt - entry.startedAt) } : {}) }
         : entry
     )));
   }
@@ -806,6 +834,10 @@ export function ChatPanel({
   function clearRuntimePreviews() {
     activeThinkingPreviewIdRef.current = null;
     setRuntimePreviews([]);
+    setStreamingPresentation({ text: "" });
+    pendingTextOrderRef.current = undefined;
+    activeStreamTurnIdRef.current = null;
+    setPreviewTruncated(false);
   }
 
   function reportChatSettled(conversationId: string): void {
@@ -1038,6 +1070,9 @@ export function ChatPanel({
     if (eventStreamReadyConversationIdRef.current === selected.id) void postPendingMessage();
   }
 
+  const liveTurnView = assistantTurnView(streamingAssistant, streamingPresentation.metadata, runtimePreviews, {
+    canonicalText: streamingPresentation.text, pendingOrder: pendingTextOrderRef.current,
+  });
   const hasVisibleRuntimePreview = runtimePreviews.some((entry) => (
     entry.kind === "tool"
     || Boolean(entry.text.trim())
@@ -1676,14 +1711,16 @@ export function ChatPanel({
           {running ? (
             <article className="message assistant streaming">
               <RuntimeContextPreview
-                entries={runtimePreviews}
+                entries={liveTurnView.steps}
                 running
-                replyStarted={Boolean(streamingAssistant)}
+                replyStarted={liveTurnView.hasFinal}
+                renderText={(content, links) => <MarkdownMessage content={content} spaceLinks={links} onOpenSpaceFile={onOpenSpaceFile} />}
                 spaceRoot={space.spaceRoot}
                 onOpenSpaceFile={onOpenSpaceFile}
                 resolveSpacePathLinks={resolveSpacePathLinks}
               />
-              {streamingAssistant ? <MarkdownMessage content={streamingAssistant} /> : null}
+              {previewTruncated ? <p className="work-step-evidence-note" role="note">This live preview omits some earlier activity. The saved reply will appear when the turn ends.</p> : null}
+              {liveTurnView.answer ? <MarkdownMessage content={liveTurnView.answer} /> : null}
             </article>
           ) : null}
           {!hasTranscript ? (

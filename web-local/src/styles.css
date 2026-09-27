@@ -9108,6 +9108,8 @@ body:has(> #root > .desktop-chrome-shell) {
 
 .chat-scroll-shell {
   position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
   overflow: hidden;
 }
@@ -11130,14 +11132,12 @@ body:has(> #root > .desktop-chrome-shell) {
 }
 
 .jump-to-latest {
-  position: absolute;
-  left: 50%;
-  bottom: 12px;
+  justify-self: center;
+  margin: 4px 0 12px;
   display: flex;
   align-items: center;
   gap: 6px;
   min-height: 32px;
-  transform: translateX(-50%);
   border: 1px solid var(--work-fold-chat-border);
   border-radius: 8px;
   padding: 0 11px;
@@ -11147,6 +11147,28 @@ body:has(> #root > .desktop-chrome-shell) {
   font-size: 0.82rem;
   font-weight: 800;
 }
+
+.work-step-progress p:first-child { margin-top: 0; }
+.work-step-progress p:last-child { margin-bottom: 0; }
+.work-step-progress pre,
+.work-step-edit pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre;
+  font-family: var(--work-fold-monospace-font, ui-monospace, monospace);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.work-step-edit { margin-top: 5px; }
+.work-step-edit summary { cursor: pointer; width: fit-content; }
+.work-step-edit summary:focus-visible {
+  outline: 2px solid var(--space-custom-color, #356fa3);
+  outline-offset: 2px;
+}
+.work-step-evidence-note { margin: 6px 0; font-size: 0.78rem; color: inherit; }
+.work-step-edit pre { padding: 8px; border: 1px solid var(--work-fold-chat-border); border-radius: 4px; }
+.work-step-edit .added { background: color-mix(in srgb, #278044 12%, transparent); }
+.work-step-edit .removed { background: color-mix(in srgb, #c33e3e 12%, transparent); }
 
 .composer-input-shell {
   grid-column: 1 / -1;

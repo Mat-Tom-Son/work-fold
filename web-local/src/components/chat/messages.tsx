@@ -6,7 +6,7 @@ import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/r
 import { safeExternalHref } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
-import { savedWorkTrailPreviews } from "../../lib/chat-work-trail";
+import { assistantTurnView, savedWorkTrailPreviews } from "../../lib/chat-work-trail";
 import { collectSpacePathCandidates, findSpacePathMentions, spacePathCandidate } from "../../lib/space-path-links";
 import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
@@ -56,6 +56,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   const visibleRuntimePreviews = showRuntimePreview && runtimePreviews.length
     ? runtimePreviews
     : savedRuntimePreviews;
+  const turnView = assistantTurnView(message.content, message.role === "assistant" ? message.assistantPresentation : undefined, visibleRuntimePreviews);
 
   useEffect(() => {
     if (message.role !== "assistant" || !resolveSpacePathLinks || !onOpenSpaceFile) return;
@@ -76,20 +77,21 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <article className={`message ${message.role}${suppressEnterAnimation ? " settled" : ""}`}>
       <div className="message-surface">
-        {visibleRuntimePreviews.length ? (
+        {turnView.steps.length ? (
           <RuntimeContextPreview
-            entries={visibleRuntimePreviews}
+            entries={turnView.steps}
             spaceRoot={spaceRoot}
             onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
             resolveSpacePathLinks={message.role === "assistant" ? resolveSpacePathLinks : undefined}
+            renderText={(content, links) => <MarkdownMessage content={content} spaceLinks={links} onOpenSpaceFile={onOpenSpaceFile} />}
           />
         ) : null}
-        <MarkdownMessage
-          content={message.content}
+        {turnView.answer ? <MarkdownMessage
+          content={turnView.answer}
           spaceLinks={message.role === "assistant" ? spaceLinks : null}
           onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
           key={spaceLinkVersion}
-        />
+        /> : null}
         {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
         {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
       </div>
@@ -124,6 +126,7 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previousMessage.kind === nextMessage.kind
     && previousMessage.landing === nextMessage.landing
     && previousMessage.workTrail === nextMessage.workTrail
+    && previousMessage.assistantPresentation === nextMessage.assistantPresentation
     && previousMessage.interruption === nextMessage.interruption
     && previousMessage.delivery === nextMessage.delivery
   );

@@ -116,12 +116,13 @@ integration that can return an image directly should do so when useful; a
 standard tool that returns a path remains usable through Pi's built-in read.
 
 Each integration owns its capture and artifact lifetime. Included document
-helpers bound source size, pixels/pages, image bytes, logs and runtime; rendered
-PNGs are temporary by default: the document worker removes its private preview
-directory after assembling the bounded native image result, including failure
-cleanup. An explicitly supplied `outputDir` keeps requested PNG artifacts in
-that ordinary directory until deliberately removed. Selected native tool results can also persist in Pi's machine-local
-session history. Neither is an ambient screenshot archive. Do not invent a
+helpers bound individual allocations and response size, with continuation and
+retained artifacts for larger work. They remove private render scratch after
+settlement, including failures; selected observations, emitted images and result
+artifacts remain in the run's stated artifact directory until deliberately removed.
+An explicitly supplied `outputDir` also keeps requested PNGs in that ordinary
+directory. Selected native tool results can persist in Pi's machine-local session
+history. Neither is an ambient screenshot archive. Do not invent a
 universal retention mechanism or claim a file is temporary without a cleanup
 owner. Cleanup must never delete a delivered artifact or another Chat's evidence.
 
@@ -313,9 +314,21 @@ Optional saved `assistantPresentation` metadata preserves native message boundar
 without changing aggregate message content, old transcripts, or live text events.
 Consumers may use final/progress/command ranges after validation and fall back to
 full content when metadata is absent. Text and edit metadata are validated on
-append and read. Segment metadata is capped at 256 entries. Chat rendering is a
-separate integration; this change supplies the backend contract and keeps existing
-clients readable. Interrupted turns never invent a successful final segment.
+append and read. Segment metadata is capped at 256 entries. The Chat puts progress,
+thinking, tools and captured edit excerpts in one ordered Worker steps strip, and
+renders native-confirmed final text as the answer. Copy preserves the complete
+aggregate reply. Missing, truncated or inconsistent metadata falls back to full
+text; old transcripts never acquire invented chronology. Interrupted turns never
+invent a successful final segment.
+
+Reconnecting to a running host replaces live presentation with its current snapshot,
+including stable row identities, order, active phases and thinking timestamps. It
+does not replay execution. Incremental events carry their turn identity so a stale
+turn cannot update a new one. The snapshot has a 192 KiB encoded display budget,
+reserves room for active work and discloses omissions; execution, model context and
+durable content are unaffected. A host process crash remains an interrupted turn:
+the durable journal preserves available partial text but does not reconstruct
+unfinished live steps. Reopening a view and resuming execution are different acts.
 
 Saved-file review uses [bounded History reads and differences](management-layer.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
 That comparison describes an interval's bytes; native edit evidence describes a
@@ -374,6 +387,13 @@ There is no independent 32-path cutoff. Word text includes referenced
 headers, footers and notes; unsupported content and layout scope are disclosed.
 Model output-length exhaustion preserves partial work and ends with an explicit
 incomplete failure, rather than recording a successful final answer or replaying work.
+Pi's existing compact-and-retry remains responsible for input overflow. A successful
+native retry clears the discarded attempt's error and text in the host projection.
+The reviewed Pi 0.80.6 patch also prevents rebuilding compacted context from
+restoring an empty length-stop overflow response that native continuation cannot
+resume, preserves the one-retry guard across repeated length responses, and uses
+session order to distinguish fresh retries from pre-compaction context. It changes
+no retry count or ordinary output-length behavior.
 
 Native bash remains available for ordinary full-trust file/process work. This change
 does not install a PTY/job scheduler: native bash has no default command deadline and

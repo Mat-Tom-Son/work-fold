@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { createPackage } from "@electron/asar";
-import { verifyPackagedImageSize, verifyPackagedNativeTools } from "../scripts/verify-packaged-native-tools.mjs";
+import { verifyPackagedImageSize, verifyPackagedNativeTools, verifyPackagedPiRecovery } from "../scripts/verify-packaged-native-tools.mjs";
 
-async function copyReviewedParser(source: string) {
+async function copyReviewedParser(source: string, packageName = "image-size") {
   const manifest = JSON.parse(await readFile(new URL("../patches/included-tools/manifest.json", import.meta.url), "utf8"));
-  const entry = manifest.find((item: { package: string }) => item.package === "image-size");
+  const entry = manifest.find((item: { package: string }) => item.package === packageName);
   for (const relative of ["package.json", ...entry.files.map((file: { path: string }) => file.path)]) {
-    const path = join(source, "node_modules/image-size", relative);
+    const path = join(source, "node_modules", packageName, relative);
     await mkdir(dirname(path), { recursive: true });
-    await copyFile(new URL(`../node_modules/image-size/${relative}`, import.meta.url), path);
+    await copyFile(new URL(`../node_modules/${packageName}/${relative}`, import.meta.url), path);
   }
 }
 
@@ -38,6 +38,24 @@ test("full built-ASAR smoke rejects missing packaged dependencies without borrow
   await mkdir(source); await mkdir(`${archive}.unpacked`);
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "work-fold-desktop", type: "module" }));
   await copyReviewedParser(source);
+  await copyReviewedParser(source, "@earendil-works/pi-coding-agent");
   await createPackage(source, archive);
   await assert.rejects(() => verifyPackagedNativeTools(archive), error => error instanceof Error && /Packaged native tool smoke failed/.test(error.message) && /Cannot find module 'jiti'|Jiti must come from the built archive/.test(error.message));
+});
+
+test("packaged Pi recovery refuses an unpatched runtime with the same package version", async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-packaged-pi-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const corrected of [true, false]) {
+    const source = join(root, String(corrected)), archive = join(root, `${corrected}.asar`);
+    await mkdir(source); await copyReviewedParser(source, "@earendil-works/pi-coding-agent");
+    if (!corrected) {
+      const path = join(source, "node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js");
+      const current = await readFile(path, "utf8");
+      await writeFile(path, current.replace('(lastMsg.stopReason === "error" || lastMsg.stopReason === "length")', 'lastMsg.stopReason === "error"'));
+    }
+    await createPackage(source, archive);
+    if (corrected) assert.match(await verifyPackagedPiRecovery(archive), /PASS packaged Pi 0\.80\.6/);
+    else await assert.rejects(() => verifyPackagedPiRecovery(archive), /does not match the reviewed patch/);
+  }
 });

@@ -28,6 +28,17 @@ test("vendors come from the name prefix, then the id prefix, then the provider",
   assert.deepEqual(modelCatalogGroups(catalog, "").map((group) => group.vendor), ["Anthropic", "DeepSeek", "Google", "Meta", "OpenAI", "Qwen"]);
 });
 
+test("catalog aliases share their vendor heading and keep its spelling during search", () => {
+  const aliases = [
+    model("~openai/gpt-latest", "OpenAI GPT Latest"),
+    model("openai/gpt-5", "OpenAI: GPT-5"),
+    model("~moonshotai/kimi-latest", "MoonshotAI Kimi Latest"),
+    model("moonshotai/kimi-k2", "MoonshotAI: Kimi K2"),
+  ];
+  assert.deepEqual(modelCatalogGroups(aliases, "").map(group => [group.vendor, group.models.length]), [["MoonshotAI", 2], ["OpenAI", 2]]);
+  assert.deepEqual(modelCatalogGroups(aliases, "latest").map(group => [group.vendor, group.models.length]), [["MoonshotAI", 1], ["OpenAI", 1]]);
+});
+
 async function mount(t: Parameters<Parameters<typeof test>[1]>[0], models = catalog) {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());

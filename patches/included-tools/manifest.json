@@ -313,5 +313,20 @@
         "after": "1ce9480d8cf4433957edb828aa7b8e81653e0cb091e07f3d270afb96cee008d1"
       }
     ]
+  },
+  {
+    "package": "@earendil-works/pi-coding-agent",
+    "version": "0.80.6",
+    "source": "https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/0.80.6",
+    "license": "MIT",
+    "patch": "pi-coding-agent-0.80.6.patch",
+    "sha256": "c5f1919f2f5fd129e6b8dc26627e5b2c72fc879ae2c1b11189b8bb1e29ed1870",
+    "files": [
+      {
+        "path": "dist/core/agent-session.js",
+        "before": "b2b3b0e2b95ff88290232da4117920a6fd0cceb06bb5d66bb8f120fc934644e7",
+        "after": "1c5d551b28b679a8a3142702113f472a7a89116c1fabdb092f8310f74991ef7c"
+      }
+    ]
   }
 ]

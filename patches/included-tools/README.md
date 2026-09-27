@@ -1,6 +1,23 @@
 # Reviewed native integrations
 
-The manifest pins the upstream package version, source, license, every input/output file digest, and patch digest. `scripts/prepare-included-tools.mjs` refuses mixed or unknown source states and verifies the result. These are ordinary native Pi Extensions; `resources/included-tools` supplies the explicit host context through Pi's event bus. No separate Pi package format or tool registry is introduced.
+The manifest pins the upstream package version, source, license, every input/output file digest, and patch digest. `scripts/prepare-included-tools.mjs` refuses mixed or unknown source states and verifies the result. Integrations remain ordinary native Pi Extensions; `resources/included-tools` supplies the explicit host context through Pi's event bus. Narrow runtime/dependency corrections use the same reviewed patch lane. No separate Pi package format or tool registry is introduced.
+
+## Pi coding agent 0.80.6
+
+Native overflow recovery removes the failed assistant before compaction, but
+rebuilding context from the session can restore it. The retry cleanup previously
+removed only `error`, leaving an empty `length` overflow response as the last
+message; native continuation then failed before contacting the provider. The
+patch also removes `length` within the existing `willRetry` path and prevents
+another length response from resetting the recovery counter. Compaction freshness
+uses recorded session order for known messages, so a retry in the same millisecond
+is not mistaken for retained context; unknown messages retain the upstream timestamp
+fallback. Pi still decides
+whether an overflow occurred and permits only its existing one
+compact-and-retry attempt. Ordinary output exhaustion does not gain automatic
+continuation or effect replay. Actual native provider fixtures cover both overflow
+forms, repeated overflow with matching timestamps and ordinary partial output, and packaged verification pins the corrected
+runtime file. Remove the patch when a reviewed upstream release passes these cases.
 
 ## Chrome 0.15.51
 

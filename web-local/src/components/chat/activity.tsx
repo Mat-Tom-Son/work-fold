@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   BookOpen20Regular,
+  Chat20Regular,
   ChevronRight20Regular,
   DocumentAdd20Regular,
   DocumentEdit20Regular,
@@ -14,7 +15,8 @@ import {
   type FluentIcon,
 } from "@fluentui/react-icons";
 
-import { spacePathCandidate } from "../../lib/space-path-links";
+import { collectSpacePathCandidates, spacePathCandidate } from "../../lib/space-path-links";
+import { safeExternalHref } from "../../lib/api";
 import type { AgentActivityPhase, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
 
@@ -34,6 +36,8 @@ interface RuntimeContextPreviewProps {
   resolveSpacePathLinks?: SpacePathLinkResolver;
   /** Already-resolved Folder paths (candidate → existing path); skips the resolver. */
   resolvedSpacePaths?: Map<string, string>;
+  /** The Chat supplies its existing Markdown renderer without a module cycle. */
+  renderText?: (text: string, links: Map<string, string> | null) => ReactNode;
 }
 
 /**
@@ -52,6 +56,7 @@ export function RuntimeContextPreview({
   onOpenSpaceFile,
   resolveSpacePathLinks,
   resolvedSpacePaths,
+  renderText,
 }: RuntimeContextPreviewProps) {
   const settled = !running || replyStarted;
   const working = running && !replyStarted;
@@ -90,6 +95,8 @@ export function RuntimeContextPreview({
           ) : null}
           {rows.map((entry) => (entry.kind === "tool" ? (
             <ToolStep entry={entry} spaceRoot={spaceRoot} spaceLinks={spaceLinks} onOpenSpaceFile={onOpenSpaceFile} key={entry.id} />
+          ) : entry.kind === "progress" || entry.kind === "command" ? (
+            <TextStep entry={entry} rendered={renderText?.(entry.text, spaceLinks)} key={entry.id} />
           ) : (
             <ThoughtStep
               entry={entry}
@@ -120,25 +127,51 @@ function ToolStep({
   const key = toolKey(entry);
   const active = isActivePhase(entry.phase);
   const failed = entry.phase === "error";
-  const target = entry.detail?.trim() ?? "";
+  const target = entry.edit?.path ?? entry.detail?.trim() ?? "";
   const command = commandTools.has(key);
   const candidate = !command && target ? spaceRelativeToolPath(target, spaceRoot) : null;
   const resolved = candidate ? spaceLinks?.get(candidate) ?? null : null;
   const display = command ? target : targetFileName(target);
   const shimmer = active ? " work-step-shimmer" : "";
+  const diffLines = entry.edit?.diff.split("\n") ?? [];
   return (
     <div className={`work-step tool ${entry.phase ?? "running"}${active ? " active" : ""}`}>
       <FluentGlyph icon={toolIcon(key)} size={16} filled={false} className="work-step-icon" />
-      <div className="work-step-line">
-        <span className={`work-step-verb${shimmer}`}>{toolVerb(key, active)}</span>
-        {target ? (resolved && onOpenSpaceFile ? (
-          <button type="button" className={`work-step-target file${shimmer}`} title={resolved} onClick={() => onOpenSpaceFile(resolved)}>
-            {display}
-          </button>
-        ) : (
-          <span className={`work-step-target${command ? " command" : ""}${shimmer}`} title={target}>{display}</span>
-        )) : null}
-        {failed ? <span className="work-step-status">Failed</span> : null}
+      <div className="work-step-body">
+        <div className="work-step-line">
+          <span className={`work-step-verb${shimmer}`}>{toolVerb(key, active)}</span>
+          {target ? (resolved && onOpenSpaceFile ? (
+            <button type="button" className={`work-step-target file${shimmer}`} title={resolved} onClick={() => onOpenSpaceFile(resolved)}>
+              {display}
+            </button>
+          ) : (
+            <span className={`work-step-target${command ? " command" : ""}${shimmer}`} title={target}>{display}</span>
+          )) : null}
+          {failed ? <span className="work-step-status">Failed</span> : null}
+        </div>
+        {entry.edit && entry.toolName === "edit" && entry.phase === "complete" ? (
+          <details className="work-step-edit">
+            <summary>View edit{entry.edit.firstChangedLine ? ` at line ${entry.edit.firstChangedLine}` : ""}</summary>
+            <p className="work-step-evidence-note">Captured when this edit completed.{entry.edit.truncated ? " This edit preview is incomplete." : ""}</p>
+            <pre aria-label={`Captured edit to ${entry.edit.path}`}><code>{diffLines.map((line, index) => (
+              <span className={line.startsWith("+") ? "added" : line.startsWith("-") ? "removed" : undefined} key={index}>{line}{index < diffLines.length - 1 ? "\n" : ""}</span>
+            ))}</code></pre>
+          </details>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function TextStep({ entry, rendered }: { entry: RuntimePreviewEntry; rendered?: ReactNode }) {
+  return (
+    <div className={`work-step progress${isActivePhase(entry.phase) ? " active" : ""}`}>
+      <FluentGlyph icon={Chat20Regular} size={16} filled={false} className="work-step-icon" />
+      <div className="work-step-body work-step-progress">
+        {rendered ?? <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+          a: ({ href, children }) => { const safe = safeExternalHref(href); return safe ? <a href={safe} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>; },
+          img: ({ alt }) => <span>{alt ?? ""}</span>,
+        }}>{entry.text}</ReactMarkdown>}
       </div>
     </div>
   );
@@ -237,6 +270,10 @@ function useSpacePathLinks(
 function toolPathCandidates(steps: RuntimePreviewEntry[], spaceRoot: string | undefined): string[] {
   const candidates = new Set<string>();
   for (const entry of steps) {
+    if (entry.kind === "progress" || entry.kind === "command") {
+      for (const path of collectSpacePathCandidates(entry.text)) candidates.add(path);
+      continue;
+    }
     if (entry.kind !== "tool" || commandTools.has(toolKey(entry)) || !entry.detail?.trim()) continue;
     const candidate = spaceRelativeToolPath(entry.detail, spaceRoot);
     if (candidate) candidates.add(candidate);
@@ -327,6 +364,7 @@ export function workStepsSummary(entries: RuntimePreviewEntry[]): string {
   const tools = entries.filter((entry) => entry.kind === "tool");
   const thoughts = entries.filter((entry) => entry.kind === "thinking");
   if (!tools.length) {
+    if (entries.some((entry) => entry.kind === "progress" || entry.kind === "command")) return "Worker updates";
     if (thoughts.some((entry) => entry.text.trim())) return "Thought it through";
     const total = thoughts.reduce((sum, entry) => sum + (entry.durationMs ?? 0), 0);
     return total > 0 ? `Thought for ${formatDuration(total)}` : "";

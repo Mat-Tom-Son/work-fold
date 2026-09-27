@@ -13,6 +13,7 @@ export function turnPresentation(
   texts: readonly string[],
   finalIndex: number | null,
   command: boolean,
+  orders?: readonly (number | undefined)[],
 ): AssistantPresentation | undefined {
   const segments: AssistantPresentationSegment[] = [];
   let offset = 0;
@@ -22,7 +23,7 @@ export function turnPresentation(
     if (!length) continue;
     if (segments.length === maxAssistantPresentationSegments) { truncated = true; break; }
     if (segments.length) offset += 2;
-    segments.push({ start: offset, end: offset + length, kind: command ? "command" : index === finalIndex ? "final" : "progress" });
+    segments.push({ start: offset, end: offset + length, kind: command ? "command" : index === finalIndex ? "final" : "progress", ...(orders?.[index] === undefined ? {} : { order: orders[index] }) });
     offset += length;
   }
   return segments.length ? { version: 1, segments, truncated } : undefined;
@@ -41,7 +42,10 @@ export function parseAssistantPresentation(value: unknown, content: string): Ass
     if (segments.length && content.slice(offset - 2, offset) !== "\n\n") return undefined;
     if (!content.slice(offset, candidate.end as number).trim()) return undefined;
     if (segments.some((segment) => segment.kind === "final")) return undefined;
-    segments.push({ start: offset, end: candidate.end as number, kind: candidate.kind });
+    if (candidate.order !== undefined && (!Number.isSafeInteger(candidate.order) || (candidate.order as number) < 0
+      || segments.some((segment) => segment.order !== undefined && segment.order >= (candidate.order as number)))) return undefined;
+    segments.push({ start: offset, end: candidate.end as number, kind: candidate.kind,
+      ...(candidate.order === undefined ? {} : { order: candidate.order as number }) });
     offset = (candidate.end as number) + 2;
   }
   const end = segments.at(-1)!.end;

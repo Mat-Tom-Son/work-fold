@@ -102,6 +102,7 @@ export interface ChatMessage {
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
   workTrail?: ChatMessageWorkTrailEntry[];
+  assistantPresentation?: import("../../src/shared/chat-presentation").AssistantPresentation;
   interruption?: ChatMessageInterruption;
   turnId?: string;
   requestId?: string;
@@ -125,27 +126,11 @@ export interface ChatMessageInterruptionActivity {
   phase?: AgentActivityPhase;
 }
 
-export interface ChatMessageWorkTrailEntry {
-  kind: "thinking" | "tool";
-  text: string;
-  detail?: string;
-  toolName?: string;
-  phase?: AgentActivityPhase;
-  /** Thinking only: how long the segment ran, so reasoning a model keeps hidden still shows as "Thought for 3s". */
-  durationMs?: number;
-}
+export type ChatMessageWorkTrailEntry = import("../../src/shared/chat-presentation").ChatWorkTrailEntry;
 
 export type AgentActivityPhase = "queued" | "running" | "streaming" | "complete" | "error";
-export interface RuntimePreviewEntry {
-  id: string;
-  kind: "thinking" | "tool";
-  text: string;
-  detail?: string;
-  toolName?: string;
-  phase?: AgentActivityPhase;
-  durationMs?: number;
-  /** Live thinking only: when the segment started, for the running timer. */
-  startedAt?: number;
+export interface RuntimePreviewEntry extends Omit<import("../../src/shared/chat-presentation").ChatLiveWorkTrailEntry, "kind"> {
+  kind: "thinking" | "tool" | "progress" | "command";
 }
 
 export interface ChatActionsState {
@@ -920,6 +905,13 @@ export interface ChatStreamEvent {
   phase?: AgentActivityPhase;
   thinkingPhase?: "start" | "delta" | "end";
   detail?: string;
+  workTrailId?: string;
+  order?: number;
+  startedAt?: number;
+  durationMs?: number;
+  edit?: import("../../src/shared/chat-presentation").ChatToolEdit;
+  assistantPresentation?: import("../../src/shared/chat-presentation").AssistantPresentation;
+  presentation?: import("../../src/shared/chat-presentation").ChatLiveTurnPresentation;
   request?: ExtensionUiRequest;
   requests?: ExtensionUiRequest[];
   proposal?: RestrictedAppProposal;

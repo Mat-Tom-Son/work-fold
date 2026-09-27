@@ -97,6 +97,9 @@ export async function runDocumentEngine({ operation, source, output, enginePath,
   await mkdir(join(scratch, "converted"), { recursive: true });
   const controller = new AbortController();
   const stop = () => controller.abort();
+  const checkStopped = () => {
+    if (controller.signal.aborted) throw new Error("Document engine stopped; inspect any output and retained log before deciding whether to retry.");
+  };
   signal?.addEventListener("abort", stop, { once: true });
   if (signal?.aborted) stop();
   const timer = timeoutMs === undefined ? undefined : setTimeout(stop, timeoutMs);
@@ -126,10 +129,14 @@ export async function runDocumentEngine({ operation, source, output, enginePath,
     }
     const info = await stat(produced);
     if (!info.isFile() || (operation !== "ocr" && !info.size)) throw new Error("The engine produced no usable output; inspect its log.");
-    if (controller.signal.aborted) throw new Error("Document engine stopped before publishing its output.");
+    checkStopped();
     await mkdir(dirname(to), { recursive: true });
+    checkStopped();
     await copyFile(produced, to, constants.COPYFILE_EXCL);
-    return { operation, source: sourceIdentity, output: { path: to, sha256: await digest(to), sizeBytes: info.size },
+    checkStopped();
+    const outputSha256 = await digest(to);
+    checkStopped();
+    return { operation, source: sourceIdentity, output: { path: to, sha256: outputSha256, sizeBytes: info.size },
       engine: { name: engineName, executable: engine.executable, version }, logPath,
       note: operation === "recalculate" ? "Calculated and saved by LibreOffice Calc. Inspect formula results and compatibility with the intended spreadsheet app." : operation === "ocr" ? "OCR output can contain recognition errors. Compare important text with the source image." : "Rendered by LibreOffice. Inspect the resulting PDF; layout may differ from Microsoft Office.",
       retention: "The engine log is retained in machine-local document-artifacts until deliberately removed; temporary input and engine profile are removed." };
