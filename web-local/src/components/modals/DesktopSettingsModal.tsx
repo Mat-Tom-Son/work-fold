@@ -16,6 +16,7 @@ import {
 } from "@fluentui/react-icons";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
+import { copyToClipboard } from "../../lib/clipboard";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import type { AgentStatus, DesktopUpdateStatus, SpaceSummary } from "../../types";
 import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contract";
@@ -650,7 +651,13 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                       <button
                         className="secondary-button"
                         type="button"
-                        onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link Copied"); }}
+                        onClick={() => {
+                          setNotice(null);
+                          setActionError(null);
+                          void copyToClipboard({ text: revealed.link })
+                            .then(() => setNotice("Link Copied"))
+                            .catch((caught) => setActionError(errorText(caught)));
+                        }}
                       >
                         {foldPublicationsSettings.copyLink}
                       </button>

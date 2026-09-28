@@ -9,6 +9,7 @@ import {
 } from "../../src/shared/space-appearance";
 
 import { productName, spaceCustomizationStorageKey, spacePathDragType } from "./constants";
+import { copyToClipboard } from "./lib/clipboard";
 import { deleteFolderConfirm } from "./ui-contract";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
 import { ChatPanel } from "./components/chat/ChatPanel";
@@ -1056,7 +1057,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     if (fixture) { showToast({ text: "Version history is disabled in the preview", tone: "info" }); return; }
     setVersionHistory({ space: targetSpace, path, name: path.split("/").pop() ?? path });
   }
-  async function copyPath(path: string) { const full = spaceEntryNativePath(space.spaceRoot, path); await navigator.clipboard.writeText(full); showToast({ text: "Path copied", tone: "success" }); }
+  async function copyPath(path: string) { const full = spaceEntryNativePath(space.spaceRoot, path); await copyToClipboard({ text: full }); showToast({ text: "Path copied", tone: "success" }); }
 
   function updateDropTarget(event: React.DragEvent<HTMLElement>, target: string) { event.preventDefault(); if (hasNativeFiles(event) || hasSpacePathDrag(event)) { event.dataTransfer.dropEffect = hasNativeFiles(event) ? "copy" : "move"; tree.setDropTargetFolderPath(target); } }
   function clearDropTarget(event?: React.DragEvent<HTMLElement>) { if (event && event.currentTarget.contains(event.relatedTarget as Node | null)) return; tree.setDropTargetFolderPath(null); }

@@ -64,6 +64,7 @@ import {
 } from "./work-fold-cli-host.js";
 import { ManagementPopover, type ManagementPopoverStagedItem } from "./management-popover.js";
 import { ModelContextWindow } from "./model-context-window.js";
+import { writeDesktopClipboard } from "./clipboard.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
 import { includedToolsRoot } from "../../src/local/agent/included-tools.js";
 import { IncludedChromeConnectionService } from "../../src/local/agent/included-chrome-connection.js";
@@ -1146,6 +1147,18 @@ async function openModelContextWindow(): Promise<void> {
 function registerIpc(): void {
   if (ipcRegistered) return;
   ipcRegistered = true;
+  ipcMain.handle("work-fold:clipboard:write", (event, value: unknown) => {
+    if (modelContextWindow?.owns(event.sender)) modelContextWindow.assertSender(event);
+    else {
+      assertTrustedRenderer(event);
+      const frame = event.senderFrame;
+      const mainFrame = event.sender.mainFrame;
+      if (!frame || frame.processId !== mainFrame.processId || frame.routingId !== mainFrame.routingId) {
+        throw new Error("Clipboard requests require a trusted main frame.");
+      }
+    }
+    writeDesktopClipboard(value, (content) => clipboard.write(content));
+  });
   ipcMain.handle("work-fold:diagnostics:request", (event, input: unknown) => {
     if (!modelContextWindow) throw new Error("The developer inspector is not open.");
     return modelContextWindow.request(event, input);

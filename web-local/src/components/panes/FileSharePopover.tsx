@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Copy, Loader2, Share2 } from "lucide-react";
 import { api, ApiError, errorText } from "../../lib/api";
+import { copyToClipboard } from "../../lib/clipboard";
 import { activeSharedPageFor, pageTitleFromFileName, sharedPageLink, sharedPagesSnapshot, type SharedPageView } from "../../lib/page-sharing";
 import { reloadSharedPages, useSharedPages } from "../../hooks/useSharedPages";
 import { fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/space-fixture";
@@ -244,7 +245,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
 
   async function copyLink(value: string) {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyToClipboard({ text: value });
       showToast({ text: fileSharing.linkCopied, tone: "success" });
     } catch (caught) {
       showToast({ text: errorText(caught), tone: "error" });

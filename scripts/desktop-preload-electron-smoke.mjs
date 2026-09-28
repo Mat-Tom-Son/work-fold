@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain } from "electron";
+import { writeDesktopClipboard } from "../dist/desktop/desktop/src/clipboard.js";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const productIdentity = JSON.parse(await readFile(join(rootDir, "src", "shared", "product-identity.json"), "utf8"));
@@ -58,7 +59,8 @@ async function verifyDiagnosticPreload() {
       desktop: typeof window.workFoldDesktop,
       node: typeof window.require,
       process: typeof window.process,
-    })`), { keys: ["close", "request"], desktop: "undefined", node: "undefined", process: "undefined" });
+    })`), { keys: ["clipboard", "close", "request"], desktop: "undefined", node: "undefined", process: "undefined" });
+    await verifyClipboardBridge(window, "workFoldDiagnostics");
     assert.deepEqual(requests, [], "loading the developer preload must not enable recording");
     assert.deepEqual(await window.webContents.executeJavaScript('window.workFoldDiagnostics.request({path:"/api/model-context"})'), { enabled: false, records: [] });
     assert.deepEqual(requests, [{ path: "/api/model-context" }]);
@@ -157,6 +159,7 @@ async function verifyPreload(filename, managementOnly) {
       hasRoutingEnableProposal: !managementOnly,
       hasShell: !managementOnly,
     });
+    await verifyClipboardBridge(window, "workFoldDesktop");
     if (!managementOnly) {
       assert.deepEqual(routingRequests, [], "loading the preload must not read or enable a proposal");
       assert.deepEqual(await window.webContents.executeJavaScript("window.workFoldDesktop.routings.proposals()"), pendingProposals);
@@ -176,6 +179,29 @@ async function verifyPreload(filename, managementOnly) {
       ipcMain.removeHandler("work-fold:routings:enable-proposal");
     }
     window.destroy();
+  }
+}
+
+async function verifyClipboardBridge(window, namespace) {
+  const writes = [];
+  ipcMain.handle("work-fold:clipboard:write", (event, content) => {
+    assert.equal(event.sender, window.webContents);
+    assert.equal(event.senderFrame.routingId, window.webContents.mainFrame.routingId);
+    writeDesktopClipboard(content, (value) => writes.push(value));
+  });
+  try {
+    assert.equal(await window.webContents.executeJavaScript("document.hasFocus()"), false,
+      "the regression must exercise an unfocused renderer");
+    const content = { text: "Progress.\n\nFinal — 你好 🌍", html: "<p>Progress.</p><p>Final — 你好 🌍</p>" };
+    await window.webContents.executeJavaScript(`window.${namespace}.clipboard.write(${JSON.stringify(content)})`);
+    await window.webContents.executeJavaScript(`window.${namespace}.clipboard.write({text:'/Folder with spaces/file.txt'})`);
+    assert.deepEqual(writes, [content, { text: "/Folder with spaces/file.txt" }]);
+    assert.deepEqual(await window.webContents.executeJavaScript(`Object.keys(window.${namespace}.clipboard)`), ["write"],
+      "the renderer receives no clipboard read, raw-format or clear operation");
+    await assert.rejects(window.webContents.executeJavaScript(`window.${namespace}.clipboard.write({text:42})`), /Invalid clipboard content/);
+    assert.equal(writes.length, 2, "invalid data must not touch the clipboard");
+  } finally {
+    ipcMain.removeHandler("work-fold:clipboard:write");
   }
 }
 
