@@ -14,6 +14,8 @@ selection highlights in the left rail.
 - Open the Folder's model or instructions from the customization footer. A back
   arrow beside the Settings title returns to the same Folder and section.
 - Keep left-rail selection and hover outlines fully visible.
+- Update Electron within its current major version and refresh reviewed network
+  and pattern-expansion dependencies for security fixes.
 
 GitHub Actions is disabled in the source repository. Releases use the complete
 local verification lane, signing, notarization, and artifact checks.

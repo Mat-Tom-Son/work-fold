@@ -72,7 +72,7 @@
     "@earendil-works/pi-coding-agent": "0.80.6",
     "@injaneity/pi-computer-use": "0.5.1",
     "@napi-rs/canvas": "1.0.9",
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
     "docx": "9.7.1",
     "electron-updater": "6.8.9",
     "exceljs": "4.4.0",
@@ -86,7 +86,7 @@
     "pptxgenjs": "4.0.1",
     "protobufjs": "7.6.5",
     "saxes": "6.0.0",
-    "undici-pi-reviewed": "npm:undici@8.10.0",
+    "undici-pi-reviewed": "npm:undici@8.10.2",
     "ws": "^8.21.2",
     "acorn": "8.16.0"
   },
@@ -106,7 +106,7 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.3",
-    "electron": "^42.6.1",
+    "electron": "^42.11.10",
     "electron-builder": "^26.15.3",
     "jsdom": "^29.1.1",
     "lucide-react": "^1.8.0",
@@ -121,7 +121,7 @@
     "vite": "^8.1.4"
   },
   "overrides": {
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
     "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
     "fast-uri": "3.1.7",
     "js-yaml": "4.3.2",
@@ -134,10 +134,10 @@
     "shell-quote": "1.9.0",
     "esbuild": "0.28.1",
     "@electron/get": {
-      "undici": "7.29.0"
+      "undici": "7.29.1"
     },
     "node-gyp": {
-      "undici": "6.28.0"
+      "undici": "6.28.1"
     },
     "pi-mcp-adapter": {
       "@earendil-works/pi-ai": "$@earendil-works/pi-ai"
