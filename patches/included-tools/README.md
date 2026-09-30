@@ -118,8 +118,18 @@ PptxGenJS 1.1.5 downgrade. Remove the patch only after a reviewed upstream fix
 passes the same compatibility and packaged checks.
 
 Pi 0.80.6 carries a shrinkwrap. The checked normalizer replaces only the
-reviewed nested brace-expansion 5.0.9, protobufjs 7.6.5 and undici 8.10.0 entries;
+reviewed nested brace-expansion 5.0.12, protobufjs 7.6.5 and undici 8.10.2 entries;
 `package-lock.json` records those resulting versions. Re-run normalization and
 restore those exact lock entries after npm dependency resolution, then audit
 the prepared tree. Changes to these exceptions require new source review and
 consumer tests.
+
+The September 30, 2026 release review advances brace-expansion to 5.0.12 for
+bounded expansion and undici to 8.10.2 for its upstream transport security fixes.
+Pi remains at 0.80.6; the normalizer still rejects unreviewed nested versions.
+Electron advances within major 42 to 42.11.10, which includes the sandboxed
+preload-cache fix and upstream Chromium fixes. The reviewed image-size source
+patch remains in place with its malformed-input and packaged-byte tests.
+Upstream references: [brace-expansion 5.0.12](https://github.com/juliangruber/brace-expansion/releases/tag/v5.0.12),
+[undici 8.10.2](https://github.com/nodejs/undici/releases/tag/v8.10.2), and
+[Electron 42.11.10](https://github.com/electron/electron/releases/tag/v42.11.10).

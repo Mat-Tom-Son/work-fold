@@ -258,10 +258,11 @@ A new run removes old evidence before starting; a failure or source change canno
 success receipt. The status command is read-only. Run the checks after the
 final merge; an identical tree at another commit does not inherit the receipt.
 
-Full GitHub CI remains an independent background check for PRs and `main`.
-`Release tag verification` checks source identity only, without a dependency
-install or a main-CI wait. Neither Actions result is a publication dependency.
-`npm run desktop:release:mac:ci` remains available for optional CI diagnostics.
+GitHub Actions is disabled in the canonical source repository as of September
+30, 2026. Pushes, PRs, and release tags do not start remote checks; the checked-in
+workflows remain dormant diagnostics. The local release check is the required
+verification lane, and the publisher checks canonical source identity directly.
+`npm run desktop:release:mac:ci` remains available for historical Actions diagnostics.
 
 The publisher validates the local receipt, current canonical `main`, annotated
 source tag, and source-bound signed artifact checkpoint begun after that

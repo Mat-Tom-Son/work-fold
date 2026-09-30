@@ -1,5 +1,8 @@
 name: CI
 
+# Dormant: GitHub Actions is disabled in the canonical source repository.
+# Local verification is authoritative; re-enable only on explicit request.
+
 on:
   push:
     branches: [main]

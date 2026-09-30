@@ -1,4 +1,72 @@
 import {
+  LeafOne20Filled,
+  LeafOne20Regular,
+  TreeDeciduous20Filled,
+  TreeDeciduous20Regular,
+  TreeEvergreen20Filled,
+  TreeEvergreen20Regular,
+  PlantGrass20Filled,
+  PlantGrass20Regular,
+  WeatherSunny20Filled,
+  WeatherSunny20Regular,
+  WeatherMoon20Filled,
+  WeatherMoon20Regular,
+  WeatherSnowflake20Filled,
+  WeatherSnowflake20Regular,
+  WeatherRain20Filled,
+  WeatherRain20Regular,
+  MountainTrail20Filled,
+  MountainTrail20Regular,
+  Tent20Filled,
+  Tent20Regular,
+  Beach20Filled,
+  Beach20Regular,
+  VehicleBicycle20Filled,
+  VehicleBicycle20Regular,
+  Luggage20Filled,
+  Luggage20Regular,
+  AnimalCat20Filled,
+  AnimalCat20Regular,
+  AnimalDog20Filled,
+  AnimalDog20Regular,
+  AnimalPawPrint20Filled,
+  AnimalPawPrint20Regular,
+  AnimalRabbit20Filled,
+  AnimalRabbit20Regular,
+  AnimalTurtle20Filled,
+  AnimalTurtle20Regular,
+  DrinkCoffee20Filled,
+  DrinkCoffee20Regular,
+  FoodApple20Filled,
+  FoodApple20Regular,
+  FoodCake20Filled,
+  FoodCake20Regular,
+  FoodPizza20Filled,
+  FoodPizza20Regular,
+  BowlSalad20Filled,
+  BowlSalad20Regular,
+  MusicNote220Filled,
+  MusicNote220Regular,
+  Guitar20Filled,
+  Guitar20Regular,
+  Headphones20Filled,
+  Headphones20Regular,
+  Mic20Filled,
+  Mic20Regular,
+  PaintBrush20Filled,
+  PaintBrush20Regular,
+  Color20Filled,
+  Color20Regular,
+  Games20Filled,
+  Games20Regular,
+  SportSoccer20Filled,
+  SportSoccer20Regular,
+  SportBasketball20Filled,
+  SportBasketball20Regular,
+  Balloon20Filled,
+  Balloon20Regular,
+  EmojiSmileSlight20Filled,
+  EmojiSmileSlight20Regular,
   AccessTime20Filled,
   AccessTime20Regular,
   Accessibility20Filled,
@@ -414,6 +482,43 @@ function option(
   };
 }
 
+const additionalSpaceIconOptions: SpaceIconOption[] = [
+  option("leaf", "Leaf", LeafOne20Filled, LeafOne20Regular, [], ["nature","garden","plant","green"]),
+  option("tree", "Tree", TreeDeciduous20Filled, TreeDeciduous20Regular, [], ["nature","forest","garden"]),
+  option("pine", "Pine", TreeEvergreen20Filled, TreeEvergreen20Regular, [], ["nature","forest","outdoors"]),
+  option("grass", "Grass", PlantGrass20Filled, PlantGrass20Regular, [], ["nature","garden","landscape"]),
+  option("sun", "Sun", WeatherSunny20Filled, WeatherSunny20Regular, [], ["nature","weather","day","summer"]),
+  option("moon", "Moon", WeatherMoon20Filled, WeatherMoon20Regular, [], ["nature","night","space"]),
+  option("snowflake", "Snowflake", WeatherSnowflake20Filled, WeatherSnowflake20Regular, [], ["nature","winter","cold"]),
+  option("rain", "Rain", WeatherRain20Filled, WeatherRain20Regular, [], ["nature","weather","water"]),
+  option("mountains", "Mountains", MountainTrail20Filled, MountainTrail20Regular, [], ["nature","hiking","outdoors","travel"]),
+  option("tent", "Tent", Tent20Filled, Tent20Regular, [], ["camping","travel","outdoors"]),
+  option("beach", "Beach", Beach20Filled, Beach20Regular, [], ["travel","holiday","vacation","ocean"]),
+  option("bicycle", "Bicycle", VehicleBicycle20Filled, VehicleBicycle20Regular, [], ["travel","fitness","cycling"]),
+  option("suitcase", "Suitcase", Luggage20Filled, Luggage20Regular, [], ["travel","holiday","packing"]),
+  option("cat", "Cat", AnimalCat20Filled, AnimalCat20Regular, [], ["pets","animal","kitty"]),
+  option("dog", "Dog", AnimalDog20Filled, AnimalDog20Regular, [], ["pets","animal","puppy"]),
+  option("paw", "Paw", AnimalPawPrint20Filled, AnimalPawPrint20Regular, [], ["pets","animal"]),
+  option("rabbit", "Rabbit", AnimalRabbit20Filled, AnimalRabbit20Regular, [], ["pets","animal","bunny"]),
+  option("turtle", "Turtle", AnimalTurtle20Filled, AnimalTurtle20Regular, [], ["pets","animal"]),
+  option("coffee", "Coffee", DrinkCoffee20Filled, DrinkCoffee20Regular, [], ["food","drink","cafe"]),
+  option("apple", "Apple", FoodApple20Filled, FoodApple20Regular, [], ["food","nutrition","health"]),
+  option("cake", "Cake", FoodCake20Filled, FoodCake20Regular, [], ["food","birthday","celebration"]),
+  option("pizza", "Pizza", FoodPizza20Filled, FoodPizza20Regular, [], ["food","cooking","recipes"]),
+  option("salad", "Salad", BowlSalad20Filled, BowlSalad20Regular, [], ["food","cooking","healthy"]),
+  option("music", "Music", MusicNote220Filled, MusicNote220Regular, [], ["creative","audio","song"]),
+  option("guitar", "Guitar", Guitar20Filled, Guitar20Regular, [], ["creative","music","instrument"]),
+  option("headphones", "Headphones", Headphones20Filled, Headphones20Regular, [], ["creative","music","audio","podcast"]),
+  option("microphone", "Microphone", Mic20Filled, Mic20Regular, [], ["creative","audio","podcast","recording"]),
+  option("paintbrush", "Paintbrush", PaintBrush20Filled, PaintBrush20Regular, [], ["creative","art","design","painting"]),
+  option("palette", "Palette", Color20Filled, Color20Regular, [], ["creative","art","design","color"]),
+  option("games", "Games", Games20Filled, Games20Regular, [], ["hobby","play","gaming"]),
+  option("soccer", "Soccer", SportSoccer20Filled, SportSoccer20Regular, [], ["hobby","sport","fitness","football"]),
+  option("basketball", "Basketball", SportBasketball20Filled, SportBasketball20Regular, [], ["hobby","sport","fitness"]),
+  option("balloon", "Balloon", Balloon20Filled, Balloon20Regular, [], ["hobby","birthday","party","celebration"]),
+  option("smile", "Smile", EmojiSmileSlight20Filled, EmojiSmileSlight20Regular, [], ["hobby","happy","personal"]),
+];
+
 export const spaceIconOptions: SpaceIconOption[] = [
   option("folder", "Folder", FolderOpen20Filled, FolderOpen20Regular, [], ["directory", "files", "drive"]),
   option("briefcase", "Briefcase", Briefcase20Filled, Briefcase20Regular, [], ["business", "client", "project", "work"]),
@@ -606,6 +711,152 @@ export const spaceIconOptions: SpaceIconOption[] = [
   option("desk", "Desk", Desk20Filled, Desk20Regular, [], ["office", "space", "work"]),
 ];
 
+spaceIconOptions.push(...additionalSpaceIconOptions);
+
+export const spaceIconGroups = [
+  {
+    "id": "popular",
+    "label": "Popular",
+    "names": [
+      "folder",
+      "briefcase",
+      "notebook",
+      "star",
+      "heart",
+      "leaf",
+      "sun",
+      "moon",
+      "mountains",
+      "coffee",
+      "music",
+      "paintbrush",
+      "camera",
+      "book",
+      "beach",
+      "cat",
+      "dog",
+      "paw",
+      "games",
+      "bicycle",
+      "rocket",
+      "brain",
+      "lightbulb",
+      "target"
+    ]
+  },
+  {
+    "id": "nature",
+    "label": "Nature",
+    "names": [
+      "leaf",
+      "tree",
+      "pine",
+      "grass",
+      "sun",
+      "moon",
+      "snowflake",
+      "rain",
+      "mountains",
+      "earth",
+      "cat",
+      "dog",
+      "paw",
+      "rabbit",
+      "turtle"
+    ]
+  },
+  {
+    "id": "life",
+    "label": "Life",
+    "names": [
+      "coffee",
+      "apple",
+      "cake",
+      "pizza",
+      "salad",
+      "home",
+      "heart",
+      "gift",
+      "balloon",
+      "smile",
+      "games",
+      "soccer",
+      "basketball",
+      "bicycle",
+      "people",
+      "calendar"
+    ]
+  },
+  {
+    "id": "creative",
+    "label": "Creative",
+    "names": [
+      "paintbrush",
+      "palette",
+      "camera",
+      "image",
+      "music",
+      "guitar",
+      "headphones",
+      "microphone",
+      "video",
+      "book",
+      "notebook",
+      "lightbulb",
+      "sparkles",
+      "slide"
+    ]
+  },
+  {
+    "id": "travel",
+    "label": "Travel",
+    "names": [
+      "airplane",
+      "suitcase",
+      "beach",
+      "mountains",
+      "tent",
+      "bicycle",
+      "backpack",
+      "map",
+      "compass",
+      "globe",
+      "location",
+      "road",
+      "city"
+    ]
+  },
+  {
+    "id": "work",
+    "label": "Work",
+    "names": [
+      "briefcase",
+      "files",
+      "archive",
+      "tasks",
+      "target",
+      "flag",
+      "people-team",
+      "handshake",
+      "calendar",
+      "database",
+      "code",
+      "bot",
+      "brain",
+      "rocket",
+      "shield",
+      "money",
+      "receipt"
+    ]
+  },
+  {
+    "id": "all",
+    "label": "All",
+    "names": []
+  }
+] as const;
+export type SpaceIconGroupId = typeof spaceIconGroups[number]["id"];
+
 const spaceIconLookup = new Map<string, SpaceIconOption>();
 
 for (const iconOption of spaceIconOptions) {
@@ -620,8 +871,12 @@ export function spaceIconOptionFor(iconName: string | null | undefined): SpaceIc
   return normalizedIconName ? spaceIconLookup.get(normalizedIconName) ?? spaceIconOptions[0] : spaceIconOptions[0];
 }
 
-export function filterSpaceIconOptions(query: string): SpaceIconOption[] {
+export function filterSpaceIconOptions(query: string, group: SpaceIconGroupId = "all"): SpaceIconOption[] {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length && group !== "all") {
+    const names = spaceIconGroups.find((item) => item.id === group)!.names;
+    return names.map((name) => spaceIconOptions.find((item) => item.name === name)).filter((item): item is SpaceIconOption => Boolean(item));
+  }
   if (!tokens.length) return spaceIconOptions;
   return spaceIconOptions
     .map((iconOption, index) => ({ iconOption, index, score: spaceIconSearchScore(iconOption, tokens) }))

@@ -53,8 +53,8 @@ This is a record from a trusted release workstation, not a tamper-resistant
 attestation: hidden lockfiles detect ordinary npm installation drift, not manual
 edits to installed package files. Do not edit installed dependencies between
 verification and packaging.
-GitHub CI runs independently in the background; publication does not wait for
-its status. Release-tooling-only changes need
+GitHub Actions is disabled in the canonical source repository; publication uses
+the local receipt and checks source identity directly. Release-tooling-only changes need
 focused regression tests and normal local checks, not a version bump or an
 Apple submission.
 
@@ -145,11 +145,10 @@ artifacts, or metadata.
      git push origin refs/tags/v<version>:refs/tags/v<version>
    ```
 
-   The background **Release tag verification** workflow checks the package
-   version, annotated tag, and canonical source identity. It neither reruns
-   tests nor waits for main CI. Publication verifies source identity directly
-   and does not wait for this workflow. `npm run desktop:release:mac:ci` remains
-   an optional diagnostic for Actions evidence.
+   GitHub Actions is disabled, so pushing the tag starts no remote workflow.
+   Publication verifies the package version, annotated tag, and canonical source
+   identity directly. `npm run desktop:release:mac:ci` remains an optional
+   diagnostic for historical Actions evidence.
 5. Confirm the build checkpoint and local receipt still match, then publish
    through the resume lane without repeating completed Apple work:
 

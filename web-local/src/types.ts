@@ -40,6 +40,8 @@ export interface SpaceCustomization {
   bannerName?: string;
   bannerImage?: string | null;
   bannerImagePosition?: SpaceBannerImagePosition;
+  bannerPreset?: import("../../src/shared/space-appearance").SpaceAppearanceBannerPresetId;
+  bannerFraming?: import("../../src/shared/space-appearance").SpaceAppearanceBannerFraming;
 }
 
 export type SpaceCustomizationMap = Record<string, SpaceCustomization>;
@@ -204,7 +206,6 @@ export type SpaceSurfaceTab =
   | (SpaceSurfaceTabBase & { kind: "chat"; conversationId: string | null })
   | (SpaceSurfaceTabBase & { kind: "file"; path: string })
   | (SpaceSurfaceTabBase & { kind: "history"; checkpointId?: string })
-  | (SpaceSurfaceTabBase & { kind: "appearance" })
   | (SpaceSurfaceTabBase & { kind: "app-studio" })
   | (SpaceSurfaceTabBase & { kind: "checks" })
   | (SpaceSurfaceTabBase & { kind: "space-automations" })

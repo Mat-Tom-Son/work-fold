@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import test from "node:test";
@@ -12,6 +12,18 @@ const run = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
 const script = join(root, "scripts", "work-fold-appearance.ts");
 const tsxCli = join(root, "node_modules", "tsx", "dist", "cli.mjs");
+
+test("the inert appearance tool creates bounded built-in banner framing without writing Folder content", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-banner-proposal-"));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const path = join(sandbox, "fold.json");
+  await run(process.execPath, [tsxCli, script, "create", "--name", "Notes", "--color", "#0e7490", "--banner-preset", "fold", "--frame-x", "25", "--frame-y", "72", "--zoom", "1.25", "--out", path], { cwd: sandbox });
+  const proposal = parseSpaceAppearanceProposal(JSON.parse(await readFile(path, "utf8")));
+  assert.equal(proposal.customization.bannerPreset, "fold");
+  assert.deepEqual(proposal.customization.bannerFraming, { x: 25, y: 72, zoom: 1.25 });
+  await assert.rejects(run(process.execPath, [tsxCli, script, "create", "--color", "#0e7490", "--banner-preset", "https://example.test/x.webp", "--out", path]));
+  await assert.rejects(run(process.execPath, [tsxCli, script, "create", "--color", "#0e7490", "--zoom", "3", "--out", path]));
+});
 
 test("the appearance proposal tool emits the new kind, target fields, and default suffix", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-appearance-proposal-"));

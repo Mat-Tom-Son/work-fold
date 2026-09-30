@@ -19,7 +19,14 @@ The translation is intentionally narrow. It does not justify replacing the shell
 
 ### Persistent surface tabs
 
-- Chat, file, History, and appearance surfaces open as tabs instead of route-only panes.
+- Chat, file, and History surfaces open as tabs instead of route-only panes.
+- Customize Folder opens a popup from the Folder header, Manage Folders, or Settings → Appearance,
+  with Banner, Icon, and Color sections, offline image presets, framing, and categorized icon search.
+  Model and Instructions shortcuts open that Folder's AI Models settings; a back arrow beside the
+  Settings title returns to the same Folder and customization section only from this entry path.
+  It stays pinned to the target Folder without creating a tab or replacing the active work surface and uses
+  the shared modal focus, Escape, outside-click, and close-control behavior. Old saved appearance
+  tabs are discarded on restore while the remaining work tabs stay intact.
 - Tabs persist and restore across application restarts.
 - Each tab retains its Space identity; activating a tab from another Space activates that Space.
 - Each Space remembers its most recently active tab.

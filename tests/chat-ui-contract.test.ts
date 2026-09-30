@@ -271,7 +271,7 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /\.filter\(\(model\) => model\.authConfigured\)/);
   assert.match(chatPanel, /"\/api\/agent\/configure", \{\s*method: "POST",\s*body: \{ scope: "space", spaceId, provider: model\.provider, model: model\.id \}/);
   assert.match(chatPanel, /onOpenModelSettings\?\.\(\);\s*\}\}\s*>\s*Model settings/);
-  assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("assistant", "space", true\)\}/);
+  assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("assistant", "space", true, targetSpace\.id\)\}/);
   assert.match(settingsModal, /initialScope=\{initialAssistantScope\} focusModelOnOpen=\{focusAssistantModel\}/);
   assert.match(panes, /<ModelCatalogList id="assistant-model" labelledBy="assistant-model-label"/);
 

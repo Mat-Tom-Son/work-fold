@@ -22,6 +22,7 @@ import { DesktopSettingsModal, type SettingsPage } from "./components/modals/Des
 import { FileVersionHistoryModal } from "./components/modals/FileVersionHistoryModal";
 import { KeyboardShortcutsModal } from "./components/modals/KeyboardShortcutsModal";
 import { AssistantToolsModal } from "./components/modals/AssistantToolsModal";
+import { SpaceAppearanceModal, type SpaceAppearanceSection } from "./components/modals/SpaceAppearanceModal";
 import { TextInputModal } from "./components/modals/TextInputModal";
 import { NewFolderModal, type NewFolderTarget } from "./components/modals/NewFolderModal";
 import { subscribeControlEvents } from "./lib/control-events";
@@ -33,7 +34,7 @@ import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
 import { SpaceAutomationsPane } from "./components/panes/SpaceAutomationsPane";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
-import { SpaceAppearancePanel, SpaceModeRail, SpaceNameEditor, SpacePaneHeader } from "./components/panes/spaceChrome";
+import { SpaceModeRail, SpacePaneHeader } from "./components/panes/spaceChrome";
 import { FileContentSearch } from "./components/panes/FileContentSearch";
 import { ChatsPane, HistoryPane, SpacesPane, type AssistantModelScope } from "./components/panes/spacePanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
@@ -112,6 +113,10 @@ export function App() {
   const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("appearance");
   const [settingsAssistantScope, setSettingsAssistantScope] = useState<AssistantModelScope | undefined>(undefined);
   const [settingsFocusAssistantModel, setSettingsFocusAssistantModel] = useState(false);
+  const [settingsAssistantSpaceId, setSettingsAssistantSpaceId] = useState<string | undefined>();
+  const [settingsFocusAssistantInstructions, setSettingsFocusAssistantInstructions] = useState(false);
+  const [settingsBackAction, setSettingsBackAction] = useState<(() => void) | null>(null);
+  const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
   const [assistantConfigurationRevision, assistantConfigurationChanged] = useAssistantConfigurationRevision(!fixtureRequested);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -133,11 +138,23 @@ export function App() {
     const returnFocus = keyboardShortcutsReturnFocusRef.current;
     window.requestAnimationFrame(() => { if (returnFocus?.isConnected) returnFocus.focus(); });
   }, []);
-  const openSettings = useCallback((page: SettingsPage = "appearance", assistantScope?: AssistantModelScope, focusAssistantModel = false) => {
+  const openSettings = useCallback((page: SettingsPage = "appearance", assistantScope?: AssistantModelScope, focusAssistantModel = false, assistantSpaceId?: string, focusAssistantInstructions = false, backToCustomization?: () => void) => {
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    settingsReturnFocusRef.current = focused && focused !== document.body && !focused.closest(".modal-backdrop")
+      ? focused : document.querySelector<HTMLButtonElement>(".space-pane-switch-trigger");
     setSettingsInitialPage(page);
     setSettingsAssistantScope(page === "assistant" ? assistantScope : undefined);
     setSettingsFocusAssistantModel(page === "assistant" && focusAssistantModel);
+    setSettingsAssistantSpaceId(page === "assistant" ? assistantSpaceId : undefined);
+    setSettingsFocusAssistantInstructions(page === "assistant" && focusAssistantInstructions);
+    setSettingsBackAction(() => backToCustomization ?? null);
     setSettingsOpen(true);
+  }, []);
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    setSettingsBackAction(null);
+    const target = settingsReturnFocusRef.current;
+    window.requestAnimationFrame(() => { if (target?.isConnected && !target.inert) target.focus(); });
   }, []);
   const updateActiveChecksControl = useCallback((control: SpaceChecksControl | null) => {
     if (control || activeChecksControlRef.current?.spaceId === activeSpaceId) {
@@ -307,7 +324,7 @@ export function App() {
     {activeSpace ? <SpaceAppearanceProvider palette={appearance.preferences.palette}><SpaceView space={activeSpace} spaces={boot.spaces} restrictedAppsStore={restrictedAppsState} agent={boot.agent} assistantConfigurationRevision={assistantConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /></SpaceAppearanceProvider> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
-    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={activeSpace} spaces={boot.spaces} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", spaceId: app.sourceSpaceId, app }); }} onOpenAppBuildChat={(spaceId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", spaceId, conversationId }); }} onOpenAppResultFile={(spaceId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", spaceId, path }); }} onOpenAppStudio={(spaceId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", spaceId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
+    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={settingsAssistantSpaceId ? boot.spaces.find((item) => item.id === settingsAssistantSpaceId) ?? null : activeSpace} spaces={boot.spaces} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", spaceId: app.sourceSpaceId, app }); }} onOpenAppBuildChat={(spaceId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", spaceId, conversationId }); }} onOpenAppResultFile={(spaceId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", spaceId, path }); }} onOpenAppStudio={(spaceId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", spaceId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} focusAssistantInstructions={settingsFocusAssistantInstructions} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onBackToCustomization={settingsBackAction ? () => { setSettingsOpen(false); setSettingsBackAction(null); settingsBackAction(); } : undefined} onClose={closeSettings} /> : null}
     {shortcutsOpen ? <KeyboardShortcutsModal onClose={closeKeyboardShortcuts} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
@@ -331,7 +348,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   onCreateSpace: () => void;
   onOpenFolder: () => void;
   onChecksControlChange: (control: SpaceChecksControl | null) => void;
-  onOpenSettings: (page?: SettingsPage, assistantScope?: AssistantModelScope, focusAssistantModel?: boolean) => void;
+  onOpenSettings: (page?: SettingsPage, assistantScope?: AssistantModelScope, focusAssistantModel?: boolean, assistantSpaceId?: string, focusAssistantInstructions?: boolean, backToCustomization?: () => void) => void;
   onOpenShortcuts: () => void;
   onError: (message: string | null) => void;
 }) {
@@ -392,6 +409,10 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   const [newFolderTarget, setNewFolderTarget] = useState<NewFolderTarget | null>(null);
   const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
   const [versionHistory, setVersionHistory] = useState<{ space: SpaceSummary; path: string; name: string } | null>(null);
+  const [appearanceSpaceId, setAppearanceSpaceId] = useState<string | null>(null);
+  const [appearanceInitialSection, setAppearanceInitialSection] = useState<SpaceAppearanceSection>("banner");
+  const appearanceSpace = spaces.find((item) => item.id === appearanceSpaceId);
+  const appearanceReturnFocusRef = useRef<HTMLElement | null>(null);
   const [contextRequest, setContextRequest] = useState<ChatContextPathRequest | null>(null);
   const [draftRequest, setDraftRequest] = useState<ChatDraftRequest | null>(null);
   const draftRequestId = useRef(0);
@@ -567,7 +588,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   useEffect(() => {
     if (!desktopAction) return;
     if (desktopAction.command === "open-checks") tabs.openChecksSurfaceTab(space);
-    else if (desktopAction.command === "customize-space") { const target = spaces.find((item) => item.id === desktopAction.spaceId); if (target) tabs.openAppearanceSurfaceTab(target); }
+    else if (desktopAction.command === "customize-space") { const target = spaces.find((item) => item.id === desktopAction.spaceId); if (target) openSpaceAppearance(target); }
     else if (desktopAction.command === "new-chat") openChat(space, null);
     else if (desktopAction.command === "reload-space-state") void refreshSpaceState();
     else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") setAssistantToolsView("installed");
@@ -666,6 +687,23 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     await Promise.all([onRefreshBootstrap(), tree.refresh(false), loadConversationGroups()]);
     setHistoryRefreshRequest((current) => current + 1);
     showToast({ text: `${space.name} refreshed`, tone: "success" });
+  }
+
+  function openSpaceAppearance(target: SpaceSummary) {
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Menu items and Settings disappear as the popup opens. Return to the
+    // persistent Folder header instead of a detached invoking control.
+    appearanceReturnFocusRef.current = focused && focused !== document.body && !focused.closest("[role='menu'], .modal-backdrop")
+      ? focused
+      : document.querySelector<HTMLButtonElement>(".space-pane-switch-trigger");
+    setAppearanceSpaceId(target.id);
+    setAppearanceInitialSection("banner");
+  }
+
+  function closeSpaceAppearance() {
+    setAppearanceSpaceId(null);
+    const returnFocus = appearanceReturnFocusRef.current;
+    window.requestAnimationFrame(() => { if (returnFocus?.isConnected && !returnFocus.inert) returnFocus.focus(); });
   }
 
   function rememberSpaceAppearance(spaceId: string) {
@@ -1335,8 +1373,8 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   return <main className={paneResize.sidebarResizing ? "space-layout resizing" : "space-layout"} ref={paneResize.spaceLayoutRef} style={layoutStyle}>
     <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenAssistantTools={setAssistantToolsView} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} automations={hasFolderAutomations ? { active: activeTab?.kind === "space-automations" && activeTab.spaceId === space.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel" onKeyDown={activeMode === "spaces" ? leaveManageFoldersOnEscape : undefined}>
-      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} onNewChat={() => openChat(space, null)} onOpenAppearance={() => tabs.openAppearanceSurfaceTab(space)} {...(!fixture && typeof window.workFoldDesktop?.space.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
-      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRemove={(target) => void removeSpace(target)} onDone={leaveManageFolders} /> : null}
+      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} onNewChat={() => openChat(space, null)} onOpenAppearance={() => openSpaceAppearance(space)} {...(!fixture && typeof window.workFoldDesktop?.space.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
+      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={openSpaceAppearance} onRemove={(target) => void removeSpace(target)} onDone={leaveManageFolders} /> : null}
       {activeMode === "files" ? <div className="local-files-panel">
         <input
           ref={uploadRef}
@@ -1462,22 +1500,6 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
                 }}
                 onError={onError}
               />
-            ) : tab.kind === "appearance" ? (
-              <div className="space-appearance-surface professional-appearance-surface">
-                <div className="space-appearance-surface-heading">
-                  <SpaceNameEditor space={targetSpace} onRenameSpace={renameSpace} />
-                </div>
-                <SpaceAppearancePanel
-                  space={targetSpace}
-                  identity={targetIdentity}
-                  customization={customizations[targetSpace.id]}
-                  canUndo={(appearanceHistoryRef.current.get(targetSpace.id)?.length ?? 0) > 0}
-                  onCustomizeSpace={customizeSpace}
-                  onReplaceSpace={replaceSpaceCustomization}
-                  onUndoSpace={undoSpaceCustomization}
-                  onResetSpace={resetSpaceCustomization}
-                />
-              </div>
             ) : tab.kind === "history" ? (
               <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} space={targetSpace} fixtureItems={fixture?.checkpoints[targetSpace.id]} refreshRequest={targetSpace.id === space.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetSpace, item.checkpointId, item.label || "Restore point")} onError={onError} />
             ) : tab.kind === "extension" ? (() => {
@@ -1494,12 +1516,33 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
                 : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this Space." />;
             })() : tab.kind === "chat" ? (
-              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} assistantConfigurationRevision={assistantConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("assistant", "space", true)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} />
+              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} assistantConfigurationRevision={assistantConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("assistant", "space", true, targetSpace.id)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} />
             ) : null}
           </div>
         );
       }) : <SpaceSurfaceEmptyState space={space} identity={identity} onNewChat={() => openChat(space, null)} />}
     </aside>
+    {appearanceSpace ? <SpaceAppearanceModal
+      key={appearanceSpace.id}
+      space={appearanceSpace}
+      initialSection={appearanceInitialSection}
+      identity={spaceIdentityFor(appearanceSpace, customizations)}
+      customization={customizations[appearanceSpace.id]}
+      canUndo={(appearanceHistoryRef.current.get(appearanceSpace.id)?.length ?? 0) > 0}
+      onRenameSpace={renameSpace}
+      onCustomizeSpace={customizeSpace}
+      onReplaceSpace={replaceSpaceCustomization}
+      onUndoSpace={undoSpaceCustomization}
+      onResetSpace={resetSpaceCustomization}
+      onOpenWorkerSettings={(section, returnSection) => {
+        setAppearanceSpaceId(null);
+        onOpenSettings("assistant", "space", section === "model", appearanceSpace.id, section === "instructions", () => {
+          setAppearanceInitialSection(returnSection);
+          setAppearanceSpaceId(appearanceSpace.id);
+        });
+      }}
+      onClose={closeSpaceAppearance}
+    /> : null}
     {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onNewFolder={requestNewFolder} onUploadHere={chooseUpload} onDelete={deleteEntry} onShare={shareFile} shareSpaceId={space.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
     {newFolderTarget ? <NewFolderModal target={newFolderTarget} fixtureMode={Boolean(fixture)} onCreated={(folder) => void folderCreated(folder, newFolderTarget)} onClose={() => setNewFolderTarget(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}

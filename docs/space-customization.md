@@ -10,16 +10,47 @@ Read [the historical role inventory](customization-role-inventory.md) for the or
 
 ## Person-facing experience
 
-Selecting a Space in **Manage Spaces** opens its Space-owned **Customize Space** work tab directly.
-The Space name is editable at the top, followed by the appearance controls. The editor keeps the
-common path direct:
+**Customize Folder** opens a popup dialog from the Folder header, **Manage Folders**, or
+**Settings → Appearance**. Like Settings, Skills & Extensions, and Keyboard Shortcuts, it contains
+keyboard focus and closes with Escape, its close button, or a click outside. It stays pinned to the
+Folder it was opened for and leaves the active Chat or file tab in place; running Chats stay mounted.
+Previously saved Customize tabs are discarded on restore, preserving the remaining tabs.
+The header keeps Banner, Icon, and Color at the top right. The Folder name and paired previews
+stay in fixed positions; only the controls below scroll. The editor keeps the common path direct:
 
-- choose a primary colour and optional banner partner;
-- choose a compact pattern or safe raster image;
-- search the Fluent identity icon catalog;
+- use the compact Banner, Icon, and Color sections;
+- choose from 24 labeled accent presets or a custom color without replacing the banner;
+- set a second color under Banner → Pattern colors, shown only while a pattern uses it;
+- choose a bundled image (Tide, Ember, Fold, or Dusk), compact pattern, or safe raster upload;
+- drag an image preview to reposition, or open Adjust image for position, zoom, and reset;
+- browse Popular, Nature, Life, Creative, Travel, Work, or All in the searchable Fluent icon catalog;
 - compare the resolved identity in light and dark at the same time;
 - see whether text, glyphs, focus borders, and selection indicators meet their contrast targets;
 - undo the latest edits, reset the Space, or import/export a code-free appearance proposal.
+
+The four original image presets ship as local WebP assets with separate picker thumbnails; they
+work offline in the desktop and paired web renderer. They were generated for work-fold with the
+built-in image generation tool from coastal, warm color-field, layered-paper, and dusk concepts.
+Image framing opens in a popover and does not resize the preview or move the controls. Color choices
+show the actual color with a centered selection mark; the accent applies to rail, tab, and Chat identity
+even with an image banner. Pattern banners include a restrained primary-color wash so choosing an
+accent visibly changes the banner; None stays plain, and image artwork keeps its own colors. The
+second pattern color does not recolor image pixels. Updating the preset
+palette preserves existing default Folder colors. The editor uses short labels rather than explanatory paragraphs. Import and export sit under More;
+the footer's Model and Instructions shortcuts open the existing AI Models settings pinned to this
+Folder, even when the popup was opened for a Folder other than the active one. The shortcuts have
+no decorative Worker label or divider. Settings shows a back arrow beside its title only when entered
+through these shortcuts; it returns to the same Folder and Banner, Icon, or Color section. Closing
+Settings or opening it through a normal entry clears that return path.
+
+`bannerPreset` stores one of the four stable preset ids, never an arbitrary asset URL or a copy of
+the image. A safe uploaded `bannerImage` takes precedence if an imported proposal contains both.
+`bannerFraming` stores finite `x` and `y` percentages in 0–100 and `zoom` in 1–2. Invalid framing is
+discarded; older top/center/bottom image positions remain supported until an explicit framing edit.
+Pointer gestures preview locally and commit once on release, so Undo restores the previous framing
+in one step. Arrow keys and labelled sliders provide keyboard controls. Presets, framing, and icons
+use the same version-2 normalization, durable store, and proposal round trips as existing colors.
+Preset titles and header controls get bounded light/dark backing surfaces for readability.
 
 Every edit repaints that Space everywhere it appears, including foreign-Space tabs, switcher rows,
 cards, and Chat groups. Appearance remains application state on this computer. It is not written into
@@ -80,6 +111,8 @@ npm run --silent work-fold:appearance -- resolve client-work.work-fold.json --js
 Use `--created-by claude-code` from Claude Code. `--banner-image <path>` accepts PNG, JPEG, WebP, GIF,
 or BMP, resizes it within 1600×640, and stores a bounded WebP data URL. Run
 `npm run --silent work-fold:appearance -- help` for all options.
+`--banner-preset fold` selects a bundled image; `--frame-x`, `--frame-y`, and `--zoom` set its framing.
+The same flags can frame an uploaded image. Creating a proposal remains inert and never edits a Folder.
 
 The result is inert:
 
@@ -122,6 +155,6 @@ npm test
 npm run desktop:prepare
 ```
 
-For visual acceptance, exercise Customize Space in light and dark at the standard window sizes in
+For visual acceptance, exercise Customize Folder in light and dark at the standard window sizes in
 [the visual system](visual-design.md), including a preset with a secondary colour, a custom image,
 undo, reset, proposal export, and proposal import.
