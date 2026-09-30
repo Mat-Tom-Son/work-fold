@@ -123,7 +123,8 @@
   "overrides": {
     "brace-expansion": "5.0.12",
     "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.8",
+    "ip-address": "10.7.1",
     "js-yaml": "4.3.2",
     "nanoid": "3.3.18",
     "postcss": "8.5.26",
@@ -138,6 +139,9 @@
     },
     "node-gyp": {
       "undici": "6.28.1"
+    },
+    "jsdom": {
+      "undici": "7.29.1"
     },
     "pi-mcp-adapter": {
       "@earendil-works/pi-ai": "$@earendil-works/pi-ai"
