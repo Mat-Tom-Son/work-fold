@@ -9279,7 +9279,7 @@ body:has(> #root > .desktop-chrome-shell) {
   min-height: 24px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-top: 5px;
 }
 
@@ -9287,7 +9287,7 @@ body:has(> #root > .desktop-chrome-shell) {
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 5px;
 }
 
@@ -10743,8 +10743,8 @@ body:has(> #root > .desktop-chrome-shell) {
 
 .context-chip {
   position: relative;
-  flex: 0 0 118px;
-  max-width: 150px;
+  flex: 0 1 auto;
+  max-width: 200px;
   min-width: 0;
   height: 30px;
   display: grid;
@@ -10843,8 +10843,6 @@ body:has(> #root > .desktop-chrome-shell) {
   background: transparent;
 }
 
-.context-chip-main:hover,
-.context-chip-main:focus-visible,
 .context-chip-remove:hover,
 .context-chip-remove:focus-visible {
   background: rgba(255, 255, 255, 0.96);
@@ -15190,8 +15188,6 @@ body:has(> #root > .desktop-chrome-shell) {
   border-color: rgba(148, 163, 184, 0.18);
 }
 
-.app-shell[data-theme="dark"] .context-chip-main:hover,
-.app-shell[data-theme="dark"] .context-chip-main:focus-visible,
 .app-shell[data-theme="dark"] .context-chip-remove:hover,
 .app-shell[data-theme="dark"] .context-chip-remove:focus-visible {
   background: rgba(148, 163, 184, 0.1);

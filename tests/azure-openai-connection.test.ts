@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -123,4 +123,83 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   assert.equal(authStorage.get(AZURE_OPENAI_PROVIDER), undefined);
   assert.equal(modelRegistry.find(AZURE_OPENAI_PROVIDER, "team"), undefined);
   assert.ok(modelRegistry.find(AZURE_OPENAI_PROVIDER, "gpt-4.1"), "removing app settings restores native catalog");
+});
+
+test("Chat titles use the active Azure deployment and its stored connection without unsupported minimal reasoning", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-azure-title-"));
+  const agentDir = join(root, "agent");
+  const spaceRoot = join(root, "space");
+  await mkdir(spaceRoot, { recursive: true });
+  const authStorage = AuthStorage.inMemory();
+  const modelRegistry = ModelRegistry.inMemory(authStorage);
+  const provider: PiRuntimeProvider = { async resolveRuntime() {
+    return { agentDir, authStorage, modelRegistry,
+      preferredModel: { provider: AZURE_OPENAI_PROVIDER, id: "gpt-4.1" },
+      settingsManager: SettingsManager.inMemory({ defaultThinkingLevel: "medium", retry: { enabled: false } }),
+    };
+  } };
+  await saveAzureOpenAIConnection(spaceRoot, {
+    baseUrl: "https://title-fixture.openai.azure.com", deployments: ["gpt-4.1", "gpt-5.2", "gpt-5.5-pro", "gpt-5.6-sol", "gpt-6-astra", "gpt-6.1-sol", "team-review"],
+  }, "synthetic-title-key", provider);
+  const client = new PiConversationClient("azure-title-chat", spaceRoot, provider);
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; key: string | null; body: any }> = [];
+  let incompleteTitle = false;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    requests.push({ url: String(input), key: new Headers(init?.headers).get("api-key"), body });
+    // GPT-5.2/5.4 accept low, but not minimal. Pi's catalog currently exposes
+    // minimal even for these models and for custom deployments derived from it.
+    if (body.reasoning?.effort === "minimal") return new Response(JSON.stringify({ error: {
+      message: "Unsupported value: 'minimal'. Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'.",
+    } }), { status: 400, headers: { "content-type": "application/json" } });
+    const isTitle = JSON.stringify(body.input).includes("Write a specific 3 to 7 word title");
+    const item = { type: "message", id: "msg_fixture", role: "assistant", status: "completed",
+      content: [{ type: "output_text", text: isTitle ? "Review the launch checklist" : "The checklist is ready.", annotations: [] }],
+    };
+    const events = [
+      { type: "response.output_item.done", output_index: 0, item },
+      incompleteTitle && isTitle
+        ? { type: "response.incomplete", response: { id: "resp_fixture", status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: [item] } }
+        : { type: "response.completed", response: { id: "resp_fixture", status: "completed", output: [item] } },
+    ];
+    return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+      headers: { "content-type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+  try {
+    assert.equal((await client.getState()).model?.id, "gpt-4.1");
+    for (const id of ["gpt-5.2", "gpt-5.5-pro", "gpt-5.6-sol", "gpt-6-astra", "gpt-6.1-sol", "team-review", "gpt-4.1"]) {
+      await client.setModel(AZURE_OPENAI_PROVIDER, id);
+      assert.equal(await client.prompt("Review my launch checklist."), "The checklist is ready.");
+      const sessionFile = (await client.getState()).sessionFile!;
+      const beforeTitle = await readFile(sessionFile, "utf8");
+      assert.equal(await client.generateConversationTitle("Review my launch checklist.", "The checklist is ready."), "Review the launch checklist");
+      assert.equal(await readFile(sessionFile, "utf8"), beforeTitle, "naming must not append a turn to the Pi session");
+      const turn = requests.at(-2)!;
+      const title = requests.at(-1)!;
+      assert.equal(turn.body.model, id);
+      assert.equal(title.body.model, id, "the current Chat model wins over the saved default");
+      assert.equal(title.url, "https://title-fixture.openai.azure.com/openai/v1/responses?api-version=v1");
+      assert.equal(title.url, turn.url);
+      assert.equal(title.key, "synthetic-title-key");
+      assert.equal(title.key, turn.key);
+      assert.equal(title.body.tools, undefined);
+      assert.equal(title.body.max_output_tokens, 2048);
+      assert.equal(title.body.reasoning?.effort, id === "gpt-4.1" ? undefined : id === "gpt-5.5-pro" ? "medium" : "low");
+      assert.equal(title.body.input.length, 2, "only the naming prompt and first exchange enter the request");
+    }
+    assert.equal(requests.length, 14, "one isolated title request per call, without retries or provider fallback");
+    incompleteTitle = true;
+    await client.setModel(AZURE_OPENAI_PROVIDER, "gpt-6-astra");
+    const sessionFile = (await client.getState()).sessionFile!;
+    const beforeTitle = await readFile(sessionFile, "utf8");
+    await assert.rejects(client.generateConversationTitle("Review my launch checklist.", "The checklist is ready."), /Chat title request length/);
+    assert.equal(requests.length, 15, "a truncated response does not trigger a retry");
+    assert.equal(await readFile(sessionFile, "utf8"), beforeTitle);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await client.stop();
+    await rm(root, { recursive: true, force: true });
+  }
 });

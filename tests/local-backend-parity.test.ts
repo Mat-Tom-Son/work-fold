@@ -268,7 +268,7 @@ test("local API exposes path-safe file operations, undo checkpoints, chat rename
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ path: "Archive/note.txt" }),
   }) as { attachment: { mode: string; includedInPrompt: boolean } };
-  assert.deepEqual(attachment.attachment, { ...attachment.attachment, mode: "full_original_text", includedInPrompt: true });
+  assert.deepEqual(attachment.attachment, { ...attachment.attachment, mode: "path_only_reference", includedInPrompt: false });
 
   const controller = new AbortController();
   const eventsResponse = await fetch(`${api.origin}/api/spaces/${id}/file-events`, {

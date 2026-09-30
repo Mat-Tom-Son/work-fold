@@ -7,13 +7,14 @@ import { join } from "node:path";
 import test from "node:test";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { PiConversationClient, PiTurnFailure } from "../src/local/agent/pi-client.js";
-import { loadConversationContextAttachmentsForTurn } from "../src/local/conversation-context.js";
+import { loadConversationContextReferencesForTurn } from "../src/local/conversation-context.js";
 
 test("native dispatch loads attachments against the actual model and marks length exhaustion incomplete", { timeout: 15_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-admission-"));
   const agentDir = join(root, "pi"), spaceRoot = join(root, "folder");
   await mkdir(join(agentDir, "extensions"), { recursive: true }); await mkdir(spaceRoot);
   await writeFile(join(spaceRoot, "oversized.txt"), "DO_NOT_INLINE_THIS ".repeat(16_000));
+  await writeFile(join(spaceRoot, "small.txt"), "SMALL_BODY_MUST_NOT_BE_INLINED");
   const payloads: any[] = [];
   const server = createServer((request, response) => {
     let body = "";
@@ -21,8 +22,12 @@ test("native dispatch loads attachments against the actual model and marks lengt
     request.on("end", () => {
       payloads.push(JSON.parse(body));
       response.writeHead(200, { "content-type": "text/event-stream", connection: "close" });
-      for (const [delta, finish_reason] of [[{ role: "assistant", content: payloads.length === 1 ? "I can read the file by path." : "An unfinished sentence" }, null], [{}, payloads.length === 1 ? "stop" : "length"]]) {
-        response.write(`data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "small", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+      const first = payloads.length === 1;
+      const delta = first
+        ? { role: "assistant", tool_calls: [{ index: 0, id: "call_read", type: "function", function: { name: "read", arguments: JSON.stringify({ path: "small.txt" }) } }] }
+        : { role: "assistant", content: payloads.length === 2 ? "I can read the file by path." : "An unfinished sentence" };
+      for (const [chunk, finish_reason] of [[delta, null], [{}, first ? "tool_calls" : payloads.length === 2 ? "stop" : "length"]]) {
+        response.write(`data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "small", choices: [{ index: 0, delta: chunk, finish_reason }] })}\n\n`);
       }
       response.end("data: [DONE]\n\n");
     });
@@ -40,20 +45,24 @@ test("native dispatch loads attachments against the actual model and marks lengt
   t.after(async () => { await client.stop(); await new Promise<void>((resolve) => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); });
   let admittedBudget = -1;
   const reply = await client.prompt("Inspect my file.", { loadContextAttachments: async (budget) => {
-    admittedBudget = budget; return loadConversationContextAttachmentsForTurn(spaceRoot, ["oversized.txt"], budget);
+    admittedBudget = budget; return loadConversationContextReferencesForTurn(spaceRoot, ["oversized.txt", "small.txt"], budget);
   } });
   assert.ok(admittedBudget >= 0 && admittedBudget < 32768);
   assert.equal(reply, "I can read the file by path.");
   const context = JSON.stringify(payloads[0]);
   assert.match(context, /oversized.txt/);
-  assert.doesNotMatch(context, /DO_NOT_INLINE_THIS/);
+  assert.match(context, /small.txt/);
+  assert.match(context, /Use your file or document tools/);
+  assert.doesNotMatch(context, /DO_NOT_INLINE_THIS|SMALL_BODY_MUST_NOT_BE_INLINED/);
+  assert.match(JSON.stringify(payloads[1]), /SMALL_BODY_MUST_NOT_BE_INLINED/, "the original contents arrive only after the Worker's native read tool runs");
+  assert.ok(payloads[1].messages.some((message: any) => message.role === "tool"));
   await assert.rejects(client.prompt("Continue with a long answer."), (error) => {
     assert.ok(error instanceof PiTurnFailure);
     assert.match(error.message, /response length limit/);
     assert.equal(error.partialText, "An unfinished sentence");
     return true;
   });
-  assert.equal(payloads.length, 2, "no automatic replay or additional paid turn on length exhaustion");
+  assert.equal(payloads.length, 3, "one tool read, its reply, and one incomplete response, without automatic replay");
 });
 
 

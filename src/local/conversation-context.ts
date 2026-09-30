@@ -54,6 +54,59 @@ export async function previewConversationContextAttachment(
   return { ...attachment, budgetStatus: "preview", detail: `${attachment.detail} This is an extraction preview. Inline inclusion is decided when sending, using the selected model and current conversation; the file path remains available to tools.` };
 }
 
+/** Staging a Folder file attaches its path, without reading or extracting its body. */
+export async function previewConversationContextReference(
+  spaceRoot: string,
+  input: { path: string },
+): Promise<ConversationContextAttachment> {
+  const sourcePath = normalizePath(input.path);
+  if (!sourcePath) throw new Error("Choose a file to attach.");
+  const path = resolveSpacePath(spaceRoot, sourcePath);
+  const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") throw new Error(`File not found: ${sourcePath}`);
+    throw error;
+  });
+  if (!info.isFile()) throw new Error("Only files can be attached to Chat.");
+  return {
+    sourcePath, sourceFileName: basename(sourcePath), sourceSizeBytes: info.size,
+    mode: "path_only_reference", includedInPrompt: false, reason: null,
+    estimatedTokens: 0, budgetTokens: 0, provenance: [], warnings: [],
+    userLabel: "File", detail: "The Worker can inspect this file with its tools when you send your message.",
+  };
+}
+
+/** Folder Workers inspect original files with tools; images retain native vision admission. */
+export async function loadConversationContextReferencesForTurn(
+  spaceRoot: string,
+  paths: string[],
+  availableTokens?: number,
+): Promise<LoadedConversationContextAttachment[]> {
+  const budgetTokens = chatContextBudgetTokens(availableTokens);
+  let remaining = budgetTokens;
+  const result: LoadedConversationContextAttachment[] = [];
+  for (const sourcePath of [...new Set(paths.map(normalizePath).filter(Boolean))]) {
+    try {
+      const reference = await previewConversationContextReference(spaceRoot, { path: sourcePath });
+      if (imageExtensions.has(extname(sourcePath).toLowerCase())) {
+        const image = await loadAttachment(spaceRoot, sourcePath, remaining, budgetTokens);
+        if (image.mode === "image" || image.mode === "path_only_reference") {
+          if (image.includedInPrompt) remaining -= image.estimatedTokens;
+          result.push(image);
+          continue;
+        }
+      }
+      result.push({ ...reference, budgetTokens, text: null });
+    } catch (error) {
+      result.push(pathOnlyAttachment({
+        sourcePath, sourceFileName: basename(sourcePath), sourceSizeBytes: 0,
+        budgetTokens, estimatedTokens: 0, provenance: [], warnings: [],
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+  return result;
+}
+
 export async function loadConversationContextAttachmentsForTurn(
   spaceRoot: string,
   paths: string[],

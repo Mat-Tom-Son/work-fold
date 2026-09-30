@@ -97,18 +97,18 @@ export const ChatMessageRow = memo(function ChatMessageRow({
       </div>
       <footer className="message-footer">
         <span className="message-footer-meta">
-          {message.role === "user" && message.delivery === "steer" ? (
-            <span className="message-delivery" title="Sent while the Assistant was working; it applied after the step in progress.">Sent mid-turn</span>
-          ) : null}
+          <MessageActions
+            copied={copied}
+            onCopy={() => void onCopyMessage(message.id, message.content)}
+          />
           {message.createdAt && messageTime ? (
             <time className="message-time" dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>
               {messageTime}
             </time>
           ) : null}
-          <MessageActions
-            copied={copied}
-            onCopy={() => void onCopyMessage(message.id, message.content)}
-          />
+          {message.role === "user" && message.delivery === "steer" ? (
+            <span className="message-delivery" title="Sent while the Assistant was working; it applied after the step in progress.">Sent mid-turn</span>
+          ) : null}
         </span>
       </footer>
     </article>

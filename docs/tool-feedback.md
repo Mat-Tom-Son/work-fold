@@ -335,7 +335,10 @@ That comparison describes an interval's bytes; native edit evidence describes a
 particular tool call. They must not be conflated when other people or programs can
 write the same file.
 
-PowerPoint and spreadsheet attachments follow their package manifest relationship
+Folder Chat file attachments are references to the originals, inspected with
+native file and document tools rather than eagerly extracted into the prompt.
+The bounded Office text reader used by management attachments remains available:
+PowerPoint and spreadsheet extractions follow their package manifest relationship
 order. A reader that cannot resolve all declared parts returns the existing
 path-only reference with a reason, rather than claiming partial extraction is full.
 Per-part decompression bounds, the 64 MiB cumulative XML bound and the extracted-output

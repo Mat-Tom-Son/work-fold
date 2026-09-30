@@ -110,7 +110,7 @@ test("Darwin file-tree context menus use native command IDs while Windows keeps 
   assert.match(app, /if \(isMacOS\(\) && popupFileMenu\)/);
   assert.match(app, /popupFileMenu\(\{[\s\S]*?spaceId: space\.id[\s\S]*?path: entry\.path[\s\S]*?kind: entry\.kind[\s\S]*?capabilities:/);
   assert.match(app, /open: entry\.kind === "folder" \|\| canOpenDirectly\(entry\.path\)/);
-  for (const command of ["open", "reveal", "copy-path", "attach-chat", "version-history", "upload-here", "rename", "delete"]) {
+  for (const command of ["open", "reveal", "copy-path", "attach-chat", "version-history", "new-folder", "upload-here", "rename", "delete"]) {
     assert.match(app, new RegExp(`command === "${command}"`));
   }
   assert.match(app, /setFileContextMenu\(\{ entry,[\s\S]*?returnFocusTarget \}\)/, "non-Mac and bridge-less sessions retain the React menu");
