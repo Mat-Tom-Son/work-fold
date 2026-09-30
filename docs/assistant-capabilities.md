@@ -214,6 +214,36 @@ Results expose their source and link back to it. Search, type filters, and sorti
 
 ## Authentication and external connections
 
+In **Settings → AI Models**, Azure OpenAI accepts an endpoint, an API key,
+and **Deployment names**, separated by commas or new lines. Copy the Name
+under Deployment info in Azure. These names become the Azure model choices;
+there is no prerequisite catalog-model selection or user-written mapping.
+With multiple names, choose which deployment this Worker or the work-fold
+agent uses. All names use the same endpoint. Resource endpoints and pasted
+Responses URLs (including the portal's `api-version` query) normalize to
+`/openai/v1`; the saved API version is `v1`.
+
+work-fold registers the entered names through Pi's native ModelRegistry on
+each runtime load. Model metadata follows Pi's CLI resolution policy, which
+uses catalog metadata where available and a provider fallback for unknown
+names. The request's model ID is always the exact entered deployment name,
+even when Pi's fuzzy matcher suggests a catalog entry. Pi `models.json`
+model definitions and overrides remain available for precise metadata when
+a custom deployment name hides its underlying model's capabilities.
+
+Settings persist in the provider credential's Pi `env` values:
+`AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_VERSION`, and the JSON name list
+`WORKFOLD_AZURE_OPENAI_DEPLOYMENTS`. Identity mappings in
+`AZURE_OPENAI_DEPLOYMENT_NAME_MAP` keep ambient aliases from redirecting the
+entered names. The desktop uses its existing encrypted AuthStorage host;
+these settings are shared across Folders and the work-fold agent. Saving
+with a blank key preserves the current key or Azure API-key environment
+reference. The form only reads back the endpoint and names, never the key or
+other provider environment values. Removing the stored credential removes
+its stored connection settings; external environment configuration can still
+apply. Saving validates configuration without making a paid inference request,
+claiming the connection was tested, or discovering or creating deployments.
+
 Model-provider credentials belong to **Settings → Agents** and application/Pi storage, never to a Space. They are machine-wide connections. The selected provider/model pair is a separate machine-local preference keyed by portable Space identity, with one additional preference for the fold; each Space may also keep bounded machine-local **Space instructions** under that same identity. Instructions are appended through Pi's native system-prompt override after work-fold's required prompt, never written into `.work-fold/` or `.pi/`, and sent to the selected provider with every subsequent turn in that Space. The fold may inspect and change a Space's model default and instructions through `spaces assistant`, but it cannot enter, replace, remove, or inspect provider credentials. The desktop path supports API-key setup and exposes Pi's provider OAuth flows when a provider advertises one. work-fold opens the provider URL in the system browser, handles device-code and manual-code prompts in native desktop UI, and persists the result through its existing encrypted Pi AuthStorage host. OpenRouter's tool-capable text-model list can be refreshed explicitly from its live API; normalized model metadata and the last successful response are cached in app state without the credential and injected into each fresh cwd-specific Pi registry so display and execution use the same catalog. A failed refresh keeps the previous live cache or Pi's built-in catalog. Support must still be described provider by provider: the presence of a Pi OAuth implementation is not proof that every account tier, billing policy, or packaged release flow has been verified. Restricted-app connections, including an app's OAuth setup, instead live with that app in **Settings → Apps**.
 
 Restricted-app connection credentials use a separate encrypted namespace and host-owned setup UI; they do not reuse model-provider AuthStorage or pass secrets through app JavaScript. Public HTTPS targets can declare `none`, API key, bearer, basic, or OAuth 2 PKCE. PKCE accepts only a public issuer, a supplied client id for a provider registration that supports public clients without a client secret, and non-OIDC scopes; work-fold owns discovery, the system-browser callback, encrypted tokens, and refresh. It does not accept a client secret, device-code flow, or package-supplied endpoints. Credential replacement, **Disconnect**, app update, and app removal invalidate the OAuth binding generation so an in-flight browser connection or token refresh cannot restore a deleted local token. Revoking destination access leaves its separately stored connection in place; **Disconnect** deletes the local record but does not revoke or rotate the credential at its provider. Numeric `127.0.0.1` and `::1` targets are a separate anonymous-only permission with no DNS, redirects, or saved credentials; work-fold does not yet verify which process owns the port. The broker derives app and Space identity from the sandbox's sender, injects authorization, strips sensitive headers, and enforces target, method, redirect, size, and time bounds.

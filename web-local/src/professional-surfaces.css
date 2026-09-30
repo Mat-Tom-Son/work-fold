@@ -837,6 +837,22 @@
   margin-top: 14px;
 }
 
+.professional-assistant .assistant-azure-connection {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  min-width: 0;
+}
+
+.professional-assistant .assistant-azure-connection .professional-field {
+  min-width: 0;
+}
+
+.professional-assistant .assistant-azure-connection .professional-field-hint {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .professional-assistant .assistant-form-actions .professional-button {
   flex-shrink: 0;
 }
@@ -974,6 +990,7 @@
   font-size: 14px;
 }
 
+.professional-assistant .assistant-azure-connection textarea,
 .professional-assistant .assistant-instructions-field textarea {
   min-width: 0;
   width: 100%;
@@ -989,10 +1006,12 @@
   line-height: 1.5;
 }
 
+.professional-assistant .assistant-azure-connection textarea::placeholder,
 .professional-assistant .assistant-instructions-field textarea::placeholder {
   color: var(--ui-text-subtle);
 }
 
+.professional-assistant .assistant-azure-connection textarea:focus,
 .professional-assistant .assistant-instructions-field textarea:focus {
   border-color: var(--ui-accent);
   outline: 2px solid color-mix(in srgb, var(--ui-accent) 18%, transparent);
@@ -5992,4 +6011,8 @@ button.capabilities-resource-card:focus-visible {
   background: var(--ui-surface-subtle);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-md);
+}
+
+.professional-assistant .assistant-azure-connection textarea {
+  min-height: 74px;
 }

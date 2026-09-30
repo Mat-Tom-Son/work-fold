@@ -20,6 +20,7 @@ import {
   type ModelThinkingLevel,
 } from "@earendil-works/pi-ai/compat";
 
+import { applyAzureOpenAIDeployments } from "./azure-openai-models.js";
 import { defaultAgentSdkDir, spaceSessionDir } from "./agent-data-dir.js";
 import type { PiExtensionUiBridge } from "./extension-ui.js";
 import type { ModelContextInspector } from "./model-context-inspector.js";
@@ -282,6 +283,7 @@ export async function resolvePiRuntime(
   const modelRegistry = config.modelRegistry
     ?? ModelRegistry.create(authStorage, join(agentDir, "models.json"));
   applyModelCatalogs(modelRegistry, config.modelCatalogs ?? []);
+  applyAzureOpenAIDeployments(authStorage, modelRegistry);
   const settingsPreferred = preferredModelFromSettings(initialSettings);
   const metadataPreferred = config.metadata?.provider && config.metadata.model
     ? { provider: config.metadata.provider, id: config.metadata.model }
