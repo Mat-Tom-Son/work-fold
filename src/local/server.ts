@@ -136,6 +136,8 @@ import {
   type PiOAuthHooks,
   type PiSetupStatus,
 } from "./agent/pi-runtime-config.js";
+import { getAzureOpenAIConnection, saveAzureOpenAIConnection } from "./agent/azure-openai-connection.js";
+import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, type AzureOpenAIConnection } from "../shared/azure-openai.js";
 import { loadConversationContextAttachmentsForTurn, previewConversationContextAttachment } from "./conversation-context.js";
 import {
   classifyManagementAttachments,
@@ -2647,6 +2649,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       })),
       status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
       catalogs: await listPiModelCatalogs(state.runtimeProvider),
+      azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider),
       instructions: scope.id === workFoldManagementScopeId
         ? null
         : await getPiAssistantInstructions(scope.spaceRoot, state.runtimeProvider),
@@ -2711,21 +2714,41 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/configure") {
-    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string; apiKey?: string }>(state, req);
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string; apiKey?: string; azure?: unknown }>(state, req);
     const scope = await configuredAssistantModelScope(body.scope, body.spaceId, body.provider, body.model);
-    const selected = (await listPiModels(scope.spaceRoot, state.runtimeProvider))
-      .find((model) => model.provider === body.provider && model.id === body.model);
-    if (!selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
-    if (!body.apiKey?.trim() && !selected.authConfigured) {
-      throw badRequest(`Enter an API key for ${selected.providerName}.`);
+    let azure: AzureOpenAIConnection | undefined;
+    if (body.azure !== undefined) {
+      if (body.provider !== AZURE_OPENAI_PROVIDER) throw badRequest("Azure settings require the Azure OpenAI provider.");
+      try { azure = normalizeAzureOpenAIConnection(body.azure); } catch (error) { throw badRequest(errorMessage(error)); }
+    }
+    const available = await listPiModels(scope.spaceRoot, state.runtimeProvider);
+    const selected = available.find((model) => model.provider === body.provider && model.id === body.model);
+    if (azure) {
+      if (!azure.deployments.includes(body.model!)) throw badRequest("Choose one of the Azure deployment names you entered.");
+    } else if (!selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
+    const providerAuth = azure
+      ? available.some((model) => model.provider === body.provider && model.authConfigured)
+      : selected?.authConfigured;
+    if (!body.apiKey?.trim() && !providerAuth) {
+      throw badRequest(`Enter an API key for ${selected?.providerName ?? "Azure OpenAI"}.`);
     }
     await runCapabilityMutation(state, scope, "global", async () => {
-      if (body.apiKey?.trim()) {
+      if (azure) {
+        await saveAzureOpenAIConnection(scope.spaceRoot, azure, body.apiKey, state.runtimeProvider);
+      } else if (body.apiKey?.trim()) {
         await savePiApiKey(scope.spaceRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
       }
       await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
     }, { requireProjectTrust: false });
-    sendJson(res, { status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)) });
+    sendJson(res, {
+      status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
+      ...(azure ? {
+        azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider),
+        models: (await listPiModels(scope.spaceRoot, state.runtimeProvider)).map((model) => ({
+          ...model, oauthSupported: model.oauthSupported && Boolean(state.piOAuthHooks),
+        })),
+      } : {}),
+    });
     return;
   }
   if (method === "DELETE" && url.pathname === "/api/agent/auth") {
@@ -2738,6 +2761,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, {
       models: await listPiModels(scope.spaceRoot, state.runtimeProvider),
       status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
+      ...(body.provider === AZURE_OPENAI_PROVIDER ? { azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider) } : {}),
     });
     return;
   }

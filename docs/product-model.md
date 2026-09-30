@@ -74,6 +74,16 @@ refresh backed by its tool-capable text-model API; the last good result is
 cached outside every Folder and Pi's built-in catalog remains a fallback. A
 restricted Folder app's connection is managed with that app in **Settings → Apps**.
 
+Azure OpenAI setup in AI Models takes an endpoint, an API key, and the names
+of the person's deployed models (separated by commas or new lines). These
+names become the available Azure choices; choosing a built-in Pi model or
+writing a mapping is not required. One deployment is selected separately for
+each Folder and the work-fold agent. Connection settings are machine-wide,
+use Pi's existing provider credential storage, and can be edited without
+re-entering the key. Pasted Responses URLs normalize to the v1 endpoint.
+Saving configures existing deployments at one endpoint; it does not test
+inference, sign in to Azure, or discover deployments.
+
 Each open tab belongs to one Folder. Selecting a tab takes the user back to
 that Folder; selecting a Folder restores its most recent tab. With four or more
 tabs open, tabs narrow but keep their Folder icon and a normal close button. A
