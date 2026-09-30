@@ -75,9 +75,10 @@ function readFileSyncLike(relativePath: string): Promise<string> {
   return readFile(join(root, relativePath), "utf8");
 }
 
-test("Files removes unsupported create controls and naming uses in-app UI", () => {
-  assert.doesNotMatch(app, /aria-label="New (?:file|folder)"/i);
-  assert.doesNotMatch(app, /onNewFolder=|onNewFile=/);
+test("Files exposes folder creation and naming uses in-app UI", () => {
+  assert.match(app, /aria-label="New folder"/);
+  assert.match(app, /onNewFolder=\{requestNewFolder\}/);
+  assert.doesNotMatch(app, /aria-label="New file"|onNewFile=/i);
   assert.doesNotMatch(`${app}\n${panes}`, /window\.prompt\s*\(/);
   assert.match(app, /<TextInputModal[^>]*title=\{`Rename/);
 });
@@ -346,10 +347,10 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
               </div>
               <footer class="message-footer">
                 <span class="message-footer-meta">
-                  <time class="message-time">now</time>
                   <div class="message-actions">
                     <button class="message-copy-button" aria-label="Copy message"></button>
                   </div>
+                  <time class="message-time">now</time>
                 </span>
               </footer>
             </article>

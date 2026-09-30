@@ -162,6 +162,48 @@ async function loadChatPanel(t: { after: (cleanup: () => void) => void }) {
   return import("../web-local/src/components/chat/ChatPanel.js");
 }
 
+test("attached file references show only the file icon, name and removal control, and deduplicate paths", async (t) => {
+  const { ChatPanel } = await loadChatPanel(t);
+  const dom = await createDomHarness();
+  HTMLElement.prototype.scrollIntoView = () => {};
+  const previousFetch = globalThis.fetch;
+  t.after(async () => { await dom.cleanup(); globalThis.fetch = previousFetch; });
+  const target = space("workshop");
+  const path = "Notes/Review.pdf";
+  let attachmentRequests = 0;
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input);
+    if (url === "/api/events") return closedStream(init);
+    if (url.endsWith("/context-attachments")) {
+      attachmentRequests++;
+      return Response.json({ attachment: { sourcePath: path, sourceFileName: "Review.pdf", mode: "path_only_reference", includedInPrompt: false, reason: null, warnings: [] } });
+    }
+    if (url.endsWith("/conversations")) return Response.json({ conversations: [] });
+    if (url.endsWith("/agent/catalog")) return Response.json({ commands: [], skills: [], extensions: [], diagnostics: [] });
+    if (url.includes("/agent/status")) return Response.json({ status: { configured: true, provider: "test", model: "synthetic" } });
+    if (url.includes("/agent/composer")) return Response.json({ composer: { thinkingLevel: "off", thinkingLevels: ["off"] } });
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+  const chatProps = {
+    space: target, spaceCustomizations: {},
+    selectedPath: null, onAgentFinished() {}, surfaceTabId: "attachment-chat",
+  };
+  const request = (id: number) => ({ id, path, spaceId: target.id, surfaceTabId: "attachment-chat" });
+  await dom.render(createElement(ChatPanel, { ...chatProps, contextPathRequest: request(1) }));
+  await dom.waitFor(() => dom.container.querySelector(".context-chip-name")?.textContent === "Review.pdf");
+  const chip = dom.container.querySelector<HTMLElement>(".context-chip")!;
+  assert.equal(chip.className, "context-chip", "a normal reference has no error or extraction state styling");
+  assert.equal(chip.title, path);
+  assert.ok(chip.querySelector(".file-icon"));
+  assert.equal(chip.querySelectorAll("button").length, 1, "the only chip action is removal");
+  assert.equal(chip.querySelector(".context-chip-status"), null);
+  await dom.render(createElement(ChatPanel, { ...chatProps, contextPathRequest: request(2) }));
+  assert.equal(dom.container.querySelectorAll(".context-chip").length, 1);
+  assert.equal(attachmentRequests, 1);
+  await dom.act(() => { chip.querySelector<HTMLButtonElement>("button")!.click(); });
+  assert.equal(dom.container.querySelector('[aria-label="Attached files"]'), null);
+});
+
 test("an externally accepted answer is visible during its continuation and an older settlement cannot restore the previous reply", async (t) => {
   const { ChatPanel } = await loadChatPanel(t);
   const dom = await createDomHarness();

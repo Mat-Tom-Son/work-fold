@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowSync16Regular, Settings24Regular } from "@fluentui/react-icons";
+import { ArrowSync16Regular, FolderAdd16Regular, Settings24Regular } from "@fluentui/react-icons";
 import { AlertTriangle, CirclePlus, Download, FolderOpen, Loader2, Search, Upload, X } from "lucide-react";
 import {
   accentIdentityFromHex,
@@ -23,6 +23,7 @@ import { FileVersionHistoryModal } from "./components/modals/FileVersionHistoryM
 import { KeyboardShortcutsModal } from "./components/modals/KeyboardShortcutsModal";
 import { AssistantToolsModal } from "./components/modals/AssistantToolsModal";
 import { TextInputModal } from "./components/modals/TextInputModal";
+import { NewFolderModal, type NewFolderTarget } from "./components/modals/NewFolderModal";
 import { subscribeControlEvents } from "./lib/control-events";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
@@ -388,6 +389,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   const sharedPages = useSharedPages(Boolean(fixture));
   const sharedPaths = useMemo(() => sharedPathsForSpace(sharedPages, space.id), [sharedPages, space.id]);
   const [renameEntryRequest, setRenameEntryRequest] = useState<{ path: string; name: string } | null>(null);
+  const [newFolderTarget, setNewFolderTarget] = useState<NewFolderTarget | null>(null);
   const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
   const [versionHistory, setVersionHistory] = useState<{ space: SpaceSummary; path: string; name: string } | null>(null);
   const [contextRequest, setContextRequest] = useState<ChatContextPathRequest | null>(null);
@@ -876,7 +878,6 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     const surfaceTabId = existing?.id ?? tabs.openChatSurfaceTab(space, null);
     if (existing) tabs.setActiveSurfaceTabId(existing.id);
     setContextRequest({ id: ++contextRequestId.current, path, spaceId: space.id, surfaceTabId });
-    showToast({ text: `Attached ${path.split("/").pop() ?? path} to Chat`, tone: "success" });
   }
 
   async function openContextMenu(entry: TreeEntry, event: React.MouseEvent<HTMLElement>) {
@@ -916,6 +917,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
         else if (command === "attach-chat") attachToChat(entry.path);
         else if (command === "version-history") openVersionHistory(space, entry.path);
         else if (command === "share") shareFile(entry.path);
+        else if (command === "new-folder") requestNewFolder(entry.path);
         else if (command === "upload-here") chooseUpload(entry.path);
         else if (command === "rename") renameEntry(entry.path);
         else if (command === "delete") await deleteEntry(entry.path);
@@ -966,6 +968,18 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     }
   }
   function chooseUpload(targetPath = "") { setUploadTargetPath(targetPath); uploadRef.current?.click(); }
+
+  function requestNewFolder(parentPath = "") {
+    setNewFolderTarget({ spaceId: space.id, spaceName: space.name, parentPath });
+  }
+  async function folderCreated(folder: { path: string; name: string }, target: NewFolderTarget) {
+    showHistorySaved(`Created ${folder.name}`);
+    if (activeSpaceIdRef.current !== target.spaceId) return;
+    tree.setQuery("");
+    await tree.refresh();
+    if (activeSpaceIdRef.current !== target.spaceId) return;
+    if (target.parentPath) tree.toggleFolder(target.parentPath, true);
+  }
 
   async function moveEntry(sourcePath: string, targetFolderPath: string) {
     if (fixture || !sourcePath || sourcePath === targetFolderPath || isInsideFolder(targetFolderPath, sourcePath)) return;
@@ -1358,6 +1372,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
           {tree.treeTruncated ? <span className="file-tree-truncated" title="This Space holds more items than Files lists at once. Open a folder to see its contents, or search by name or contents.">Partial list</span> : null}
           <ChecksToolbarButton status={checks.status} loading={checks.loading} unavailable={checks.unavailable} onClick={() => tabs.openChecksSurfaceTab(space)} />
           {refreshFilesButton}
+          <button className="minimal-icon-button" type="button" onClick={() => requestNewFolder()} aria-label="New folder" title="New folder"><FolderAdd16Regular /></button>
           <button className="minimal-icon-button" type="button" disabled={uploadingFiles} onClick={() => chooseUpload("")} aria-label="Add files" title="Add files"><Upload size={15} /></button>
         </div>
         <div
@@ -1485,7 +1500,8 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
         );
       }) : <SpaceSurfaceEmptyState space={space} identity={identity} onNewChat={() => openChat(space, null)} />}
     </aside>
-    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onShare={shareFile} shareSpaceId={space.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
+    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onNewFolder={requestNewFolder} onUploadHere={chooseUpload} onDelete={deleteEntry} onShare={shareFile} shareSpaceId={space.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
+    {newFolderTarget ? <NewFolderModal target={newFolderTarget} fixtureMode={Boolean(fixture)} onCreated={(folder) => void folderCreated(folder, newFolderTarget)} onClose={() => setNewFolderTarget(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
     {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onClose={() => setChatActions(null)} /> : null}
     {versionHistory ? <FileVersionHistoryModal space={versionHistory.space} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}

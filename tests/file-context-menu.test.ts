@@ -44,8 +44,10 @@ test("native folder menus expose only applicable fixed actions", () => {
     capabilities: { open: true, attach: true, history: true, upload: true, rename: false, delete: false, share: false, shared: false },
   });
   assert.deepEqual(nativeFileMenuItems(request).map((item) => item.type === "separator" ? "separator" : item.command), [
-    "open", "reveal", "copy-path", "separator", "upload-here",
+    "open", "reveal", "copy-path", "separator", "new-folder", "upload-here",
   ]);
+  const root = parseNativeFileMenuRequest({ ...request, path: "", capabilities: { ...request.capabilities, upload: false } });
+  assert.ok(nativeFileMenuItems(root).some((item) => item.type === "item" && item.command === "new-folder"));
 });
 
 test("native file menu requests reject unbounded or path-escaping renderer input", () => {

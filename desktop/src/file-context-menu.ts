@@ -8,6 +8,7 @@ export type NativeFileMenuCommand =
   | "attach-chat"
   | "version-history"
   | "share"
+  | "new-folder"
   | "upload-here"
   | "rename"
   | "delete";
@@ -102,11 +103,12 @@ export function nativeFileMenuItems(request: NativeFileMenuRequest): NativeFileM
   if (request.kind === "file" && request.capabilities.share) {
     items.push({ type: "item", label: request.capabilities.shared ? "Shared" : "Share", command: "share" });
   }
-  if (request.kind === "folder" && request.capabilities.upload) {
+  if (request.kind === "folder") {
     items.push(
       { type: "separator" },
-      { type: "item", label: "Add Files Here…", command: "upload-here" },
+      { type: "item", label: "New Folder Here…", command: "new-folder" },
     );
+    if (request.capabilities.upload) items.push({ type: "item", label: "Add Files Here…", command: "upload-here" });
   }
   if (request.path && (request.capabilities.rename || request.capabilities.delete)) {
     items.push({ type: "separator" });

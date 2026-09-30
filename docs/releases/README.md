@@ -4,6 +4,12 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## September 30, 2026
+
+[0.4.39](work-fold-0.4.39.md) adds folder creation in Files, simplifies file
+attachments, improves automatic Chat titles for Azure reasoning models, and
+aligns message copy controls and timestamps.
+
 ## September 29, 2026
 
 [0.4.38](work-fold-0.4.38.md) adds Azure OpenAI connection setup with

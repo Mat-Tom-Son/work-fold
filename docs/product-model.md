@@ -102,7 +102,10 @@ A new Chat begins with a temporary **New Chat** label. After its first successfu
 turn, work-fold asks that Chat's active Pi model for a short title based on the
 first request and reply, then persists the result so it remains stable across
 tabs, restarts, and machines. The title request uses the same authenticated Pi
-model transport as the turn, including live provider catalogs. If that one
+model transport as the turn, including live provider catalogs and stored Azure
+endpoint, key, and deployment settings. For reasoning models it prefers the
+lowest ordinary reasoning level exposed by Pi, avoiding `minimal` when another
+level is available because some providers reject it. If that one
 bounded request fails, the Chat remains **New Chat** rather than presenting its
 first message as though it were a generated title; naming can never fail the
 otherwise successful turn, and the failed attempt is not repeated. Previously saved titles remain authoritative, including titles made by older
@@ -121,6 +124,16 @@ finished before deletion.
 Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 
 The configured provider and model remain visible in the Chat composer before the first message. Clicking that label opens an inline model picker with the Folder’s saved model pinned first and search when more than eight connected models are available. A selection saves the Folder default for new Chats; existing Chat sessions keep their model. The picker’s **Model settings** link opens **Settings → AI Models** scoped to that Folder. The label always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. In the Chat that trail is the Worker's steps: while a turn runs, each step appears in the order it happened with the active one shimmering and live reasoning in a short panel; once the reply starts, the steps fold into one plain line such as "Read a file, edited a file, ran commands" that opens on click, and a "Thought" row opens its reasoning. Reasoning a model keeps hidden still shows as "Thought for 3s", so a saved thinking entry records its duration. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
+
+Attaching a file from Files stages a reference to its Folder-relative path for
+the next message. A quiet file icon, filename, and remove control above the
+composer show that selection; attaching does not produce a success toast or
+an extraction-status warning. Documents and other non-image files are not
+extracted or copied into the model prompt: the Worker is told which paths the
+person attached and uses its file or document tools to inspect the originals
+as the task needs. Staging checks that each path names an available file;
+missing files and invalid paths remain errors. Supported images still use
+Pi's existing bounded vision pipeline when sending.
 
 ## A Folder is a view of a folder, not a new file format
 

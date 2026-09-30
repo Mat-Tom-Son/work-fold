@@ -138,7 +138,7 @@ import {
 } from "./agent/pi-runtime-config.js";
 import { getAzureOpenAIConnection, saveAzureOpenAIConnection } from "./agent/azure-openai-connection.js";
 import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, type AzureOpenAIConnection } from "../shared/azure-openai.js";
-import { loadConversationContextAttachmentsForTurn, previewConversationContextAttachment } from "./conversation-context.js";
+import { loadConversationContextReferencesForTurn, previewConversationContextReference } from "./conversation-context.js";
 import {
   classifyManagementAttachments,
   loadManagementAttachmentsForTurn,
@@ -3123,7 +3123,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const space = await getSpace(contextAttachmentMatch[1]);
     const body = await readJsonBody<{ path?: string }>(state, req);
     if (!body.path?.trim()) throw badRequest("A file path is required.");
-    sendJson(res, { attachment: await previewConversationContextAttachment(space.spaceRoot, { path: body.path }) }, 201);
+    sendJson(res, { attachment: await previewConversationContextReference(space.spaceRoot, { path: body.path }) }, 201);
     return;
   }
 
@@ -11163,7 +11163,7 @@ async function runAgentTurn(
     client = await getClient(state, spaceId, spaceRoot, conversationId);
     const loadContextAttachments = (budgetTokens: number) => managementAttachments
       ? loadManagementAttachmentsForTurn(managementAttachments, budgetTokens)
-      : loadConversationContextAttachmentsForTurn(spaceRoot, contextPaths, budgetTokens);
+      : loadConversationContextReferencesForTurn(spaceRoot, contextPaths, budgetTokens);
     const attachedLinks = managementAttachments ? managementAttachmentLinks(managementAttachments) : [];
     const managementSpaces = spaceId === workFoldManagementScopeId
       ? (await state.kernel.getSpaces({ kind: "renderer" })).spaces.map((space) => ({

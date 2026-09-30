@@ -227,7 +227,8 @@ test("the main window has no glance panel; the Space-identity header carries no 
   assert.doesNotMatch(app, /GlanceHeaderControl|GlancePanel|useGlance/);
   assert.doesNotMatch(app, /headerAction/);
   assert.match(app, /const refreshFilesButton = <button className="minimal-icon-button"[\s\S]{0,300}?aria-label="Refresh files"/);
-  assert.match(app, /\{refreshFilesButton\}\s*<button className="minimal-icon-button"[\s\S]{0,200}?aria-label="Add files"/);
+  assert.match(app, /\{refreshFilesButton\}\s*<button className="minimal-icon-button"[\s\S]{0,200}?aria-label="New folder"/);
+  assert.match(app, /aria-label="New folder"[^\n]*\n\s*<button className="minimal-icon-button"[\s\S]{0,200}?aria-label="Add files"/);
   assert.doesNotMatch(app, /primaryItems[\s\S]{0,400}glance/i);
 });
 

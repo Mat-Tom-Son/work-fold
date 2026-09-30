@@ -13,5 +13,5 @@ export function fixtureConversationSummary(conversation: SpaceFixtureConversatio
 
 export function createFixtureContextAttachment(path: string): ContextAttachment {
   const sourceFileName = path.split("/").pop() ?? path;
-  return { sourcePath: path, sourceFileName, sourceSizeBytes: 128_000, mode: "full_original_text", includedInPrompt: true, reason: null, estimatedTokens: 2_900, budgetTokens: 120_000, provenance: [], warnings: [], userLabel: "Full text", detail: "Full document text included in the conversation context." };
+  return { sourcePath: path, sourceFileName, sourceSizeBytes: 128_000, mode: "path_only_reference", includedInPrompt: false, reason: null, estimatedTokens: 0, budgetTokens: 0, provenance: [], warnings: [], userLabel: "File", detail: "The Worker can inspect this file with its tools when you send your message." };
 }

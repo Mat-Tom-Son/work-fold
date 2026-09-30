@@ -20,7 +20,6 @@ import {
   chatDraftStorageKey,
   clearStoredChatDraft,
   clearStoredPendingChatSend,
-  formatBytes,
   latestTranscriptTime,
   modelConversationTitle,
   readStoredChatDraft,
@@ -37,8 +36,8 @@ import { spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity
 import type { AgentCatalog, AgentCommand, AgentModel, AgentStatus, AssistantComposerState, ChatContextPathRequest,
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
 import { ExtensionQuestions } from "./ExtensionQuestions";
+import { AttachmentChip } from "./AttachmentChip";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
-import { FileTypeIcon } from "../tree/FileTree";
 import { RuntimeContextPreview } from "./activity";
 import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
 import { ChatMessageRow, MarkdownMessage, copyMarkdownToClipboard } from "./messages";
@@ -181,7 +180,6 @@ export function ChatPanel({
   const [error, setError] = useState<string | null>(null);
   const [contextAttachments, setContextAttachments] = useState<ContextAttachment[]>([]);
   const [attachingPath, setAttachingPath] = useState<string | null>(null);
-  const [activeContextPath, setActiveContextPath] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [commands, setCommands] = useState<AgentCommand[]>([]);
@@ -477,14 +475,12 @@ export function ChatPanel({
       setMessages(fixtureConversation.messages.filter((message) => message.role !== "system"));
       setStreamingAssistant(fixtureConversation.streamingAssistant ?? (fixtureRunning && !eventPreviews.length ? "I’m reading the selected files and checking the generated outputs now." : ""));
       setContextAttachments(fixtureConversation.contextAttachments ?? []);
-      setActiveContextPath(null);
     } else {
       setConversation(null);
       onConversationActivated?.(null);
       setMessages([]);
       setStreamingAssistant("");
       setContextAttachments([]);
-      setActiveContextPath(null);
     }
     setRunning(fixtureRunning);
     setRuntimePreviews(fixturePreviews);
@@ -504,7 +500,6 @@ export function ChatPanel({
       clearRuntimePreviews();
       cancelStreamingFlush();
       setContextAttachments([]);
-      setActiveContextPath(null);
       userPinnedToBottomRef.current = true;
       setUserPinnedToBottom(true);
       onConversationActivated?.(null);
@@ -878,7 +873,6 @@ export function ChatPanel({
     setRunning(false);
     setRuntimePreviews([]);
     setContextAttachments(conversation.contextAttachments ?? []);
-    setActiveContextPath(null);
     setDraft("");
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
@@ -970,7 +964,6 @@ export function ChatPanel({
     clearRuntimePreviews();
     resetTurnArtifactTracking();
     setContextAttachments([]);
-    setActiveContextPath(null);
     setConversation(null);
     setMessages([]);
     onConversationActivated?.(null);
@@ -998,7 +991,6 @@ export function ChatPanel({
       setStreamingAssistant("");
       clearRuntimePreviews();
       setContextAttachments([]);
-      setActiveContextPath(null);
       onConversationActivated?.(null);
       return;
     }
@@ -1008,7 +1000,6 @@ export function ChatPanel({
     clearRuntimePreviews();
     resetTurnArtifactTracking();
     setContextAttachments([]);
-    setActiveContextPath(null);
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
     const result = await api<{ conversation: ConversationSummary }>(`/api/spaces/${space.id}/conversations`, {
@@ -1034,7 +1025,6 @@ export function ChatPanel({
     clearRuntimePreviews();
     cancelStreamingFlush();
     setContextAttachments([]);
-    setActiveContextPath(null);
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
     const transcript = await loadMessages(selected.id, true);
@@ -1496,7 +1486,6 @@ export function ChatPanel({
 
   function removeContextAttachment(sourcePath: string) {
     setContextAttachments((current) => current.filter((attachment) => attachment.sourcePath !== sourcePath));
-    if (activeContextPath === sourcePath) setActiveContextPath(null);
   }
 
   const copyMessage = useCallback(async (messageId: string, content: string) => {
@@ -1591,7 +1580,6 @@ export function ChatPanel({
     }
   }
 
-  const activeContextAttachment = contextAttachments.find((attachment) => attachment.sourcePath === activeContextPath) ?? null;
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant") ?? null;
   const latestAssistantMessageId = latestAssistantMessage?.id ?? null;
   const suggestedNextPrompt = !running && !streamingAssistant
@@ -1795,22 +1783,7 @@ export function ChatPanel({
             {contextAttachments.length ? (
               <div className="context-pill-list">
                 {contextAttachments.map((attachment) => (
-                  <div className={`context-chip ${attachment.mode}`} key={attachment.sourcePath}>
-                    <button
-                      className="context-chip-main"
-                      type="button"
-                      onClick={() => setActiveContextPath((current) => current === attachment.sourcePath ? null : attachment.sourcePath)}
-                      title={attachment.detail}
-                      aria-label={`Show attachment details for ${attachment.sourceFileName}`}
-                    >
-                      <FileTypeIcon path={attachment.sourcePath} />
-                      <span className="context-chip-name">{attachment.sourceFileName}</span>
-                      <ContextModeIcon attachment={attachment} />
-                    </button>
-                    <button className="context-chip-remove" type="button" onClick={() => removeContextAttachment(attachment.sourcePath)} aria-label={`Remove ${attachment.sourceFileName}`}>
-                      <X size={12} />
-                    </button>
-                  </div>
+                  <AttachmentChip key={attachment.sourcePath} path={attachment.sourcePath} name={attachment.sourceFileName} onRemove={() => removeContextAttachment(attachment.sourcePath)} />
                 ))}
               </div>
             ) : null}
@@ -1819,11 +1792,8 @@ export function ChatPanel({
                 <span className="file-icon file-icon-unknown">
                   <Loader2 className="spin" size={13} />
                 </span>
-                <span className="context-chip-name">Checking</span>
+                <span className="context-chip-name">Attaching</span>
               </div>
-            ) : null}
-            {activeContextAttachment ? (
-              <ContextAttachmentPopover attachment={activeContextAttachment} onClose={() => setActiveContextPath(null)} />
             ) : null}
           </div>
         ) : null}
@@ -2422,49 +2392,6 @@ function formatTokenCount(value: number | null): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1).replace(/\.0$/, "")}m`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1).replace(/\.0$/, "")}k`;
   return value.toLocaleString();
-}
-
-function ContextModeIcon({ attachment }: { attachment: ContextAttachment }) {
-  if (attachment.mode === "path_only_reference") {
-    return <AlertTriangle className="context-chip-status blocked" size={12} aria-hidden="true" />;
-  }
-  if (attachment.warnings.length) {
-    return <AlertTriangle className="context-chip-status review" size={12} aria-hidden="true" />;
-  }
-  return <CircleCheck className="context-chip-status verified" size={12} aria-hidden="true" />;
-}
-
-function ContextAttachmentPopover({ attachment, onClose }: { attachment: ContextAttachment; onClose: () => void }) {
-  const chatSpacePercent = attachment.budgetTokens > 0 ? Math.round((attachment.estimatedTokens / attachment.budgetTokens) * 100) : 0;
-  const chatSpaceLabel = attachment.budgetStatus === "preview" ? "Assessed when sending" : chatSpacePercent === 0 ? "under 1%" : `about ${chatSpacePercent}% of the limit`;
-  return (
-    <div className="context-meta-popover">
-      <div className="context-meta-title">
-        <FileTypeIcon path={attachment.sourcePath} />
-        <strong>{attachment.sourceFileName}</strong>
-        <button type="button" onClick={onClose} aria-label="Close context details">
-          <X size={13} />
-        </button>
-      </div>
-      <dl className="context-meta-grid">
-        <div>
-          <dt>Attached as</dt>
-          <dd>{attachment.userLabel}</dd>
-        </div>
-        <div>
-          <dt>Size</dt>
-          <dd>{formatBytes(attachment.sourceSizeBytes)}</dd>
-        </div>
-        <div>
-          <dt>Chat context</dt>
-          <dd>{chatSpaceLabel}</dd>
-        </div>
-      </dl>
-      <p>{attachment.detail}</p>
-      {attachment.provenance.length ? <p>{attachment.provenance.join("; ")}</p> : null}
-      {attachment.warnings.length ? <p>Review notes: {attachment.warnings.join("; ")}</p> : null}
-    </div>
-  );
 }
 
 function ChatEmptyState({
