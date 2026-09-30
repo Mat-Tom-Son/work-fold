@@ -4,6 +4,12 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## September 29, 2026
+
+[0.4.38](work-fold-0.4.38.md) adds Azure OpenAI connection setup with
+user-entered deployment names, shared connection settings, and clear save
+feedback.
+
 ## September 27, 2026
 
 [0.4.37](work-fold-0.4.37.md) improves Worker steps and reconnect recovery,
