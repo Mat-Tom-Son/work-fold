@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
+const spaceBannerPreviewSource = await readFile(join(process.cwd(), "web-local/src/components/chrome/SpaceBannerPreview.tsx"), "utf8");
+
 const rendererRoot = join(process.cwd(), "web-local", "src");
 
 const [
@@ -192,7 +194,7 @@ test("Assistant configuration lives in Settings instead of the rail", () => {
   assert.match(desktopSettingsSource, /id:\s*"assistant"[\s\S]*?label:\s*"AI Models"/);
   assert.match(desktopSettingsSource, /<AssistantSetupPane[\s\S]*?embedded/);
   assert.match(appSource, /openSettings\("assistant", scope, true\)/);
-  assert.match(appSource, /onOpenSettings\("assistant", "space", true\)/);
+  assert.match(appSource, /onOpenSettings\("assistant", "space", true, targetSpace\.id\)/);
   assert.doesNotMatch(appSource, /activeMode\s*===\s*"setup"/);
   assert.doesNotMatch(spaceChromeSource, /Assistant ·/);
 });
@@ -335,9 +337,9 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(spaceChromeSource, /spaceIdentityStyle\(itemIdentity\)/);
   assert.match(spaceChromeSource, /<SpaceIconGlyph icon=\{itemIdentity\.Icon\}/);
   assert.match(spaceChromeSource, /data-space-icon=\{itemIdentity\.iconName\}/);
-  assert.match(spaceChromeSource, /space-appearance-preview/);
-  assert.match(spaceChromeSource, /spaceLookOptions\.map/);
-  assert.match(spaceChromeSource, /aria-label="Curated folder looks"/);
+  assert.match(spaceChromeSource, /<SpaceBannerPreview/);
+  assert.match(spaceChromeSource, /aria-label="Folder color presets"/);
+  assert.doesNotMatch(spaceChromeSource, /spaceLookOptions|Folder color pairs/);
   assert.match(spaceChromeSource, /function SpaceNameEditor/);
   assert.match(spaceChromeSource, /<span>Folder name<\/span>/);
   assert.match(spaceChromeSource, /finally\s*\{\s*setSaving\(false\);\s*\}/);
@@ -388,7 +390,7 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(spaceIdentitySource, /"--space-selection-border":\s*identity\.borderColor/);
   assert.match(spaceIdentitySource, /"--space-selection-surface":\s*identity\.softColor/);
   assert.doesNotMatch(spaceIdentitySource, /"--space-banner-(?:primary|base)":/, "unused banner string tokens must not be injected at every identity scope");
-  assert.match(spaceChromeSource, /\(\["light", "dark"\] as const\)\.map/, "the editor must preview both modes together");
+  assert.match(spaceBannerPreviewSource, /\(\["light", "dark"\] as const\)\.map/, "the editor must preview both modes together");
   assert.match(customizationCss, /\.app-shell \.space-appearance-preview\.preview-light\s*\{[\s\S]*?--space-banner-base-rgb:\s*255,\s*255,\s*255/, "the light preview must beat the surrounding app theme");
   assert.match(customizationCss, /\.app-shell \.space-appearance-preview\.preview-dark\s*\{[\s\S]*?--space-banner-base-rgb:\s*23,\s*26,\s*33/, "the dark preview must beat the surrounding app theme");
   assert.match(spaceChromeSource, /parseSpaceAppearanceProposal/, "the editor must import the shared bounded proposal");
@@ -428,7 +430,6 @@ test("Manage Spaces is a compact launcher into customization", () => {
   assert.match(surfacesCss, /\.app-shell \.professional-spaces \.space-card-actions \.space-card-delete\s*\{[^}]*color:\s*var\(--ui-text-muted\)/);
   assert.doesNotMatch(legacyCss, /\.space-card-actions\s*\{[^}]*linear-gradient/s);
   assert.match(surfacesCss, /\.professional-spaces \.space-card-main\s*\{[^}]*padding-right:\s*52px/);
-  assert.match(appSource, /<SpaceNameEditor space=\{targetSpace\} onRenameSpace=\{renameSpace\} \/>/);
   assert.doesNotMatch(appSource, /Give this Space a recognizable identity|<h2>Customize \{targetSpace\.name\}<\/h2>/);
 });
 
@@ -469,7 +470,7 @@ test("every left-pane mode keeps content padding below the shared Space banner",
 });
 
 test("the appearance preview mirrors the Space header rather than the active surface", () => {
-  assert.match(spaceChromeSource, /space-appearance-preview-copy"><strong>\{space\.name\}<\/strong>/);
+  assert.match(spaceBannerPreviewSource, /space-appearance-preview-copy"><strong>\{name\}<\/strong>/);
   assert.doesNotMatch(spaceChromeSource, /space-appearance-preview-copy"><strong>Files<\/strong>/);
   assert.match(customizationCss, /\.space-appearance-preview\s*\{[\s\S]*?min-height:\s*90px;/);
 });

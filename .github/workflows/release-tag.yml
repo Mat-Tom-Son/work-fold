@@ -1,5 +1,8 @@
 name: Release tag verification
 
+# Dormant: GitHub Actions is disabled in the canonical source repository.
+# The local publisher verifies source identity directly.
+
 on:
   push:
     tags: ["v*"]

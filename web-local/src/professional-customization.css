@@ -1,3 +1,11 @@
+.space-banner-surface {
+  /* Keep the chosen tint visible above each pattern's neutral fades. */
+  --space-banner-wash: linear-gradient(rgba(var(--space-banner-primary-rgb), .14), rgba(var(--space-banner-primary-rgb), .14));
+}
+.space-banner-surface.banner-none,
+.space-banner-surface.banner-bold,
+.space-banner-surface.has-banner-image { --space-banner-wash: none; }
+
 /* The banner is the persistent identity of the selected Space. The name, image, and
    preset stay contained to this left-pane header; the identity icon stays in navigation. */
 .space-banner-surface.banner-none {
@@ -61,8 +69,8 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  background: var(--space-banner-layers, none), rgb(var(--space-banner-base-rgb));
-  background-size: var(--space-banner-size, auto);
+  background: var(--space-banner-wash, none), var(--space-banner-layers, none), rgb(var(--space-banner-base-rgb));
+  background-size: auto, var(--space-banner-size, auto);
   border: 1px solid var(--ui-border);
 }
 
@@ -597,8 +605,8 @@
   margin: 0;
   padding: 12px 42px;
   color: var(--ui-text);
-  background: var(--space-banner-layers, none), rgb(var(--space-banner-base-rgb));
-  background-size: var(--space-banner-size, auto);
+  background: var(--space-banner-wash, none), var(--space-banner-layers, none), rgb(var(--space-banner-base-rgb));
+  background-size: auto, var(--space-banner-size, auto);
   border: 1px solid var(--ui-border);
   border-radius: var(--space-identity-radius);
 }
@@ -794,8 +802,8 @@
   display: grid;
   place-items: start end;
   padding: 6px;
-  background: var(--space-banner-layers, none), rgb(var(--space-banner-base-rgb));
-  background-size: var(--space-banner-size, auto);
+  background: var(--space-banner-wash, none), var(--space-banner-layers, none), rgb(var(--space-banner-base-rgb));
+  background-size: auto, var(--space-banner-size, auto);
   border-bottom: 1px solid var(--ui-border);
 }
 
@@ -1234,4 +1242,209 @@
   scrollbar-width: auto;
   scrollbar-color: auto;
   scrollbar-gutter: auto;
+}
+
+/* Folder customization shares the modal contract with Settings and tools. */
+.app-shell .space-appearance-modal {
+  width: min(860px, calc(100vw - 48px));
+  height: min(920px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+  box-shadow: var(--ui-shadow-lg);
+}
+
+.space-appearance-modal-title {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.space-appearance-modal-title h2 {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.space-appearance-modal-title button {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+}
+
+.space-appearance-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 820px) {
+  .app-shell .space-appearance-modal {
+    width: calc(100vw - 20px);
+    height: calc(100dvh - 20px);
+    max-height: calc(100dvh - 20px);
+    margin: 0;
+  }
+
+  .space-appearance-modal-title { padding: 12px 16px; }
+}
+
+/* A compact, image-first editor. The workspace remains behind the dialog. */
+.app-shell .space-appearance-modal {
+  width: min(800px, calc(100vw - 48px));
+  height: min(790px, calc(100dvh - 48px));
+}
+.space-appearance-modal-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.app-shell .space-appearance-modal .space-appearance-surface-heading { padding: 16px 24px 0; border: 0; }
+.app-shell .space-appearance-modal .space-appearance-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 24px 0; }
+.space-appearance-modal-title h2 { flex: 1; white-space: nowrap; }
+.space-appearance-modal .space-appearance-surface-heading { flex: 0 0 auto; }
+.space-appearance-modal .space-name-form { gap: 12px; }
+.space-appearance-modal .space-name-form label { gap: 6px; }
+.space-appearance-modal .space-name-save { align-self: end; }
+.space-appearance-modal .space-appearance-toolbar { flex: 0 0 auto; flex-direction: row; flex-wrap: nowrap; margin-bottom: 6px; gap: 8px; }
+.space-appearance-modal .space-appearance-toolbar .space-appearance-toolbar-actions { width: auto; flex: 0 0 auto; }
+.space-appearance-modal .space-appearance-toolbar button,
+.space-appearance-more summary,
+.space-banner-upload-button,
+.space-customize-worker button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 34px; padding: 6px 10px; width: auto; border: 0;
+  color: var(--ui-text-muted); background: transparent; border-radius: 6px;
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.space-appearance-modal .space-appearance-toolbar button:hover:not(:disabled),
+.space-appearance-more summary:hover,
+.space-banner-upload-button:hover,
+.space-customize-worker button:hover { color: var(--ui-text); background: var(--ui-surface-hover); }
+.space-appearance-modal .space-appearance-toolbar button:disabled { opacity: .4; cursor: default; }
+.space-appearance-toolbar svg,
+.space-appearance-more svg,
+.space-banner-upload-button svg,
+.space-customize-worker button svg { width: 16px; height: 16px; }
+.space-appearance-more { position: relative; }
+.space-appearance-more summary { list-style: none; }
+.space-appearance-more summary::-webkit-details-marker { display: none; }
+.space-appearance-more > div {
+  position: absolute; z-index: 4; right: 0; top: calc(100% + 4px);
+  display: grid; width: 140px; padding: 4px; background: var(--ui-surface);
+  border: 1px solid var(--ui-border); border-radius: 8px; box-shadow: var(--ui-shadow-menu);
+}
+.space-appearance-more > div button { justify-content: flex-start !important; }
+.space-preview-region { position: relative; flex: 0 0 auto; }
+.space-appearance-modal .space-appearance-previews { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.space-preview-mode-label { display: block; height: 32px; padding-top: 8px; margin-bottom: 0; box-sizing: border-box; color: var(--ui-text-muted); font-size: 11px; }
+.space-appearance-modal .space-appearance-preview { min-height: 90px; height: 90px; padding-inline: 32px; }
+.space-appearance-preview.is-framing { touch-action: none; cursor: grab; }
+.space-appearance-preview.is-framing:active { cursor: grabbing; }
+.space-appearance-preview.has-banner-image:focus-visible { outline: 2px solid var(--space-accent-border-state); outline-offset: 3px; }
+.space-pane-banner-image.has-banner-preset .space-pane-banner-scrim,
+.space-appearance-preview.has-banner-preset .space-appearance-preview-image > span { background: var(--space-image-scrim); }
+.app-shell .professional-pane-header.space-identity-header:has(.has-banner-preset) .space-pane-current-lockup strong,
+.space-appearance-preview.has-banner-preset .space-appearance-preview-copy strong {
+  padding: 3px 10px; border-radius: 6px; color: var(--space-image-title);
+  background: var(--space-image-button); text-shadow: none;
+}
+.app-shell .professional-pane-header.space-identity-header:has(.has-banner-preset) .space-pane-action-group > .minimal-icon-button,
+.app-shell .professional-pane-header.space-identity-header:has(.has-banner-preset) .space-pane-switch-caret {
+  color: var(--space-image-title); background: var(--space-image-button); border-color: transparent; border-radius: 6px;
+}
+.space-framing-trigger,
+.space-framing-popover-actions button {
+  display: inline-flex; align-items: center; gap: 6px; width: auto; min-height: 32px;
+  padding: 6px 10px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--ui-text-muted); font: inherit; font-size: 12px; cursor: pointer;
+}
+.space-framing-trigger { position: absolute; right: 0; top: -2px; }
+.space-framing-trigger[hidden] { display: none; }
+.space-framing-trigger:disabled { opacity: .4; cursor: default; }
+.space-framing-trigger:hover:not(:disabled), .space-framing-popover-actions button:hover { color: var(--ui-text); background: var(--ui-surface-hover); }
+.space-framing-trigger svg, .space-framing-popover-actions svg { width: 16px; height: 16px; }
+.space-framing-popover {
+  position: absolute; z-index: 10; top: 34px; right: 0; width: min(300px, 100%);
+  padding: 16px; border: 1px solid var(--ui-border); border-radius: 10px;
+  background: var(--ui-surface); box-shadow: var(--ui-shadow-menu);
+}
+.space-framing-controls { display: grid; gap: 16px; }
+.space-framing-controls label { min-width: 0; display: grid; gap: 6px; font-size: 12px; color: var(--ui-text-muted); }
+.space-framing-controls input { width: 100%; height: 18px; padding: 0; margin: 0; accent-color: var(--space-accent-solid); background: transparent; }
+.space-framing-popover-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.space-appearance-modal-title .space-appearance-tabs { display: flex; flex: 0 0 auto; gap: 6px; margin: 0; border: 0; }
+.space-appearance-modal-title .space-appearance-tabs > button {
+  position: relative; width: auto; min-height: 36px; padding: 8px 10px; border: 0; border-radius: 6px;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--ui-text-muted); background: transparent; cursor: pointer;
+}
+.space-appearance-tabs > button:hover { color: var(--ui-text); background: var(--ui-surface-hover); }
+.space-appearance-modal-title .space-appearance-tabs > button[aria-selected="true"] { color: var(--ui-text); background: var(--ui-surface-subtle); }
+.space-appearance-tab-panel { flex: 1; min-height: 0; min-width: 0; margin-top: 16px; padding: 16px 0 20px; border-top: 1px solid var(--ui-border); overflow-y: auto; overscroll-behavior: contain; }
+.space-banner-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.space-banner-section-heading strong { font-size: 12px; font-weight: 600; }
+.space-banner-image-gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.space-banner-image-gallery > button { min-width: 0; padding: 0; text-align: left; border: 0; background: transparent; color: var(--ui-text-muted); font: inherit; cursor: pointer; }
+.space-banner-image-gallery > button > span { position: relative; display: block; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 7px; aspect-ratio: 2.7; transition: border-color 120ms, box-shadow 120ms; }
+.space-banner-image-gallery img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.space-banner-image-gallery strong { display: block; font-size: 12px; font-weight: 500; margin-top: 7px; }
+.space-banner-image-gallery button:hover > span { box-shadow: 0 0 0 2px var(--ui-border); }
+.space-banner-image-gallery button.active { color: var(--ui-text); }
+.space-banner-image-gallery button.active > span { border-color: var(--space-accent-border-state); box-shadow: 0 0 0 2px var(--space-accent-focus-ring); }
+.space-banner-image-gallery svg { position: absolute; right: 6px; bottom: 6px; width: 20px; height: 20px; padding: 2px; border-radius: 50%; color: var(--ui-text); background: var(--ui-surface); }
+.app-shell .space-appearance-modal .space-banner-gallery { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.app-shell .space-appearance-modal .space-banner-swatch { min-height: 48px; height: 48px; }
+.app-shell .space-appearance-modal .space-appearance-row { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 0 0 20px; border: 0; margin: 0; }
+/* Color is an accent picker; image and pattern choices live only in Banner. */
+.app-shell .space-appearance-modal .space-color-controls { width: 100%; gap: 20px; }
+.app-shell .space-appearance-modal .space-color-swatches { display: grid; width: 100%; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 0; }
+.app-shell .space-appearance-modal .space-color-swatch {
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+  width: auto; height: 44px; min-width: 0; padding: 6px; border: 1px solid transparent;
+  border-radius: 6px; background: transparent; color: var(--ui-text-muted);
+  font: inherit; font-size: 12px; box-shadow: none; transform: none; transition: background 120ms;
+}
+.app-shell .space-appearance-modal .space-color-swatch:hover { background: var(--ui-surface-hover); box-shadow: none; transform: none; }
+.app-shell .space-appearance-modal .space-color-swatch.active { border-color: var(--ui-border-strong); background: var(--ui-surface-subtle); color: var(--ui-text); box-shadow: none; }
+.app-shell .space-appearance-modal .space-color-swatch:focus-visible { outline: 2px solid var(--space-accent-border-state); outline-offset: 1px; box-shadow: none; transform: none; }
+.space-color-dot { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: var(--swatch-color); color: var(--swatch-ink); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .12); }
+.space-color-dot > svg { display: block; width: 18px; height: 18px; padding: 0; margin: 0; }
+.space-color-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.space-color-section-heading > strong { font-size: 12px; font-weight: 600; }
+.app-shell .space-appearance-modal .space-appearance-row.colors { padding-bottom: 0; }
+.space-custom-color-label { margin-right: 4px; font-size: 12px; color: var(--ui-text-muted); }
+.space-pattern-colors { display: grid; gap: 10px; padding-top: 16px; }
+.space-pattern-colors .space-color-value small { display: block; font-size: 10px; line-height: 14px; font-weight: 400; }
+.space-pattern-colors > strong { font-size: 12px; font-weight: 600; }
+.space-appearance-modal .space-color-wheel { background: transparent; }
+.space-appearance-modal .space-color-wheel-current { width: 100%; height: 100%; border: 1px solid var(--ui-border); }
+.app-shell .space-appearance-modal .space-color-picker input[type="color"] { inset: 0; width: 100%; height: 100%; }
+
+.space-appearance-modal .space-appearance-label strong { font-size: 12px; }
+.space-icon-categories { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 8px; }
+.space-icon-categories button { width: auto; min-height: 32px; padding: 5px 10px; border: 0; border-radius: 6px; font: inherit; font-size: 12px; color: var(--ui-text-muted); background: transparent; cursor: pointer; }
+.space-icon-categories button:hover { color: var(--ui-text); background: var(--ui-surface-hover); }
+.space-icon-categories button[aria-pressed="true"] { color: var(--ui-text); background: var(--ui-surface-subtle); }
+.space-appearance-modal .space-icon-browser { padding: 0; border: 0; background: transparent; }
+.app-shell .space-appearance-modal .space-icon-grid { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); max-height: none; overflow: visible; gap: 8px; padding: 3px; }
+.app-shell .space-appearance-modal .space-icon-option { width: 100%; height: 44px; color: var(--ui-text); border-color: transparent; background: var(--ui-surface-subtle); }
+.app-shell .space-appearance-modal .space-icon-option.active { border-color: var(--space-accent-border-state); background: var(--space-accent-soft-fill); color: var(--space-accent-glyph); }
+.space-customize-worker { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex: 0 0 auto; padding: 12px 24px; border: 0; }
+@media (prefers-reduced-motion: reduce) { .space-banner-image-gallery > button > span, .space-color-swatch { transition: none; } }
+@media (max-width: 820px) { .app-shell .space-appearance-modal { width: calc(100vw - 20px); height: min(790px, calc(100dvh - 20px)); } }
+@media (max-width: 520px) {
+  .app-shell .space-appearance-modal .space-appearance-surface-heading { padding: 12px 16px 0; }
+  .app-shell .space-appearance-modal .space-appearance-inner { padding: 12px 16px 0; }
+  .space-banner-image-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-shell .space-appearance-modal .space-banner-gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .space-appearance-modal .space-appearance-preview-copy strong { font-size: 16px; }
+  .space-appearance-modal-title { flex-wrap: wrap; gap: 8px; }
+  .space-appearance-modal-title h2 { flex-basis: calc(100% - 44px); font-size: 18px; }
+  .space-appearance-modal-title .space-appearance-tabs { order: 3; width: 100%; }
+  .app-shell .space-appearance-modal .space-color-swatches { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .space-framing-controls { gap: 10px; }
+  .space-customize-worker { padding: 10px 16px; gap: 4px; }
 }

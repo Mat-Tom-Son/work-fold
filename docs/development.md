@@ -122,8 +122,8 @@ repository instruction source.
 - `npm test` runs the application suite. While editing, run a focused file with
   `node --import tsx --test tests/documentation-contract.test.ts`, substituting
   the relevant test file. Use the full suite before handing off behavior changes.
-  CI divides the same discovered test files into four disjoint shards; reproduce
-  one with `npm test -- --shard=1/4` (through `4/4`). Every file belongs to exactly
+  The runner can divide the discovered test files into four disjoint shards;
+  run one with `npm test -- --shard=1/4` (through `4/4`). Every file belongs to exactly
   one shard; an unsharded `npm test` still runs everything.
 - `npm ci --prefix services/bridge` and `npm test --prefix services/bridge` run
   the bridge suite. It uses an in-memory test database; a live PostgreSQL server
@@ -132,11 +132,10 @@ repository instruction source.
   preloads, and the real restricted-app sandbox. After a compiled native change,
   `npm run desktop:restricted-app:smoke` is the focused sandbox probe.
 
-Full CI runs in the background on PRs and pushed `main` with seven jobs:
-Repository & TypeScript, four Application tests shards, Web bridge tests, and
-Electron integration. Version tags run only `Release tag verification`, which
-checks the annotated tag, package version, and canonical source identity. It
-does not repeat dependency installation or tests, or wait for main CI.
+GitHub Actions is disabled in the canonical source repository as of September
+30, 2026. Pushes, PRs, and release tags do not run remote checks. The checked-in
+CI and source-tag workflows remain dormant diagnostics; use local verification
+and do not re-enable Actions unless explicitly requested.
 
 Public Mac releases use `npm run desktop:release:mac:check` on the final clean,
 committed release SHA with Node 24, supported npm, and Google Chrome on an

@@ -2,7 +2,7 @@
 
 ## Design
 
-The visual thesis is a quiet, readable workspace whose materials and typography feel personal while its navigation remains familiar. The Appearance page starts with small palette previews for the selected light/dark mode, then a live conversation and file-list sample, followed by reading, spacing, and accessibility controls. Existing Space identity is reached through Customize Space rather than reimplemented here.
+The visual thesis is a quiet, readable workspace whose materials and typography feel personal while its navigation remains familiar. The Appearance page starts with small palette previews for the selected light/dark mode, then a live conversation and file-list sample, followed by reading, spacing, and accessibility controls. Existing Folder identity is reached through the Customize Folder popup.
 
 Selection feedback is immediate; preview changes follow the actual controls. Hover and focus use the existing short transitions. Reduced motion removes those transitions, and no decorative animation is added to Settings.
 

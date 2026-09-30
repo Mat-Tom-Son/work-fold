@@ -188,7 +188,12 @@ reading width and spacing, list density, quiet messages, which Worker steps
 stay visible while a turn runs, and accessibility preferences. The desktop and menu-bar chat share device-local preferences;
 the paired web fold retains its browser appearance. Typed appearance files are
 inert data. Undo and reset operate on these preferences without changing Space
-colors, icons, or banners; Customize this Space opens the existing work tab.
+colors, icons, or banners. **Customize Folder** opens a popup from the Folder header,
+Manage Folders, or Settings → Appearance, pinned to that Folder while the existing work tab stays
+in place. It shares the focus, Escape, and outside-click behavior of the other popup dialogs.
+Its compact Banner, Icon, and Color sections include four offline image presets, draggable image
+framing, and categorized Fluent icons. Model and Instructions shortcuts open that Folder's existing
+Worker settings; appearance stays personal application state outside the ordinary folder.
 
 ## Context is explicit
 

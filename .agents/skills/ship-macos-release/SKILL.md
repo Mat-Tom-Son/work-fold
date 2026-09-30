@@ -35,9 +35,10 @@ that proves the requested behavior.
 7. The full signed build requires a valid local receipt before it starts.
    Publication requires source-bound signed artifacts built after that receipt
    completed, under the same Node/npm and dependency state. The publisher
-   requires canonical pushed `main` and its matching annotated source tag; it does not wait on GitHub Actions. Main/PR
-   CI remains background evidence, tag verification checks source identity,
-   and `desktop:release:mac:ci` is an optional diagnostic. Fix and recheck local
+   requires canonical pushed `main` and its matching annotated source tag. GitHub
+   Actions is disabled in the source repository; do not re-enable it unless explicitly
+   requested. The publisher checks source identity directly, and
+   `desktop:release:mac:ci` is a historical Actions diagnostic. Fix and recheck local
    failures before tagging without consuming a version. A failed candidate's
    pushed tag remains immutable; fix forward with a higher version and new tag.
 

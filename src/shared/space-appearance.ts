@@ -18,6 +18,18 @@ export const spaceAppearanceBannerNames = [
 export type SpaceAppearanceMode = "light" | "dark";
 export type SpaceAppearanceEnforcement = "guided" | "warned" | "off";
 export type SpaceAppearanceBannerImagePosition = "top" | "center" | "bottom";
+export const spaceAppearanceBannerPresetIds = ["tide", "ember", "fold", "dusk"] as const;
+export type SpaceAppearanceBannerPresetId = typeof spaceAppearanceBannerPresetIds[number];
+export interface SpaceAppearanceBannerFraming { x: number; y: number; zoom: number }
+
+export function normalizeSpaceAppearanceBannerFraming(value: unknown): SpaceAppearanceBannerFraming | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const { x, y, zoom } = value as Record<string, unknown>;
+  if (typeof x !== "number" || !Number.isFinite(x) || x < 0 || x > 100
+    || typeof y !== "number" || !Number.isFinite(y) || y < 0 || y > 100
+    || typeof zoom !== "number" || !Number.isFinite(zoom) || zoom < 1 || zoom > 2) return undefined;
+  return { x, y, zoom };
+}
 
 export interface AccentIdentity {
   schema: 2;
@@ -37,6 +49,8 @@ export interface SpaceAppearanceCustomization {
   bannerName?: string;
   bannerImage?: string | null;
   bannerImagePosition?: SpaceAppearanceBannerImagePosition;
+  bannerPreset?: SpaceAppearanceBannerPresetId;
+  bannerFraming?: SpaceAppearanceBannerFraming;
 }
 
 export type SpaceAppearanceCustomizationMap = Record<string, SpaceAppearanceCustomization>;
@@ -176,6 +190,11 @@ export function normalizeSpaceAppearanceCustomization(
     || record.bannerImagePosition === "bottom") {
     customization.bannerImagePosition = record.bannerImagePosition;
   }
+  if (spaceAppearanceBannerPresetIds.includes(record.bannerPreset as SpaceAppearanceBannerPresetId)) {
+    customization.bannerPreset = record.bannerPreset as SpaceAppearanceBannerPresetId;
+  }
+  const framing = normalizeSpaceAppearanceBannerFraming(record.bannerFraming);
+  if (framing) customization.bannerFraming = framing;
 
   return hasSpaceAppearanceCustomization(customization) ? customization : {};
 }
@@ -231,7 +250,9 @@ export function hasSpaceAppearanceCustomization(
     || customization.iconName
     || customization.bannerName
     || customization.bannerImage
-    || customization.bannerImagePosition,
+    || customization.bannerImagePosition
+    || customization.bannerPreset
+    || customization.bannerFraming,
   );
 }
 
@@ -332,6 +353,8 @@ export function upgradeSpaceAppearanceCustomization(
     ...(normalized.bannerName ? { bannerName: normalized.bannerName } : {}),
     ...(normalized.bannerImage !== undefined ? { bannerImage: normalized.bannerImage } : {}),
     ...(normalized.bannerImagePosition ? { bannerImagePosition: normalized.bannerImagePosition } : {}),
+    ...(normalized.bannerPreset ? { bannerPreset: normalized.bannerPreset } : {}),
+    ...(normalized.bannerFraming ? { bannerFraming: normalized.bannerFraming } : {}),
   };
   return upgraded;
 }

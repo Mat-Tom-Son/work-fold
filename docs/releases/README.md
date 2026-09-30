@@ -6,6 +6,10 @@ release-note file alone does not mean a version was published.
 
 ## September 30, 2026
 
+[0.4.40](work-fold-0.4.40.md) brings the Customize Folder popup, four included
+banner images with framing controls, a larger searchable icon picker, clearer
+color presets, contextual Settings back navigation, and the rail highlight fix.
+
 [0.4.39](work-fold-0.4.39.md) adds folder creation in Files, simplifies file
 attachments, improves automatic Chat titles for Azure reasoning models, and
 aligns message copy controls and timestamps.

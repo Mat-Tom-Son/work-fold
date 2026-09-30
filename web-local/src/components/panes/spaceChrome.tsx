@@ -41,14 +41,16 @@ import {
   parseSpaceAppearanceProposal,
   upgradeSpaceAppearanceCustomization,
 } from "../../../../src/shared/space-appearance";
-import { filterSpaceIconOptions, spaceIconOptionFor, spaceIconOptions } from "../../space-icons";
+import { filterSpaceIconOptions, spaceIconOptionFor, spaceIconOptions, spaceIconGroups, type SpaceIconGroupId } from "../../space-icons";
 import { spaceBannerOptions } from "../../constants";
 import { errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import { revealInFileManagerLabel } from "../../lib/file-actions";
 import { normalizeSpaceCustomizations } from "../../lib/space-customization";
-import { normalizeSpaceColor, processSpaceBannerImageFile, spaceColorOptions, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
-import { spaceLookOptions } from "../../lib/space-looks";
+import { normalizeSpaceColor, processSpaceBannerImageFile, spaceColorOptions, spaceIdentityStyle, spaceBannerImageStyle, type SpaceIdentity } from "../../lib/space-identity";
+import { SpaceBannerPreview } from "../chrome/SpaceBannerPreview";
+import { spaceBannerPresets } from "../../lib/space-banner-presets";
+import { readableTextColorOn } from "../../lib/color-contrast";
 import { surfaceDomIdSuffix, spaceHeaderSourceBadgeLabel } from "../../lib/space-ui";
 import type { AssistantToolsView, CapabilitySurface, RestrictedAppInstalled, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpaceRailMode, SpaceSummary } from "../../types";
 import { SpaceIconGlyph } from "../chrome/common";
@@ -310,8 +312,8 @@ function SpacePaneHeader({
         }}
       >
         {identity.bannerImage ? (
-          <span className="space-pane-banner-image" aria-hidden="true">
-            <img src={identity.bannerImage} alt="" draggable={false} style={{ objectPosition: `center ${identity.bannerImagePosition}` }} />
+          <span className={identity.bannerPreset ? "space-pane-banner-image has-banner-preset" : "space-pane-banner-image"} aria-hidden="true">
+            <img src={identity.bannerImage} alt="" draggable={false} style={spaceBannerImageStyle(identity.bannerFraming)} />
             <span className="space-pane-banner-scrim" />
           </span>
         ) : null}
@@ -606,6 +608,7 @@ function SpaceNameEditor({
 export const spaceIconPageSize = 96;
 
 function SpaceAppearancePanel({
+  activeSection,
   space,
   identity,
   customization,
@@ -615,6 +618,7 @@ function SpaceAppearancePanel({
   onUndoSpace,
   onResetSpace,
 }: {
+  activeSection: "banner" | "icon" | "color";
   space: SpaceSummary;
   identity: SpaceIdentity;
   customization?: SpaceCustomization;
@@ -624,7 +628,7 @@ function SpaceAppearancePanel({
   onUndoSpace: (spaceId: string) => void;
   onResetSpace: (spaceId: string) => void;
 }) {
-  const spaceIdentityFor = useSpaceIdentityResolver();
+  const [iconGroup, setIconGroup] = useState<SpaceIconGroupId>("popular");
   const [iconSearchQuery, setIconSearchQuery] = useState("");
   const [iconPage, setIconPage] = useState(0);
   const [bannerUploadBusy, setBannerUploadBusy] = useState(false);
@@ -634,22 +638,9 @@ function SpaceAppearancePanel({
   const bannerFileInputRef = useRef<HTMLInputElement>(null);
   const proposalFileInputRef = useRef<HTMLInputElement>(null);
   const spaceId = space.id;
-  const matchingSpaceIconOptions = useMemo(() => filterSpaceIconOptions(iconSearchQuery), [iconSearchQuery]);
+  const matchingSpaceIconOptions = useMemo(() => filterSpaceIconOptions(iconSearchQuery, iconGroup), [iconSearchQuery, iconGroup]);
   const iconPageCount = Math.max(1, Math.ceil(matchingSpaceIconOptions.length / spaceIconPageSize));
   const visibleSpaceIconOptions = matchingSpaceIconOptions.slice(iconPage * spaceIconPageSize, (iconPage + 1) * spaceIconPageSize);
-  const looks = useMemo(() => spaceLookOptions.map((look) => ({
-    ...look,
-    identity: spaceIdentityFor(space, {
-      [space.id]: { color: look.primary, color2: look.secondary, bannerName: look.bannerName },
-    }),
-  })), [space, spaceIdentityFor]);
-  const activeLook = looks.find((look) => (
-    !identity.bannerImage
-    && identity.hasCustomSecondary
-    && identity.color === look.primary
-    && identity.secondaryColor === look.secondary
-    && identity.bannerName === look.bannerName
-  ));
   const customized = Boolean(customization && Object.values(customization).some((value) => value !== undefined && value !== null && value !== ""));
 
   useEffect(() => {
@@ -675,7 +666,7 @@ function SpaceAppearancePanel({
     setBannerUploadError(null);
     try {
       const bannerImage = await processSpaceBannerImageFile(file);
-      onCustomizeSpace(spaceId, { bannerImage });
+      onCustomizeSpace(spaceId, { bannerImage, bannerPreset: undefined, bannerFraming: undefined, bannerImagePosition: undefined });
     } catch (uploadError) {
       setBannerUploadError(errorText(uploadError));
     } finally {
@@ -732,107 +723,79 @@ function SpaceAppearancePanel({
   return (
     <div className="space-appearance-inner">
       <div className="space-appearance-toolbar">
-        <div>
-          <strong>Space Appearance</strong>
-        </div>
+        <button type="button" disabled={!canUndo} onClick={() => onUndoSpace(spaceId)} title="Undo the last appearance change"><ArrowUndo20Regular />Undo</button>
         <div className="space-appearance-toolbar-actions">
-          <button type="button" disabled={!canUndo} onClick={() => onUndoSpace(spaceId)} title="Undo the last appearance change">
-            <ArrowUndo20Regular />
-            Undo
-          </button>
-          <button type="button" onClick={() => proposalFileInputRef.current?.click()} title="Apply a work-fold appearance proposal">
-            <ArrowUpload20Regular />
-            Import
-          </button>
-          <button type="button" onClick={exportAppearanceProposal} title="Save a code-free appearance proposal">
-            <ArrowDownload20Regular />
-            Export
-          </button>
-          <button className="space-appearance-reset" type="button" disabled={!customized} onClick={() => onResetSpace(spaceId)}>
-            <ArrowReset20Regular />
-            Reset
-          </button>
-          <input
-            ref={proposalFileInputRef}
-            className="space-banner-file-input"
-            type="file"
-            accept=".json,application/json"
-            onChange={(event) => void importAppearanceProposal(event)}
-            tabIndex={-1}
-            aria-hidden="true"
-          />
+          <button type="button" disabled={!customized} onClick={() => onResetSpace(spaceId)}><ArrowReset20Regular />Reset</button>
+          <details className="space-appearance-more">
+            <summary aria-label="More appearance options">More<ChevronDown20Regular /></summary>
+            <div>
+              <button type="button" onClick={() => proposalFileInputRef.current?.click()}><ArrowUpload20Regular />Import</button>
+              <button type="button" onClick={exportAppearanceProposal}><ArrowDownload20Regular />Export</button>
+            </div>
+          </details>
         </div>
       </div>
-      {proposalImportError ? <div className="space-appearance-import-error" role="alert"><Warning20Regular aria-hidden="true" /><span>{proposalImportError}</span></div> : null}
-      <div className="space-appearance-previews" aria-label="Light and dark Space previews">
-        {(["light", "dark"] as const).map((mode) => (
-          <div
-            className={["space-appearance-preview", "space-banner-surface", `preview-${mode}`, `banner-${identity.bannerName}`, identity.bannerImage ? "has-banner-image" : ""].filter(Boolean).join(" ")}
-            style={{ ...spaceIdentityStyle(identity, mode), colorScheme: mode }}
-            data-preview-mode={mode}
-            key={mode}
-          >
-            {identity.bannerImage ? <span className="space-appearance-preview-image" aria-hidden="true"><img src={identity.bannerImage} alt="" draggable={false} style={{ objectPosition: `center ${identity.bannerImagePosition}` }} /><span /></span> : null}
-            <span className="space-appearance-preview-copy"><strong>{space.name}</strong><small className="sr-only">{spaceHeaderSourceBadgeLabel(space)}</small></span>
-            <span className="space-appearance-preview-label">{mode === "light" ? "Light" : "Dark"}</span>
+      <input ref={proposalFileInputRef} className="space-banner-file-input" type="file" accept=".json,application/json" onChange={(event) => void importAppearanceProposal(event)} tabIndex={-1} aria-hidden="true" />
+      {proposalImportError ? <div className="space-appearance-import-error" role="alert">{proposalImportError}</div> : null}
+      <SpaceBannerPreview identity={identity} name={space.name} editable={activeSection === "banner"} onFrame={(bannerFraming) => onCustomizeSpace(spaceId, { bannerFraming })} />
+      {!appearancePasses ? <div className="space-appearance-audit warning" role="status"><Warning20Regular aria-hidden="true" /><span>Choose a higher-contrast accent.</span></div> : null}
+      <div className="space-appearance-tab-panel" key={activeSection} role="tabpanel" id={`folder-appearance-panel-${activeSection}`} aria-labelledby={`folder-appearance-tab-${activeSection}`}>
+        {activeSection === "banner" ? <>
+          <div className="space-banner-section-heading"><strong>Images</strong><button className="space-banner-upload-button" type="button" onClick={() => bannerFileInputRef.current?.click()} disabled={bannerUploadBusy}><ImageAdd20Regular />{bannerUploadBusy ? "Uploading…" : "Upload"}</button></div>
+          <div className="space-banner-image-gallery" role="group" aria-label="Built-in banner images">
+            {spaceBannerPresets.map((preset) => <button key={preset.id} type="button" className={identity.bannerPreset === preset.id ? "active" : ""} aria-pressed={identity.bannerPreset === preset.id} aria-label={`Use ${preset.label} image`} onClick={() => onCustomizeSpace(spaceId, { bannerPreset: preset.id, bannerImage: undefined, bannerFraming: undefined, bannerImagePosition: undefined })}>
+              <span><img src={preset.thumbnail} alt="" draggable={false} />{identity.bannerPreset === preset.id ? <Checkmark20Regular /> : null}</span><strong>{preset.label}</strong>
+            </button>)}
+            {customization?.bannerImage ? <button type="button" className={!identity.bannerPreset ? "active" : ""} aria-label="Replace custom banner image" onClick={() => bannerFileInputRef.current?.click()}><span><img src={customization.bannerImage} alt="" /></span><strong>Your image</strong></button> : null}
           </div>
-        ))}
-      </div>
-      {!appearancePasses ? <div className="space-appearance-audit warning" role="status">
-        <Warning20Regular aria-hidden="true" /><span>Choose a higher-contrast accent.</span>
-      </div> : null}
-      <div className="space-appearance-row looks">
-        <span className="space-appearance-label">
-          <strong>Looks</strong>
-        </span>
-        <div className="space-look-gallery" role="group" aria-label="Curated folder looks">
-          {looks.map((look) => {
-            const active = activeLook?.name === look.name;
-            return (
-              <button
-                className={active ? "space-look-card active" : "space-look-card"}
-                key={look.name}
-                type="button"
-                style={spaceIdentityStyle(look.identity)}
-                onClick={() => onCustomizeSpace(spaceId, {
-                  color: look.primary,
-                  color2: look.secondary,
-                  bannerName: look.bannerName,
-                  bannerImage: undefined,
-                })}
-                aria-label={`Use ${look.name} look`}
-                aria-pressed={active}
-                title={look.name}
+          <input ref={bannerFileInputRef} className="space-banner-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onChange={(event) => void handleBannerFileChange(event)} tabIndex={-1} aria-hidden="true" />
+          {bannerUploadError ? <span className="space-banner-upload-error" role="alert">{bannerUploadError}</span> : null}
+          <div className="space-banner-section-heading"><strong>Patterns</strong></div>
+          <div className="space-banner-gallery" role="group" aria-label="Folder banner styles">
+            {spaceBannerOptions.map((option) => <button key={option.name} className={["space-banner-swatch", "space-banner-surface", `banner-${option.name}`, !identity.bannerImage && identity.bannerName === option.name ? "active" : ""].filter(Boolean).join(" ")} type="button" onClick={() => onCustomizeSpace(spaceId, { bannerName: option.name, bannerImage: undefined, bannerPreset: undefined, bannerFraming: undefined, bannerImagePosition: undefined })} aria-label={`Use ${option.label} banner`} aria-pressed={!identity.bannerImage && identity.bannerName === option.name}><span className="space-banner-swatch-name">{option.label}</span></button>)}
+          </div>
+          {!identity.bannerImage && identity.bannerName !== "none" ? <div className="space-pattern-colors">
+            <strong>Pattern colors</strong>
+            <div className="space-color-wheels">
+              <label className="space-color-picker" style={spaceIdentityStyle(identity)} title="Accent color">
+                <span className="space-color-wheel" aria-hidden="true"><span className="space-color-wheel-current" /></span>
+                <input type="color" value={identity.color} onInput={(event) => onCustomizeSpace(spaceId, { color: normalizeSpaceColor(event.currentTarget.value) })} aria-label="Choose pattern accent color" />
+                <span className="space-color-value"><small>Accent</small>{identity.color.toUpperCase()}</span>
+              </label>
+              <label
+                className={identity.hasCustomSecondary ? "space-color-picker secondary" : "space-color-picker secondary matched"}
+                style={{ ...spaceIdentityStyle(identity), "--space-picker-color": identity.secondaryColor } as CSSProperties}
+                title="Second banner color"
               >
-                <span className={["space-look-swatch", "space-banner-surface", `banner-${look.bannerName}`].join(" ")} aria-hidden="true">
-                  {active ? <Checkmark16Regular /> : null}
+                <span className="space-color-wheel" aria-hidden="true">
+                  <span className="space-color-wheel-current" />
                 </span>
-                <span className="space-look-copy"><strong>{look.name}</strong></span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+                <input
+                  type="color"
+                  value={identity.secondaryColor}
+                  onInput={(event) => onCustomizeSpace(spaceId, { color2: normalizeSpaceColor(event.currentTarget.value) })}
+                  aria-label="Choose second banner color"
+                />
+                <span className="space-color-value"><small>Second color</small>{identity.hasCustomSecondary ? identity.secondaryColor.toUpperCase() : "Match accent"}</span>
+              </label>
+              {identity.hasCustomSecondary ? (
+                <button
+                  className="space-color-pair-clear"
+                  type="button"
+                  onClick={() => onCustomizeSpace(spaceId, { color2: undefined })}
+                  aria-label="Remove second banner color"
+                  title="Match primary color"
+                >
+                  <Dismiss20Regular />
+                </button>
+              ) : null}
+            </div>
+          </div> : null}
+        </> : activeSection === "color" ? <>
       <div className="space-appearance-row colors">
-        <span className="space-appearance-label"><strong>Accent</strong></span>
-        <div className="space-color-controls">
-          <div className="space-color-swatches" role="group" aria-label="Space color presets">
-            {spaceColorOptions.map((option) => (
-              <button
-                className={identity.color === option.color ? "space-color-swatch active" : "space-color-swatch"}
-                key={option.label}
-                type="button"
-                style={{ "--swatch-color": option.color, "--swatch-soft": option.soft } as CSSProperties}
-                onClick={() => onCustomizeSpace(spaceId, { color: option.color })}
-                aria-label={`Use ${option.label} color`}
-                aria-pressed={identity.color === option.color}
-                title={option.label}
-              >
-                {identity.color === option.color ? <Checkmark20Regular /> : null}
-              </button>
-            ))}
-          </div>
+        <div className="space-color-section-heading"><strong>Accent</strong>
           <div className="space-color-wheels">
+            <span className="space-custom-color-label">Custom color</span>
             <label className="space-color-picker" style={spaceIdentityStyle(identity)}>
               <span className="space-color-wheel" aria-hidden="true">
                 <span className="space-color-wheel-current" />
@@ -841,115 +804,33 @@ function SpaceAppearancePanel({
                 type="color"
                 value={identity.color}
                 onInput={(event) => onCustomizeSpace(spaceId, { color: normalizeSpaceColor(event.currentTarget.value) })}
-                aria-label="Choose Space color"
+                aria-label="Choose Folder color"
               />
               <span className="space-color-value">{identity.color.toUpperCase()}</span>
             </label>
-            <label
-              className={identity.hasCustomSecondary ? "space-color-picker secondary" : "space-color-picker secondary matched"}
-              style={{ ...spaceIdentityStyle(identity), "--space-picker-color": identity.secondaryColor } as CSSProperties}
-              title="Second banner color"
-            >
-              <span className="space-color-wheel" aria-hidden="true">
-                <span className="space-color-wheel-current" />
-              </span>
-              <input
-                type="color"
-                value={identity.secondaryColor}
-                onInput={(event) => onCustomizeSpace(spaceId, { color2: normalizeSpaceColor(event.currentTarget.value) })}
-                aria-label="Choose second banner color"
-              />
-              <span className="space-color-value">{identity.hasCustomSecondary ? identity.secondaryColor.toUpperCase() : "+ Pair"}</span>
-            </label>
-            {identity.hasCustomSecondary ? (
+          </div>
+        </div>
+        <div className="space-color-controls">
+          <div className="space-color-swatches" role="group" aria-label="Folder color presets">
+            {spaceColorOptions.map((option) => (
               <button
-                className="space-color-pair-clear"
+                className={identity.color === option.color ? "space-color-swatch active" : "space-color-swatch"}
+                key={option.label}
                 type="button"
-                onClick={() => onCustomizeSpace(spaceId, { color2: undefined })}
-                aria-label="Remove second banner color"
-                title="Match primary color"
+                style={{ "--swatch-color": option.color, "--swatch-soft": option.soft, "--swatch-ink": readableTextColorOn(option.color) } as CSSProperties}
+                onClick={() => onCustomizeSpace(spaceId, { color: option.color })}
+                aria-label={`Use ${option.label} color`}
+                aria-pressed={identity.color === option.color}
+                title={option.label}
               >
-                <Dismiss20Regular />
+                <span className="space-color-dot" aria-hidden="true">{identity.color === option.color ? <Checkmark20Regular /> : null}</span>
+                <span>{option.label}</span>
               </button>
-            ) : null}
+            ))}
           </div>
         </div>
       </div>
-      <div className="space-appearance-row banners">
-        <span className="space-appearance-label"><strong>Banner</strong></span>
-        <div className="space-banner-picker" style={spaceIdentityStyle(identity)}>
-          <div className="space-banner-gallery" role="group" aria-label="Space banner styles">
-            {spaceBannerOptions.map((option) => {
-              const active = !identity.bannerImage && identity.bannerName === option.name;
-              return (
-                <button
-                  className={[
-                    "space-banner-swatch",
-                    "space-banner-surface",
-                    `banner-${option.name}`,
-                    active ? "active" : "",
-                  ].filter(Boolean).join(" ")}
-                  key={option.name}
-                  type="button"
-                  onClick={() => onCustomizeSpace(spaceId, { bannerName: option.name, bannerImage: undefined })}
-                  aria-label={`Use ${option.label} banner`}
-                  aria-pressed={active}
-                  title={option.label}
-                >
-                  <span className="space-banner-swatch-name">{option.label}</span>
-                </button>
-              );
-            })}
-            <button
-              className={identity.bannerImage ? "space-banner-swatch upload has-image active" : "space-banner-swatch upload"}
-              type="button"
-              onClick={() => bannerFileInputRef.current?.click()}
-              disabled={bannerUploadBusy}
-              aria-label={identity.bannerImage ? "Replace custom banner image" : "Upload custom banner image"}
-              aria-pressed={Boolean(identity.bannerImage)}
-              title={identity.bannerImage ? "Replace image" : "Upload image"}
-            >
-              {identity.bannerImage ? <img src={identity.bannerImage} alt="" draggable={false} /> : null}
-              <span className="space-banner-swatch-name">
-                {bannerUploadBusy ? <ArrowClockwise20Regular className="spin" /> : <ImageAdd20Regular />}
-                {identity.bannerImage ? "Replace" : "Upload"}
-              </span>
-            </button>
-          </div>
-          <input
-            ref={bannerFileInputRef}
-            className="space-banner-file-input"
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
-            onChange={(event) => void handleBannerFileChange(event)}
-            tabIndex={-1}
-            aria-hidden="true"
-          />
-          {identity.bannerImage ? (
-            <div className="space-banner-image-controls">
-              <span>Image position</span>
-              <div className="space-banner-position-control" role="radiogroup" aria-label="Banner image position">
-                {(["top", "center", "bottom"] as const).map((position) => <button className={identity.bannerImagePosition === position ? "active" : ""} type="button" role="radio" aria-checked={identity.bannerImagePosition === position} key={position} onClick={() => onCustomizeSpace(spaceId, { bannerImagePosition: position })}>{position[0]!.toUpperCase() + position.slice(1)}</button>)}
-              </div>
-              <button
-                className="space-banner-remove"
-                type="button"
-                onClick={() => {
-                  setBannerUploadError(null);
-                  onCustomizeSpace(spaceId, { bannerImage: undefined, bannerImagePosition: undefined });
-                }}
-                disabled={bannerUploadBusy}
-              >
-                <Dismiss20Regular />
-                Remove image
-              </button>
-            </div>
-          ) : null}
-          {bannerUploadError ? <span className="space-banner-upload-error">{bannerUploadError}</span> : null}
-        </div>
-      </div>
-      <div className="space-appearance-row icons">
-        <span className="space-appearance-label"><strong>Icon</strong></span>
+        </> : <>
         <div className="space-icon-picker">
           <label className="space-icon-search">
             <Search20Regular aria-hidden="true" />
@@ -959,13 +840,17 @@ function SpaceAppearancePanel({
               onChange={(event) => {
                 setIconSearchQuery(event.currentTarget.value);
                 setIconPage(0);
+                if (event.currentTarget.value) setIconGroup("all");
               }}
               placeholder="Search icons"
-              aria-label="Search Space icons"
+              aria-label="Search Folder icons"
             />
           </label>
+          <div className="space-icon-categories" role="group" aria-label="Icon categories">
+            {spaceIconGroups.map((group) => <button key={group.id} type="button" aria-pressed={iconGroup === group.id} onClick={() => { setIconGroup(group.id); setIconSearchQuery(""); setIconPage(0); }}>{group.label}</button>)}
+          </div>
           <div className="space-icon-browser">
-            <div className="space-icon-grid" aria-label="Space icon">
+            <div className="space-icon-grid" aria-label="Folder icon">
               {visibleSpaceIconOptions.map((option) => {
                 const Icon = option.Icon;
                 return (
@@ -978,7 +863,7 @@ function SpaceAppearancePanel({
                     aria-pressed={identity.iconName === option.name}
                     title={option.label}
                   >
-                    <SpaceIconGlyph icon={Icon} size={18} filled={identity.iconName === option.name} />
+                    <SpaceIconGlyph icon={Icon} size={24} filled={identity.iconName === option.name} />
                   </button>
                 );
               })}
@@ -992,7 +877,7 @@ function SpaceAppearancePanel({
               <button type="button" onClick={() => setIconPage((current) => Math.min(iconPageCount - 1, current + 1))} disabled={iconPage >= iconPageCount - 1} aria-label="Next icon page"><ChevronRight20Regular /></button>
             </div>
           ) : null}
-        </div>
+        </div>        </>}
       </div>
     </div>
   );

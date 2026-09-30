@@ -19,6 +19,7 @@ type AssistantSetupProps = {
   active?: boolean;
   initialScope?: AssistantModelScope;
   focusModelOnOpen?: boolean;
+  focusInstructionsOnOpen?: boolean;
   onConfigured: (status: AgentStatus) => void;
   onAssistantChanged?: (scope: AssistantModelScope, status: AgentStatus) => void;
 };
@@ -47,7 +48,7 @@ function beginAssistantMutation(): (() => void) | null {
 type AzureConnectionDraft = { baseUrl: string; deployments: string };
 type AssistantDraft = { model?: { provider: string; model: string }; instructions?: string; azure?: AzureConnectionDraft };
 export function AssistantSetupPane(props: AssistantSetupProps) {
-  const { space, embedded = false, initialScope, active = true, focusModelOnOpen = false } = props;
+  const { space, embedded = false, initialScope, active = true, focusModelOnOpen = false, focusInstructionsOnOpen = false } = props;
   const identity = JSON.stringify([space?.id ?? null, initialScope ?? null]);
   const defaultScope = initialScope === "management" || !space ? "management" : "space";
   const [selection, setSelection] = useState<{ identity: string; scope: AssistantModelScope }>({ identity, scope: defaultScope });
@@ -63,7 +64,7 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
   }
   const mutationBusy = useSyncExternalStore(subscribeMutation, () => assistantMutation !== null, () => false);
   const initialIdentity = useRef(identity);
-  const focusRequest = useRef({ pending: focusModelOnOpen && active, origin: null as Element | null });
+  const focusRequest = useRef({ pending: (focusModelOnOpen || focusInstructionsOnOpen) && active, origin: null as Element | null });
   if (!active || identity !== initialIdentity.current) focusRequest.current.pending = false;
   useEffect(() => {
     let disposed = false;
@@ -146,7 +147,7 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
   );
 }
 
-function AssistantScopeSettings({ space, status, scope, fixtureMode = false, active = true, onConfigured, onAssistantChanged, mutationBusy, beginMutation, waitForMutation, isMutating, readDraft, editDraft, focusModelWhenReady, initialResult, onSnapshot, onLoaded }: AssistantSetupProps & {
+function AssistantScopeSettings({ space, status, scope, fixtureMode = false, active = true, onConfigured, onAssistantChanged, mutationBusy, beginMutation, waitForMutation, isMutating, readDraft, editDraft, focusModelWhenReady, focusInstructionsOnOpen, initialResult, onSnapshot, onLoaded }: AssistantSetupProps & {
   scope: AssistantModelScope;
   mutationBusy: boolean;
   beginMutation: () => (() => void) | null;
@@ -175,6 +176,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   const onSnapshotRef = useRef(onSnapshot);
   onSnapshotRef.current = onSnapshot;
   const initialResultRef = useRef(initialResult);
+  const instructionsField = useRef<HTMLTextAreaElement>(null);
   const [instructions, setInstructions] = useState("");
   const [savedInstructions, setSavedInstructions] = useState("");
   const [loading, setLoading] = useState(!initialResult);
@@ -342,7 +344,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   }, [fixtureMode]);
 
   useEffect(() => {
-    if (!loading && active) focusModelWhenReady(modelSelect.current);
+    if (!loading && active) focusModelWhenReady(focusInstructionsOnOpen ? instructionsField.current : modelSelect.current);
   }, [loading, active]);
 
   function updateModelDraft(nextProvider: string, nextModel: string) {
@@ -545,7 +547,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
     {scope === "space" ? <section className="assistant-settings-section" aria-labelledby="assistant-instructions-heading">
       <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Worker Instructions</h3></div>
       <form onSubmit={(event) => void saveInstructions(event)}>
-        <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker Instructions</span><textarea value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
+        <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker Instructions</span><textarea ref={instructionsField} value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
         <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save Instructions"}</button><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /></div>
       </form>
     </section> : null}

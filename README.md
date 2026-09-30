@@ -57,7 +57,7 @@ Open **http://localhost:5173** for the browser development UI. See [Contributing
 
 Check changes with `npm run check` and `npm test`; run `npm run desktop:prepare` for desktop integration changes. The [docs map](docs/README.md) covers architecture, product decisions, and release procedures. [AGENTS.md](AGENTS.md) is the shared contributor contract.
 
-[MIT License](LICENSE) · [Security](SECURITY.md) · [CI](https://github.com/Mat-Tom-Son/work-fold/actions/workflows/ci.yml)
+[MIT License](LICENSE) · [Security](SECURITY.md) · [Development](docs/development.md)
 
 
 The [collaboration contract](docs/collaboration-contract.md#completion-delivery-and-recovery)
