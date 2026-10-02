@@ -119,6 +119,8 @@ test("a message addresses each Folder whose @Name it contains, longest names fir
   assert.deepEqual(addressedFolderIds("Ask @API to add paging.", folders), ["api"]);
   assert.deepEqual(addressedFolderIds("email me@api.dev or @apiary", folders), [], "no word start or no boundary means no mention");
   assert.deepEqual(addressedFolderIds("(@web) then @api", folders), ["api", "web"], "results keep the caller's order");
+  assert.deepEqual(addressedFolderIds("@api docs, then @api docs again", folders), ["docs"], "every long mention owns its text, including repeats");
+  assert.deepEqual(addressedFolderIds("@api docs, then @api docs, then @api", folders), ["api", "docs"], "a separate short mention still addresses its Worker");
 });
 
 test("one dot per Folder: running wins, and a waiting reply counts only for an open-able Chat", () => {

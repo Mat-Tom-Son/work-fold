@@ -487,9 +487,10 @@ export function PopoverApp() {
     try {
       const current = requestRef.current;
       const addressedSpaceIds = addressedFolderIds(content, mentionFolders);
+      // Match the host's request digest: a registry change may remove or
+      // rename an addressed Worker between retries of the same message.
       const signature = JSON.stringify({
         content,
-        addressedSpaceIds,
         attachments: staged.map((item) => item.value),
         newConversation: startingNewChatRef.current,
         conversationId: selectionRef.current,

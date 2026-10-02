@@ -18,6 +18,9 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   let finishOld: (() => void) | null = null;
   let failSend = false;
   let emptyDesktop = false;
+  let outline = [{ id: "worker", name: "Writing", spaceRoot: "/writing" }];
+  let outlineReads = 0;
+  let announceRegistryChange: (() => void) | null = null;
   const sent: Record<string, unknown>[] = [];
   const chats = [
     { id: "newer", title: "Workshop plan", updatedAt: "2026-09-11T19:00:00Z" },
@@ -27,8 +30,14 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     if (url.pathname.endsWith("/events") || url.pathname.endsWith("/control-events")) {
-      return new Response(new ReadableStream({ start(controller) { init?.signal?.addEventListener("abort", () => controller.close(), { once: true }); } }), { headers: { "content-type": "text/event-stream" } });
+      return new Response(new ReadableStream({ start(controller) {
+        const subscriptions = JSON.parse(String(init?.body ?? "{}")).subscriptions ?? [];
+        const control = subscriptions.find((item: { path: string }) => item.path === "/api/management/control-events");
+        if (control) announceRegistryChange = () => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ subscriptionId: control.id, event: { type: "spaces" } })}\n\n`));
+        init?.signal?.addEventListener("abort", () => { if (control) announceRegistryChange = null; controller.close(); }, { once: true });
+      } }), { headers: { "content-type": "text/event-stream" } });
     }
+    if (url.pathname === "/api/spaces/outline") { outlineReads++; return json({ spaces: outline }); }
     if (url.pathname === "/api/management/conversations") return json({ conversations: emptyDesktop ? [] : chats.map((chat) => ({ ...chat, requestState: chat.id === "newer" && running ? "working" : "done" })) });
     if (url.pathname === "/api/management/summary") {
       if (emptyDesktop && !url.searchParams.has("conversationId")) return json({ available: true, conversation: null, state: "idle", latestRequest: null });
@@ -71,6 +80,7 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   };
   await dom.render(createElement(PopoverApp));
   await dom.waitFor(() => dom.container.textContent?.includes("Transcript newer") === true);
+  await dom.waitFor(() => outlineReads > 0 && announceRegistryChange !== null);
   await input("textarea", "Workshop draft");
   await openHistory();
   assert.equal(document.activeElement?.getAttribute("aria-label"), "Search chats");
@@ -79,14 +89,24 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   await choose("Field notes");
   await dom.waitFor(() => dom.container.textContent?.includes("Transcript older") === true);
   assert.equal(dom.container.querySelector("textarea")?.value, "");
-  await input("textarea", "Reply to old notes");
+  await input("textarea", "@Writing, reply to old notes");
   failSend = true;
   await click(".composer-action");
-  assert.equal(dom.container.querySelector("textarea")?.value, "Reply to old notes");
+  assert.equal(dom.container.querySelector("textarea")?.value, "@Writing, reply to old notes");
+  assert.deepEqual(sent[0].addressedSpaceIds, ["worker"]);
+  // A registry change between an uncertain send and its retry changes only
+  // the context hint; it must never create a second acceptance identity.
+  const priorOutlineReads = outlineReads;
+  outline = [];
+  await dom.waitFor(() => announceRegistryChange !== null);
+  await dom.act(() => announceRegistryChange!());
+  await dom.waitFor(() => outlineReads > priorOutlineReads);
   failSend = false;
   await click(".composer-action");
   assert.equal(sent[0].conversationId, "older");
   assert.equal(sent[1].requestId, sent[0].requestId, "retry retains the same acceptance identity");
+  assert.equal(sent[1].userMessageId, sent[0].userMessageId);
+  assert.equal(sent[1].addressedSpaceIds, undefined, "the removed Worker is no longer a context hint");
   await input("textarea", "Field draft");
   await openHistory(); await choose("Workshop plan");
   await dom.waitFor(() => dom.container.textContent?.includes("Transcript newer") === true);

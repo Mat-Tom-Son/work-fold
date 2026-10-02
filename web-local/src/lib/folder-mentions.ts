@@ -108,7 +108,6 @@ export function addressedFolderIds(content: string, folders: readonly Mentionabl
       if (!startsWord || !endsWord || claimed.some(([a, b]) => index < b && end > a)) continue;
       claimed.push([index, end]);
       found.add(folder.id);
-      break;
     }
   }
   return folders.filter((folder) => found.has(folder.id)).map((folder) => folder.id).slice(0, 8);
