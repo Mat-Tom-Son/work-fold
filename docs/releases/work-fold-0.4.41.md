@@ -12,6 +12,8 @@ work-folders and direct Worker mentions.
   **Start and Check** starts it without interrupting other Chats; repair is
   separate under **Repair and Recheck**.
   Readiness observations do not delay computer actions or add a document worker.
+  Freshly downloaded helpers also work when Gatekeeper relocates them: the
+  running bundle must match the expected signed helper exactly.
 - Chrome stays Connected during long operations using authenticated command
   heartbeats. Selected profiles reconnect automatically; connection failures
   show useful recovery guidance instead of repeated Store setup.

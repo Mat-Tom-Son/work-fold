@@ -70,6 +70,20 @@ behavior, window grouping and socket timeout as well as authenticated liveness.
 Companion-side changes require the separately built Chrome extension update;
 Store approval is not implied by a desktop build.
 
+## Computer Control 0.5.1
+
+The native protocol check preserves its canonical executable comparison. A
+Gatekeeper-translocated helper may also pass only when it is beneath the current
+user's temporary AppTranslocation directory, its entire bounded regular-file
+bundle matches the expected helper's modes and bytes, and both strict code
+signatures validate. Every comparison rechecks the current artifact. It never
+removes quarantine, admits another protocol, or accepts a filename or signing
+team alone. Native regression tests cover the initial and after-relaunch paths,
+altered executables, metadata and resources, symlinks, unrelated copies,
+invalid seals, cancellation and inspection failures without a helper restart.
+Packaged checks pin the verifier and caller
+bytes to this manifest.
+
 ## MCP 2.33.0
 
 The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.
