@@ -110,6 +110,16 @@ Changed helper bytes fail ordinary tool execution. Explicit Computer setup can
 repair them from the verified app copy after accepted work has stopped; the
 existing global capability fence holds through idle-helper shutdown and repair.
 
+Gatekeeper can run that quarantined helper from a temporary, randomized
+location. A different executable path is admitted only beneath the current
+user's AppTranslocation directory and only when its complete bounded bundle
+(regular files, permissions and bytes, without symlinks) matches the current
+expected helper. Both signatures must validate independently; protocol
+compatibility is still required. Quarantine is preserved. Other locations,
+changed resources and invalid seals fail without weakening Gatekeeper or
+accepting a signing-team or filename shortcut. A failed inspection reports an
+error without restarting a possibly busy helper.
+
 Documents run full trust in a worker so Stop can terminate a synchronous loop.
 Each worker has a 512 MiB V8 heap limit to contain accidental allocation loops;
 native-library and external-buffer memory are outside that limit.

@@ -80,6 +80,12 @@ if (packagedPlatform === "win32") {
       source.sources.find((item) => item.path === path)?.sha256 !== expected.files.find((item) => item.path === path)?.after)) {
       failures.push("Computer helper build inputs do not match the reviewed source hashes.");
     }
+    for (const path of ["src/platform/macos/helper.ts", "src/platform/macos/permissions.ts", "src/platform/macos/helper-identity.mjs"]) {
+      const bytes = extractFile(asarPath, `node_modules/${expected.package}/${path}`);
+      if (createHash("sha256").update(bytes).digest("hex") !== expected.files.find((item) => item.path === path)?.after) {
+        failures.push(`Computer helper identity runtime does not match the reviewed source: ${path}.`);
+      }
+    }
     const plist = readFileSync(join(computerHelper, "Info.plist"), "utf8");
     for (const [key, value] of [["CFBundleIdentifier", "com.work-fold.desktop.computer"], ["CFBundleExecutable", "bridge"], ["CFBundleDisplayName", "work-fold Computer"], ["CFBundleIconFile", "icon.icns"]]) {
       if (!plist.includes(`<key>${key}</key><string>${value}</string>`)) failures.push(`Computer helper has an unexpected ${key}.`);
@@ -164,6 +170,7 @@ if (existsSync(asarPath)) {
     ...["@injaneity/pi-computer-use", "pi-chrome", "pi-web-access", "pi-mcp-adapter", "jiti", "typebox", "docx", "exceljs", "pptxgenjs", "pdf-lib", "pdfjs-dist", "@napi-rs/canvas"].map((name) => `/node_modules/${name}/package.json`),
     "/node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/service_worker.js",
     "/node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/host-config.json",
+    "/node_modules/@injaneity/pi-computer-use/src/platform/macos/helper-identity.mjs",
   ]) {
     if (!entries.has(required)) failures.push(`app.asar is missing ${required}.`);
   }
