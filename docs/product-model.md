@@ -548,3 +548,17 @@ hears.
 On 2026-10-02 the product copy renamed this concept **work-folder**, always
 lowercase like "work-fold", while ordinary directories stay plain "folder".
 The prose in this document keeps "Folder" for the same concept.
+
+### Included tool readiness, 2026-10-02
+
+The included tools show observed readiness separately from native loading.
+Visible Skills & Extensions surfaces refresh cold host status automatically;
+opening them never launches a helper or connects a server. Successful use can
+supply readiness evidence. Older computer permission evidence remains visible
+as Last Check Passed with its original timestamp, while bundled Documents proof
+belongs to the running build. Service Connections says No Connections or
+Configured and leaves actual health to each connection. A selected Chrome
+profile reconnects automatically and does not need repeated Store setup.
+Check observes; helper repair is a separate explicit setup operation and cannot
+silently dispose idle Chats. The [extension contract](extension-foundation.md)
+records observation ordering, freshness and cancellation boundaries.

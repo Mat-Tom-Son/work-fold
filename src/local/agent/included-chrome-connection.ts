@@ -44,6 +44,7 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
   #lease?: ChromeRuntimeConnection;
   #leaseIssuedAt = 0;
   #recordUnreadable = false;
+  #startupProblem?: ChromeConnectionSummary["problem"];
   #observation?: { at: number; value: ChromeConnectionObservation };
   #server?: Server;
   #transport?: { close(): void };
@@ -70,12 +71,12 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
   get #descriptorPath() { return join(this.#root, "launch.json"); }
   get #origin() { const id = this.#options.distribution.storeId; return id && /^[a-p]{32}$/.test(id) ? `chrome-extension://${id}/` : undefined; }
   #summary(state: ChromeConnectionSummary["state"]): ChromeConnectionSummary {
-    return { state, checkedAt: new Date().toISOString(), hasSelection: Boolean(this.#saved.selected), ...(this.#observation?.value.extensionVersion ? { extensionVersion: this.#observation.value.extensionVersion } : {}) };
+    return { state, checkedAt: new Date().toISOString(), hasSelection: Boolean(this.#saved.selected), ...(this.#startupProblem ? { problem: this.#startupProblem } : {}), ...(this.#observation?.value.extensionVersion ? { extensionVersion: this.#observation.value.extensionVersion } : {}) };
   }
   status(): ChromeConnectionSummary {
     if (!this.#origin) return this.#summary("store_unavailable");
     if (this.#closed) return this.#summary("app_not_running");
-    if (this.#recordUnreadable) return this.#summary("connection_error");
+    if (this.#recordUnreadable || this.#startupProblem) return this.#summary("connection_error");
     if (!this.#saved.selected) return this.#summary("not_connected");
     const observed = this.#observation;
     if (observed && Date.now() - observed.at < 30_000 && observed.value.connectionId === this.#lease?.connectionId) return this.#summary(observed.value.state);
@@ -102,7 +103,7 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
   }
   #revoke() {
     const wasOwned = Boolean(this.#lease || this.#transport);
-    this.#lease = undefined; this.#observation = undefined;
+    this.#lease = undefined; this.#observation = undefined; this.#startupProblem = undefined;
     if (wasOwned) for (const listener of this.#listeners) { try { listener(); } catch { /* Revocation must reach every owner. */ } }
     this.#transport?.close(); this.#transport = undefined;
   }
@@ -116,7 +117,10 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
   };
   onChromeConnectionRevoked = (listener: () => void): (() => void) => { this.#listeners.add(listener); return () => { this.#listeners.delete(listener); }; };
   reportChromeConnectionObservation = (value: ChromeConnectionObservation): void => {
-    if (!this.#closed && value.connectionId === this.#lease?.connectionId) this.#observation = { at: Date.now(), value: { ...value } };
+    if (!this.#closed && value.connectionId === this.#lease?.connectionId) {
+      this.#observation = { at: Date.now(), value: { ...value } };
+      if (value.state === "connected") this.#startupProblem = undefined;
+    }
   };
   beginChromeWork = (connectionId: string): (() => void) => {
     if (this.#closed || this.#changing || connectionId !== this.#lease?.connectionId) throw new Error("Chrome connection changed before this work started. Observe the current connection before continuing.");
@@ -127,12 +131,13 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
   async startIfEnabled(): Promise<void> {
     return this.#exclusive(async () => {
       if (this.#saved.enabled && this.#origin && !this.#closed) {
-        await this.#options.registerNativeHost(false);
+        try { await this.#options.registerNativeHost(false); }
+        catch (error) { this.#startupProblem = "native_host_unavailable"; throw error; }
         if (this.#closed) return;
         await this.#start();
         if (!this.#closed && this.#saved.selected) {
           await this.getChromeConnection();
-          if (!this.#closed) this.#transport = await this.#options.startTransport(this);
+          if (!this.#closed) await this.#startTransport();
         }
       }
     });
@@ -146,26 +151,36 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
       this.#changing = true;
       try {
         await this.#options.registerNativeHost(true);
+        if (this.#startupProblem === "native_host_unavailable") this.#startupProblem = undefined;
         if (this.#closed) return this.#summary("app_not_running");
         await this.#persist({ ...this.#saved, enabled: true });
         if (this.#closed) return this.#summary("app_not_running");
         await this.#start();
-        if (this.#closed) return this.#summary("app_not_running");
-        await this.#options.openStore();
-        return this.status();
       } finally { this.#changing = false; }
+      if (this.#closed) return this.#summary("app_not_running");
+      if (this.#saved.selected) {
+        if (!this.#transport) {
+          await this.getChromeConnection();
+          try { await this.#startTransport(); }
+          catch { return this.status(); }
+        }
+      } else await this.#options.openStore();
+      return this.status();
     });
   }
   async check(): Promise<ChromeConnectionSummary> {
     return this.#track((async () => {
-      if (!this.#origin || this.#closed || !this.#saved.selected) return this.status();
+      if (!this.#origin || this.#closed || !this.#saved.selected || !this.#transport) return this.status();
       const connectionId = (await this.getChromeConnection())?.connectionId;
       if (!connectionId || connectionId !== this.#lease?.connectionId) return this.status();
-      this.#observation = undefined;
+      const before = this.#observation;
       try { await this.#options.probe(); } catch {
         // A disconnected or replaced connection owns its current state; an
         // earlier probe must not label that new state as a connection failure.
-        return this.#closed || connectionId !== this.#lease?.connectionId ? this.status() : this.#summary("connection_error");
+        if (!this.#closed && connectionId === this.#lease?.connectionId && this.#observation === before) {
+          this.reportChromeConnectionObservation({ connectionId, state: "connection_error" });
+        }
+        return this.status();
       }
       return this.status();
     })());
@@ -223,7 +238,10 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
         }
         const connection = await this.getChromeConnection();
         if (!connection || this.#closed) return result(this.#closed ? "app_not_running" : "not_connected");
-        this.#transport ??= await this.#options.startTransport(this);
+        if (!this.#transport) {
+          try { await this.#startTransport(); }
+          catch { return result(this.#closed ? "app_not_running" : "connection_error"); }
+        }
         if (this.#closed) return result("app_not_running");
         response = { version: 1, state: "lease_ready", connection };
       }
@@ -234,6 +252,12 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
       }
       return response;
     });
+  }
+  async #startTransport() {
+    try {
+      this.#transport = await this.#options.startTransport(this);
+      this.#startupProblem = undefined;
+    } catch (error) { this.#startupProblem = "transport_unavailable"; throw error; }
   }
   async #start() {
     if (this.#server || this.#closed) return;

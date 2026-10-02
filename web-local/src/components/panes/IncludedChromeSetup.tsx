@@ -49,11 +49,13 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
     alive.current = true;
     void refresh();
     const returned = () => { if (document.visibilityState !== "hidden") void refresh(); };
+    const timer = window.setInterval(returned, 5_000);
     window.addEventListener("focus", returned);
     document.addEventListener("visibilitychange", returned);
     return () => {
       alive.current = false; revision.current += 1;
       readRequest.current?.abort(); mutation.current?.abort();
+      window.clearInterval(timer);
       window.removeEventListener("focus", returned);
       document.removeEventListener("visibilitychange", returned);
     };
@@ -107,8 +109,8 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
   const connection = status?.chrome;
   const state = connection?.state;
   const hasSelection = connection?.hasSelection === true || state === "connected" || state === "profile_conflict";
-  const presentation = chromeConnectionReadiness(state);
-  const canConnect = !["connected", "connecting", "store_unavailable", "app_not_running", "update_app", "profile_conflict", "busy"].includes(state ?? "");
+  const presentation = chromeConnectionReadiness(state, hasSelection, connection?.problem);
+  const canConnect = (!hasSelection || state === "update_extension" || connection?.problem === "native_host_unavailable") && !["connected", "connecting", "store_unavailable", "app_not_running", "update_app", "profile_conflict", "busy"].includes(state ?? "");
   const pendingLabel = action === "check" ? "Checking…" : action === "disconnect-chrome" ? "Disconnecting…" : action === "change-chrome-profile" ? "Changing profile…" : action ? "Connecting…" : null;
   const cancelObservation = () => { setWatching(false); readRequest.current?.abort(); };
   return <section className="included-tool-setup" aria-label="Chrome setup" aria-busy={Boolean(action)}>
@@ -117,9 +119,12 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
     </div>
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
     {state === "busy" ? <p>Stop Chrome work before changing the connection.</p> : null}
-    {enabled && (state === "connecting" || watching) ? <p>In Chrome, choose Connect.</p> : null}
+    {enabled && watching && !hasSelection ? <p>In Chrome, choose Connect.</p> : null}
+    {enabled && hasSelection && state === "connecting" ? <p>Reconnecting to your selected Chrome profile…</p> : null}
+    {enabled && hasSelection && state === "not_connected" ? <p>Open Chrome. Your selected profile reconnects automatically.</p> : null}
+    {enabled && state === "connection_error" ? <p>{status?.detail}</p> : null}
     <div className="included-tool-actions included-chrome-actions">
-      {canConnect ? <button type="button" className="professional-button professional-button-primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : state === "update_extension" ? "Update extension" : "Connect Chrome"}</button> : null}
+      {canConnect ? <button type="button" className="professional-button professional-button-primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : state === "update_extension" ? "Update extension" : connection?.problem === "native_host_unavailable" ? "Repair Connection" : "Connect Chrome"}</button> : null}
       {hasSelection ? <>
         <button type="button" className="professional-button professional-button-secondary" disabled={!enabled || Boolean(action)} onClick={() => void act("change-chrome-profile")}>Change profile</button>
         <button type="button" className="professional-button professional-button-secondary" disabled={!enabled || Boolean(action)} onClick={() => void act("disconnect-chrome")}>Disconnect</button>

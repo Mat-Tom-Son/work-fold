@@ -51,6 +51,25 @@ per session, without eviction; failures say the result was not stored. Native
 structure remains sampled, with captured control/query counts and refinement
 guidance. Explicit navigation/wait timeouts also govern the companion deadline.
 
+Authenticated active-command heartbeats and accepted results also refresh the
+app's connection observation. Only requests from the authenticated companion
+supply liveness; writing a server response is not evidence of browser contact. Wrong
+origins, credentials, generations, epochs and unknown command IDs remain inert.
+
+Focused upstream browser corrections are backported without replacing the
+reviewed embedded factory: new groups name the target window; hidden pages fail
+before trusted input rather than claiming success; click/fill may use their
+existing disclosed DOM fallback. Fill selects all of a multiline field and
+targeted type moves to its end. A forty-five-second fetch/body deadline recovers
+a half-open long poll without timing out or replaying a command. These fixes
+follow upstream 0.15.53–0.15.56
+([source and changelog](https://github.com/tianrendong/pi-chrome)); the pinned
+0.15.51 runtime, standalone behavior and Stop/lease fences remain reviewed here.
+The native worker harness covers hidden input, multiline replacement, caret
+behavior, window grouping and socket timeout as well as authenticated liveness.
+Companion-side changes require the separately built Chrome extension update;
+Store approval is not implied by a desktop build.
+
 ## MCP 2.33.0
 
 The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.

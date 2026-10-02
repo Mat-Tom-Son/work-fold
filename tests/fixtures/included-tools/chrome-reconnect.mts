@@ -115,8 +115,13 @@ try {
   assert.equal(tabReads, 1);
   // Wait for the worker's next idle poll to hold the socket during Disconnect.
   const oldConnection = (await service.getChromeConnection())!;
-  for (let i = 0; !(pendingPolls === 1 && observedPolls === polls) && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 5));
-  assert.ok(pendingPolls === 1 && observedPolls === polls, "The old listener must hold an idle browser poll during Disconnect");
+  for (let i = 0; pendingPolls !== 1 && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  // Results and command heartbeats are observations too; they are no longer
+  // one-to-one with poll requests. An idle held socket stays pending after the
+  // immediate authentication/compatibility reply window.
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(service.status().state, "connected");
+  assert.equal(pendingPolls, 1, "The old listener must hold an idle browser poll during Disconnect");
   assert.equal((await send("disconnect")).state, "not_connected");
   assert.equal((await send("connect")).state, "connecting");
   assert.notEqual((await service.getChromeConnection())!.connectionId, oldConnection.connectionId);

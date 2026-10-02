@@ -64,7 +64,14 @@ export async function startIncludedChromeConnection(host: ChromeHostFacilities) 
 export async function probeIncludedChromeConnection(host: ChromeHostFacilities) {
   const connection = await host.getChromeConnection();
   const result = await probeChromeConnection({ ...connectionOptions(host), timeoutMs: 5_000 });
-  if (result.state !== "ready") throw new Error(result.reason);
+  if (result.state !== "ready") {
+    if (result.compatibilityRejected && connection && (await host.getChromeConnection())?.connectionId === connection.connectionId) {
+      // An authenticated result may prove contact while its payload rejects
+      // compatibility. Do not let that liveness heartbeat conceal the failure.
+      host.reportChromeConnectionObservation({ connectionId: connection.connectionId, state: "connection_error" });
+    }
+    throw new Error(result.reason);
+  }
   if (!connection || (await host.getChromeConnection())?.connectionId !== connection.connectionId) {
     throw new Error("Chrome connection changed while checking setup.");
   }

@@ -454,3 +454,27 @@ test("PDF source capture budget is explicit and can be selected independently of
   assert.match(value.small, /at most/); assert.match(value.invalid, /positive safe integer/);
   assert.match(value.text, /Source budget/); assert.equal(value.same, true);
 });
+
+test("document use publishes real bundled readiness, and shutdown owns the first run before readiness is published", async t => {
+  const setup = await fixture(t, "export default()=>({verified:true});");
+  const jiti = createJiti(import.meta.url);
+  const { default: factory } = await jiti.import<{ default: (pi: unknown) => void }>("../resources/included-tools/documents/index.ts");
+  const observations: any[] = [];
+  const native = () => {
+    const tools = new Map<string, any>(), handlers = new Map<string, any>();
+    factory({ registerTool: (tool: any) => tools.set(tool.name, tool), on: (name: string, fn: any) => handlers.set(name, fn), events: { emit(_name: string, event: any) { event.context = { version: 1, mode: "session", cwd: setup.cwd, agentDir: join(setup.cwd, "agent"), stateRoot: setup.cwd, beginIncludedToolObservation: (id: string) => (status: any) => { assert.equal(id, "documents"); observations.push(status); return status; } }; } } });
+    return { tool: tools.get("document_run"), shutdown: handlers.get("session_shutdown") };
+  };
+  const first = native();
+  assert.equal(observations.length, 0, "loading remains cold");
+  const result = await first.tool.execute("proof", { script: setup.script, artifactsDir: setup.artifactsDir }, undefined, undefined, { cwd: setup.cwd });
+  assert.equal(result.details.documentRunOutcome, "succeeded");
+  assert.equal(observations.length, 1); assert.equal(observations[0].state, "ready"); assert.equal(observations[0].facts.docx, "9.7.1");
+  await first.shutdown();
+  observations.length = 0;
+  const closing = native();
+  const pending = closing.tool.execute("closing", { script: setup.script }, undefined, undefined, { cwd: setup.cwd });
+  const rejected = assert.rejects(pending, /abort|closed|stopped/i);
+  await closing.shutdown(); await rejected;
+  assert.equal(observations.length, 0, "a stopped readiness worker publishes no successful or failed proof");
+});
