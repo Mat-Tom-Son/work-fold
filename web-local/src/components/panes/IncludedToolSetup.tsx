@@ -88,7 +88,7 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
     {enabled && status?.stale && status.state === "ready" ? <p>Last verified {new Date(status.checkedAt).toLocaleString()}. This is an earlier successful check, not a live connection. Readiness refreshes when you use this tool.</p> : null}
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
     {tool.id === "computer" ? <>
-      {enabled && status?.state === "unknown" ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("recheck")}>Start and Check</button> : null}
+      {enabled && status?.state === "unknown" ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("start-check")}>Start and Check</button> : null}
       {needsSetup ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set Up Permissions</button> : null}
       <details className="included-tool-optional"><summary>Permissions</summary>
         <div className="included-tool-actions">

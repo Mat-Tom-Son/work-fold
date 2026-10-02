@@ -9,7 +9,8 @@ work-folders and direct Worker mentions.
   Successful document and computer work updates its status automatically.
   Older computer checks keep their timestamp and say **Last Check Passed**.
 - Computer **Check** observes without restarting the helper or disposing Chats.
-  **Start and Check** and **Repair and Recheck** make setup and repair explicit.
+  **Start and Check** starts it without interrupting other Chats; repair is
+  separate under **Repair and Recheck**.
   Readiness observations do not delay computer actions or add a document worker.
 - Chrome stays Connected during long operations using authenticated command
   heartbeats. Selected profiles reconnect automatically; connection failures

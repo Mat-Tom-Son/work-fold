@@ -116,9 +116,12 @@ test("Computer Check observes without starting or repairing the helper", async (
   t.after(() => rm(root, { recursive: true, force: true }));
   const included = join(root, "included");
   await mkdir(join(included, "computer"), { recursive: true });
+  const launchLog = join(root, "launch-policy");
   await writeFile(join(included, "computer", "index.ts"), `
+    import { appendFileSync } from 'node:fs';
     export async function probeIncludedComputer(_config, options) {
-      if (options.launch !== false) throw new Error('Check must not launch or repair');
+      if (typeof options.launch !== 'boolean') throw new Error('Explicit launch policy required');
+      appendFileSync(${JSON.stringify(launchLog)}, String(options.launch)+String.fromCharCode(10));
       return {status:'ready', accessibility:true, screenRecording:true};
     }
     export async function setupIncludedComputer() { throw new Error('Check must not enter permission setup'); }
@@ -127,6 +130,10 @@ test("Computer Check observes without starting or repairing the helper", async (
   const result = await setupIncludedTool(root, "computer", "check", {}, provider);
   assert.equal(result.status.state, "ready");
   assert.deepEqual(result.status.facts, { accessibility: true, screenRecording: true });
+  assert.equal(await readFile(launchLog, "utf8"), "false\n", "ordinary Check never launches the helper");
+  const started = await setupIncludedTool(root, "computer", "start-check", {}, provider);
+  assert.equal(started.status.state, "ready", "deliberate start uses the non-repair probe path");
+  assert.equal(await readFile(launchLog, "utf8"), "false\ntrue\n");
 });
 
 

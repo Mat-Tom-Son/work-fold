@@ -64,7 +64,9 @@ function runtime(config: IncludedComputerConfig): HostRuntime {
 
 export async function probeIncludedComputer(config: IncludedComputerConfig, options: { launch?: boolean; signal?: AbortSignal } = {}) {
   options.signal?.throwIfAborted();
-  if (options.launch && supportsIncludedComputer()) await prepareForSetup(config, options.signal);
+  // A deliberate start verifies/materializes the immutable helper but never
+  // repairs it or disposes peer sessions. Repair remains a separate setup act.
+  if (options.launch && supportsIncludedComputer()) await config.prepareComputerHelper?.();
   options.signal?.throwIfAborted();
   const { permissions } = await runtime(config).native;
   return permissions.probeMacosComputerUse(options);

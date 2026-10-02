@@ -218,3 +218,12 @@ test("repair restores a selected profile's registration and retained transport; 
   assert.equal(repaired.problem, undefined); assert.equal(repaired.hasSelection, true); assert.equal(starts, 1); assert.equal(opened, 0, "repairing an already selected profile needs no repeat Store enrollment");
   await next.check(); assert.equal(probes, 1); assert.equal(starts, 1, "Check observes the retained connection");
 });
+
+test("Update extension still opens its Store listing for the already selected profile", async t => {
+  const { service, counts } = await fixture(t); await service.prepare(); await service.bootstrap(origin, request(caller()));
+  const lease = (await service.getChromeConnection())!;
+  service.reportChromeConnectionObservation({ connectionId: lease.connectionId, state: "update_extension" });
+  const before = counts().opened;
+  assert.equal((await service.prepare()).state, "update_extension");
+  assert.equal(counts().opened, before + 1); assert.equal(counts().starts, 1, "updating the companion preserves the retained transport");
+});

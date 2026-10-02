@@ -6,10 +6,10 @@ import { createJiti } from "jiti";
 const root = await mkdtemp(join(tmpdir(), "workfold-computer-native-"));
 const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
 const computer = await jiti.import<any>(new URL("../../../resources/included-tools/computer/index.ts", import.meta.url).pathname);
-let prepared = 0, reservations = 0;
+let prepared = 0, reservations = 0, repairs = 0;
 let preparationWait: Promise<void> | undefined;
 const observations: any[] = [];
-const config = { stateRoot: root, helperAppPath: join(root, "Missing Helper.app"), prepareComputerHelper: async () => { prepared++; await preparationWait; throw new Error("Synthetic preparation boundary"); } };
+const config = { stateRoot: root, helperAppPath: join(root, "Missing Helper.app"), repairComputerHelper: async () => { repairs++; throw new Error("Unexpected helper repair"); }, prepareComputerHelper: async () => { prepared++; await preparationWait; throw new Error("Synthetic preparation boundary"); } };
 const created: any[] = [];
 try {
   const piFixture = (mode: string) => {
@@ -39,6 +39,7 @@ try {
   if (process.platform === "darwin" && Number.parseInt(release(), 10) >= 23) {
     await assert.rejects(() => computer.probeIncludedComputer(config, { launch: true }), /Synthetic preparation boundary/);
     assert.equal(prepared, 1);
+    assert.equal(repairs, 0, "a deliberate start checks the immutable helper without entering the repair path");
     const aborted = new AbortController(); aborted.abort();
     await assert.rejects(() => created[1].tools.get("find_roots").execute("cancelled", {}, aborted.signal), /abort/i);
     assert.equal(prepared, 1, "cancelled tools never materialize or launch");

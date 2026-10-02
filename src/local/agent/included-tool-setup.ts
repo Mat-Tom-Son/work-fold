@@ -61,7 +61,7 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
   });
 }
 
-export type IncludedSetupAction = ChromeSetupAction | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave";
+export type IncludedSetupAction = ChromeSetupAction | "start-check" | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave";
 export interface IncludedSetupResult { status: IncludedToolStatus }
 
 /** Trusted local setup only. Secrets and permission prompts never enter an Assistant turn. */
@@ -105,8 +105,8 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
       probeIncludedComputer(config: unknown, options: unknown): Promise<Record<string, any>>;
       setupIncludedComputer(config: unknown, action: string, signal?: AbortSignal): Promise<Record<string, any>>;
     }>(join(config.rootPath, "computer", "index.ts"));
-    if (!["check", "request-permissions", "accessibility", "screen-recording", "recheck"].includes(action)) throw new Error("Unknown computer setup action.");
-    const result = action === "check" ? await computer.probeIncludedComputer(config, { launch: false, signal }) : await computer.setupIncludedComputer(config, action, signal);
+    if (!["check", "start-check", "request-permissions", "accessibility", "screen-recording", "recheck"].includes(action)) throw new Error("Unknown computer setup action.");
+    const result = ["check", "start-check"].includes(action) ? await computer.probeIncludedComputer(config, { launch: action === "start-check", signal }) : await computer.setupIncludedComputer(config, action, signal);
     status = includedComputerStatus(result);
   } else if (id === "documents") {
     if (action !== "check") throw new Error("Unknown document setup action.");

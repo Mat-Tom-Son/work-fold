@@ -148,6 +148,7 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
       if (this.#closed) return this.#summary("app_not_running");
       if (this.#recordUnreadable) return this.#summary("connection_error");
       if (this.#active.size) return this.#summary("busy");
+      const updateExtension = this.status().state === "update_extension";
       this.#changing = true;
       try {
         await this.#options.registerNativeHost(true);
@@ -164,7 +165,8 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
           try { await this.#startTransport(); }
           catch { return this.status(); }
         }
-      } else await this.#options.openStore();
+      }
+      if (!this.#saved.selected || updateExtension) await this.#options.openStore();
       return this.status();
     });
   }

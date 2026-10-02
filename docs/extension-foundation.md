@@ -155,7 +155,9 @@ explicit **Check**. Use coalesces no-launch permission observations for thirty
 seconds without delaying tool results. After five minutes a successful observation becomes neutral **Last
 Check Passed**, preserving its timestamp, until another observation replaces it.
 An idle helper is unverified rather than unavailable. **Check** never repairs the
-helper or disposes Chat sessions; **Repair and Recheck** is the explicit setup
+helper or disposes Chat sessions. **Start and Check** verifies the immutable
+helper and starts it if needed, without repair, permission prompts or peer Chat
+disposal. **Repair and Recheck** is the explicit setup
 operation under the existing capability mutation fence.
 
 Documents uses the run worker's own library and canvas verification, with no
