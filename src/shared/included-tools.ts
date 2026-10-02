@@ -11,4 +11,4 @@ export type IncludedToolDefinition = typeof includedToolDefinitions[number];
 export type IncludedToolId = typeof includedToolDefinitions[number]["id"];
 
 export type IncludedToolReadiness = "ready" | "setup_required" | "unavailable" | "unknown";
-export interface IncludedToolStatus { id: IncludedToolId; state: IncludedToolReadiness; detail: string; checkedAt: string; facts?: Record<string, string | boolean>; chrome?: ChromeConnectionSummary; }
+export interface IncludedToolStatus { id: IncludedToolId; state: IncludedToolReadiness; detail: string; checkedAt: string; stale?: boolean; facts?: Record<string, string | boolean>; chrome?: ChromeConnectionSummary; }

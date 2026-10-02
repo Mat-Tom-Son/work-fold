@@ -35,6 +35,7 @@ export default function documents(pi: ExtensionAPI) {
     }),
     async execute(_id, parameters, signal, update, context) {
       if (closing) throw new Error("This document session has closed.");
+      signal?.throwIfAborted();
       const controller = new AbortController();
       let markSettled!: () => void;
       const settled = new Promise<void>((resolve) => { markSettled = resolve; });
@@ -46,6 +47,9 @@ export default function documents(pi: ExtensionAPI) {
         let result;
         try {
           result = await runDocumentScript({ ...parameters, cwd: context.cwd ?? host?.cwd ?? process.cwd(), stateRoot: host?.stateRoot, signal: controller.signal,
+            onLibrariesReady: ({ versions }: { versions: Record<string, string> }) => {
+              if (!controller.signal.aborted && !closing) host?.beginIncludedToolObservation?.("documents")?.({ id: "documents", state: "ready", detail: "Document libraries and PDF rendering are ready.", checkedAt: new Date().toISOString(), facts: versions });
+            },
             onUpdate: (progress) => update?.({ content: [{ type: "text", text: JSON.stringify({ progress }) }], details: { documentRunProgress: true } }),
           });
         } catch (error) {

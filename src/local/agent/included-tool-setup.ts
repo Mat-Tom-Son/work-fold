@@ -1,12 +1,13 @@
 import { join } from "node:path";
 import { createJiti } from "jiti";
-import { resolvePiRuntime, type PiRuntimeProvider, type ResolvedPiRuntime } from "./pi-runtime-config.js";
+import { resolvePiRuntime, type PiRuntimeProvider } from "./pi-runtime-config.js";
 import type { ChromeConnectionState, ChromeConnectionSummary, ChromeSetupAction } from "../../shared/chrome-connection.js";
 import { includedToolDefinitions, type IncludedToolId, type IncludedToolStatus } from "../../shared/included-tools.js";
+import { includedComputerStatus } from "../../../resources/included-tools/readiness.js";
+import { beginIncludedToolObservation, includedToolObservation } from "./included-tool-observations.js";
+import { loadIncludedMcpConfig } from "./included-mcp-setup.js";
 
 const jiti = createJiti(import.meta.url, { moduleCache: true });
-const checks = new Map<string, { revision: number; status?: IncludedToolStatus }>();
-const checkKey = (runtime: ResolvedPiRuntime, id: IncludedToolId) => `${runtime.config.includedTools?.stateRoot}:${id}`;
 
 /** Explicit projection: native leases, profile identities and bootstrap proofs stay in the host. */
 function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
@@ -15,6 +16,7 @@ function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
     state: source.state, checkedAt: source.checkedAt,
     ...(source.extensionVersion ? { extensionVersion: source.extensionVersion } : {}),
     ...(typeof source.hasSelection === "boolean" ? { hasSelection: source.hasSelection } : {}),
+    ...(["transport_unavailable", "native_host_unavailable"].includes(source.problem ?? "") ? { problem: source.problem } : {}),
   };
   const details: Record<ChromeConnectionState, string> = {
     not_connected: "Chrome is not connected.", connecting: "Connecting to Chrome.", connected: "Chrome is connected.",
@@ -26,7 +28,10 @@ function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
   return {
     id: "chrome", state: !summary ? "unavailable" : chrome.state === "connected" ? "ready"
       : ["app_not_running", "update_app", "update_extension", "store_unavailable", "connection_error"].includes(chrome.state) ? "unavailable" : "setup_required",
-    detail: details[chrome.state], checkedAt: chrome.checkedAt, chrome,
+    detail: chrome.problem === "transport_unavailable" ? "The local Chrome connection could not start. Another local browser automation host may be using its port. Quit that host, then restart work-fold."
+      : chrome.problem === "native_host_unavailable" ? "The Chrome native helper could not be registered. Open Chrome setup to repair the connection."
+      : chrome.state === "not_connected" && chrome.hasSelection ? "Open Chrome. Your selected profile reconnects automatically."
+      : details[chrome.state], checkedAt: chrome.checkedAt, chrome,
   };
 }
 
@@ -34,19 +39,29 @@ function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
 export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimeProvider): Promise<IncludedToolStatus[]> {
   const runtime = await resolvePiRuntime(cwd, provider, { requestProjectTrust: false });
   if (!runtime.config.includedTools) return [];
+  let mcp: IncludedToolStatus;
+  try {
+    const config = await loadIncludedMcpConfig({ agentDir: runtime.agentDir, ...(runtime.projectTrust.trusted ? { cwd } : {}) });
+    const count = Object.values(config.mcpServers).filter((server) => !server.disabled).length;
+    mcp = { id: "mcp", state: count ? "unknown" : "setup_required", checkedAt: new Date().toISOString(),
+      detail: count ? "Service connections are configured. Each connection is verified when you use it or choose Check in its details." : "No service connections are configured. Add a connection to use its tools.", facts: { connections: String(count) } };
+  } catch {
+    mcp = { id: "mcp", state: "unavailable", checkedAt: new Date().toISOString(), detail: "Service connection configuration could not be read. Open its settings to check the configuration." };
+  }
   return includedToolDefinitions.map(({ id }) => {
+    if (id === "mcp") return mcp;
     if (id === "chrome") return chromeStatus(runtime.config.includedTools?.chromeConnection?.status());
     const now = new Date().toISOString();
     if (id === "web") return runtime.authStorage.get("work-fold:web:brave")?.type === "api_key"
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
       : { id, state: "ready", detail: "DuckDuckGo search and public page reading are available without setup.", checkedAt: now };
-    const checked = checks.get(checkKey(runtime, id))?.status;
-    return checked && Date.now() - Date.parse(checked.checkedAt) < 5 * 60_000 ? checked
-      : { id, state: "unknown", detail: id === "mcp" ? "Add a service connection to use its tools." : "Check setup to verify this tool on your computer.", checkedAt: now };
+    const checked = includedToolObservation(runtime, id);
+    return checked ? checked
+      : { id, state: "unknown", detail: "Check setup to verify this tool on your computer.", checkedAt: now };
   });
 }
 
-export type IncludedSetupAction = ChromeSetupAction | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave";
+export type IncludedSetupAction = ChromeSetupAction | "start-check" | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave";
 export interface IncludedSetupResult { status: IncludedToolStatus }
 
 /** Trusted local setup only. Secrets and permission prompts never enter an Assistant turn. */
@@ -72,9 +87,7 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
   }
   // Starting an explicit recheck invalidates earlier evidence even if this
   // attempt throws before it can produce a new structured result.
-  const key = checkKey(runtime, id);
-  const revision = (checks.get(key)?.revision ?? 0) + 1;
-  checks.set(key, { revision });
+  const finishObservation = beginIncludedToolObservation(runtime, id, true);
   let status: IncludedToolStatus = { id, state: "unknown", detail: "Setup has not been checked.", checkedAt: new Date().toISOString() };
   if (id === "web") {
     if (action === "connect-brave") {
@@ -92,25 +105,17 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
       probeIncludedComputer(config: unknown, options: unknown): Promise<Record<string, any>>;
       setupIncludedComputer(config: unknown, action: string, signal?: AbortSignal): Promise<Record<string, any>>;
     }>(join(config.rootPath, "computer", "index.ts"));
-    if (!["check", "request-permissions", "accessibility", "screen-recording", "recheck"].includes(action)) throw new Error("Unknown computer setup action.");
-    const result = action === "check" ? await computer.probeIncludedComputer(config, { launch: true, signal }) : await computer.setupIncludedComputer(config, action, signal);
-    status = { ...status, state: result.status === "ready" ? "ready" : result.status === "unavailable" || result.status === "error" ? "unavailable" : "setup_required",
-      detail: result.reason ?? (result.status === "ready" ? "Computer control is ready." : "Allow work-fold Computer in Accessibility and Screen Recording, then recheck."),
-      facts: { accessibility: result.accessibility === true, screenRecording: result.screenRecording === true, ...(result.helper?.bundleId ? { helper: String(result.helper.bundleId) } : {}), ...(result.helper?.appPath ? { path: String(result.helper.appPath) } : {}) },
-    };
+    if (!["check", "start-check", "request-permissions", "accessibility", "screen-recording", "recheck"].includes(action)) throw new Error("Unknown computer setup action.");
+    const result = ["check", "start-check"].includes(action) ? await computer.probeIncludedComputer(config, { launch: action === "start-check", signal }) : await computer.setupIncludedComputer(config, action, signal);
+    status = includedComputerStatus(result);
   } else if (id === "documents") {
     if (action !== "check") throw new Error("Unknown document setup action.");
-    const documents = await jiti.import<{ probeIncludedDocuments(): Promise<{ state: "ready" | "unavailable"; reason: string; versions: Record<string, string>; runtime: string }> }>(join(config.rootPath, "documents", "runtime.mjs"));
-    const result = await documents.probeIncludedDocuments();
+    const documents = await jiti.import<{ probeIncludedDocuments(options?: { signal?: AbortSignal }): Promise<{ state: "ready" | "unavailable"; reason: string; versions: Record<string, string>; runtime: string }> }>(join(config.rootPath, "documents", "runtime.mjs"));
+    const result = await documents.probeIncludedDocuments({ signal });
+    signal?.throwIfAborted();
     status = { ...status, state: result.state, detail: result.reason, facts: result.versions };
   } else throw new Error("Use service connection setup to configure MCP.");
-  if (checks.get(key)?.revision === revision) {
-    status = { ...status, checkedAt: new Date().toISOString() };
-    checks.set(key, { revision, status });
-  } else {
-    status = checks.get(key)?.status ?? { id, state: "unknown", detail: "A newer setup check started.", checkedAt: new Date().toISOString() };
-  }
-  return { status };
+  return { status: finishObservation(status) };
 }
 
 /** Host shutdown follows session disposal, so one Chat never stops a peer's helper. */

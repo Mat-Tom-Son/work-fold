@@ -5669,6 +5669,12 @@
   background: var(--ui-text-subtle);
 }
 
+.capabilities-included-checked {
+  color: var(--ui-text-subtle);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .capabilities-included-tile.tone-enabled .capabilities-status-dot {
   background: var(--ui-success);
 }

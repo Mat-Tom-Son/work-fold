@@ -206,6 +206,44 @@ test("an installed card offers Set up only for a known state that needs it", asy
   assert.equal(dom.container.querySelector(".capabilities-included-tile .professional-status-badge"), null);
 });
 
+test("returning to Installed refreshes Chrome liveness without a manual check, and old successful checks stay explicit", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  let state = "connecting";
+  let reads = 0, failRead = false;
+  const items = [included("chrome"), included("computer")];
+  const catalog = { diagnostics: [], packages: [], skills: [], tools: [],
+    extensions: items.map((item) => ({ ...item, included: undefined, source: { scope: "user", origin: "top-level", source: "builtin" } })),
+    resources: items.map((item) => ({ kind: "extensions", path: item.path, enabled: true, included: item.included, metadata: { scope: "user", origin: "top-level", source: "builtin" } })),
+  };
+  globalThis.fetch = (async (input, init) => {
+    assert.notEqual(init?.method, "POST", "automatic status reads never check or launch a tool");
+    if (!String(input).includes("included-tools")) return Response.json(catalog);
+    reads++;
+    if (failRead) throw new Error("Synthetic read interruption");
+    return Response.json({ tools: [{ id: "chrome", state: state === "connected" ? "ready" : "setup_required", checkedAt: new Date().toISOString(), chrome: { state, hasSelection: true, checkedAt: new Date().toISOString() } },
+      { id: "computer", state: "ready", stale: true, checkedAt: "2026-10-01T12:00:00.000Z", detail: "Permissions verified earlier" }] });
+  }) as typeof fetch;
+  await dom.render(createElement(CapabilitiesPane, { space: { id: "first", name: "Workshop" } as never, status: { configured: true } as never, view: "installed", onError() {}, onViewChange() {} }));
+  const tile = (name: string) => [...dom.container.querySelectorAll<HTMLElement>(".capabilities-included-tile")].find((item) => item.querySelector("strong")?.textContent === name)!;
+  await dom.waitFor(() => tile("Chrome")?.textContent?.includes("Connecting") === true);
+  assert.match(tile("Computer Control").textContent!, /Last Check Passed/);
+  assert.equal(tile("Computer Control").classList.contains("tone-enabled"), false, "old success never claims a live green connection");
+  state = "connected";
+  await dom.act(() => window.dispatchEvent(new window.Event("focus")));
+  await dom.waitFor(() => tile("Chrome").textContent?.includes("Connected") === true);
+  failRead = true;
+  await dom.act(() => window.dispatchEvent(new window.Event("focus")));
+  await dom.waitFor(() => tile("Chrome").textContent?.includes("Last Connected") === true);
+  assert.equal(tile("Chrome").classList.contains("tone-enabled"), false, "a failed status read retains only historical evidence");
+  failRead = false;
+  state = "not_connected";
+  await dom.act(() => window.dispatchEvent(new window.Event("focus")));
+  await dom.waitFor(() => tile("Chrome").textContent?.includes("Not Connected") === true);
+  assert.doesNotMatch(tile("Chrome").textContent!, /Set Up/, "an already selected profile needs Chrome open rather than repeated Store setup");
+  assert.equal(reads, 4);
+});
+
 test("late readiness responses cannot cross Spaces or survive a closed setup owner", async (t) => {
   const dom = await createDomHarness(); t.after(() => dom.cleanup());
   const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });

@@ -35,7 +35,7 @@ async function scriptSnapshot(script, cwd) {
 }
 
 /** A full-trust worker is a cancellable lifecycle boundary, not a sandbox. */
-function runWorker(data, { signal, timeoutMs, onUpdate } = {}) {
+function runWorker(data, { signal, timeoutMs, onUpdate, onLibrariesReady } = {}) {
   if (signal?.aborted) return Promise.reject(new Error("Document run stopped before execution."));
   return new Promise((resolveResult, reject) => {
     const workerUrl = new URL("./worker.mjs", import.meta.url);
@@ -106,7 +106,12 @@ function runWorker(data, { signal, timeoutMs, onUpdate } = {}) {
     let lastUpdate = 0;
     worker.on("message", (message) => {
       if (settled) return;
-      if (message.metadata) { metadata = message.metadata; return; }
+      if (message.metadata) {
+        metadata = message.metadata;
+        // Ancillary host readiness must never change execution or its result.
+        try { onLibrariesReady?.(metadata); } catch { /* The worker still owns its operation. */ }
+        return;
+      }
       if (message.image) { images.push(message.image); return; }
       if (message.observation) {
         const size = Buffer.byteLength(JSON.stringify(message.observation));
@@ -142,7 +147,7 @@ function runWorker(data, { signal, timeoutMs, onUpdate } = {}) {
   });
 }
 
-export async function runDocumentScript({ script, cwd, stateRoot, artifactsDir, args = [], timeoutMs, signal, onUpdate }) {
+export async function runDocumentScript({ script, cwd, stateRoot, artifactsDir, args = [], timeoutMs, signal, onUpdate, onLibrariesReady }) {
   if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)) throw new Error("timeoutMs must be a positive safe integer, or omitted for no deadline.");
   if (signal?.aborted) throw new Error("Document run stopped before execution.");
   const snapshot = await scriptSnapshot(script, cwd);
@@ -153,7 +158,7 @@ export async function runDocumentScript({ script, cwd, stateRoot, artifactsDir, 
   try {
     const artifactsRoot = await mkdtemp(join(artifactsBase, "run-"));
     await writeFile(join(artifactsRoot, "observations.ndjson"), "", { flag: "wx" });
-    return await runWorker({ mode: "run", cwd: resolve(cwd), args, script: snapshot, reviewRoot, artifactsRoot }, { signal, timeoutMs, onUpdate });
+    return await runWorker({ mode: "run", cwd: resolve(cwd), args, script: snapshot, reviewRoot, artifactsRoot }, { signal, timeoutMs, onUpdate, onLibrariesReady });
   } finally { await rm(reviewRoot, { recursive: true, force: true }); }
 }
 

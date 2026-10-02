@@ -2956,8 +2956,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     res.once("close", closed);
     try {
       const operation = () => setupIncludedTool(space.spaceRoot, body.id!, body.action!, { secret: body.secret }, state.runtimeProvider, signal.signal);
-      // A recheck may restart the physical helper. Never interrupt an accepted turn.
-      const result = body.action === "check" && body.id !== "computer" ? await operation() : await runCapabilityMutation(state, space, "global", operation);
+      // Observation and deliberate start never repair or dispose peer Chats.
+      // Repair/permission setup keeps the mutation fence and idle-client reset.
+      const result = body.action === "check" || body.id === "computer" && body.action === "start-check" ? await operation() : await runCapabilityMutation(state, space, "global", operation);
       sendJson(res, result);
     } finally { res.off("close", closed); }
     return;

@@ -7,7 +7,7 @@ names existing Pi concepts, APIs, storage, commands, or schemas.
 
 work-fold uses Pi's native capability system for full-trust Skills and Extensions and includes a separate restricted-app package lane for agent-created browser apps. This guide explains how Skills, Extensions, packages, scopes, and authorization fit the product without confusing them with ordinary files.
 
-The rail's **Add** button opens the **Skills & Extensions** popup directly (2026-09-25): a dialog like Settings and Keyboard shortcuts, pinned to the Space it was opened from. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. It starts with an **Included with work-fold** strip holding exactly the five included tools — Chrome, Computer Control, Web, Documents, and Service Connections — each with one status word (Ready, Setup needed, Unavailable, Not checked, or Turned off; Chrome shows Connected or Not connected) and a **Set up** button only when a person can act. Below the strip, **Everywhere** (the fold and every Space) and **This folder only** (stored in the Space folder) sit side by side and stack on narrow widths; a row opens its details on click, and the groups have no Add buttons. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. There is no Add menu and no Library tab: the desktop Library was retired on 2026-09-25, and only the CLI act-lane `library` family and its server routes remain, unchanged for now as a compatibility contract.
+The rail's **Add** button opens the **Skills & Extensions** popup directly (2026-09-25): a dialog like Settings and Keyboard shortcuts, pinned to the Space it was opened from. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. It starts with an **Included with work-fold** strip holding exactly the five included tools — Chrome, Computer Control, Web, Documents, and Service Connections — each with one concise status (Ready, Setup needed, Unavailable, Not checked, or Turned off; older Computer Control evidence says Last Check Passed, Service Connections says No Connections or Configured, and Chrome shows Connected, Connecting, or Not connected) and a **Set up** button only when a person can act. Below the strip, **Everywhere** (the fold and every Space) and **This folder only** (stored in the Space folder) sit side by side and stack on narrow widths; a row opens its details on click, and the groups have no Add buttons. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. There is no Add menu and no Library tab: the desktop Library was retired on 2026-09-25, and only the CLI act-lane `library` family and its server routes remain, unchanged for now as a compatibility contract.
 
 ## Management visibility
 
@@ -145,11 +145,19 @@ pinned versions and reviewed compatibility patches live in
 [the integration manifest](../patches/included-tools/manifest.json). “Included
 with work-fold” describes maintenance, not a different Extension runtime.
 The Installed view's **Included with work-fold** strip shows each included
-tool's observed readiness as one status word and offers **Set up** only when a
+tool's observed readiness as one concise status and offers **Set up** only when a
 person can act; enabled state and Pi load diagnostics stay in the tool's
 details. Setup belongs to that tool: macOS permissions, the Chrome
 companion, optional Brave search credentials, and native MCP server definitions
 and authentication. A saved credential alone does not establish readiness.
+Visible setup surfaces refresh cold host reads automatically. Successful tool use
+supplies native readiness evidence without repeatedly pressing Check. Computer
+permissions retain a visible timestamp and become neutral historical evidence
+after five minutes; Check observes without helper repair or Chat disposal.
+Documents proof belongs to the immutable running build. Service Connections
+separates configuration from each connection's checked health. See the
+[extension contract](extension-foundation.md#readiness-and-lifecycle) for the exact
+observation and lifecycle boundaries.
 Web defaults to DuckDuckGo without a key. Documents supplies ordinary libraries
 and a cancellable JavaScript worker with continuable PDF observations. Its optional
 installed-engine adapter uses LibreOffice for Office rendering/XLSX recalculation

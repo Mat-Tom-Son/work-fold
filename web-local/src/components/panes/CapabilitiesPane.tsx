@@ -171,11 +171,18 @@ export function CapabilitiesPane({
   useEffect(() => {
     if (fixtureMode || view !== "installed") return;
     const operation = operationGateRef.current.capture();
-    const controller = new AbortController();
-    const revisions = new Map(readinessRevisions.current);
-    void api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(space.id)}`, { signal: controller.signal })
+    let controller: AbortController | undefined;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = () => {
+      if (stopped || document.visibilityState === "hidden") return;
+      controller?.abort();
+      const request = new AbortController();
+      controller = request;
+      const revisions = new Map(readinessRevisions.current);
+      void api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(space.id)}`, { signal: request.signal })
       .then(({ tools }) => {
-        if (!controller.signal.aborted && operationGateRef.current.isCurrent(operation)) {
+        if (!request.signal.aborted && operationGateRef.current.isCurrent(operation)) {
           setReadiness((current) => {
             const merged = new Map((current?.spaceId === operation.spaceId ? current.tools : []).map((tool) => [tool.id, tool]));
             for (const tool of tools) {
@@ -186,9 +193,16 @@ export function CapabilitiesPane({
         }
       })
       .catch((caught) => {
-        if (!controller.signal.aborted && operationGateRef.current.isCurrent(operation)) setReadiness((current) => ({ spaceId: operation.spaceId, tools: current?.spaceId === operation.spaceId ? current.tools : [], error: errorText(caught) }));
+        if (!request.signal.aborted && operationGateRef.current.isCurrent(operation)) setReadiness((current) => ({ spaceId: operation.spaceId, tools: current?.spaceId === operation.spaceId ? current.tools.map((tool) => ({ ...tool, stale: true })) : [], error: errorText(caught) }));
       });
-    return () => controller.abort();
+    };
+    // Read only the host's observations. Never POST a check or launch a tool.
+    const tick = () => { refresh(); timer = setTimeout(tick, 5_000); };
+    const returned = () => refresh();
+    tick();
+    window.addEventListener("focus", returned);
+    document.addEventListener("visibilitychange", returned);
+    return () => { stopped = true; clearTimeout(timer); controller?.abort(); window.removeEventListener("focus", returned); document.removeEventListener("visibilitychange", returned); };
   }, [fixtureMode, space.id, view]);
 
   function rememberReadiness(id: IncludedToolId, tool: IncludedToolStatus | null, operation: SpaceOperationToken) {
@@ -722,6 +736,7 @@ function IncludedToolTile({ item, readiness, onSelect }: { item: InstalledCapabi
         <strong>{item.name}</strong>
       </span>
       <span className="capabilities-included-status"><span className="capabilities-status-dot" aria-hidden="true" />{state.label}</span>
+      {readiness?.stale && readiness.state === "ready" ? <span className="capabilities-included-checked">Verified earlier · details</span> : null}
       {state.setup ? <span className="capabilities-included-setup">Set Up<ChevronRight16Regular aria-hidden="true" /></span> : null}
     </button>
   );
