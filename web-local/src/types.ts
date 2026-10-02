@@ -61,6 +61,8 @@ export interface TreeEntry {
   ignored?: boolean;
   descendantIgnoredCount?: number;
   children?: TreeEntry[];
+  /** Its own registered Folder: Files shows it as a door, not a subtree. */
+  nestedFolder?: true;
 }
 
 export type ChangeKind = "created" | "modified" | "deleted" | "remote_deleted";
@@ -185,6 +187,8 @@ export interface PendingChatSend {
   contextPaths: string[];
   transientConversation: boolean;
   draftStorageKey: string;
+  /** Folder Workers the message @-mentions (2026-10-01). */
+  addressedSpaceIds?: string[];
 }
 export interface SpaceFixtureConversation extends ConversationSummary {
   messages: ChatMessage[];

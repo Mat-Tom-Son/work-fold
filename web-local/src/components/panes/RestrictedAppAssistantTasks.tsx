@@ -34,7 +34,7 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
       finally { loading = false; }
     }
     void refresh();
-    const unsubscribe = subscribeControlEvents(() => void refresh());
+    const unsubscribe = subscribeControlEvents((hint) => { if (hint !== "activity") void refresh(); });
     const timer = window.setInterval(() => void refresh(), 2_000);
     return () => { alive = false; unsubscribe(); window.clearInterval(timer); };
   }, [app, disabled]);

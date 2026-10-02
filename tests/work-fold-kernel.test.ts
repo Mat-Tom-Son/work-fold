@@ -42,6 +42,8 @@ test("WorkFoldKernel resolves explicit and cwd Space context with deepest-root p
   assert.equal(listed.kind, "work-fold.spaces");
   assert.equal(listed.version, 1);
   assert.deepEqual(listed.spaces.map((item) => item.id), [rootId, nestedId]);
+  assert.equal(listed.spaces[0].parentSpaceId, undefined, "a top-level Space keeps its v1 shape");
+  assert.equal(listed.spaces[1].parentSpaceId, rootId, "a nested Space names the Space that contains it");
   assert.notEqual(listed.spaces[0].location, spaces[0].location, "snapshots must not expose mutable registry objects");
 });
 

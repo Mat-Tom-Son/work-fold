@@ -1,6 +1,6 @@
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { restrictedAppRailMode, restrictedAppRailLabel } from "../../lib/restricted-app-navigation";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import {
   ArrowDownload20Regular,
   ArrowClockwise20Regular,
@@ -52,8 +52,10 @@ import { SpaceBannerPreview } from "../chrome/SpaceBannerPreview";
 import { spaceBannerPresets } from "../../lib/space-banner-presets";
 import { readableTextColorOn } from "../../lib/color-contrast";
 import { surfaceDomIdSuffix, spaceHeaderSourceBadgeLabel } from "../../lib/space-ui";
-import type { AssistantToolsView, CapabilitySurface, RestrictedAppInstalled, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpaceRailMode, SpaceSummary } from "../../types";
+import type { AssistantToolsView, CapabilitySurface, ChatActivityStatus, RestrictedAppInstalled, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpaceRailMode, SpaceSummary } from "../../types";
 import { SpaceIconGlyph } from "../chrome/common";
+import { ActivityDot } from "../chrome/ActivityDot";
+import { combineActivityStatuses, descendantFolders, folderAncestors, folderTreeRows } from "../../lib/folder-nesting";
 
 function SpaceModeRail({
   activeMode,
@@ -218,11 +220,14 @@ function SpacePaneHeader({
   onNewChat,
   onOpenAppearance,
   onRevealFolder,
+  folderStatuses = {},
 }: {
   space: SpaceSummary;
   identity: SpaceIdentity;
   spaces: SpaceSummary[];
   spaceCustomizations: SpaceCustomizationMap;
+  /** One activity status per Folder id (2026-10-01): dots in the switcher and on the header. */
+  folderStatuses?: Readonly<Record<string, ChatActivityStatus>>;
   onSwitchSpace: (space: SpaceSummary) => void;
   onCreateSpace: () => void;
   onOpenFolder: () => void;
@@ -242,6 +247,58 @@ function SpacePaneHeader({
   const switcherEnabled = switchable && Boolean(spaceCustomizations && onSwitchSpace);
   const switcherId = `space-header-switcher-${surfaceDomIdSuffix(space.id)}`;
   const detail = spaceHeaderSourceBadgeLabel(space);
+  const ancestors = useMemo(() => folderAncestors(space, spaces), [space, spaces]);
+  const breadcrumbIdentityFor = useSpaceIdentityResolver();
+  const hiddenAncestors = ancestors.length > 2 ? ancestors.slice(0, -2) : [];
+  const [breadcrumbMenuOpen, setBreadcrumbMenuOpen] = useState(false);
+  const breadcrumbMoreRef = useRef<HTMLButtonElement>(null);
+  const breadcrumbMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setBreadcrumbMenuOpen(false); }, [space.id]);
+  useEffect(() => {
+    if (!breadcrumbMenuOpen) return;
+    window.requestAnimationFrame(() => breadcrumbMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    function closeOnOutside(event: PointerEvent) {
+      if (breadcrumbMenuRef.current?.contains(event.target as Node) || breadcrumbMoreRef.current?.contains(event.target as Node)) return;
+      setBreadcrumbMenuOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setBreadcrumbMenuOpen(false);
+      breadcrumbMoreRef.current?.focus();
+    }
+    document.addEventListener("pointerdown", closeOnOutside, true);
+    document.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside, true);
+      document.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [breadcrumbMenuOpen]);
+
+  function renderCrumb(item: SpaceSummary, role?: "menuitem") {
+    // Each containing Folder is a small pill in its own icon and color.
+    const crumbIdentity = breadcrumbIdentityFor(item, spaceCustomizations);
+    return (
+      <button
+        className="space-pane-breadcrumb-link"
+        type="button"
+        role={role}
+        tabIndex={role ? -1 : undefined}
+        title={`Back to ${item.name}`}
+        style={spaceIdentityStyle(crumbIdentity)}
+        onClick={() => { setBreadcrumbMenuOpen(false); onSwitchSpace(item); }}
+      >
+        <span className="space-pane-breadcrumb-icon" aria-hidden="true"><SpaceIconGlyph icon={crumbIdentity.Icon} size={11} filled /></span>
+        <span className="space-pane-breadcrumb-name">{item.name}</span>
+      </button>
+    );
+  }
+  // The header's dot speaks for the Folders inside this one: a parent shows
+  // at a glance when one of its Workers is busy or has a reply waiting.
+  const nestedStatus = useMemo(
+    () => combineActivityStatuses(descendantFolders(space, spaces).map((item) => folderStatuses[item.id])),
+    [folderStatuses, space, spaces],
+  );
   const headerClassName = [
     "space-pane-current",
     "space-pane-header",
@@ -253,6 +310,7 @@ function SpacePaneHeader({
     switcherEnabled ? "has-switcher" : "",
     switcherOpen ? "switcher-open" : "",
     action ? "has-action" : "",
+    ancestors.length ? "has-breadcrumb" : "",
   ].filter(Boolean).join(" ");
 
   useEffect(() => {
@@ -303,7 +361,7 @@ function SpacePaneHeader({
       <div
         className={headerClassName}
         style={spaceIdentityStyle(identity)}
-        aria-label={switcherEnabled ? undefined : `Current folder: ${space.name}. ${detail}`}
+        aria-label={switcherEnabled ? undefined : `Current work-folder: ${space.name}. ${detail}`}
         onContextMenu={(event) => {
           if (!onNewChat && !onOpenAppearance && !onRevealFolder) return;
           event.preventDefault();
@@ -322,23 +380,77 @@ function SpacePaneHeader({
             ref={switchTriggerRef}
             className="space-pane-switch-trigger"
             type="button"
-            aria-label={`Current folder: ${space.name}. ${detail}. Switch folder`}
+            aria-label={`Current work-folder: ${space.name}. ${detail}. Switch work-folder`}
             aria-haspopup="menu"
             aria-expanded={switcherOpen}
             aria-controls={switcherId}
             onClick={toggleSwitcher}
-            title="Switch folder"
+            title="Switch work-folder"
           >
             {identityLockup}
+            {nestedStatus ? <span className="space-pane-nested-activity"><ActivityDot status={nestedStatus} /></span> : null}
             <ChevronDown20Regular className="space-pane-switch-caret" aria-hidden="true" />
           </button>
         ) : identityLockup}
+        {ancestors.length ? (
+          // The way back up lives with the Folder's name (2026-10-01): the
+          // nearest two containing Folders are links, and anything further
+          // out folds into "…", which opens the full tree in the switcher.
+          <nav className="space-pane-breadcrumb" aria-label="Containing work-folders">
+            {hiddenAncestors.length ? (
+              <>
+                <button
+                  ref={breadcrumbMoreRef}
+                  className="space-pane-breadcrumb-more"
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={breadcrumbMenuOpen}
+                  aria-label={`${hiddenAncestors.length} more containing ${hiddenAncestors.length === 1 ? "work-folder" : "work-folders"}`}
+                  title={hiddenAncestors.map((item) => item.name).join(" › ")}
+                  onClick={() => setBreadcrumbMenuOpen((current) => !current)}
+                >
+                  …
+                </button>
+                <ChevronRight20Regular className="space-pane-breadcrumb-separator" aria-hidden="true" />
+              </>
+            ) : null}
+            {ancestors.slice(-2).map((item, index, list) => (
+              <Fragment key={item.id}>
+                {renderCrumb(item)}
+                {index < list.length - 1 ? <ChevronRight20Regular className="space-pane-breadcrumb-separator" aria-hidden="true" /> : null}
+              </Fragment>
+            ))}
+          </nav>
+        ) : null}
         {action ? (
           <span className="space-pane-header-action professional-header-action space-pane-action-group">
             {action}
           </span>
         ) : null}
       </div>
+      {breadcrumbMenuOpen && hiddenAncestors.length ? (
+        // The Folders "…" stands for, outermost first, as the same pills.
+        <div
+          ref={breadcrumbMenuRef}
+          className="space-pane-breadcrumb-menu"
+          role="menu"
+          aria-label="More containing work-folders"
+          onKeyDown={(event) => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            const items = Array.from(breadcrumbMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+            const next = nextMenuItemIndex(items.findIndex((item) => item === document.activeElement), items.length, event.key as MenuNavigationKey);
+            if (next === null) return;
+            event.preventDefault();
+            items[next]?.focus();
+          }}
+        >
+          {hiddenAncestors.map((item, index) => (
+            <div className="space-pane-breadcrumb-menu-row" key={item.id} style={{ "--folder-depth": index } as CSSProperties}>
+              {renderCrumb(item, "menuitem")}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {switcherEnabled && switcherOpen ? (
         <SpaceHeaderSwitcher
           id={switcherId}
@@ -350,6 +462,7 @@ function SpacePaneHeader({
           onOpenFolder={onOpenFolder}
           onManageSpaces={onManageSpaces}
           managingSpaces={managingSpaces}
+          folderStatuses={folderStatuses}
           onClose={() => setSwitcherOpen(false)}
         />
       ) : null}
@@ -411,12 +524,12 @@ function FolderContextMenu({ x, y, onClose, onNewChat, onOpenAppearance, onRevea
   const run = (action: () => void) => { onClose(); action(); };
   const style: CSSProperties = { left: Math.max(8, Math.min(x, window.innerWidth - 226)), top: Math.max(8, Math.min(y, window.innerHeight - 196)) };
   return (
-    <div ref={menuRef} className="context-menu folder-context-menu" style={style} role="menu" aria-label="Folder actions" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
+    <div ref={menuRef} className="context-menu folder-context-menu" style={style} role="menu" aria-label="work-folder actions" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
       {onNewChat ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onNewChat)}><ChatAdd16Regular aria-hidden="true" />New Chat</button> : null}
-      {onOpenAppearance ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onOpenAppearance)}><PaintBrush16Regular aria-hidden="true" />Customize Folder</button> : null}
+      {onOpenAppearance ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onOpenAppearance)}><PaintBrush16Regular aria-hidden="true" />Customize work-folder</button> : null}
       {onRevealFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onRevealFolder)}><FolderOpen16Regular aria-hidden="true" />{revealInFileManagerLabel()}</button> : null}
       <div className="context-menu-separator" role="separator" />
-      <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onManageSpaces)}><Folder16Regular aria-hidden="true" />Manage Folders</button>
+      <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onManageSpaces)}><Folder16Regular aria-hidden="true" />Manage work-folders</button>
     </div>
   );
 }
@@ -431,9 +544,11 @@ function SpaceHeaderSwitcher({
   onOpenFolder,
   onManageSpaces,
   managingSpaces,
+  folderStatuses = {},
   onClose,
 }: {
   id: string;
+  folderStatuses?: Readonly<Record<string, ChatActivityStatus>>;
   currentSpace: SpaceSummary;
   spaces: SpaceSummary[];
   spaceCustomizations: SpaceCustomizationMap;
@@ -448,7 +563,11 @@ function SpaceHeaderSwitcher({
   const switcherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    switcherRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    // Rows are in tree order now, so start on the current Folder, not the first row.
+    const current = switcherRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"][aria-current="page"]')
+      ?? switcherRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]');
+    current?.focus();
+    current?.scrollIntoView({ block: "nearest" });
   }, []);
 
   function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
@@ -462,21 +581,22 @@ function SpaceHeaderSwitcher({
   }
 
   return (
-    <div className="space-header-switcher professional-space-switcher" id={id} role="menu" aria-label="Folder menu" data-native-view-occluder="true" ref={switcherRef} onKeyDown={handleMenuKeyDown}>
+    <div className="space-header-switcher professional-space-switcher" id={id} role="menu" aria-label="work-folder menu" data-native-view-occluder="true" ref={switcherRef} onKeyDown={handleMenuKeyDown}>
       <div className="space-header-switcher-list">
-        {[currentSpace, ...spaces
-          .filter((item) => item.id !== currentSpace.id)
-          .sort((left, right) => left.name.localeCompare(right.name))].map((item) => {
+        {/* Folders inside Folders read as a tree (2026-10-01): indentation
+            says who owns what, so no row needs to explain it. */}
+        {folderTreeRows(spaces.some((item) => item.id === currentSpace.id) ? spaces : [currentSpace, ...spaces]).map(({ space: item, depth }) => {
           const active = item.id === currentSpace.id;
           const itemIdentity = spaceIdentityFor(item, spaceCustomizations);
+          const status = folderStatuses[item.id];
           return (
             <button
-              className={active ? "space-header-switcher-row active" : "space-header-switcher-row"}
+              className={["space-header-switcher-row", active ? "active" : "", depth ? "nested" : ""].filter(Boolean).join(" ")}
               type="button"
               role="menuitem"
               key={item.id}
               aria-current={active ? "page" : undefined}
-              style={spaceIdentityStyle(itemIdentity)}
+              style={{ ...spaceIdentityStyle(itemIdentity), "--folder-depth": depth } as CSSProperties}
               onClick={() => {
                 onClose();
                 if (!active) onSwitchSpace(item);
@@ -484,13 +604,14 @@ function SpaceHeaderSwitcher({
             >
               <span className="space-header-switcher-icon" aria-hidden="true" data-space-icon={itemIdentity.iconName}><SpaceIconGlyph icon={itemIdentity.Icon} size={17} filled /></span>
               <span className="space-header-switcher-copy"><strong>{item.name}</strong></span>
+              {status ? <ActivityDot status={status} /> : <span aria-hidden="true" />}
               <span className="space-header-switcher-badge">{spaceHeaderSourceBadgeLabel(item)}</span>
               {active ? <Checkmark16Regular className="space-header-switcher-check" aria-hidden="true" /> : null}
             </button>
           );
         })}
       </div>
-      <div className="space-header-switcher-actions" aria-label="Folder actions">
+      <div className="space-header-switcher-actions" aria-label="work-folder actions">
         <button
           className="space-header-switcher-action"
           type="button"
@@ -513,7 +634,7 @@ function SpaceHeaderSwitcher({
           }}
         >
           <FolderAdd20Regular aria-hidden="true" />
-          <span>Create new folder</span>
+          <span>Create new work-folder</span>
         </button>
         <button
           className={managingSpaces ? "space-header-switcher-action space-header-switcher-manage active" : "space-header-switcher-action space-header-switcher-manage"}
@@ -526,7 +647,7 @@ function SpaceHeaderSwitcher({
           }}
         >
           <Apps24Regular aria-hidden="true" />
-          <span>Manage folders</span>
+          <span>Manage work-folders</span>
         </button>
       </div>
     </div>
@@ -554,7 +675,7 @@ function SpaceNameEditor({
     event.preventDefault();
     const nextName = name.trim();
     if (!nextName) {
-      setError("Enter a folder name.");
+      setError("Enter a work-folder name.");
       return;
     }
     if (nextName === space.name) {
@@ -751,7 +872,7 @@ function SpaceAppearancePanel({
           <input ref={bannerFileInputRef} className="space-banner-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onChange={(event) => void handleBannerFileChange(event)} tabIndex={-1} aria-hidden="true" />
           {bannerUploadError ? <span className="space-banner-upload-error" role="alert">{bannerUploadError}</span> : null}
           <div className="space-banner-section-heading"><strong>Patterns</strong></div>
-          <div className="space-banner-gallery" role="group" aria-label="Folder banner styles">
+          <div className="space-banner-gallery" role="group" aria-label="work-folder banner styles">
             {spaceBannerOptions.map((option) => <button key={option.name} className={["space-banner-swatch", "space-banner-surface", `banner-${option.name}`, !identity.bannerImage && identity.bannerName === option.name ? "active" : ""].filter(Boolean).join(" ")} type="button" onClick={() => onCustomizeSpace(spaceId, { bannerName: option.name, bannerImage: undefined, bannerPreset: undefined, bannerFraming: undefined, bannerImagePosition: undefined })} aria-label={`Use ${option.label} banner`} aria-pressed={!identity.bannerImage && identity.bannerName === option.name}><span className="space-banner-swatch-name">{option.label}</span></button>)}
           </div>
           {!identity.bannerImage && identity.bannerName !== "none" ? <div className="space-pattern-colors">
@@ -804,14 +925,14 @@ function SpaceAppearancePanel({
                 type="color"
                 value={identity.color}
                 onInput={(event) => onCustomizeSpace(spaceId, { color: normalizeSpaceColor(event.currentTarget.value) })}
-                aria-label="Choose Folder color"
+                aria-label="Choose work-folder color"
               />
               <span className="space-color-value">{identity.color.toUpperCase()}</span>
             </label>
           </div>
         </div>
         <div className="space-color-controls">
-          <div className="space-color-swatches" role="group" aria-label="Folder color presets">
+          <div className="space-color-swatches" role="group" aria-label="work-folder color presets">
             {spaceColorOptions.map((option) => (
               <button
                 className={identity.color === option.color ? "space-color-swatch active" : "space-color-swatch"}
@@ -843,7 +964,7 @@ function SpaceAppearancePanel({
                 if (event.currentTarget.value) setIconGroup("all");
               }}
               placeholder="Search icons"
-              aria-label="Search Folder icons"
+              aria-label="Search work-folder icons"
             />
           </label>
           <div className="space-icon-categories" role="group" aria-label="Icon categories">

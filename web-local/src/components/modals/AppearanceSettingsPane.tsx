@@ -112,7 +112,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
       {appearance.presets.map((preset) => <div className="appearance-settings-saved" key={preset.name}><span>{preset.name}</span><div className="appearance-settings-actions"><button type="button" aria-label={`Apply ${preset.name}`} onClick={() => store.applyPreset(preset.preferences)}>Apply</button><button type="button" aria-label={`Export ${preset.name}`} onClick={() => runPreset(() => exportPreset(preset))}>Export</button><button type="button" aria-label={`Remove ${preset.name}`} onClick={() => runPreset(() => store.removePreset(preset.name))}>Remove</button></div></div>)}
       {presetError || appearance.presetsError ? <p className="appearance-settings-error" role="alert">{presetError ?? appearance.presetsError}</p> : null}
     </section>
-    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this folder</button></section> : null}
+    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this work-folder</button></section> : null}
   </div>;
 }
 

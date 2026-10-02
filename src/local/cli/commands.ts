@@ -819,6 +819,7 @@ function spaceJson(value: WorkFoldCliSpaceSummary): WorkFoldCliJson {
     name: value.name,
     spaceRoot: value.spaceRoot ?? null,
     active: value.active ?? false,
+    ...(value.parentSpaceId ? { parentSpaceId: value.parentSpaceId } : {}),
   };
 }
 

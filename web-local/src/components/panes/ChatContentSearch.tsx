@@ -31,14 +31,12 @@ export function ChatContentSearch({
   spaces,
   conversations,
   query,
-  view,
   now,
   onOpen,
 }: {
   spaces: SpaceSummary[];
   conversations: Record<string, ConversationSummary[]>;
   query: string;
-  view: ChatLifecycleView;
   now: number;
   onOpen: (space: SpaceSummary, conversation: ConversationSummary) => void;
 }) {
@@ -78,12 +76,13 @@ export function ChatContentSearch({
       const summaries = new Map((conversations[space.id] ?? []).map((conversation) => [conversation.id, conversation]));
       for (const match of state.result.bySpace[space.id]?.chats ?? []) {
         const conversation = summaries.get(match.conversationId);
-        if (!conversation || conversationLifecycleView(conversation, now) !== view) continue;
+        // Search covers every Chat; a snoozed or archived one says so on its row.
+        if (!conversation) continue;
         result.push({ space, conversation, match });
       }
     }
     return result;
-  }, [state.result, spaces, conversations, now, view]);
+  }, [state.result, spaces, conversations]);
 
   if (state.status === "idle") return null;
   const visible = matches.slice(0, visibleMatchLimit);
@@ -104,14 +103,14 @@ export function ChatContentSearch({
       {state.status === "error"
         ? <p className="chat-content-search-note">Couldn&rsquo;t search Chat transcripts.</p>
         : visible.length === 0 && state.status === "ready"
-          ? <p className="chat-content-search-note">No {view} Chat transcripts match.</p>
+          ? <p className="chat-content-search-note">No Chat transcripts match.</p>
           : (
             <ul>
               {visible.map(({ space, conversation, match }, index) => (
                 <li key={`${space.id}:${match.conversationId}:${match.createdAt}:${index}`}>
                   <button type="button" onClick={() => onOpen(space, conversation)}>
                     <span className="chat-content-search-title">{conversation.title}</span>
-                    <span className="chat-content-search-meta">{space.name} · {chatRoleLabel(match.role)}</span>
+                    <span className="chat-content-search-meta">{[space.name, lifecycleLabel(conversationLifecycleView(conversation, now)), chatRoleLabel(match.role)].filter(Boolean).join(" · ")}</span>
                     <span className="chat-content-search-preview">{match.preview}</span>
                   </button>
                 </li>
@@ -122,10 +121,14 @@ export function ChatContentSearch({
         ? <p className="chat-content-search-note">Showing the first {visible.length} matches.</p>
         : null}
       {state.result?.failedSpaces
-        ? <p className="chat-content-search-note">Some Spaces couldn&rsquo;t be searched.</p>
+        ? <p className="chat-content-search-note">Some work-folders couldn&rsquo;t be searched.</p>
         : null}
     </section>
   );
+}
+
+function lifecycleLabel(view: ChatLifecycleView): string | null {
+  return view === "snoozed" ? "Snoozed" : view === "archived" ? "Archived" : null;
 }
 
 function chatRoleLabel(role: ChatContentMatch["role"]): string {

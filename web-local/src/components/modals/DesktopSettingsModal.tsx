@@ -170,7 +170,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
       <section ref={dialogRef} tabIndex={-1} className="settings-modal settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title settings-title">
           <div className="settings-title-copy">
-            {onBackToCustomization ? <button className="minimal-icon-button settings-customization-back" type="button" onClick={onBackToCustomization} aria-label="Back to Customize Folder" title="Back to Customize Folder"><ArrowLeft20Regular /></button> : null}
+            {onBackToCustomization ? <button className="minimal-icon-button settings-customization-back" type="button" onClick={onBackToCustomization} aria-label="Back to Customize work-folder" title="Back to Customize work-folder"><ArrowLeft20Regular /></button> : null}
             <div><h2 id="settings-title">Settings</h2></div>
           </div>
           <button ref={closeRef} className="minimal-icon-button settings-close-button" type="button" onClick={onClose} aria-label="Close settings"><Dismiss20Regular /></button>

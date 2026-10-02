@@ -51,8 +51,8 @@ test("Files is the first primary surface and Space actions live in the persisten
   assert.doesNotMatch(spaceChromeSource, /space-rail-space-selector|space-rail-space-copy/);
   assert.match(spaceChromeSource, /primaryItems\.map/);
   assert.match(spaceChromeSource, /<span>Use Existing Folder<\/span>/);
-  assert.match(spaceChromeSource, /<span>Create new folder<\/span>/);
-  assert.match(spaceChromeSource, /<span>Manage folders<\/span>/);
+  assert.match(spaceChromeSource, /<span>Create new work-folder<\/span>/);
+  assert.match(spaceChromeSource, /<span>Manage work-folders<\/span>/);
   assert.match(spaceChromeSource, /aria-current=\{activeMode === item\.mode \? "page" : undefined\}/, "the active icon-only destination must be announced");
   assert.match(spaceChromeSource, /aria-label=\{item\.ariaLabel\}/, "icon-only destinations need accessible names");
   assert.doesNotMatch(spaceChromeSource, /<span>Space<\/span>|space-rail-space-caret/);
@@ -118,7 +118,7 @@ test("Skills & Extensions opens as a popup from the Add button, and apps are man
   assert.match(capabilitiesSource, /Where should it live\?/);
   assert.match(capabilitiesSource, /function ScopeHierarchyGlyph/);
   assert.match(capabilitiesSource, /"work-fold agent"[\s\S]*"Here"/);
-  assert.match(capabilitiesSource, /"Everywhere"[\s\S]*This Folder Only/);
+  assert.match(capabilitiesSource, /"Everywhere"[\s\S]*This work-folder only/);
   assert.doesNotMatch(capabilitiesSource, /Personal · everywhere|"Personal"/);
   // Catalog rows get a network-free identity tile and name where links go.
   assert.match(capabilitiesSource, /function CapabilityMonogram/);
@@ -338,7 +338,7 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(spaceChromeSource, /<SpaceIconGlyph icon=\{itemIdentity\.Icon\}/);
   assert.match(spaceChromeSource, /data-space-icon=\{itemIdentity\.iconName\}/);
   assert.match(spaceChromeSource, /<SpaceBannerPreview/);
-  assert.match(spaceChromeSource, /aria-label="Folder color presets"/);
+  assert.match(spaceChromeSource, /aria-label="work-folder color presets"/);
   assert.doesNotMatch(spaceChromeSource, /spaceLookOptions|Folder color pairs/);
   assert.match(spaceChromeSource, /function SpaceNameEditor/);
   assert.match(spaceChromeSource, /<span>Folder name<\/span>/);
@@ -414,7 +414,7 @@ test("Space customization is visible, compact, and separate from structural chro
 test("Manage Spaces is a compact launcher into customization", () => {
   assert.doesNotMatch(spacePanesSource, /Where does this work live\?|Use an existing folder or create a clean one|professional-space-intro/);
   assert.doesNotMatch(spacePanesSource, /Turn it into a Space|Start with a clean folder|professional-space-action-copy/);
-  assert.match(spacePanesSource, /className="professional-space-actions" aria-label="Add a folder"/);
+  assert.match(spacePanesSource, /className="professional-space-actions" aria-label="Add a work-folder"/);
   const actionRule = cssRuleBody(surfacesCss, ".professional-space-actions");
   assert.match(actionRule, /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.doesNotMatch(surfacesCss.slice(surfacesCss.indexOf("@container space-pane (max-width: 520px)")), /\.professional-space-actions,[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
@@ -446,7 +446,7 @@ test("the left header is inherited Space identity on every mode, not a surface t
   assert.match(spaceChromeSource, /<span className="sr-only">\{detail\}<\/span>/);
   assert.match(spaceChromeSource, /className="space-pane-switch-trigger"/);
   assert.match(spaceChromeSource, /aria-haspopup="menu"/);
-  assert.match(spaceChromeSource, /role="menu" aria-label="Folder menu"/);
+  assert.match(spaceChromeSource, /role="menu" aria-label="work-folder menu"/);
   assert.match(spaceChromeSource, /role="menuitem"/);
   assert.match(spaceChromeSource, /data-native-view-occluder="true"/);
   assert.match(spaceChromeSource, /aria-current=\{active \? "page" : undefined\}/);

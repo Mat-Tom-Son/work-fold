@@ -7,7 +7,7 @@ import type { AgentCatalog, AgentStatus, AssistantToolsView, SpaceSummary } from
 
 /**
  * Skills & Extensions as a popup like Settings (2026-09-25). The rail's Add
- * button opens it for the Folder that was active, and "This Folder Only"
+ * button opens it for the Folder that was active, and "This work-folder only"
  * keeps meaning that Folder for as long as the popup is open.
  */
 export function AssistantToolsModal({ space, status, initialView, fixtureMode = false, onError, onCatalogChanged, onClose }: {

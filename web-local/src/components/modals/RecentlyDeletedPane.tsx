@@ -52,7 +52,7 @@ export interface RecentlyDeletedResponse {
 const kindLabels: Record<RecentlyDeletedKind, string> = {
   file: "File",
   folder: "Folder",
-  space: "Folder",
+  space: "work-folder",
   "app-storage": "App Data",
   "app-retained": "App Data",
 };

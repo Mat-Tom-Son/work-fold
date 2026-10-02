@@ -15,6 +15,7 @@ import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-previe
 import { turnFileChanges } from "./agent/turn-file-changes.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { workRequestLabel, type WorkRequestView } from "../shared/request-presentation.js";
+import { childFolderPaths } from "../shared/folder-nesting.js";
 import {
   routingTriggerSummary,
   type FolderAutomationState,
@@ -384,6 +385,9 @@ import {
   resolveSpaceDeleteTarget,
   resolveSpacePath,
   scanSpaceTree,
+  nestedRegisteredSpacePaths,
+  registeredSpaceOutline,
+  resolveNestableFolderPath,
   spaceRemovalPendingResult,
   touchSpaceRoot,
   writeSpaceTextFile,
@@ -1408,6 +1412,26 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  // Which Folder Workers are mid-turn right now, including turns no Chat tab
+  // is showing (a handoff into a nested Folder). Content-free: ids only. The
+  // renderer requeries on the "activity" control hint.
+  // The registered Folders' ids, names, and roots for the @ menus: read from
+  // the registry alone, with no manifest writes or setup checks, so a
+  // popover can ask on every show.
+  if (method === "GET" && url.pathname === "/api/spaces/outline") {
+    const spaces = (await registeredSpaceOutline()).filter((space) => existsSync(space.spaceRoot));
+    sendJson(res, { spaces });
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/spaces/activity") {
+    const running = [...state.activeTurnTasks.values()]
+      .filter((task) => task.spaceId !== workFoldManagementScopeId)
+      .map((task) => ({ spaceId: task.spaceId, conversationId: task.conversationId }));
+    sendJson(res, { running });
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/api/appearance") {
     sendJson(res, { appearance: state.appearance.snapshot() });
     return;
@@ -1596,6 +1620,22 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       state,
       () => registerSpaceInternal(state, body.spaceRoot!, body.providerHint),
     );
+    sendJson(res, { space }, 201);
+    return;
+  }
+
+  // "Make a work-folder" (2026-10-01): a person registers a folder inside
+  // a Folder they already registered, from Files. The parent's registration
+  // is the trust root for the path, so no fresh folder picker grant is asked
+  // for; the explicit click is this Folder's registration act, exactly as
+  // choosing a folder in the picker is.
+  const nestedFolderMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/nested-folders$/);
+  if (method === "POST" && nestedFolderMatch) {
+    const parent = await getSpace(nestedFolderMatch[1]);
+    const body = await readJsonBody<{ path?: unknown }>(state, req);
+    if (typeof body.path !== "string" || !body.path.trim()) throw badRequest("Choose a folder inside this work-folder.");
+    const target = await resolveNestableFolderPath(parent.spaceRoot, body.path);
+    const space = await runCheckSpaceRegistryMutation(state, () => registerSpaceInternal(state, target));
     sendJson(res, { space }, 201);
     return;
   }
@@ -2322,7 +2362,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       space.spaceRoot,
       maxDepth,
       url.searchParams.get("path") ?? "",
-      { includeIgnored: url.searchParams.get("includeIgnored") !== "0" },
+      { includeIgnored: url.searchParams.get("includeIgnored") !== "0", nestedFolderPaths: await nestedRegisteredSpacePaths(space.spaceRoot) },
     );
     sendJson(res, { tree: scan.entries, truncated: scan.truncated });
     return;
@@ -3145,6 +3185,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       requestId?: unknown;
       userMessageId?: unknown;
       delivery?: unknown;
+      addressedSpaceIds?: unknown;
     }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
@@ -3160,11 +3201,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     }
     const selectedPath = normalizeSelectedPath(space.spaceRoot, body.selectedPath);
     const contextPaths = normalizeContextPaths(space.spaceRoot, body.contextPaths);
+    const addressedSpaceIds = await normalizeAddressedSpaceIds(body.addressedSpaceIds, space.id);
     const { message, taskId, replayed } = await acceptConversationTurn(state, space, conversationId, {
       content,
       contextPaths,
       selectedPath,
       actorKind: "assistant",
+      ...(addressedSpaceIds.length ? { addressedSpaceIds } : {}),
       requestId: optionalTurnIdentity(body.requestId, "requestId"),
       userMessageId: optionalTurnIdentity(body.userMessageId, "userMessageId"),
     });
@@ -3260,9 +3303,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       continuationTaskId?: unknown;
       requestId?: unknown;
       userMessageId?: unknown;
+      addressedSpaceIds?: unknown;
     }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
+    const addressedSpaceIds = await normalizeAddressedSpaceIds(body.addressedSpaceIds, workFoldManagementScopeId);
     const rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];
     if (rawAttachments.length > maxManagementAttachments) {
       throw badRequest(`At most ${maxManagementAttachments} attachments are allowed per request.`);
@@ -3319,6 +3364,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       selectedPath: null,
       actorKind: "renderer",
       managementAttachments: attachments,
+      ...(addressedSpaceIds.length ? { addressedSpaceIds } : {}),
       ...(continuationTaskId ? { continuedFromManagementTaskId: continuationTaskId } : {}),
       ...(continuedRequestId ? { request: { joinRequestId: continuedRequestId } } : {}),
       requestId,
@@ -3808,6 +3854,8 @@ async function acceptConversationTurn(
     releasedChildTaskIds?: string[];
     /** Which durable request this turn creates or joins (docs/collaboration-contract.md, F25). */
     request?: AcceptedTurnRequestInput;
+    /** Folder Workers the person addressed with @ (2026-10-01); registered ids, never this scope's own. */
+    addressedSpaceIds?: string[];
   },
 ): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string; replayed: boolean }> {
   if (!state.acceptingTurns) throw httpError(503, "work-fold is closing and cannot accept another Assistant turn.");
@@ -3911,6 +3959,7 @@ async function acceptConversationTurn(
   });
   state.activeTurnTasks.set(task.id, { spaceId: space.id, conversationId });
   state.activeTurnIdsByKey.set(turnKey, task.id);
+  publishControlHint(state, "activity");
   const managementAttachments = space.id === workFoldManagementScopeId
     ? input.managementAttachments ?? []
     : undefined;
@@ -3955,6 +4004,7 @@ async function acceptConversationTurn(
     state.cancelledTurnTasks.delete(task.id);
     state.activeTurnIdsByKey.delete(turnKey);
     state.kernel.finishTask(task.id);
+    publishControlHint(state, "activity");
     const detail = error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError
       ? error.message
       : "The accepted user message could not be persisted.";
@@ -3985,6 +4035,7 @@ async function acceptConversationTurn(
       // `chat answer` names the question, and a person's free-text reply
       // answers whichever of this request's questions were waiting on them.
       ...(answeredQuestionId ? { answeredQuestionId } : {}),
+      ...(input.addressedSpaceIds?.length ? { addressedSpaceIds: input.addressedSpaceIds } : {}),
     },
   );
   state.activeTurnPromises.add(turn);
@@ -4217,6 +4268,9 @@ function assistantTurnRequestDigest(input: {
   actorKind?: string;
   continuedFromManagementTaskId?: string;
 }): string {
+  // Addressed Workers are deliberately outside the digest: they are a hint for
+  // this turn's context, and a retry must replay even if one of them was
+  // removed in between.
   return createHash("sha256").update(JSON.stringify({
     content: input.content,
     contextPaths: input.contextPaths,
@@ -5338,7 +5392,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           const spaceId = remoteStableId(input.spaceId, "Space id", 512);
           const path = input.path === undefined ? "" : remoteRelativePath(input.path);
           const space = await getSpace(spaceId);
-          const scan = await scanSpaceTree(space.spaceRoot, 0, path, { includeIgnored: false });
+          const scan = await scanSpaceTree(space.spaceRoot, 0, path, { includeIgnored: false, nestedFolderPaths: await nestedRegisteredSpacePaths(space.spaceRoot) });
           const maximumEntries = 500;
           const tree: WorkFoldRemoteTreeResult["tree"] = scan.entries.slice(0, maximumEntries).map((entry) => ({
             name: entry.name,
@@ -11142,6 +11196,8 @@ async function runAgentTurn(
     assignment?: string;
     /** The question this turn's message answers, when it is a continuation (F27). */
     answeredQuestionId?: string;
+    /** Folder Workers the person addressed with @ in this message (2026-10-01). */
+    addressedSpaceIds?: string[];
   } = {},
 ): Promise<void> {
   const { managementAttachments, answeredQuestionId } = options;
@@ -11165,13 +11221,29 @@ async function runAgentTurn(
       ? loadManagementAttachmentsForTurn(managementAttachments, budgetTokens)
       : loadConversationContextReferencesForTurn(spaceRoot, contextPaths, budgetTokens);
     const attachedLinks = managementAttachments ? managementAttachmentLinks(managementAttachments) : [];
-    const managementSpaces = spaceId === workFoldManagementScopeId
-      ? (await state.kernel.getSpaces({ kind: "renderer" })).spaces.map((space) => ({
+    const managementRegistry = spaceId === workFoldManagementScopeId
+      ? (await state.kernel.getSpaces({ kind: "renderer" })).spaces
+      : null;
+    // Folder turns read nesting from the registry file only — never listSpaces(),
+    // which rewrites every Folder's portable manifest — and a failed read just
+    // leaves the nesting context out instead of failing the turn.
+    const registeredSpaces: Array<{ id: string; name: string; spaceRoot: string }> = managementRegistry
+      ?? await registeredSpaceOutline().catch(() => []);
+    const managementSpaces = managementRegistry
+      ? managementRegistry.map((space) => ({
           id: space.id,
           name: space.name,
           spaceRoot: space.spaceRoot,
+          ...(space.parentSpaceId ? { parentSpaceId: space.parentSpaceId } : {}),
         }))
       : undefined;
+    // Folders inside Folders (2026-10-01): the person's @ mentions resolve to
+    // the ids handoff and send take, and a parent's Worker learns which of
+    // its own subfolders belong to another Worker.
+    const addressedFolders = (options.addressedSpaceIds ?? []).flatMap((id) => {
+      const space = registeredSpaces.find((item) => item.id === id);
+      return space ? [{ spaceId: space.id, name: space.name }] : [];
+    });
     // A Space turn's own identity (F26): its ids, and when delegated, an
     // opaque handle for the request that asked. Never for the management
     // scope, which carries the registry snapshot instead.
@@ -11199,6 +11271,11 @@ async function runAgentTurn(
     }
     beforeCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "pre_turn");
     if (spaceTurn) spaceTurn.history = spaceTurnHistory(beforeCheckpoint);
+    const ownSpace = registeredSpaces.find((item) => item.id === spaceId);
+    if (spaceTurn && ownSpace) {
+      const nested = [...childFolderPaths(ownSpace, registeredSpaces)].map(([path, child]) => ({ spaceId: child.id, name: child.name, path }));
+      if (nested.length) spaceTurn.nestedFolders = nested;
+    }
     await state.beforeAgentPrompt?.({ spaceId, conversationId, taskId, ...(spaceTurn ? { spaceTurn } : {}) });
     throwIfTurnCancelled(state, taskId);
     promptStarted = true;
@@ -11209,6 +11286,7 @@ async function runAgentTurn(
       ...(managementSpaces ? { managementSpaces } : {}),
       ...(spaceTurn ? { spaceTurn } : {}),
       ...(attachedLinks.length ? { attachedLinks } : {}),
+      ...(addressedFolders.length ? { addressedFolders } : {}),
     });
     // Capture synchronously with prompt completion. Shutdown may dispose the
     // client while the server awaits checkpoint persistence below.
@@ -11494,6 +11572,7 @@ function settleTurnTask(
   state.activeTurnTasks.delete(taskId);
   state.cancelledTurnTasks.delete(taskId);
   state.settledTurns.set(taskId, { taskId, endedAt: new Date().toISOString(), ...record });
+  publishControlHint(state, "activity");
   while (state.settledTurns.size > maxSettledTurnRecords) {
     const oldest = state.settledTurns.keys().next().value;
     if (oldest === undefined) break;
@@ -13982,6 +14061,23 @@ function normalizeSelectedPath(spaceRoot: string, value: string | null | undefin
   return path;
 }
 
+/**
+ * The Folder Workers a person addressed with @ (2026-10-01): at most eight
+ * distinct registered Space ids in a stable order, never the sending scope's
+ * own. An id that is no longer registered is dropped rather than refused, so a
+ * retried send still replays after a Folder was removed.
+ */
+async function normalizeAddressedSpaceIds(value: unknown, ownScopeId: string): Promise<string[]> {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 8 || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 512)) {
+    throw badRequest("addressedSpaceIds must list at most 8 Folder ids.");
+  }
+  const ids = [...new Set((value as string[]).map((item) => item.trim()))].filter((id) => id !== ownScopeId);
+  if (!ids.length) return [];
+  const registered = new Set((await registeredSpaceOutline()).map((space) => space.id));
+  return ids.filter((id) => registered.has(id)).sort();
+}
+
 function normalizeContextPaths(spaceRoot: string, value: unknown): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw badRequest("Chat context paths must be an array of strings.");
@@ -14295,7 +14391,7 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
 }
 
 /** Content-free hints only. Reconnect always sends reset; no events are replayed. */
-function publishControlHint(state: LocalApiState, type: "apps" | "spaces" | "assistant"): void {
+function publishControlHint(state: LocalApiState, type: "apps" | "spaces" | "assistant" | "activity"): void {
   for (const response of state.controlStreams) {
     if (response.closed) continue;
     // A slow renderer must reconnect and requery instead of accumulating a queue.

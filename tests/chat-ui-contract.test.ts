@@ -5,7 +5,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 
 const root = process.cwd();
-const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer, piClient] = await Promise.all([
+const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer, piClient, activityDot] = await Promise.all([
   read("web-local/src/App.tsx"),
   read("web-local/src/components/chat/SpaceSurfaceTabBar.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
@@ -22,6 +22,7 @@ const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes
   read("desktop/src/main.ts"),
   read("src/local/server.ts"),
   read("src/local/agent/pi-client.ts"),
+  read("web-local/src/components/chrome/ActivityDot.tsx"),
 ]);
 
 test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cancellable draft that sends on settle", () => {
@@ -76,8 +77,10 @@ function readFileSyncLike(relativePath: string): Promise<string> {
 }
 
 test("Files exposes folder creation and naming uses in-app UI", () => {
-  assert.match(app, /aria-label="New folder"/);
+  // Folder creation lives in the right-click menu (2026-10-01); Files has no toolbar buttons.
+  assert.doesNotMatch(app, /aria-label="New folder"/);
   assert.match(app, /onNewFolder=\{requestNewFolder\}/);
+  assert.match(app, /else if \(command === "new-folder"\) requestNewFolder\(entry\.path\);/);
   assert.doesNotMatch(app, /aria-label="New file"|onNewFile=/i);
   assert.doesNotMatch(`${app}\n${panes}`, /window\.prompt\s*\(/);
   assert.match(app, /<TextInputModal[^>]*title=\{`Rename/);
@@ -95,10 +98,12 @@ test("one Space menu trigger can create a Chat in every Space", () => {
 });
 
 test("Chat work can be deferred, found again, and resumed without interrupting active turns", () => {
-  for (const view of ["active", "snoozed", "archived"]) {
-    assert.match(panes, new RegExp(`"${view}"`));
-  }
-  assert.match(panes, /role="tablist"\s+aria-label="Chat view"/);
+  // Snoozed and Archived are closed rows at the bottom (2026-10-01), not a
+  // tab bar: active Chats lead, and deferred ones stay one click away.
+  assert.doesNotMatch(panes, /role="tablist"\s+aria-label="Chat view"/);
+  assert.match(panes, /\(\["snoozed", "archived"\] as const\)/);
+  assert.match(panes, /className="chat-shelf-toggle"/);
+  assert.match(panes, /aria-label="Snoozed and archived Chats"/);
   assert.match(panes, /aria-label=\{`Actions for \$\{chat\.title\}`\}/);
   assert.match(chatActions, />Snooze</);
   assert.match(chatActions, />Resume Now</);
@@ -114,21 +119,29 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
   assert.match(app, /<ChatPanel[\s\S]*?active=\{active\}/);
   assert.match(tabBar, /surface-tab-chat-status/);
   assert.match(panes, /status=\{status\} labeled/);
-  assert.match(panes, /status === "running" \? "Working" : "New reply"/);
+  // One shared activity mark (2026-10-01) labels the Chats list, the Folder switcher, and Files.
+  assert.match(panes, /import \{ ActivityDot \} from "\.\.\/chrome\/ActivityDot"/);
+  assert.match(activityDot, /status === "running" \? "Working" : "New reply"/);
   assert.match(chatPanel, /onRunningChangeRef\.current/);
   assert.match(chatPanel, /reportChatSettled\(conversationId\)/);
 });
 
+test("Chats show the Folders inside this one under its own Chats", () => {
+  assert.match(panes, /folderTreeRows\(descendantFolders\(space, spaces\)\)/);
+  assert.match(panes, /className="chat-nested-space"/);
+  assert.match(panes, /\.filter\(\(item\) => item\.id !== space\.id && !nestedIds\.has\(item\.id\)\)/, "nested Folders are not repeated under Other work-folders");
+});
+
 test("Chats foreground the active Space and collapse other Spaces until requested", () => {
   assert.match(panes, /const \[expandedOtherSpaceIds, setExpandedOtherSpaceIds\]/);
-  assert.match(panes, /<span>Other folders<\/span>/);
+  assert.match(panes, /<span>Other work-folders<\/span>/);
   assert.doesNotMatch(panes, /\.filter\(\(\{ list \}\) => list\.length > 0\)/);
   assert.match(panes, /<small>\{list\.length\}<\/small>/);
   assert.match(panes, /aggregateChatActivityStatus\(item\.id, conversations\[item\.id\] \?\? \[\], activityStatuses\)/);
   assert.match(panes, /aria-label=\{`\$\{expanded \? "Hide" : "Show"\} chats in \$\{item\.name\}`\}/);
   assert.match(panes, /aria-expanded=\{expanded\}/);
   assert.match(panes, /const expanded = Boolean\(normalized\) \|\| expandedOtherSpaceIds\.has/);
-  assert.match(panes, /onClick=\{\(\) => toggleOtherSpace\(item\.id\)\}/);
+  assert.match(panes, /onClick=\{\(\) => toggle\(setExpandedOtherSpaceIds, item\.id\)\}/);
   assert.match(panes, /aria-label=\{`New Chat in \$\{item\.name\}`\}/);
 });
 

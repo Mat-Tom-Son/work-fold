@@ -213,7 +213,7 @@ export function SpaceSurfaceTabBar({
 
   function renderSurfaceTab(tab: SpaceSurfaceTab, grouped: boolean) {
     const tabSpace = spaces.find((item) => item.id === tab.spaceId);
-    const spaceName = tabSpace?.name ?? "Folder";
+    const spaceName = tabSpace?.name ?? "work-folder";
     const resolvedSpace = tabSpace ?? fallbackSpaceSummary(tab.spaceId, spaceName);
     const identity = spaceIdentityFor(resolvedSpace, spaceCustomizations);
     const Icon = identity.Icon;
@@ -290,7 +290,7 @@ export function SpaceSurfaceTabBar({
         {tabGroups.map((group) => {
           if (!group.spaceId) return group.tabs.map((tab) => renderSurfaceTab(tab, false));
           const tabSpace = spaces.find((item) => item.id === group.spaceId)
-            ?? fallbackSpaceSummary(group.spaceId, "Folder");
+            ?? fallbackSpaceSummary(group.spaceId, "work-folder");
           const identity = spaceIdentityFor(tabSpace, spaceCustomizations);
           return (
             <span className="surface-tab-group" role="presentation" key={group.spaceId}>
@@ -328,7 +328,7 @@ export function SpaceSurfaceTabBar({
                 if (current) onNewChatInSpace(current); else setSpaceMenuOpen(true);
               }}
               aria-label="Start a new Chat"
-              title="New Chat in this folder"
+              title="New Chat in this work-folder"
             >
               <FluentGlyph icon={NewChatIcon} size={18} />
             </button>
@@ -341,7 +341,7 @@ export function SpaceSurfaceTabBar({
               aria-haspopup="menu"
               aria-expanded={spaceMenuOpen}
               aria-controls="new-chat-space-menu"
-              title="New Chat in another folder, or open tabs"
+              title="New Chat in another work-folder, or open tabs"
             >
               <ChevronDown16Regular aria-hidden="true" />
             </button>
@@ -373,7 +373,7 @@ export function SpaceSurfaceTabBar({
                     title={`New Chat in ${item.name}`}
                   >
                     <span className="space-identity-icon"><SpaceIconGlyph icon={Icon} size={14} /></span>
-                    <span className="surface-tab-space-menu-copy"><strong>{item.name}</strong>{current ? <small>Current Folder</small> : null}</span>
+                    <span className="surface-tab-space-menu-copy"><strong>{item.name}</strong>{current ? <small>Current work-folder</small> : null}</span>
                   </button>
                 );
               })}
@@ -383,7 +383,7 @@ export function SpaceSurfaceTabBar({
                   <span className="surface-tab-space-menu-heading">Open Tabs</span>
                   {orderedTabs.map((tab) => {
                     const tabSpace = spaces.find((item) => item.id === tab.spaceId)
-                      ?? fallbackSpaceSummary(tab.spaceId, "Folder");
+                      ?? fallbackSpaceSummary(tab.spaceId, "work-folder");
                     const identity = spaceIdentityFor(tabSpace, spaceCustomizations);
                     const active = tab.id === activeTabId;
                     return (
@@ -418,7 +418,7 @@ export function SpaceSurfaceTabBar({
               >
                 <span className="surface-tab-menu-check" aria-hidden="true">{groupBySpace ? <Checkmark16Regular /> : null}</span>
                 <span className="surface-tab-space-menu-copy">
-                  <strong>Group by Folder</strong>
+                  <strong>Group by work-folder</strong>
                 </span>
               </button>
             </div>

@@ -204,10 +204,10 @@ export function ChecksPane({
 
   async function askFold(check?: ChecksOverview["checks"][number]) {
     const draft = check
-      ? `Help me change ${JSON.stringify(check.title)} in folder ${JSON.stringify(space.name)} (${spaceId}). Keep the current Check unchanged while we review a new proposal. Check reference: ${check.id}.`
-      : `Help me set up a Check in folder ${JSON.stringify(space.name)} (${spaceId}).`;
+      ? `Help me change ${JSON.stringify(check.title)} in work-folder ${JSON.stringify(space.name)} (${spaceId}). Keep the current Check unchanged while we review a new proposal. Check reference: ${check.id}.`
+      : `Help me set up a Check in work-folder ${JSON.stringify(space.name)} (${spaceId}).`;
     try {
-      if (!window.workFoldDesktop?.agent?.openFoldDraft) throw new Error("Open the work-fold agent in the desktop app and ask it to set up a Check for this folder.");
+      if (!window.workFoldDesktop?.agent?.openFoldDraft) throw new Error("Open the work-fold agent in the desktop app and ask it to set up a Check for this work-folder.");
       await window.workFoldDesktop.agent.openFoldDraft(draft);
     } catch (caught) { setError(errorText(caught)); }
   }
@@ -526,7 +526,7 @@ function ChecksStatusLine({ status }: { status: ChecksOverview["status"] }) {
   } else {
     copy = status.configured
       ? "Checks are configured and run only when requested."
-      : "No Checks are configured for this folder.";
+      : "No Checks are configured for this work-folder.";
   }
   return <div className={`checks-status-line ${status.state}`}><span aria-hidden="true" /><p>{copy}</p></div>;
 }

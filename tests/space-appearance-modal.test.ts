@@ -44,7 +44,7 @@ test("Customize Folder isolates its popup and routes edits to the Folder it was 
   const dialog = document.querySelector('[role="dialog"]')!;
   assert.equal(dialog.getAttribute("aria-modal"), "true");
   assert.ok(dialog.querySelector('header [role="tablist"]'), "tabs stay in the fixed modal header");
-  assert.equal(document.activeElement?.getAttribute("aria-label"), "Close Customize Folder");
+  assert.equal(document.activeElement?.getAttribute("aria-label"), "Close Customize work-folder");
   assert.equal(document.getElementById("work")!.getAttribute("aria-hidden"), "true");
   assert.equal(document.getElementById("work")!.inert, true);
   await dom.act(() => document.querySelector<HTMLButtonElement>('[role="tab"][id="folder-appearance-tab-color"]')!.click());

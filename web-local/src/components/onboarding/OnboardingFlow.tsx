@@ -10,7 +10,7 @@ export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace:
         </button>
         <button className="onboarding-folder-action" type="button" onClick={onCreateSpace}>
           <FolderPlus size={19} aria-hidden="true" />
-          <span>Create new folder</span>
+          <span>Create new work-folder</span>
         </button>
       </div>
     </section>

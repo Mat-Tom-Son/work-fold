@@ -39,6 +39,37 @@ uses the collaboration verbs below.
 | F29 | **One result shape.** A result envelope is `summary` (text, at most 32 KiB), optional `data` (JSON, at most 256 KiB, validated against a schema when the request declared one), optional `files` (Space-relative paths with digest and size), and `outcome` (`succeeded`, `partial`, or `failed`). Reports, app assistant tasks, handoff outcomes, and routing chat hops all produce it. | Existing `fileChanges` turn metadata stays as evidence; a report's `files` are the deliverables the Assistant chose. |
 | F30 | **Apps see their own work change.** `bridge.tasks.onChanged`, `bridge.checks.onChanged`, and `bridge.files.onChanged` deliver bounded hints for the app's own assistant tasks and inference receipts, its selected Checks, and its granted file roots. Active views subscribe; workers receive task/file hints during an operation, while Check access and hints remain view-only. Viewers do not subscribe. A hint carries ids and revisions, never content; the app re-reads. | Hints never start a model turn. The internal settle signal stays private. |
 
+### 2026-10-01 amendment: Folders inside Folders
+
+A person may register Folders inside another Folder (a repository and its
+packages). Each inner Folder's Worker owns that part of the parent's folder.
+F26 is amended in two narrow ways; both come from the person's own acts, not
+from the registry:
+
+- **Nested Folders.** A Space turn's hidden context lists the Folders
+  registered directly inside its own folder (id, name, path relative to it)
+  and asks the Worker to hand their work off with `chat handoff` instead of
+  editing it. The parent learns nothing else about them, and a Folder with no
+  nested Folders hears nothing new.
+- **Addressed Workers.** When the person writes `@Name` in a message, the
+  composer sends those Folder ids as `addressedSpaceIds` (at most eight,
+  never the sender's own; an id no longer registered is dropped, and the ids
+  stay out of the request digest so a retry still replays). The host resolves them to id and name
+  in that turn's context only. A Space Worker hands each its part with
+  `chat handoff`; the work-fold agent sends each its part with
+  `chat send --parent-task`. The `@Name` text stays ordinary message text.
+  A message steered into a running turn carries no addressed Workers; the
+  composer queues a message that mentions one until the turn ends.
+- **Folder operations.** A parent Folder cannot delete, move, or rename a
+  folder that holds a nested Folder, or anything inside one; that content is
+  changed from the nested Folder itself.
+
+Nothing new is written into a Space folder, and the Space registry, the
+fold's transcript, and other Spaces' results still never enter a Space turn.
+`work-fold spaces list --json` and the management turn's registry snapshot
+carry `parentSpaceId` for a nested Space, so the work-fold agent can split a
+request by owner.
+
 ## Verbs
 
 All are act-lane and receipted; `chat` verbs name a Space and `manage` verbs own management questions. They are available to the fold, a Space

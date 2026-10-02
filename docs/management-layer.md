@@ -164,6 +164,8 @@ work-fold version
 work-fold help capabilities
 ```
 
+`spaces list --json` adds `parentSpaceId` to a Space registered inside another Space's folder (2026-10-01); a top-level Space's projection is unchanged.
+
 `--space <id-or-exact-name>` selects a Space explicitly. Without it, Space-aware read commands resolve the terminal's current working directory. Duplicate exact names are rejected as ambiguous; use the stable Space id in automation. `--json` emits the stable protocol projection and is the preferred interface for scripts, Codex, Claude Code, and other shell-capable harnesses.
 
 The read commands stay content-free: Space names and paths, task metadata, and capability metadata — no file contents, conversation text, credentials, or provider tokens.

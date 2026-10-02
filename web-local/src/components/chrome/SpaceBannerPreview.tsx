@@ -74,7 +74,7 @@ export function SpaceBannerPreview({ identity, name, onFrame, editable = true }:
   const bounded = (value: number) => Math.round(Math.min(100, Math.max(0, value)) * 100) / 100;
 
   return <div className="space-preview-region">
-    <div className="space-appearance-previews" aria-label="Light and dark Folder previews">
+    <div className="space-appearance-previews" aria-label="Light and dark work-folder previews">
       {(["light", "dark"] as const).map((mode) => <div key={mode}>
         <span className="space-preview-mode-label">{mode === "light" ? "Light" : "Dark"}</span>
         <div

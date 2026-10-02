@@ -396,6 +396,44 @@ textarea:focus { outline: none; }
 }
 .composer-thinking:disabled { opacity: 0.55; cursor: default; }
 
+/* The @ menu (2026-10-01): Folder Workers in their nested order, above the box. */
+.composer-input { position: relative; }
+.popover-mention-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 5;
+  max-height: 220px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  background: var(--pop-surface);
+  border: 1px solid var(--pop-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(16, 35, 60, 0.16);
+}
+.popover-mention-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pop-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.popover-mention-menu > button.active { background: var(--pop-accent-bg); }
+.popover-mention-menu .composer-mention-icon { display: inline-flex; color: var(--pop-text-muted); }
+.popover-mention-menu .composer-mention-icon svg { width: 14px; height: 14px; stroke-width: 1.8; }
+.popover-mention-menu .composer-mention-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .composer-action {
   flex: none;
   width: 28px;

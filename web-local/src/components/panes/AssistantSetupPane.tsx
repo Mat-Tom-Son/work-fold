@@ -121,7 +121,7 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
         <legend>Model Defaults For</legend>
         <label className={scope === "space" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="space" checked={scope === "space"} onChange={() => changeScope("space")} />
-          <span>This Folder's Worker<small>{space.name}</small></span>
+          <span>This work-folder's Worker<small>{space.name}</small></span>
         </label>
         <label className={scope === "management" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="management" checked={scope === "management"} onChange={() => changeScope("management")} />
@@ -239,7 +239,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         ],
         catalogs: [{ provider: "openrouter", refreshable: true, source: "live" as const, refreshedAt: new Date().toISOString(), modelCount: 11 }],
         status: { ...status, configured: true, provider: "openrouter", model: "deepseek/deepseek-v4.1-flash" },
-        instructions: scope === "space" ? "Keep answers concise and test changes in this folder." : null,
+        instructions: scope === "space" ? "Keep answers concise and test changes in this work-folder." : null,
       } : await api<AssistantSettingsResponse>(`/api/agent/models?${assistantScopeParams(scope, space)}`, { signal: controller.signal });
       // Cached forms stay editable during this read. A save or a newer
       // accepted refresh owns the displayed settings once it has completed.
@@ -519,7 +519,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       </div>
       {(!authConfigured || isAzure) && !accountOnly && provider ? <form className={isAzure ? "assistant-azure-connection" : undefined} onSubmit={(event) => { event.preventDefault(); void configure("key"); }}>
         {isAzure ? <>
-          <p className="professional-field-hint">This connection is shared across all Folders and the work-fold agent.</p>
+          <p className="professional-field-hint">This connection is shared across all work-folders and the work-fold agent.</p>
           <label className="professional-field"><span className="professional-field-label">Azure endpoint</span><input id="assistant-azure-endpoint" type="url" value={azure.baseUrl} maxLength={2048} placeholder="https://your-resource.openai.azure.com" spellCheck={false} autoComplete="off" disabled={mutationBusy} onChange={(event) => {
             const next = { ...azure, baseUrl: event.target.value }; setAzure(next); editDraft((draft) => ({ ...draft, azure: next })); setConnectionFeedback(null);
           }} /><span className="professional-field-hint">Paste the resource endpoint or full Responses URL shown in Azure.</span></label>

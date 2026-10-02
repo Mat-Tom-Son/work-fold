@@ -7,8 +7,8 @@ export const primaryNavigation = [
 ] as const;
 
 export const welcomeActions = {
-  create: "Create a Space",
-  linkFolder: "Turn an existing folder into a Space",
+  create: "Create a work-folder",
+  linkFolder: "Turn an existing folder into a work-folder",
 } as const;
 
 /**
@@ -154,7 +154,7 @@ export const folderAutomations = {
     completed: "Done",
   },
   roles: {
-    watches: "Watches this folder",
+    watches: "Watches this work-folder",
     "copies-to": "Copies files here",
     "copies-from": "Copies files from here",
     "chats-here": "Starts a Chat here",
@@ -167,7 +167,7 @@ export const folderAutomations = {
   notRunYet: "Not Run Yet",
   failed: "Failed",
   allAutomations: "All Automations",
-  noneLeft: "No automations touch this folder.",
+  noneLeft: "No automations touch this work-folder.",
   runRequested: "Run Requested",
   turnedOn: "Automation turned on",
   turnedOff: "Automation turned off",

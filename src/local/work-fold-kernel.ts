@@ -6,6 +6,7 @@ import {
   type PiCatalogSource,
   type PiResourceCatalog,
 } from "./agent/skill-catalog.js";
+import { folderParentIds } from "../shared/folder-nesting.js";
 import type { PiSurfaceBlock } from "./agent/surface-manifest.js";
 import {
   isPiProjectMutationTrusted,
@@ -44,6 +45,12 @@ export interface WorkFoldSpaceSnapshot {
   location: SpaceLocation;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The nearest registered Space whose folder contains this one (2026-10-01).
+   * Present only in the spaces list and only for a nested Space; additive to
+   * the v1 snapshot, so a top-level Space's shape is unchanged.
+   */
+  parentSpaceId?: string;
 }
 
 export interface WorkFoldContextSnapshot {
@@ -454,7 +461,7 @@ export class WorkFoldKernel {
       kind: "work-fold.spaces",
       version: workFoldKernelSnapshotVersion,
       actor: normalizeActor(actor),
-      spaces: (await this.#listSpaces()).map(toSpaceSnapshot),
+      spaces: withParentSpaceIds((await this.#listSpaces()).map(toSpaceSnapshot)),
     };
   }
 
@@ -935,6 +942,14 @@ function toSpaceSnapshot(space: SpaceSummary): WorkFoldSpaceSnapshot {
     createdAt: space.createdAt,
     updatedAt: space.updatedAt,
   };
+}
+
+function withParentSpaceIds(spaces: WorkFoldSpaceSnapshot[]): WorkFoldSpaceSnapshot[] {
+  const parents = folderParentIds(spaces);
+  return spaces.map((space) => {
+    const parentSpaceId = parents.get(space.id);
+    return parentSpaceId ? { ...space, parentSpaceId } : space;
+  });
 }
 
 function copyTask(task: WorkFoldTaskSnapshot): WorkFoldTaskSnapshot {
