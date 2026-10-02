@@ -133,7 +133,12 @@ export interface PiTurnContext {
   /** Active management request id used to attribute downstream act commands. */
   managementTaskId?: string;
   /** Exact host-owned Space registry at the start of this management turn. */
-  managementSpaces?: Array<{ id: string; name: string; spaceRoot: string }>;
+  managementSpaces?: Array<{ id: string; name: string; spaceRoot: string; parentSpaceId?: string }>;
+  /**
+   * Folder Workers the person addressed with @ in this message (2026-10-01),
+   * resolved by the host from the ids the composer sent. Either scope.
+   */
+  addressedFolders?: Array<{ spaceId: string; name: string }>;
   /**
    * Host-owned identity of this Space turn (docs/collaboration-contract.md,
    * F26). Set only for Space scopes; the two management fields above are set
@@ -1576,7 +1581,9 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
   const lines: string[] = [];
   if (context.spaceTurn) {
     // Identity before data: a Space turn reads its own ids first. The block
-    // never names another Space, the registry, or the parent's real task id.
+    // never names the registry or the parent's real task id; the only other
+    // Folders it names are the ones nested inside this one and the ones the
+    // person addressed with @ (collaboration contract, 2026-10-01 amendment).
     const turn = context.spaceTurn;
     lines.push(
       "This turn's work-fold identity (host-owned; use these exact ids):",
@@ -1606,6 +1613,20 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
         "When the assignment is done, report back with chat report before your final reply, then give the complete useful answer in that reply. Ask with chat ask --to parent when you need that request to decide something.",
       );
     }
+    if (turn.nestedFolders?.length) {
+      lines.push(
+        "work-folders inside this one, each with its own Worker (host-owned; the person nested them here):",
+        JSON.stringify(turn.nestedFolders, null, 2),
+        "Files under those paths belong to their Workers. Hand work there off with chat handoff --to-space <spaceId> instead of editing it yourself, follow it with chat wait, and coordinate when a request spans several. Their files are already in their work-folder, so leave --file off for anything under those paths.",
+      );
+    }
+    if (context.addressedFolders?.length) {
+      lines.push(
+        "The person addressed these Workers with @ in this message (host-resolved):",
+        JSON.stringify(context.addressedFolders, null, 2),
+        "Give each its part with chat handoff --to-space <spaceId> and a self-contained message, follow with chat wait, and fold what they report into your reply. Do the parts nobody was addressed for yourself.",
+      );
+    }
     lines.push(
       "Work only in this Space. Other Spaces' folders, unselected results and the fold's conversation are not yours to read. Read selected child results through chat result; hand off or ask for other help.",
     );
@@ -1617,7 +1638,15 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       "This snapshot replaces every Space name, id, and path from earlier conversation messages or tool results.",
       "Never inspect an older Space path from conversation memory. Use the current snapshot and rerun `work-fold --json spaces list` before making registry claims.",
       "If a CLI result disagrees with this snapshot, stop and report a profile-routing error instead of searching either set of paths.",
+      "parentSpaceId marks a work-folder registered inside another: its Worker owns that part of the parent's folder.",
     );
+    if (context.addressedFolders?.length) {
+      lines.push(
+        "The person addressed these work-folder Workers with @ in this message (host-resolved):",
+        JSON.stringify(context.addressedFolders, null, 2),
+        "Send each its part with chat send --space <spaceId> --new --parent-task <this request's task id>, then follow with chat wait. Write each assignment self-contained.",
+      );
+    }
   }
   if (context.managementTaskId) {
     lines.push(

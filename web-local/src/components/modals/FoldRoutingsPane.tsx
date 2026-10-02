@@ -463,10 +463,10 @@ export function FoldRoutingsPane() {
         </section>
       ) : null}
       {data && !allRoutings.length ? (
-        <div className="fold-routings-empty">No automations yet. To set one up, ask the work-fold agent in the menu bar. Say what should happen, when, and in which folders.</div>
+        <div className="fold-routings-empty">No automations yet. To set one up, ask the work-fold agent in the menu bar. Say what should happen, when, and in which work-folders.</div>
       ) : null}
       {showFolderFilter ? (
-        <div className="capabilities-type-chips fold-routing-folder-filter" role="group" aria-label="Folder">
+        <div className="capabilities-type-chips fold-routing-folder-filter" role="group" aria-label="work-folder">
           <button type="button" className={activeFolder === null ? "active" : ""} aria-pressed={activeFolder === null} onClick={() => chooseFolder(null)}>All</button>
           {folderChips.map((space) => (
             <button
@@ -816,7 +816,7 @@ function lastRunSummary(routing: FoldRoutingSummaryView): string {
 }
 
 function missingSpacesMessage(spaces: FoldRoutingSpaceRef[] | undefined): string {
-  if (!spaces?.length) return "A referenced folder is no longer available. Review the automation before turning it on again.";
+  if (!spaces?.length) return "A referenced work-folder is no longer available. Review the automation before turning it on again.";
   return `${spaces.map(spaceLabel).join(", ")} ${spaces.length === 1 ? "is" : "are"} no longer available. Review the automation before turning it on again.`;
 }
 

@@ -143,12 +143,12 @@ test("Settings exposes Customize Folder back navigation only for that entry path
   const props = { space, agentStatus: status, fixtureMode: true, initialPage: "assistant" as const,
     updateStatus: null, onAgentConfigured: () => {}, onClose: () => {} };
   await dom.render(createElement(DesktopSettingsModal, props));
-  assert.equal(document.querySelector('[aria-label="Back to Customize Folder"]'), null);
+  assert.equal(document.querySelector('[aria-label="Back to Customize work-folder"]'), null);
   await dom.render(createElement(DesktopSettingsModal, { ...props, onBackToCustomization: () => { returns += 1; } }));
-  const back = document.querySelector<HTMLButtonElement>('[aria-label="Back to Customize Folder"]')!;
+  const back = document.querySelector<HTMLButtonElement>('[aria-label="Back to Customize work-folder"]')!;
   assert.equal(back.parentElement, document.getElementById('settings-title')!.parentElement!.parentElement, "the button sits beside the Settings title");
   await dom.act(() => back.click());
   assert.equal(returns, 1);
   await dom.render(createElement(DesktopSettingsModal, props));
-  assert.equal(document.querySelector('[aria-label="Back to Customize Folder"]'), null, "a later ordinary Settings entry has no back button");
+  assert.equal(document.querySelector('[aria-label="Back to Customize work-folder"]'), null, "a later ordinary Settings entry has no back button");
 });

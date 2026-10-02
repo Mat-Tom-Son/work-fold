@@ -25,7 +25,7 @@ export function treeEntryMatchesSearch(entry: TreeEntry, normalizedQuery: string
 }
 
 export function spaceTreePathMissing(message: string): boolean {
-  return message.includes("ENOENT") || message.includes("Requested space tree path is not a folder");
+  return message.includes("ENOENT") || message.toLocaleLowerCase().includes("requested space tree path is not a folder");
 }
 
 export function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null {
@@ -104,7 +104,8 @@ export function collectLoadedFolderPaths(entries: TreeEntry[], collapsedPaths: S
   const normalizedEventPaths = eventPaths?.map((path) => path.trim()).filter(Boolean) ?? [];
   const paths: string[] = [];
   const visit = (entry: TreeEntry) => {
-    if (entry.kind !== "folder") return;
+    // A nested Folder is a boundary with nothing to refresh beneath it.
+    if (entry.kind !== "folder" || entry.nestedFolder) return;
     const loaded = Boolean(entry.children?.length || (entry.hasChildren === false && !collapsedPaths.has(entry.path)));
     if (loaded && (!normalizedEventPaths.length || normalizedEventPaths.some((eventPath) => eventPathTouchesFolder(eventPath, entry.path)))) {
       paths.push(entry.path);

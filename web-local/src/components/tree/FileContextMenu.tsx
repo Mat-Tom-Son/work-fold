@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, Share2, Trash2, Upload } from "lucide-react";
+import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, RefreshCw, Share2, Trash2, Upload } from "lucide-react";
 import { canOpenDirectly, nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
 import { activeSharedPageFor, isShareablePath } from "../../lib/page-sharing";
 import { useSharedPages } from "../../hooks/useSharedPages";
@@ -18,7 +18,10 @@ export function FileContextMenu({
   onNewFolder,
   onNewFile,
   onUploadHere,
+  onRefresh,
+  onGiveWorker,
   onDelete,
+  canDelete = true,
   onShare,
   shareSpaceId,
   fixtureMode = false,
@@ -35,7 +38,12 @@ export function FileContextMenu({
   onNewFolder?: (parentPath: string) => void;
   onNewFile?: (parentPath: string) => void;
   onUploadHere?: (parentPath: string) => void;
+  onRefresh?: () => void;
+  /** "Make a work-folder": registers this plain folder as a nested Folder with its own Worker. */
+  onGiveWorker?: (path: string) => void;
   onDelete: (path: string) => void | Promise<void>;
+  /** False for a folder that holds a nested Folder, which cannot be deleted from here. */
+  canDelete?: boolean;
   /** Shares a shareable file, or opens its link when it is already shared. */
   onShare?: (path: string) => void;
   /** The Space the menu's entries belong to, for the Share / Shared label. */
@@ -77,13 +85,15 @@ export function FileContextMenu({
       {entry.kind === "file" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onAddToChatContext(entry.path))}><CirclePlus size={15} />Attach to Chat</button> : null}
       {entry.kind === "file" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onShowVersionHistory(entry.path))}><History size={15} />Version History</button> : null}
       {shareable && onShare ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onShare(entry.path))}><Share2 size={15} />{alreadyShared ? fileSharing.shared : fileSharing.share}</button> : null}
-      {entry.kind === "folder" && (onNewFolder || onNewFile || onUploadHere) ? <div className="context-menu-separator" role="separator" /> : null}
+      {entry.kind === "folder" && (onNewFolder || onNewFile || onUploadHere || onRefresh) ? <div className="context-menu-separator" role="separator" /> : null}
       {entry.kind === "folder" && onNewFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onNewFolder(entry.path))}><FolderPlus size={15} />New Folder Here</button> : null}
       {entry.kind === "folder" && onNewFile ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onNewFile(entry.path))}><FilePlus2 size={15} />New File Here</button> : null}
       {entry.kind === "folder" && onUploadHere ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onUploadHere(entry.path))}><Upload size={15} />Add Files Here</button> : null}
-      {entry.path ? <div className="context-menu-separator" role="separator" /> : null}
+      {entry.kind === "folder" && onRefresh ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onRefresh)}><RefreshCw size={15} />Refresh</button> : null}
+      {entry.kind === "folder" && entry.path && onGiveWorker ? <><div className="context-menu-separator" role="separator" /><button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onGiveWorker(entry.path))}><span className="context-menu-brand-mark" aria-hidden="true" />Make a work-folder</button></> : null}
+      {entry.path && (onRename || canDelete) ? <div className="context-menu-separator" role="separator" /> : null}
       {entry.path && onRename ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onRename(entry.path))}><PencilLine size={15} />Rename</button> : null}
-      {entry.path ? <button className="danger" type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onDelete(entry.path))}><Trash2 size={15} />Delete {entry.kind === "folder" ? "Folder" : "File"}</button> : null}
+      {entry.path && canDelete ? <button className="danger" type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onDelete(entry.path))}><Trash2 size={15} />Delete {entry.kind === "folder" ? "Folder" : "File"}</button> : null}
     </div>
   );
 }

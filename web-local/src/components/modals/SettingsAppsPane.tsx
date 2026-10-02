@@ -49,7 +49,7 @@ export function SettingsAppsPane({ spaces, apps, fixtureMode = false, onChangeAp
     <section className="settings-section settings-apps" aria-labelledby="settings-apps-title">
       <div className="settings-section-heading"><h3 id="settings-apps-title">Apps</h3></div>
       {!foldersWithApps.length && !failedSpaces.length ? (
-        <p className="settings-section-note">{loading ? "Loading apps…" : "No apps yet. To make one, open a chat in the folder it is for and describe what the app should do. The Worker builds it, and it shows up here."}</p>
+        <p className="settings-section-note">{loading ? "Loading apps…" : "No apps yet. To make one, open a chat in the work-folder it is for and describe what the app should do. The Worker builds it, and it shows up here."}</p>
       ) : null}
       {failedSpaces.length ? <p className="settings-section-note" role="status">
         Could not load apps in {failedSpaces.map((space) => space.name).join(", ")}.{" "}

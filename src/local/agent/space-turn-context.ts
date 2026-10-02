@@ -51,6 +51,12 @@ export interface PiSpaceTurnContext {
   assignment?: string;
   /** Actual pre-turn capture, including deduplicated reuse; never an assumed backup. */
   history?: PiSpaceTurnHistory;
+  /**
+   * Folders registered directly inside this one (2026-10-01): their id,
+   * name, and path here. The person nested them, so their existence is this
+   * Folder's own layout, not the registry; nothing else about them is named.
+   */
+  nestedFolders?: Array<{ spaceId: string; name: string; path: string }>;
 }
 
 export type PiSpaceTurnHistory = {

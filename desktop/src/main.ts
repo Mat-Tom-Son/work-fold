@@ -1522,7 +1522,7 @@ function buildApplicationMenuTemplate(): MenuItemConstructorOptions[] {
 function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemConstructorOptions[] {
   if (menuId === "file") {
     const items: MenuItemConstructorOptions[] = [
-      { label: "New Folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-space") },
+      { label: "New work-folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-space") },
       { label: "Add Existing Folder...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
       ...(process.platform === "darwin" ? [{
         label: "Open Recent",
@@ -1531,7 +1531,7 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
       }] : []),
       { type: "separator" },
       { id: "new-chat", label: "New Chat", accelerator: "CommandOrControl+Shift+N", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("new-chat") },
-      { id: "refresh-space", label: "Refresh Folder", accelerator: "CommandOrControl+R", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("reload-space-state") },
+      { id: "refresh-space", label: "Refresh work-folder", accelerator: "CommandOrControl+R", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("reload-space-state") },
     ];
     if (process.platform !== "darwin") {
       items.push(
@@ -1936,7 +1936,7 @@ function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFile
     };
     const template = nativeFileMenuItems(request).map<MenuItemConstructorOptions>((item) => item.type === "separator"
       ? { type: "separator" }
-      : { label: item.label, click: () => finish(item.command) });
+      : { label: item.label, click: () => finish(item.command), ...(item.icon === "work-fold" ? workFoldMenuIcon() : {}) });
     Menu.buildFromTemplate(template).popup({
       window,
       x: request.point.x,
@@ -2177,6 +2177,18 @@ function createTrayIfSupported(): void {
   setTimeout(() => {
     void ensureManagementPopover().then((popover) => popover.warm()).catch(() => {});
   }, 2_500);
+}
+
+/** The menu-bar mark as a 16pt template image for "Make a work-folder" (macOS recolors it). */
+function workFoldMenuIcon(): { icon?: Electron.NativeImage } {
+  if (process.platform !== "darwin") return {};
+  const path = join(resolveDesktopAssetsDir(), "iconTemplate.png");
+  if (!existsSync(path)) return {};
+  const image = nativeImage.createFromPath(path);
+  if (image.isEmpty()) return {};
+  const sized = image.resize({ width: 16, height: 16, quality: "best" });
+  sized.setTemplateImage(true);
+  return { icon: sized };
 }
 
 function resolveTrayIcon(): Electron.NativeImage | string | null {

@@ -26,8 +26,13 @@ subscription generation. This keeps start, answer, and Stop requests out of
 Chromium's HTTP/1.1 connection limit even with many mounted background Chats.
 
 The underlying direct GET streams remain compatible. The closed `reset`,
-`apps`, `spaces`, and `assistant` control hints contain no content or authority;
+`apps`, `spaces`, `assistant`, and `activity` control hints contain no content or authority;
 renderers re-read the relevant service after a hint and reset on reconnect.
+`GET /api/spaces/activity` returns only the Space and Chat ids of running
+Worker turns, including those without a mounted Chat tab. The renderer uses
+that projection for activity marks and records unseen replies locally.
+`GET /api/spaces/outline` reads registered ids, names, and roots without
+rewriting portable manifests; local composers use it to address Workers.
 File watchers have no replay log and refresh Files after every ready signal,
 covering changes during reconnection. Chat replay retains its existing event
 log, transient Extension interaction snapshots, and proposal filtering.
@@ -163,6 +168,8 @@ work-fold capabilities list --space "Personal Space" --json
 work-fold version
 work-fold help capabilities
 ```
+
+`spaces list --json` adds `parentSpaceId` to a Space registered inside another Space's folder (2026-10-01); a top-level Space's projection is unchanged.
 
 `--space <id-or-exact-name>` selects a Space explicitly. Without it, Space-aware read commands resolve the terminal's current working directory. Duplicate exact names are rejected as ambiguous; use the stable Space id in automation. `--json` emits the stable protocol projection and is the preferred interface for scripts, Codex, Claude Code, and other shell-capable harnesses.
 

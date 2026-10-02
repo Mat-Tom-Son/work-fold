@@ -1,11 +1,11 @@
 # Privacy
 
 This privacy description uses technical storage and protocol names where
-needed. In the product, a registered Space is presented as a **Folder**, its
+needed. In the product, a registered Space is presented as a **work-folder**, its
 Assistant as a **Worker**, the management Assistant as the **work-fold agent**,
 and deterministic routings as **Automations**.
 
-Last updated: September 11, 2026
+Last updated: October 2, 2026
 
 work-fold is a local-first desktop application. Core Space use does not require a work-fold account; a person may optionally create a private work-fold Remote access address. The current application does not include first-party analytics, advertising, or usage telemetry.
 
@@ -40,6 +40,16 @@ By default, work-fold stores:
 work-fold uses a new application profile and does not inspect, import, migrate, rewrite, wipe, or delete legacy Workspace application data or `.workspace/` folder metadata. Legacy bytes remain where they already are and are not authoritative in work-fold. The app keeps `.workspace/` hidden and excludes it from History, Search, Checks, and restricted-app file grants. Pi's personal resources and authentication may still be read from the configured Pi agent directory, while work-fold keeps its Pi sessions in the separate `sessions/work-fold/` namespace.
 
 Registering an existing folder does not upload, move, duplicate, or rename the user's files. It does add the documented hidden `.work-fold/` identity and Chat storage. Removing a linked Space from work-fold leaves both the ordinary files and `.work-fold/` in place. Deleting a work-fold-managed Space unregisters it and moves its managed folder into Recently deleted, where it stays restorable for the retention window. If a Space is the source or target of an active release-backed App Instance, work-fold blocks either removal until that App is explicitly uninstalled. Retained App data continues to block its source Space until explicit purge, but does not block removal of the former target. Once those obligations are gone, source removal also deletes that Project's machine-local App Studio metadata and marks unreferenced Release objects for safe reconciliation; transient cleanup failure is retried before later App mutations and at startup. Target removal cancels prepared operations aimed at it. Uninstalling work-fold does not itself delete linked Space folders.
+
+Nested work-folder relationships are derived from registered folder paths;
+the kernel and CLI expose the nearest container as `parentSpaceId` without
+adding a portable nesting record. A parent Worker's model context includes
+its directly nested work-folders' ids, names, and relative paths. When a
+person addresses Workers with `@`, their registered ids and names enter only
+that message's turn context; the text remains an ordinary Chat message.
+The whole registry and other work-folders' transcripts do not enter a
+work-folder turn. Activity marks use running Space and Chat ids from the
+local host, with unseen-reply acknowledgements saved on this computer.
 
 Managed-folder deletion is also blocked when the claimed tree contains preserved
 `.workspace/` metadata. The person may remove the work-fold registration without

@@ -30,8 +30,8 @@ test("Space navigation separates the active Space from its surfaces", () => {
     ["history", "History"],
   ]);
   assert.deepEqual(welcomeActions, {
-    create: "Create a Space",
-    linkFolder: "Turn an existing folder into a Space",
+    create: "Create a work-folder",
+    linkFolder: "Turn an existing folder into a work-folder",
   });
 });
 

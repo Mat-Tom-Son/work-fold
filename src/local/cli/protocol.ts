@@ -77,6 +77,8 @@ export interface WorkFoldCliSpaceSummary {
   name: string;
   spaceRoot?: string;
   active?: boolean;
+  /** The registered Space whose folder contains this one; absent for a top-level Space. */
+  parentSpaceId?: string;
 }
 
 export interface WorkFoldCliContextSnapshot {

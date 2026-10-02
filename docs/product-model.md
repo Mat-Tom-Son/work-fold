@@ -96,7 +96,7 @@ The live event stream carries resumable cursors and an authoritative
 running/text snapshot, so sleep, renderer reload, and short local-service
 disconnects reconcile without losing or duplicating the visible response.
 
-Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. The selected Space's Chats remain the primary list; every other registered Space appears below as a compact, collapsed group, including a zero count when it has no Chats in the current view. Aggregate activity remains visible, and search may expand those groups to expose results. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.work-fold/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its Assistant turn or compaction is active. A Folder Chat can also be deleted: its transcript moves to Recently deleted and can be restored from there, and the delete refuses while the Chat has a running turn or unfinished request work.
+Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. The selected Folder's active Chats lead the list, followed by the Folders nested inside it, each indented under it with its own Chats; every other registered Folder appears below as a compact, collapsed group, including a zero count when it has no active Chats. Snoozed and Archived are closed rows at the bottom of the list, each listing those Chats across every Folder with the Folder's name and time (2026-10-01; earlier the three views were tabs). Aggregate activity remains visible, and search covers active, snoozed, and archived Chats alike and may expand those groups to expose results. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.work-fold/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its Assistant turn or compaction is active. A Folder Chat can also be deleted: its transcript moves to Recently deleted and can be restored from there, and the delete refuses while the Chat has a running turn or unfinished request work.
 
 A new Chat begins with a temporary **New Chat** label. After its first successful
 turn, work-fold asks that Chat's active Pi model for a short title based on the
@@ -520,3 +520,31 @@ Owner decisions, recorded here in dated form; the body of this document and
   disclosure by default; they stay visible on demand and unchanged in meaning.
 - With four or more tabs open, tabs narrow but keep their Folder icon and a
   normal close button.
+
+
+### 2026-10-01 Folders inside Folders
+
+A Folder may be registered inside another, and the deepest containing Folder
+is its parent. The screen tells that story without new words: the Folder
+switcher indents nested Folders under their parent; the header shows the
+containing Folders above the title as links back up (the nearest two, with
+anything further folded into "…", which opens the switcher); Files stops at a
+nested Folder and shows it as its own row in its color, which opens that Folder
+instead of expanding. Right-clicking a plain folder in Files offers **Make a
+work-folder** (with the menu-bar mark), which registers it as a nested Folder in place: no files move,
+and the click is that Folder's registration act. A folder that holds a nested
+Folder is not offered Rename or Delete.
+History, Search, Checks, and routings already treated nested Folders as
+separately owned; the Files tree now agrees.
+
+Typing `@` in a Chat or in the work-fold agent's box offers Folder Workers
+(nested Folders first) and addresses each one named. One activity mark is
+used everywhere: a soft pulse while a Worker runs, including runs no Chat tab
+is showing, and a still green dot when its reply is waiting to be seen. A
+parent Folder's header shows that mark for the Folders inside it. See
+[the collaboration contract](collaboration-contract.md) for what each Worker
+hears.
+
+On 2026-10-02 the product copy renamed this concept **work-folder**, always
+lowercase like "work-fold", while ordinary directories stay plain "folder".
+The prose in this document keeps "Folder" for the same concept.

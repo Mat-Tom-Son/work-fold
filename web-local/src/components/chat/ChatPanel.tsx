@@ -1,3 +1,6 @@
+import { surfaceDomIdSuffix } from "../../lib/space-ui";
+import { FolderMentionMenu, type MentionFolderOption } from "./FolderMentionMenu";
+import { activeFolderMention, addressedFolderIds, insertFolderMention, matchingMentionFolders } from "../../lib/folder-mentions";
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useWorkRequest } from "../../hooks/useWorkRequest";
@@ -93,6 +96,8 @@ function clientTurnIdentity(prefix: "request" | "message" | "chat"): string {
   return `${prefix}-${value}`;
 }
 
+const emptyMentionFolders: readonly MentionFolderOption[] = [];
+
 export function ChatPanel({
   surfaceTabId,
   space,
@@ -120,6 +125,7 @@ export function ChatPanel({
   fixtureMode = false,
   fixtureConversations,
   fixtureTreeEntries = emptyFixtureTreeEntries,
+  mentionFolders = emptyMentionFolders,
 }: {
   surfaceTabId: string;
   space: SpaceSummary;
@@ -147,6 +153,8 @@ export function ChatPanel({
   fixtureMode?: boolean;
   fixtureConversations?: SpaceFixtureConversation[];
   fixtureTreeEntries?: TreeEntry[];
+  /** Workers this composer can address with @ (2026-10-01), nested Folders first. */
+  mentionFolders?: readonly MentionFolderOption[];
 }) {
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
   const workState = useWorkRequest(!fixtureMode && conversation ? `/api/spaces/${encodeURIComponent(space.id)}/conversations/${encodeURIComponent(conversation.id)}/work` : null);
@@ -185,6 +193,9 @@ export function ChatPanel({
   const [commands, setCommands] = useState<AgentCommand[]>([]);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const [dismissedCommandDraft, setDismissedCommandDraft] = useState<string | null>(null);
+  const [composerCaret, setComposerCaret] = useState(0);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [configuredAssistant, setConfiguredAssistant] = useState<AgentStatus | null>(null);
   const [assistantComposer, setAssistantComposer] = useState<AssistantComposerState | null>(null);
@@ -277,6 +288,15 @@ export function ChatPanel({
   const commandMenuOpen = commandQuery !== null
     && dismissedCommandDraft !== draft
     && commandSuggestions.length > 0;
+  const activeMention = useMemo(() => mentionFolders.length ? activeFolderMention(draft, composerCaret) : null, [composerCaret, draft, mentionFolders.length]);
+  const mentionSuggestions = useMemo(
+    () => activeMention ? matchingMentionFolders(mentionFolders, activeMention.query) : [],
+    [activeMention, mentionFolders],
+  );
+  const mentionKey = activeMention ? `${activeMention.start}:${draft}` : null;
+  const mentionMenuOpen = !commandMenuOpen && mentionSuggestions.length > 0 && mentionKey !== dismissedMentionKey;
+  const mentionMenuId = `composer-mentions-${surfaceDomIdSuffix(surfaceTabId)}`;
+  useEffect(() => { setActiveMentionIndex(0); }, [activeMention?.start, activeMention?.query]);
   const composerModelPicker: ComposerModelPickerProps = {
     spaceId: space.id,
     fixtureMode,
@@ -1051,6 +1071,7 @@ export function ChatPanel({
       contextPaths: stored.contextPaths,
       transientConversation: stored.transientConversation,
       draftStorageKey: stored.draftStorageKey,
+      ...(stored.addressedSpaceIds?.length ? { addressedSpaceIds: stored.addressedSpaceIds } : {}),
     };
     if (stored.transientConversation) transientConversationIdsRef.current.add(selected.id);
     beginTurnArtifactTracking();
@@ -1174,6 +1195,7 @@ export function ChatPanel({
     cancelStreamingFlush();
     setStreamingAssistant("");
     const sentDraftStorageKey = draftStorageKey;
+    const addressedSpaceIds = addressedFolderIds(content, mentionFolders);
     if (contentOverride === undefined) setDraft("");
     setRunning(true);
     setError(null);
@@ -1234,6 +1256,7 @@ export function ChatPanel({
         contextPaths: contextAttachments.map((attachment) => attachment.sourcePath),
         transientConversation: transientConversationIdsRef.current.has(activeConversation.id),
         draftStorageKey: sentDraftStorageKey,
+        ...(addressedSpaceIds.length ? { addressedSpaceIds } : {}),
       };
       pendingSendRef.current = pending;
       writeStoredPendingChatSend(space.id, activeConversation.id, {
@@ -1246,6 +1269,7 @@ export function ChatPanel({
         contextPaths: pending.contextPaths,
         transientConversation: pending.transientConversation,
         draftStorageKey: sentDraftStorageKey,
+        ...(pending.addressedSpaceIds ? { addressedSpaceIds: pending.addressedSpaceIds } : {}),
       });
       if (eventStreamReadyConversationIdRef.current === activeConversation.id) void postPendingMessage();
     } catch (sendError) {
@@ -1313,6 +1337,7 @@ export function ChatPanel({
           contextPaths: pending.contextPaths,
           requestId: pending.requestId,
           userMessageId: pending.userMessageId,
+          ...(pending.addressedSpaceIds?.length ? { addressedSpaceIds: pending.addressedSpaceIds } : {}),
         },
       });
       clearStoredChatDraft(pending.draftStorageKey);
@@ -1609,7 +1634,7 @@ export function ChatPanel({
     setAppProposalBusy(true);
     try {
       const app = await installRestrictedAppProposal(space.id, proposal.conversationId, proposal.id);
-      showToast({ text: `Added ${app.manifest.title} to this folder.`, tone: "success" });
+      showToast({ text: `Added ${app.manifest.title} to this work-folder.`, tone: "success" });
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -1648,6 +1673,17 @@ export function ChatPanel({
     window.requestAnimationFrame(() => {
       composerTextareaRef.current?.focus();
       composerTextareaRef.current?.setSelectionRange(value.length, value.length);
+    });
+  }
+
+  function chooseMentionFolder(folder: MentionFolderOption): void {
+    if (!activeMention) return;
+    const next = insertFolderMention(draft, activeMention, folder);
+    setDraft(next.value);
+    setComposerCaret(next.caret);
+    window.requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+      composerTextareaRef.current?.setSelectionRange(next.caret, next.caret);
     });
   }
 
@@ -1789,7 +1825,7 @@ export function ChatPanel({
             ) : null}
             {attachingPath ? (
               <div className="context-chip checking">
-                <span className="file-icon file-icon-unknown">
+                <span className="file-icon">
                   <Loader2 className="spin" size={13} />
                 </span>
                 <span className="context-chip-name">Attaching</span>
@@ -1798,8 +1834,11 @@ export function ChatPanel({
           </div>
         ) : null}
         <div className="composer-input-shell">
+          {mentionMenuOpen ? (
+            <FolderMentionMenu id={mentionMenuId} folders={mentionSuggestions} activeIndex={activeMentionIndex} onHover={setActiveMentionIndex} onChoose={chooseMentionFolder} />
+          ) : null}
           {commandMenuOpen ? (
-            <div className="composer-command-menu" role="listbox" aria-label="Assistant commands">
+            <div className="composer-command-menu" role="listbox" aria-label="Commands and Skills">
               <div className="composer-command-menu-heading">
                 <span>Commands and Skills</span>
                 <kbd>Enter</kbd>
@@ -1825,12 +1864,18 @@ export function ChatPanel({
           <textarea
             ref={composerTextareaRef}
             aria-label="Message worker"
+            aria-autocomplete="list"
+            aria-expanded={mentionMenuOpen}
+            aria-controls={mentionMenuOpen ? mentionMenuId : undefined}
+            aria-activedescendant={mentionMenuOpen ? `${mentionMenuId}-${activeMentionIndex}` : undefined}
             rows={2}
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value);
+              setComposerCaret(event.target.selectionStart ?? event.target.value.length);
               if (event.target.value !== dismissedCommandDraft) setDismissedCommandDraft(null);
             }}
+            onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart ?? 0)}
             onPaste={(event) => {
               // A pasted image (screenshot, copied picture) is an explicit act:
               // it lands in the Space's dated Dropped/ folder like a dropped
@@ -1841,6 +1886,26 @@ export function ChatPanel({
               void attachDroppedNativeFiles(transfer);
             }}
             onKeyDown={(event) => {
+              // An IME composition owns Enter, arrows, and Escape until it commits.
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+              const plainKey = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+              if (mentionMenuOpen && plainKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                const step = event.key === "ArrowDown" ? 1 : -1;
+                setActiveMentionIndex((current) => (current + step + mentionSuggestions.length) % mentionSuggestions.length);
+                return;
+              }
+              if (mentionMenuOpen && plainKey && (event.key === "Enter" || event.key === "Tab")) {
+                event.preventDefault();
+                const folder = mentionSuggestions[activeMentionIndex];
+                if (folder) chooseMentionFolder(folder);
+                return;
+              }
+              if (mentionMenuOpen && event.key === "Escape") {
+                event.preventDefault();
+                setDismissedMentionKey(mentionKey);
+                return;
+              }
               if (commandMenuOpen && event.key === "ArrowDown") {
                 event.preventDefault();
                 setActiveCommandIndex((current) => (current + 1) % commandSuggestions.length);
@@ -1868,7 +1933,9 @@ export function ChatPanel({
                 if (!draft.trim()) return;
                 if (running) {
                   const content = draft.trim();
-                  if (event.metaKey || event.ctrlKey || pendingSendRef.current || fixtureMode) {
+                  // A message that addresses another Worker starts its own turn:
+                  // steering cannot carry the mention, so it waits like ⌘Enter.
+                  if (event.metaKey || event.ctrlKey || pendingSendRef.current || fixtureMode || addressedFolderIds(content, mentionFolders).length) {
                     // ⌘/Ctrl+Enter holds the draft for after this turn; a turn
                     // that has not been accepted yet cannot be steered either.
                     setQueuedSend((current) => (current ? `${current}\n${content}` : content));
@@ -1893,7 +1960,7 @@ export function ChatPanel({
               type="button"
               onClick={toggleComposerCommands}
               aria-expanded={commandMenuOpen}
-              title="Browse Assistant commands and Skills"
+              title="Browse commands and Skills"
             >
               <span aria-hidden="true">/</span>
               <span>Commands</span>

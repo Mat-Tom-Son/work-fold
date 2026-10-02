@@ -1,8 +1,8 @@
 # Security
 
 In this document, current product language calls a registered **Space** a
-**Folder**, its Assistant a **Worker**, the above-Folder management Assistant
-the **work-fold agent**, and deterministic cross-Folder routings
+**work-folder**, its Assistant a **Worker**, the management Assistant above
+work-folders the **work-fold agent**, and deterministic cross-Folder routings
 **Automations**. Technical security boundaries retain their shipped `space`,
 `fold`, and `routing` identifiers.
 
@@ -41,6 +41,15 @@ work-fold is local first, but local does not mean that every action is sandboxed
 - Personal capabilities are available across Spaces and should be reviewed even though they do not use registered-Space authorization.
 
 work-fold intentionally treats successful Space creation or registration as the project-runtime grant and removes the redundant trust prompt. Native Pi Extensions in that folder can execute with the current user's permissions during catalog loading, and later local, source-control, or synchronization changes to `.pi` do not trigger another prompt. Removing the Space revokes work-fold's exact-root override; it does not rewrite Pi's independent trust store for other Pi clients.
+
+A nested work-folder is another explicit registration, with the same project
+runtime authorization. Its nearest registered container is projected as
+`parentSpaceId` in the kernel and CLI inventory. Parent file operations refuse
+delete, move, or rename across nested ownership, and Files stops at that
+boundary. These app controls do not sandbox full-trust Pi tools. Local message
+routes accept at most eight addressed Worker ids, resolve them against the
+registry, and omit the sender and removed registrations. Those context hints
+grant no new powers and do not change a retried message's acceptance identity.
 
 ### Included native integrations
 

@@ -52,7 +52,7 @@ export function RestrictedAppInferenceReceipts({ app, disabled }: {
       }
     }
     void refresh();
-    const unsubscribe = subscribeControlEvents(() => void refresh());
+    const unsubscribe = subscribeControlEvents((hint) => { if (hint !== "activity") void refresh(); });
     const timer = window.setInterval(() => void refresh(), 5_000);
     return () => { alive = false; unsubscribe(); window.clearInterval(timer); };
   }, [app, disabled]);

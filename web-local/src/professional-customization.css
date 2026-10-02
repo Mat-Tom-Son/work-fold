@@ -1448,3 +1448,448 @@
   .space-framing-controls { gap: 10px; }
   .space-customize-worker { padding: 10px 16px; gap: 4px; }
 }
+
+/* Folders inside Folders (2026-10-01). The switcher indents nested Folders
+   under their parent, the header names the containing Folder above the
+   title, and one dot beside the caret speaks for the Folders inside. */
+.app-shell .professional-space-switcher .space-header-switcher-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  padding-left: calc(9px + var(--folder-depth, 0) * 20px);
+}
+
+.app-shell .professional-space-switcher .space-header-switcher-row.nested .space-header-switcher-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+
+.app-shell .professional-space-switcher .space-header-switcher-row.nested {
+  position: relative;
+}
+
+.app-shell .professional-space-switcher .space-header-switcher-row.nested::before {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: calc(var(--folder-depth, 1) * 20px - 1px);
+  width: 1px;
+  background: var(--ui-border);
+  content: "";
+}
+
+/* The containing Folders sit above the name as small pills in their own icon
+   and color, joined by chevrons (2026-10-01). */
+.app-shell .professional-pane-header.space-identity-header.has-breadcrumb > .space-pane-switch-trigger {
+  padding-top: 30px;
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  right: 10px;
+  z-index: 3;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  color: var(--ui-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-link {
+  flex: 0 1 auto;
+  min-width: 36px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px 0 4px;
+  color: var(--ui-text);
+  background: var(--space-accent-soft-fill, var(--ui-surface-subtle));
+  border: 1px solid var(--space-accent-border-decor, var(--ui-border));
+  border-radius: 5px;
+  font: inherit;
+  pointer-events: auto;
+  transition: background-color 0.14s var(--work-fold-ease-smooth), border-color 0.14s var(--work-fold-ease-smooth);
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-icon {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--space-accent-glyph, var(--ui-text-muted));
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* "…" is plain text, not a pill; it opens the Folders it stands for. */
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-more {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 4px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-more:hover,
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-more:focus-visible,
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-more[aria-expanded="true"] {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+  outline: 0;
+}
+
+.app-shell .space-pane-breadcrumb-menu {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  z-index: 30;
+  min-width: 140px;
+  max-width: calc(100% - 24px);
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.22);
+  transform: translateX(-50%);
+}
+
+.app-shell .space-pane-breadcrumb-menu-row {
+  min-width: 0;
+  display: flex;
+  padding-left: calc(var(--folder-depth, 0) * 10px);
+}
+
+.app-shell .space-pane-breadcrumb-menu .space-pane-breadcrumb-link {
+  max-width: 100%;
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-link:hover,
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-link:focus-visible {
+  border-color: var(--space-accent-glyph, var(--ui-border-strong));
+  outline: 0;
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-link:focus-visible {
+  box-shadow: 0 0 0 2px var(--ui-focus, #1ea0ff);
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-breadcrumb-separator {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.app-shell .professional-pane-header.space-identity-header.banner-bold .space-pane-breadcrumb,
+.app-shell .professional-pane-header.space-identity-header.has-banner-image .space-pane-breadcrumb {
+  color: var(--space-on-accent, #ffffff);
+}
+
+.app-shell .professional-pane-header.space-identity-header .space-pane-nested-activity {
+  position: absolute;
+  top: 50%;
+  right: 50px;
+  display: inline-grid;
+  transform: translateY(-50%);
+}
+
+/* A nested Folder in Files is a door, not a subtree: its own icon and color,
+   the shared activity dot, and an arrow that appears on hover. */
+.app-shell .file-row.nested-folder-row {
+  grid-template-columns: 15px 22px minmax(0, 1fr) auto auto;
+}
+
+.app-shell .nested-folder-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: grid;
+  place-items: center;
+  color: var(--space-accent-glyph, var(--space-custom-color));
+  background: var(--space-accent-soft-fill, var(--space-custom-color-soft));
+  border: 1px solid var(--space-accent-border-decor, var(--space-selection-border));
+  border-radius: 5px;
+}
+
+.app-shell .nested-folder-go {
+  grid-column: 5;
+  color: var(--ui-text-muted);
+  opacity: 0;
+  transform: translateX(-2px);
+  transition: opacity 0.14s var(--work-fold-ease-smooth), transform 0.14s var(--work-fold-ease-smooth);
+}
+
+.app-shell .nested-folder-row:hover .nested-folder-go,
+.app-shell .nested-folder-row:focus-visible .nested-folder-go {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* The @ menu: Workers by their Folder's icon and name, nothing else to read. */
+.app-shell .composer-mention-menu {
+  width: min(300px, 100%);
+}
+
+.app-shell .composer-mention-menu > button {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  padding: 6px 8px;
+}
+
+.app-shell .composer-mention-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  color: var(--space-accent-glyph, var(--space-custom-color));
+  background: var(--space-accent-soft-fill, var(--space-custom-color-soft));
+  border: 1px solid var(--space-accent-border-decor, var(--space-selection-border));
+  border-radius: 6px;
+}
+
+.app-shell .composer-mention-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* Loading feedback waits (2026-10-01): a fast load shows nothing, so the
+   tree never flashes a placeholder before its real files. */
+.app-shell .delayed-loading {
+  animation: work-fold-delayed-reveal 0.18s ease-out 0.45s both;
+}
+
+@keyframes work-fold-delayed-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* A background refresh never moves the file list (2026-10-01): the notice is
+   a zero-height sticky layer, its pill floats over the top-right corner, and
+   it only fades in when a refresh is slow enough to notice. */
+.app-shell .file-tree-refresh-progress {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  height: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: flex-end;
+  overflow: visible;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.app-shell .file-tree-refresh-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  margin: 4px 6px 0 0;
+  padding: 0 9px;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+}
+
+.app-shell .file-tree-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Chats (2026-10-01): the Folders inside this one sit under its own Chats,
+   indented like the Folder switcher, and Snoozed and Archived are quiet
+   closed rows at the bottom rather than a tab bar. */
+.app-shell .chat-nested-space {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  margin-left: calc(var(--folder-depth, 1) * 12px - 12px);
+  padding-left: 10px;
+  border-left: 1px solid var(--ui-border);
+}
+
+.app-shell .chat-nested-space-heading {
+  min-width: 0;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 2px 2px 3px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.app-shell .chat-nested-space-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .chat-nested-space-heading > .minimal-icon-button {
+  opacity: 0;
+  transition: opacity 0.14s var(--work-fold-ease-smooth);
+}
+
+.app-shell .chat-nested-space-heading:hover > .minimal-icon-button,
+.app-shell .chat-nested-space-heading:focus-within > .minimal-icon-button {
+  opacity: 1;
+}
+
+.app-shell .chat-shelves {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--ui-border);
+}
+
+.app-shell .chat-shelf-toggle {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.app-shell .chat-shelf-toggle:hover,
+.app-shell .chat-shelf-toggle:focus-visible {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+  outline: 0;
+}
+
+.app-shell .chat-shelf-toggle small {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .chat-shelf-toggle svg {
+  transition: transform 0.14s var(--work-fold-ease-smooth);
+}
+
+.app-shell .chat-shelf.open .chat-shelf-toggle svg {
+  transform: rotate(90deg);
+}
+
+@media (hover: none) {
+  .app-shell .chat-nested-space-heading > .minimal-icon-button {
+    opacity: 0.72;
+  }
+}
+
+/* Snoozed and Archived rows name their Folder and time on a second line, so
+   the title keeps the full width. */
+.app-shell .chat-shelf-list .chat-space-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  padding-block: 5px;
+}
+
+.app-shell .chat-shelf-list .chat-space-row-meta {
+  justify-self: start;
+}
+
+/* Menu items stay on one line; the menu grows a little for longer labels. */
+.app-shell .context-menu {
+  width: max-content;
+  min-width: 210px;
+  max-width: 250px;
+}
+
+.app-shell .context-menu button {
+  white-space: nowrap;
+}
+
+.app-shell .space-pane-breadcrumb-menu .space-pane-breadcrumb-link {
+  min-width: 0;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 5px;
+  color: var(--ui-text);
+  background: var(--space-accent-soft-fill, var(--ui-surface-subtle));
+  border: 1px solid var(--space-accent-border-decor, var(--ui-border));
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-shell .space-pane-breadcrumb-menu .space-pane-breadcrumb-link:hover,
+.app-shell .space-pane-breadcrumb-menu .space-pane-breadcrumb-link:focus-visible {
+  border-color: var(--space-accent-glyph, var(--ui-border-strong));
+  outline: 0;
+}
+
+.app-shell .space-pane-breadcrumb-menu .space-pane-breadcrumb-icon {
+  display: inline-grid;
+  place-items: center;
+  color: var(--space-accent-glyph, var(--ui-text-muted));
+}
+
+.app-shell .space-pane-breadcrumb-menu .space-pane-breadcrumb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The menu-bar mark beside "Make a work-folder", drawn in the menu's text
+   color so it matches both themes. */
+.app-shell .context-menu-brand-mark {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  background: currentColor;
+  -webkit-mask: url("./assets/brand/work-fold-menu-mark.png") center / contain no-repeat;
+  mask: url("./assets/brand/work-fold-menu-mark.png") center / contain no-repeat;
+}

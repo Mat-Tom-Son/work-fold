@@ -5189,10 +5189,6 @@ body:has(> #root > .desktop-chrome-shell) {
   pointer-events: none;
 }
 
-.file-tree-shell.refreshing-files .file-tree {
-  opacity: 0.88;
-}
-
 /* A single flexible row rather than a fixed two-column grid: the match count
    and the partial-list badge appear only while searching, and a fixed grid
    wrapped the upload control onto its own line as soon as either showed. */
@@ -7102,63 +7098,8 @@ body:has(> #root > .desktop-chrome-shell) {
 .chats-pane {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 9px;
-}
-
-.chat-lifecycle-tabs {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
-  padding: 3px;
-  background: #eef2f6;
-  border-radius: 8px;
-}
-
-.chat-lifecycle-tabs button {
-  min-width: 0;
-  min-height: 29px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 6px;
-  color: #697586;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  font-size: 0.72rem;
-  font-weight: 680;
-}
-
-.chat-lifecycle-tabs button small {
-  min-width: 16px;
-  padding: 1px 4px;
-  color: #8490a1;
-  background: rgba(255, 255, 255, 0.58);
-  border-radius: 999px;
-  font-size: 0.62rem;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.25;
-}
-
-.chat-lifecycle-tabs button:hover,
-.chat-lifecycle-tabs button:focus-visible {
-  color: #334155;
-  background: rgba(255, 255, 255, 0.62);
-  outline: 0;
-}
-
-.chat-lifecycle-tabs button.active {
-  color: #184e77;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(39, 55, 77, 0.09);
-}
-
-.chat-lifecycle-tabs button.active small {
-  color: #356f9f;
-  background: #eef6fb;
 }
 
 .chat-space-groups {
@@ -7513,14 +7454,38 @@ body:has(> #root > .desktop-chrome-shell) {
   background: #3d7ca8;
 }
 
+/* One activity language everywhere (Chats, tabs, the Folder switcher,
+   nested Folders in Files): a soft pulse while a Worker runs, a still green
+   dot when its reply is waiting to be seen. */
 .chat-activity-indicator.running > .chat-activity-dot,
 .surface-tab-chat-status.running {
-  width: 7px;
-  height: 7px;
-  background: transparent;
-  border: 1.5px solid #5794bd;
-  border-top-color: transparent;
-  animation: spin 0.85s linear infinite;
+  width: 6px;
+  height: 6px;
+  background: #5794bd;
+  animation: work-fold-activity-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes work-fold-activity-pulse {
+  0%,
+  100% {
+    opacity: 0.38;
+    transform: scale(0.8);
+    box-shadow: 0 0 0 0 rgba(87, 148, 189, 0);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 3px rgba(87, 148, 189, 0.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-activity-indicator.running > .chat-activity-dot,
+  .surface-tab-chat-status.running {
+    animation: none;
+    opacity: 0.8;
+  }
 }
 
 .chat-activity-indicator.attention > .chat-activity-dot,
@@ -8288,64 +8253,6 @@ body:has(> #root > .desktop-chrome-shell) {
   color: var(--work-fold-blue-600);
 }
 
-.file-tree-skeleton {
-  display: grid;
-  gap: 2px;
-}
-
-.file-tree-skeleton-row {
-  min-width: 0;
-  min-height: 30px;
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  padding: 3px 7px;
-  border-radius: 5px;
-}
-
-.file-tree-skeleton-row.child {
-  padding-left: 24px;
-}
-
-.file-tree-skeleton-row.grandchild {
-  padding-left: 40px;
-}
-
-.file-tree-skeleton-icon,
-.file-tree-skeleton-name {
-  display: block;
-  background:
-    linear-gradient(
-      90deg,
-      #edf1f5 0%,
-      #f8fafc 42%,
-      #edf1f5 84%
-    );
-  background-size: 220% 100%;
-  animation: skeleton-shimmer 1.15s ease-in-out infinite;
-}
-
-.file-tree-skeleton-icon {
-  width: 15px;
-  height: 15px;
-  border-radius: 4px;
-}
-
-.file-tree-skeleton-name {
-  width: min(180px, 72%);
-  height: 10px;
-  border-radius: 999px;
-}
-
-.file-tree-skeleton-row:nth-child(2n) .file-tree-skeleton-name {
-  width: min(138px, 58%);
-}
-
-.file-tree-skeleton-row:nth-child(3n) .file-tree-skeleton-name {
-  width: min(212px, 82%);
-}
-
 .folder-loading-row {
   min-height: 28px;
   display: flex;
@@ -8938,59 +8845,33 @@ body:has(> #root > .desktop-chrome-shell) {
   overflow: hidden;
 }
 
-.file-icon:not(.material-file-icon) {
+.file-icon:not(.glyph-file-icon) {
   background: #f7f9fb;
   border-color: #e8edf3;
 }
 
-.file-icon-asset {
+/* vscode-icons (file-tree-icons.ts) are full-color and draw with built-in
+   padding, so every glyph gets the same 18px box in the 22px frame. */
+.file-icon-glyph {
   width: 18px;
   height: 18px;
   display: block;
-  object-fit: contain;
-  filter: drop-shadow(0 1px 1px rgba(24, 42, 70, 0.08));
+  overflow: visible;
 }
 
-.folder-icon .file-icon-asset {
-  width: 20px;
-  height: 20px;
+/* Icons with a light-theme variant render both; show the one for the theme. */
+.file-icon-glyph-dark {
+  display: none;
 }
 
-.folder-icon {
-  color: #184e77;
+/* Artwork whose every paint is near white disappears on the light sidebar,
+   and near-black artwork on the dark one: deepen or lift only that theme. */
+.app-shell:not([data-theme="dark"]) .file-icon-contrast-pale {
+  filter: brightness(0.7);
 }
 
-.file-icon-word {
-  color: #2457a6;
-}
-
-.file-icon-sheet {
-  color: #1f6b4d;
-}
-
-.file-icon-slide {
-  color: #9a4f13;
-}
-
-.file-icon-pdf {
-  color: #a33232;
-}
-
-.file-icon-text {
-  color: #475467;
-}
-
-.file-icon-code {
-  color: #6c4f9a;
-}
-
-.file-icon-image {
-  color: #167085;
-}
-
-.file-icon-archive,
-.file-icon-unknown {
-  color: #667085;
+.app-shell[data-theme="dark"] .file-icon-contrast-dark {
+  filter: brightness(2.6);
 }
 
 .folder-chevron {
@@ -10818,7 +10699,7 @@ body:has(> #root > .desktop-chrome-shell) {
   border-radius: 5px;
 }
 
-.context-chip .file-icon-asset {
+.context-chip .file-icon-glyph {
   width: 17px;
   height: 17px;
 }
@@ -11119,6 +11000,11 @@ body:has(> #root > .desktop-chrome-shell) {
   width: 56px;
   height: 56px;
   opacity: 0.45;
+}
+
+.file-preview-none .file-icon-glyph {
+  width: 32px;
+  height: 32px;
 }
 
 .file-details-empty {
@@ -12729,7 +12615,6 @@ body:has(> #root > .desktop-chrome-shell) {
 .space-banner-remove:focus-visible,
 .chat-space-row:focus-visible,
 .chat-space-row-actions:focus-visible,
-.chat-lifecycle-tabs button:focus-visible,
 .file-tree-search button:focus-visible,
 .surface-tab-main:focus-visible,
 .surface-tab-close:focus-visible,
@@ -14525,36 +14410,6 @@ body:has(> #root > .desktop-chrome-shell) {
   color: #fecaca;
 }
 
-.app-shell[data-theme="dark"] .chat-lifecycle-tabs {
-  background: rgba(15, 23, 42, 0.68);
-}
-
-.app-shell[data-theme="dark"] .chat-lifecycle-tabs button {
-  color: #94a3b8;
-}
-
-.app-shell[data-theme="dark"] .chat-lifecycle-tabs button small {
-  color: #94a3b8;
-  background: rgba(148, 163, 184, 0.1);
-}
-
-.app-shell[data-theme="dark"] .chat-lifecycle-tabs button:hover,
-.app-shell[data-theme="dark"] .chat-lifecycle-tabs button:focus-visible {
-  color: #dbeafe;
-  background: rgba(148, 163, 184, 0.12);
-}
-
-.app-shell[data-theme="dark"] .chat-lifecycle-tabs button.active {
-  color: #dbeafe;
-  background: rgba(30, 64, 175, 0.32);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.26);
-}
-
-.app-shell[data-theme="dark"] .chat-lifecycle-tabs button.active small {
-  color: #bfdbfe;
-  background: rgba(96, 165, 250, 0.14);
-}
-
 .app-shell[data-theme="dark"] .chat-space-row {
   color: #94a3b8;
   background: transparent;
@@ -14791,42 +14646,27 @@ body:has(> #root > .desktop-chrome-shell) {
   border-left-color: rgba(148, 163, 184, 0.2);
 }
 
-.app-shell[data-theme="dark"] .file-icon:not(.material-file-icon),
-.app-shell[data-theme="dark"] .file-row.selected .file-icon:not(.material-file-icon),
-.app-shell[data-theme="dark"] .file-row.drop-target .file-icon:not(.material-file-icon),
-.app-shell[data-theme="dark"] .file-row.drop-descendant .file-icon:not(.material-file-icon) {
+.app-shell[data-theme="dark"] .file-icon:not(.glyph-file-icon),
+.app-shell[data-theme="dark"] .file-row.selected .file-icon:not(.glyph-file-icon),
+.app-shell[data-theme="dark"] .file-row.drop-target .file-icon:not(.glyph-file-icon),
+.app-shell[data-theme="dark"] .file-row.drop-descendant .file-icon:not(.glyph-file-icon) {
   background: rgba(15, 23, 42, 0.78);
   border-color: rgba(148, 163, 184, 0.2);
 }
 
-.app-shell[data-theme="dark"] .file-row.selected .material-file-icon,
-.app-shell[data-theme="dark"] .file-row.drop-target .material-file-icon,
-.app-shell[data-theme="dark"] .file-row.drop-descendant .material-file-icon {
+.app-shell[data-theme="dark"] .file-row.selected .glyph-file-icon,
+.app-shell[data-theme="dark"] .file-row.drop-target .glyph-file-icon,
+.app-shell[data-theme="dark"] .file-row.drop-descendant .glyph-file-icon {
   background: rgba(15, 23, 42, 0.38);
   border-color: rgba(148, 163, 184, 0.16);
 }
 
-.app-shell[data-theme="dark"] .folder-icon {
-  color: #93c5fd;
+.app-shell[data-theme="dark"] .file-icon-glyph-light {
+  display: none;
 }
 
-.app-shell[data-theme="dark"] .file-icon-word,
-.app-shell[data-theme="dark"] .file-icon-text {
-  color: #93c5fd;
-}
-
-.app-shell[data-theme="dark"] .file-icon-sheet {
-  color: #86efac;
-}
-
-.app-shell[data-theme="dark"] .file-icon-slide,
-.app-shell[data-theme="dark"] .file-icon-pdf {
-  color: #fbbf24;
-}
-
-.app-shell[data-theme="dark"] .file-icon-code,
-.app-shell[data-theme="dark"] .file-icon-image {
-  color: #c4b5fd;
+.app-shell[data-theme="dark"] .file-icon-glyph-dark {
+  display: block;
 }
 
 .app-shell[data-theme="dark"] .file-status-badge,
@@ -15265,18 +15105,6 @@ body:has(> #root > .desktop-chrome-shell) {
   border-color: #2563eb;
 }
 
-.app-shell[data-theme="dark"] .file-tree-skeleton-icon,
-.app-shell[data-theme="dark"] .file-tree-skeleton-name {
-  background:
-    linear-gradient(
-      90deg,
-      rgba(30, 41, 59, 0.7) 0%,
-      rgba(51, 65, 85, 0.9) 42%,
-      rgba(30, 41, 59, 0.7) 84%
-    );
-  background-size: 220% 100%;
-}
-
 @media (max-width: 1320px) {
   .space-layout {
     padding: 10px;
@@ -15380,16 +15208,6 @@ body:has(> #root > .desktop-chrome-shell) {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes skeleton-shimmer {
-  from {
-    background-position: 180% 0;
-  }
-
-  to {
-    background-position: -80% 0;
   }
 }
 

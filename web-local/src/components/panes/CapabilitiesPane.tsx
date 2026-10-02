@@ -402,7 +402,7 @@ export function CapabilitiesPane({
     const confirmed = await requestConfirm({
       title: `Remove ${item.name}?`,
       body: item.scope === "project"
-        ? `The Skill folder is deleted from this folder's .pi/skills. The worker in ${space.name} stops using it with the next turn.`
+        ? `The Skill folder is deleted from this work-folder's .pi/skills. The worker in ${space.name} stops using it with the next turn.`
         : "The Skill folder is deleted from your Pi skills. The work-fold agent and every worker stop using it with the next turn.",
       confirmLabel: "Remove Skill",
       tone: "danger",
@@ -671,7 +671,7 @@ function ScopeGroup({ scope, spaceName, items, hiddenByQuery, onSelect }: {
     <section className={`capabilities-panel capabilities-scope-group scope-${scope}`} aria-labelledby={titleId}>
       <div className="capabilities-scope-heading">
         <div>
-          <h3 id={titleId}>{personal ? "Everywhere" : "This Folder Only"}</h3>
+          <h3 id={titleId}>{personal ? "Everywhere" : "This work-folder only"}</h3>
           <p>{personal ? "work-fold agent and all workers" : spaceName}</p>
         </div>
         <span className="capabilities-scope-count">{items.length}</span>
@@ -768,7 +768,7 @@ function ScopeChooser({ value, spaceName, disabled, onChange }: {
 }) {
   const options: Array<{ scope: AgentCapabilityScope; title: string; detail: string }> = [
     { scope: "global", title: "Everywhere", detail: "work-fold agent and all workers" },
-    { scope: "project", title: "This Folder Only", detail: spaceName },
+    { scope: "project", title: "This work-folder only", detail: spaceName },
   ];
   return (
     <fieldset className="capabilities-scope-chooser" disabled={disabled}>
@@ -1292,7 +1292,7 @@ function fixtureCatalog(): AgentCatalog {
     skills: [{ id: "trip-planner", name: "Trip planner", description: "Turns bookings and preferences into a practical itinerary.", path: "skills/trip-planner/SKILL.md", source: { source: "anthropics/skills", scope: "user", origin: "package", packageSource: "github:anthropics/skills" }, scope: "global", origin: "package", packageSource: "github:anthropics/skills", enabled: true, loaded: true, content: "---\nname: trip-planner\ndescription: Plan a trip\n---\n\n# Trip planner\n\nBuild an itinerary from confirmed details, preferences, and constraints." }],
     extensions: [{ id: "calendar", name: "Calendar helper", path: ".pi/extensions/calendar.ts", source: { source: ".pi/extensions/calendar.ts", scope: "project", origin: "top-level" }, scope: "project", origin: "top-level", enabled: true, loaded: true, commands: ["calendar"], tools: ["read_calendar"], flags: ["calendar-account"] }],
     tools: [
-      { name: "read", label: "Read files", description: "Read files in the current folder", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
+      { name: "read", label: "Read files", description: "Read files in the current work-folder", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
       { name: "write", label: "Write files", description: "Create and update files", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
       { name: "read_calendar", label: "Read calendar", description: "Read connected calendar events", source: "Calendar helper", active: false, kind: "extension", core: false, configurable: false, configurationScope: "chat" },
     ],

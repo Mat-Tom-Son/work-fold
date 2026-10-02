@@ -19,7 +19,7 @@ test("first-run onboarding offers only the two folder actions", async () => {
 
   assert.match(source, /aria-label="Choose a folder"/);
   assert.match(source, /Add existing folder/);
-  assert.match(source, /Create new folder/);
+  assert.match(source, /Create new work-folder/);
   assert.match(source, /<FolderOpen/);
   assert.match(source, /<FolderPlus/);
   assert.match(app, /body:\s*\{ spaceRoot: selected\.path, folderGrantId: selected\.folderGrantId \}/);
