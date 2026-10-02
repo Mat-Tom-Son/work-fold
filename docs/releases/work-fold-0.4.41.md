@@ -15,6 +15,10 @@ work-folders and direct Worker mentions.
 - Chrome stays Connected during long operations using authenticated command
   heartbeats. Selected profiles reconnect automatically; connection failures
   show useful recovery guidance instead of repeated Store setup.
+- Browser input reports DOM fallback explicitly and never repeats a click,
+  fill or submission after native input may already have taken effect.
+  Multiline text keeps its line breaks without pressing Enter, and field-value
+  mismatches are reported for verification.
 - Service Connections distinguishes **No Connections** from **Configured**;
   individual connection checks continue to report actual server health.
 - Organize work-folders beneath other work-folders and address a Worker with
@@ -23,7 +27,7 @@ work-folders and direct Worker mentions.
 - Files and Chats use a quieter layout with less repeated decoration, and
   product copy consistently calls the working context a **work-folder**.
 
-The separately built Chrome companion 1.0.1 includes fixes for hidden-page
+The separately built Chrome companion 1.0.2 includes fixes for hidden-page
 input, multiline field replacement, targeted typing, tab grouping and recovery
 from interrupted long polls. Those companion-side fixes require its separate
 extension update. The Chrome Web Store item remains unpublished pending Store

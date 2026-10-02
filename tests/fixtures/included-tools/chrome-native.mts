@@ -90,6 +90,16 @@ try {
   assert.match(actionText, /Complete captured action result and snapshot JSON/);
   const actionArtifact = actionText.match(/saved to: (.*?) —/)?.[1]; assert.ok(actionArtifact);
   assert.deepEqual(JSON.parse(await readFile(actionArtifact, "utf8")), actionResult, "large action observations must retain their action outcome without replay");
+  for (const name of ["chrome_click", "chrome_fill"]) {
+    const fallback = call(a.session, name, { targetId: "4101", selector: "#field", text: "hello" });
+    command = await next();
+    await reply(command, { input: "dom-fallback", valueMatches: false, submitted: false, reason: "hidden tab: trusted input was not dispatched" });
+    const text = (await fallback).content[0].text;
+    assert.match(text, /DOM fallback \(untrusted page events\)/);
+    assert.match(text, /trusted input was not dispatched/);
+    assert.match(text, /input value did not stick/);
+    assert.match(text, /not submitted: field value differs/);
+  }
   const controls = Array.from({ length: 80 }, (_, i) => ({ uid: `e${i}`, role: "button", label: `Control ${i}` }));
   const controlsCall = call(a.session, "chrome_snapshot", { mode: "interactive", maxElements: 80 }); command = await next(); await reply(command, { ...snapshot, mode: "interactive", elements: controls, summary: { totalInteractiveVisible: 100 } });
   const controlsText = (await controlsCall).content[0].text;
