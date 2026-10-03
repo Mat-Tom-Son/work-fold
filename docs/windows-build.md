@@ -20,11 +20,25 @@ This does not reactivate public Windows distribution or tag automation.
 The included Web, Documents, and Service Connections tools use the shared Pi
 runtime. Documents discovers `soffice.exe` and `tesseract.exe` on PATH and in
 the usual Program Files and per-user Programs locations; neither optional
-engine is bundled. work-fold's Computer Control integration and Chrome Store
-bootstrap are still macOS implementations. The pinned Computer dependency already
-contains a Windows backend and prebuilt helper; integrating it with work-fold's
-helper lifecycle and readiness checks is a candidate path to parity. Chrome needs
-a Windows native messaging host and registry registration.
+engine is bundled. Chrome uses a Rust native messaging host built from
+`desktop/native/chrome-host-windows` by the same `desktop:prepare` step and
+registered per user under HKCU by the NSIS-installed app only; see
+[Chrome distribution](chrome-extension-distribution.md#bootstrap-and-ownership).
+Directories holding tokens and launch descriptors get a protected owner-only
+DACL, because an inherited profile ACL can admit other principals.
+
+Computer Control uses the dependency's Windows UI Automation backend through the
+reviewed integration patch. `desktop:prepare` builds its Rust helper from the
+pinned crate sources with `cargo build --release --locked` (target
+`x86_64-pc-windows-msvc`), so Windows desktop preparation requires
+[rustup](https://rustup.rs/) with the stable MSVC toolchain. The upstream
+prebuilt executable is never shipped, and normal installation runs no upstream
+helper setup. The build writes
+`out/included-tools/computer-helper/work-fold Computer/` with the executable,
+its license, and a `source.json` binding the build inputs to the manifest;
+packaging places it under `resources\computer-helper`, outside `app.asar`, and
+packaged verification rechecks that provenance. The helper is unsigned until
+Windows signing is deliberately reactivated.
 
 Windows source checkouts also need real Git symlinks for the shared Claude
 Skill. Enable Windows symlink creation and use `git clone -c core.symlinks=true`
@@ -82,7 +96,11 @@ The NSIS include adds `<install>\bin` idempotently to the current user's `HKCU\E
 
 The NSIS product must keep `deleteAppDataOnUninstall: false`. Uninstall removes
 the installed application and its PATH entry, not the work-fold profile, Space
-metadata, or any preserved legacy Workspace data.
+metadata, or any preserved legacy Workspace data. Chrome's per-user HKCU
+registration also stays, pointing into that preserved profile as the macOS
+manifest does, so a reinstall resumes the selected Chrome profile through its
+owned-registration repair; while no app is installed, **Open work-fold** in the
+extension reports that the app is not running.
 
 Protocol v1 exposes only read operations (`context`, `spaces list`, `tasks list`, and `capabilities list`). Its request directory is a same-user coordination channel, not an authenticated caller boundary. Do not add mutations to this protocol without caller authorization and an authenticated transport or equivalent per-launch request authentication.
 

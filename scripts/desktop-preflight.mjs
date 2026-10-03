@@ -41,6 +41,12 @@ if (desktopReleasePlatform() === "darwin") {
   assertPath("out/included-tools/computer-helper/work-fold Computer.app/Contents/MacOS/bridge");
   assertPath("out/included-tools/computer-helper/work-fold Computer.app/Contents/Resources/source.json");
 }
+if (desktopReleasePlatform() === "win32") {
+  assertPath("out/included-tools/computer-helper/work-fold Computer/work-fold Computer.exe");
+  assertPath("out/included-tools/computer-helper/work-fold Computer/source.json");
+  assertPath("out/included-tools/chrome-native-host/work-fold-chrome-host.exe");
+  assertPath("out/included-tools/chrome-native-host/source.json");
+}
 
 verifyPiDependencyNormalization();
 await verifyNativePiResources();

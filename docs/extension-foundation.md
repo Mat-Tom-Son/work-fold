@@ -86,8 +86,8 @@ is not rendered as a desktop component.
 
 | Tool | Included implementation | Setup and supported boundary |
 |---|---|---|
-| Computer Control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source and included in the app signing lane. Accessibility and Screen Recording setup names the actual helper. Requested observations and actions, no continuous recorder. |
-| Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Install work-fold from the Chrome Web Store and choose Connect in the selected profile. Native bootstrap and authenticated protocol/capability checks precede use. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
+| Computer Control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source and included in the app signing lane. Accessibility and Screen Recording setup names the actual helper. On Windows 10 or later, the reviewed Rust UI Automation helper is built from source; it needs no separate grant and cannot operate apps running as administrator. Requested observations and actions, no continuous recorder. |
+| Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Install work-fold from the Chrome Web Store and choose Connect in the selected profile. Native bootstrap and authenticated protocol/capability checks precede use; on Windows the bootstrap is a Rust host registered per user through HKCU by the installed app. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
 | Web | `pi-web-access` 0.29.0 pure search and readable-page functions through an additive native factory | DuckDuckGo search needs no key; optional Brave key is entered in tool setup. Explicit HTTP(S) reading, bounded output and cancellation. No automatic cookie/profile import, media service, global fetch replacement or hidden model call. Challenges and rate limits remain visible failures. |
 | Documents | Ordinary JavaScript worker, maintained document libraries and a standard document-work Skill | DOCX/XLSX/PPTX/PDF creation, spreadsheet read/write, PDF text extraction and selected page rendering using bundled dependencies. No separate Node/Python required. The separate `document_engine` tool detects installed LibreOffice for Office rendering/XLSX recalculation and Tesseract for page-image OCR. These optional engines are not bundled; missing setup is explicit. Built-in PDF text extraction itself is not OCR. |
 | Service Connections | `pi-mcp-adapter` 2.33.0 using native MCP transport, discovery, schemas and cancellation | Configure HTTP or stdio servers in native Pi files. Trusted setup supports bearer credentials and loopback PKCE OAuth. Stdio commands need their own installed executable/runtime. Sampling is disabled for Pi 0.80.6 compatibility. No automatic imports from other applications. |
@@ -109,6 +109,15 @@ prove capture works; readiness uses the actual helper's permission evidence.
 Changed helper bytes fail ordinary tool execution. Explicit Computer setup can
 repair them from the verified app copy after accepted work has stopped; the
 existing global capability fence holds through idle-helper shutdown and repair.
+
+On Windows the host copies the source-built `work-fold Computer` bundle to the
+same private, versioned directory, verifies its bytes, and runs it as one
+host-owned child process speaking JSON lines over stdio, with no console
+window. Ending one Chat never stops it; host shutdown does, and the helper also
+exits when its pipe closes. A dispatched action that is cancelled or loses the
+helper holds physical input until the helper answers (at most two seconds after
+cancellation) and then reports an uncertain outcome, never a retry. Windows has
+no per-app privacy grant, so readiness is a live, protocol-compatible helper.
 
 Gatekeeper can run that quarantined helper from a temporary, randomized
 location. A different executable path is admitted only beneath the current

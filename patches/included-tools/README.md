@@ -84,6 +84,24 @@ invalid seals, cancellation and inspection failures without a helper restart.
 Packaged checks pin the verifier and caller
 bytes to this manifest.
 
+The Windows client patch keeps the upstream JSON-lines stdio protocol and adds
+host ownership. With `PI_COMPUTER_USE_NO_RUNTIME_INSTALL=1` it never re-enters
+`process.execPath` with `ELECTRON_RUN_AS_NODE` (packaged work-fold disables that
+fuse); a missing helper is an error instead. With
+`PI_COMPUTER_USE_HOST_OWNED_HELPER=1`, ending one session no longer kills the
+helper shared by every Chat. The child starts hidden and its stderr is drained
+and bounded. A `launch: false` command only reaches a live helper, so readiness
+checks cannot start one. Cancelled or timed-out reads are abandoned; a
+dispatched `act`, `actBatch`, `focusWindow` or `openBrowserLocation` waits for
+its own reply (at most two seconds) and then fails as `interrupted_unknown`, as
+the macOS transport does. A helper exit or host disposal makes pending effects
+uncertain, and responses are bounded to 16 MiB. The Windows Rust crate is
+unpatched; its build inputs are pinned with equal before/after digests so a
+changed upstream crate fails preparation before reaching cargo. The embedded
+isolation check orders its two configuration sessions with an explicit gate
+rather than 5 and 10 ms timers, which Windows' coarse timer resolution can fire
+in the same tick under load.
+
 ## MCP 2.33.0
 
 The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.

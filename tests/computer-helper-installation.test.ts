@@ -3,7 +3,7 @@ import { access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ComputerHelperInstallation } from "../desktop/src/computer-helper-installation.js";
+import { ComputerHelperInstallation, computerHelperBundleName, computerHelperExecutable } from "../desktop/src/computer-helper-installation.js";
 
 test("Computer helper configuration is cold and explicit first use copies one exact standalone version", { skip: process.platform !== "darwin" }, async t => {
   const root = await mkdtemp(join(tmpdir(), "workfold-computer-materialize-"));
@@ -29,7 +29,7 @@ test("Computer helper configuration is cold and explicit first use copies one ex
   assert.notEqual(next.helperAppPath, first.helperAppPath);
   assert.equal(await readFile(join(first.helperAppPath, "Contents/MacOS/bridge"), "utf8"), "synthetic executable", "an update never replaces the running helper version");
   await writeFile(join(next.helperAppPath, "Contents/MacOS/bridge"), "altered installed copy");
-  await assert.rejects(() => next.prepare(), /differs from the signed copy/, "the same host revalidates each execution");
+  await assert.rejects(() => next.prepare(), /differs from the copy supplied/, "the same host revalidates each execution");
   let stopped = 0;
   await assert.rejects(() => next.repair(async () => { throw new Error("active work refuses repair"); }), /active work/);
   assert.equal(await readFile(join(next.helperAppPath, "Contents/MacOS/bridge"), "utf8"), "altered installed copy");
@@ -42,6 +42,37 @@ test("Computer helper configuration is cold and explicit first use copies one ex
   await chmod(join(sourceAppPath, "Contents/MacOS/bridge"), 0o700);
   const modeChanged = await ComputerHelperInstallation.create(options);
   assert.notEqual(modeChanged.helperAppPath, next.helperAppPath);
+});
+
+test("Windows computer helper uses the same private, versioned and repairable copy", { skip: process.platform !== "win32" }, async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-computer-materialize-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sourceAppPath = join(root, "work-fold", "resources", "computer-helper", computerHelperBundleName("win32")), stateRoot = join(root, "private-state");
+  const executable = (bundle: string) => computerHelperExecutable(bundle, "win32");
+  await mkdir(sourceAppPath, { recursive: true });
+  await writeFile(executable(sourceAppPath), "synthetic executable");
+  await writeFile(join(sourceAppPath, "source.json"), "synthetic provenance");
+  const options = { sourceAppPath, stateRoot };
+  const first = await ComputerHelperInstallation.create(options);
+  await assert.rejects(access(stateRoot), { code: "ENOENT" });
+  assert.ok(first.helperAppPath.startsWith(join(stateRoot, "native-helpers", "computer")));
+  assert.ok(first.helperAppPath.endsWith("work-fold Computer"));
+  await Promise.all([first.prepare(), first.prepare()]);
+  assert.equal(await readFile(executable(first.helperAppPath), "utf8"), "synthetic executable");
+  const same = await ComputerHelperInstallation.create(options); await same.prepare();
+  assert.equal(same.helperAppPath, first.helperAppPath, "a second host adopts the existing identical copy");
+  await writeFile(executable(sourceAppPath), "synthetic update");
+  const next = await ComputerHelperInstallation.create(options); await next.prepare();
+  assert.notEqual(next.helperAppPath, first.helperAppPath);
+  assert.equal(await readFile(executable(first.helperAppPath), "utf8"), "synthetic executable", "an update never replaces the running helper version");
+  await writeFile(executable(next.helperAppPath), "altered installed copy");
+  await assert.rejects(() => next.prepare(), /differs from the copy supplied/);
+  let stopped = 0;
+  await assert.rejects(() => next.repair(async () => { throw new Error("active work refuses repair"); }), /active work/);
+  assert.equal(await readFile(executable(next.helperAppPath), "utf8"), "altered installed copy");
+  await next.repair(async () => { stopped++; });
+  assert.equal(stopped, 1);
+  assert.equal(await readFile(executable(next.helperAppPath), "utf8"), "synthetic update");
 });
 
 test("Computer helper materialization rejects symlinks before creating private output", async t => {

@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "4c970c6b60972e7a840c3c6ef14447da4a0ceca1c023d9fa70f3fa4918c04503",
+    "sha256": "8a5c0c4ea7988027127e3ac4a9939734c8bb7c5102344bcd86feaf438ea35a93",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -105,7 +105,7 @@
       {
         "path": "scripts/check-embedded.mjs",
         "before": null,
-        "after": "af4ac139446e560f765c4fa9d986b973748976fa107a1f7d85c1eaaa93f75bf1"
+        "after": "cf110feda5a37cbd2246b8d7cba471051cb1a1e265374b4f5a9dae665bd70f72"
       },
       {
         "path": "scripts/check-helper-cancellation.mjs",
@@ -176,6 +176,76 @@
         "path": "src/platform/macos/helper-identity.d.mts",
         "before": null,
         "after": "16cbedd529e87d714a17bd13659fef510a8bb66d8bf5ceb79929237fa7cb67e2"
+      },
+      {
+        "path": "src/platform/windows/helper.ts",
+        "before": "d641c6bfde41271ba867b51a3c7c4891f9769d9fc2caf9227331c130e19e0570",
+        "after": "d948a5ed208e10e1e6108971227d47aa3f1c75c21bb450d98ad547c948e62de5"
+      },
+      {
+        "path": "src/platform/windows/backend.ts",
+        "before": "9d32a3c852fa5ba7828cdaf2021bca48cfd7a6682480736212047c488fd0428a",
+        "after": "f2f53708c41f4005ae85399db92c3c8bc443da6db8a89758c3e00676c931c608"
+      },
+      {
+        "path": "native/windows/bridge-rs/Cargo.toml",
+        "before": "ccc76c16d4b76b2393e6c25cf9b3e3ded3f8be00ee37822dde4640c676a4d7b6",
+        "after": "ccc76c16d4b76b2393e6c25cf9b3e3ded3f8be00ee37822dde4640c676a4d7b6"
+      },
+      {
+        "path": "native/windows/bridge-rs/Cargo.lock",
+        "before": "d3bb3573da8eaa0f5fd64930117e43f67906f59c37aea8d3c799d52b42d9e261",
+        "after": "d3bb3573da8eaa0f5fd64930117e43f67906f59c37aea8d3c799d52b42d9e261"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/capture.rs",
+        "before": "9c8ef3ad57d3ec0287e3f9a52a08da73a18f4eac2f16c78f2f46b9a896078265",
+        "after": "9c8ef3ad57d3ec0287e3f9a52a08da73a18f4eac2f16c78f2f46b9a896078265"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/error.rs",
+        "before": "04ffff726babecaa0440da23e9b76ae1332f38bbf66ef87e11b485ccaf75c6bd",
+        "after": "04ffff726babecaa0440da23e9b76ae1332f38bbf66ef87e11b485ccaf75c6bd"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/input.rs",
+        "before": "3ecdedd32226d7b89df8734c4aaf023aa819db33dda9e8943630e4b8958771f3",
+        "after": "3ecdedd32226d7b89df8734c4aaf023aa819db33dda9e8943630e4b8958771f3"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/lib.rs",
+        "before": "0fbbaa791f3d158d00935896c5c19f1cb33b04841577a410f44190c5e4fc582f",
+        "after": "0fbbaa791f3d158d00935896c5c19f1cb33b04841577a410f44190c5e4fc582f"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/main.rs",
+        "before": "404c6c4463ff2bacdb05a5a5dbb5791c1937e34425022178ab6dcb54dc860443",
+        "after": "404c6c4463ff2bacdb05a5a5dbb5791c1937e34425022178ab6dcb54dc860443"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/protocol.rs",
+        "before": "28215311ec367270d77242a0ec5cc8a3c9087a8b0ef7eabf00a058f7d4eab969",
+        "after": "28215311ec367270d77242a0ec5cc8a3c9087a8b0ef7eabf00a058f7d4eab969"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/refs.rs",
+        "before": "b9fbe182dadd863b5b13ba562ba750c1ad5d56813c2f8a102d35ebefd4bcb60d",
+        "after": "b9fbe182dadd863b5b13ba562ba750c1ad5d56813c2f8a102d35ebefd4bcb60d"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/state.rs",
+        "before": "dc14719c56bcbc352a1232ae10494b657d7deaceb23511cc4af1dbdac20b3add",
+        "after": "dc14719c56bcbc352a1232ae10494b657d7deaceb23511cc4af1dbdac20b3add"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/uia.rs",
+        "before": "e0b79692d07448bfaf0b3d268fc226e9b1b0bd7763cf0da1b921379b8e6e5569",
+        "after": "e0b79692d07448bfaf0b3d268fc226e9b1b0bd7763cf0da1b921379b8e6e5569"
+      },
+      {
+        "path": "native/windows/bridge-rs/src/window.rs",
+        "before": "ab9eb78a1bee1fecd478da4300532887e6db9bf0a4d7b0095ef4a164451f3367",
+        "after": "ab9eb78a1bee1fecd478da4300532887e6db9bf0a4d7b0095ef4a164451f3367"
       }
     ]
   },

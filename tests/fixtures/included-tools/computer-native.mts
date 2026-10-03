@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { release, tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
 const root = await mkdtemp(join(tmpdir(), "workfold-computer-native-"));
 const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
-const computer = await jiti.import<any>(new URL("../../../resources/included-tools/computer/index.ts", import.meta.url).pathname);
+const computer = await jiti.import<any>(fileURLToPath(new URL("../../../resources/included-tools/computer/index.ts", import.meta.url)));
+const supported = process.platform === "darwin" ? Number.parseInt(release(), 10) >= 23 : process.platform === "win32" && Number.parseInt(release(), 10) >= 10;
 let prepared = 0, reservations = 0, repairs = 0;
 let preparationWait: Promise<void> | undefined;
 const observations: any[] = [];
@@ -25,7 +27,7 @@ try {
     assert.equal(pi.tools.has("browser_navigate"), false);
   }
   assert.notEqual(created[1].tools.get("find_roots").execute, created[2].tools.get("find_roots").execute);
-  if (process.platform !== "darwin") {
+  if (!supported) {
     const unavailable = await created[1].tools.get("find_roots").execute("unsupported", {});
     assert.equal(unavailable.details.error, "unsupported_platform");
     assert.equal((await computer.setupIncludedComputer(config, "request-permissions")).status, "unavailable");
@@ -36,7 +38,12 @@ try {
   assert.ok(["not_running", "unavailable"].includes(result.status), JSON.stringify(result));
   assert.equal(result.helper?.appPath ?? config.helperAppPath, config.helperAppPath);
   await assert.rejects(() => computer.probeIncludedComputer({ ...config, stateRoot: join(root, "other") }, { launch: false }), /another work-fold profile/);
-  if (process.platform === "darwin" && Number.parseInt(release(), 10) >= 23) {
+  if (process.platform === "win32" && supported) {
+    await assert.rejects(() => computer.setupIncludedComputer(config, "request-permissions"), /does not use separate permissions/);
+    assert.equal(repairs + prepared, 0, "a macOS privacy action is refused before any helper preparation or repair");
+    assert.equal(result.status, "not_running", "a plain Windows Check never starts the helper");
+  }
+  if (supported) {
     await assert.rejects(() => computer.probeIncludedComputer(config, { launch: true }), /Synthetic preparation boundary/);
     assert.equal(prepared, 1);
     assert.equal(repairs, 0, "a deliberate start checks the immutable helper without entering the repair path");
