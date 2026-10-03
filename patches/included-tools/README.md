@@ -102,6 +102,19 @@ isolation check orders its two configuration sessions with an explicit gate
 rather than 5 and 10 ms timers, which Windows' coarse timer resolution can fire
 in the same tick under load.
 
+The Windows helper's `send_text` is patched because Windows 11 Notepad
+(WinUI/TSF) garbled injected text in UAT: one burst of Unicode packets
+dropped characters and typed later ones in their place, and U+000A was not
+a line break. Text is now typed like a keyboard, one stroke per SendInput
+call: characters the foreground window's layout produces with at most Shift
+are real key presses (Caps Lock and dead keys respected), Enter and Tab are
+real keys, and only other characters are Unicode packets, isolated by 120 ms
+on both sides. Keys are 40 ms apart, 150 ms after Enter or Tab, and Shift is
+held 15 ms around its key. These values were measured against Notepad,
+where 10 ms lost keys and case. `vk_for` no longer maps punctuation to the
+virtual key with the same code ("." was VK_DELETE); it uses the layout and
+refuses a key that needs Shift or AltGr.
+
 ## MCP 2.33.0
 
 The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.

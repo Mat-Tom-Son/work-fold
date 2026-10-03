@@ -2329,6 +2329,155 @@ index 0000000..46c24a2
 +++ b/src/platform/macos/helper-identity.d.mts
 @@ -0,0 +1 @@
 +export function verifyHelperExecutable(actual: string, expected: string, signal?: AbortSignal): Promise<boolean>;
+diff --git a/native/windows/bridge-rs/src/input.rs b/native/windows/bridge-rs/src/input.rs
+index b9b01ba..d24171a 100644
+--- a/native/windows/bridge-rs/src/input.rs
++++ b/native/windows/bridge-rs/src/input.rs
+@@ -141,7 +141,7 @@ fn invalid(message: impl Into<String>) -> ProtocolError {
+ mod native {
+     use super::*;
+     use windows::Win32::UI::Input::KeyboardAndMouse::*;
+-    use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
++    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId, SetCursorPos};
+ 
+     pub fn open_browser_location(url: &str) -> Result<(), ProtocolError> {
+         hotkey(&[VK_CONTROL], VK_L)?;
+@@ -366,13 +366,107 @@ mod native {
+         send(&inputs)
+     }
+ 
++    // Typing pace. WinUI and other TSF-backed text hosts (Windows 11 Notepad)
++    // process injected input asynchronously: under a faster pace they drop
++    // keys, read Shift after it was released, and read a Unicode packet's
++    // character late, so lagging characters are typed as later ones. Measured
++    // against Notepad, 10 ms lost keys and case, 40 ms lost only the key after
++    // a Tab, and 80 ms was exact.
++    const KEY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(40);
++    /// Enter and Tab make an editor reflow or move, so the next key waits longer.
++    const AFTER_STRUCTURAL_KEY: std::time::Duration = std::time::Duration::from_millis(150);
++    /// A Unicode packet is isolated on both sides: a host that reads it late
++    /// otherwise takes a later packet's character or drops a neighbouring key.
++    const PACKET_INTERVAL: std::time::Duration = std::time::Duration::from_millis(120);
++    /// Shift is held around its key long enough for a lagging host to see it.
++    const MODIFIER_GAP: std::time::Duration = std::time::Duration::from_millis(15);
++
++    #[derive(Clone, Copy, PartialEq)]
++    enum Stroke {
++        Key(VIRTUAL_KEY),
++        Shifted(VIRTUAL_KEY),
++        Structural(VIRTUAL_KEY),
++        Packet(char),
++    }
++
++    /// Types like a keyboard: one stroke per SendInput call, using the
++    /// foreground window's layout for every character it can produce with at
++    /// most Shift. Line breaks and tabs are real Enter and Tab keys. Only
++    /// characters the layout cannot produce plainly (other scripts, symbols,
++    /// dead keys, AltGr) fall back to Unicode packets.
+     fn send_text(text: &str) -> Result<(), ProtocolError> {
+-        let mut inputs = Vec::new();
+-        for unit in text.encode_utf16() {
+-            inputs.push(unicode(unit, false));
+-            inputs.push(unicode(unit, true));
++        let layout = unsafe {
++            let thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
++            GetKeyboardLayout(thread)
++        };
++        let caps_lock = unsafe { GetKeyState(VK_CAPITAL.0 as i32) } & 1 != 0;
++        let mut previous: Option<Stroke> = None;
++        let mut previous_carriage_return = false;
++        for character in text.chars() {
++            // "\r\n" is one line break.
++            if character == '\n' && previous_carriage_return {
++                previous_carriage_return = false;
++                continue;
++            }
++            previous_carriage_return = character == '\r';
++            let stroke = match character {
++                '\r' | '\n' => Stroke::Structural(VK_RETURN),
++                '\t' => Stroke::Structural(VK_TAB),
++                _ => layout_stroke(character, layout, caps_lock).unwrap_or(Stroke::Packet(character)),
++            };
++            match (previous, stroke) {
++                (None, _) => {}
++                (Some(Stroke::Structural(_)), _) => std::thread::sleep(AFTER_STRUCTURAL_KEY),
++                (Some(Stroke::Packet(_)), _) | (_, Stroke::Packet(_)) => std::thread::sleep(PACKET_INTERVAL),
++                _ => std::thread::sleep(KEY_INTERVAL),
++            }
++            match stroke {
++                Stroke::Key(vk) | Stroke::Structural(vk) => send(&[key(vk, false), key(vk, true)])?,
++                Stroke::Shifted(vk) => {
++                    send(&[key(VK_SHIFT, false)])?;
++                    std::thread::sleep(MODIFIER_GAP);
++                    let typed = send(&[key(vk, false), key(vk, true)]);
++                    std::thread::sleep(MODIFIER_GAP);
++                    // Never leave Shift held, even when the key itself failed.
++                    send(&[key(VK_SHIFT, true)])?;
++                    typed?;
++                }
++                Stroke::Packet(character) => send(&packet_inputs(character))?,
++            }
++            previous = Some(stroke);
+         }
+-        send(&inputs)
++        Ok(())
++    }
++
++    /// The key that produces `character` on `layout`, or None when it needs
++    /// more than Shift or is a dead key that would combine with the next one.
++    fn layout_stroke(character: char, layout: HKL, caps_lock: bool) -> Option<Stroke> {
++        let mut unit = [0u16; 2];
++        if character.encode_utf16(&mut unit).len() != 1 {
++            return None;
++        }
++        let scanned = unsafe { VkKeyScanExW(unit[0], layout) };
++        if scanned == -1 || (scanned >> 8) & 0xfe != 0 {
++            return None;
++        }
++        let vk = VIRTUAL_KEY((scanned & 0xff) as u16);
++        // The high bit of the mapped character marks a dead key.
++        if unsafe { MapVirtualKeyExW(vk.0 as u32, MAPVK_VK_TO_CHAR, layout) } & 0x8000_0000 != 0 {
++            return None;
++        }
++        // Caps Lock inverts Shift for letters.
++        let shift = ((scanned >> 8) & 1 != 0) != (caps_lock && character.is_alphabetic());
++        Some(if shift { Stroke::Shifted(vk) } else { Stroke::Key(vk) })
++    }
++
++    fn packet_inputs(character: char) -> Vec<INPUT> {
++        let mut units = [0u16; 2];
++        let mut inputs = Vec::with_capacity(4);
++        for unit in character.encode_utf16(&mut units).iter() {
++            inputs.push(unicode(*unit, false));
++            inputs.push(unicode(*unit, true));
++        }
++        inputs
+     }
+ 
+     fn send_keys(keys: &[Value]) -> Result<(), ProtocolError> {
+@@ -427,8 +521,20 @@ mod native {
+             "shift" => Some(VK_SHIFT),
+             "alt" | "option" => Some(VK_MENU),
+             "cmd" | "win" | "meta" => Some(VK_LWIN),
+-            key if key.len() == 1 => {
+-                Some(VIRTUAL_KEY(key.as_bytes()[0].to_ascii_uppercase() as u16))
++            key if key.chars().count() == 1 => {
++                let character = key.chars().next()?;
++                if character.is_ascii_alphanumeric() {
++                    return Some(VIRTUAL_KEY(character.to_ascii_uppercase() as u16));
++                }
++                // Punctuation has no VK equal to its ASCII code ("." is
++                // 0x2E, VK_DELETE). Use the layout's key, and refuse one that
++                // needs Shift or AltGr rather than pressing a different key.
++                let mut unit = [0u16; 2];
++                if character.encode_utf16(&mut unit).len() != 1 {
++                    return None;
++                }
++                let scanned = unsafe { VkKeyScanW(unit[0]) };
++                (scanned != -1 && (scanned >> 8) & 0xff == 0).then(|| VIRTUAL_KEY((scanned & 0xff) as u16))
+             }
+             key if key.starts_with('f') => key[1..]
+                 .parse::<u16>()
 diff --git a/src/platform/windows/backend.ts b/src/platform/windows/backend.ts
 index 80e77b1..ebe150c 100644
 --- a/src/platform/windows/backend.ts
