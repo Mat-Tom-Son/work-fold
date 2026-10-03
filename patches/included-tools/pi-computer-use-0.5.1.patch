@@ -2899,3 +2899,131 @@ index 7b5c305..49c0696 100644
  			});
  		});
  	}
+diff --git a/native/windows/bridge-rs/src/window.rs b/native/windows/bridge-rs/src/window.rs
+index d9a4790..64d6ea7 100644
+--- a/native/windows/bridge-rs/src/window.rs
++++ b/native/windows/bridge-rs/src/window.rs
+@@ -94,7 +94,8 @@ use windows::core::PWSTR;
+ use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, RECT, TRUE};
+ #[cfg(windows)]
+ use windows::Win32::System::Threading::{
+-    OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
++    AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
++    PROCESS_QUERY_LIMITED_INFORMATION,
+ };
+ #[cfg(windows)]
+ use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+@@ -102,11 +103,11 @@ use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+ use windows::Win32::UI::HiDpi::GetDpiForWindow;
+ #[cfg(windows)]
+ use windows::Win32::UI::WindowsAndMessaging::{
+-    EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetMessageW, GetWindow,
+-    GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
+-    IsWindowVisible, SetForegroundWindow, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+-    EVENT_OBJECT_HIDE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GWL_EXSTYLE, GW_OWNER, MSG,
+-    WINEVENT_OUTOFCONTEXT, WS_EX_DLGMODALFRAME,
++    BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetMessageW,
++    GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
++    IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, EVENT_OBJECT_CREATE,
++    EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GWL_EXSTYLE,
++    GW_OWNER, MSG, SW_RESTORE, WINEVENT_OUTOFCONTEXT, WS_EX_DLGMODALFRAME,
+ };
+ 
+ #[cfg(windows)]
+@@ -500,7 +501,7 @@ pub fn focus_window(
+         })?;
+         let hwnd = HWND(native.raw() as *mut _);
+         let already_focused = unsafe { GetForegroundWindow() == hwnd };
+-        let focused = already_focused || unsafe { SetForegroundWindow(hwnd).as_bool() };
++        let focused = bring_to_foreground(hwnd);
+         Ok(json!({ "focused": focused, "alreadyFocused": already_focused }))
+     }
+ }
+@@ -519,15 +520,7 @@ pub fn ensure_foreground(hwnd: isize) -> Result<(), ProtocolError> {
+     }
+     #[cfg(windows)]
+     {
+-        let target = HWND(hwnd as *mut _);
+-        for _ in 0..4 {
+-            if unsafe { GetForegroundWindow() == target } {
+-                return Ok(());
+-            }
+-            let _ = unsafe { SetForegroundWindow(target) };
+-            thread::sleep(Duration::from_millis(20));
+-        }
+-        if unsafe { GetForegroundWindow() == target } {
++        if bring_to_foreground(HWND(hwnd as *mut _)) {
+             Ok(())
+         } else {
+             Err(ProtocolError::new(
+@@ -538,6 +531,70 @@ pub fn ensure_foreground(hwnd: isize) -> Result<(), ProtocolError> {
+     }
+ }
+ 
++/// Ask for the foreground and report whether `target` observably holds it.
++///
++/// The helper is a background child of its host, so the foreground lock
++/// usually refuses a plain SetForegroundWindow. Sharing the current foreground
++/// thread's input state lets the request count as coming from that thread.
++/// No keystroke is injected to release the lock: Alt opens the target's menu.
++#[cfg(windows)]
++fn bring_to_foreground(target: HWND) -> bool {
++    if unsafe { IsIconic(target).as_bool() } {
++        let _ = unsafe { ShowWindow(target, SW_RESTORE) };
++    }
++    for _ in 0..4 {
++        if unsafe { GetForegroundWindow() == target } {
++            return true;
++        }
++        if unsafe { SetForegroundWindow(target).as_bool() && GetForegroundWindow() == target } {
++            return true;
++        }
++        {
++            let _attached = ForegroundInputAttachment::attach();
++            let _ = unsafe { BringWindowToTop(target) };
++            let _ = unsafe { SetForegroundWindow(target) };
++        }
++        thread::sleep(Duration::from_millis(20));
++    }
++    unsafe { GetForegroundWindow() == target }
++}
++
++/// This thread's input state joined to the foreground window's thread.
++/// Dropping it always detaches, including when the attempt unwinds.
++#[cfg(windows)]
++struct ForegroundInputAttachment {
++    current: u32,
++    foreground: u32,
++}
++
++#[cfg(windows)]
++impl ForegroundInputAttachment {
++    fn attach() -> Option<Self> {
++        let window = unsafe { GetForegroundWindow() };
++        if window.0.is_null() {
++            return None;
++        }
++        let foreground = unsafe { GetWindowThreadProcessId(window, None) };
++        let current = unsafe { GetCurrentThreadId() };
++        if foreground == 0 || foreground == current {
++            return None;
++        }
++        unsafe { AttachThreadInput(current, foreground, true) }
++            .as_bool()
++            .then_some(Self {
++                current,
++                foreground,
++            })
++    }
++}
++
++#[cfg(windows)]
++impl Drop for ForegroundInputAttachment {
++    fn drop(&mut self) {
++        let _ = unsafe { AttachThreadInput(self.current, self.foreground, false) };
++    }
++}
++
+ // ---------------------------------------------------------------------------
+ // Tests
+ // ---------------------------------------------------------------------------

@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "8b31cf43c304b550a87b1ceb9f6f8eedb781cb96695b2e16a29dccaa3a43ca63",
+    "sha256": "1bcfb3d6fac9def85c71bddbb6fb969ca53559515d885ee80a4de9d3705098a4",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -245,7 +245,7 @@
       {
         "path": "native/windows/bridge-rs/src/window.rs",
         "before": "ab9eb78a1bee1fecd478da4300532887e6db9bf0a4d7b0095ef4a164451f3367",
-        "after": "ab9eb78a1bee1fecd478da4300532887e6db9bf0a4d7b0095ef4a164451f3367"
+        "after": "edcd790d879249bece2c67b49585893ce9ee288c59c1168cb35dc407d6f392a9"
       }
     ]
   },
