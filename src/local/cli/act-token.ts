@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { workFoldCliBrokerPaths } from "./broker.js";
 import { WORKFOLD_CLI_ACT_TOKEN_PATTERN } from "./protocol.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 /**
  * Per-launch act-token file. The interactive desktop app mints a fresh token
@@ -12,7 +13,8 @@ import { WORKFOLD_CLI_ACT_TOKEN_PATTERN } from "./protocol.js";
  * requests, and removes it on shutdown. Possession proves the caller can read
  * this user's application-data directory while the app is running — the
  * same-user boundary this personal, local product deliberately relies on.
- * POSIX gets mode 0600; Windows relies on the profile directory's ACLs.
+ * POSIX gets mode 0600. Windows gets the broker directory's protected owner-only
+ * DACL, because an inherited profile ACL can admit other principals.
  */
 export interface WorkFoldCliActTokenFileV1 {
   version: 1;
@@ -37,7 +39,7 @@ export async function writeWorkFoldCliActTokenFile(stateRoot: string, token: str
     createdAt: new Date().toISOString(),
     product,
   };
-  await mkdir(workFoldCliBrokerPaths(stateRoot).root, { recursive: true, mode: 0o700 });
+  await ensurePrivateDirectory(workFoldCliBrokerPaths(stateRoot).root);
   const temp = join(workFoldCliBrokerPaths(stateRoot).root, `${actTokenFileName}.${randomUUID()}.tmp`);
   let handle: Awaited<ReturnType<typeof open>> | null = null;
   try {

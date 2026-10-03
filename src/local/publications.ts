@@ -19,6 +19,7 @@ import {
 import { renderInertHtmlDocument } from "./publication-html.js";
 import { resolveSpacePath } from "./space.js";
 import { workFoldStateRoot } from "./state-paths.js";
+import { ensurePrivateDirectory } from "./private-access.js";
 
 export const WORKFOLD_PUBLICATION_SCHEMA_VERSION = 1;
 
@@ -1426,7 +1427,7 @@ export class WorkFoldPublicationService {
 
   async #commit(draft: PublicationsFileShape): Promise<void> {
     try {
-      await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
+      await ensurePrivateDirectory(dirname(this.path));
       const temporary = `${this.path}.${process.pid}.${Date.now()}.tmp`;
       await writeFile(temporary, `${JSON.stringify(draft, null, 2)}\n`, { mode: 0o600 });
       await rename(temporary, this.path);
