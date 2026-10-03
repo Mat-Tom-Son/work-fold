@@ -31,10 +31,12 @@ function isSupportedTestNode(version) {
   return major > 22 || (major === 22 && minor >= 19);
 }
 
+// Paths stay relative to the child's cwd: absolute paths for every suite can
+// exceed the Windows 32,767-character command line in a deeply nested checkout.
 const entries = await readdir(testsDir, { withFileTypes: true });
 const allFiles = entries
   .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
-  .map((entry) => join(testsDir, entry.name));
+  .map((entry) => join("tests", entry.name));
 
 if (!allFiles.length) {
   throw new Error(`No test files found in ${testsDir}`);

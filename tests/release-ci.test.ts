@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { MAIN_CI_JOBS, TAG_CI_JOBS, verifyReleaseCi } from "../scripts/release-ci.mjs";
@@ -299,7 +299,8 @@ test("CLI rejects noncanonical source repositories and contradictory workflow co
   }
 });
 
-test("tag-check CLI succeeds while Actions is unavailable and verifies the package version's tag", async () => {
+// The fake gh is a shebang script; Windows execFile resolves only a real gh.exe.
+test("tag-check CLI succeeds while Actions is unavailable and verifies the package version's tag", { skip: process.platform === "win32" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "work-fold-tag-source-"));
   try {
     const root = fileURLToPath(new URL("..", import.meta.url));
@@ -326,7 +327,7 @@ console.log(JSON.stringify(responses[endpoint]));
     const output = execFileSync(process.execPath, [command, "--tag-check"], {
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
       env: {
-        ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`,
+        ...process.env, PATH: `${directory}${delimiter}${process.env.PATH ?? ""}`,
         WORKFOLD_SOURCE_RELEASE_REPO: "", GITHUB_REPOSITORY: repo, GITHUB_SHA: head,
         GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: `refs/tags/${packageTag}`,
         GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/release-tag.yml@refs/tags/${packageTag}`,
