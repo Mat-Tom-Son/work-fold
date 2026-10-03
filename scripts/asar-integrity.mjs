@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { normalize } from "node:path";
 import { extractFile, getRawHeader, uncache } from "@electron/asar";
 
 /** Verify the bytes Electron will read, not just the signed archive header.
@@ -26,7 +27,7 @@ export function verifyAsarFileIntegrity(archivePath, { includeUnpacked = false }
         failures.push(`${path}: missing or invalid SHA256 integrity metadata`); continue;
       }
       try {
-        const bytes = extractFile(archivePath, path);
+        const bytes = extractFile(archivePath, normalize(path));
         if (unpacked && !includeUnpacked && isMachO(bytes)) { signedNativeFiles++; continue; }
         checkedFiles++; checkedBytes += bytes.length;
         if (bytes.length !== entry.size) failures.push(`${path}: expected ${entry.size} bytes, read ${bytes.length}`);

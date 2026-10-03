@@ -21,6 +21,19 @@ async function fixture(t: any) {
   return { source, archive };
 }
 
+test("ASAR integrity checks nested packed and unpacked paths on the host platform", async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-nested-asar-integrity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, "source"), archive = join(root, "app.asar");
+  await mkdir(join(source, "runtime", "documents"), { recursive: true });
+  await writeFile(join(source, "runtime", "documents", "worker.mjs"), "export const value = 1;");
+  await writeFile(join(source, "runtime", "documents", "data.txt"), "nested content");
+  await createPackageWithOptions(source, archive, { unpack: "*.mjs" });
+  assert.equal(verifyAsarFileIntegrity(archive).checkedFiles, 2);
+  await writeFile(join(`${archive}.unpacked`, "runtime", "documents", "worker.mjs"), "export const value = 2;");
+  assert.throws(() => verifyAsarFileIntegrity(archive), /worker\.mjs: file hash mismatch/);
+});
+
 test("ASAR integrity covers every packed file and block, with an explicit pre-sign unpacked check", async t => {
   const { source, archive } = await fixture(t);
   const verified = verifyAsarFileIntegrity(archive);

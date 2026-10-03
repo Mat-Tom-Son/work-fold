@@ -1,6 +1,6 @@
 import { loadIncludedMcpConfig } from "./included-mcp-setup.js";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createEventBus, DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ResolvedPiRuntime } from "./pi-runtime-config.js";
@@ -43,7 +43,7 @@ export async function resolveIncludedResources(cwd: string, runtime: ResolvedPiR
   const native = await manager.resolve(async () => "skip");
   return [
     ...native.extensions.filter((item) => paths.includes(item.path)).map((item) => ({ ...item, kind: "extensions" as const, included: includedToolDefinitions.find((definition) => join(config.rootPath, definition.id, "index.ts") === item.path), metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
-    ...native.skills.filter((item) => item.path.startsWith(`${skillRoot}/`)).map((item) => ({ ...item, kind: "skills" as const, included: includedToolDefinitions.find((definition) => definition.id === "documents"), metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
+    ...native.skills.filter((item) => item.path.startsWith(`${skillRoot}${sep}`)).map((item) => ({ ...item, kind: "skills" as const, included: includedToolDefinitions.find((definition) => definition.id === "documents"), metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
   ];
 }
 

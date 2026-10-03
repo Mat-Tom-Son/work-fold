@@ -81,7 +81,7 @@ if (packagedPlatform === "win32") {
       failures.push("Computer helper build inputs do not match the reviewed source hashes.");
     }
     for (const path of ["src/platform/macos/helper.ts", "src/platform/macos/permissions.ts", "src/platform/macos/helper-identity.mjs"]) {
-      const bytes = extractFile(asarPath, `node_modules/${expected.package}/${path}`);
+      const bytes = extractFile(asarPath, join("node_modules", expected.package, path));
       if (createHash("sha256").update(bytes).digest("hex") !== expected.files.find((item) => item.path === path)?.after) {
         failures.push(`Computer helper identity runtime does not match the reviewed source: ${path}.`);
       }

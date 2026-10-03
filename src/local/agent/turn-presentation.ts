@@ -55,8 +55,10 @@ export function parseAssistantPresentation(value: unknown, content: string): Ass
 
 /** Conservative admission: ambiguous native path spellings simply keep generic tool activity. */
 export function localEditPath(spaceRoot: string, value: unknown): string | undefined {
+  const windowsAbsolutePath = typeof value === "string" && process.platform === "win32" && /^[A-Za-z]:[\\/]/u.test(value);
   if (typeof value !== "string" || !value.length || value.length > 4_096
-    || /[\u0000-\u001f\u007f\\]/u.test(value) || /^[~@]|^[A-Za-z][A-Za-z\d+.-]*:/u.test(value)
+    || /[\u0000-\u001f\u007f]/u.test(value) || process.platform !== "win32" && value.includes("\\")
+    || /^[~@]/u.test(value) || !windowsAbsolutePath && /^[A-Za-z][A-Za-z\d+.-]*:/u.test(value)
     || /[\u00a0\u2000-\u200a\u202f\u205f\u3000]/u.test(value) || containsReservedSpacePathSegment(value)) return undefined;
   try {
     const root = resolve(spaceRoot);

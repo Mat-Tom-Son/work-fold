@@ -13,6 +13,21 @@ import { maxAssistantPresentationSegments, maxChatToolEditDiffBytes, maxTurnTool
 import { WorkFoldTurnStore } from "../src/local/agent/turn-store.js";
 import { startLocalApi } from "../src/local/server.js";
 
+test("Windows native edit paths retain a portable projection and reject escapes and URI schemes", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-windows-edit-path-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "folder"));
+  await writeFile(join(root, "folder", "notes.txt"), "fixture");
+  assert.equal(localEditPath(root, join(root, "folder", "notes.txt")), "folder/notes.txt");
+  assert.equal(localEditPath(root, "folder\\notes.txt"), "folder/notes.txt");
+  assert.equal(localEditPath(root, "folder/notes.txt"), "folder/notes.txt");
+  assert.equal(localEditPath(root, "..\\outside.txt"), undefined);
+  assert.equal(localEditPath(root, "C:folder\\notes.txt"), undefined);
+  assert.equal(localEditPath(root, "file://" + join(root, "folder", "notes.txt")), undefined);
+  assert.equal(localEditPath(root, "https://example.test/notes.txt"), undefined);
+  assert.equal(localEditPath(root, ".work-fold\\space.json"), undefined);
+});
+
 test("native edit events retain selected diffs and exact progress/final boundaries without changing Pi evidence", async (t) => {
   const h = await harness(t, (payload, send) => {
     if (!payload.messages.some((message: any) => message.role === "tool")) {

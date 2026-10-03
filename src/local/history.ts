@@ -83,6 +83,7 @@ const checkpointIdPattern = /^cp-[A-Za-z0-9-]{10,80}$/;
 const captureHashConcurrency = 8;
 /** Files at or above this size are hashed from a stream instead of being read whole. */
 const captureStreamHashBytes = 8 * 1024 * 1024;
+const pendingHistoryMetadata = new Map<string, Promise<void>>();
 
 export async function storeSpaceBlob(spaceRoot: string, bytes: Buffer): Promise<StoredBlobRef> {
   const root = ensureHistoryRoot(spaceRoot);
@@ -721,8 +722,14 @@ function checkpointsDir(root: string): string {
 
 async function ensureHistoryMeta(root: string): Promise<void> {
   const path = join(spaceHistoryRoot(root), "meta.json");
+  const pending = pendingHistoryMetadata.get(path);
+  if (pending) return pending;
   if (existsSync(path)) return;
-  await atomicJsonWrite(path, { schemaVersion: "0.2.0", spaceRoot: resolve(root), createdAt: new Date().toISOString() });
+  // Concurrent blob captures share one metadata creation. On Windows, racing
+  // renames to this path can fail and incorrectly mark readable files skipped.
+  const creation = atomicJsonWrite(path, { schemaVersion: "0.2.0", spaceRoot: resolve(root), createdAt: new Date().toISOString() });
+  pendingHistoryMetadata.set(path, creation);
+  try { await creation; } finally { pendingHistoryMetadata.delete(path); }
 }
 
 async function atomicJsonWrite(path: string, value: unknown): Promise<void> {

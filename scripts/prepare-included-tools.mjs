@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -24,7 +24,7 @@ for (const entry of manifest) {
 
 function contained(root, path) {
   const target = resolve(root, path);
-  if (!target.startsWith(`${resolve(root)}/`)) throw new Error("Invalid integration patch path.");
+  if (!target.startsWith(`${resolve(root)}${sep}`)) throw new Error("Invalid integration patch path.");
   return target;
 }
 async function digest(path) {

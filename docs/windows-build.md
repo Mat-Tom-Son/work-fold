@@ -6,7 +6,39 @@
 > automation without first updating the contributor contract and release
 > architecture.
 
-work-fold requires Node 22.19.0 or newer. GitHub CI and releases use Node 24; use that runtime for release work when it is available.
+Use Node 24 and npm 11.16.0 or newer for contributor installs and verification.
+The minimum application runtime is Node 22.19.0. GitHub Actions is disabled;
+the checked-in workflows are dormant diagnostics.
+
+## Local Windows port
+
+The Windows shell, Mica fallback, tray, PowerShell CLI, isolated development
+profile, Electron Builder configuration, and NSIS configuration are retained.
+The local port can be exercised with the existing manual commands below.
+This does not reactivate public Windows distribution or tag automation.
+
+The included Web, Documents, and Service Connections tools use the shared Pi
+runtime. Documents discovers `soffice.exe` and `tesseract.exe` on PATH and in
+the usual Program Files and per-user Programs locations; neither optional
+engine is bundled. work-fold's Computer Control integration and Chrome Store
+bootstrap are still macOS implementations. The pinned Computer dependency already
+contains a Windows backend and prebuilt helper; integrating it with work-fold's
+helper lifecycle and readiness checks is a candidate path to parity. Chrome needs
+a Windows native messaging host and registry registration.
+
+Windows source checkouts also need real Git symlinks for the shared Claude
+Skill. Enable Windows symlink creation and use `git clone -c core.symlinks=true`
+for a new checkout. If Git flattened that link into a text file, `repo:check`
+must continue to diagnose it. The full suite includes symlink, POSIX-shell,
+Unix-permission, and native-helper fixtures; failures in those fixtures must
+be accounted for before claiming complete Windows verification.
+
+Initial History metadata creation is shared by concurrent file captures, so
+Windows rename contention cannot mark readable files as uncaptured. App working
+copies use Windows' refusal to rename over an existing directory rather than
+the POSIX empty-directory claim. App action journals retry only the exact staged
+file replacement for brief Windows sharing failures; admission and worker
+effects are never replayed.
 
 ## Feedback ladder
 
