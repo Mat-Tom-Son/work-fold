@@ -135,7 +135,7 @@ For a build signed with the current user's personal certificate:
 
 The PFX and its DPAPI-protected password are stored in `%USERPROFILE%\.work-fold-signing`, never in this repository. The certificate is self-signed and therefore remains untrusted on other computers unless they deliberately trust its public certificate. Replace the two GitHub signing secrets with a certificate-authority-backed PFX when one is available.
 
-Use Node 22.19.0 or newer. On the primary development workstation, `build-signed-windows.ps1` deliberately invokes the bundled Node runtime rather than the older system Node.
+`build-signed-windows.ps1` uses the Node on PATH (or `-Node <path>`), requires Node 22.19.0 or newer (Node 24 for release builds), and runs the npm installed beside that Node, so an older system npm cannot be picked up.
 
 ## Packaged QA checklist
 
