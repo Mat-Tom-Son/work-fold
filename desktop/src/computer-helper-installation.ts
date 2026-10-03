@@ -99,9 +99,10 @@ async function renameFresh(from: string, to: string, platform: NodeJS.Platform):
   for (let attempt = 0; ; attempt++) {
     try { await rename(from, to); return; }
     catch (error) {
-      if (platform !== "win32" || attempt >= 8 || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      // A scan of a new executable can take seconds; wait up to about 15 s.
+      if (platform !== "win32" || attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
       if (await lstat(to).then(() => true, () => false)) throw error;
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 75 * (attempt + 1)));
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(100 * (attempt + 1), 1_000)));
     }
   }
 }

@@ -57,7 +57,14 @@ export async function buildWindowsChromeNativeHost({ destination, distribution, 
   try {
     await writeFile(temporary, bytes);
     await rm(join(destination, "work-fold-chrome-host.exe"), { force: true });
-    await rename(temporary, join(destination, "work-fold-chrome-host.exe"));
+    // Defender can hold a freshly written executable for seconds; retry only that.
+    for (let attempt = 0; ; attempt++) {
+      try { await rename(temporary, join(destination, "work-fold-chrome-host.exe")); break; }
+      catch (error) {
+        if (attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes(error?.code)) throw error;
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(100 * (attempt + 1), 1_000)));
+      }
+    }
   } finally { await rm(temporary, { force: true }); }
   await writeFile(join(destination, "source.json"), `${JSON.stringify({
     schema: "work-fold.chrome-native-host-source.v1", origin, nativeHostName: distribution.nativeHostName,

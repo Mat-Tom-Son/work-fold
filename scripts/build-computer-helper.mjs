@@ -120,8 +120,8 @@ async function buildWindows() {
     for (let attempt = 0; ; attempt++) {
       try { await rename(temporary, output); break; }
       catch (error) {
-        if (attempt >= 8 || !["EPERM", "EACCES", "EBUSY"].includes(error?.code)) throw error;
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 75 * (attempt + 1)));
+        if (attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes(error?.code)) throw error;
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(100 * (attempt + 1), 1_000)));
       }
     }
     console.log(`Built included computer helper: ${resolve(output)}`);
