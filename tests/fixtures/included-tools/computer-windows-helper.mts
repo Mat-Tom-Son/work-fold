@@ -20,6 +20,7 @@ const { appendFileSync } = require("node:fs");
 appendFileSync(${JSON.stringify(started)}, "start\\n");
 process.stderr.write("x".repeat(256 * 1024)); // Never drained, this would block the pipe.
 let buffer = "";
+const running = new Map();
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", chunk => {
   buffer += chunk;
@@ -27,12 +28,25 @@ process.stdin.on("data", chunk => {
     const request = JSON.parse(buffer.slice(0, index)); buffer = buffer.slice(index + 1);
     const reply = (result) => process.stdout.write(JSON.stringify({ protocolVersion: 4, id: request.id, ok: true, result }) + "\\n");
     if (request.cmd === "exit") process.exit(3);
-    setTimeout(() => reply({ cmd: request.cmd, protocolVersion: 4 }), request.args?.delayMs ?? 0);
+    if (request.cmd === "cancel") {
+      // Like the Rust helper: stop between keystrokes and say how far it got.
+      const target = running.get(request.args.id);
+      appendFileSync(${JSON.stringify(started)}, "cancel " + request.args.id + "\\n");
+      if (target && !target.ignoreCancel) {
+        clearTimeout(target.timer); running.delete(request.args.id);
+        process.stdout.write(JSON.stringify({ protocolVersion: 4, id: request.args.id, ok: false, error: { code: "interrupted", message: "Typing stopped after 3 of 10 characters." } }) + "\\n");
+      }
+      reply({ cancelled: Boolean(target) });
+      continue;
+    }
+    const timer = setTimeout(() => { running.delete(request.id); reply({ cmd: request.cmd, protocolVersion: 4 }); }, request.args?.delayMs ?? 0);
+    running.set(request.id, { timer, ignoreCancel: request.args?.ignoreCancel === true });
   }
 });
 process.stdin.on("end", () => process.exit(0));
 `);
-const starts = async () => existsSync(started) ? (await import("node:fs/promises")).readFile(started, "utf8").then(text => text.split("\n").filter(Boolean).length) : 0;
+const log = async () => existsSync(started) ? (await import("node:fs/promises")).readFile(started, "utf8").then(text => text.split("\n").filter(Boolean)) : [];
+const starts = async () => (await log()).filter(line => line === "start").length;
 const client = () => new helper.WindowsHelperClient({ path: process.execPath, args: [fake] });
 const elapsed = async (run: () => Promise<unknown>) => { const start = Date.now(); await run(); return Date.now() - start; };
 const clients: InstanceType<typeof helper.WindowsHelperClient>[] = [];
@@ -54,20 +68,30 @@ try {
   setTimeout(() => readAbort.abort(), 50);
   assert.ok(await elapsed(() => assert.rejects(() => live.command("look", { delayMs: 600 }, { signal: readAbort.signal }), /aborted/)) < 450, "a read does not wait for its abandoned reply");
 
-  // A cancelled effect keeps its slot until the helper answers, then is uncertain.
+  // Stop cancels a dispatched effect in the helper, which stops promptly and
+  // reports how far it got; the outcome is still uncertain and never retried.
   const effectAbort = new AbortController();
   setTimeout(() => effectAbort.abort(), 50);
   let effectError: any;
-  const effectWait = await elapsed(async () => { try { await live.command("act", { delayMs: 500 }, { signal: effectAbort.signal }); } catch (error) { effectError = error; } });
+  const effectWait = await elapsed(async () => { try { await live.command("act", { delayMs: 5_000 }, { signal: effectAbort.signal }); } catch (error) { effectError = error; } });
   assert.equal(effectError?.code, "interrupted_unknown");
-  assert.match(effectError.message, /outcome is uncertain/);
-  assert.ok(effectWait >= 400, `an effect releases only after the helper finished (${effectWait}ms)`);
+  assert.match(effectError.message, /Operation aborted\. Typing stopped after 3 of 10 characters\. The computer operation's outcome is uncertain/);
+  assert.ok(effectWait < 1_000, `Stop reaches the running effect instead of waiting for it (${effectWait}ms)`);
+  assert.equal((await log()).filter(line => line.startsWith("cancel ")).length, 1, "exactly one cancel reaches the helper");
 
-  // An effect whose reply never comes is released after a bounded settle window.
+  // An effect that finished as Stop arrived says so, still without a retry.
+  const late = new AbortController();
+  setTimeout(() => late.abort(), 20);
+  let lateError: any;
+  try { await live.command("focusWindow", { delayMs: 120, ignoreCancel: true }, { signal: late.signal }); } catch (error) { lateError = error; }
+  assert.equal(lateError?.code, "interrupted_unknown");
+  assert.match(lateError.message, /finished the action before it could stop/);
+
+  // An effect the helper cannot stop is released after a bounded settle window.
   const stuck = new AbortController();
   setTimeout(() => stuck.abort(), 20);
   let stuckError: any;
-  const stuckWait = await elapsed(async () => { try { await live.command("actBatch", { delayMs: 10_000 }, { signal: stuck.signal }); } catch (error) { stuckError = error; } });
+  const stuckWait = await elapsed(async () => { try { await live.command("actBatch", { delayMs: 10_000, ignoreCancel: true }, { signal: stuck.signal }); } catch (error) { stuckError = error; } });
   assert.equal(stuckError?.code, "interrupted_unknown");
   assert.ok(stuckWait >= 1_800 && stuckWait < 4_000, `the settle window is bounded (${stuckWait}ms)`);
 

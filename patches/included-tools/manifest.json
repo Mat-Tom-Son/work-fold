@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "6e9633f6c5855aca86e12807c8d0290cb3d4d137ba2cdf43ec71ce40af15b8b4",
+    "sha256": "8b31cf43c304b550a87b1ceb9f6f8eedb781cb96695b2e16a29dccaa3a43ca63",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -180,7 +180,7 @@
       {
         "path": "src/platform/windows/helper.ts",
         "before": "d641c6bfde41271ba867b51a3c7c4891f9769d9fc2caf9227331c130e19e0570",
-        "after": "d948a5ed208e10e1e6108971227d47aa3f1c75c21bb450d98ad547c948e62de5"
+        "after": "34b447dc47fc07f789e81fa8fbf7dff5a454a8b4c06ce9b034be3cc8b600b686"
       },
       {
         "path": "src/platform/windows/backend.ts",
@@ -205,12 +205,12 @@
       {
         "path": "native/windows/bridge-rs/src/error.rs",
         "before": "04ffff726babecaa0440da23e9b76ae1332f38bbf66ef87e11b485ccaf75c6bd",
-        "after": "04ffff726babecaa0440da23e9b76ae1332f38bbf66ef87e11b485ccaf75c6bd"
+        "after": "9ad0a5ed3d4a24f887b13791656592f8cee7b70c2c60a8b5e93fbf78a741949f"
       },
       {
         "path": "native/windows/bridge-rs/src/input.rs",
         "before": "3ecdedd32226d7b89df8734c4aaf023aa819db33dda9e8943630e4b8958771f3",
-        "after": "0e4c00c4580eab1c806d01c88f3f8adc046b4859aecc7e855ca5ba0e311dc0a4"
+        "after": "0e5d086e91e5af161ede878d6cfca1bbe93d386df252ab5c5f419b9df3c6fe0c"
       },
       {
         "path": "native/windows/bridge-rs/src/lib.rs",
@@ -220,7 +220,7 @@
       {
         "path": "native/windows/bridge-rs/src/main.rs",
         "before": "404c6c4463ff2bacdb05a5a5dbb5791c1937e34425022178ab6dcb54dc860443",
-        "after": "404c6c4463ff2bacdb05a5a5dbb5791c1937e34425022178ab6dcb54dc860443"
+        "after": "9cd7b3b5f6b21ba8a06eb8f8cc7cb8ab46608d82678d7f651fcee324e4a02331"
       },
       {
         "path": "native/windows/bridge-rs/src/protocol.rs",

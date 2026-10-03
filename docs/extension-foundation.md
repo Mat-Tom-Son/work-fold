@@ -114,9 +114,11 @@ On Windows the host copies the source-built `work-fold Computer` bundle to the
 same private, versioned directory, verifies its bytes, and runs it as one
 host-owned child process speaking JSON lines over stdio, with no console
 window. Ending one Chat never stops it; host shutdown does, and the helper also
-exits when its pipe closes. A dispatched action that is cancelled or loses the
-helper holds physical input until the helper answers (at most two seconds after
-cancellation) and then reports an uncertain outcome, never a retry. Windows has
+exits when its pipe closes. Stop cancels a dispatched action in the helper, which
+stops between keystrokes or batched actions and says how far it got; physical
+input stays held until it answers (at most two seconds), and the result is an
+uncertain outcome, never a retry. A Chat stopped while any tool runs saves that
+tool as stopped, with an effect that may be incomplete. Windows has
 no per-app privacy grant, so readiness is a live, protocol-compatible helper.
 
 Gatekeeper can run that quarantined helper from a temporary, randomized

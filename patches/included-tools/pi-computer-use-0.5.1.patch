@@ -2329,11 +2329,63 @@ index 0000000..46c24a2
 +++ b/src/platform/macos/helper-identity.d.mts
 @@ -0,0 +1 @@
 +export function verifyHelperExecutable(actual: string, expected: string, signal?: AbortSignal): Promise<boolean>;
+diff --git a/native/windows/bridge-rs/src/error.rs b/native/windows/bridge-rs/src/error.rs
+index ff4cd4d..bc74f0b 100644
+--- a/native/windows/bridge-rs/src/error.rs
++++ b/native/windows/bridge-rs/src/error.rs
+@@ -32,6 +32,9 @@ pub enum ErrorCode {
+     OccludedTarget,
+     #[serde(rename = "secure_text_unreadable")]
+     SecureTextUnreadable,
++    /// The host cancelled an effect between keystrokes or batched actions.
++    #[serde(rename = "interrupted")]
++    Interrupted,
+ }
+ 
+ impl fmt::Display for ErrorCode {
+@@ -51,6 +54,7 @@ impl fmt::Display for ErrorCode {
+             ErrorCode::ForegroundRequired => "foreground_required",
+             ErrorCode::OccludedTarget => "occluded_target",
+             ErrorCode::SecureTextUnreadable => "secure_text_unreadable",
++            ErrorCode::Interrupted => "interrupted",
+         };
+         write!(f, "{s}")
+     }
 diff --git a/native/windows/bridge-rs/src/input.rs b/native/windows/bridge-rs/src/input.rs
-index b9b01ba..d24171a 100644
+index b9b01ba..0c64811 100644
 --- a/native/windows/bridge-rs/src/input.rs
 +++ b/native/windows/bridge-rs/src/input.rs
-@@ -141,7 +141,7 @@ fn invalid(message: impl Into<String>) -> ProtocolError {
+@@ -2,6 +2,29 @@ use serde_json::{json, Value};
+ 
+ use crate::error::{ErrorCode, ProtocolError};
+ 
++/// Cooperative cancellation for the request a worker thread is serving.
++/// Effects check it between keystrokes and batched actions, never mid-stroke,
++/// so a held modifier is always released.
++pub mod cancellation {
++    use std::cell::RefCell;
++    use std::sync::atomic::{AtomicBool, Ordering};
++    use std::sync::Arc;
++
++    thread_local! { static CURRENT: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) }; }
++
++    /// Runs `work` with `flag` as this thread's cancellation signal.
++    pub fn scope<T>(flag: Arc<AtomicBool>, work: impl FnOnce() -> T) -> T {
++        CURRENT.with(|current| *current.borrow_mut() = Some(flag));
++        let result = work();
++        CURRENT.with(|current| *current.borrow_mut() = None);
++        result
++    }
++
++    pub fn requested() -> bool {
++        CURRENT.with(|current| current.borrow().as_ref().is_some_and(|flag| flag.load(Ordering::SeqCst)))
++    }
++}
++
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum ActTarget {
+     Ref(String),
+@@ -141,7 +164,7 @@ fn invalid(message: impl Into<String>) -> ProtocolError {
  mod native {
      use super::*;
      use windows::Win32::UI::Input::KeyboardAndMouse::*;
@@ -2342,7 +2394,7 @@ index b9b01ba..d24171a 100644
  
      pub fn open_browser_location(url: &str) -> Result<(), ProtocolError> {
          hotkey(&[VK_CONTROL], VK_L)?;
-@@ -366,13 +366,107 @@ mod native {
+@@ -366,13 +389,115 @@ mod native {
          send(&inputs)
      }
  
@@ -2386,7 +2438,15 @@ index b9b01ba..d24171a 100644
 +        let caps_lock = unsafe { GetKeyState(VK_CAPITAL.0 as i32) } & 1 != 0;
 +        let mut previous: Option<Stroke> = None;
 +        let mut previous_carriage_return = false;
-+        for character in text.chars() {
++        let total = text.chars().count();
++        for (typed, character) in text.chars().enumerate() {
++            // Stop between strokes when the host cancels; report how far it got.
++            if crate::input::cancellation::requested() {
++                return Err(ProtocolError::new(
++                    format!("Typing stopped after {typed} of {total} characters."),
++                    ErrorCode::Interrupted,
++                ));
++            }
 +            // "\r\n" is one line break.
 +            if character == '\n' && previous_carriage_return {
 +                previous_carriage_return = false;
@@ -2455,7 +2515,7 @@ index b9b01ba..d24171a 100644
      }
  
      fn send_keys(keys: &[Value]) -> Result<(), ProtocolError> {
-@@ -427,8 +521,20 @@ mod native {
+@@ -427,8 +552,20 @@ mod native {
              "shift" => Some(VK_SHIFT),
              "alt" | "option" => Some(VK_MENU),
              "cmd" | "win" | "meta" => Some(VK_LWIN),
@@ -2478,6 +2538,90 @@ index b9b01ba..d24171a 100644
              }
              key if key.starts_with('f') => key[1..]
                  .parse::<u16>()
+diff --git a/native/windows/bridge-rs/src/main.rs b/native/windows/bridge-rs/src/main.rs
+index e175da2..970ecb9 100644
+--- a/native/windows/bridge-rs/src/main.rs
++++ b/native/windows/bridge-rs/src/main.rs
+@@ -1,6 +1,7 @@
+ use std::cell::Cell;
+ use std::collections::{HashMap, VecDeque};
+ use std::io::{self, BufRead, Write};
++use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::{mpsc, Arc, Mutex, OnceLock};
+ use std::thread::{self, sleep};
+ use std::time::{Duration, Instant};
+@@ -103,6 +104,25 @@ fn helper_state() -> &'static Mutex<HelperState> {
+     STATE.get_or_init(|| Mutex::new(HelperState::default()))
+ }
+ 
++/// Cancellation flags for requests that are queued or running, keyed by id.
++/// Registered at enqueue time, so a cancel never misses a queued request.
++fn cancellations() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
++    static FLAGS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
++    FLAGS.get_or_init(|| Mutex::new(HashMap::new()))
++}
++
++/// Answered on the reader thread, so it never waits behind the request it stops.
++fn cancel_request(request: &Request) -> Response {
++    let Some(target) = request.args.get("id").and_then(Value::as_str) else {
++        return Response::err(&request.id, invalid("cancel requires id"));
++    };
++    let flag = cancellations().lock().ok().and_then(|flags| flags.get(target).cloned());
++    if let Some(flag) = &flag {
++        flag.store(true, Ordering::SeqCst);
++    }
++    Response::ok(&request.id, json!({ "cancelled": flag.is_some() }))
++}
++
+ fn physical_input_lock() -> &'static Mutex<()> {
+     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+     LOCK.get_or_init(|| Mutex::new(()))
+@@ -143,7 +163,18 @@ fn main() {
+                     Err(_) => return,
+                 };
+                 match request {
+-                    Ok(request) => emit_response(&handle_request(&request)),
++                    Ok(request) => {
++                        let flag = cancellations()
++                            .lock()
++                            .ok()
++                            .and_then(|flags| flags.get(&request.id).cloned())
++                            .unwrap_or_default();
++                        let response = input::cancellation::scope(flag, || handle_request(&request));
++                        if let Ok(mut flags) = cancellations().lock() {
++                            flags.remove(&request.id);
++                        }
++                        emit_response(&response)
++                    }
+                     Err(_) => return,
+                 }
+             })
+@@ -182,6 +213,13 @@ fn main() {
+                 continue;
+             }
+         };
++        if request.cmd == "cancel" {
++            emit_response(&cancel_request(&request));
++            continue;
++        }
++        if let Ok(mut flags) = cancellations().lock() {
++            flags.insert(request.id.clone(), Arc::new(AtomicBool::new(false)));
++        }
+         if sender.send(request).is_err() {
+             break;
+         }
+@@ -833,6 +871,11 @@ fn handle_act_batch(args: &Value) -> Result<Value, ProtocolError> {
+         let mut steps = Vec::new();
+         let mut stopped_at = None;
+         for (index, action) in actions.iter().enumerate() {
++            if input::cancellation::requested() {
++                steps.push(json!({ "outcome": "didnt", "error": { "code": ErrorCode::Interrupted.to_string(), "message": "Stopped before this action." } }));
++                stopped_at = Some(index);
++                break;
++            }
+             let mut deferred = action.clone();
+             deferred["deferRootDelta"] = json!(true);
+             let step = match handle_act(&deferred) {
 diff --git a/src/platform/windows/backend.ts b/src/platform/windows/backend.ts
 index 80e77b1..ebe150c 100644
 --- a/src/platform/windows/backend.ts
@@ -2503,7 +2647,7 @@ index 80e77b1..ebe150c 100644
  	async listApps(signal?: AbortSignal): Promise<PlatformApp[]> {
  		return appsFromRoots(parseRoots(await windowsHelper.command("listRoots", {}, { signal })));
 diff --git a/src/platform/windows/helper.ts b/src/platform/windows/helper.ts
-index 7b5c305..d4141cc 100644
+index 7b5c305..49c0696 100644
 --- a/src/platform/windows/helper.ts
 +++ b/src/platform/windows/helper.ts
 @@ -10,24 +10,48 @@ const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
@@ -2536,8 +2680,8 @@ index 7b5c305..d4141cc 100644
  	resolve(value: T): void;
  	reject(error: Error): void;
  	timer: NodeJS.Timeout;
-+	/** Set once the caller gave up on a dispatched effect; any later end only closes the wait. */
-+	abandoned?: () => void;
++	/** Set once the caller gave up on a dispatched effect; its end closes the wait with what the helper reported. */
++	abandoned?: (detail?: string) => void;
  }
  
  async function isExecutable(filePath: string): Promise<boolean> {
@@ -2593,7 +2737,7 @@ index 7b5c305..d4141cc 100644
  		if (!child) return;
  		child.stdin.destroy();
  		child.stdout.destroy();
-@@ -72,66 +106,140 @@ export class WindowsHelperClient {
+@@ -72,66 +106,142 @@ export class WindowsHelperClient {
  	}
  
  	async ensureInstalled(signal?: AbortSignal): Promise<void> {
@@ -2653,7 +2797,7 @@ index 7b5c305..d4141cc 100644
 +		this.pending.clear();
 +		for (const pending of entries) {
 +			clearTimeout(pending.timer);
-+			if (pending.abandoned) pending.abandoned();
++			if (pending.abandoned) pending.abandoned(reason);
 +			else if (dispatched && EFFECT_COMMANDS.has(pending.cmd)) pending.reject(uncertain(reason));
 +			else pending.reject(new Error(reason));
 +		}
@@ -2677,7 +2821,7 @@ index 7b5c305..d4141cc 100644
  			clearTimeout(pending.timer);
 -			if (parsed.protocolVersion !== WINDOWS_HELPER_PROTOCOL_VERSION) {
 +			if (pending.abandoned) {
-+				pending.abandoned();
++				pending.abandoned(parsed.ok === true ? "The helper finished the action before it could stop." : parsed.error?.message);
 +			} else if (parsed.protocolVersion !== WINDOWS_HELPER_PROTOCOL_VERSION) {
  				pending.reject(new Error(`Windows helper protocol mismatch: expected ${WINDOWS_HELPER_PROTOCOL_VERSION}, got ${parsed.protocolVersion ?? "unknown"}. Restart Pi to use the installed helper.`));
  			} else if (parsed.ok === true) {
@@ -2713,10 +2857,11 @@ index 7b5c305..d4141cc 100644
 +				signal?.removeEventListener("abort", onAbort);
 +				action();
 +			};
-+			// The shared pipe has no per-request cancellation. A read is simply
-+			// abandoned. A dispatched effect keeps its slot until the helper answers
-+			// (bounded), so physical input is never released while it may still run,
-+			// and it then fails as uncertain instead of being retried.
++			// A read is simply abandoned. A dispatched effect is cancelled in the
++			// helper, which stops between keystrokes or batched actions, and keeps
++			// its slot until the helper answers (bounded), so physical input is never
++			// released while it may still run. It then fails as uncertain, with the
++			// helper's account of how far it got, and is never retried.
 +			const giveUp = (reason: string) => {
 +				const pending = this.pending.get(id);
 +				if (!pending || pending.abandoned) return;
@@ -2726,7 +2871,8 @@ index 7b5c305..d4141cc 100644
 +					finish(() => reject(new Error(reason)));
 +					return;
 +				}
-+				pending.abandoned = () => { clearTimeout(pending.timer); finish(() => reject(uncertain(reason))); };
++				pending.abandoned = (detail) => { clearTimeout(pending.timer); finish(() => reject(uncertain(detail ? `${reason} ${detail}` : reason))); };
++				child.stdin.write(`${JSON.stringify({ protocolVersion: WINDOWS_HELPER_PROTOCOL_VERSION, id: randomUUID(), cmd: "cancel", args: { id } })}\n`, () => { /* The settle window bounds a lost cancel. */ });
 +				pending.timer = setTimeout(() => {
 +					if (this.pending.get(id) === pending) this.pending.delete(id);
 +					pending.abandoned?.();

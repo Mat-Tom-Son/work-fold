@@ -91,10 +91,15 @@ fuse); a missing helper is an error instead. With
 `PI_COMPUTER_USE_HOST_OWNED_HELPER=1`, ending one session no longer kills the
 helper shared by every Chat. The child starts hidden and its stderr is drained
 and bounded. A `launch: false` command only reaches a live helper, so readiness
-checks cannot start one. Cancelled or timed-out reads are abandoned; a
-dispatched `act`, `actBatch`, `focusWindow` or `openBrowserLocation` waits for
-its own reply (at most two seconds) and then fails as `interrupted_unknown`, as
-the macOS transport does. A helper exit or host disposal makes pending effects
+checks cannot start one. Cancelled or timed-out reads are abandoned. A
+dispatched `act`, `actBatch`, `focusWindow` or `openBrowserLocation` is
+cancelled in the helper: a `cancel` command, answered on the helper's reader
+thread so it never queues behind the busy worker, sets that request's flag,
+and typing and batches stop before their next keystroke or action with an
+`interrupted` error saying how far they got. The client waits for that reply
+(at most two seconds) and fails as `interrupted_unknown` with the helper's
+account, as the macOS transport does. A drag is never cut mid-path, so the
+mouse button is always released. A helper exit or host disposal makes pending effects
 uncertain, and responses are bounded to 16 MiB. The Windows Rust crate is
 unpatched; its build inputs are pinned with equal before/after digests so a
 changed upstream crate fails preparation before reaching cargo. The embedded

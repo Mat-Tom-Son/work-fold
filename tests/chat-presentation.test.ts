@@ -28,6 +28,42 @@ test("Windows native edit paths retain a portable projection and reject escapes 
   assert.equal(localEditPath(root, ".work-fold\\space.json"), undefined);
 });
 
+test("a turn stopped while a tool runs saves that tool as stopped with a possibly partial effect, not complete", async (t) => {
+  const h = await harness(t, (payload, send) => {
+    if (!payload.messages.some((message: any) => message.role === "tool")) {
+      send({ tool_calls: [toolCall("read-1", "read", { path: "notes.txt" }), toolCall("effect-1", "slow_effect", {}, 1)] });
+      send({}, "tool_calls");
+    } else {
+      send({ role: "assistant", content: "Unreachable." });
+      send({}, "stop");
+    }
+  }, `import { Type } from "typebox";
+export default function(pi) {
+  pi.registerTool({ name: "slow_effect", label: "Slow effect", description: "Holds until the turn is stopped.", parameters: Type.Object({}),
+    execute: (_id, _params, signal) => new Promise((resolve) => signal?.addEventListener("abort", () => resolve({ content: [{ type: "text", text: "stopped" }], details: {} }), { once: true })) });
+}`);
+  await writeFile(join(h.spaceRoot, "notes.txt"), "fixture\n");
+  const turn = h.client.prompt("Read notes.txt and start the slow effect.");
+  turn.catch(() => undefined);
+  const seen = (toolName: string, phase: string) => h.events.some((event) => event.type === "tool" && event.toolName === toolName && event.phase === phase);
+  for (let waited = 0; !(seen("slow_effect", "running") && seen("read", "complete")); waited += 20) {
+    assert.ok(waited < 15_000, "the read finishes and the slow effect starts");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.deepEqual(h.client.getUnsettledToolLabels(), ["Slow Effect"], "only the tool still running is unsettled");
+  const stoppedTrail = h.client.getTurnWorkTrail({ interrupted: true });
+  await h.client.abort();
+  await assert.rejects(turn);
+  const read = stoppedTrail.find((entry) => entry.toolName === "read")!;
+  const effect = stoppedTrail.find((entry) => entry.toolName === "slow_effect")!;
+  assert.equal(read.phase, "complete", "a finished tool keeps its result");
+  assert.equal(effect.phase, "error", "a tool cut off mid-way is not complete");
+  assert.match(effect.text, /^Slow Effect was stopped before it finished; its effect may be incomplete$/);
+  assert.equal(h.client.getTurnWorkTrail().find((entry) => entry.toolName === "slow_effect")?.phase === "error" ? "error" : "settled", "settled",
+    "an ordinary settled trail keeps its existing phases");
+  assert.ok(stoppedTrail.every((entry) => ["queued", "running", "streaming", "complete", "error", undefined].includes(entry.phase)), "saved phases stay within the portable transcript schema");
+});
+
 test("native edit events retain selected diffs and exact progress/final boundaries without changing Pi evidence", async (t) => {
   const h = await harness(t, (payload, send) => {
     if (!payload.messages.some((message: any) => message.role === "tool")) {
