@@ -79,7 +79,7 @@ const downloads = `<div class="landing-downloads">
   <a class="landing-download" href="${windowsDownload}">${icon("windows")}<span>Download for Windows</span></a>
 </div>`;
 
-const note = `<p class="landing-note"><span>Use your own model provider</span><span>Mac app for Apple silicon</span></p>`;
+const note = `<p class="landing-note"><span>Use your own model provider</span></p>`;
 
 export function renderLanding(app) {
   app.innerHTML = `<div class="landing-shell">
@@ -95,8 +95,9 @@ export function renderLanding(app) {
 
     <main id="landing-main" tabindex="-1">
       <section class="landing-hero" aria-labelledby="landing-title">
+        <p class="landing-eyebrow">AI agent harness for everyone</p>
         <h1 id="landing-title">An AI Worker for every folder.</h1>
-        <p class="landing-lede"><span>Ask for research, a draft, or the app you need.</span> <span>The work is saved right in your folder.</span></p>
+        <p class="landing-lede"><span>A desktop app where AI Workers use tools, work in your ordinary folders, and build apps for you.</span> <span>Ask in plain words, and the work is saved right in your folder.</span></p>
         ${downloads}
         ${note}
       </section>
@@ -112,6 +113,11 @@ export function renderLanding(app) {
           <p class="landing-lede"><span>A Worker built this inbox organizer from one request.</span> <span>It runs inside work-fold, in the sidebar.</span></p>
           <div class="landing-apps-shot">${shot(inbox)}${caption(inbox)}</div>
         </div>
+      </section>
+
+      <section class="landing-web" aria-labelledby="web-title">
+        <h2 id="web-title">Check in from anywhere.</h2>
+        <p>Set up web access to message the work-fold agent from any browser. It looks after all your folders and can hand work to their Workers. The work still happens on your computer, so keep it on and online.</p>
       </section>
 
       <section class="landing-end" aria-labelledby="end-title">

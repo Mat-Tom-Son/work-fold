@@ -50,9 +50,10 @@ body:has(> #app > .landing-shell) { background: #fafaf7; color-scheme: light; }
 
 /* Hero */
 .landing-hero { width: var(--landing-width); margin: 0 auto; padding-top: clamp(36px, 7vh, 80px); text-align: center; }
+.landing-eyebrow { width: fit-content; margin: 0 auto 20px !important; padding: 6px 14px; border-radius: 999px; background: rgba(19, 21, 24, .055); color: var(--landing-ink); font-size: 14px; font-weight: 560; letter-spacing: -.005em; }
 .landing-shell h1 { font-size: clamp(40px, 6.2vw, 76px); font-weight: 640; line-height: 1.02; letter-spacing: -.042em; text-wrap: balance; }
 .landing-shell h2 { font-size: clamp(30px, 3.9vw, 50px); font-weight: 640; line-height: 1.06; letter-spacing: -.036em; text-wrap: balance; }
-.landing-lede { max-width: 34em; margin: 20px auto 0 !important; color: var(--landing-ink-2); font-size: clamp(17px, 1.5vw, 20px); line-height: 1.5; letter-spacing: -.011em; text-wrap: balance; }
+.landing-lede { max-width: 36em; margin: 20px auto 0 !important; color: var(--landing-ink-2); font-size: clamp(17px, 1.5vw, 20px); line-height: 1.5; letter-spacing: -.011em; text-wrap: balance; }
 .landing-lede > span { display: inline-block; }
 .landing-downloads { margin-top: 34px; display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 .landing-download { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: 228px; height: 50px; padding: 0 22px; border-radius: 12px; background: var(--landing-ink); color: #fff !important; font-size: 15px; font-weight: 560; letter-spacing: -.005em; text-decoration: none; transition: background-color 160ms; }
@@ -100,8 +101,14 @@ body:has(> #app > .landing-shell) { background: #fafaf7; color-scheme: light; }
 .landing-apps .landing-ask { background: #e3e3dc; }
 .landing-ring { position: absolute; left: 2.95%; top: 25%; width: 4.4%; aspect-ratio: 1; translate: -50% -50%; border-radius: 30%; box-shadow: 0 0 0 2px rgba(158, 58, 171, .9), 0 0 0 7px rgba(158, 58, 171, .14); pointer-events: none; }
 
+/* Web access */
+.landing-web { width: var(--landing-width); margin: 0 auto; padding: clamp(72px, 9vw, 112px) 0 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: baseline; gap: 16px 48px; }
+.landing-web h2 { font-size: clamp(28px, 3vw, 38px); }
+.landing-web p { max-width: 36em; color: var(--landing-ink-2); font-size: clamp(16px, 1.4vw, 18px); line-height: 1.55; text-wrap: pretty; }
+
 /* Closing */
 .landing-end { width: var(--landing-width); margin: 0 auto; padding: clamp(80px, 11vw, 136px) 0 clamp(72px, 9vw, 112px); text-align: center; }
+.landing-web + .landing-end { padding-top: clamp(72px, 9vw, 112px); }
 .landing-footer { width: var(--landing-width); margin: 0 auto; padding: 28px 0 40px; border-top: 1px solid var(--landing-line); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; color: var(--landing-muted); font-size: 13px; }
 .landing-footer nav { display: flex; flex-wrap: wrap; gap: 6px 22px; }
 .landing-footer a { text-decoration: none; }
@@ -141,6 +148,8 @@ body:has(> #app > .landing-shell) { background: #fafaf7; color-scheme: light; }
   .landing-links .landing-icon { width: 20px; height: 20px; }
   .landing-links .landing-icon-github { width: 19px; height: 19px; }
   .landing-hero { padding-top: 36px; }
+  .landing-eyebrow { margin-bottom: 16px !important; font-size: 13px; }
+  .landing-web { grid-template-columns: minmax(0, 1fr); }
   .landing-lede { margin-top: 16px !important; }
   .landing-downloads { margin-top: 28px; flex-direction: column; align-items: stretch; gap: 10px; max-width: 360px; margin-inline: auto; }
   .landing-download { min-width: 0; }
