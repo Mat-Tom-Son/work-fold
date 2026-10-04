@@ -266,3 +266,50 @@ test("the hero fallback reaches the same settled frame and retraces its start wi
   assert.equal(inner.style.cssText, start);
   assert.equal(heroReads, 1);
 });
+
+test("the apps chapter shows each slot as a real capture or a clearly labelled placeholder", async (t) => {
+  const { document } = render(t);
+  const chapter = document.querySelector(".landing-hands");
+  assert.ok(chapter.querySelector('a[href="https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk"] use[href="#landing-icon-chrome"]'));
+  const slots = [...chapter.querySelectorAll(".landing-handoff > figure")];
+  assert.equal(slots.length, 3);
+  for (const slot of slots) {
+    const img = slot.querySelector("img");
+    if (img) {
+      assert.ok(img.alt.trim());
+      const size = webpSize(await readFile(new URL(`./public${img.getAttribute("src")}`, import.meta.url)));
+      assert.deepEqual(size, { width: Number(img.getAttribute("width")), height: Number(img.getAttribute("height")) });
+    } else {
+      // Never a stand-in image: an empty slot says plainly what real capture belongs there.
+      assert.ok(slot.classList.contains("is-pending") && slot.dataset.captureNeeded);
+      assert.ok(slot.textContent.trim());
+    }
+  }
+});
+
+test("each app capture opens full size from a labelled button, with its own description", (t) => {
+  const { document } = render(t);
+  const dialog = document.querySelector("dialog.landing-zoom");
+  const buttons = [...document.querySelectorAll(".landing-handoff button[data-zoom]")];
+  assert.equal(buttons.length, 3);
+  for (const button of buttons) {
+    assert.ok(button.getAttribute("aria-label"));
+    button.click();
+    assert.ok(dialog.open);
+    assert.match(dialog.querySelector("img").getAttribute("src"), /^\/screens\/apps-.+\.webp$/);
+    assert.ok(dialog.querySelector("img").alt.trim());
+    dialog.querySelector(".landing-zoom-close").click();
+  }
+});
+
+test("with motion, web access lights one level of the hierarchy at a time", (t) => {
+  const { app } = render(t, { reducedMotion: false });
+  const section = app.querySelector(".landing-web");
+  assert.match(section.dataset.step, /^[012]$/);
+  assert.match(section.style.getPropertyValue("--route"), /^[01]\.\d{3}$/);
+  const levels = [...section.querySelectorAll(".landing-route li")];
+  const devices = [...section.querySelectorAll(".landing-devices > figure")];
+  assert.equal(levels.length, 3);
+  assert.equal(devices.length, levels.length, "one device per level, in the same order");
+  assert.ok(devices[0].classList.contains("landing-phone"));
+});

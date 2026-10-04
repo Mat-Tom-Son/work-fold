@@ -108,22 +108,58 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 /* The app chapter shares the folders' width so every screen keeps one UI scale. */
 .landing-chapter.landing-app { width: calc(var(--shot-w) + 2 * var(--pad)); }
 
-/* Web access: the real web client, framed as the devices people use. */
-.landing-devices { position: relative; padding-top: 7%; padding-bottom: 32px; }
+/* Browser and computer use: Chrome behind, the Mac app in front, and the
+   Worker's own step trail between them as the proof of who did the work. */
+.landing-chapter.landing-hands { width: calc(var(--shot-w) + 2 * var(--pad)); }
+.landing-text-link { display: inline-flex; align-items: center; gap: 9px; margin-top: 16px; color: var(--text); font-size: 15px; font-weight: 600; text-decoration: none; }
+.landing-text-link span { border-bottom: 1px solid rgba(255, 255, 255, .28); transition: border-color 160ms; }
+.landing-text-link:hover span { border-color: currentColor; }
+.landing-handoff { position: relative; aspect-ratio: 1153 / 700; }
+.landing-window { position: absolute; margin: 0; overflow: hidden; border-radius: 12px; background: #16181b; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 40px 90px -40px rgba(0, 0, 0, .9); }
+.landing-window img { width: 100%; height: 100%; object-fit: cover; }
+.landing-window-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: none; cursor: zoom-in; }
+.landing-shell .landing-window-open:focus-visible { outline-offset: -3px; }
+/* A keyboard-focused window comes to the front so nothing covers it. */
+.landing-window:has(.landing-window-open:focus-visible) { z-index: 5; }
+/* Chrome keeps its price clear of Numbers; the step trail sits in front, at
+   the same UI scale as the folders, over Numbers' empty lower half and clear
+   of its table. */
+.landing-window-chrome { left: 0; top: 0; width: 58%; aspect-ratio: 1280 / 800; }
+.landing-window-app { right: 0; top: 35.7%; z-index: 2; width: 58%; aspect-ratio: 1280 / 800; }
+.landing-window-steps { left: 28%; bottom: 0; z-index: 3; width: 53%; overflow: visible; background: none; box-shadow: none; }
+.landing-window-tab { --body: #e6ddd3; width: fit-content; height: 34px; padding: 0 16px; display: flex; align-items: center; gap: 8px; border-radius: 12px 12px 0 0; background: var(--body); color: #1d2024; font-size: 13px; font-weight: 600; letter-spacing: -.005em; }
+.landing-window-tab .landing-dot { --dot: #8a5a3c; }
+.landing-window-shot img { height: auto; aspect-ratio: 1560 / 518; }
+.landing-window-shot { overflow: hidden; border: 8px solid #e6ddd3; border-radius: 0 12px 12px 12px; background: #faf7f1; box-shadow: 0 30px 70px -28px rgba(0, 0, 0, .8); }
+.landing-window.is-pending { display: grid; place-items: center; padding: 24px; background: #121417; box-shadow: 0 0 0 1px rgba(255, 255, 255, .06), 0 40px 90px -40px rgba(0, 0, 0, .9); }
+.landing-window.is-pending::before { content: ""; position: absolute; inset: 8px; border: 1px dashed rgba(255, 255, 255, .2); border-radius: 8px; }
+.landing-window-slot { position: relative; display: grid; gap: 6px; max-width: 30ch; text-align: center; }
+.landing-window-slot span { color: #e7b45a; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.landing-window-slot strong { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.landing-window-slot p { color: var(--text-2); font-size: 13px; line-height: 1.45; }
+
+/* Web access: copy and a hierarchy rail on the left; on the right the real
+   web client steps down the same order, from your phone to the work-folder. */
+.landing-web { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 40px 56px; align-items: start; }
+.landing-web-copy p { max-width: 30em; margin-top: 20px !important; color: var(--text-2); font-size: clamp(16px, 1.35vw, 19px); line-height: 1.5; text-wrap: pretty; }
+.landing-devices { position: relative; padding-bottom: 8px; }
 .landing-browser { overflow: hidden; border-radius: 14px; background: #1a1c20; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 40px 90px -40px rgba(0, 0, 0, .9); }
 .landing-browser-bar { height: 40px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid rgba(255, 255, 255, .07); }
 .landing-browser-bar span { width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, .16); }
 .landing-browser-bar p { margin: 0 auto !important; padding: 4px 16px; border-radius: 8px; background: rgba(255, 255, 255, .06); color: var(--text-2); font-size: 12px; letter-spacing: .01em; }
 .landing-browser img { width: 100%; }
-/* The saved plan sits behind the conversation; the phone shows the same chat. */
-.landing-browser-chat { position: relative; z-index: 1; width: 56%; }
-.landing-browser-plan { position: absolute; top: 0; left: 42%; width: 48%; filter: brightness(.82); }
-.landing-phone { position: absolute; z-index: 2; right: 2%; bottom: 0; width: 21%; padding: 8px; border-radius: 40px; background: #050506; box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 40px 80px -30px rgba(0, 0, 0, .9); }
+.landing-phone { position: absolute; z-index: 2; left: 0; top: 0; width: 27%; padding: 8px; border-radius: 40px; background: #050506; box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 40px 80px -30px rgba(0, 0, 0, .9); }
 .landing-phone img { width: 100%; border-radius: 32px; }
-.landing-route { margin-top: clamp(40px, 6vh, 64px); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.landing-route li { position: relative; display: grid; gap: 2px; padding-top: 22px; }
-.landing-route li::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, rgba(255, 255, 255, .28), rgba(255, 255, 255, .08)); }
-.landing-route li::after { content: ""; position: absolute; top: -4px; left: 0; width: 9px; height: 9px; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 4px var(--ink); }
+.landing-devices > .landing-browser-chat { position: relative; z-index: 1; width: 73%; margin: 18% 0 0 22%; }
+.landing-devices > .landing-browser-plan { position: relative; z-index: 3; width: 68%; margin: -14% 0 0 32%; }
+/* The rail reads top to bottom like the devices beside it. Scrolling fills it. */
+.landing-route { position: relative; margin-top: 40px !important; display: grid; gap: 26px; padding-left: 30px !important; }
+.landing-route::before, .landing-route::after { content: ""; position: absolute; left: 5px; top: 8px; bottom: 30px; width: 1px; background: rgba(255, 255, 255, .16); }
+.landing-route::after { left: 4px; width: 3px; border-radius: 3px; background: linear-gradient(180deg, #2686eb, #20c4a0 55%, #ffac1e); clip-path: inset(0 0 calc((1 - var(--route, 1)) * 100%) 0); }
+.landing-route li { --node: #2686eb; position: relative; display: grid; gap: 2px; transition: opacity 400ms var(--ease); }
+.landing-route li:nth-child(2) { --node: #20c4a0; }
+.landing-route li:nth-child(3) { --node: #ffac1e; }
+.landing-route li::after { content: ""; position: absolute; top: 5px; left: -30px; width: 11px; height: 11px; border-radius: 50%; background: var(--node); box-shadow: 0 0 0 4px var(--ink); transition: background-color 400ms, box-shadow 400ms; }
 .landing-route-node { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
 .landing-route-note { color: var(--muted); font-size: 14px; }
 
@@ -203,8 +239,31 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 
 /* The inbox starts on the sidebar where the app lives and pulls back to the window. */
 .motion-ok .landing-app .landing-shot-media { transform-origin: 0 18%; transform: scale(calc(1 + (1 - var(--reveal, 1)) * .8)); }
-.motion-ok .landing-devices .landing-phone { transform: translateY(calc((.5 - var(--drift, .5)) * 110px)); }
-.motion-ok .landing-devices .landing-browser-plan { transform: translateY(calc((var(--drift, .5) - .5) * 70px)); }
+@media (min-width: 900px) {
+  .motion-ok .landing-window-chrome { transform: translate3d(calc((1 - var(--hand, 1)) * -5%), calc((1 - var(--hand, 1)) * 36px), 0); }
+  .motion-ok .landing-window-app { transform: translate3d(calc((1 - var(--hand, 1)) * 9%), calc((1 - var(--hand, 1)) * 72px), 0); }
+  .motion-ok .landing-window-steps { transform: translate3d(0, calc((1 - var(--hand, 1)) * 96px), 0); }
+}
+@media (min-width: 900px) {
+  /* The copy and rail stay beside the devices while they pass. The phone and
+     the plan drift against the conversation, and the device crossing the
+     middle of the screen is lit, together with its level on the rail. */
+  .motion-ok .landing-web-copy { position: sticky; top: calc(var(--nav) + 48px); }
+  .motion-ok .landing-devices .landing-phone { transform: translate3d(0, calc((.5 - var(--drift, .5)) * 90px), 0); }
+  .motion-ok .landing-devices .landing-browser-plan { transform: translate3d(0, calc((.5 - var(--drift, .5)) * 60px), 0); }
+}
+/* The device crossing the middle of the screen is lit, with its level on the rail. */
+.motion-ok .landing-devices > * { transition: filter 450ms var(--ease); }
+.motion-ok .landing-web[data-step="0"] :is(.landing-browser-chat, .landing-browser-plan),
+.motion-ok .landing-web[data-step="1"] :is(.landing-phone, .landing-browser-plan),
+.motion-ok .landing-web[data-step="2"] :is(.landing-phone, .landing-browser-chat) { filter: brightness(.45) saturate(.75); }
+.motion-ok .landing-web[data-step="0"] .landing-route li:nth-child(n + 2),
+.motion-ok .landing-web[data-step="1"] .landing-route li:nth-child(3) { opacity: .4; }
+.motion-ok .landing-web[data-step="0"] .landing-route li:nth-child(n + 2)::after,
+.motion-ok .landing-web[data-step="1"] .landing-route li:nth-child(3)::after { background: #3a3c40; }
+.motion-ok .landing-web[data-step="0"] .landing-route li:nth-child(1)::after,
+.motion-ok .landing-web[data-step="1"] .landing-route li:nth-child(2)::after,
+.motion-ok .landing-web[data-step="2"] .landing-route li:nth-child(3)::after { box-shadow: 0 0 0 4px var(--ink), 0 0 0 9px color-mix(in srgb, var(--node) 32%, transparent); }
 
 /* Entrance: fast, once. */
 .motion-ok .landing-hero-copy > * { animation: landing-rise 700ms var(--ease) both; }
@@ -214,14 +273,47 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .motion-ok .landing-stack > .landing-folder:first-of-type { animation: landing-fade 450ms ease-out; }
 .motion-ok .landing-zoom[open], .motion-ok .landing-zoom[open]::backdrop { animation: landing-fade 180ms ease-out; }
 @keyframes landing-rise { from { opacity: 0; translate: 0 14px; } }
+/* Smaller screens: each work frame rises in as it enters, where scroll
+   timelines exist. Separate translate/scale keep any transform untouched. */
+@supports (animation-timeline: view()) {
+  @media (max-width: 899px) {
+    .motion-ok :is(.landing-stack > .landing-folder:not(:first-of-type), .landing-app .landing-folder, .landing-window, .landing-devices > *) {
+      animation: landing-enter linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 28%;
+    }
+  }
+}
+@keyframes landing-enter { from { opacity: .25; translate: 0 36px; scale: .965; } }
 @keyframes landing-fade { from { opacity: 0; } }
 
 @media (max-width: 899px) {
   .landing-chapter-head, .landing-end { grid-template-columns: minmax(0, 1fr); }
-  .landing-devices { padding: 0; display: flex; flex-direction: column; }
-  .landing-browser-chat { width: 100%; }
-  .landing-browser-plan { position: relative; left: auto; width: 100%; order: 3; margin-top: 20px; filter: none; }
-  .landing-phone { position: relative; right: auto; bottom: auto; width: min(56%, 260px); margin: -120px 12px 0 auto; }
+  .landing-handoff { aspect-ratio: auto; display: grid; gap: 14px; }
+  .landing-window { position: relative; inset: auto; width: 100%; }
+  .landing-window-steps { width: 100%; }
+  /* Smaller screens keep Numbers' title, toolbar and table, not its empty sheet. */
+  .landing-window-app { aspect-ratio: 2560 / 820; }
+  .landing-window-app img { object-position: top; }
+  .landing-web { grid-template-columns: minmax(0, 1fr); }
+  .landing-devices { display: grid; gap: 20px; padding: 0; }
+  .landing-devices > .landing-phone { position: relative; width: min(64%, 280px); margin: 0 auto; }
+  .landing-devices > .landing-browser-chat, .landing-devices > .landing-browser-plan { width: 100%; margin: 0; }
+  /* The rail becomes a compact bar that stays under the navigation while the
+     three captures pass, so the lit level is always in view. */
+  .landing-web-copy { display: contents; }
+  .landing-web { row-gap: 0; }
+  .motion-ok .landing-route { position: sticky; top: calc(var(--nav) + 10px); z-index: 4; }
+  .landing-route { margin: 28px 0 20px !important; padding: 11px 14px !important; display: flex; justify-content: space-between; gap: 10px; border-radius: 14px; background: rgba(13, 14, 16, .8); box-shadow: 0 0 0 1px var(--line), 0 12px 30px -12px rgba(0, 0, 0, .8); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+  .landing-route::before, .landing-route::after { display: none; }
+  .landing-route li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .landing-route li::after { position: static; order: -1; flex: none; width: 9px; height: 9px; box-shadow: 0 0 0 3px var(--ink); }
+  .landing-route-node { font-size: 13px; white-space: nowrap; }
+  .landing-route-note { display: none; }
+  .motion-ok .landing-web:is([data-step="0"], [data-step="1"], [data-step="2"]) .landing-route li::after { box-shadow: 0 0 0 3px var(--ink); }
+  .motion-ok .landing-web[data-step="0"] .landing-route li:nth-child(1)::after,
+  .motion-ok .landing-web[data-step="1"] .landing-route li:nth-child(2)::after,
+  .motion-ok .landing-web[data-step="2"] .landing-route li:nth-child(3)::after { box-shadow: 0 0 0 2px var(--ink), 0 0 0 5px color-mix(in srgb, var(--node) 45%, transparent); }
 }
 
 @media (max-width: 640px) {
@@ -232,15 +324,29 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .landing-links .landing-icon { width: 20px; height: 20px; }
   .landing-links .landing-icon-github { width: 19px; height: 19px; }
   .landing-links .landing-nav-download { margin-left: 4px; padding: 0 12px; }
-  .landing-hero { padding-top: calc(var(--nav) + 40px); }
+  .landing-hero { padding-top: calc(var(--nav) + 28px); }
   .landing-downloads { flex-direction: column; align-items: stretch; max-width: 380px; }
   .landing-download { min-width: 0; }
   .landing-tab { min-width: 0; height: var(--tab); padding: 0 14px; font-size: 13px; border-radius: 10px 10px 0 0; }
   .landing-folder-body { border-radius: 0 12px 12px 12px; }
   .landing-folder-bar { height: auto; min-height: 48px; padding: 10px 2px 10px 4px; }
-  .landing-folder-bar p { font-size: 14px; -webkit-line-clamp: 3; }
+  .landing-folder-bar p { font-size: 14px; display: block; overflow: visible; }
   .landing-shot { border-radius: 7px; }
-  .landing-route { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  /* Phones: each screen is cropped to the work itself, at nearly twice the
+     size; the full window is one tap away. The inbox crop keeps the sidebar
+     where the Worker-built app lives. */
+  .landing-shot-media { aspect-ratio: 830 / 640; overflow: hidden; }
+  .landing-shot-media img { position: absolute; left: calc(-590 / 830 * 100%); top: calc(-56 / 640 * 100%); width: calc(1440 / 830 * 100%); max-width: none; height: auto; }
+  .landing-folder-inbox .landing-shot-media img { left: calc(-10 / 830 * 100%); top: calc(-30 / 640 * 100%); }
+  .landing-folder-inbox .landing-ring { left: calc(32.5 / 830 * 100%); top: calc(185.5 / 640 * 100%); width: calc(63.4 / 830 * 100%); }
+  .motion-ok .landing-app .landing-shot-media { transform: none; }
+  .landing-route { padding: 10px 12px !important; gap: 6px; }
+  .landing-route-node { font-size: 12.5px; }
+  .landing-folder + .landing-folder { margin-top: 44px; }
   .landing-facts { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .landing-footer { flex-direction: column; align-items: flex-start; }
+}
+
+@media (max-width: 380px) {
+  .landing-route-lead { display: none; }
 }
