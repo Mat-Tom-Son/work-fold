@@ -44,6 +44,40 @@ const web = {
   phone: { src: "/screens/web-chat-phone.webp", width: 390, height: 844, alt: "The same conversation in the work-fold web client on a phone, showing the Saturday morning schedule." },
 };
 
+// Browser and computer use: one real supply-pricing run in the "Repair café —
+// supplies" work-folder, 2026-10-04. The Worker read six public prices in
+// Chrome and created the sheet; the Numbers sorting and bold were assisted
+// by a person, after which the Worker checked Chrome and Numbers through its
+// tools and saved. The copy claims only the checking and reviewing. The step
+// trail is cropped above a later line that shows a local path.
+const handoff = [
+  {
+    id: "chrome", place: "Chrome", width: 1280, height: 800,
+    capture: { src: "/screens/apps-chrome-1280.webp", srcset: "/screens/apps-chrome-1280.webp 1280w, /screens/apps-chrome-2560.webp 2560w", full: "/screens/apps-chrome-2560.webp", alt: "Chrome with the work-fold extension pinned, open to Adafruit's public page for a 6-piece precision screwdriver set at $7.95, in the tab group of the Worker's session." },
+  },
+  {
+    id: "steps", place: "work-fold", folder: "Repair café — supplies", width: 1560, height: 518,
+    capture: { src: "/screens/apps-steps-1560.webp", full: "/screens/apps-workfold-2880.webp", alt: "The Worker's steps in the Repair café — supplies work-folder: Chrome Navigate and Chrome Snapshot confirm the $7.95 price, then Find Roots and Observe Ui check the Numbers document.", fullAlt: "The Worker's final reply in the Repair café — supplies work-folder: the research sheet it saved, the assisted Numbers file, and the three cheapest prices, all checked 2026-10-04." },
+  },
+  {
+    id: "app", place: "Numbers", width: 1280, height: 800,
+    capture: { src: "/screens/apps-numbers-1280.webp", srcset: "/screens/apps-numbers-1280.webp 1280w, /screens/apps-numbers-2560.webp 2560w", full: "/screens/apps-numbers-2560.webp", alt: "Numbers showing supply-prices: six public prices from Adafruit and iFixit, sorted by item and price, with the cheapest price for each item in bold." },
+  },
+];
+
+function appWindow(item) {
+  if (item.capture) {
+    const { src, srcset, alt } = item.capture;
+    const image = `<button class="landing-window-open" type="button" data-zoom="${item.id}" aria-label="View the ${item.place} screen full size"><img src="${src}"${srcset ? ` srcset="${srcset}" sizes="(min-width: 900px) 700px, calc(100vw - 32px)"` : ""} width="${item.width}" height="${item.height}" alt="${alt}" loading="lazy" decoding="async" /></button>`;
+    return item.folder
+      ? `<figure class="landing-window landing-window-${item.id}"><figcaption class="landing-window-tab"><span class="landing-dot" aria-hidden="true"></span>${item.folder}</figcaption><div class="landing-window-shot">${image}</div></figure>`
+      : `<figure class="landing-window landing-window-${item.id}">${image}</figure>`;
+  }
+  return `<figure class="landing-window landing-window-${item.id} is-pending" data-capture-needed="${item.id}">
+    <div class="landing-window-slot"><span>Real capture needed</span><strong>${item.place}</strong><p>${item.need}</p></div>
+  </figure>`;
+}
+
 // The four supplied icons, verbatim, as one sprite so each id appears once.
 const sprite = `<svg class="landing-sprite" aria-hidden="true" focusable="false">
   <symbol id="landing-icon-apple" viewBox="0 0 1024 1024"><path fill="currentColor" d="M747.4 535.7c-.4-68.2 30.5-119.6 92.9-157.5c-34.9-50-87.7-77.5-157.3-82.8c-65.9-5.2-138 38.4-164.4 38.4c-27.9 0-91.7-36.6-141.9-36.6C273.1 298.8 163 379.8 163 544.6c0 48.7 8.9 99 26.7 150.8c23.8 68.2 109.6 235.3 199.1 232.6c46.8-1.1 79.9-33.2 140.8-33.2c59.1 0 89.7 33.2 141.9 33.2c90.3-1.3 167.9-153.2 190.5-221.6c-121.1-57.1-114.6-167.2-114.6-170.7m-105.1-305c50.7-60.2 46.1-115 44.6-134.7c-44.8 2.6-96.6 30.5-126.1 64.8c-32.5 36.8-51.6 82.3-47.5 133.6c48.4 3.7 92.6-21.2 129-63.7" /></symbol>
@@ -57,7 +91,8 @@ const expandIcon = `<svg class="landing-icon" viewBox="0 0 20 20" aria-hidden="t
 const closeIcon = `<svg class="landing-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>`;
 
 const screenSrc = (item, width) => `/screens/work-${item.screen}-${width}.webp`;
-const sizes = "(min-width: 1260px) 1176px, calc(100vw - 48px)";
+// Phones show a crop of each screen at 1440/830 of the frame width.
+const sizes = "(max-width: 640px) calc((100vw - 48px) * 1.735), (min-width: 1260px) 1176px, calc(100vw - 48px)";
 
 function folder(item, index, { eager = false } = {}) {
   const srcset = item.retina ? ` srcset="${screenSrc(item, 1440)} 1440w, ${screenSrc(item, 2880)} 2880w" sizes="${sizes}"` : "";
@@ -89,14 +124,16 @@ const browser = (shot, kind) => `<figure class="landing-browser landing-browser-
     <div class="landing-browser-bar" aria-hidden="true"><span></span><span></span><span></span><p>your-name.work-fold.com</p></div>
     <img src="${shot.src}" width="${shot.width}" height="${shot.height}" alt="${shot.alt}" loading="lazy" decoding="async" />
   </figure>`;
+// Top to bottom, the same order as the hierarchy: you in a browser, the
+// work-fold agent on your computer, and the work-folder where the plan is saved.
 const devices = `<div class="landing-devices">
-  ${browser(web.plan, "plan")}
-  ${browser(web.chat, "chat")}
   <figure class="landing-phone"><img src="${web.phone.src}" width="${web.phone.width}" height="${web.phone.height}" alt="${web.phone.alt}" loading="lazy" decoding="async" /></figure>
+  ${browser(web.chat, "chat")}
+  ${browser(web.plan, "plan")}
 </div>`;
 
 const route = `<ol class="landing-route" aria-label="How web access connects">
-  <li><span class="landing-route-node">Your browser</span><span class="landing-route-note">anywhere</span></li>
+  <li><span class="landing-route-node"><span class="landing-route-lead">Your </span>browser</span><span class="landing-route-note">anywhere</span></li>
   <li><span class="landing-route-node">work-fold agent</span><span class="landing-route-note">on your computer</span></li>
   <li><span class="landing-route-node">Workers</span><span class="landing-route-note">in your work-folders</span></li>
 </ol>`;
@@ -128,6 +165,17 @@ export function renderLanding(app) {
         ${folders.map((item, index) => folder(item, index, { eager: index === 0 })).join("")}
       </section>
 
+      <section class="landing-chapter landing-hands" aria-labelledby="hands-title">
+        <div class="landing-chapter-head">
+          <h2 id="hands-title">Works with the apps you already use.</h2>
+          <div>
+            <p>Workers can check pages in Chrome and use apps on your Mac. Here, one priced repair-café supplies in Chrome, saved a sheet with your files, and reviewed it in Numbers.</p>
+            <a class="landing-text-link" href="${chromeExtension}">${icon("chrome")}<span>Add work-fold to Chrome</span></a>
+          </div>
+        </div>
+        <div class="landing-handoff">${handoff.map(appWindow).join("")}</div>
+      </section>
+
       <section class="landing-chapter landing-app" aria-labelledby="app-title">
         <div class="landing-chapter-head">
           <h2 id="app-title">Need an app? Ask for one.</h2>
@@ -137,12 +185,12 @@ export function renderLanding(app) {
       </section>
 
       <section class="landing-chapter landing-web" aria-labelledby="web-title">
-        <div class="landing-chapter-head">
+        <div class="landing-web-copy">
           <h2 id="web-title">Check in from anywhere.</h2>
           <p>Reach the work-fold agent from any browser while your desktop stays on and online. It can update your files and hand work to the Workers in your folders.</p>
+          ${route}
         </div>
         ${devices}
-        ${route}
       </section>
 
       <section class="landing-end" id="download" aria-labelledby="end-title" tabindex="-1">
@@ -183,11 +231,11 @@ export function renderLanding(app) {
   const dialog = app.querySelector(".landing-zoom");
   const zoomImage = dialog.querySelector("img");
   const scroller = dialog.querySelector(".landing-zoom-scroll");
-  const items = Object.fromEntries([...folders, inbox].map((item) => [item.id, item]));
+  const items = Object.fromEntries([...folders, inbox, ...handoff].map((item) => [item.id, item]));
   function openZoom(id) {
     const item = items[id];
-    zoomImage.src = screenSrc(item, item.retina ? 2880 : 1440);
-    zoomImage.alt = item.alt;
+    zoomImage.src = item.capture ? item.capture.full ?? item.capture.src : screenSrc(item, item.retina ? 2880 : 1440);
+    zoomImage.alt = item.capture ? item.capture.fullAlt ?? item.capture.alt : item.alt;
     if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.setAttribute("open", "");
     // On a narrow screen, start at the Worker's output in the right panel.
     scroller.scrollLeft = scroller.scrollWidth > scroller.clientWidth ? scroller.scrollWidth * 0.38 : 0;
@@ -214,6 +262,8 @@ function followScroll(shell) {
   const app = shell.querySelector(".landing-app .landing-shot-media");
   const appFrame = app?.closest(".landing-shot");
   const devices = shell.querySelector(".landing-devices");
+  const webSection = devices?.closest(".landing-web");
+  const hands = shell.querySelector(".landing-handoff");
   const stacking = matchMedia("(min-width: 900px) and (min-height: 640px)");
   const clamp = (value) => Math.min(1, Math.max(0, value));
   const nativeScroll = win.CSS?.supports("animation-timeline", "scroll(root block)")
@@ -221,6 +271,7 @@ function followScroll(shell) {
   if (nativeScroll) shell.classList.add("css-scroll");
   let frame = 0;
   let geometry;
+  let deviceCenters = null;
   let needsMeasure = true;
   function measure(first) {
     // Measure its place in document flow, even after the sticky stack has
@@ -269,6 +320,7 @@ function followScroll(shell) {
     const boxes = stacking.matches ? stack.map((item) => item.getBoundingClientRect()) : [];
     const appBox = appFrame?.getBoundingClientRect();
     const devicesBox = devices?.getBoundingClientRect();
+    const handsBox = hands?.getBoundingClientRect();
     if (stacking.matches && stack.length) {
       if (!nativeScroll) reveal(stack[0], boxes[0]);
       const { stickTop } = geometry;
@@ -289,6 +341,20 @@ function followScroll(shell) {
     }
     if (devicesBox) {
       devices.style.setProperty("--drift", clamp((height - devicesBox.top) / (height + devicesBox.height)).toFixed(3));
+      // The device crossing the middle of the screen is the level of the
+      // hierarchy that is lit: your browser, the work-fold agent, then the
+      // work-folder. Layout offsets are cached; transforms never feed back.
+      deviceCenters ??= [...devices.children].map((item) => item.offsetTop + item.offsetHeight / 2);
+      const focus = height * 0.5;
+      const centers = deviceCenters.map((center) => devicesBox.top + center);
+      webSection.style.setProperty("--route", clamp((focus - centers[0]) / Math.max(1, centers.at(-1) - centers[0])).toFixed(3));
+      let step = 0;
+      centers.forEach((center, index) => { if (Math.abs(center - focus) < Math.abs(centers[step] - focus)) step = index; });
+      if (webSection.dataset.step !== String(step)) webSection.dataset.step = String(step);
+    }
+    if (handsBox) {
+      // The browser, the step trail and the Mac app slide together as they arrive.
+      hands.style.setProperty("--hand", clamp((height - handsBox.top) / (height * 0.85)).toFixed(3));
     }
   }
   // Keyboard focus never lands on something faded or covered: the hero copy
@@ -319,7 +385,7 @@ function followScroll(shell) {
   shell.addEventListener("focusin", (event) => nextFrame(() => { align(event.target); update(); }));
   const request = () => { if (!frame) frame = nextFrame(update); };
   win.addEventListener("scroll", request, { passive: true });
-  const remeasure = () => { needsMeasure = true; request(); };
+  const remeasure = () => { needsMeasure = true; deviceCenters = null; request(); };
   win.addEventListener("resize", remeasure);
   stacking.addEventListener?.("change", remeasure);
   shell.ownerDocument.fonts?.ready.then(remeasure);
