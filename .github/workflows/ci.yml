@@ -61,22 +61,22 @@ jobs:
           for image in work-fold-gnome-acceptance work-fold-gnome-fedora-acceptance; do
             layout=us
             if [ "$image" = work-fold-gnome-fedora-acceptance ]; then layout=de; fi
-            docker run --rm --init --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+            docker run --rm --init --shm-size=1g --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
               -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \
               -e WORKFOLD_NATIVE_TEST_SIZE=2880x1800 -e WORKFOLD_NATIVE_TEST_LAYOUT="$layout" \
               -e WORKFOLD_NATIVE_TEST_LIVE_SCALE=1 "$image" \
               bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/acceptance.sh'
-            docker run --rm --init --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+            docker run --rm --init --shm-size=1g --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
               -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \
               -e WORKFOLD_NATIVE_TEST_SECOND_MONITOR=2560x1440 "$image" \
               bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/acceptance.sh'
             for transform in 1 2 3; do
-              docker run --rm --init --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+              docker run --rm --init --shm-size=1g --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
                 -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \
                 -e WORKFOLD_NATIVE_TEST_TRANSFORM="$transform" "$image" \
                 bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/acceptance.sh'
             done
-            docker run --rm --init --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+            docker run --rm --init --shm-size=1g --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
               -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 "$image" \
               bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/desktop-acceptance.sh'
           done

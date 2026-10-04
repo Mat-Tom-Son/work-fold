@@ -5,7 +5,7 @@ Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
 not a separate Linux agent. The public release and automatic-update lane remains
 macOS. Linux candidates have no update feed and are not published by these commands.
 
-The 0.4.50 candidate integrates main through `cc16e4b` (Mac 0.4.41),
+The 0.4.51 candidate integrates main through `cc16e4b` (Mac 0.4.41),
 including Folder customization, nested Folders and Worker mentions, bounded
 History review, the revised Files and Chats UI, document engines, and current
 browser/readiness fixes. Linux retains its native CLI, window controls,
@@ -337,6 +337,12 @@ the same host service/native helper and verifies image delivery to a scripted
 provider. Login services are simulated with python-dbusmock; this does not
 qualify a physical GDM session, GPU, sleep/wake or default host security policy.
 
+
+The headless GNOME container uses `--init --shm-size=1g`: native descendants
+need reaping, and GNOME plus the styled Electron renderer need more than the
+container default shared-memory budget. The 0.4.50 integration passed its
+normal packaged UI test with this setting after stalling under the 64 MiB
+default. The 0.4.51 candidate records the corrected fixture command.
 
 The packaged desktop test additionally exercises the actual setup UI, cancellation,
 a warm Chat using the shipped helper, native folder chooser/cancel, Nautilus

@@ -14,7 +14,7 @@ files remain writable. Neither command forwards a personal desktop bus or home.
 ```sh
 podman build -t work-fold-linux-build desktop/linux
 podman build -t work-fold-wayland-probe scripts/linux-wayland-probe
-podman run --rm --userns keep-id:uid=1000,gid=1000 --user 1000:1000 \
+podman run --rm --init --userns keep-id:uid=1000,gid=1000 --user 1000:1000 \
   --security-opt label=disable -v "$PWD:/work" \
   -e CARGO_TARGET_DIR=/work/out/linux-wayland-probe-target \
   work-fold-wayland-probe cargo test --locked \
@@ -42,7 +42,7 @@ podman build -f scripts/linux-wayland-probe/Dockerfile.gnome-test \
 podman build -f scripts/linux-wayland-probe/Dockerfile.fedora-test \
   -t work-fold-gnome-fedora-acceptance .
 # Repeat with work-fold-gnome-fedora-acceptance for Fedora.
-podman run --rm --userns keep-id:uid=1000,gid=1000 --user 1000:1000 \
+podman run --rm --init --shm-size=1g --userns keep-id:uid=1000,gid=1000 --user 1000:1000 \
   --security-opt label=disable -v "$PWD:/work:ro" \
   -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \
   work-fold-gnome-acceptance \
@@ -110,7 +110,7 @@ Neither case permits reuse of the old coordinates. This covers live
 virtual-monitor scaling, not physical cable hotplug.
 
 `desktop-acceptance.sh` adds the packaged application to the same isolated seat.
-Run it in place of `acceptance.sh`, with `--security-opt seccomp=unconfined` so
+Run it in place of `acceptance.sh`, retaining `--init --shm-size=1g`, with `--security-opt seccomp=unconfined` so
 Electron can create its renderer sandbox inside the container. It uses the real
 setup UI and portal, a warm Chat and actual Pi tools, native folder dialogs and
 Nautilus, plus accepted-turn continuity during a window-manager close and
@@ -120,6 +120,11 @@ click to its visible bounds, rather than assuming one Alt+Tab selects it. It est
 with native input before closing; a Wayland focus request can legitimately show
 a notification instead of activating a window. Temporary DevTools focus emulation keeps DOM setup commands responsive under
 occlusion and is disabled before native focus/minimize/continuity checks.
+Give the headless GNOME/Electron fixture 1 GiB of shared memory. The default
+64 MiB container allocation produced renderer stalls during the 0.4.50
+packaged setup checks; the same packaged bytes and normal UI passed with
+`--shm-size=1g`. This is a container setting, not a production Electron flag.
+
 Its screenshots come from the shipped portal path,
 not the web debugger. A test-only local provider drives deterministic tool calls;
 the harness never receives model credentials or a personal desktop connection.
