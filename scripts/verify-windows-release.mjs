@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -70,6 +70,20 @@ const signature = process.platform === "win32" && existsSync(installerPath)
 if (process.env.WORKFOLD_REQUIRE_CODE_SIGNING === "1" && !signature.subject) {
   failures.push(`Code signing was required, but the installer has no signer certificate (status: ${signature.status}).`);
 }
+// Authenticode owns the final bytes of executables signed after packaging, so
+// a required signature must cover every one of them, by the same signer, and
+// still match its file. A self-signed root is "UnknownError", never "Valid".
+if (process.env.WORKFOLD_REQUIRE_CODE_SIGNING === "1" && process.platform === "win32" && signature.subject) {
+  const accepted = process.env.WORKFOLD_TRUSTED_CODE_SIGNING === "1" ? ["Valid"] : ["Valid", "UnknownError"];
+  const executables = listExecutables(packageDir);
+  const signatures = readAuthenticodeSignatures([installerPath, ...executables]);
+  for (const [path, entry] of signatures) {
+    if (entry.subject !== signature.subject || !accepted.includes(entry.status)) {
+      failures.push(`${relative(builderDir, path)} is not signed by ${signature.subject} with an intact signature (status: ${entry.status}${entry.subject ? `, signer: ${entry.subject}` : ""}).`);
+    }
+  }
+  if (!executables.length) failures.push("No packaged executables were found to verify.");
+}
 
 if (failures.length) {
   console.error(`${identity.productName} Windows release verification failed:\n`);
@@ -110,5 +124,34 @@ function readAuthenticodeSignature(path) {
     return JSON.parse(result.stdout.trim());
   } catch {
     return { status: "InspectionFailed", subject: "" };
+  }
+}
+
+function listExecutables(directory) {
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return listExecutables(path);
+    return entry.isFile() && entry.name.toLowerCase().endsWith(".exe") ? [path] : [];
+  });
+}
+
+/** One PowerShell run for many files; paths travel as JSON, never as code. */
+function readAuthenticodeSignatures(paths) {
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    "$paths = $env:WORKFOLD_SIGNATURE_PATHS | ConvertFrom-Json",
+    "@($paths | ForEach-Object { $signature = Get-AuthenticodeSignature -LiteralPath $_; [pscustomobject]@{ path = $_; status = [string]$signature.Status; subject = if ($signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { '' } } }) | ConvertTo-Json -Compress -AsArray",
+  ].join("; ");
+  const result = spawnSync("pwsh.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
+    encoding: "utf8", windowsHide: true, env: { ...process.env, WORKFOLD_SIGNATURE_PATHS: JSON.stringify(paths) },
+  });
+  const failed = new Map(paths.map((path) => [path, { status: "InspectionFailed", subject: "" }]));
+  if (result.status !== 0 || result.stderr.trim()) return failed;
+  try {
+    const entries = JSON.parse(result.stdout.trim());
+    return new Map(paths.map((path) => [path, entries.find((entry) => entry.path === path) ?? { status: "InspectionFailed", subject: "" }]));
+  } catch {
+    return failed;
   }
 }
