@@ -4,11 +4,11 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { renderLanding } from "./public/landing.js";
 
-function render(t, { reducedMotion = true } = {}) {
+function render(t, { reducedMotion = true, media } = {}) {
   const dom = new JSDOM('<div id="app"></div>', { url: "https://www.work-fold.com" });
   const saved = Object.getOwnPropertyDescriptors(globalThis);
   globalThis.window = dom.window;
-  globalThis.matchMedia = () => ({ matches: reducedMotion });
+  globalThis.matchMedia = media ?? (() => ({ matches: reducedMotion }));
   t.after(() => {
     dom.window.close();
     for (const key of ["window", "matchMedia"]) {
@@ -43,7 +43,9 @@ test("landing landmarks, local anchors and product/source links work without pin
 test("one brand treatment: the horizontal lockup appears once and is never rebuilt from pieces", (t) => {
   const { document } = render(t);
   const brandImages = [...document.querySelectorAll("img")].filter((img) => /brand-|icon-\d/.test(img.getAttribute("src")));
-  assert.deepEqual(brandImages.map((img) => img.getAttribute("src")), ["/brand-lockup-black.png"]);
+  assert.equal(brandImages.length, 1);
+  assert.match(brandImages[0].getAttribute("src"), /^\/brand-lockup-(white|black)\.png$/);
+  assert.equal(document.querySelectorAll("h1").length, 1);
 });
 
 test("Mac and Windows downloads are ordinary links with the supplied platform icons", (t) => {
@@ -80,70 +82,106 @@ test("the sprite carries the four supplied icons verbatim", async (t) => {
   }
 });
 
-test("every rendered screen exists, shares one frame size, has a description, and matches its format", async (t) => {
+// Reads the canvas size from a lossy (VP8) WebP header.
+function webpSize(bytes) {
+  assert.equal(bytes.toString("latin1", 0, 4), "RIFF");
+  assert.equal(bytes.toString("latin1", 8, 12), "WEBP");
+  assert.equal(bytes.toString("latin1", 12, 16), "VP8 ");
+  return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+}
+
+async function sources(img) {
+  return [img.getAttribute("src"), ...(img.getAttribute("srcset") || "").split(",").map((entry) => entry.trim().split(" ")[0]).filter(Boolean)];
+}
+
+test("every workflow screen shares one frame size, has a description, and matches its file", async (t) => {
   const { document } = render(t);
-  const screens = [...document.querySelectorAll('.landing-frame img')];
+  const screens = [...document.querySelectorAll(".landing-shot-media img")];
   assert.ok(screens.length >= 5);
   for (const img of screens) {
     assert.ok(img.alt.trim());
     assert.equal(img.getAttribute("width"), "1440");
     assert.equal(img.getAttribute("height"), "862");
-    const candidates = [img.getAttribute("src"), ...(img.getAttribute("srcset") || "").split(",").map((entry) => entry.trim().split(" ")[0]).filter(Boolean)];
-    for (const src of candidates) {
+    for (const src of await sources(img)) {
       assert.ok(src.startsWith("/screens/") && src.endsWith(".webp"), src);
-      const bytes = await readFile(new URL(`./public${src}`, import.meta.url));
-      assert.equal(bytes.toString("latin1", 0, 4), "RIFF");
-      assert.equal(bytes.toString("latin1", 8, 12), "WEBP");
+      const size = webpSize(await readFile(new URL(`./public${src}`, import.meta.url)));
       const scale = Number(src.match(/-(\d+)\.webp$/)[1]) / 1440;
-      // VP8 (lossy) stores 14-bit width/height at byte 26 of the file.
-      assert.equal(bytes.toString("latin1", 12, 16), "VP8 ");
-      assert.equal(bytes.readUInt16LE(26) & 0x3fff, 1440 * scale);
-      assert.equal(bytes.readUInt16LE(28) & 0x3fff, 862 * scale);
+      assert.deepEqual(size, { width: 1440 * scale, height: 862 * scale });
     }
   }
 });
 
-test("example tabs support clicks, arrow wraparound, Home/End and matching panels", (t) => {
-  const { document, window } = render(t);
-  const tabs = [...document.querySelectorAll('[role="tab"]')];
-  assert.ok(tabs.length >= 4);
-  const assertSelected = (index) => {
-    tabs.forEach((tab, i) => {
-      assert.equal(tab.getAttribute("aria-selected"), String(i === index));
-      assert.equal(tab.tabIndex, i === index ? 0 : -1);
-      const panel = document.getElementById(tab.getAttribute("aria-controls"));
-      assert.equal(panel.hidden, i !== index);
-      assert.equal(panel.getAttribute("aria-labelledby"), tab.id);
-      assert.ok(panel.textContent.trim());
-    });
-  };
-  const key = (index, name) => tabs[index].dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
-  assertSelected(0);
-  tabs[1].click(); assertSelected(1);
-  key(1, "End"); assertSelected(tabs.length - 1);
-  key(tabs.length - 1, "ArrowRight"); assertSelected(0);
-  assert.equal(document.activeElement, tabs[0]);
-  key(0, "ArrowLeft"); assertSelected(tabs.length - 1);
-  key(tabs.length - 1, "Home"); assertSelected(0);
+test("every workflow is reachable by scrolling: nothing waits behind a tab, carousel, or disclosure", (t) => {
+  const { document } = render(t);
+  const main = document.querySelector("main");
+  assert.equal(main.querySelectorAll('[role="tab"], [role="tablist"], [role="tabpanel"], details').length, 0);
+  assert.equal(main.querySelectorAll("[hidden]").length, 0);
+  const folders = [...main.querySelectorAll(".landing-folder")];
+  assert.ok(folders.length >= 5);
+  for (const folder of folders) {
+    const title = document.getElementById(folder.getAttribute("aria-labelledby"));
+    assert.ok(title && title.textContent.trim(), "each folder is named by its tab");
+    assert.ok(folder.querySelector(".landing-shot-media img"), "each folder shows its screen");
+    const zoom = folder.querySelector("button[data-zoom]");
+    assert.ok(zoom && zoom.getAttribute("aria-label"), "each screen has a labelled full-size control");
+  }
 });
 
-test("the full-size viewer opens the selected screen at its largest size and closes", (t) => {
+test("web access is shown with the real web client captures at their own proportions", async (t) => {
+  const { document } = render(t);
+  const captures = [...document.querySelectorAll(".landing-devices img")];
+  assert.ok(captures.length >= 2);
+  assert.ok(document.querySelector(".landing-devices .landing-phone img"), "a phone capture is shown");
+  for (const img of captures) {
+    assert.ok(img.alt.trim());
+    const size = webpSize(await readFile(new URL(`./public${img.getAttribute("src")}`, import.meta.url)));
+    assert.deepEqual(size, { width: Number(img.getAttribute("width")), height: Number(img.getAttribute("height")) });
+  }
+});
+
+test("the full-size viewer opens the chosen screen at its largest size and closes", (t) => {
   const { document } = render(t);
   const dialog = document.querySelector("dialog.landing-zoom");
   const image = dialog.querySelector("img");
-  document.querySelector('[role="tab"][aria-controls="work-panel-writing"]').click();
-  document.querySelector("#work-panel-writing .landing-zoom-button").click();
+  document.querySelector("#folder-writing .landing-zoom-button").click();
   assert.ok(dialog.open);
   assert.equal(image.getAttribute("src"), "/screens/work-writing-2880.webp");
-  assert.equal(image.alt, document.querySelector("#work-panel-writing img").alt);
+  assert.equal(image.alt, document.querySelector("#folder-writing .landing-shot-media img").alt);
   dialog.querySelector(".landing-zoom-close").click();
   assert.equal(dialog.open, false);
-  document.querySelector("#work-panel-research img").click();
+  document.querySelector("#folder-research .landing-shot-media img").click();
   assert.ok(dialog.open);
   assert.equal(image.getAttribute("src"), "/screens/work-research-1440.webp");
 });
 
 test("motion is opt-in: reduced motion leaves the page static", (t) => {
-  assert.equal(render(t).app.querySelector(".landing-shell").classList.contains("motion-ok"), false);
-  assert.equal(render(t, { reducedMotion: false }).app.querySelector(".landing-shell").classList.contains("motion-ok"), true);
+  const still = render(t).app;
+  assert.equal(still.querySelector(".landing-shell").classList.contains("motion-ok"), false);
+  assert.equal(still.querySelector(".landing-app .landing-shot-media").style.getPropertyValue("--reveal"), "");
+});
+
+test("with motion, scrolling drives the app reveal and device drift through custom properties", async (t) => {
+  const { app, window } = render(t, { reducedMotion: false });
+  assert.ok(app.querySelector(".landing-shell").classList.contains("motion-ok"));
+  const media = app.querySelector(".landing-app .landing-shot-media");
+  const devices = app.querySelector(".landing-devices");
+  assert.match(media.style.getPropertyValue("--reveal"), /^[01]\.\d{3}$/);
+  assert.match(devices.style.getPropertyValue("--drift"), /^[01]\.\d{3}$/);
+  media.style.removeProperty("--reveal");
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.match(media.style.getPropertyValue("--reveal"), /^[01]\.\d{3}$/);
+  // Without room to stack (the stub reports no match), folders keep no stack state.
+  for (const folder of app.querySelectorAll(".landing-stack .landing-folder")) assert.equal(folder.dataset.state, undefined);
+});
+
+test("keyboard focus on the hero copy returns a stacked page to its readable start", async (t) => {
+  // A wide screen with motion: the stack is on, reduced motion is off.
+  const { app, window } = render(t, { media: (query) => ({ matches: !query.includes("reduce") }) });
+  const calls = [];
+  window.scrollTo = (options) => { calls.push(options); };
+  Object.defineProperty(window, "scrollY", { configurable: true, value: 640 });
+  app.querySelector(".landing-hero-copy .landing-download").dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(calls.at(-1), { top: 0, behavior: "instant" });
 });
