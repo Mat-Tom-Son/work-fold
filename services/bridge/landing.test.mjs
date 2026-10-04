@@ -4,7 +4,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { renderLanding } from "./public/landing.js";
 
-function render(t, { reducedMotion = true, media } = {}) {
+function render(t, { reducedMotion = true, media, setup } = {}) {
   const dom = new JSDOM('<div id="app"></div>', { url: "https://www.work-fold.com" });
   const saved = Object.getOwnPropertyDescriptors(globalThis);
   globalThis.window = dom.window;
@@ -17,6 +17,7 @@ function render(t, { reducedMotion = true, media } = {}) {
     }
   });
   const app = dom.window.document.querySelector("#app");
+  setup?.(dom.window);
   renderLanding(app);
   return { app, document: dom.window.document, window: dom.window };
 }
@@ -184,4 +185,84 @@ test("keyboard focus on the hero copy returns a stacked page to its readable sta
   app.querySelector(".landing-hero-copy .landing-download").dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.deepEqual(calls.at(-1), { top: 0, behavior: "instant" });
+});
+
+test("the inbox reveal follows its frame rather than feeding the scaled image back into itself", async (t) => {
+  const { app, window } = render(t, { reducedMotion: false });
+  const media = app.querySelector(".landing-app .landing-shot-media");
+  const frame = media.closest(".landing-shot");
+  const frameTop = window.innerHeight * 0.6;
+  frame.getBoundingClientRect = () => ({ top: frameTop });
+  media.getBoundingClientRect = () => { assert.fail("motion must not measure its own transformed image"); };
+  for (let i = 0; i < 3; i++) {
+    window.dispatchEvent(new window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(media.style.getPropertyValue("--reveal"), "0.444", "the same scroll position produces the same reveal");
+  }
+});
+
+test("native hero scrolling measures only on layout changes and leaves frame tracking to CSS", async (t) => {
+  let heroReads = 0;
+  const { app, window } = render(t, {
+    media: (query) => ({ matches: !query.includes("reduce") }),
+    setup(window) {
+      window.CSS = { supports: () => true };
+      Object.defineProperty(window.document.documentElement, "clientWidth", { value: 1280 });
+      Object.defineProperty(window, "innerHeight", { value: 720 });
+      window.Element.prototype.getBoundingClientRect = function () {
+        if (this.classList.contains("landing-hero")) {
+          heroReads++;
+          return { bottom: 720 - window.scrollY };
+        }
+        if (this.classList.contains("landing-hero-copy")) return { top: 200 - window.scrollY, right: 500, height: 340 };
+        return { top: 720 - window.scrollY, left: 200, width: 880, height: 612 };
+      };
+    },
+  });
+  const shell = app.querySelector(".landing-shell");
+  const inner = app.querySelector(".landing-folder-inner");
+  assert.ok(shell.classList.contains("css-scroll"));
+  assert.ok(Number.isFinite(parseFloat(inner.style.getPropertyValue("--hero-scale"))));
+  const endpoints = inner.style.cssText;
+  const initialReads = heroReads;
+  Object.defineProperty(window, "scrollY", { configurable: true, value: 320 });
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(heroReads, initialReads, "scroll frames do not force hero layout reads");
+  assert.equal(inner.style.cssText, endpoints, "scroll frames do not replace the compositor's transform");
+  assert.equal(shell.querySelector(".landing-hero-copy").style.getPropertyValue("--fade"), "");
+  window.dispatchEvent(new window.Event("resize"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.ok(heroReads > initialReads, "viewport changes update the endpoints");
+});
+
+test("the hero fallback reaches the same settled frame and retraces its start without remeasuring", async (t) => {
+  let heroReads = 0;
+  const { app, window } = render(t, {
+    media: (query) => ({ matches: !query.includes("reduce") }),
+    setup(window) {
+      Object.defineProperty(window.document.documentElement, "clientWidth", { value: 1280 });
+      Object.defineProperty(window, "innerHeight", { value: 720 });
+      window.Element.prototype.getBoundingClientRect = function () {
+        if (this.classList.contains("landing-hero")) { heroReads++; return { bottom: 720 - window.scrollY }; }
+        if (this.classList.contains("landing-hero-copy")) return { top: 200 - window.scrollY, right: 500, height: 340 };
+        return { top: 720 - window.scrollY, left: 200, width: 880, height: 612 };
+      };
+    },
+  });
+  const inner = app.querySelector(".landing-folder-inner");
+  const start = inner.style.cssText;
+  assert.ok(parseFloat(inner.style.getPropertyValue("--tx")) > 0);
+  assert.ok(parseFloat(inner.style.getPropertyValue("--sc")) < 1);
+  Object.defineProperty(window, "scrollY", { configurable: true, value: 720 });
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(inner.style.getPropertyValue("--tx"), "0px");
+  assert.equal(inner.style.getPropertyValue("--ty"), "0px");
+  assert.equal(inner.style.getPropertyValue("--sc"), "1");
+  Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(inner.style.cssText, start);
+  assert.equal(heroReads, 1);
 });
