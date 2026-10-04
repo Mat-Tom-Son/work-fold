@@ -1,12 +1,22 @@
 import type React from "react";
-import { ChevronRight, Loader2, Share2 } from "lucide-react";
-import { fileTreeFileIcon, fileTreeFolderIcon, fileTreeIconClassName, type FileTreeIconSpec } from "../../file-tree-icons";
+import { ArrowRight, ChevronRight, Loader2, Share2 } from "lucide-react";
+import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
+import { FileIconFrame } from "./FileIconFrame";
 import { hasNativeFiles, hasSpacePathDrag } from "../../lib/file-actions";
 import { desktopFileDragHint } from "../../lib/platform";
 import { isInsideFolder, parentFolderPath, treeEntryNeedsLazyChildren } from "../../lib/tree";
-import type { TreeEntry } from "../../types";
+import { spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
+import type { ChatActivityStatus, SpaceSummary, TreeEntry } from "../../types";
 import { fileSharing } from "../../ui-contract";
-import { EmptyInline } from "../chrome/common";
+import { ActivityDot } from "../chrome/ActivityDot";
+import { EmptyInline, SpaceIconGlyph } from "../chrome/common";
+
+/** A Folder registered inside this one, as Files shows it (2026-10-01). */
+export interface NestedFolderView {
+  space: SpaceSummary;
+  identity: SpaceIdentity;
+  status?: ChatActivityStatus | null;
+}
 
 export function FileTree({
   entries,
@@ -34,8 +44,13 @@ export function FileTree({
   onNativeDragStartFile,
   onDragStartEntry,
   onDragEndEntry,
+  nestedFolders,
+  onOpenNestedFolder,
 }: {
   entries: TreeEntry[];
+  /** Child Folders keyed by their path here; each row opens that Folder instead of expanding. */
+  nestedFolders?: ReadonlyMap<string, NestedFolderView>;
+  onOpenNestedFolder?: (space: SpaceSummary) => void;
   collapsedPaths: Set<string>;
   loadingFolderPaths: Set<string>;
   selectedPath?: string | null;
@@ -77,6 +92,18 @@ export function FileTree({
   }
 
   function handleTreeRowKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, entry: TreeEntry) {
+    if (entry.nestedFolder && (event.key === "Enter" || event.key === " " || event.key === "ArrowRight")) {
+      event.preventDefault();
+      const nested = nestedFolders?.get(entry.path);
+      if (nested) onOpenNestedFolder?.(nested.space);
+      return;
+    }
+    if (entry.nestedFolder && event.key === "ArrowLeft") {
+      event.preventDefault();
+      focusParentTreeRow(event.currentTarget, entry.path);
+      reportFocusedTreeRow();
+      return;
+    }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       focusAdjacentTreeRow(event.currentTarget, event.key === "ArrowDown" ? 1 : -1);
@@ -139,6 +166,46 @@ export function FileTree({
   return (
     <div className="file-tree" role={level === 1 ? "tree" : "group"} aria-label={level === 1 ? "Files in this folder" : undefined}>
       {entries.map((entry) => {
+        if (entry.nestedFolder) {
+          const nested = nestedFolders?.get(entry.path);
+          const statusLabel = nested?.status === "running" ? ", Worker is working" : nested?.status === "attention" ? ", new reply" : "";
+          const label = nested ? `Open ${nested.space.name}${statusLabel}` : `${entry.name}, another work-folder`;
+          return (
+            <div className="file-tree-item" key={entry.path}>
+              <button
+                className={["file-row", "folder-row", "nested-folder-row", selectedPath === entry.path ? "selected" : ""].filter(Boolean).join(" ")}
+                type="button"
+                role="treeitem"
+                aria-level={level}
+                aria-label={label}
+                title={label}
+                data-tree-row="true"
+                data-tree-path={entry.path}
+                style={nested ? spaceIdentityStyle(nested.identity) : undefined}
+                onClick={() => nested && onOpenNestedFolder?.(nested.space)}
+                onKeyDown={(event) => handleTreeRowKeyDown(event, entry)}
+                onContextMenu={(event) => event.preventDefault()}
+                onDragOver={(event) => {
+                  if (!hasNativeFiles(event) && !hasSpacePathDrag(event)) return;
+                  event.stopPropagation();
+                  onUpdateDropTarget(event, parentFolderPath(entry.path));
+                }}
+                onDrop={(event) => {
+                  event.stopPropagation();
+                  void onDropOnTarget(event, parentFolderPath(entry.path));
+                }}
+              >
+                <span className="folder-chevron nested-folder-spacer" aria-hidden="true" />
+                <span className="nested-folder-icon" aria-hidden="true">
+                  {nested ? <SpaceIconGlyph icon={nested.identity.Icon} size={12} filled /> : null}
+                </span>
+                <HighlightedFileName name={entry.name} query={searchQuery} />
+                {nested?.status ? <ActivityDot status={nested.status} /> : null}
+                <ArrowRight className="nested-folder-go" size={13} aria-hidden="true" />
+              </button>
+            </div>
+          );
+        }
         const folderLoading = entry.kind === "folder" && loadingFolderPaths.has(entry.path);
         const folderCollapsed = entry.kind === "folder" && (collapsedPaths.has(entry.path) || (treeEntryNeedsLazyChildren(entry) && !folderLoading));
         const parentDropTarget = entry.kind === "file" ? parentFolderPath(entry.path) : entry.path;
@@ -198,7 +265,7 @@ export function FileTree({
             >
               {entry.kind === "folder" ? (
                 <>
-                  {folderLoading ? <Loader2 className="folder-chevron spin" size={15} /> : <ChevronRight className={folderCollapsed ? "folder-chevron" : "folder-chevron open"} size={15} />}
+                  <ChevronRight className={folderCollapsed ? "folder-chevron" : "folder-chevron open"} size={15} />
                   <FolderTypeIcon name={entry.name} expanded={!folderCollapsed} />
                   <HighlightedFileName name={entry.name} query={searchQuery} />
                 </>
@@ -234,6 +301,8 @@ export function FileTree({
                   onNativeDragStartFile={onNativeDragStartFile}
                   onDragStartEntry={onDragStartEntry}
                   onDragEndEntry={onDragEndEntry}
+                  nestedFolders={nestedFolders}
+                  onOpenNestedFolder={onOpenNestedFolder}
                 />
               </div>
             ) : entry.kind === "folder" && folderLoading ? <FolderLoadingRow /> : null}
@@ -249,12 +318,13 @@ export function SharedPageGlyph({ className }: { className: string }) {
   return <span className={className} title={fileSharing.sharedMarkTooltip} aria-hidden="true"><Share2 size={12} /></span>;
 }
 
+/** Files' first load: nothing that looks like files, and a quiet line only if the wait is noticeable. */
 export function FileTreeLoadingState() {
-  return <div className="file-tree-loading" aria-live="polite" aria-label="Loading files"><div className="file-tree-loading-heading"><Loader2 className="spin" size={14} /><span>Loading files</span></div><div className="file-tree-skeleton" aria-hidden="true">{["root", "child", "child", "root", "child", "grandchild", "root"].map((indent, index) => <div className={`file-tree-skeleton-row ${indent}`} key={`${indent}-${index}`}><span className="file-tree-skeleton-icon" /><span className="file-tree-skeleton-name" /></div>)}</div></div>;
+  return <div className="file-tree-loading delayed-loading" aria-live="polite" aria-label="Loading files"><div className="file-tree-loading-heading"><Loader2 className="spin" size={14} /><span>Loading files</span></div></div>;
 }
 
 function FolderLoadingRow() {
-  return <div className="file-children"><div className="folder-loading-row" aria-live="polite"><Loader2 className="spin" size={14} /><span>Loading folder</span></div></div>;
+  return <div className="file-children"><div className="folder-loading-row delayed-loading" aria-live="polite"><Loader2 className="spin" size={14} /><span>Loading folder</span></div></div>;
 }
 
 function HighlightedFileName({ name, query }: { name: string; query: string }) {
@@ -266,7 +336,7 @@ function HighlightedFileName({ name, query }: { name: string; query: string }) {
 
 export function FileTypeIcon({ path }: { path: string }) { return <FileTreeIconFrame iconSpec={fileTreeFileIcon(path)} />; }
 function FolderTypeIcon({ name, expanded }: { name: string; expanded: boolean }) { return <FileTreeIconFrame iconSpec={fileTreeFolderIcon(name, expanded)} />; }
-function FileTreeIconFrame({ iconSpec }: { iconSpec: FileTreeIconSpec }) { return <span className={`file-icon ${fileTreeIconClassName(iconSpec)}`} title={iconSpec.label} aria-hidden="true"><img className="file-icon-asset" src={iconSpec.src} alt="" draggable={false} /></span>; }
+function FileTreeIconFrame({ iconSpec }: { iconSpec: FileTreeIconSpec }) { return <FileIconFrame iconSpec={iconSpec} />; }
 
 function hasAttentionDescendant(paths: ReadonlySet<string>, folderPath: string): boolean {
   const prefix = `${folderPath}/`;

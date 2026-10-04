@@ -176,3 +176,54 @@ test("unreadable Chrome settings leave the app usable without replacing connecti
   assert.equal(await readFile(record, "utf8"), "malformed synthetic record");
   assert.deepEqual(counts(), { registrations: 0, opened: 0, starts: 0, closes: 0 });
 });
+
+test("startup transport failure is visible and an authenticated recovery replaces it", async t => {
+  const { service, options } = await fixture(t);
+  await service.prepare(); const owner = caller(); await service.bootstrap(origin, request(owner));
+  const next = await IncludedChromeConnectionService.create({ ...options, startTransport: async () => { throw new Error("private endpoint and secret must not reach status"); } });
+  t.after(() => next.close());
+  await assert.rejects(next.startIfEnabled());
+  assert.equal(next.status().state, "connection_error"); assert.equal(next.status().problem, "transport_unavailable"); assert.equal(next.status().hasSelection, true);
+  assert.ok(!JSON.stringify(next.status()).includes("private endpoint"));
+  const lease = (await next.getChromeConnection())!;
+  next.reportChromeConnectionObservation({ connectionId: randomUUID(), state: "connected" });
+  assert.equal(next.status().problem, "transport_unavailable");
+  next.reportChromeConnectionObservation({ connectionId: lease.connectionId, state: "connected" });
+  assert.equal(next.status().state, "connected"); assert.equal(next.status().problem, undefined);
+});
+
+test("a failed old probe cannot overwrite a newer authenticated browser contact", async t => {
+  const { service, options } = await fixture(t); await service.prepare(); const owner = caller(); await service.bootstrap(origin, request(owner));
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; }); const began = new Promise<void>(resolve => { entered = resolve; });
+  const next = await IncludedChromeConnectionService.create({ ...options, probe: async () => { entered(); await held; throw new Error("probe failed"); } }); t.after(() => next.close());
+  await next.startIfEnabled();
+  const checking = next.check(); await began;
+  const lease = (await next.getChromeConnection())!;
+  next.reportChromeConnectionObservation({ connectionId: lease.connectionId, state: "connected", extensionVersion: "1.2.8" }); release();
+  assert.equal((await checking).state, "connected"); assert.equal(next.status().state, "connected");
+});
+
+test("repair restores a selected profile's registration and retained transport; Check never borrows a temporary bridge", async t => {
+  const { service, options } = await fixture(t); await service.prepare(); await service.bootstrap(origin, request(caller())); await service.close();
+  let fail = true, starts = 0, probes = 0, opened = 0;
+  const next = await IncludedChromeConnectionService.create({ ...options,
+    registerNativeHost: async () => { if (fail) throw new Error("registration blocked"); },
+    startTransport: async () => { starts++; return { close() {} }; },
+    probe: async () => { probes++; }, openStore: async () => { opened++; },
+  }); t.after(() => next.close());
+  await assert.rejects(next.startIfEnabled()); assert.equal(next.status().problem, "native_host_unavailable");
+  await next.check(); assert.equal(probes, 0, "a missing app-owned transport cannot produce ephemeral Ready evidence");
+  fail = false; const repaired = await next.prepare();
+  assert.equal(repaired.problem, undefined); assert.equal(repaired.hasSelection, true); assert.equal(starts, 1); assert.equal(opened, 0, "repairing an already selected profile needs no repeat Store enrollment");
+  await next.check(); assert.equal(probes, 1); assert.equal(starts, 1, "Check observes the retained connection");
+});
+
+test("Update extension still opens its Store listing for the already selected profile", async t => {
+  const { service, counts } = await fixture(t); await service.prepare(); await service.bootstrap(origin, request(caller()));
+  const lease = (await service.getChromeConnection())!;
+  service.reportChromeConnectionObservation({ connectionId: lease.connectionId, state: "update_extension" });
+  const before = counts().opened;
+  assert.equal((await service.prepare()).state, "update_extension");
+  assert.equal(counts().opened, before + 1); assert.equal(counts().starts, 1, "updating the companion preserves the retained transport");
+});

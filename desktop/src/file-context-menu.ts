@@ -8,7 +8,10 @@ export type NativeFileMenuCommand =
   | "attach-chat"
   | "version-history"
   | "share"
+  | "new-folder"
   | "upload-here"
+  | "refresh"
+  | "give-worker"
   | "rename"
   | "delete";
 
@@ -26,16 +29,19 @@ export interface NativeFileMenuRequest {
     /** The file type can be shared as a page; `shared` says it already is. */
     share: boolean;
     shared: boolean;
+    /** A plain folder inside this Folder that can get its own Worker (optional; older renderers omit it). */
+    worker?: boolean;
   };
   point: { x: number; y: number };
 }
 
 export type NativeFileMenuItem =
   | { type: "separator" }
-  | { type: "item"; label: string; command: NativeFileMenuCommand };
+  | { type: "item"; label: string; command: NativeFileMenuCommand; icon?: "work-fold" };
 
 const requestKeys = new Set(["spaceId", "path", "kind", "capabilities", "point"]);
-const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete", "share", "shared"]);
+const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete", "share", "shared", "worker"]);
+const optionalCapabilityKeys = new Set(["worker"]);
 const pointKeys = new Set(["x", "y"]);
 
 export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuRequest {
@@ -55,6 +61,7 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
   if (!isRecord(capabilities) || !hasOnlyKeys(capabilities, capabilityKeys)) throw new Error("Native file menu capabilities are invalid.");
   if (!isRecord(point) || !hasOnlyKeys(point, pointKeys)) throw new Error("The native file menu position is invalid.");
   for (const key of capabilityKeys) {
+    if (optionalCapabilityKeys.has(key) && capabilities[key] === undefined) continue;
     if (typeof capabilities[key] !== "boolean") throw new Error("Native file menu capabilities are invalid.");
   }
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error("The native file menu position is invalid.");
@@ -71,6 +78,7 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
       delete: capabilities.delete as boolean,
       share: capabilities.share as boolean,
       shared: capabilities.shared as boolean,
+      ...(capabilities.worker === true ? { worker: true } : {}),
     },
     point: {
       x: Math.max(0, Math.min(1_000_000, Math.round(point.x as number))),
@@ -102,11 +110,17 @@ export function nativeFileMenuItems(request: NativeFileMenuRequest): NativeFileM
   if (request.kind === "file" && request.capabilities.share) {
     items.push({ type: "item", label: request.capabilities.shared ? "Shared" : "Share", command: "share" });
   }
-  if (request.kind === "folder" && request.capabilities.upload) {
+  if (request.kind === "folder") {
     items.push(
       { type: "separator" },
-      { type: "item", label: "Add Files Here…", command: "upload-here" },
+      { type: "item", label: "New Folder Here…", command: "new-folder" },
     );
+    if (request.capabilities.upload) items.push({ type: "item", label: "Add Files Here…", command: "upload-here" });
+    // Files has no toolbar buttons (2026-10-01): refreshing lives here with the other folder actions.
+    items.push({ type: "item", label: "Refresh", command: "refresh" });
+    if (request.capabilities.worker) {
+      items.push({ type: "separator" }, { type: "item", label: "Make a work-folder", command: "give-worker", icon: "work-fold" });
+    }
   }
   if (request.path && (request.capabilities.rename || request.capabilities.delete)) {
     items.push({ type: "separator" });

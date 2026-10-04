@@ -78,7 +78,7 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   await dom.render(createElement(FoldLimitsPane));
   const text = dom.container.textContent ?? "";
 
-  assert.doesNotMatch(text, /How long one request stays open|Steps in one automation|Follow-up turns after work settles/);
+  assert.doesNotMatch(text, /How long one request stays open|Steps in one automation|Follow-up turns after work settles|Worker turns running together/);
   assert.ok(text.includes(`${restrictedAppAssistantLimits.inputBytes / 1024} KB`), "the 64 KB Chat request input bound is shown");
   assert.ok(text.includes(`${restrictedAppAssistantLimits.resultBytes / 1024} KB`), "the 256 KB Chat result bound is shown");
   assert.ok(
@@ -97,7 +97,6 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   );
 
   // The request bounds every collaboration refusal names (docs/collaboration-contract.md).
-  assert.ok(text.includes(`Worker turns running together${workFoldRequestLimits.maxConcurrentChildrenPerRoot}`), "the concurrency is shown");
   assert.ok(text.includes("Model spending for one requestNo limit"), "no spending cap is shipped");
   assert.ok(text.includes(`A result summary${workFoldRequestLimits.maxResultSummaryBytes / 1024} KB`), "the summary bound is shown");
   assert.ok(text.includes(`Result Details${workFoldRequestLimits.maxResultDataBytes / 1024} KB`), "the data bound is shown");
@@ -106,13 +105,11 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
 });
 
 /**
- * Every request refusal ends with "Settings → Automations → Limits shows this
- * number." A bound whose refusal says that and whose number is not in the
- * pane sends a person somewhere that does not answer them, which is exactly
- * the gate-in-disguise principle 6 forbids. This pins one row per bound, so a
- * new `WorkFoldRequestLimitName` cannot be added without one.
+ * Current request transport bounds and the optional spending cap point at
+ * Settings → Automations → Limits. Historical quota names remain readable in
+ * durable records but must not reappear as current limits in this pane.
  */
-test("every request bound whose refusal names the Limits section has a row in it", async (t) => {
+test("current request transport bounds and the optional budget have rows in Limits", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   await dom.render(createElement(FoldLimitsPane));
@@ -120,8 +117,7 @@ test("every request bound whose refusal names the Limits section has a row in it
 
   const limits = workFoldRequestLimits;
   const kb = (bytes: number): string => `${bytes / 1024} KB`;
-  const rows: Record<WorkFoldRequestLimitName, string> = {
-    concurrentChildren: `Worker turns running together${limits.maxConcurrentChildrenPerRoot}`,
+  const rows: Partial<Record<WorkFoldRequestLimitName, string>> = {
     providerBudget: "Model spending for one requestNo limit",
     questionText: `A question an agent asks${kb(limits.maxQuestionTextBytes)}`,
     answerText: `An answer you give${kb(limits.maxAnswerTextBytes)}`,

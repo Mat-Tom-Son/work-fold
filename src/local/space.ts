@@ -51,6 +51,8 @@ export interface TreeEntry {
   descendantIgnoredCount?: number;
   hasChildren?: boolean;
   children?: TreeEntry[];
+  /** This folder is its own registered Folder (2026-10-01): the walk stops at its boundary. */
+  nestedFolder?: true;
 }
 
 export interface SpaceEntryInfo {
@@ -85,6 +87,12 @@ export interface SpaceCreatedEntry {
 
 export interface SpaceTreeOptions {
   includeIgnored?: boolean;
+  /**
+   * Relative paths of Folders registered inside this one. Each is listed as a
+   * boundary entry with no children, the same separate ownership History and
+   * Search already honor; a lazy read below one returns nothing.
+   */
+  nestedFolderPaths?: readonly string[];
 }
 
 export interface SpaceRemovalIntent {
@@ -507,6 +515,15 @@ export async function scanSpaceTree(
   const info = await stat(scanRoot).catch(() => null);
   if (!info?.isDirectory()) throw new Error("Requested Space tree path is not a folder.");
   const ignoreState = await readSpaceIgnoreState(safeRoot);
+  const boundaries = new Set(options.nestedFolderPaths ?? []);
+  // Compare the resolved location, as the file system sees it, so
+  // `packages//api`, `packages/./api`, or `Packages/api` cannot list a nested
+  // Folder's contents through its parent.
+  const requested = comparableRelative(relative(safeRoot, scanRoot));
+  const comparableBoundaries = [...boundaries].map(comparableRelative);
+  if (requested && comparableBoundaries.some((boundary) => requested === boundary || requested.startsWith(`${boundary}/`))) {
+    return { entries: [], truncated: false };
+  }
   // A Space is an arbitrary folder and may hold far more entries than a
   // navigator can present. The walk stops at a total entry budget and says so,
   // so a partial tree is never mistaken for the whole Space.
@@ -520,6 +537,7 @@ export async function scanSpaceTree(
     options.includeIgnored !== false,
     createFilesystemLimiter(treeScanConcurrency),
     budget,
+    boundaries,
   );
   return { entries, truncated: budget.truncated };
 }
@@ -670,6 +688,8 @@ export async function moveSpaceEntry(
   const targetFolderPath = normalizeRelative(input.targetFolderPath ?? "");
   if (!sourcePath || sourcePath === ".") throw new Error("Select a file or folder to move.");
   if (targetFolderPath === sourcePath || targetFolderPath.startsWith(`${sourcePath}/`)) throw new Error("Folders cannot be moved into themselves.");
+  await assertOutsideNestedFolders(root, sourcePath);
+  if (targetFolderPath) await assertOutsideNestedFolders(root, `${targetFolderPath}/${basename(sourcePath)}`);
   const source = resolveSpacePath(root, sourcePath);
   if (samePath(source, root)) throw new Error("The Space root cannot be moved.");
   const sourceInfo = await stat(source).catch(() => null);
@@ -699,6 +719,7 @@ export async function renameSpaceEntry(
   const sourcePath = normalizeRelative(input.path);
   if (!sourcePath || sourcePath === ".") throw new Error("Select a file or folder to rename.");
   const newName = safeFileName(input.newName);
+  await assertOutsideNestedFolders(root, sourcePath);
   const source = resolveSpacePath(root, sourcePath);
   if (samePath(source, root)) throw new Error("The Space root cannot be renamed.");
   const sourceInfo = await stat(source).catch(() => null);
@@ -778,6 +799,7 @@ export async function resolveSpaceDeleteTarget(
   const root = ensureSafeSpaceRoot(spaceRoot);
   const normalized = normalizeRelative(relativePath);
   if (!normalized || normalized === ".") throw new Error("Select a file or folder to delete.");
+  await assertOutsideNestedFolders(root, normalized);
   const path = resolveSpacePath(root, normalized);
   if (samePath(path, root)) throw new Error("The Space root cannot be deleted.");
   const info = await stat(path).catch(() => null);
@@ -1158,6 +1180,76 @@ async function withRegistryOwnershipMutation<T>(operation: () => Promise<T>): Pr
   finally { ownershipMutations -= 1; }
 }
 
+/**
+ * The registered Folders' ids, names, and roots straight from the registry,
+ * excluding pending removals. Unlike listSpaces() it never rewrites portable
+ * manifests, so a hot path (every Assistant turn) can read nesting without
+ * touching any Folder on disk.
+ */
+export async function registeredSpaceOutline(): Promise<Array<{ id: string; name: string; spaceRoot: string }>> {
+  const registry = await readRegistry();
+  const removingIds = new Set(registry.pendingRemovals.map((intent) => intent.spaceId));
+  return registry.spaces
+    .filter((space) => !removingIds.has(space.id))
+    .map((space) => ({ id: space.id, name: space.name, spaceRoot: space.spaceRoot }));
+}
+
+/**
+ * Refuses a parent Folder's file operation on a folder that holds a nested
+ * registered Folder, or on anything inside one: that content belongs to the
+ * nested Folder's own Worker and History (2026-10-01).
+ */
+async function assertOutsideNestedFolders(spaceRoot: string, relativePath: string): Promise<void> {
+  const path = comparableRelative(relativePath);
+  if (!path) return;
+  for (const nested of await nestedRegisteredSpacePaths(spaceRoot)) {
+    const boundary = comparableRelative(nested);
+    if (path === boundary || boundary.startsWith(`${path}/`)) {
+      throw Object.assign(new Error(`${relativePath} holds the ${nested} work-folder, which has its own Worker. Remove that work-folder from work-fold first, or change it in ${process.platform === "darwin" ? "Finder" : "your file manager"}.`), { status: 409, statusCode: 409 });
+    }
+    if (path.startsWith(`${boundary}/`)) {
+      throw Object.assign(new Error(`${relativePath} belongs to the ${nested} work-folder. Open that work-folder to change it.`), { status: 409, statusCode: 409 });
+    }
+  }
+}
+
+/**
+ * Resolves a folder inside a registered Folder that may become a nested Folder
+ * of its own (2026-10-01): a real, visible directory below the root that is not
+ * already a Folder and does not sit inside one. Returns its absolute path.
+ */
+export async function resolveNestableFolderPath(spaceRoot: string, relativePath: string): Promise<string> {
+  const root = ensureSafeSpaceRoot(spaceRoot);
+  const normalized = normalizeRelative(relativePath).split("/").filter((part) => part && part !== ".").join("/");
+  if (!normalized) throw Object.assign(new Error("Choose a folder inside this work-folder."), { status: 400, statusCode: 400 });
+  if (normalized.split("/").some((part) => isAlwaysHiddenSpaceEntry(part))) throw Object.assign(new Error("That folder is hidden work-fold or Pi data."), { status: 400, statusCode: 400 });
+  let target: string;
+  try { target = resolveSpacePath(root, normalized); }
+  catch (error) { throw Object.assign(error instanceof Error ? error : new Error("Choose a folder inside this work-folder."), { status: 400, statusCode: 400 }); }
+  const info = await lstat(target).catch(() => null);
+  if (!info?.isDirectory() || info.isSymbolicLink()) throw notFound("That folder no longer exists here.");
+  const path = comparableRelative(normalized);
+  for (const nested of await nestedRegisteredSpacePaths(root)) {
+    const boundary = comparableRelative(nested);
+    if (path === boundary) throw Object.assign(new Error(`${normalized} already has its own Worker.`), { status: 409, statusCode: 409 });
+    if (path.startsWith(`${boundary}/`)) throw Object.assign(new Error(`${normalized} belongs to the ${nested} work-folder. Open that work-folder to do this.`), { status: 409, statusCode: 409 });
+  }
+  return target;
+}
+
+/** Relative paths as the file system compares them: macOS and Windows ignore case. */
+const boundaryKeyCache = new WeakMap<ReadonlySet<string>, Set<string>>();
+function boundaryKeys(boundaries: ReadonlySet<string>): Set<string> {
+  let keys = boundaryKeyCache.get(boundaries);
+  if (!keys) { keys = new Set([...boundaries].map(comparableRelative)); boundaryKeyCache.set(boundaries, keys); }
+  return keys;
+}
+
+function comparableRelative(value: string): string {
+  const normalized = normalizeRelative(value).split("/").filter((part) => part && part !== ".").join("/");
+  return process.platform === "darwin" || process.platform === "win32" ? normalized.toLocaleLowerCase() : normalized;
+}
+
 /** Includes pending removals: their content is still separately owned. */
 export async function nestedRegisteredSpacePaths(spaceRoot: string): Promise<string[]> {
   const root = resolve(spaceRoot);
@@ -1318,6 +1410,7 @@ async function scanDirectory(
   includeIgnored: boolean,
   limit: FilesystemLimiter,
   budget: TreeScanBudget,
+  boundaries: ReadonlySet<string> = new Set(),
 ): Promise<TreeEntry[]> {
   if (budget.remaining <= 0) {
     budget.truncated = true;
@@ -1361,10 +1454,23 @@ async function scanDirectory(
       break;
     }
     budget.remaining -= 1;
+    if (item.entry.isDirectory() && boundaries.size && boundaryKeys(boundaries).has(comparableRelative(item.relativePath))) {
+      result.push({
+        name: item.entry.name,
+        path: item.relativePath,
+        kind: "folder",
+        updatedAt: item.info.mtime.toISOString(),
+        ...(item.ignored ? { ignored: true } : {}),
+        hasChildren: false,
+        children: [],
+        nestedFolder: true,
+      });
+      continue;
+    }
     if (item.entry.isDirectory()) {
       const childrenLoaded = depth < maxDepth;
       const children = childrenLoaded
-        ? await scanDirectory(root, item.path, depth + 1, maxDepth, ignorePatterns, includeIgnored, limit, budget)
+        ? await scanDirectory(root, item.path, depth + 1, maxDepth, ignorePatterns, includeIgnored, limit, budget, boundaries)
         : [];
       // An empty child list means "no children" only when the walk was free to
       // look. If the budget ran out first, the folder has to be probed, or a

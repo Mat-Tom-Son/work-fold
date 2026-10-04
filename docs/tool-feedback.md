@@ -116,12 +116,13 @@ integration that can return an image directly should do so when useful; a
 standard tool that returns a path remains usable through Pi's built-in read.
 
 Each integration owns its capture and artifact lifetime. Included document
-helpers bound source size, pixels/pages, image bytes, logs and runtime; rendered
-PNGs are temporary by default: the document worker removes its private preview
-directory after assembling the bounded native image result, including failure
-cleanup. An explicitly supplied `outputDir` keeps requested PNG artifacts in
-that ordinary directory until deliberately removed. Selected native tool results can also persist in Pi's machine-local
-session history. Neither is an ambient screenshot archive. Do not invent a
+helpers bound individual allocations and response size, with continuation and
+retained artifacts for larger work. They remove private render scratch after
+settlement, including failures; selected observations, emitted images and result
+artifacts remain in the run's stated artifact directory until deliberately removed.
+An explicitly supplied `outputDir` also keeps requested PNGs in that ordinary
+directory. Selected native tool results can persist in Pi's machine-local session
+history. Neither is an ambient screenshot archive. Do not invent a
 universal retention mechanism or claim a file is temporary without a cleanup
 owner. Cleanup must never delete a delivered artifact or another Chat's evidence.
 
@@ -236,8 +237,9 @@ identities. Documents adds ordinary bundled libraries and a cancellable
 JavaScript worker, with PDF text/render helpers and deliberately selected PNG
 emission. Its render evidence pins captured source bytes, page, scale,
 renderer, dimensions and digests. Office files can be structurally inspected
-with those libraries; visual inspection uses existing compatible applications,
-and spreadsheet formulas are not recalculated. MCP keeps upstream transport,
+with those libraries; the optional installed-engine adapter renders Office files
+through LibreOffice, recalculates XLSX copies through Calc, and recognizes page-image
+text through Tesseract. Engine availability is explicit; those programs are not bundled. MCP keeps upstream transport,
 discovery, schemas and cancellation; configured servers follow their native lifecycle, with lazy connections
 starting on use. See [the integration contract](extension-foundation.md) and
 [document-work Skill](../resources/included-tools/documents/skills/documents/SKILL.md)
@@ -296,3 +298,107 @@ regression and did not justify replacing Pi's native compaction behavior.
 - The installed Pi 0.80.6 `createReadTool`, `convertToLlm` and `ToolDefinition`
   exports; work-fold's [Pi client](../src/local/agent/pi-client.ts) constructs
   native sessions and projects their events into bounded UI activity.
+
+## Selected edit evidence and presentation
+
+The host projects only a successful built-in Pi `edit` result's display diff,
+relative path, first changed line when available, and truncation flag into its
+existing tool event and portable Chat work trail. It checks the path at invocation
+and completion, excluding outside-Folder, reserved metadata, symbolic links and
+nested Folder identities. Replaced/unknown tools retain the generic activity
+fallback. Evidence is limited to 16 KiB per edit and 64 KiB per turn; raw results and
+runnable patches are not copied. A display diff describes that tool's observation,
+not a live file preview or proof of the entire task's correctness.
+
+Optional saved `assistantPresentation` metadata preserves native message boundaries
+without changing aggregate message content, old transcripts, or live text events.
+Consumers may use final/progress/command ranges after validation and fall back to
+full content when metadata is absent. Text and edit metadata are validated on
+append and read. Segment metadata is capped at 256 entries. The Chat puts progress,
+thinking, tools and captured edit excerpts in one ordered Worker steps strip, and
+renders native-confirmed final text as the answer. Copy preserves the complete
+aggregate reply. Missing, truncated or inconsistent metadata falls back to full
+text; old transcripts never acquire invented chronology. Interrupted turns never
+invent a successful final segment.
+
+Reconnecting to a running host replaces live presentation with its current snapshot,
+including stable row identities, order, active phases and thinking timestamps. It
+does not replay execution. Incremental events carry their turn identity so a stale
+turn cannot update a new one. The snapshot has a 192 KiB encoded display budget,
+reserves room for active work and discloses omissions; execution, model context and
+durable content are unaffected. A host process crash remains an interrupted turn:
+the durable journal preserves available partial text but does not reconstruct
+unfinished live steps. Reopening a view and resuming execution are different acts.
+
+Saved-file review uses [bounded History reads and differences](management-layer.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
+That comparison describes an interval's bytes; native edit evidence describes a
+particular tool call. They must not be conflated when other people or programs can
+write the same file.
+
+Folder Chat file attachments are references to the originals, inspected with
+native file and document tools rather than eagerly extracted into the prompt.
+The bounded Office text reader used by management attachments remains available:
+PowerPoint and spreadsheet extractions follow their package manifest relationship
+order. A reader that cannot resolve all declared parts returns the existing
+path-only reference with a reason, rather than claiming partial extraction is full.
+Per-part decompression bounds, the 64 MiB cumulative XML bound and the extracted-output
+bound are enforced, with no independent slide/worksheet count ceiling; malformed, unsupported or unresolved
+packages take the same fallback. Worksheet shared strings do not bypass output
+limits. These are text-extraction guarantees, not claims about visual layout or
+formula recalculation.
+
+
+## Continued access to bounded evidence (2026-09-27)
+
+A response budget is not a ceiling on the task. The model chooses relevant files,
+pages, regions, ranges, and deadlines. Integrations preserve complete available
+observations in ordinary files or provide usable continuation tied to the observed
+source. They report exclusions and changed sources instead of claiming an incomplete
+search or projection is complete. No generic result protocol, second model loop,
+automatic mutation replay, or new authority mode is introduced.
+
+Document scripts have no default deadline; optional deadlines and Stop terminate
+the owned worker. PDF handles reuse immutable source bytes, allow explicit page
+selection without a count ceiling, and provide text/render continuation. Cropped
+regions and fitting keep canvas allocations bounded. Image-response overflow becomes
+an artifact reference. A later exception preserves prior selected images, logs,
+observations and progress as a failed native result; progress is not a final return.
+Large structured returns remain valid JSON and point to full files. Retained run
+evidence lives under machine-local `document-artifacts/` or an explicit ordinary
+artifacts directory until deliberately removed. Temporary render scratch is separate.
+
+Chrome text mode returns body-text ranges with a source revision, and full captured
+results can spill to files readable by native Pi. Retrying a wait uses its advertised
+deadline. MCP retains accompanying structured results and cursors through its existing
+output guard; a cold undiscovered server is identified with its connect path. These
+changes live in the reviewed native patches, not a parallel tool implementation.
+
+Search streams ordinary text without a per-file size exclusion, exposes scope and
+coverage, and continues through page budgets. History lists and verified text ranges
+continue through the same CLI/HTTP domain services. See the management guide for
+version, cursor, and consistency details.
+
+Attachment bodies are loaded after the live model is resolved. Admission accounts
+for conversation usage, reconstructed system/tool context, the new user/host text,
+and response/estimation reserve. It uses native Pi estimates and leaves compaction
+to Pi. An explicit environment budget may narrow capacity, never widen the actual
+model window. Extraction previews do not promise inline admission. Files whose
+bodies cannot fit remain accessible by reference. If the reference metadata itself
+cannot fit, a private retained JSON manifest preserves every selected path and the
+model receives its location, source digest, ownership context and retention policy.
+There is no independent 32-path cutoff. Word text includes referenced
+headers, footers and notes; unsupported content and layout scope are disclosed.
+Model output-length exhaustion preserves partial work and ends with an explicit
+incomplete failure, rather than recording a successful final answer or replaying work.
+Pi's existing compact-and-retry remains responsible for input overflow. A successful
+native retry clears the discarded attempt's error and text in the host projection.
+The reviewed Pi 0.80.6 patch also prevents rebuilding compacted context from
+restoring an empty length-stop overflow response that native continuation cannot
+resume, preserves the one-retry guard across repeated length responses, and uses
+session order to distinguish fresh retries from pre-compaction context. It changes
+no retry count or ordinary output-length behavior.
+
+Native bash remains available for ordinary full-trust file/process work. This change
+does not install a PTY/job scheduler: native bash has no default command deadline and
+spills large output. The document worker and engine adapter own their own cancellation;
+arbitrary child processes created by a user script remain outside worker ownership.

@@ -26,8 +26,13 @@ subscription generation. This keeps start, answer, and Stop requests out of
 Chromium's HTTP/1.1 connection limit even with many mounted background Chats.
 
 The underlying direct GET streams remain compatible. The closed `reset`,
-`apps`, `spaces`, and `assistant` control hints contain no content or authority;
+`apps`, `spaces`, `assistant`, and `activity` control hints contain no content or authority;
 renderers re-read the relevant service after a hint and reset on reconnect.
+`GET /api/spaces/activity` returns only the Space and Chat ids of running
+Worker turns, including those without a mounted Chat tab. The renderer uses
+that projection for activity marks and records unseen replies locally.
+`GET /api/spaces/outline` reads registered ids, names, and roots without
+rewriting portable manifests; local composers use it to address Workers.
 File watchers have no replay log and refresh Files after every ready signal,
 covering changes during reconnection. Chat replay retains its existing event
 log, transient Extension interaction snapshots, and proposal filtering.
@@ -178,6 +183,8 @@ work-fold version
 work-fold help capabilities
 ```
 
+`spaces list --json` adds `parentSpaceId` to a Space registered inside another Space's folder (2026-10-01); a top-level Space's projection is unchanged.
+
 `--space <id-or-exact-name>` selects a Space explicitly. Without it, Space-aware read commands resolve the terminal's current working directory. Duplicate exact names are rejected as ambiguous; use the stable Space id in automation. `--json` emits the stable protocol projection and is the preferred interface for scripts, Codex, Claude Code, and other shell-capable harnesses.
 
 The read commands stay content-free: Space names and paths, task metadata, and capability metadata — no file contents, conversation text, credentials, or provider tokens.
@@ -298,7 +305,8 @@ A **request** carries its id, kind (`management`, `space`, `app`, `routing`,
 `cli`), root id, parent task id, owner scope (management, or a Space id plus
 conversation id), app installation where one applies, initiating surface,
 created-at, state, its turns, child request ids, question ids, results,
-rolled-up usage, and a deadline. Its state comes from one vocabulary:
+rolled-up usage, and a nullable deadline retained for compatibility. New
+requests have no deadline. Its state comes from one vocabulary:
 `working`, `waiting`, `handed_off`, `done`, `partial`, `failed`, `stopped`,
 `expired`. A **question** carries its id, request id, task id, respondent
 (`person` or `parent`), text, asked-at, state (`open`, `answered`, `expired`,
@@ -335,32 +343,37 @@ request as `waiting`. When every child of an owning request has
 settled when the owning Chat is idle and selected child results have not been delivered, the host composes one deterministic
 follow-up turn in that conversation — a `system`-actor turn joined to the root,
 naming each settled child, its outcome, the files it chose, and any question
-still open beneath it. It is counted against the per-root bound; past that
-bound a settle is recorded rather than narrated. Continuations never follow a
-root Stop, a request that ran out of time or hit a bound, or a restart, and a
-person can turn them off in Settings → Automations → Limits.
+still open beneath it. Delivered child turns are recorded so a result is not
+delivered twice. There is no continuation-count quota. Continuations never
+follow a root Stop, an expired legacy request, a configured spending-cap
+failure, or a restart, and a person can turn them off in Settings → Automations
+→ Limits.
 
 Only the assignment text, the answer text, released report summaries, and
 copied files ever enter a Space Chat. The request graph itself, other Spaces'
 results, and the fold's transcript stay above Spaces.
 
-The bounds are generous defaults in Settings → Automations → Limits
-(`src/shared/fold-limits.ts`), and every refusal names the number it hit:
+Requests have no built-in lifetime, child-count, delegation-depth, or
+continuation-count quota. One Chat runs one turn or compaction at a time;
+different Chats and Folders, including management Chats, can run concurrently.
+Delegated children have no separate slot limit or waiting queue.
+
+Settings → Automations → Limits (`src/shared/fold-limits.ts`) shows the actual
+request transport bounds, optional spending budget, and retention:
 
 | Limit | Default | On hit |
 |---|---|---|
-| Request deadline | 24 hours | request `expired`; open questions expire; no continuation |
-| Child tasks per root request | 32 | `chat send`/`chat handoff` refused, names this limit |
-| Delegation depth | 4 | same |
-| Concurrent children per root | 8 | same |
-| Continuation turns per root | 4 | further settles are recorded, not narrated |
 | Provider budget per root | unlimited (a host may set a cap) | request `failed`, names the cap |
-| Question lifetime | the request deadline | question `expired` |
+| Question text | 16 KiB | the write is refused before it is recorded |
+| Answer text | 16 KiB | the write is refused before it is recorded |
+| Result summary | 32 KiB | the write is refused before it is recorded |
+| Result data | 256 KiB | the write is refused before it is recorded |
 
 Envelope bounds travel with the same machinery: a summary of at most 32 KiB,
 structured details of at most 256 KiB validated against the declared schema
-when there is one, at most 32 named files, and question and answer text of at
-most 16 KiB each. Settled request graphs are kept for 30 days.
+when there is one, and question and answer text of at most 16 KiB each. Named
+result files have no separate count quota; the containing transport envelope
+still has its byte bound. Settled request graphs are kept for 30 days.
 
 ### Work presentation for trusted surfaces
 
@@ -701,3 +714,95 @@ still does not reconstruct a request that retention has removed. See
 [browser apps](fold-browser-apps.md) for current-file and installation semantics.
 
 The authenticated renderer can list saved fold Chats at `GET /api/management/conversations` and pin `GET /api/management/summary?conversationId=<id>` to a selected Chat. The transcript and latest request always come from that same id. The paired `management.chats` projection optionally includes `requestState` and `needsAnswer` for browser-owned requests; older clients and host operations remain compatible. This changes no CLI protocol or request authority.
+
+## Bounded History review and durable turn evidence (2026-09-27)
+
+`history read --space <id> --path <relative-file> --checkpoint <id> --json`
+reads a selected saved file. `history diff --space <id> --path <relative-file>
+--from-checkpoint <id> [--to-checkpoint <id>] --json` compares two saved versions,
+or compares with a current-file observation when the second checkpoint is omitted.
+Both are authenticated act-lane reads with metadata-only receipts. Protocol v1
+remains content-free. Local GET routes at `/api/spaces/:id/history/read` and
+`/api/spaces/:id/history/diff` take `path` plus `checkpointId` or
+`fromCheckpointId`/`toCheckpointId` and call the same `history-review.ts` service.
+No remote operation or restricted-app grant is added.
+
+The service verifies checkpoint membership in the selected Folder and the exact
+relative path before opening an object. It rejects internal paths, symlink
+traversal and paths belonging to nested registered Folders. Read results distinguish
+text, binary, too-large, absent, uncaptured and unavailable content. Saved digests
+are verified against read bytes; `hashVerified: false` identifies metadata that was
+not reverified. Current reads carry `observedAt` and reject detected changes during
+reading; they are not transactional filesystem snapshots. Review never captures,
+restores, or edits files. Interval differences do not attribute edits to a Worker.
+
+The legacy complete-file observation and diff budgets remain explicit in every
+version-1 result: 128 KiB per complete text observation, 64 KiB of
+difference output, 2,000 lines, 4,096 characters per line, and one million diff
+work cells. Unsupported or incomplete comparison remains explicit in both JSON and
+human CLI output. Folder History and file Version History offer the same read-only
+comparison, including coverage explanations and available saved/current text.
+Existing restore previews and restoration paths keep their semantics.
+
+Search and History retrieval budgets are per-call budgets with explicit continuation.
+`history list` and `history versions` accept `--limit` (1–1,000) and `--cursor`;
+their existing arrays now accompany `total`, `sourceVersion` and `nextCursor`.
+Pass `nextCursor` with the same selection until it is null. A changed retained
+ledger or a cursor from another selection is rejected instead of silently moving
+the page boundary. Retention itself remains the existing local recovery policy.
+The corresponding checkpoint/file-version GET routes accept `limit` and `cursor`.
+
+For a large saved UTF-8 file, use `history read --space <id> --path <file>
+--checkpoint <id> --offset-bytes 0 --length-bytes 65536 --json`. The additive
+`range` contains text, actual byte offset/length, `totalBytes`, `hashSha256`,
+`hashVerified`, and `nextOffsetBytes`. Repeat with that next offset and
+`--expected-sha256 <hash>` until the next offset is null. Each call streams and
+verifies the whole checkpoint-owned object with fixed buffers before releasing
+any selected text, including detecting corruption outside the requested range.
+Ranges preserve UTF-8 character boundaries; arbitrary offsets inside a character
+are rejected. `range.complete` means the one returned range covers the whole
+file. Legacy `observation.text` still means complete content; a large observation
+can be `too_large` while its separate range is available. HTTP uses `offsetBytes`,
+`lengthBytes` and `expectedSha256`. Binary and uncaptured content stay explicit;
+no arbitrary object endpoint, destructive restore, or private-state access is needed.
+
+`search --space <id> --query <text> [--scope files|chats|all] [--path <file-or-folder>]
+[--limit <n>] [--cursor <cursor>] --json` streams ordinary text files regardless
+of size. `path` narrows the file portion; Chat scope stays selected separately.
+The response retains `files`, `chats`, `truncated` and `scannedFiles`, adding
+`nextCursor` and per-page `coverage`. Repeat the same selection with the returned
+cursor until null; a page with no matches can still advance through a large file.
+The defaults are 200 matches, 5,000 visited entries/files and 8 MiB scanned per
+page, with fixed read buffers and a 512 KiB match-payload budget. These do not exclude large files or deep trees.
+Ignored directories, internal metadata/nested Folders, symlinks, binary content,
+unreadable entries and detected changes have separate coverage counts. Directory
+counts name excluded roots, not all descendants. `coverage.complete` is false
+while work remains or any page encountered unreadable/changed content. Search is
+a sequence of live observations, not a transactional snapshot; external changes
+can require a fresh query. Cursors bind the selection/ignore rules and verify
+active directory and file identities. They expire on host restart. Local Search
+GET uses `q`, `scope`, `path`, `limit` and `cursor` with the same service and
+request cancellation. Receipts remain metadata-only and protocol v1 content-free.
+
+A Folder turn's hidden context now includes the actual pre-turn History capture:
+checkpoint id (including deduplicated reuse), captured file count, and skipped
+counts by reason, or an unavailable status. It does not claim skipped bytes are
+backed up. Management turns do not imply a checkpoint covers arbitrary external
+files or every Folder. Instructions distinguish ordinary native Pi content work
+from managed product operations, and reserve explicit History saves for useful
+intermediate milestones.
+
+Turn-store retention applies the 1,000-record default to recent terminal records;
+all accepted/running records remain through replay and compaction. Request retention,
+startup reconciliation and no automatic replay remain unchanged. The transient
+`TurnCheckpointWriter` owns batching and draining stream writes, including task-id
+fencing and shutdown, while the turn store continues to own durable records.
+
+Optional `assistantPresentation` on saved assistant messages records at most 256
+native segment boundaries as UTF-16 offsets into unchanged `content`, classified as
+progress, final or command. A successful native stop without tool calls can mark a
+final segment; stopped/incomplete turns keep progress and malformed metadata is
+ignored. Legacy aggregate text and streaming remain unchanged. This is an additive
+backend contract for the separate chat-rendering work, not an automatic change to
+how desktop, management or paired-web replies are displayed. Selected native edit
+evidence is described in [the feedback contract](tool-feedback.md#selected-edit-evidence-and-presentation).

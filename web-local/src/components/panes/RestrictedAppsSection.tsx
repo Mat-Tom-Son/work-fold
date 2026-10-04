@@ -160,7 +160,7 @@ export function RestrictedAppsSection({
   async function remove(app: RestrictedAppInstalled) {
     const confirmed = await requestConfirm({
       title: `Remove ${app.manifest.title} preview?`,
-      body: "Removes the preview, access, and connections; moves app data to Recently deleted. Folder files remain.",
+      body: "Removes the preview, access, and connections; moves app data to Recently deleted. work-folder files remain.",
       confirmLabel: "Remove Preview",
       tone: "danger",
     });
@@ -188,7 +188,7 @@ export function RestrictedAppsSection({
     <section className={`restricted-apps-section presentation-${presentation}`} aria-labelledby={presentation === "section" ? "restricted-apps-title" : undefined} aria-label={presentation === "page" ? "Installed apps" : undefined}>
       {presentation === "section" ? <div className="restricted-apps-heading">
         <div>
-          <div className="restricted-apps-title-line"><h3 id="restricted-apps-title">Apps in This Folder</h3><span>{filtered ? `${apps.length}/${totalApps}` : apps.length}</span></div>
+          <div className="restricted-apps-title-line"><h3 id="restricted-apps-title">Apps in This work-folder</h3><span>{filtered ? `${apps.length}/${totalApps}` : apps.length}</span></div>
         </div>
         <div className="restricted-apps-heading-actions"><button className="professional-button professional-button-quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(space.id)}>App Studio</button></div>
       </div> : null}
@@ -300,7 +300,7 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
 function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
   return <div className="restricted-app-authority-list">
     {review.manifest.assistantActions?.length ? <section className="restricted-app-authority-group">
-      <h4>Worker Requests</h4><p>Starts a Chat in this folder.</p>
+      <h4>Worker Requests</h4><p>Starts a Chat in this work-folder.</p>
       <div className="restricted-app-authority-items">{review.manifest.assistantActions.map((action) => <details key={action.id}><summary>{action.title}</summary><pre className="restricted-app-task-declaration">{action.instructions}</pre></details>)}</div>
     </section> : null}
     <ReviewAuthorityGroup icon={<PlugConnected20Regular />} title="Network & Connections" summary={review.manifest.permissions.network.length ? `${review.manifest.permissions.network.length} ${review.manifest.permissions.network.length === 1 ? "destination" : "destinations"} declared` : "None requested"} state={review.manifest.permissions.network.length ? "on" : "included"}>
@@ -314,8 +314,8 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
         </article>)}</div>
         : null}
     </ReviewAuthorityGroup>
-    <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Folder Files" summary={review.manifest.permissions.files.length ? `${review.manifest.permissions.files.length} ${review.manifest.permissions.files.length === 1 ? "file choice" : "file choices"} declared` : "None requested"} state={review.manifest.permissions.files.some((item) => item.target === "directory") ? "on" : "included"}>
-      {review.manifest.permissions.files.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} {permission.target === "directory" ? "the whole Space folder" : "a file you choose"}</strong><span>{permission.target === "directory" ? "On when added; limit it to one folder in Apps." : "Off until you choose a file in Apps."}</span></article>)}</div> : null}
+    <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="work-folder Files" summary={review.manifest.permissions.files.length ? `${review.manifest.permissions.files.length} ${review.manifest.permissions.files.length === 1 ? "file choice" : "file choices"} declared` : "None requested"} state={review.manifest.permissions.files.some((item) => item.target === "directory") ? "on" : "included"}>
+      {review.manifest.permissions.files.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} {permission.target === "directory" ? "the whole work-folder" : "a file you choose"}</strong><span>{permission.target === "directory" ? "On when added; limit it to one folder in Apps." : "Off until you choose a file in Apps."}</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
     {review.manifest.permissions.checks?.length ? <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Check Results" summary={`${review.manifest.permissions.checks.length} choices requested`} state="included">
       <div className="restricted-app-authority-items">{review.manifest.permissions.checks.map((permission) => <article key={permission.id}><strong>{permission.title}</strong><span>Reads status and findings from this Space's Check; when the Space has more than one, choose it in Apps.</span></article>)}</div>
@@ -625,7 +625,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   const access = restrictedAppAccessState(app);
   const accessSummary = [
     { label: "Network", enabled: app.networkGrants.length, total: app.manifest.permissions.network.length },
-    { label: "Folder Files", enabled: app.fileGrants.length, total: app.manifest.permissions.files.length },
+    { label: "work-folder Files", enabled: app.fileGrants.length, total: app.manifest.permissions.files.length },
     ...(app.manifest.permissions.checks?.length ? [{ label: "Check Results", enabled: app.checkGrants?.length ?? 0, total: app.manifest.permissions.checks.length }] : []),
     { label: "Notifications", enabled: app.notificationGrants.length, total: app.manifest.permissions.notifications.length },
     { label: "Automations", enabled: app.automations.filter((automation) => automation.enabled).length, total: app.manifest.automations.length },
@@ -671,7 +671,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
           })}
         </section> : null}
         {app.manifest.permissions.files.length ? <section className="restricted-app-connections" aria-labelledby="restricted-app-files-title">
-          <div className="restricted-app-connections-heading"><div><ShieldCheckmark20Regular aria-hidden="true" /><h3 id="restricted-app-files-title">Folder Files</h3></div></div>
+          <div className="restricted-app-connections-heading"><div><ShieldCheckmark20Regular aria-hidden="true" /><h3 id="restricted-app-files-title">work-folder Files</h3></div></div>
           {app.manifest.permissions.files.map((permission) => <FilePermissionCard
             key={permission.id}
             permission={permission}

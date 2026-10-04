@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { History, Loader2, Undo2, X } from "lucide-react";
+import { HistoryFileComparison } from "../panes/HistoryFileComparison";
 import { api, errorText } from "../../lib/api";
 import { formatBytes, formatDateTime, formatTimeAgo, splitConfirmMessage } from "../../lib/format";
 import { useModalDialog } from "../../hooks/useModalDialog";
@@ -29,6 +30,9 @@ function FileVersionHistoryModal({
   const [undoing, setUndoing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [undoRestorePointId, setUndoRestorePointId] = useState<string | null>(null);
+  const [comparisonVersion, setComparisonVersion] = useState<FileVersionEntry | null>(null);
+  const [comparisonTarget, setComparisonTarget] = useState("");
+  const [comparisonRevision, setComparisonRevision] = useState(0);
   const loadRequestRef = useRef(0);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const busy = restoringHash !== null || undoing;
@@ -53,9 +57,12 @@ function FileVersionHistoryModal({
 
   useEffect(() => {
     setVersions(null);
+    setComparisonVersion(null);
+    setComparisonTarget("");
     setNotice(null);
     setUndoRestorePointId(null);
     void loadVersions();
+    return () => { loadRequestRef.current += 1; };
   }, [loadVersions]);
 
   async function restoreVersion(version: FileVersionEntry): Promise<void> {
@@ -79,6 +86,7 @@ function FileVersionHistoryModal({
       setUndoRestorePointId(body.result.safetyCheckpointId);
       setNotice(`Restored "${fileName}" to the version from ${formatDateTime(version.capturedAt)}.`);
       showToast({ text: "Version restored", tone: "success" });
+      setComparisonRevision((value) => value + 1);
       onRestored();
       await loadVersions();
     } catch (restoreError) {
@@ -96,6 +104,7 @@ function FileVersionHistoryModal({
       await api(`/api/spaces/${space.id}/history/checkpoints/${undoRestorePointId}/restore`, { method: "POST" });
       setUndoRestorePointId(null);
       setNotice(`Undo complete — "${fileName}" is back to how it was.`);
+      setComparisonRevision((value) => value + 1);
       onRestored();
       await loadVersions();
     } catch (undoError) {
@@ -157,6 +166,7 @@ function FileVersionHistoryModal({
                     {index === 0 ? " · newest saved version" : ""}
                   </small>
                 </span>
+                <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => { setComparisonVersion(version); setComparisonTarget(""); }}>Compare</button>
                 <button
                   className="readiness-run-button history-restore-button"
                   type="button"
@@ -174,6 +184,15 @@ function FileVersionHistoryModal({
             </div>
           )}
         </div>
+        {comparisonVersion ? <div>
+          <label className="history-file-picker">Compare with
+            <select value={comparisonTarget} onChange={(event) => setComparisonTarget(event.target.value)}>
+              <option value="">Current file</option>
+              {(versions ?? []).filter((version) => version.checkpointId !== comparisonVersion.checkpointId).map((version) => <option key={version.checkpointId} value={version.checkpointId}>{formatDateTime(version.capturedAt)}</option>)}
+            </select>
+          </label>
+          <HistoryFileComparison spaceId={space.id} path={filePath} fromCheckpointId={comparisonVersion.checkpointId} toCheckpointId={comparisonTarget || undefined} refreshRequest={comparisonRevision} />
+        </div> : null}
       </section>
     </div>
   );

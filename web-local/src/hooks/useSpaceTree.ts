@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { loadedTreeRefreshConcurrency, spaceFileRefreshDelayMs } from "../constants";
 import { api, createEventSource, errorText } from "../lib/api";
 import {
@@ -48,7 +48,9 @@ export function useSpaceTree(space: SpaceSummary, onError: (message: string | nu
     });
   };
 
-  useEffect(() => {
+  // A layout effect: the previous Folder's files must never paint under the
+  // new Folder's header, even for one frame.
+  useLayoutEffect(() => {
     activeSpaceIdRef.current = space.id;
     const saved = fixtureTree ? { selectedPath: null, collapsedPaths: new Set<string>() } : readTreeState(space.id);
     requestRef.current += 1;
@@ -70,7 +72,9 @@ export function useSpaceTree(space: SpaceSummary, onError: (message: string | nu
     const cached = treeCacheRef.current.get(space.id);
     setTreeState(cached ?? []);
     setStatus(cached?.length ? "refreshing" : "loading");
-    void refresh(false, { baseTree: cached });
+    // Never fall back to the previous Folder's tree: a first visit would show it
+    // as "refreshing" and reopen its expanded folders under this Folder.
+    void refresh(false, { baseTree: cached ?? [] });
     return () => {
       requestRef.current += 1;
       activeSpaceIdRef.current = "";
@@ -199,10 +203,10 @@ export function useSpaceTree(space: SpaceSummary, onError: (message: string | nu
     writeTreeState(space.id, { selectedPath: path, collapsedPaths: [...collapsedPathsRef.current] });
   }
 
-  function toggleFolder(path: string) {
+  function toggleFolder(path: string, expanded?: boolean) {
     const entry = findTreeEntry(treeRef.current, path);
     if (!entry || entry.kind !== "folder") return;
-    const opening = collapsedPathsRef.current.has(path) || treeEntryNeedsLazyChildren(entry);
+    const opening = expanded ?? (collapsedPathsRef.current.has(path) || treeEntryNeedsLazyChildren(entry));
     setCollapsedPaths((current) => {
       const next = new Set(current); if (opening) next.delete(path); else next.add(path);
       writeTreeState(space.id, { selectedPath, collapsedPaths: [...next] }); return next;

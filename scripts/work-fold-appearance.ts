@@ -9,6 +9,8 @@ import {
   parseSpaceAppearanceProposal,
   resolveSpaceAppearance,
   spaceAppearanceBannerNames,
+  spaceAppearanceBannerPresetIds,
+  normalizeSpaceAppearanceBannerFraming,
   type SpaceAppearanceBannerImagePosition,
   type SpaceAppearanceProposal,
 } from "../src/shared/space-appearance.js";
@@ -45,6 +47,10 @@ async function createCommand(args: string[]): Promise<void> {
       icon: { type: "string" },
       banner: { type: "string" },
       "banner-image": { type: "string" },
+      "banner-preset": { type: "string" },
+      "frame-x": { type: "string" },
+      "frame-y": { type: "string" },
+      zoom: { type: "string" },
       position: { type: "string", default: "center" },
       "space-id": { type: "string" },
       "space-name": { type: "string" },
@@ -61,6 +67,12 @@ async function createCommand(args: string[]): Promise<void> {
     throw new Error(`--banner must be one of: ${[...bannerNames].join(", ")}`);
   }
   const position = normalizePosition(parsed.values.position);
+  const bannerPreset = spaceAppearanceBannerPresetIds.find((id) => id === parsed.values["banner-preset"]);
+  if (parsed.values["banner-preset"] && !bannerPreset) throw new Error(`--banner-preset must be one of: ${spaceAppearanceBannerPresetIds.join(", ")}`);
+  if (bannerPreset && parsed.values["banner-image"]) throw new Error("Choose --banner-preset or --banner-image.");
+  const hasFraming = parsed.values["frame-x"] !== undefined || parsed.values["frame-y"] !== undefined || parsed.values.zoom !== undefined;
+  const bannerFraming = hasFraming ? normalizeSpaceAppearanceBannerFraming({ x: Number(parsed.values["frame-x"] ?? 50), y: Number(parsed.values["frame-y"] ?? (position === "top" ? 0 : position === "bottom" ? 100 : 50)), zoom: Number(parsed.values.zoom ?? 1) }) : undefined;
+  if (hasFraming && !bannerFraming) throw new Error("Frame coordinates must be between 0 and 100; zoom must be between 1 and 2.");
   const createdBy = normalizeCreatedBy(parsed.values["created-by"]);
   const bannerImage = parsed.values["banner-image"]
     ? await encodeBannerImage(resolve(parsed.values["banner-image"]))
@@ -79,6 +91,8 @@ async function createCommand(args: string[]): Promise<void> {
       ...(parsed.values.icon ? { iconName: parsed.values.icon } : {}),
       ...(bannerName ? { bannerName } : {}),
       ...(bannerImage ? { bannerImage, bannerImagePosition: position } : {}),
+      ...(bannerPreset ? { bannerPreset } : {}),
+      ...(bannerFraming ? { bannerFraming } : {}),
     },
     createdBy,
   });
@@ -126,7 +140,7 @@ function resolveProposal(proposal: SpaceAppearanceProposal) {
     primary,
     secondary,
     bannerName: proposal.customization.bannerName,
-    hasBannerImage: Boolean(proposal.customization.bannerImage),
+    hasBannerImage: Boolean(proposal.customization.bannerImage || proposal.customization.bannerPreset),
   });
 }
 
@@ -198,6 +212,9 @@ Create options:
   --banner classic          none, classic, mist, horizon, aurora, halftone,
                             blueprint, pinstripe, ribbon, or bold
   --banner-image <path>     Safe raster image; resized and encoded as WebP
+  --banner-preset fold      tide, ember, fold, or dusk (bundled offline)
+  --frame-x 50 --frame-y 50 Image framing, each between 0 and 100
+  --zoom 1                  Image zoom, between 1 and 2
   --position center         top, center, or bottom
   --space-id <id>       Advisory target shown during review
   --space-name <name>   Advisory target shown during review

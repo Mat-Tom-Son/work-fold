@@ -65,6 +65,45 @@ try {
   assert.equal((await bootstrap).state, "ready");
   await assert.rejects(fetch(url + "/status"));
   const list = call(a.session, "chrome_tab", { action: "list" }); let command = await next(); await reply(command, []); await list;
+  const body = "Faithful body text with BODY_ONLY_MARKER, independent of snippets.";
+  const snapshot = { mode: "text", url: "https://fixture.test/text", title: "Text", targetId: "4101", observedAt: "2026-09-27T12:00:00.000Z", text: body, textSnippets: [{ uid: "s1", text: "Old preview" }], textRange: { start: 0, end: body.length, total: body.length + 100, version: "a".repeat(64) }, elements: [], summary: { totalInteractiveVisible: 0 } };
+  const snapshotCall = call(a.session, "chrome_snapshot", { mode: "text", targetId: "4101" }); command = await next(); await reply(command, snapshot);
+  const captured = await snapshotCall;
+  const capturedText = captured.content[0].text;
+  assert.match(capturedText, /BODY_ONLY_MARKER/);
+  assert.match(capturedText, /textOffset.*expectedTextVersion/);
+  assert.match(capturedText, /Captured: 2026-09-27T12:00:00.000Z/);
+  const artifactA = capturedText.match(/saved to: (.*?) —/)?.[1]; assert.ok(artifactA);
+  assert.deepEqual(JSON.parse(await readFile(artifactA, "utf8")), snapshot);
+  const continuation = call(a.session, "chrome_snapshot", { mode: "text", targetId: "4101", textOffset: body.length, expectedTextVersion: "a".repeat(64) }); command = await next();
+  assert.equal(command.params.textOffset, body.length); assert.equal(command.params.expectedTextVersion, "a".repeat(64));
+  await reply(command, { ...snapshot, text: "continued", textRange: { ...snapshot.textRange, start: body.length, end: body.length + 100 } }); await continuation;
+  const fullSnapshot = { ...snapshot, mode: "full", text: "large body ".repeat(6000) };
+  const fullCall = call(b.session, "chrome_snapshot", { mode: "full", targetId: "4102" }); command = await next(); await reply(command, fullSnapshot);
+  const full = await fullCall, fullText = full.content[0].text;
+  assert.doesNotMatch(fullText, /^\s*\{/); assert.match(fullText, /Complete captured snapshot JSON/);
+  const artifactB = fullText.match(/saved to: (.*?) —/)?.[1]; assert.ok(artifactB);
+  assert.deepEqual(JSON.parse(await readFile(artifactB, "utf8")), fullSnapshot);
+  const actionResult = { result: { clicked: true, actionEvidence: "ACTION_OUTCOME_MARKER" }, snapshot: fullSnapshot };
+  const actionCall = call(b.session, "chrome_click", { targetId: "4102", uid: "e1", includeSnapshot: true }); command = await next(); await reply(command, actionResult);
+  const actionText = (await actionCall).content[0].text;
+  assert.match(actionText, /Complete captured action result and snapshot JSON/);
+  const actionArtifact = actionText.match(/saved to: (.*?) —/)?.[1]; assert.ok(actionArtifact);
+  assert.deepEqual(JSON.parse(await readFile(actionArtifact, "utf8")), actionResult, "large action observations must retain their action outcome without replay");
+  for (const name of ["chrome_click", "chrome_fill"]) {
+    const fallback = call(a.session, name, { targetId: "4101", selector: "#field", text: "hello" });
+    command = await next();
+    await reply(command, { input: "dom-fallback", valueMatches: false, submitted: false, reason: "hidden tab: trusted input was not dispatched" });
+    const text = (await fallback).content[0].text;
+    assert.match(text, /DOM fallback \(untrusted page events\)/);
+    assert.match(text, /trusted input was not dispatched/);
+    assert.match(text, /input value did not stick/);
+    assert.match(text, /not submitted: field value differs/);
+  }
+  const controls = Array.from({ length: 80 }, (_, i) => ({ uid: `e${i}`, role: "button", label: `Control ${i}` }));
+  const controlsCall = call(a.session, "chrome_snapshot", { mode: "interactive", maxElements: 80 }); command = await next(); await reply(command, { ...snapshot, mode: "interactive", elements: controls, summary: { totalInteractiveVisible: 100 } });
+  const controlsText = (await controlsCall).content[0].text;
+  assert.match(controlsText, /Control 79/); assert.match(controlsText, /80 of 100/); assert.doesNotMatch(controlsText, /mode=interactive/);
   // Two implicit navigations can share a destination while resolving to different
   // owned tabs. The model receives content, not Pi's diagnostic details.
   for (const [owner, tabId] of [[a.session, 4101], [b.session, 4102]] as const) {
@@ -121,8 +160,11 @@ try {
   assert.deepEqual(await readdir(b.cwd), []);
   assert.ok(!JSON.stringify(imageResult).includes(token));
   const stoppingA = stop(a.session); command = await next(); await reply(command, {}); await stoppingA;
+  await assert.rejects(readFile(artifactA, "utf8"));
+  assert.deepEqual(JSON.parse(await readFile(artifactB, "utf8")), fullSnapshot);
   const stillWorks = call(b.session, "chrome_tab", { action: "list" }); command = await next(); await reply(command, []); await stillWorks;
   const stoppingB = stop(b.session); command = await next(); await reply(command, {}); await stoppingB;
+  await assert.rejects(readFile(artifactB, "utf8"));
   await assert.rejects(fetch(url + "/status"));
   console.log("PASS native Chrome: lazy credential, persistent companion identity, authenticated transport and actual restricted-app broker refusal, native Pi image result, no Space capture files, two-session disposal");
 } finally {

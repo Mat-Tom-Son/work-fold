@@ -49,6 +49,34 @@ export interface PiSpaceTurnContext {
   delegated?: PiSpaceTurnDelegation;
   /** Reestablished for a root request continuing after an answer or delivery. */
   assignment?: string;
+  /** Actual pre-turn capture, including deduplicated reuse; never an assumed backup. */
+  history?: PiSpaceTurnHistory;
+  /**
+   * Folders registered directly inside this one (2026-10-01): their id,
+   * name, and path here. The person nested them, so their existence is this
+   * Folder's own layout, not the registry; nothing else about them is named.
+   */
+  nestedFolders?: Array<{ spaceId: string; name: string; path: string }>;
+}
+
+export type PiSpaceTurnHistory = {
+  status: "captured";
+  checkpointId: string;
+  fileCount: number;
+  skippedFileCount: number;
+  skippedByReason: Record<string, number>;
+} | { status: "unavailable" };
+
+export function spaceTurnHistory(checkpoint: {
+  checkpointId: string;
+  fileCount: number;
+  skippedFiles: Array<{ reason: string }>;
+} | null): PiSpaceTurnHistory {
+  if (!checkpoint) return { status: "unavailable" };
+  const skippedByReason: Record<string, number> = {};
+  for (const file of checkpoint.skippedFiles) skippedByReason[file.reason] = (skippedByReason[file.reason] ?? 0) + 1;
+  return { status: "captured", checkpointId: checkpoint.checkpointId, fileCount: checkpoint.fileCount,
+    skippedFileCount: checkpoint.skippedFiles.length, skippedByReason };
 }
 
 export interface SpaceTurnContextInput {

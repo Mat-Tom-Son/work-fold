@@ -80,6 +80,16 @@ refresh backed by its tool-capable text-model API; the last good result is
 cached outside every Folder and Pi's built-in catalog remains a fallback. A
 restricted Folder app's connection is managed with that app in **Settings → Apps**.
 
+Azure OpenAI setup in AI Models takes an endpoint, an API key, and the names
+of the person's deployed models (separated by commas or new lines). These
+names become the available Azure choices; choosing a built-in Pi model or
+writing a mapping is not required. One deployment is selected separately for
+each Folder and the work-fold agent. Connection settings are machine-wide,
+use Pi's existing provider credential storage, and can be edited without
+re-entering the key. Pasted Responses URLs normalize to the v1 endpoint.
+Saving configures existing deployments at one endpoint; it does not test
+inference, sign in to Azure, or discover deployments.
+
 Each open tab belongs to one Folder. Selecting a tab takes the user back to
 that Folder; selecting a Folder restores its most recent tab. With four or more
 tabs open, tabs narrow but keep their Folder icon and a normal close button. A
@@ -94,13 +104,16 @@ The live event stream carries resumable cursors and an authoritative
 running/text snapshot, so sleep, renderer reload, and short local-service
 disconnects reconcile without losing or duplicating the visible response.
 
-Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. The selected Space's Chats remain the primary list; every other registered Space appears below as a compact, collapsed group, including a zero count when it has no Chats in the current view. Aggregate activity remains visible, and search may expand those groups to expose results. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.work-fold/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its Assistant turn or compaction is active. A Folder Chat can also be deleted: its transcript moves to Recently deleted and can be restored from there, and the delete refuses while the Chat has a running turn or unfinished request work.
+Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. The selected Folder's active Chats lead the list, followed by the Folders nested inside it, each indented under it with its own Chats; every other registered Folder appears below as a compact, collapsed group, including a zero count when it has no active Chats. Snoozed and Archived are closed rows at the bottom of the list, each listing those Chats across every Folder with the Folder's name and time (2026-10-01; earlier the three views were tabs). Aggregate activity remains visible, and search covers active, snoozed, and archived Chats alike and may expand those groups to expose results. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.work-fold/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its Assistant turn or compaction is active. A Folder Chat can also be deleted: its transcript moves to Recently deleted and can be restored from there, and the delete refuses while the Chat has a running turn or unfinished request work.
 
 A new Chat begins with a temporary **New Chat** label. After its first successful
 turn, work-fold asks that Chat's active Pi model for a short title based on the
 first request and reply, then persists the result so it remains stable across
 tabs, restarts, and machines. The title request uses the same authenticated Pi
-model transport as the turn, including live provider catalogs. If that one
+model transport as the turn, including live provider catalogs and stored Azure
+endpoint, key, and deployment settings. For reasoning models it prefers the
+lowest ordinary reasoning level exposed by Pi, avoiding `minimal` when another
+level is available because some providers reject it. If that one
 bounded request fails, the Chat remains **New Chat** rather than presenting its
 first message as though it were a generated title; naming can never fail the
 otherwise successful turn, and the failed attempt is not repeated. Previously saved titles remain authoritative, including titles made by older
@@ -118,7 +131,17 @@ finished before deletion.
 
 Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 
-The configured provider and model remain visible in the Chat composer before the first message. Clicking that label opens an inline model picker with the Folder’s saved model pinned first and search when more than eight connected models are available. A selection saves the Folder default for new Chats; existing Chat sessions keep their model. The picker’s **Model settings** link opens **Settings → AI Models** scoped to that Folder. The label always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
+The configured provider and model remain visible in the Chat composer before the first message. Clicking that label opens an inline model picker with the Folder’s saved model pinned first and search when more than eight connected models are available. A selection saves the Folder default for new Chats; existing Chat sessions keep their model. The picker’s **Model settings** link opens **Settings → AI Models** scoped to that Folder. The label always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. In the Chat that trail is the Worker's steps: while a turn runs, each step appears in the order it happened with the active one shimmering and live reasoning in a short panel; once the reply starts, the steps fold into one plain line such as "Read a file, edited a file, ran commands" that opens on click, and a "Thought" row opens its reasoning. Reasoning a model keeps hidden still shows as "Thought for 3s", so a saved thinking entry records its duration. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
+
+Attaching a file from Files stages a reference to its Folder-relative path for
+the next message. A quiet file icon, filename, and remove control above the
+composer show that selection; attaching does not produce a success toast or
+an extraction-status warning. Documents and other non-image files are not
+extracted or copied into the model prompt: the Worker is told which paths the
+person attached and uses its file or document tools to inspect the originals
+as the task needs. Staging checks that each path names an available file;
+missing files and invalid paths remain errors. Supported images still use
+Pi's existing bounded vision pipeline when sending.
 
 ## A Folder is a view of a folder, not a new file format
 
@@ -158,9 +181,10 @@ lives in Appearance → Interface, and updates live in About. The navigation bec
 narrow windows; keyboard selection brings the selected item into view. AI Models
 settings separate model defaults, shared provider
 connections, and Space instructions; the scope is chosen with two large buttons —
-**This worker**, naming the Folder, and **work-fold agent** — and the model list
-has a search box and groups models under vendor headings (for OpenRouter, the
-vendor prefix of the model name). Unsaved model/instruction drafts survive
+**This worker**, naming the Folder, and **work-fold agent** — and the model is a
+dropdown: closed, it shows the chosen model; open, it starts with a search box
+and groups models under vendor headings (for OpenRouter, the vendor prefix of
+the model name), and choosing a model closes it. Unsaved model/instruction drafts survive
 page and scope changes while that window stays open; credentials are not cached
 across scope changes. Accepted saves retain their completion ownership if the
 window closes, so reopening waits for their result. External settings changes
@@ -168,11 +192,16 @@ refresh clean forms and offer an explicit reload when drafts are present.
 
 [Application appearance](application-appearance.md) adds editable presets,
 application palettes and accent, separate interface/conversation typography,
-reading width and spacing, list density, quiet messages, and accessibility
-preferences. The desktop and menu-bar chat share device-local preferences;
+reading width and spacing, list density, quiet messages, which Worker steps
+stay visible while a turn runs, and accessibility preferences. The desktop and menu-bar chat share device-local preferences;
 the paired web fold retains its browser appearance. Typed appearance files are
 inert data. Undo and reset operate on these preferences without changing Space
-colors, icons, or banners; Customize this Space opens the existing work tab.
+colors, icons, or banners. **Customize Folder** opens a popup from the Folder header,
+Manage Folders, or Settings → Appearance, pinned to that Folder while the existing work tab stays
+in place. It shares the focus, Escape, and outside-click behavior of the other popup dialogs.
+Its compact Banner, Icon, and Color sections include four offline image presets, draggable image
+framing, and categorized Fluent icons. Model and Instructions shortcuts open that Folder's existing
+Worker settings; appearance stays personal application state outside the ordinary folder.
 
 ## Context is explicit
 
@@ -492,9 +521,52 @@ Owner decisions, recorded here in dated form; the body of this document and
   discloses install scripts and Extensions before installation.
 - **Settings → AI Models** chooses its scope with two large buttons — **This
   worker**, naming the Folder, and **work-fold agent** — instead of radio
-  circles; the model list has a search box and groups models under vendor
-  headings (for OpenRouter, the vendor prefix of the model name).
+  circles; the model is a dropdown that shows the chosen model closed and opens
+  with a search box and vendor headings (for OpenRouter, the vendor prefix of
+  the model name), closing again on a choice.
 - **Settings → Automations** collapses its limits under a **Limits**
   disclosure by default; they stay visible on demand and unchanged in meaning.
 - With four or more tabs open, tabs narrow but keep their Folder icon and a
   normal close button.
+
+
+### 2026-10-01 Folders inside Folders
+
+A Folder may be registered inside another, and the deepest containing Folder
+is its parent. The screen tells that story without new words: the Folder
+switcher indents nested Folders under their parent; the header shows the
+containing Folders above the title as links back up (the nearest two, with
+anything further folded into "…", which opens the switcher); Files stops at a
+nested Folder and shows it as its own row in its color, which opens that Folder
+instead of expanding. Right-clicking a plain folder in Files offers **Make a
+work-folder** (with the menu-bar mark), which registers it as a nested Folder in place: no files move,
+and the click is that Folder's registration act. A folder that holds a nested
+Folder is not offered Rename or Delete.
+History, Search, Checks, and routings already treated nested Folders as
+separately owned; the Files tree now agrees.
+
+Typing `@` in a Chat or in the work-fold agent's box offers Folder Workers
+(nested Folders first) and addresses each one named. One activity mark is
+used everywhere: a soft pulse while a Worker runs, including runs no Chat tab
+is showing, and a still green dot when its reply is waiting to be seen. A
+parent Folder's header shows that mark for the Folders inside it. See
+[the collaboration contract](collaboration-contract.md) for what each Worker
+hears.
+
+On 2026-10-02 the product copy renamed this concept **work-folder**, always
+lowercase like "work-fold", while ordinary directories stay plain "folder".
+The prose in this document keeps "Folder" for the same concept.
+
+### Included tool readiness, 2026-10-02
+
+The included tools show observed readiness separately from native loading.
+Visible Skills & Extensions surfaces refresh cold host status automatically;
+opening them never launches a helper or connects a server. Successful use can
+supply readiness evidence. Older computer permission evidence remains visible
+as Last Check Passed with its original timestamp, while bundled Documents proof
+belongs to the running build. Service Connections says No Connections or
+Configured and leaves actual health to each connection. A selected Chrome
+profile reconnects automatically and does not need repeated Store setup.
+Check observes; helper repair is a separate explicit setup operation and cannot
+silently dispose idle Chats. The [extension contract](extension-foundation.md)
+records observation ordering, freshness and cancellation boundaries.

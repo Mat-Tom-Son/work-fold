@@ -21,6 +21,9 @@ assertPath("package.json");
 assertPath("dist/web-local/index.html");
 assertPath("dist/web-local/popover.html");
 assertPath("dist/desktop/desktop/src/main.js");
+assertPath("dist/desktop/src/local/agent/included-tool-observations.js");
+assertPath("dist/desktop/resources/included-tools/readiness.js");
+assertPath("resources/included-tools/readiness.ts");
 assertPath("dist/desktop/desktop/src/preload.cjs");
 assertPath("dist/desktop/desktop/src/model-context-preload.cjs");
 assertPath("dist/desktop/desktop/src/model-context-window.js");
@@ -69,9 +72,9 @@ function desktopReleasePlatform() {
 function verifyPiDependencyNormalization() {
   const piDir = join(rootDir, "node_modules", "@earendil-works", "pi-coding-agent");
   const expectedVersions = new Map([
-    ["brace-expansion", "5.0.9"],
+    ["brace-expansion", "5.0.12"],
     ["protobufjs", "7.6.5"],
-    ["undici", "8.10.0"],
+    ["undici", "8.10.2"],
   ]);
   for (const [name, expectedVersion] of expectedVersions) {
     try {

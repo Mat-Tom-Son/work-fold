@@ -44,7 +44,7 @@ async function native(config: IncludedComputerConfig): Promise<Native> {
 export async function probeLinuxComputer(config: IncludedComputerConfig, options: { launch?: boolean; signal?: AbortSignal } = {}) {
   options.signal?.throwIfAborted();
   const runtime = await native(config);
-  if (!options.launch) return { status: "not_running", reason: "Check Linux accessibility to verify computer control." };
+  if (!options.launch) return { platform: "linux", sessionType: process.env.XDG_SESSION_TYPE, status: "not_running", reason: "Check Linux accessibility to verify computer control." };
   try {
     await verify(config);
     const result = await runtime.helper.command<Record<string, unknown>>("diagnostics", {}, { signal: options.signal, timeoutMs: 10_000 });

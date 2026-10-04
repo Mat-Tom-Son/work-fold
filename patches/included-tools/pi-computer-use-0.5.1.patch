@@ -259,7 +259,7 @@ index 189fead..bb2fba4 100644
      #[test]
      fn look_history_is_bounded_and_refs_are_look_scoped() {
          let mut state = HelperState::default();
-diff --git a/after/native/macos/agent_cursor.swift b/native/macos/agent_cursor.swift
+diff --git a/native/macos/agent_cursor.swift b/native/macos/agent_cursor.swift
 new file mode 100644
 index 0000000..0efeac7
 --- /dev/null
@@ -424,7 +424,7 @@ index 0000000..0efeac7
 +        graphics.stroke(transformed, with: .color(.white), lineWidth: 2)
 +    }
 +}
-diff --git a/after/native/macos/agent_cursor_motion.swift b/native/macos/agent_cursor_motion.swift
+diff --git a/native/macos/agent_cursor_motion.swift b/native/macos/agent_cursor_motion.swift
 new file mode 100644
 index 0000000..c682942
 --- /dev/null
@@ -1249,7 +1249,7 @@ index 0642385..69da3de 100644
  	}
  
  	/// Prefer physical key codes for characters represented by the US layout.
-diff --git a/after/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
+diff --git a/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
 new file mode 100644
 index 0000000..69726f2
 --- /dev/null
@@ -1418,7 +1418,7 @@ index 0000000..69726f2
 +        if Thread.isMainThread { remove() } else { DispatchQueue.main.sync(execute: remove) }
 +    }
 +}
-diff --git a/after/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
+diff --git a/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
 new file mode 100644
 index 0000000..3035a8a
 --- /dev/null
@@ -1498,7 +1498,7 @@ index b9657a4..c442dd4 100755
  	"agent_cursor_motion.swift",
  	"bridge.swift",
  ].map((file) => path.join(rootDir, "native", "macos", file));
-diff --git a/after/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
+diff --git a/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
 new file mode 100644
 index 0000000..9ff6376
 --- /dev/null
@@ -1611,7 +1611,7 @@ index 0000000..9ff6376
 + }
 + console.log('PASS embedded catalog, factory isolation, exact targets, state/output ownership, keyboard focus/delivery, shared scheduler shutdown and concurrent configuration');
 +}finally{Object.assign(backend,original);await scheduler.close();await rm(root,{recursive:true,force:true})}
-diff --git a/after/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
+diff --git a/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
 new file mode 100644
 index 0000000..22b3f4e
 --- /dev/null
@@ -2144,17 +2144,119 @@ index 66142ad..ba42470 100644
  				options?.signal?.removeEventListener("abort", onAbort);
  				this.pending.delete(id);
  				clearTimeout(timer);
+diff --git a/src/platform/macos/helper-identity.d.mts b/src/platform/macos/helper-identity.d.mts
+new file mode 100644
+index 0000000..46c24a2
+--- /dev/null
++++ b/src/platform/macos/helper-identity.d.mts
+@@ -0,0 +1 @@
++export function verifyHelperExecutable(actual: string, expected: string, signal?: AbortSignal): Promise<boolean>;
+diff --git a/src/platform/macos/helper-identity.mjs b/src/platform/macos/helper-identity.mjs
+new file mode 100644
+index 0000000..80fe4c9
+--- /dev/null
++++ b/src/platform/macos/helper-identity.mjs
+@@ -0,0 +1,82 @@
++import { execFile } from "node:child_process";
++import { createHash } from "node:crypto";
++import { lstat, readFile, readdir, realpath } from "node:fs/promises";
++import path from "node:path";
++import { promisify } from "node:util";
++
++const run = promisify(execFile);
++
++/** Gatekeeper may relocate an exact signed helper without changing its bytes.
++ * Retain the canonical-path fast path; never accept a relocated name or team
++ * alone. Both bounded bundles must be identical and independently sealed. */
++export async function verifyHelperExecutable(actual, expected, signal) {
++  signal?.throwIfAborted();
++  const [actualPath, expectedPath] = await Promise.all([
++    realpath(actual).catch(() => path.resolve(actual)),
++    realpath(expected).catch(() => path.resolve(expected)),
++  ]);
++  if (actualPath === expectedPath) return true;
++  if (process.platform !== "darwin") return false;
++  try {
++    if (actual.split(path.sep).includes("..")) return false;
++    // Unlike TMPDIR/os.tmpdir(), this system value cannot redirect validation
++    // into an environment-selected imitation of the translocation directory.
++    const result = await run("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], { timeout: 5_000, maxBuffer: 4096, signal });
++    const temporaryRoot = await realpath(result.stdout.trim());
++    const parts = path.relative(temporaryRoot, actualPath).split(path.sep);
++    const expectedApp = path.dirname(path.dirname(path.dirname(expectedPath)));
++    const actualApp = path.dirname(path.dirname(path.dirname(actualPath)));
++    // The randomised intermediate layout is not an Apple API. Only the user
++    // directory and the bundle's own executable matter; matching bytes below
++    // supply identity, rather than a UUID/name convention.
++    if (parts[0] !== "AppTranslocation" || parts.length < 5
++      || parts.slice(-3).join(path.sep) !== path.join("Contents", "MacOS", path.basename(expectedPath))
++      || path.basename(actualApp) !== path.basename(expectedApp) || !expectedApp.endsWith(".app")) return false;
++    const [actualDigest, expectedDigest] = await Promise.all([
++      bundleDigest(actualApp, signal), bundleDigest(expectedApp, signal),
++    ]);
++    if (actualDigest !== expectedDigest) return false;
++    const executable = await run("/usr/bin/plutil", ["-extract", "CFBundleExecutable", "raw", "-o", "-", path.join(expectedApp, "Contents", "Info.plist")], { timeout: 5_000, maxBuffer: 4096, signal });
++    if (executable.stdout.trim() !== path.basename(expectedPath)) return false;
++    // Code signatures are part of the digest too. Verification additionally
++    // rejects identical but unsealed copies. Never remove quarantine metadata.
++    for (const app of [expectedApp, actualApp]) {
++      try {
++        await run("/usr/bin/codesign", ["--verify", "--strict", app], { timeout: 10_000, signal });
++      } catch (error) {
++        if (Number.isInteger(error?.code) && !error.killed && !error.signal) return false;
++        throw error;
++      }
++    }
++    signal?.throwIfAborted();
++    return true;
++  } catch (error) {
++    signal?.throwIfAborted();
++    if (error instanceof HelperArtifactMismatch || error?.code === "ENOENT") return false;
++    // An inspection failure is not evidence of a different daemon. Surface it
++    // without asking ensureProtocol() to restart a possibly busy shared helper.
++    throw new Error("Unable to verify the running computer helper identity.", { cause: error });
++  }
++}
++
++class HelperArtifactMismatch extends Error {}
++
++async function bundleDigest(root, signal) {
++  const digest = createHash("sha256");
++  let entries = 0, bytes = 0;
++  async function visit(relative) {
++    signal?.throwIfAborted();
++    const filename = path.join(root, relative), info = await lstat(filename);
++    if (++entries > 128 || info.isSymbolicLink() || (!info.isDirectory() && !info.isFile())) throw new HelperArtifactMismatch("Unexpected helper contents.");
++    digest.update(`${info.isDirectory() ? "directory" : "file"}\0${relative}\0${info.mode & 0o777}\0`);
++    if (info.isDirectory()) {
++      for (const name of (await readdir(filename)).sort()) await visit(path.join(relative, name));
++    } else {
++      bytes += info.size;
++      if (bytes > 64 * 1024 * 1024) throw new HelperArtifactMismatch("Helper exceeds its expected size.");
++      digest.update(await readFile(filename)); digest.update("\0");
++    }
++  }
++  await visit("");
++  return digest.digest("hex");
++}
 diff --git a/src/platform/macos/helper.ts b/src/platform/macos/helper.ts
-index 930d217..338c123 100644
+index 930d217..8b29a1e 100644
 --- a/src/platform/macos/helper.ts
 +++ b/src/platform/macos/helper.ts
-@@ -1,3 +1,4 @@
+@@ -1,6 +1,7 @@
 +import { randomUUID } from "node:crypto";
  import { spawn } from "node:child_process";
  import { constants as fsConstants } from "node:fs";
- import { access, mkdir, realpath } from "node:fs/promises";
-@@ -10,15 +11,15 @@ import type { PlatformDiagnostics } from "../types.ts";
+-import { access, mkdir, realpath } from "node:fs/promises";
++import { access, mkdir } from "node:fs/promises";
+ import net from "node:net";
+ import os from "node:os";
+ import path from "node:path";
+@@ -8,17 +9,18 @@ import { fileURLToPath } from "node:url";
+ import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
+ import type { PlatformDiagnostics } from "../types.ts";
  import { resolveMacosHelperAppPath } from "./helper-path.mjs";
++import { verifyHelperExecutable } from "./helper-identity.mjs";
  
  const COMMAND_TIMEOUT_MS = 15_000;
 -const HELPER_PROTOCOL_VERSION = 6;
@@ -2172,7 +2274,23 @@ index 930d217..338c123 100644
  
  const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
  const SETUP_HELPER_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "setup-helper.mjs");
-@@ -137,8 +138,6 @@ export async function runProcess(
+@@ -65,13 +67,9 @@ async function isExecutable(filePath: string): Promise<boolean> {
+ 	}
+ }
+ 
+-async function isResolvedHelperExecutable(filePath?: string): Promise<boolean> {
++async function isResolvedHelperExecutable(filePath?: string, signal?: AbortSignal): Promise<boolean> {
+ 	if (!filePath) return true;
+-	const [actualPath, expectedPath] = await Promise.all([
+-		realpath(filePath).catch(() => path.resolve(filePath)),
+-		realpath(HELPER_APP_EXECUTABLE_PATH).catch(() => path.resolve(HELPER_APP_EXECUTABLE_PATH)),
+-	]);
+-	return actualPath === expectedPath;
++	return verifyHelperExecutable(filePath, HELPER_APP_EXECUTABLE_PATH, signal);
+ }
+ 
+ export async function runProcess(
+@@ -137,8 +135,6 @@ export async function runProcess(
  }
  
  export class MacosHelperClient {
@@ -2181,7 +2299,7 @@ index 930d217..338c123 100644
  	private diagnosticsCache?: PlatformDiagnostics;
  
  	get diagnostics(): PlatformDiagnostics | undefined {
-@@ -154,6 +153,9 @@ export class MacosHelperClient {
+@@ -154,6 +150,9 @@ export class MacosHelperClient {
  			return;
  		}
  
@@ -2191,7 +2309,7 @@ index 930d217..338c123 100644
  		// Re-enter Electron and Bun standalone hosts as their JavaScript runtimes.
  		await runProcess(process.execPath, [SETUP_HELPER_SCRIPT, "--runtime"], HELPER_SETUP_TIMEOUT_MS, signal, {
  			...process.env,
-@@ -175,48 +177,87 @@ export class MacosHelperClient {
+@@ -175,48 +174,87 @@ export class MacosHelperClient {
  	}
  
  	async daemonCommand<T>(cmd: string, args: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
@@ -2312,7 +2430,7 @@ index 930d217..338c123 100644
  				await sleep(100, signal);
  			}
  		}
-@@ -224,6 +265,7 @@ export class MacosHelperClient {
+@@ -224,6 +262,7 @@ export class MacosHelperClient {
  	}
  
  	async command<T>(cmd: string, args: Record<string, unknown> = {}, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
@@ -2320,7 +2438,7 @@ index 930d217..338c123 100644
  		const timeoutMs = options?.timeoutMs ?? COMMAND_TIMEOUT_MS;
  		if (!(await this.ensureDaemon(options?.signal))) {
  			throw new HelperTransportError(`pi-computer-use helper app daemon is unavailable at ${HELPER_APP_PATH}.`);
-@@ -231,14 +273,12 @@ export class MacosHelperClient {
+@@ -231,14 +270,12 @@ export class MacosHelperClient {
  		try {
  			return await this.daemonCommand<T>(cmd, args, timeoutMs, options?.signal);
  		} catch (error) {
@@ -2335,21 +2453,32 @@ index 930d217..338c123 100644
  		await sleep(400, signal);
  		if (!(await this.ensureDaemon(signal))) {
  			throw new Error(`pi-computer-use helper did not come back after restart. Helper app: ${HELPER_APP_PATH}`);
-@@ -279,7 +319,6 @@ export class MacosHelperClient {
+@@ -268,7 +305,7 @@ export class MacosHelperClient {
+ 
+ 	async ensureProtocol(signal?: AbortSignal): Promise<PlatformDiagnostics> {
+ 		let diagnostics = await this.diagnosticsCommand(signal);
+-		const executableMatches = await isResolvedHelperExecutable(diagnostics.executablePath);
++		const executableMatches = await isResolvedHelperExecutable(diagnostics.executablePath, signal);
+ 		if (diagnostics.protocolVersion === HELPER_PROTOCOL_VERSION && executableMatches) return diagnostics;
+ 
+ 		// The helper daemon outlives Pi, so restarting/reloading Pi alone does not
+@@ -277,9 +314,8 @@ export class MacosHelperClient {
+ 		// the exact app bundle that ensureInstalled() resolved.
+ 		await this.restart(signal);
  		diagnostics = await this.diagnosticsCommand(signal);
- 		const relaunchedExecutableMatches = await isResolvedHelperExecutable(diagnostics.executablePath);
+-		const relaunchedExecutableMatches = await isResolvedHelperExecutable(diagnostics.executablePath);
++		const relaunchedExecutableMatches = await isResolvedHelperExecutable(diagnostics.executablePath, signal);
  		if (diagnostics.protocolVersion !== HELPER_PROTOCOL_VERSION || !relaunchedExecutableMatches) {
 -			this.daemonAvailable = false;
  			throw new Error(
  				`pi-computer-use helper mismatch after relaunch: expected protocol ${HELPER_PROTOCOL_VERSION} and executable ${HELPER_APP_EXECUTABLE_PATH}; got protocol ${diagnostics.protocolVersion} and executable ${diagnostics.executablePath ?? "unknown"}. Reinstall or rebuild the helper app at ${HELPER_APP_PATH}.`,
  			);
 diff --git a/src/platform/macos/permissions.ts b/src/platform/macos/permissions.ts
-index ea73a61..6f9e8a6 100644
+index ea73a61..0c8c0a0 100644
 --- a/src/platform/macos/permissions.ts
 +++ b/src/platform/macos/permissions.ts
 @@ -1,12 +1,15 @@
 +import { release } from "node:os";
-+import { realpath } from "node:fs/promises";
 +import { basename } from "node:path";
  import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
  import { ensurePermissions, type PermissionKind, type PermissionStatus } from "../../permissions.ts";
@@ -2358,6 +2487,7 @@ index ea73a61..6f9e8a6 100644
 -import { HELPER_APP_PATH, macosHelper } from "./helper.ts";
 +import { HELPER_APP_PATH, HELPER_APP_EXECUTABLE_PATH, macosHelper } from "./helper.ts";
  import { assertPlatformArchitecture } from "../architecture.ts";
++import { verifyHelperExecutable } from "./helper-identity.mjs";
  
  const GRANT_INSTRUCTIONS =
 -	"Grant Accessibility and Screen Recording to pi-computer-use.app in System Settings → Privacy & Security. " +
@@ -2393,7 +2523,7 @@ index ea73a61..6f9e8a6 100644
 +    }
 +    const diagnostics = await macosHelper.daemonCommand<any>("diagnostics", {}, 1_000, options.signal);
 +    connected = true;
-+    if (diagnostics.protocolVersion !== 7 || !diagnostics.executablePath || await realpath(diagnostics.executablePath) !== await realpath(HELPER_APP_EXECUTABLE_PATH)) {
++    if (diagnostics.protocolVersion !== 7 || !diagnostics.executablePath || !await verifyHelperExecutable(diagnostics.executablePath, HELPER_APP_EXECUTABLE_PATH, options.signal)) {
 +      throw new Error("The running computer helper does not match this application. Recheck setup while no Assistant turn is running.");
 +    }
 +    const permissions = await macosHelper.daemonCommand<any>("checkPermissions", {}, 6_000, options.signal);
@@ -2497,7 +2627,7 @@ index b479f4f..65fa350 100644
  	}
  
  	get size(): number {
-diff --git a/after/src/shared-screen.ts b/src/shared-screen.ts
+diff --git a/src/shared-screen.ts b/src/shared-screen.ts
 new file mode 100644
 index 0000000..da2aa2d
 --- /dev/null

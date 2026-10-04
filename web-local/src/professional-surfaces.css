@@ -837,6 +837,22 @@
   margin-top: 14px;
 }
 
+.professional-assistant .assistant-azure-connection {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  min-width: 0;
+}
+
+.professional-assistant .assistant-azure-connection .professional-field {
+  min-width: 0;
+}
+
+.professional-assistant .assistant-azure-connection .professional-field-hint {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .professional-assistant .assistant-form-actions .professional-button {
   flex-shrink: 0;
 }
@@ -974,6 +990,7 @@
   font-size: 14px;
 }
 
+.professional-assistant .assistant-azure-connection textarea,
 .professional-assistant .assistant-instructions-field textarea {
   min-width: 0;
   width: 100%;
@@ -989,10 +1006,12 @@
   line-height: 1.5;
 }
 
+.professional-assistant .assistant-azure-connection textarea::placeholder,
 .professional-assistant .assistant-instructions-field textarea::placeholder {
   color: var(--ui-text-subtle);
 }
 
+.professional-assistant .assistant-azure-connection textarea:focus,
 .professional-assistant .assistant-instructions-field textarea:focus {
   border-color: var(--ui-accent);
   outline: 2px solid color-mix(in srgb, var(--ui-accent) 18%, transparent);
@@ -5650,6 +5669,12 @@
   background: var(--ui-text-subtle);
 }
 
+.capabilities-included-checked {
+  color: var(--ui-text-subtle);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .capabilities-included-tile.tone-enabled .capabilities-status-dot {
   background: var(--ui-success);
 }
@@ -5805,10 +5830,77 @@ button.capabilities-resource-card:focus-visible {
   }
 }
 
-/* Settings → AI Models: a searchable model list with vendor headings (2026-09-25). */
+/* Settings → AI Models: a model dropdown that opens with a search box and vendor headings (2026-09-27). */
 .model-catalog {
+  position: relative;
+  min-width: 0;
+}
+
+.model-catalog-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  font-family: var(--work-fold-ui-font);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-catalog-trigger:hover:not(:disabled),
+.model-catalog-trigger.open {
+  border-color: var(--ui-accent);
+}
+
+.model-catalog-trigger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.model-catalog-trigger-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.model-catalog-trigger .model-catalog-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-catalog-chevron {
+  flex: 0 0 auto;
+  color: var(--ui-text-subtle);
+  transition: transform 0.15s ease;
+}
+
+.model-catalog-trigger.open .model-catalog-chevron {
+  transform: rotate(180deg);
+}
+
+.model-catalog-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
 }
 
 .model-catalog-search {
@@ -5823,8 +5915,13 @@ button.capabilities-resource-card:focus-visible {
   background: var(--ui-surface);
 }
 
+/* The box takes focus as the list opens, so it shows a firmer border rather than a ring. */
 .model-catalog-search:focus-within {
-  border-color: var(--ui-accent);
+  border-color: var(--ui-border-strong);
+}
+
+.app-shell .settings-window .model-catalog-search input:focus-visible {
+  outline: none;
 }
 
 .model-catalog-search input {
@@ -5838,11 +5935,10 @@ button.capabilities-resource-card:focus-visible {
 }
 
 .model-catalog-list {
-  max-height: 320px;
+  max-height: min(320px, 44vh);
   overflow: auto;
-  padding: 4px;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
+  overscroll-behavior: contain;
+  padding: 2px;
   background: var(--ui-surface);
 }
 
@@ -5921,4 +6017,8 @@ button.capabilities-resource-card:focus-visible {
   background: var(--ui-surface-subtle);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-md);
+}
+
+.professional-assistant .assistant-azure-connection textarea {
+  min-height: 74px;
 }

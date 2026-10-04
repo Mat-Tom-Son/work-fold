@@ -15,6 +15,13 @@ export function IconCredits() {
         Adapted for React and theme colors. Brand names and marks belong to their respective owners;
         their use does not imply endorsement.
       </p>
+      <p>
+        File type and folder icons come from{" "}
+        <a href="https://github.com/vscode-icons/vscode-icons" target="_blank" rel="noreferrer">vscode-icons by Roberto Huertas and contributors</a>{" "}
+        (<a href="https://github.com/vscode-icons/vscode-icons/blob/master/LICENSE" target="_blank" rel="noreferrer">MIT</a>).
+        Adapted for inline rendering with simplified paths. Brand names and marks belong to their respective owners;
+        their use does not imply endorsement.
+      </p>
       <p>These artwork licenses are separate from the MIT license for work-fold’s own code. The icons are provided without warranties under their respective licenses.</p>
     </details>
   );

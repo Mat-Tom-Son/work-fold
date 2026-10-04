@@ -4,6 +4,8 @@ import { appendFile, mkdir, open, readFile, readdir, rename, stat, unlink, write
 import { join } from "node:path";
 
 import { spaceConversationDir, spaceStateDir } from "../state-paths.js";
+import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
+import { parseAssistantPresentation, parseChatToolEdit } from "./turn-presentation.js";
 import {
   normalizeConversationTitle,
   untitledConversationTitle,
@@ -19,6 +21,7 @@ export interface ChatMessage {
   lifecycle?: ConversationLifecyclePatch;
   landing?: ChatMessageLanding;
   workTrail?: ChatMessageWorkTrailEntry[];
+  assistantPresentation?: AssistantPresentation;
   interruption?: ChatMessageInterruption;
   attachments?: ChatMessageAttachmentRef[];
   /** Durable surface provenance for messages accepted through remote access. */
@@ -61,13 +64,7 @@ export interface ChatMessageInterruptionActivity {
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
 
-export interface ChatMessageWorkTrailEntry {
-  kind: "thinking" | "tool";
-  text: string;
-  detail?: string;
-  toolName?: string;
-  phase?: "queued" | "running" | "streaming" | "complete" | "error";
-}
+export type ChatMessageWorkTrailEntry = ChatWorkTrailEntry;
 
 export interface ConversationSummary {
   id: string;
@@ -325,7 +322,15 @@ export async function appendMessage(spaceRoot: string, conversationId: string, m
   const operation = previous.catch(() => undefined).then(async () => {
     await mkdir(conversationsDir(spaceRoot), { recursive: true });
     const prefix = await needsLineBreakBeforeAppend(path) ? "\n" : "";
-    await appendFile(path, `${prefix}${JSON.stringify(message)}\n`, { encoding: "utf8", flush: true });
+    const { workTrail: _workTrail, assistantPresentation: _presentation, ...base } = message;
+    const workTrail = parseChatMessageWorkTrail(message.workTrail);
+    const assistantPresentation = message.role === "assistant" ? parseAssistantPresentation(message.assistantPresentation, message.content) : undefined;
+    const stored: ChatMessage = {
+      ...base,
+      ...(workTrail?.length ? { workTrail } : {}),
+      ...(assistantPresentation ? { assistantPresentation } : {}),
+    };
+    await appendFile(path, `${prefix}${JSON.stringify(stored)}\n`, { encoding: "utf8", flush: true });
   });
   conversationAppendQueues.set(path, operation);
   try {
@@ -505,6 +510,8 @@ function parseChatMessage(line: string): ChatMessage | null {
     if (isChatMessageLanding(parsed.landing)) message.landing = parsed.landing;
     const workTrail = parseChatMessageWorkTrail(parsed.workTrail);
     if (workTrail?.length) message.workTrail = workTrail;
+    const assistantPresentation = parsed.role === "assistant" ? parseAssistantPresentation(parsed.assistantPresentation, parsed.content) : undefined;
+    if (assistantPresentation) message.assistantPresentation = assistantPresentation;
     if (isChatMessageInterruption(parsed.interruption)) message.interruption = parsed.interruption;
     if (Array.isArray(parsed.attachments)) {
       const attachments = parsed.attachments.filter(isChatMessageAttachmentRef).slice(0, 32);
@@ -582,16 +589,39 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
   if (!Array.isArray(value)) return undefined;
   const entries = value.slice(0, 64);
   if (!entries.every(isChatMessageWorkTrailEntry)) return undefined;
-  return entries.map((entry) => ({ ...entry }));
+  let editDiffBytes = 0;
+  return entries.map((entry) => {
+    const edit = entry.kind === "tool" && entry.toolName === "edit" && entry.phase === "complete" ? parseChatToolEdit(entry.edit) : undefined;
+    const bytes = edit ? Buffer.byteLength(edit.diff, "utf8") : 0;
+    const includeEdit = edit && editDiffBytes + bytes <= maxTurnToolEditDiffBytes;
+    if (includeEdit) editDiffBytes += bytes;
+    // Copy the known projection only. Unknown native result fields never enter
+    // the portable transcript when historical metadata is read back.
+    return {
+      kind: entry.kind,
+      text: entry.text,
+      ...(entry.detail === undefined ? {} : { detail: entry.detail }),
+      ...(entry.toolName === undefined ? {} : { toolName: entry.toolName }),
+      ...(entry.phase === undefined ? {} : { phase: entry.phase }),
+      ...(entry.order === undefined ? {} : { order: entry.order }),
+      ...(entry.kind === "thinking" && entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
+      ...(includeEdit ? { edit } : {}),
+    };
+  });
 }
 
 function isChatMessageWorkTrailEntry(value: unknown): value is ChatMessageWorkTrailEntry {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Partial<ChatMessageWorkTrailEntry>;
+  const validDuration = record.durationMs === undefined
+    || (typeof record.durationMs === "number" && Number.isFinite(record.durationMs) && record.durationMs > 0 && record.durationMs <= 86_400_000);
+  const timedThinking = record.kind === "thinking" && record.durationMs !== undefined;
   return (record.kind === "thinking" || record.kind === "tool")
     && typeof record.text === "string"
-    && record.text.trim().length > 0
+    && (record.text.trim().length > 0 || timedThinking)
     && record.text.length <= 32_000
+    && validDuration
+    && (record.order === undefined || (Number.isSafeInteger(record.order) && record.order >= 0))
     && (record.detail === undefined || (typeof record.detail === "string" && record.detail.length <= 4_096))
     && (record.toolName === undefined || (typeof record.toolName === "string" && record.toolName.length <= 256))
     && (

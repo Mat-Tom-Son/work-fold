@@ -3,12 +3,16 @@ import { WorkRequest } from "../components/chat/WorkRequest";
 import { useApplicationAppearance } from "../hooks/useApplicationAppearance";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, ChevronRight, File, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, ChevronRight, File, Folder, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
 import { groupChatsByRecency } from "../lib/chat-recency";
+import { subscribeControlEvents } from "../lib/control-events";
+import { activeFolderMention, addressedFolderIds, insertFolderMention, matchingMentionFolders, mentionNames } from "../lib/folder-mentions";
+import { folderTreeRows } from "../lib/folder-nesting";
+import { FolderMentionMenu, type MentionFolderOption } from "../components/chat/FolderMentionMenu";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
 import type { AssistantComposerState, ConversationRuntime, ChatStreamEvent, ExtensionUiRequest } from "../types";
 
@@ -92,7 +96,7 @@ interface FoldChat {
 }
 
 const fixtureChats: FoldChat[] = [
-  { id: "fixture-fold", title: "Catch up on my folders", updatedAt: "2026-09-11T19:30:00Z", requestState: "done" },
+  { id: "fixture-fold", title: "Catch up on my work-folders", updatedAt: "2026-09-11T19:30:00Z", requestState: "done" },
   { id: "fixture-plan", title: "Plan next week’s workshop", updatedAt: "2026-09-10T16:00:00Z", requestState: "waiting", needsAnswer: true },
   { id: "fixture-notes", title: "Organize the field notes", updatedAt: "2026-09-09T15:00:00Z", requestState: "done" },
 ];
@@ -115,7 +119,7 @@ const popoverFixtureMessages: ManagementMessage[] = [
     id: "fixture-assistant-1",
     role: "assistant",
     content: [
-      "Two folders moved forward:",
+      "Two work-folders moved forward:",
       "",
       "- **Launch plan** — the draft is ready and its Check passed.",
       "- **Field notes** — three duplicates need your choice.",
@@ -142,6 +146,12 @@ export function PopoverApp() {
   const [messages, setMessages] = useState<ManagementMessage[]>(popoverFixtureRequested ? popoverFixtureMessages : []);
   const [staged, setStaged] = useState<StagedItem[]>([]);
   const [text, setText] = useState("");
+  // Folder Workers the work-fold agent can be told to involve with @
+  // (2026-10-01), in the same nested order as the Folder switcher.
+  const [mentionFolders, setMentionFolders] = useState<MentionFolderOption[]>([]);
+  const [composerCaret, setComposerCaret] = useState(0);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [startingNewChat, setStartingNewChat] = useState(false);
   const [chats, setChats] = useState<FoldChat[]>(popoverFixtureRequested ? fixtureChats : []);
@@ -377,15 +387,33 @@ export function PopoverApp() {
   // renders the old Working state again.
   useEffect(() => {
     if (popoverFixtureRequested) return;
+    let lastMentionRefresh = 0;
+    const refreshMentionFolders = (force = false) => {
+      // Focus and visibility often fire together on one show; read once.
+      if (!force && Date.now() - lastMentionRefresh < 1000) return;
+      lastMentionRefresh = Date.now();
+      void api<{ spaces: Array<{ id: string; name: string; spaceRoot: string }> }>("/api/spaces/outline")
+        .then(({ spaces }) => { const names = mentionNames(spaces); setMentionFolders(folderTreeRows(spaces).map(({ space, depth }) => ({
+          id: space.id,
+          name: names.get(space.id) ?? space.name,
+          icon: <Folder aria-hidden="true" />,
+          style: { paddingLeft: `${8 + depth * 16}px` },
+        }))); })
+        .catch(() => {});
+    };
+    refreshMentionFolders(true);
+    const unsubscribeControl = subscribeControlEvents((hint) => { if (hint === "spaces" || hint === "reset") refreshMentionFolders(true); });
     const refreshWhenVisible = () => {
       if (document.visibilityState !== "hidden") {
         void refreshConversation();
         void refreshManagementComposer();
+        refreshMentionFolders();
       }
     };
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
+      unsubscribeControl();
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
@@ -458,6 +486,9 @@ export function PopoverApp() {
     replaceStreamingAssistant("");
     try {
       const current = requestRef.current;
+      const addressedSpaceIds = addressedFolderIds(content, mentionFolders);
+      // Match the host's request digest: a registry change may remove or
+      // rename an addressed Worker between retries of the same message.
       const signature = JSON.stringify({
         content,
         attachments: staged.map((item) => item.value),
@@ -479,6 +510,7 @@ export function PopoverApp() {
         userMessageId: identity.userMessageId,
       };
       if (staged.length) body.attachments = staged.map((item) => item.value);
+      if (addressedSpaceIds.length) body.addressedSpaceIds = addressedSpaceIds;
       if (startingNewChatRef.current) {
         body.newConversation = true;
       } else if (selectionRef.current) {
@@ -505,7 +537,23 @@ export function PopoverApp() {
     } finally {
       setSending(false);
     }
-  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant]);
+  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, mentionFolders]);
+
+  const activeMention = useMemo(() => mentionFolders.length ? activeFolderMention(text, composerCaret) : null, [composerCaret, mentionFolders.length, text]);
+  const mentionSuggestions = useMemo(() => activeMention ? matchingMentionFolders(mentionFolders, activeMention.query) : [], [activeMention, mentionFolders]);
+  const mentionKey = activeMention ? `${activeMention.start}:${text}` : null;
+  const mentionMenuOpen = mentionSuggestions.length > 0 && mentionKey !== dismissedMentionKey;
+  useEffect(() => { setActiveMentionIndex(0); }, [activeMention?.start, activeMention?.query]);
+  const chooseMentionFolder = (folder: MentionFolderOption) => {
+    if (!activeMention) return;
+    const next = insertFolderMention(text, activeMention, folder);
+    setText(next.value);
+    setComposerCaret(next.caret);
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(next.caret, next.caret);
+    });
+  };
 
   const selectChat = useCallback((id: string | null) => {
     if (sending || stopping || workState.busy || savingChat) return;
@@ -882,7 +930,7 @@ export function PopoverApp() {
                   {elapsedLabel ? <span className="working-elapsed">{elapsedLabel}</span> : null}
                 </p>
               ) : !workState.work ? (
-                <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="working-copy">Working in {request.children.filter((child) => child.state === "running").length === 1 ? "a folder" : "folders"}…</span></p>
+                <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="working-copy">Working in {request.children.filter((child) => child.state === "running").length === 1 ? "a work-folder" : "work-folders"}…</span></p>
               ) : null}
             </div>
           ) : null}
@@ -904,15 +952,44 @@ export function PopoverApp() {
       <section className="composer">
         <div className="composer-field">
           <div className="composer-input">
+            {mentionMenuOpen ? (
+              <FolderMentionMenu id="popover-mentions" className="popover-mention-menu" folders={mentionSuggestions} activeIndex={activeMentionIndex} onHover={setActiveMentionIndex} onChoose={chooseMentionFolder} />
+            ) : null}
             <textarea
               ref={composerRef}
               rows={1}
               aria-label={composerPlaceholder}
               placeholder={composerPlaceholder}
               value={text}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => { setText(event.target.value); setComposerCaret(event.target.selectionStart ?? event.target.value.length); }}
+              onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart ?? 0)}
               onPaste={onComposerPaste}
+              aria-autocomplete="list"
+              aria-expanded={mentionMenuOpen}
+              aria-controls={mentionMenuOpen ? "popover-mentions" : undefined}
+              aria-activedescendant={mentionMenuOpen ? `popover-mentions-${activeMentionIndex}` : undefined}
               onKeyDown={(event) => {
+                // An IME composition owns Enter, arrows, and Escape until it commits.
+                if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                const plainKey = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+                if (mentionMenuOpen && plainKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                  event.preventDefault();
+                  const step = event.key === "ArrowDown" ? 1 : -1;
+                  setActiveMentionIndex((current) => (current + step + mentionSuggestions.length) % mentionSuggestions.length);
+                  return;
+                }
+                if (mentionMenuOpen && plainKey && (event.key === "Enter" || event.key === "Tab")) {
+                  event.preventDefault();
+                  const folder = mentionSuggestions[activeMentionIndex];
+                  if (folder) chooseMentionFolder(folder);
+                  return;
+                }
+                if (mentionMenuOpen && event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setDismissedMentionKey(mentionKey);
+                  return;
+                }
                 // Enter sends when idle; while a turn streams, the composer is a
                 // safe draft area and the action becomes Stop.
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !requestRunning) {

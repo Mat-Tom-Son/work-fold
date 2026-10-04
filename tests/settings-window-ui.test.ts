@@ -132,3 +132,23 @@ test("opening Settings from a model label focuses the loaded selector only once"
   await dom.press("ArrowDown");
   assert.equal(document.activeElement?.id, "settings-tab-assistant", "returning to Assistant does not reclaim focus");
 });
+
+
+test("Settings exposes Customize Folder back navigation only for that entry path", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  HTMLElement.prototype.scrollIntoView = () => {};
+  window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+  let returns = 0;
+  const props = { space, agentStatus: status, fixtureMode: true, initialPage: "assistant" as const,
+    updateStatus: null, onAgentConfigured: () => {}, onClose: () => {} };
+  await dom.render(createElement(DesktopSettingsModal, props));
+  assert.equal(document.querySelector('[aria-label="Back to Customize work-folder"]'), null);
+  await dom.render(createElement(DesktopSettingsModal, { ...props, onBackToCustomization: () => { returns += 1; } }));
+  const back = document.querySelector<HTMLButtonElement>('[aria-label="Back to Customize work-folder"]')!;
+  assert.equal(back.parentElement, document.getElementById('settings-title')!.parentElement!.parentElement, "the button sits beside the Settings title");
+  await dom.act(() => back.click());
+  assert.equal(returns, 1);
+  await dom.render(createElement(DesktopSettingsModal, props));
+  assert.equal(document.querySelector('[aria-label="Back to Customize work-folder"]'), null, "a later ordinary Settings entry has no back button");
+});

@@ -17,6 +17,13 @@ test("desktop sharing starts without Chats, permits Stop during work, and surviv
   await writeFile(join(agentDir, "extensions/hold.ts"), `export default function(pi) {
     pi.registerCommand("hold-desktop-test", { description: "Disposable turn", handler: async () => { await new Promise(resolve => setTimeout(resolve, 300)); } });
   }`);
+  await mkdir(join(included, "computer"));
+  await writeFile(join(included, "computer/index.ts"), `
+    export async function probeIncludedComputer(_config, options) {
+      return { platform: 'linux', sessionType: 'wayland', status: options.launch ? 'ready' : 'not_running', accessibility: options.launch, screenRecording: false };
+    }
+    export async function setupIncludedComputer() { throw new Error('Observation must not enter repair'); }
+  `);
   let launched = 0, closed = 0;
   const service = new ComputerSessionService({ launch: async () => {
     launched++; let ended = false; const listeners = new Set<() => void>();
@@ -54,6 +61,13 @@ test("desktop sharing starts without Chats, permits Stop during work, and surviv
     assert.equal(service.status().state, "active", "setup must not invalidate its just-granted Chat");
     assert.equal(closed, 1);
     const running = await api.actFacade.manageSend({ content: "/hold-desktop-test", conversationId: warm.conversationId });
+    for (const action of ["check", "start-check"]) {
+      const checked = await setup({ action });
+      assert.equal(checked.status, 200, JSON.stringify(checked.body));
+      assert.equal(checked.body.status.computerSession.state, "active", "readiness checks retain the live portal grant");
+      assert.equal(service.status().state, "active");
+      assert.equal(closed, 1, "checking cannot dispose peer Chats or stop sharing");
+    }
     assert.equal((await setup({ action: "stop-sharing" })).status, 200, "Stop is available during accepted work");
     assert.equal(service.status().state, "idle"); await settled(running.taskId);
     const chat = (await post(`/api/spaces/${space.id}/conversations`, {})).body.conversation;

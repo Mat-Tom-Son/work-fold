@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowSync16Regular, Settings24Regular } from "@fluentui/react-icons";
-import { AlertTriangle, CirclePlus, Download, FolderOpen, Loader2, Search, Upload, X } from "lucide-react";
+import { Settings24Regular } from "@fluentui/react-icons";
+import { AlertTriangle, CirclePlus, Download, FolderOpen, Loader2, Search, X } from "lucide-react";
 import {
   accentIdentityFromHex,
   normalizeSpaceAppearanceCustomization,
@@ -22,7 +22,9 @@ import { DesktopSettingsModal, type SettingsPage } from "./components/modals/Des
 import { FileVersionHistoryModal } from "./components/modals/FileVersionHistoryModal";
 import { KeyboardShortcutsModal } from "./components/modals/KeyboardShortcutsModal";
 import { AssistantToolsModal } from "./components/modals/AssistantToolsModal";
+import { SpaceAppearanceModal, type SpaceAppearanceSection } from "./components/modals/SpaceAppearanceModal";
 import { TextInputModal } from "./components/modals/TextInputModal";
+import { NewFolderModal, type NewFolderTarget } from "./components/modals/NewFolderModal";
 import { subscribeControlEvents } from "./lib/control-events";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
@@ -32,7 +34,7 @@ import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
 import { SpaceAutomationsPane } from "./components/panes/SpaceAutomationsPane";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
-import { SpaceAppearancePanel, SpaceModeRail, SpaceNameEditor, SpacePaneHeader } from "./components/panes/spaceChrome";
+import { SpaceModeRail, SpacePaneHeader } from "./components/panes/spaceChrome";
 import { FileContentSearch } from "./components/panes/FileContentSearch";
 import { ChatsPane, HistoryPane, SpacesPane, type AssistantModelScope } from "./components/panes/spacePanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
@@ -45,7 +47,7 @@ import { SpaceAppearanceProvider, useSpaceIdentityResolver } from "./lib/space-a
 import { usePaneResize } from "./hooks/usePaneResize";
 import { useAssistantConfigurationRevision } from "./hooks/useAssistantConfigurationRevision";
 import { useBootstrapRefresh } from "./hooks/useBootstrapRefresh";
-import { useChatActivity } from "./hooks/useChatActivity";
+import { folderActivityStatuses, useChatActivity } from "./hooks/useChatActivity";
 import { useRestrictedApps } from "./hooks/useRestrictedApps";
 import { useSurfaceTabs } from "./hooks/useSurfaceTabs";
 import { useSpaceTree } from "./hooks/useSpaceTree";
@@ -64,6 +66,9 @@ import { getLocalAppStudio, getLocalAppSpaceRemovalImpact, prepareRestrictedAppC
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, removeTreeEntries } from "./lib/tree";
 import { normalizeSpaceCustomizations } from "./lib/space-customization";
 import { spaceIdentityFor, spaceIdentityStyle } from "./lib/space-identity";
+import { childFolderPaths, combineActivityStatuses, descendantFolders, folderAncestors, folderTreeRows } from "./lib/folder-nesting";
+import type { MentionFolderOption } from "./components/chat/FolderMentionMenu";
+import { mentionNames } from "./lib/folder-mentions";
 import { removeSpaceConfirmText, surfacePanelDomId, surfaceTabDomId, spaceHeaderSourceBadgeLabel } from "./lib/space-ui";
 import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AssistantToolsView, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpacePane, SpaceRailMode, SpaceSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
@@ -111,6 +116,10 @@ export function App() {
   const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("appearance");
   const [settingsAssistantScope, setSettingsAssistantScope] = useState<AssistantModelScope | undefined>(undefined);
   const [settingsFocusAssistantModel, setSettingsFocusAssistantModel] = useState(false);
+  const [settingsAssistantSpaceId, setSettingsAssistantSpaceId] = useState<string | undefined>();
+  const [settingsFocusAssistantInstructions, setSettingsFocusAssistantInstructions] = useState(false);
+  const [settingsBackAction, setSettingsBackAction] = useState<(() => void) | null>(null);
+  const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
   const [assistantConfigurationRevision, assistantConfigurationChanged] = useAssistantConfigurationRevision(!fixtureRequested);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -132,11 +141,23 @@ export function App() {
     const returnFocus = keyboardShortcutsReturnFocusRef.current;
     window.requestAnimationFrame(() => { if (returnFocus?.isConnected) returnFocus.focus(); });
   }, []);
-  const openSettings = useCallback((page: SettingsPage = "appearance", assistantScope?: AssistantModelScope, focusAssistantModel = false) => {
+  const openSettings = useCallback((page: SettingsPage = "appearance", assistantScope?: AssistantModelScope, focusAssistantModel = false, assistantSpaceId?: string, focusAssistantInstructions = false, backToCustomization?: () => void) => {
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    settingsReturnFocusRef.current = focused && focused !== document.body && !focused.closest(".modal-backdrop")
+      ? focused : document.querySelector<HTMLButtonElement>(".space-pane-switch-trigger");
     setSettingsInitialPage(page);
     setSettingsAssistantScope(page === "assistant" ? assistantScope : undefined);
     setSettingsFocusAssistantModel(page === "assistant" && focusAssistantModel);
+    setSettingsAssistantSpaceId(page === "assistant" ? assistantSpaceId : undefined);
+    setSettingsFocusAssistantInstructions(page === "assistant" && focusAssistantInstructions);
+    setSettingsBackAction(() => backToCustomization ?? null);
     setSettingsOpen(true);
+  }, []);
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    setSettingsBackAction(null);
+    const target = settingsReturnFocusRef.current;
+    window.requestAnimationFrame(() => { if (target?.isConnected && !target.inert) target.focus(); });
   }, []);
   const updateActiveChecksControl = useCallback((control: SpaceChecksControl | null) => {
     if (control || activeChecksControlRef.current?.spaceId === activeSpaceId) {
@@ -257,7 +278,7 @@ export function App() {
   useEffect(() => window.workFoldDesktop?.agent.onOpenSettings((scope) => openSettings("assistant", scope, true)), [openSettings]);
 
   async function createSpace(name: string) {
-    if (fixtureRequested) { setCreateSpaceOpen(false); showToast({ text: "Folder creation is disabled in the preview", tone: "info" }); return; }
+    if (fixtureRequested) { setCreateSpaceOpen(false); showToast({ text: "work-folder creation is disabled in the preview", tone: "info" }); return; }
     const checksControl = activeChecksControlRef.current;
     try {
       await checksControl?.suspend();
@@ -299,14 +320,14 @@ export function App() {
     } catch (caught) { setError(errorText(caught)); }
   }
 
-  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your folders and workers."} action={error ? <button className="secondary-button" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try Again</button> : undefined} /></div>;
+  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your work-folders and workers."} action={error ? <button className="secondary-button" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try Again</button> : undefined} /></div>;
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
     {activeSpace ? <SpaceAppearanceProvider palette={appearance.preferences.palette}><SpaceView space={activeSpace} spaces={boot.spaces} restrictedAppsStore={restrictedAppsState} agent={boot.agent} assistantConfigurationRevision={assistantConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /></SpaceAppearanceProvider> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
-    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={activeSpace} spaces={boot.spaces} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", spaceId: app.sourceSpaceId, app }); }} onOpenAppBuildChat={(spaceId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", spaceId, conversationId }); }} onOpenAppResultFile={(spaceId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", spaceId, path }); }} onOpenAppStudio={(spaceId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", spaceId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
+    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={settingsAssistantSpaceId ? boot.spaces.find((item) => item.id === settingsAssistantSpaceId) ?? null : activeSpace} spaces={boot.spaces} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", spaceId: app.sourceSpaceId, app }); }} onOpenAppBuildChat={(spaceId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", spaceId, conversationId }); }} onOpenAppResultFile={(spaceId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", spaceId, path }); }} onOpenAppStudio={(spaceId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", spaceId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} focusAssistantInstructions={settingsFocusAssistantInstructions} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onBackToCustomization={settingsBackAction ? () => { setSettingsOpen(false); setSettingsBackAction(null); settingsBackAction(); } : undefined} onClose={closeSettings} /> : null}
     {shortcutsOpen ? <KeyboardShortcutsModal onClose={closeKeyboardShortcuts} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
@@ -330,7 +351,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   onCreateSpace: () => void;
   onOpenFolder: () => void;
   onChecksControlChange: (control: SpaceChecksControl | null) => void;
-  onOpenSettings: (page?: SettingsPage, assistantScope?: AssistantModelScope, focusAssistantModel?: boolean) => void;
+  onOpenSettings: (page?: SettingsPage, assistantScope?: AssistantModelScope, focusAssistantModel?: boolean, assistantSpaceId?: string, focusAssistantInstructions?: boolean, backToCustomization?: () => void) => void;
   onOpenShortcuts: () => void;
   onError: (message: string | null) => void;
 }) {
@@ -374,7 +395,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
       .catch((caught) => {
         if (!cancelled && !appearanceStorageWarningShownRef.current) {
           appearanceStorageWarningShownRef.current = true;
-          showToast({ text: `work-fold could not migrate the saved folder appearance. ${errorText(caught)}`, tone: "info" });
+          showToast({ text: `work-fold could not migrate the saved work-folder appearance. ${errorText(caught)}`, tone: "info" });
         }
       });
     return () => { cancelled = true; };
@@ -388,8 +409,13 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   const sharedPages = useSharedPages(Boolean(fixture));
   const sharedPaths = useMemo(() => sharedPathsForSpace(sharedPages, space.id), [sharedPages, space.id]);
   const [renameEntryRequest, setRenameEntryRequest] = useState<{ path: string; name: string } | null>(null);
+  const [newFolderTarget, setNewFolderTarget] = useState<NewFolderTarget | null>(null);
   const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
   const [versionHistory, setVersionHistory] = useState<{ space: SpaceSummary; path: string; name: string } | null>(null);
+  const [appearanceSpaceId, setAppearanceSpaceId] = useState<string | null>(null);
+  const [appearanceInitialSection, setAppearanceInitialSection] = useState<SpaceAppearanceSection>("banner");
+  const appearanceSpace = spaces.find((item) => item.id === appearanceSpaceId);
+  const appearanceReturnFocusRef = useRef<HTMLElement | null>(null);
   const [contextRequest, setContextRequest] = useState<ChatContextPathRequest | null>(null);
   const [draftRequest, setDraftRequest] = useState<ChatDraftRequest | null>(null);
   const draftRequestId = useRef(0);
@@ -424,6 +450,64 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     window.addEventListener("work-fold:open-result-file", openResult);
     return () => window.removeEventListener("work-fold:open-result-file", openResult);
   }, [spaces, tabs.openFileSurfaceTab]);
+  // Background Worker turns (handoffs into nested Folders, CLI sends) light
+  // the same dots as open Chat tabs. The host sends a content-free hint on
+  // every turn start and end; the renderer requeries the running set.
+  const watchedChatKeysRef = useRef<Set<string>>(new Set());
+  watchedChatKeysRef.current = new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "chat" && tab.conversationId ? [chatActivityKey(tab.spaceId, tab.conversationId)] : []));
+  const conversationGroupsRef = useRef(conversationGroups);
+  conversationGroupsRef.current = conversationGroups;
+  useEffect(() => {
+    if (fixture) return;
+    let disposed = false;
+    let timer: number | null = null;
+    // Only the newest answer counts: an older response resolving late would
+    // re-add a finished turn and leave its dot pulsing.
+    let generation = 0;
+    const upsertConversations = (spaceId: string) => {
+      void api<{ conversations: ConversationSummary[] }>(`/api/spaces/${spaceId}/conversations`)
+        .then(({ conversations }) => {
+          if (disposed) return;
+          setConversationGroups((current) => {
+            // Merge by id: a Chat this window just created may not be on the
+            // server's list yet and must not disappear.
+            const fresh = new Map(conversations.map((chat) => [chat.id, chat]));
+            const localOnly = (current[spaceId] ?? []).filter((chat) => !fresh.has(chat.id));
+            return { ...current, [spaceId]: [...conversations, ...localOnly].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)) };
+          });
+        })
+        .catch(() => {});
+    };
+    const refreshActivity = () => {
+      const request = ++generation;
+      void api<{ running: Array<{ spaceId: string; conversationId: string }> }>("/api/spaces/activity").then(({ running }) => {
+        if (disposed || request !== generation) return;
+        const finished = chatActivity.syncBackgroundRunning(new Set(running.map((item) => chatActivityKey(item.spaceId, item.conversationId))), (key) => watchedChatKeysRef.current.has(key));
+        // A handed-off Chat is new to its Folder's list, and a finished one has
+        // a new title and time: refresh those Folders' lists.
+        const spaceIds = new Set([
+          ...running.filter((item) => !conversationGroupsRef.current[item.spaceId]?.some((chat) => chat.id === item.conversationId)).map((item) => item.spaceId),
+          ...finished.map((key) => key.slice(0, key.indexOf(":"))),
+        ]);
+        for (const spaceId of spaceIds) if (spaceId) upsertConversations(spaceId);
+      }).catch(() => {});
+    };
+    refreshActivity();
+    const unsubscribe = subscribeControlEvents((hint) => {
+      if (hint !== "activity" && hint !== "reset") return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => { timer = null; refreshActivity(); }, 120);
+    });
+    return () => { disposed = true; if (timer !== null) window.clearTimeout(timer); unsubscribe(); };
+  }, [fixture, chatActivity.syncBackgroundRunning]);
+  // Once every Folder's Chat list has loaded, a saved mark for a Chat or Folder
+  // that no longer exists is gone for good.
+  useEffect(() => {
+    if (fixture || !spaces.length || spaces.some((item) => !conversationGroups[item.id])) return;
+    const known = new Set(spaces.flatMap((item) => (conversationGroups[item.id] ?? []).map((chat) => chatActivityKey(item.id, chat.id))));
+    chatActivity.pruneAttention((key) => !known.has(key) && !watchedChatKeysRef.current.has(key));
+  }, [fixture, spaces, conversationGroups, chatActivity.pruneAttention]);
+  const folderStatuses = useMemo(() => folderActivityStatuses(chatActivity.statuses, conversationGroups), [chatActivity.statuses, conversationGroups]);
   const restrictedAppsState = restrictedAppsStore;
   const [assistantToolsView, setAssistantToolsView] = useState<AssistantToolsView | null>(null);
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
@@ -437,6 +521,30 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   }, [checks.resume, checks.suspend, onChecksControlChange, space.id]);
   const spaceIdentityFor = useSpaceIdentityResolver();
   const identity = spaceIdentityFor(space, customizations);
+  const nestedFolderViews = useMemo(() => new Map([...childFolderPaths(space, spaces)].map(([path, child]) => [path, {
+    space: child,
+    identity: spaceIdentityFor(child, customizations),
+    status: combineActivityStatuses([child, ...descendantFolders(child, spaces)].map((item) => folderStatuses[item.id])),
+  }])), [customizations, folderStatuses, space, spaceIdentityFor, spaces]);
+  // The Workers a Chat can address with @ (2026-10-01): the Folders inside
+  // this one first, then the ones containing it, then everything else.
+  const mentionFoldersFor = useCallback((target: SpaceSummary): MentionFolderOption[] => {
+    const inside = folderTreeRows(descendantFolders(target, spaces)).map((row) => row.space);
+    const containing = folderAncestors(target, spaces).reverse();
+    const seen = new Set([target.id, ...inside.map((item) => item.id), ...containing.map((item) => item.id)]);
+    const others = spaces.filter((item) => !seen.has(item.id)).sort((left, right) => left.name.localeCompare(right.name));
+    const names = mentionNames(spaces);
+    return [...inside, ...containing, ...others].map((item) => {
+      const itemIdentity = spaceIdentityFor(item, customizations);
+      return {
+        id: item.id,
+        name: names.get(item.id) ?? item.name,
+        icon: <SpaceIconGlyph icon={itemIdentity.Icon} size={13} filled />,
+        style: spaceIdentityStyle(itemIdentity),
+        status: folderStatuses[item.id] ?? null,
+      };
+    });
+  }, [customizations, folderStatuses, spaceIdentityFor, spaces]);
   const surfaceCatalogKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, space.id);
   const restrictedAppCatalogKnown = restrictedAppsState.knownSpaceIds.has(space.id);
   const restrictedApps = restrictedAppsState.appsBySpace[space.id] ?? [];
@@ -565,7 +673,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   useEffect(() => {
     if (!desktopAction) return;
     if (desktopAction.command === "open-checks") tabs.openChecksSurfaceTab(space);
-    else if (desktopAction.command === "customize-space") { const target = spaces.find((item) => item.id === desktopAction.spaceId); if (target) tabs.openAppearanceSurfaceTab(target); }
+    else if (desktopAction.command === "customize-space") { const target = spaces.find((item) => item.id === desktopAction.spaceId); if (target) openSpaceAppearance(target); }
     else if (desktopAction.command === "new-chat") openChat(space, null);
     else if (desktopAction.command === "reload-space-state") void refreshSpaceState();
     else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") setAssistantToolsView("installed");
@@ -574,7 +682,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     else if (desktopAction.command === "open-app-result-file" && desktopAction.spaceId && desktopAction.path) {
       const target = spaces.find((item) => item.id === desktopAction.spaceId);
       if (target) tabs.openFileSurfaceTab(target, desktopAction.path);
-      else onError("The result's folder is unavailable.");
+      else onError("The result's work-folder is unavailable.");
     }
     else if (desktopAction.command === "open-app-studio" && desktopAction.spaceId) openAppStudio(desktopAction.spaceId, desktopAction.runtimeInstanceId);
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
@@ -666,6 +774,23 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     showToast({ text: `${space.name} refreshed`, tone: "success" });
   }
 
+  function openSpaceAppearance(target: SpaceSummary) {
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Menu items and Settings disappear as the popup opens. Return to the
+    // persistent Folder header instead of a detached invoking control.
+    appearanceReturnFocusRef.current = focused && focused !== document.body && !focused.closest("[role='menu'], .modal-backdrop")
+      ? focused
+      : document.querySelector<HTMLButtonElement>(".space-pane-switch-trigger");
+    setAppearanceSpaceId(target.id);
+    setAppearanceInitialSection("banner");
+  }
+
+  function closeSpaceAppearance() {
+    setAppearanceSpaceId(null);
+    const returnFocus = appearanceReturnFocusRef.current;
+    window.requestAnimationFrame(() => { if (returnFocus?.isConnected && !returnFocus.inert) returnFocus.focus(); });
+  }
+
   function rememberSpaceAppearance(spaceId: string) {
     const history = appearanceHistoryRef.current.get(spaceId) ?? [];
     history.push(structuredClone(customizationsRef.current[spaceId] ?? {}));
@@ -731,7 +856,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
       supportedSpaceIconNames,
     )[spaceId];
     persistSpaceCustomization(spaceId, normalized);
-    showToast({ text: "Appearance proposal applied to this folder.", tone: "success" });
+    showToast({ text: "Appearance proposal applied to this work-folder.", tone: "success" });
   }
 
   function undoSpaceCustomization(spaceId: string) {
@@ -746,19 +871,19 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
 
   function resetSpaceCustomization(spaceId: string) {
     persistSpaceCustomization(spaceId, undefined);
-    showToast({ text: "Folder appearance reset to defaults.", tone: "success" });
+    showToast({ text: "work-folder appearance reset to defaults.", tone: "success" });
   }
 
   async function renameSpace(target: SpaceSummary, name: string) {
-    if (fixture) { showToast({ text: "Folder rename is disabled in the preview", tone: "info" }); return; }
+    if (fixture) { showToast({ text: "work-folder rename is disabled in the preview", tone: "info" }); return; }
     await checks.suspend();
-    try { await api(`/api/spaces/${target.id}`, { method: "PATCH", body: { name } }); await onRefreshBootstrap(); showToast({ text: `Renamed folder to ${name}`, tone: "success" }); }
+    try { await api(`/api/spaces/${target.id}`, { method: "PATCH", body: { name } }); await onRefreshBootstrap(); showToast({ text: `Renamed work-folder to ${name}`, tone: "success" }); }
     catch (caught) { onError(errorText(caught)); throw caught; }
     finally { void checks.resume(); }
   }
 
   async function removeSpace(target: SpaceSummary) {
-    if (fixture) { showToast({ text: "Folder removal is disabled in the preview", tone: "info" }); return; }
+    if (fixture) { showToast({ text: "work-folder removal is disabled in the preview", tone: "info" }); return; }
     let appStudio;
     let appRemovalImpact;
     try {
@@ -781,7 +906,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     const confirmed = await requestConfirm({ title: target.location.storage === "linked" ? `Remove ${target.name}?` : `Delete ${target.name}?`, body: removeSpaceConfirmText(target, {
       ...appStudio,
       incomingPreparedOperationCount: appRemovalImpact.incomingPreparedOperationCount,
-    }), confirmLabel: target.location.storage === "linked" ? "Remove folder" : "Delete Folder", tone: "danger" });
+    }), confirmLabel: target.location.storage === "linked" ? "Remove work-folder" : "Delete work-folder", tone: "danger" });
     if (!confirmed) return;
     const suspendedChecks = target.id === activeSpaceIdRef.current;
     let removed = false;
@@ -826,7 +951,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   /** Opens a fresh Chat with the app-building starter text, cursor at the end. */
   async function startAppChangeChat(app: RestrictedAppInstalled) {
     const source = spaces.find((item) => item.id === app.sourceSpaceId);
-    if (!source) throw new Error("The app's source folder is unavailable. Refresh folders before changing it.");
+    if (!source) throw new Error("The app's source work-folder is unavailable. Refresh work-folders before changing it.");
     const key = `${app.featureInstallationId}:${app.digest}`;
     const requestId = appChangeRequests.current.get(key) ?? crypto.randomUUID();
     appChangeRequests.current.set(key, requestId);
@@ -838,7 +963,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
 
   async function openAppBuildChat(sourceSpaceId: string, conversationId: string) {
     const source = spaces.find((item) => item.id === sourceSpaceId);
-    if (!source) throw new Error("The app's source folder is unavailable.");
+    if (!source) throw new Error("The app's source work-folder is unavailable.");
     const { conversations } = await api<{ conversations: ConversationSummary[] }>(`/api/spaces/${encodeURIComponent(source.id)}/conversations`);
     const conversation = conversations.find((item) => item.id === conversationId);
     if (!conversation) throw new Error("That build Chat is no longer available.");
@@ -848,7 +973,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
 
   function openAppStudio(sourceSpaceId: string, runtimeInstanceId?: string): void {
     const source = spaces.find((item) => item.id === sourceSpaceId);
-    if (!source) { onError("The app's source folder is unavailable."); return; }
+    if (!source) { onError("The app's source work-folder is unavailable."); return; }
     setAppStudioNavigation(runtimeInstanceId ? { id: crypto.randomUUID(), sourceSpaceId: source.id, runtimeInstanceId } : null);
     tabs.openAppStudioSurfaceTab(source);
   }
@@ -876,7 +1001,6 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     const surfaceTabId = existing?.id ?? tabs.openChatSurfaceTab(space, null);
     if (existing) tabs.setActiveSurfaceTabId(existing.id);
     setContextRequest({ id: ++contextRequestId.current, path, spaceId: space.id, surfaceTabId });
-    showToast({ text: `Attached ${path.split("/").pop() ?? path} to Chat`, tone: "success" });
   }
 
   async function openContextMenu(entry: TreeEntry, event: React.MouseEvent<HTMLElement>) {
@@ -897,10 +1021,11 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
             attach: entry.kind === "file",
             history: entry.kind === "file",
             upload: entry.kind === "folder",
-            rename: Boolean(entry.path),
-            delete: Boolean(entry.path),
+            rename: Boolean(entry.path) && !holdsNestedFolder(entry),
+            delete: Boolean(entry.path) && !holdsNestedFolder(entry),
             share: entry.kind === "file" && isShareablePath(entry.path),
             shared: entry.kind === "file" && Boolean(activeSharedPageFor(sharedPages, space.id, entry.path)),
+            worker: canGiveOwnWorker(entry),
           },
           point,
         });
@@ -916,7 +1041,10 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
         else if (command === "attach-chat") attachToChat(entry.path);
         else if (command === "version-history") openVersionHistory(space, entry.path);
         else if (command === "share") shareFile(entry.path);
+        else if (command === "new-folder") requestNewFolder(entry.path);
         else if (command === "upload-here") chooseUpload(entry.path);
+        else if (command === "refresh") await tree.refresh(false);
+        else if (command === "give-worker") await giveOwnWorker(entry.path);
         else if (command === "rename") renameEntry(entry.path);
         else if (command === "delete") await deleteEntry(entry.path);
       } catch (caught) { onError(errorText(caught)); }
@@ -924,6 +1052,30 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     }
     setFileContextMenu({ entry, x: Math.min(point.x, window.innerWidth - 250), y: Math.min(point.y, window.innerHeight - 420), returnFocusTarget });
   }
+  // "Make a work-folder" (2026-10-01): any plain folder below this
+  // Folder's root can become a nested Folder; its row turns into the door row.
+  function canGiveOwnWorker(entry: TreeEntry): boolean {
+    return !fixture && entry.kind === "folder" && Boolean(entry.path) && !entry.nestedFolder;
+  }
+
+  // A folder that holds a nested Folder cannot be renamed or deleted from
+  // here (the host refuses), so the menus never offer it.
+  function holdsNestedFolder(entry: TreeEntry): boolean {
+    if (entry.kind !== "folder" || !entry.path) return false;
+    const prefix = `${entry.path.toLocaleLowerCase()}/`;
+    return [...nestedFolderViews.keys()].some((path) => path.toLocaleLowerCase().startsWith(prefix));
+  }
+
+  async function giveOwnWorker(path: string): Promise<void> {
+    try {
+      const { space: created } = await api<{ space: SpaceSummary }>(`/api/spaces/${space.id}/nested-folders`, { method: "POST", body: { path } });
+      await Promise.all([onRefreshBootstrap(), tree.refresh(false)]);
+      showToast({ text: `${created.name} is now a work-folder.`, actionLabel: "Open", onAction: () => onSwitchSpace(created) });
+    } catch (caught) {
+      onError(errorText(caught));
+    }
+  }
+
   function openRootContextMenu(event: React.MouseEvent<HTMLElement>) { if ((event.target as HTMLElement).closest("[data-tree-row]")) return; openContextMenu({ name: space.name, path: "", kind: "folder" }, event); }
 
   async function uploadFiles(files: DroppedUploadFile[], targetFolderPath: string) {
@@ -966,6 +1118,18 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     }
   }
   function chooseUpload(targetPath = "") { setUploadTargetPath(targetPath); uploadRef.current?.click(); }
+
+  function requestNewFolder(parentPath = "") {
+    setNewFolderTarget({ spaceId: space.id, spaceName: space.name, parentPath });
+  }
+  async function folderCreated(folder: { path: string; name: string }, target: NewFolderTarget) {
+    showHistorySaved(`Created ${folder.name}`);
+    if (activeSpaceIdRef.current !== target.spaceId) return;
+    tree.setQuery("");
+    await tree.refresh();
+    if (activeSpaceIdRef.current !== target.spaceId) return;
+    if (target.parentPath) tree.toggleFolder(target.parentPath, true);
+  }
 
   async function moveEntry(sourcePath: string, targetFolderPath: string) {
     if (fixture || !sourcePath || sourcePath === targetFolderPath || isInsideFolder(targetFolderPath, sourcePath)) return;
@@ -1266,9 +1430,9 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Skills & Extensions", defaultVisible: true, run: () => setAssistantToolsView("installed") },
     ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : undefined, defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }]),
     { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => setAssistantToolsView("discover") },
-    ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This folder" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
-    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go to", label: restrictedAppRailLabel(app, restrictedApps), detail: "App · This folder", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId)) })),
-    ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch Space", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.name, item.spaceRoot], run: () => onSwitchSpace(item) })),
+    ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This work-folder" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
+    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go to", label: restrictedAppRailLabel(app, restrictedApps), detail: "App · This work-folder", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId)) })),
+    ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch work-folder", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.name, item.spaceRoot], run: () => onSwitchSpace(item) })),
     ...Object.entries(conversationGroups).flatMap(([spaceId, conversations]) => conversations.map((conversation) => {
       const lifecycle = conversationLifecycleView(conversation);
       return {
@@ -1289,7 +1453,12 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
     }),
     { id: "action:new-chat", groupId: "actions", groupLabel: "Actions", label: "New Chat", keywords: ["chat", "conversation", "assistant"], defaultVisible: true, run: () => openChat(space, null) },
     ...(!fixture ? [{ id: "action:save-restore-point", groupId: "actions" as const, groupLabel: "Actions", label: "Save Restore Point", keywords: ["history", "checkpoint", "backup"], defaultVisible: true, run: () => { void saveRestorePoint(); } }] : []),
-    { id: "action:new-space", groupId: "actions", groupLabel: "Actions", label: "Create a New Folder", defaultVisible: true, run: onCreateSpace },
+    // Files has no toolbar buttons (2026-10-01): its actions live in the
+    // right-click menu and here, so the keyboard reaches them too.
+    { id: "action:files-new-subfolder", groupId: "files", groupLabel: "Files", label: "New Folder in Files", keywords: ["mkdir", "directory", "subfolder"], run: () => { setActiveMode("files"); requestNewFolder(); } },
+    { id: "action:files-add", groupId: "files", groupLabel: "Files", label: "Add Files", keywords: ["upload", "import", "drop"], run: () => { setActiveMode("files"); chooseUpload(""); } },
+    { id: "action:files-refresh", groupId: "files", groupLabel: "Files", label: "Refresh Files", keywords: ["reload", "rescan"], run: () => { void tree.refresh(false); } },
+    { id: "action:new-space", groupId: "actions", groupLabel: "Actions", label: "Create a New work-folder", defaultVisible: true, run: onCreateSpace },
     { id: "action:open-folder", groupId: "actions", groupLabel: "Actions", label: "Add an Existing Folder", defaultVisible: true, run: onOpenFolder },
     { id: "action:settings", groupId: "actions", groupLabel: "Actions", label: "Settings", defaultVisible: true, run: onOpenSettings },
     { id: "action:shortcuts", groupId: "actions", groupLabel: "Actions", label: "Keyboard Shortcuts", run: onOpenShortcuts },
@@ -1297,12 +1466,6 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   ], [checks.status, conversationGroups, fixture, restrictedApps, surfaces, themePreference, tree.selectedPath, tree.tree, spaces, space.id]);
 
   const layoutStyle = { ...(spaceIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--space-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
-
-  // The persistent Space-identity header's action slot: the files-mode refresh.
-  // Refresh is a fallback for when file monitoring pauses; it sits in the
-  // Files toolbar beside search and Add files, so the Folder header stays
-  // the same on every rail mode.
-  const refreshFilesButton = <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button>;
 
   function leaveManageFolders(): void {
     selectRailMode(modeBeforeManagingRef.current);
@@ -1321,8 +1484,8 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
   return <main className={paneResize.sidebarResizing ? "space-layout resizing" : "space-layout"} ref={paneResize.spaceLayoutRef} style={layoutStyle}>
     <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenAssistantTools={setAssistantToolsView} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} automations={hasFolderAutomations ? { active: activeTab?.kind === "space-automations" && activeTab.spaceId === space.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel" onKeyDown={activeMode === "spaces" ? leaveManageFoldersOnEscape : undefined}>
-      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} onNewChat={() => openChat(space, null)} onOpenAppearance={() => tabs.openAppearanceSurfaceTab(space)} {...(!fixture && typeof window.workFoldDesktop?.space.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
-      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRemove={(target) => void removeSpace(target)} onDone={leaveManageFolders} /> : null}
+      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} folderStatuses={folderStatuses} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} onNewChat={() => openChat(space, null)} onOpenAppearance={() => openSpaceAppearance(space)} {...(!fixture && typeof window.workFoldDesktop?.space.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
+      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={openSpaceAppearance} onRemove={(target) => void removeSpace(target)} onDone={leaveManageFolders} /> : null}
       {activeMode === "files" ? <div className="local-files-panel">
         <input
           ref={uploadRef}
@@ -1355,13 +1518,11 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
             {tree.query ? <button type="button" onClick={() => tree.setQuery("")} aria-label="Clear file search" title="Clear file search"><X size={14} /></button> : null}
           </label>
           {tree.query ? <span className="file-tree-search-count">{tree.searchHydrating ? "Searching" : formatItemCount(tree.matchCount, "match", "matches")}</span> : null}
-          {tree.treeTruncated ? <span className="file-tree-truncated" title="This Space holds more items than Files lists at once. Open a folder to see its contents, or search by name or contents.">Partial list</span> : null}
+          {tree.treeTruncated ? <span className="file-tree-truncated" title="This work-folder holds more items than Files lists at once. Open a folder to see its contents, or search by name or contents.">Partial list</span> : null}
           <ChecksToolbarButton status={checks.status} loading={checks.loading} unavailable={checks.unavailable} onClick={() => tabs.openChecksSurfaceTab(space)} />
-          {refreshFilesButton}
-          <button className="minimal-icon-button" type="button" disabled={uploadingFiles} onClick={() => chooseUpload("")} aria-label="Add files" title="Add files"><Upload size={15} /></button>
         </div>
         <div
-          className={["file-tree-shell", uploadingFiles ? "uploading-files" : "", tree.status === "refreshing" ? "refreshing-files" : "", tree.dropTargetFolderPath === "" ? "root-drop-target" : ""].filter(Boolean).join(" ")}
+          className={["file-tree-shell", uploadingFiles ? "uploading-files" : "", tree.dropTargetFolderPath === "" ? "root-drop-target" : ""].filter(Boolean).join(" ")}
           onContextMenu={openRootContextMenu}
           onDragEnter={(event) => updateDropTarget(event, "")}
           onDragOver={(event) => updateDropTarget(event, "")}
@@ -1371,8 +1532,8 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
           onKeyDown={(event) => { if (event.key === "Escape" && tree.selectedPath) { event.preventDefault(); tree.setSelectedPath(null); } }}
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding files</div> : null}
-          {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><Loader2 className="spin" size={14} />Updating files</div> : null}
-      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this folder. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
+          {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><span className="file-tree-refresh-pill delayed-loading"><Loader2 className="spin" size={13} />Updating files</span></div> : null}
+      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ghost-button" type="button" onClick={() => void tree.refresh(false)}>Try again</button></div> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchSpace} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -1447,22 +1608,6 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
                 }}
                 onError={onError}
               />
-            ) : tab.kind === "appearance" ? (
-              <div className="space-appearance-surface professional-appearance-surface">
-                <div className="space-appearance-surface-heading">
-                  <SpaceNameEditor space={targetSpace} onRenameSpace={renameSpace} />
-                </div>
-                <SpaceAppearancePanel
-                  space={targetSpace}
-                  identity={targetIdentity}
-                  customization={customizations[targetSpace.id]}
-                  canUndo={(appearanceHistoryRef.current.get(targetSpace.id)?.length ?? 0) > 0}
-                  onCustomizeSpace={customizeSpace}
-                  onReplaceSpace={replaceSpaceCustomization}
-                  onUndoSpace={undoSpaceCustomization}
-                  onResetSpace={resetSpaceCustomization}
-                />
-              </div>
             ) : tab.kind === "history" ? (
               <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} space={targetSpace} fixtureItems={fixture?.checkpoints[targetSpace.id]} refreshRequest={targetSpace.id === space.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetSpace, item.checkpointId, item.label || "Restore point")} onError={onError} />
             ) : tab.kind === "extension" ? (() => {
@@ -1477,15 +1622,37 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
               const app = restrictedAppsState.appsBySpace[targetSpace.id]?.find((item) => item.manifest.id === tab.appId && item.digest === tab.digest && item.featureInstallationId === tab.featureInstallationId);
               return app
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
-                : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this Space." />;
+                : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this work-folder." />;
             })() : tab.kind === "chat" ? (
-              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} assistantConfigurationRevision={assistantConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("assistant", "space", true)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} />
+              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} assistantConfigurationRevision={assistantConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("assistant", "space", true, targetSpace.id)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} mentionFolders={mentionFoldersFor(targetSpace)} />
             ) : null}
           </div>
         );
       }) : <SpaceSurfaceEmptyState space={space} identity={identity} onNewChat={() => openChat(space, null)} />}
     </aside>
-    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onShare={shareFile} shareSpaceId={space.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
+    {appearanceSpace ? <SpaceAppearanceModal
+      key={appearanceSpace.id}
+      space={appearanceSpace}
+      initialSection={appearanceInitialSection}
+      identity={spaceIdentityFor(appearanceSpace, customizations)}
+      customization={customizations[appearanceSpace.id]}
+      canUndo={(appearanceHistoryRef.current.get(appearanceSpace.id)?.length ?? 0) > 0}
+      onRenameSpace={renameSpace}
+      onCustomizeSpace={customizeSpace}
+      onReplaceSpace={replaceSpaceCustomization}
+      onUndoSpace={undoSpaceCustomization}
+      onResetSpace={resetSpaceCustomization}
+      onOpenWorkerSettings={(section, returnSection) => {
+        setAppearanceSpaceId(null);
+        onOpenSettings("assistant", "space", section === "model", appearanceSpace.id, section === "instructions", () => {
+          setAppearanceInitialSection(returnSection);
+          setAppearanceSpaceId(appearanceSpace.id);
+        });
+      }}
+      onClose={closeSpaceAppearance}
+    /> : null}
+    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path && !holdsNestedFolder(fileContextMenu.entry) ? renameEntry : undefined} onNewFolder={requestNewFolder} onUploadHere={chooseUpload} onRefresh={() => void tree.refresh(false)} onGiveWorker={canGiveOwnWorker(fileContextMenu.entry) ? (path) => void giveOwnWorker(path) : undefined} onDelete={deleteEntry} canDelete={!holdsNestedFolder(fileContextMenu.entry)} onShare={shareFile} shareSpaceId={space.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
+    {newFolderTarget ? <NewFolderModal target={newFolderTarget} fixtureMode={Boolean(fixture)} onCreated={(folder) => void folderCreated(folder, newFolderTarget)} onClose={() => setNewFolderTarget(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
     {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onClose={() => setChatActions(null)} /> : null}
     {versionHistory ? <FileVersionHistoryModal space={versionHistory.space} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}

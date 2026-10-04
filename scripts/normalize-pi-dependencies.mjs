@@ -16,14 +16,14 @@ if (piPackage.version !== expectedPiVersion) {
 }
 
 for (const dependency of [
-  { name: "brace-expansion", fixedVersion: "5.0.9", replaceVersions: new Set(["5.0.6", "5.0.7", "5.0.8"]) },
+  { name: "brace-expansion", fixedVersion: "5.0.12", replaceVersions: new Set(["5.0.6", "5.0.7", "5.0.8", "5.0.9"]) },
   { name: "protobufjs", fixedVersion: "7.6.5", replaceVersions: new Set(["7.6.4"]) },
   {
     name: "undici",
-    fixedVersion: "8.10.0",
-    replaceVersions: new Set(["8.5.0", "8.8.0"]),
+    fixedVersion: "8.10.2",
+    replaceVersions: new Set(["8.5.0", "8.8.0", "8.10.0"]),
     sourceName: "undici-pi-reviewed",
-    sourceDeclaration: "npm:undici@8.10.0",
+    sourceDeclaration: "npm:undici@8.10.2",
   },
 ]) {
   await normalizeDependency(dependency);

@@ -60,7 +60,6 @@ test("Chat search reaches transcript contents across Spaces and opens the owning
     spaces,
     conversations: { "space-1": [planningChat], "space-2": [] },
     query: "quarterly",
-    view: "active",
     now: Date.parse("2026-07-02T00:00:00.000Z"),
     onOpen: (space: SpaceSummary, conversation: ConversationSummary) => {
       opened.push(`${space.id}:${conversation.id}`);
@@ -72,7 +71,7 @@ test("Chat search reaches transcript contents across Spaces and opens the owning
   await dom.waitFor(() => (dom.container.textContent ?? "").includes("hidden quarterly figure"));
   assert.match(dom.container.textContent ?? "", /Planning/);
   assert.match(dom.container.textContent ?? "", /Budget review/);
-  assert.match(dom.container.textContent ?? "", /Some Spaces couldn\u2019t be searched/, "one unavailable Space does not hide other matches");
+  assert.match(dom.container.textContent ?? "", /Some work-folders couldn\u2019t be searched/, "one unavailable Folder does not hide other matches");
 
   dom.container.querySelector<HTMLButtonElement>(".chat-content-search li button")?.click();
   assert.deepEqual(opened, ["space-1:chat-1"]);

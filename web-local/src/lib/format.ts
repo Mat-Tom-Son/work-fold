@@ -13,6 +13,8 @@ export interface StoredPendingChatSend {
   contextPaths: string[];
   transientConversation: boolean;
   draftStorageKey: string;
+  /** Folder Workers the message @-mentions (2026-10-01). */
+  addressedSpaceIds?: string[];
 }
 
 export function normalizeSearchQuery(value: string): string {
@@ -88,6 +90,9 @@ function normalizePendingChatSend(value: unknown): StoredPendingChatSend | null 
     contextPaths: record.contextPaths.slice(0, 32),
     transientConversation: record.transientConversation,
     draftStorageKey: record.draftStorageKey,
+    ...(Array.isArray(record.addressedSpaceIds) && record.addressedSpaceIds.every((id) => typeof id === "string")
+      ? { addressedSpaceIds: record.addressedSpaceIds.slice(0, 8) }
+      : {}),
   };
 }
 

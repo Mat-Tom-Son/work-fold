@@ -9,6 +9,7 @@ import type { NativeResource } from "./resource-lifecycle.js";
 import { includedToolDefinitions } from "../../shared/included-tools.js";
 import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
 import type { ComputerSessionService, ComputerTurn, NativeComputerOwner } from "./computer-session.js";
+import { beginIncludedToolObservation } from "./included-tool-observations.js";
 export { includedToolDefinitions, type IncludedToolId } from "../../shared/included-tools.js";
 export interface IncludedToolsConfiguration {
   rootPath: string;
@@ -60,6 +61,7 @@ export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRu
       version: 1, mode, cwd: resolve(cwd), agentDir: runtime.agentDir, stateRoot: config.stateRoot,
       helperAppPath: config.helperAppPath,
       prepareComputerHelper: config.prepareComputerHelper,
+      ...(mode === "session" ? { beginIncludedToolObservation: (id: "computer" | "documents") => beginIncludedToolObservation(runtime, id) } : {}),
       companionPath: join(config.stateRoot, "chrome-companion"),
       ...(mode === "session" && computer && config.computerSession ? config.computerSession.forSession(computer.owner, computer.turn) : {}),
       ...(config.chromeConnection ? {

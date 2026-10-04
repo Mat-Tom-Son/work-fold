@@ -17,23 +17,32 @@ export const appearanceChoices = {
   contrast: ["system", "more"],
   motion: ["system", "reduce"],
   transparency: ["system", "opaque"],
+  chatSteps: ["every", "current"],
 } as const;
 type Choice<K extends keyof typeof appearanceChoices> = typeof appearanceChoices[K][number];
-export type ApplicationAppearance = { version: 1; accent: "system" | string; readingSize: number } & {
+/** The current record version. Version 1 records lack the keys in `addedSinceVersion1` and read as their defaults. */
+export const applicationAppearanceVersion = 2;
+export type ApplicationAppearance = { version: typeof applicationAppearanceVersion; accent: "system" | string; readingSize: number } & {
   [K in keyof typeof appearanceChoices]: Choice<K>;
 };
 export interface AppearancePreset { kind: typeof appearancePresetKind; version: 1; name: string; preferences: ApplicationAppearance }
 export const defaultApplicationAppearance: ApplicationAppearance = {
-  version: 1, mode: "dark", palette: "original", accent: "system", font: "default", textSize: "standard",
+  version: applicationAppearanceVersion, mode: "dark", palette: "original", accent: "system", font: "default", textSize: "standard",
   readingFont: "app", readingSize: 15, codeFont: "system", density: "standard", measure: "standard",
   spacing: "standard", messages: "tinted", contrast: "system", motion: "system", transparency: "system",
+  chatSteps: "every",
 };
+const addedSinceVersion1 = ["chatSteps"] as const satisfies readonly (keyof typeof appearanceChoices)[];
 
 /** Closed values only: proposals cannot introduce executable style or external resources. */
 export function parseApplicationAppearance(raw: unknown): ApplicationAppearance {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Choose a work-fold appearance preset file.");
-  const r = raw as Record<string, unknown>;
-  if (r.version !== 1) throw new Error("This appearance version is not supported by this build.");
+  const record = raw as Record<string, unknown>;
+  if (record.version !== 1 && record.version !== applicationAppearanceVersion) throw new Error("This appearance version is not supported by this build.");
+  // A record saved before a setting existed keeps its meaning: the missing key reads as the default.
+  const r: Record<string, unknown> = record.version === 1
+    ? { ...record, version: applicationAppearanceVersion, ...Object.fromEntries(addedSinceVersion1.filter((key) => record[key] === undefined).map((key) => [key, defaultApplicationAppearance[key]])) }
+    : record;
   const allowed = new Set(["version", "accent", "readingSize", ...Object.keys(appearanceChoices)]);
   if (Object.keys(r).some((key) => !allowed.has(key))) throw new Error("This appearance file contains unknown settings.");
   for (const [key, values] of Object.entries(appearanceChoices)) {

@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import type { HistoryFileComparison, HistoryFileRead } from "../../shared/history-review.js";
 
 import type {
   WorkFoldActChatLifecycleState,
@@ -77,6 +78,8 @@ export type WorkFoldCliActCommandName =
   | "history.save"
   | "history.restore"
   | "history.versions"
+  | "history.read"
+  | "history.diff"
   | "history.restore-file"
   | "search"
   | "library.list"
@@ -186,6 +189,8 @@ export interface WorkFoldCliActParsedCommand {
   /** Optional restore-point label for history.save. */
   label?: string;
   checkpoint?: string;
+  fromCheckpoint?: string;
+  toCheckpoint?: string;
   /**
    * Single Space-relative entry path for file and History verbs, and the
    * exact file an `apps grant --kind files` single-file permission binds to.
@@ -194,6 +199,7 @@ export interface WorkFoldCliActParsedCommand {
   /** File-version hash for history.restore-file; display version for apps.release.prepare. */
   version?: string;
   query?: string;
+  cursor?: string; limit?: number; offsetBytes?: number; lengthBytes?: number; expectedSha256?: string;
   searchScope?: "files" | "chats" | "all";
   /** Library-relative source item for library.copy. */
   item?: string;
@@ -357,8 +363,11 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--title",
     "--label",
     "--checkpoint",
+    "--from-checkpoint",
+    "--to-checkpoint",
     "--version",
     "--query",
+    "--cursor", "--limit", "--offset-bytes", "--length-bytes", "--expected-sha256",
     "--scope",
     "--item",
     "--id",
@@ -471,7 +480,9 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "files delete",
     "files mkdir",
     "files create",
-    "history versions",
+    "history versions", "search",
+    "history read",
+    "history diff",
     "history restore-file",
     "apps grant",
     "pages share",
@@ -528,6 +539,16 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
   };
   const optionalBoundedFlag = (name: string, label: string, maximumLength = maxChecksCliIdLength): string | undefined =>
     stringFlag(name) === undefined ? undefined : requireBoundedFlag(name, label, maximumLength);
+  const optionalInteger = (name: string, minimum: number, maximum: number): number | undefined => {
+    const text = stringFlag(name); if (text === undefined) return undefined;
+    const value = Number(text);
+    if (!/^\d+$/u.test(text) || !Number.isSafeInteger(value) || value < minimum || value > maximum) throw usageError(`${name} must be between ${minimum} and ${maximum}.`);
+    return value;
+  };
+  const pageOptions = () => ({
+    ...(stringFlag("--cursor") !== undefined ? { cursor: requireBoundedFlag("--cursor", "cursor", 128 * 1024) } : {}),
+    ...(stringFlag("--limit") !== undefined ? { limit: optionalInteger("--limit", 1, 1000) } : {}),
+  });
   const boundedActPath = (flag: string, raw: string, label: string): string => {
     const value = raw.trim();
     if (!value) throw usageError(`Provide ${flag} <${label}>.`);
@@ -1074,8 +1095,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       allowOnlyFlags("--space");
       return { name: "chats.list", output, space: requireSpace() };
     case "history list":
-      allowOnlyFlags("--space");
-      return { name: "history.list", output, space: requireSpace() };
+      allowOnlyFlags("--space", "--cursor", "--limit");
+      return { name: "history.list", output, space: requireSpace(), ...pageOptions() };
     case "history save": {
       allowOnlyFlags("--space", "--label", "--parent-task");
       const label = optionalBoundedFlag("--label", "label");
@@ -1097,13 +1118,33 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     case "history versions":
-      allowOnlyFlags("--space");
+      allowOnlyFlags("--space", "--cursor", "--limit");
       return {
-        name: "history.versions",
+        name: "history.versions", ...pageOptions(),
         output,
         space: requireSpace(),
         path: requireSinglePath("space-path"),
       };
+    case "history read":
+      allowOnlyFlags("--space", "--checkpoint", "--offset-bytes", "--length-bytes", "--expected-sha256");
+      return {
+        name: "history.read", output, space: requireSpace(),
+        ...(stringFlag("--offset-bytes") !== undefined ? { offsetBytes: optionalInteger("--offset-bytes", 0, Number.MAX_SAFE_INTEGER) } : {}),
+        ...(stringFlag("--length-bytes") !== undefined ? { lengthBytes: optionalInteger("--length-bytes", 4, 128 * 1024) } : {}),
+        ...(stringFlag("--expected-sha256") !== undefined ? { expectedSha256: requireBoundedFlag("--expected-sha256", "sha256", 64) } : {}),
+        path: requireSinglePath("space-path"),
+        checkpoint: requireBoundedFlag("--checkpoint", "checkpoint-id"),
+      };
+    case "history diff": {
+      allowOnlyFlags("--space", "--from-checkpoint", "--to-checkpoint");
+      const toCheckpoint = optionalBoundedFlag("--to-checkpoint", "checkpoint-id");
+      return {
+        name: "history.diff", output, space: requireSpace(),
+        path: requireSinglePath("space-path"),
+        fromCheckpoint: requireBoundedFlag("--from-checkpoint", "checkpoint-id"),
+        ...(toCheckpoint ? { toCheckpoint } : {}),
+      };
+    }
     case "history restore-file":
       allowOnlyFlags("--space", "--version", "--parent-task");
       return {
@@ -1115,14 +1156,15 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     case "search": {
-      allowOnlyFlags("--space", "--query", "--scope");
+      allowOnlyFlags("--space", "--query", "--scope", "--cursor", "--limit");
       const query = requireBoundedFlag("--query", "text", maxActSearchQueryLength);
       const rawScope = optionalBoundedFlag("--scope", "files|chats|all");
       if (rawScope !== undefined && rawScope !== "files" && rawScope !== "chats" && rawScope !== "all") {
         throw usageError("--scope must be files, chats, or all.");
       }
       return {
-        name: "search",
+        name: "search", ...pageOptions(),
+        ...(pathValues.length ? { path: requireSinglePath("space-path") } : {}),
         output,
         space: requireSpace(),
         query,
@@ -2127,7 +2169,7 @@ async function runActCommand(
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
     case "history.list":
-      return toJson(await facade.historyList({ space: command.space! }));
+      return toJson(await facade.historyList({ space: command.space!, ...(command.cursor ? { cursor: command.cursor } : {}), ...(command.limit ? { limit: command.limit } : {}) }));
     case "history.save":
       return toJson(await facade.historySave({
         space: command.space!,
@@ -2141,7 +2183,14 @@ async function runActCommand(
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
     case "history.versions":
-      return toJson(await facade.historyVersions({ space: command.space!, path: command.path! }));
+      return toJson(await facade.historyVersions({ space: command.space!, path: command.path!, ...(command.cursor ? { cursor: command.cursor } : {}), ...(command.limit ? { limit: command.limit } : {}) }));
+    case "history.read":
+      return toJson(await facade.historyRead({ space: command.space!, path: command.path!, checkpointId: command.checkpoint!, ...(command.offsetBytes !== undefined ? { offsetBytes: command.offsetBytes } : {}), ...(command.lengthBytes !== undefined ? { lengthBytes: command.lengthBytes } : {}), ...(command.expectedSha256 ? { expectedSha256: command.expectedSha256 } : {}) }));
+    case "history.diff":
+      return toJson(await facade.historyDiff({
+        space: command.space!, path: command.path!, fromCheckpointId: command.fromCheckpoint!,
+        ...(command.toCheckpoint ? { toCheckpointId: command.toCheckpoint } : {}),
+      }));
     case "history.restore-file":
       return toJson(await facade.historyRestoreFile({
         space: command.space!,
@@ -2185,6 +2234,7 @@ async function runActCommand(
       return toJson(await facade.search({
         space: command.space!,
         query: command.query!,
+        ...(command.path ? { path: command.path } : {}), ...(command.cursor ? { cursor: command.cursor } : {}), ...(command.limit ? { limit: command.limit } : {}),
         ...(command.searchScope ? { scope: command.searchScope } : {}),
       }));
     case "library.list":
@@ -2996,11 +3046,12 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Compacted Chat [${terminalText(record.conversationId)}] in ${spaceLabel} (task ${terminalText(record.taskId)}). `
         + `Compaction is additive summarization; nothing was deleted.\n`;
     case "history.list": {
+      const continuation = record.nextCursor ? `Continue with --cursor ${terminalText(record.nextCursor)}\n` : "";
       const checkpoints = (Array.isArray(record.checkpoints) ? record.checkpoints : []) as Array<Partial<WorkFoldActCheckpointSummary>>;
       if (!checkpoints.length) return `No restore points saved in ${spaceLabel}.\n`;
       const lines = checkpoints.map((checkpoint) =>
         `- ${terminalText(checkpoint.checkpointId)} — ${terminalText(checkpoint.createdAt)} — ${terminalText(checkpoint.label ?? checkpoint.reason)} (${terminalText(checkpoint.fileCount)} file${checkpoint.fileCount === 1 ? "" : "s"})`);
-      return `${checkpoints.length} restore point${checkpoints.length === 1 ? "" : "s"} in ${spaceLabel}:\n${lines.join("\n")}\n`;
+      return `${checkpoints.length} restore point${checkpoints.length === 1 ? "" : "s"} in ${spaceLabel}${typeof record.total === "number" ? ` (${record.total} total)` : ""}:\n${lines.join("\n")}\n${continuation}`;
     }
     case "history.save": {
       const checkpoint = record.checkpoint as Partial<WorkFoldActCheckpointSummary> | undefined;
@@ -3016,11 +3067,35 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Restored ${spaceLabel} to restore point ${terminalText(record.checkpointId)}.\n${terminalText(record.restoredFileCount)} file(s) restored; ${terminalText(record.deletedFileCount)} deleted; ${terminalText(record.movedEntryCount)} moved back; ${terminalText(record.unchangedFileCount)} unchanged.${skipped}\nSafety restore point: ${terminalText(record.safetyCheckpointId)}\n`;
     }
     case "history.versions": {
+      const continuation = record.nextCursor ? `Continue with --cursor ${terminalText(record.nextCursor)}\n` : "";
       const versions = (Array.isArray(record.versions) ? record.versions : []) as Array<Partial<WorkFoldActFileVersionRef>>;
       if (!versions.length) return `No saved versions of ${terminalText(record.path)} in ${spaceLabel}.\n`;
       const lines = versions.map((version) =>
         `- ${terminalText(version.hashSha256)} — captured ${terminalText(version.capturedAt)} (${terminalText(version.sizeBytes)} bytes)`);
-      return `${versions.length} saved version${versions.length === 1 ? "" : "s"} of ${terminalText(record.path)} in ${spaceLabel}:\n${lines.join("\n")}\n`;
+      return `${versions.length} saved version${versions.length === 1 ? "" : "s"} of ${terminalText(record.path)} in ${spaceLabel}${typeof record.total === "number" ? ` (${record.total} total)` : ""}:\n${lines.join("\n")}\n${continuation}`;
+    }
+    case "history.read": {
+      const review = record.review as unknown as HistoryFileRead | undefined;
+      const observation = review?.observation;
+      if (review?.range) {
+        const range = review.range;
+        return `${terminalText(review.path)} — ${terminalText(range.status)}; bytes ${range.offsetBytes}–${range.offsetBytes + range.lengthBytes} of ${range.totalBytes}; hash verified: ${range.hashVerified}\n`
+          + (range.text !== undefined ? `${terminalText(range.text)}\n` : `${terminalText(range.reason)}\n`)
+          + (range.nextOffsetBytes !== null ? `Continue with --offset-bytes ${range.nextOffsetBytes} --expected-sha256 ${range.hashSha256}\n` : "");
+      }
+      return `${terminalText(review?.path)} — ${terminalText(observation?.status)} (${terminalText(observation?.checkpointId)})\n`
+        + (typeof observation?.text === "string" ? `${terminalText(observation.text)}\n` : `${terminalText(observation?.reason ?? "No text available.")}\n`);
+    }
+    case "history.diff": {
+      const comparison = record.comparison as unknown as HistoryFileComparison | undefined;
+      const diff = comparison?.diff;
+      const side = (label: string, value: HistoryFileComparison["before"] | undefined) =>
+        `${label}: ${terminalText(value?.checkpointId ?? value?.observedAt ?? value?.source)} — ${terminalText(value?.status)}${value?.reason ? ` (${terminalText(value.reason)})` : ""}\n`;
+      return `${terminalText(comparison?.path)} — ${terminalText(comparison?.change)}\n`
+        + side("Before", comparison?.before) + side("After", comparison?.after)
+        + (diff?.truncated ? "Incomplete text difference: output is limited; do not treat it as complete.\n" : "")
+        + (diff?.reason ? `Comparison limit: ${terminalText(diff.reason)}\n` : "")
+        + (typeof diff?.text === "string" ? `${terminalText(diff.text)}\n` : `${terminalText(diff?.status)}\n`);
     }
     case "history.restore-file":
       return `Restored ${terminalText(record.path)} to version ${terminalText(record.hashSha256)} in ${spaceLabel}.\nSafety restore point: ${terminalText(record.safetyCheckpointId)}\n`;
@@ -3061,9 +3136,8 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const scopeLabel = `scope ${terminalText(record.scope ?? "all")}`;
       // The service's bounds are part of the answer: a stopped search must
       // never read as a complete one.
-      const boundNote = record.truncated === true
-        ? "\nA search bound stopped before covering everything; the results may be incomplete."
-        : "";
+      const boundNote = (record.truncated === true ? "\nCoverage is incomplete; consult coverage in --json for skipped entries." : "")
+        + (record.nextCursor ? `\nContinue with the same selection and --cursor ${terminalText(record.nextCursor)}` : "");
       if (!total) return `No matches for "${terminalText(record.query)}" in ${spaceLabel} (${scopeLabel}).${boundNote}\n`;
       const sections: string[] = [];
       if (files.length) {

@@ -73,7 +73,7 @@ test("the fold uses ordinary chat geometry and one compact live line", async () 
   assert.match(popover, /\{request && activePhases\.has\(request\.phase\) \? \(\s*<div className="fold-tail">/);
   assert.match(popover, /\{activity \|\| "Thinking…"\}/);
   assert.match(popover, /<span className="working-elapsed">\{elapsedLabel\}<\/span>/);
-  assert.match(popover, /Working in \{request\.children\.filter\(\(child\) => child\.state === "running"\)\.length === 1 \? "a folder" : "folders"\}…/);
+  assert.match(popover, /Working in \{request\.children\.filter\(\(child\) => child\.state === "running"\)\.length === 1 \? "a work-folder" : "work-folders"\}…/);
   assert.match(popover, /className="working-line" role="status" aria-live="polite"/);
   assert.doesNotMatch(popover, /You can close your fold|item\$\{request\.attachments\.length/);
   assert.doesNotMatch(popover, /popover-message-role/);

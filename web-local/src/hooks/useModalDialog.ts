@@ -7,6 +7,7 @@ const focusableSelector = [
   "input:not([disabled])",
   "select:not([disabled])",
   "textarea:not([disabled])",
+  "summary",
   "iframe",
   "object",
   "embed",
@@ -130,7 +131,19 @@ function dialogFocusableElements(dialog: HTMLElement): HTMLElement[] {
     && !element.hidden
     && element.getAttribute("aria-hidden") !== "true"
     && !element.closest("[hidden], [aria-hidden=\"true\"]")
+    && visibleInDetails(element)
   ));
+}
+
+function visibleInDetails(element: HTMLElement): boolean {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    if (parent.tagName !== "DETAILS" || parent.hasAttribute("open")) continue;
+    // A closed disclosure exposes only its first direct summary. Check every
+    // ancestor so an open inner disclosure cannot escape a closed outer one.
+    const summary = Array.from(parent.children).find((child) => child.tagName === "SUMMARY");
+    if (!summary?.contains(element)) return false;
+  }
+  return true;
 }
 
 function isolateDialogBackground(dialog: HTMLElement): () => void {

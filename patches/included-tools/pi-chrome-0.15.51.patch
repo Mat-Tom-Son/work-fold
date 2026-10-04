@@ -142,7 +142,7 @@ index 0000000..d49bbe1
 @@ -0,0 +1 @@
 +{"version":1,"mode":"standalone"}
 diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.js b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
-index 8ba0e2d..2b27b70 100644
+index 8ba0e2d..609e34c 100644
 --- a/extensions/chrome-profile-bridge/browser-extension/service_worker.js
 +++ b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
 @@ -1,6 +1,50 @@
@@ -312,7 +312,291 @@ index 8ba0e2d..2b27b70 100644
      const isForeignExtBlock = /Cannot access a chrome-extension:\/\/ URL of different extension/i.test(msg);
      if (isForeignExtBlock && /Input\./.test(method)) {
        // Foreign chrome-extension popup (autofill, password manager) is hijacking input.
-@@ -1107,7 +1161,7 @@ function armKeepaliveAlarm() {
+@@ -749,13 +803,67 @@ async function domClickFallback(tabId, params, cause) {
+   return { input: "dom-fallback", reason: String(cause?.message || cause).slice(0, 500), tag: v?.tag };
+ }
+ 
++// Chrome drops trusted CDP input to hidden pages: mouse presses and keys are silently ignored and
++// mouse moves can hang waiting for a frame. A page is hidden when its tab is inactive, its window is
++// minimized, or (macOS) its window became a native window-tab behind a full-screen window. Check
++// before sending input so the caller gets an actionable error instead of a false success.
++async function pageVisibilityState(tabId) {
++  try {
++    const evaluated = await cdp(tabId, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true });
++    const value = evaluated?.result?.value;
++    return typeof value === "string" ? value : null;
++  } catch {
++    return null; // Unknown: do not block input on a failed probe.
++  }
++}
++
++function hiddenTabReason(tab, win) {
++  if (win?.state === "minimized") return "its window is minimized";
++  if (tab && tab.active === false) return "it is an inactive tab in its window";
++  if (win?.state === "fullscreen") return "its window is behind a full-screen window or on another Space";
++  return "its window is covered by another window or is on another Space (Chrome treats fully covered windows as hidden)";
++}
++
++async function assertTabVisibleForInput(tab, params, label) {
++  let state = await pageVisibilityState(tab.id);
++  if (state !== "hidden") return;
++  if (foregroundRequested(params)) {
++    // bringToFront just ran; give Chrome a moment to report the page visible.
++    for (let i = 0; i < 6 && state === "hidden"; i++) {
++      await sleep(100);
++      state = await pageVisibilityState(tab.id);
++    }
++    if (state !== "hidden") return;
++  }
++  const fresh = await chrome.tabs.get(tab.id).catch(() => tab);
++  const win = typeof chrome.windows?.get === "function" ? await chrome.windows.get(fresh?.windowId ?? tab.windowId).catch(() => null) : null;
++  const error = new Error(
++    `${label}: tab ${tab.id} is hidden because ${hiddenTabReason(fresh, win)}. Chrome ignores trusted input to hidden pages, so the events would be dropped. ` +
++    `Pass background:false for this call (or use chrome_tab activate) to bring the tab forward. chrome_click and chrome_fill can instead use their DOM fallback (untrusted page events).`,
++  );
++  error.hiddenTab = true;
++  error.windowState = win?.state;
++  throw error;
++}
++
++// Put the caret at the end of the focused field with Chrome's editing command (platform-neutral,
++// works for inputs, textareas, and contenteditables). Used after chrome_type clicks a field to focus
++// it, so the random click point never splices text into the middle of existing content.
++async function moveCaretToEnd(tabId) {
++  await cdp(tabId, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "End", code: "End", windowsVirtualKeyCode: 35, commands: ["moveToEndOfDocument"] });
++  await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "End", code: "End", windowsVirtualKeyCode: 35 });
++}
++
+ async function chromeInputClick(params) {
+   const tab = await getTabByParams(params);
+   await bringToFront(tab, params);
++  let dispatched = false;
+   try {
+     await attachDebugger(tab.id);
++    await assertTabVisibleForInput(tab, params, "chrome.click");
+     const resolved = await resolveTargetInTab(tab.id, params);
+     const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
++    dispatched = true;
+     await cdpMoveTo(tab.id, point.x, point.y);
+     await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse", force: 0.5 });
+     await sleep(rng(45, 140));
+@@ -781,7 +889,8 @@ async function chromeInputClick(params) {
+     }
+     return { input: "chrome", x: point.x, y: point.y, tag: resolved.tag };
+   } catch (error) {
+-    if (params.domFallback === false) throw error;
++    // A failed input or submit may already have applied. Never replay it.
++    if (dispatched || params.domFallback === false) throw error;
+     return domClickFallback(tab.id, params, error);
+   }
+ }
+@@ -790,6 +899,7 @@ async function chromeInputHover(params) {
+   const tab = await getTabByParams(params);
+   await bringToFront(tab, params);
+   await attachDebugger(tab.id);
++  await assertTabVisibleForInput(tab, params, "chrome.hover");
+   const resolved = await resolveTargetInTab(tab.id, params);
+   const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
+   await cdpMoveTo(tab.id, point.x, point.y);
+@@ -801,6 +911,7 @@ async function chromeInputKey(params) {
+   const tab = await getTabByParams(params);
+   await bringToFront(tab, params);
+   await attachDebugger(tab.id);
++  await assertTabVisibleForInput(tab, params, "chrome.key");
+   const key = String(params.key || "");
+   if (!key) throw new Error("chrome.key: missing key");
+   const mods = params.modifiers || {};
+@@ -867,15 +978,57 @@ async function contentEditableInTab(tabId, selectAllParams = null) {
+   return results?.[0]?.result === true;
+ }
+ 
++async function focusedTextEditorInTab(tabId) {
++  const results = await executeScriptTimed({
++    target: { tabId, frameIds: [0] },
++    world: "MAIN",
++    func: () => {
++      let active = document.activeElement;
++      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
++      if (active?.isContentEditable) return "contenteditable";
++      if (active?.tagName === "TEXTAREA") return "textarea";
++      if (active?.tagName === "INPUT" && ["text", "search", "url", "tel", "email", "password"].includes(active.type)) return "input";
++      return "other";
++    },
++  }, `inspect focused text editor in tab ${tabId}`);
++  return results?.[0]?.result ?? "other";
++}
++
++async function typedValueMatchesInTab(tabId, params, text, append = false) {
++  const results = await executeScriptTimed({
++    target: { tabId, frameIds: [0] },
++    world: "MAIN",
++    func: (selector, uid, expected, append) => {
++      let active = document.activeElement;
++      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
++      const state = window.__PI_CHROME_STATE__;
++      const el = uid ? state?.elements?.[uid] : selector ? document.querySelector(selector) : active;
++      if (!el || (uid && !el.isConnected)) return undefined;
++      if (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA") return undefined;
++      const normalized = expected.replace(/\r\n?/g, "\n");
++      return append ? el.value.endsWith(normalized) : el.value === normalized;
++    },
++    args: [params.selector ?? null, params.uid ?? null, text, append],
++  }, `verify typed field value in tab ${tabId}`);
++  return results?.[0]?.result;
++}
++
+ async function typeTextInTab(tabId, text, perCharacter) {
+   if (!text) return "none";
+-  if (!perCharacter && await contentEditableInTab(tabId)) {
+-    // One native edit avoids per-character delays and rich-editor render races.
++  const editor = await focusedTextEditorInTab(tabId);
++  const normalized = text.replace(/\r\n?/g, "\n");
++  if (!perCharacter && editor !== "other") {
++    // One native edit preserves textarea line breaks and rich-editor render order.
+     // Do not retry as keystrokes if insertion fails: it may already have applied.
+-    await cdp(tabId, "Input.insertText", { text });
++    await cdp(tabId, "Input.insertText", { text: normalized });
+     return "insertText";
+   }
+-  for (const ch of Array.from(text)) await cdpTypeChar(tabId, ch);
++  for (const ch of Array.from(normalized)) {
++    if (ch === "\n") {
++      // Enter can submit a form or send a message. Text newlines never press it.
++      if (editor === "textarea" || editor === "contenteditable") await cdp(tabId, "Input.insertText", { text: "\n" });
++    } else await cdpTypeChar(tabId, ch);
++  }
+   return "keys";
+ }
+ 
+@@ -883,6 +1036,7 @@ async function chromeInputType(params) {
+   const tab = await getTabByParams(params);
+   await bringToFront(tab, params);
+   await attachDebugger(tab.id);
++  await assertTabVisibleForInput(tab, params, "chrome.type");
+   if (params.selector || params.uid) {
+     // Focus target by clicking it first.
+     const resolved = await resolveTargetInTab(tab.id, params);
+@@ -892,11 +1046,14 @@ async function chromeInputType(params) {
+     await sleep(rng(45, 110));
+     await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
+     await sleep(rng(50, 120));
++    await moveCaretToEnd(tab.id);
+   }
+   const text = String(params.text || "");
+   const typing = await typeTextInTab(tab.id, text, params.perCharacter);
+-  if (params.pressEnter) await chromeInputKey({ ...params, targetId: tab.id, key: "Enter" });
+-  return { input: "chrome", length: text.length, typing };
++  const valueMatches = params.selector || params.uid ? await typedValueMatchesInTab(tab.id, params, text, true).catch(() => undefined) : undefined;
++  const submitted = params.pressEnter ? valueMatches !== false : undefined;
++  if (submitted) await chromeInputKey({ ...params, targetId: tab.id, key: "Enter" });
++  return { input: "chrome", length: text.length, typing, valueMatches, submitted };
+ }
+ 
+ async function domFillFallback(tabId, params, cause) {
+@@ -912,7 +1069,7 @@ async function domFillFallback(tabId, params, cause) {
+       if (!el) throw new Error(`DOM fallback target not found: ${uid || selector}`);
+       el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+       if (typeof el.focus === "function") el.focus({ preventScroll: true });
+-      const value = String(text ?? "");
++      const value = String(text ?? "").replace(/\r\n?/g, "\n");
+       if ("value" in el) {
+         const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+         const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+@@ -925,47 +1082,61 @@ async function domFillFallback(tabId, params, cause) {
+       }
+       el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+       el.dispatchEvent(new Event("change", { bubbles: true }));
+-      if (submit) {
++      const valueMatches = "value" in el ? el.value === value : el.textContent === value;
++      const submitted = submit ? valueMatches : undefined;
++      if (submitted) {
+         const form = el.closest("form");
+         if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
+         else document.querySelector("button,[type=submit]")?.click();
+       }
+-      return { valueMatches: "value" in el ? el.value === value : el.textContent === value, tag: el.tagName, url: location.href };
++      return { valueMatches, submitted, tag: el.tagName, url: location.href };
+     },
+     args: [params.selector ?? null, params.uid ?? null, params.text ?? "", params.submit === true],
+   }, `DOM fill fallback in tab ${tabId}`);
+   const v = results?.[0]?.result;
+   if (v?.staleUid) throw new Error(v.reason || "snapshot uid is stale; refresh chrome_snapshot");
+-  return { input: "dom-fallback", length: String(params.text || "").length, valueMatches: v?.valueMatches, reason: String(cause?.message || cause).slice(0, 500), tag: v?.tag };
++  return { input: "dom-fallback", length: String(params.text || "").length, valueMatches: v?.valueMatches, submitted: v?.submitted, reason: String(cause?.message || cause).slice(0, 500), tag: v?.tag };
+ }
+ 
+ async function chromeInputFill(params) {
+   const tab = await getTabByParams(params);
+   await bringToFront(tab, params);
++  let dispatched = false;
+   try {
+     await attachDebugger(tab.id);
++    await assertTabVisibleForInput(tab, params, "chrome.fill");
+     if (!(params.selector || params.uid)) throw new Error("chrome.fill: selector or uid required");
+     const resolved = await resolveTargetInTab(tab.id, params);
+     const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
++    dispatched = true;
+     await cdpMoveTo(tab.id, point.x, point.y);
+-    // Triple-click selects all in input fields.
++    // Click into the editor before selecting its complete contents.
+     for (let i = 1; i <= 3; i++) {
+       await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: i, pointerType: "mouse", force: 0.5 });
+       await sleep(rng(20, 60));
+       await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: i, pointerType: "mouse" });
+       await sleep(rng(20, 60));
+     }
+-    await contentEditableInTab(tab.id, params);
++    if (!await contentEditableInTab(tab.id, params)) {
++      // Triple-click selects only one line in a multiline textarea. The editing
++      // command selects the whole focused field without selecting page content.
++      const modifiers = /Mac/.test(navigator.platform) ? 4 : 2;
++      await cdp(tab.id, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers, commands: ["selectAll"] });
++      await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers });
++    }
+     // Delete selection.
+     await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+     await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyUp", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+     await sleep(rng(20, 60));
+     const text = String(params.text || "");
+     const typing = await typeTextInTab(tab.id, text, params.perCharacter);
+-    if (params.submit) await chromeInputKey({ ...params, targetId: tab.id, key: "Enter" });
+-    return { input: "chrome", length: text.length, typing };
++    const valueMatches = await typedValueMatchesInTab(tab.id, params, text).catch(() => undefined);
++    const submitted = params.submit ? valueMatches !== false : undefined;
++    if (submitted) await chromeInputKey({ ...params, targetId: tab.id, key: "Enter" });
++    return { input: "chrome", length: text.length, typing, valueMatches, submitted };
+   } catch (error) {
+-    if (params.domFallback === false) throw error;
++    // A failed input or submit may already have applied. Never replay it.
++    if (dispatched || params.domFallback === false) throw error;
+     return domFillFallback(tab.id, params, error);
+   }
+ }
+@@ -974,6 +1145,7 @@ async function chromeInputScroll(params) {
+   const tab = await getTabByParams(params);
+   await bringToFront(tab, params);
+   await attachDebugger(tab.id);
++  await assertTabVisibleForInput(tab, params, "chrome.scroll");
+   const resolved = (params.selector || params.uid) ? await resolveTargetInTab(tab.id, params) : { x: 100, y: 100, rect: null };
+   const x = resolved.rect ? resolved.rect.left + Math.min(resolved.rect.width, 800) / 2 : resolved.x;
+   const y = resolved.rect ? resolved.rect.top + Math.min(resolved.rect.height, 600) / 2 : resolved.y;
+@@ -1024,6 +1196,7 @@ async function chromeInputTap(params) {
+   const tab = await getTabByParams(params);
+   await bringToFront(tab, params);
+   await attachDebugger(tab.id);
++  await assertTabVisibleForInput(tab, params, "chrome.tap");
+   const resolved = (params.selector || params.uid || (typeof params.x === "number" && typeof params.y === "number"))
+     ? await resolveTargetInTab(tab.id, params)
+     : null;
+@@ -1040,6 +1213,7 @@ async function chromeInputDrag(params) {
+   const tab = await getTabByParams(params);
+   await bringToFront(tab, params);
+   await attachDebugger(tab.id);
++  await assertTabVisibleForInput(tab, params, "chrome.drag");
+   const from = await resolveTargetInTab(tab.id, { selector: params.fromSelector ?? null, uid: params.fromUid ?? null, x: params.fromX ?? null, y: params.fromY ?? null });
+   const to = await resolveTargetInTab(tab.id, { selector: params.toSelector ?? null, uid: params.toUid ?? null, x: params.toX ?? null, y: params.toY ?? null });
+   const fp = from.rect ? pickInsideRect(from.rect) : { x: from.x, y: from.y };
+@@ -1107,7 +1281,7 @@ function armKeepaliveAlarm() {
  }
  
  chrome.runtime.onInstalled.addListener(() => {
@@ -321,20 +605,14 @@ index 8ba0e2d..2b27b70 100644
    chrome.action.setBadgeBackgroundColor({ color: "#4f46e5" });
    armKeepaliveAlarm();
    void pollLoop();
-@@ -1138,17 +1192,14 @@ async function pollLoop() {
+@@ -1138,18 +1312,22 @@ async function pollLoop() {
    polling = true;
    try {
      while (true) {
 -      const response = await fetch(`${BRIDGE_URL}/next?name=${encodeURIComponent(CLIENT_NAME)}`, {
 -        cache: "no-store",
-+      const headers = await companionHeaders();
-+      const compatibility = globalThis.workFoldChrome?.protocol;
-+      const suffix = compatibility ? `&minor=${compatibility.minor}&capabilities=${encodeURIComponent(JSON.stringify(compatibility.capabilities))}` : "";
-+      const response = await fetch(`${BRIDGE_URL}/next-v2?name=${encodeURIComponent(CLIENT_NAME)}&protocol=${BRIDGE_PROTOCOL_VERSION}&version=${encodeURIComponent(chrome.runtime.getManifest().version)}${suffix}`, {
-+        cache: "no-store", headers,
-       });
-+      await globalThis.workFoldChrome?.response(response, headers["x-pi-chrome-connection"]);
-       if (!response.ok) throw new Error(`bridge /next HTTP ${response.status}`);
+-      });
+-      if (!response.ok) throw new Error(`bridge /next HTTP ${response.status}`);
 -      const expected = response.headers.get("x-pi-chrome-version");
 -      const ours = chrome.runtime.getManifest().version;
 -      if (expected && expected !== ours && isVersionOlder(ours, expected)) {
@@ -342,10 +620,27 @@ index 8ba0e2d..2b27b70 100644
 -        try { chrome.runtime.reload(); } catch {}
 -        return;
 -      }
-       const payload = await response.json();
+-      const payload = await response.json();
++      const headers = await companionHeaders();
++      const compatibility = globalThis.workFoldChrome?.protocol;
++      const suffix = compatibility ? `&minor=${compatibility.minor}&capabilities=${encodeURIComponent(JSON.stringify(compatibility.capabilities))}` : "";
++      // A half-open socket must not pin `polling` forever after sleep/wake.
++      // This deadline owns only the long poll and its body, never a command.
++      const controller = new AbortController();
++      const timer = setTimeout(() => controller.abort(), 45_000);
++      let payload;
++      try {
++        const response = await fetch(`${BRIDGE_URL}/next-v2?name=${encodeURIComponent(CLIENT_NAME)}&protocol=${BRIDGE_PROTOCOL_VERSION}&version=${encodeURIComponent(chrome.runtime.getManifest().version)}${suffix}`, {
++          cache: "no-store", headers, signal: controller.signal,
++        });
++        await globalThis.workFoldChrome?.response(response, headers["x-pi-chrome-connection"]);
++        if (!response.ok) throw new Error(`bridge /next HTTP ${response.status}`);
++        payload = await response.json();
++      } finally { clearTimeout(timer); }
        if (payload.type === "command") await handleCommand(payload.command);
      }
-@@ -1160,23 +1211,41 @@ async function pollLoop() {
+   } catch (error) {
+@@ -1160,23 +1338,43 @@ async function pollLoop() {
  }
  
  async function handleCommand(command) {
@@ -372,12 +667,14 @@ index 8ba0e2d..2b27b70 100644
 -      () => detachAll(),
 -    );
 -    await postResult({ id: command.id, ok: true, result });
-+    const result = await withTimeout(operation, COMMAND_TIMEOUT_MS, command.action || "Chrome command", () => cancelCommand(context));
++    const requestedTimeout = Number(command.params?.timeoutMs);
++    const commandTimeout = (command.action === "page.waitFor" || command.action === "page.navigate") && Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? requestedTimeout + 1000 : COMMAND_TIMEOUT_MS;
++    const result = await withTimeout(operation, commandTimeout, command.action || "Chrome command", () => cancelCommand(context));
 +    assertCommandActive();
 +    await postResult({ id: command.id, bridgeEpoch: command.bridgeEpoch, ok: true, result });
    } catch (error) {
 -    await postResult({ id: command.id, ok: false, error: error?.message ?? String(error) });
-+    const uncertainty = context.effectDispatched ? " The action may already have happened. Inspect before retrying; do not automatically repeat it." : " The action was not dispatched.";
++    const uncertainty = error?.hiddenTab ? " The input was not dispatched." : context.effectDispatched ? " The action may already have happened. Inspect before retrying; do not automatically repeat it." : " The action was not dispatched.";
 +    await postResult({ id: command.id, bridgeEpoch: command.bridgeEpoch, ok: false, error: (error?.message ?? String(error)) + uncertainty }).catch(() => {});
 +  } finally {
 +    // A timeout does not kill JavaScript. Keep the command lane occupied while the
@@ -396,15 +693,13 @@ index 8ba0e2d..2b27b70 100644
      body: JSON.stringify(result),
    });
  }
-@@ -1246,10 +1315,12 @@ async function groupTab(tab, title, color) {
+@@ -1246,10 +1444,10 @@ async function groupTab(tab, title, color) {
    if (typeof groupId !== "number" || groupId < 0) {
      const existing = await findGroupByTitle(tab.windowId, groupTitle);
      groupId = existing !== null
 -      ? await chrome.tabs.group({ groupId: existing, tabIds: [tab.id] })
 -      : await chrome.tabs.group({ tabIds: [tab.id] });
 +      ? await checkedChromeCall(() => chrome.tabs.group({ groupId: existing, tabIds: [tab.id] }))
-+      // Chrome otherwise defaults to the current window and moves this tab out
-+      // of its owned window, which can strand background capture on Linux.
 +      : await checkedChromeCall(() => chrome.tabs.group({ tabIds: [tab.id], createProperties: { windowId: tab.windowId } }));
    }
 -  await chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false });
@@ -412,7 +707,7 @@ index 8ba0e2d..2b27b70 100644
    const grouped = await chrome.tabs.get(tab.id);
    return { tab: await formatTab(grouped), group: await groupRecord(groupId) };
  }
-@@ -1262,7 +1333,7 @@ async function dispatch(action, params) {
+@@ -1262,7 +1460,7 @@ async function dispatch(action, params) {
          extensionVersion: chrome.runtime.getManifest().version,
          bridgeUrl: BRIDGE_URL,
          userAgent: navigator.userAgent,
@@ -421,7 +716,7 @@ index 8ba0e2d..2b27b70 100644
        };
      case "tab.list": {
        const tabs = await chrome.tabs.query({});
-@@ -1281,13 +1352,13 @@ async function dispatch(action, params) {
+@@ -1281,13 +1479,13 @@ async function dispatch(action, params) {
        const existingGroup = await findGroupRecordByTitle(groupTitle);
        const createParams = { url: params.url || "about:blank", active: foregroundRequested(params) };
        if (existingGroup && typeof existingGroup.windowId === "number") createParams.windowId = existingGroup.windowId;
@@ -437,7 +732,7 @@ index 8ba0e2d..2b27b70 100644
          throw error;
        }
      }
-@@ -1309,12 +1380,12 @@ async function dispatch(action, params) {
+@@ -1309,12 +1507,12 @@ async function dispatch(action, params) {
      }
      case "tab.ungroup": {
        const tab = await getTabByParams(params, { createOwnedTarget: false });
@@ -452,7 +747,7 @@ index 8ba0e2d..2b27b70 100644
        return { closed: tab.id };
      }
      case "page.snapshot":
-@@ -1385,7 +1456,7 @@ async function dispatch(action, params) {
+@@ -1385,7 +1583,7 @@ async function dispatch(action, params) {
          await registerInitScript(tab.id, params.initScript);
        }
        const wait = params.waitUntilLoad !== false ? waitForTabComplete(tab.id, params.timeoutMs || 15000) : Promise.resolve(undefined);
@@ -461,7 +756,7 @@ index 8ba0e2d..2b27b70 100644
        try {
          await wait;
        } finally {
-@@ -1483,6 +1554,8 @@ async function getTabByParams(params, { createOwnedTarget = true } = {}) {
+@@ -1483,6 +1681,8 @@ async function getTabByParams(params, { createOwnedTarget = true } = {}) {
      }
    }
    if (!tab?.id) throw new Error("No matching Chrome tab found");
@@ -470,7 +765,25 @@ index 8ba0e2d..2b27b70 100644
    const url = tab.url || "";
    if (url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
      throw new Error(`Chrome blocks extension automation on protected URL: tab=${tab.id} url=${url}`);
-@@ -1750,21 +1823,21 @@ async function unregisterInitScript(tabId) {
+@@ -1663,6 +1863,8 @@ async function snapshotInTab(params) {
+     params.mode || "auto",
+     params.query ?? null,
+     params.maxTextChars ?? null,
++    params.textOffset ?? 0,
++    params.expectedTextVersion ?? null,
+   ];
+   await executeScriptTimed({
+     target: { tabId: tab.id, frameIds: [0] },
+@@ -1692,7 +1894,7 @@ async function snapshotInTab(params) {
+   if (envelope && typeof envelope === "object" && envelope.ok === false) {
+     throw new Error(envelope.error || "Chrome snapshot script failed");
+   }
+-  return envelope?.value;
++  return { ...envelope?.value, targetId: String(tab.id) };
+ }
+ 
+ async function inspectInTab(params) {
+@@ -1750,21 +1952,21 @@ async function unregisterInitScript(tabId) {
    await cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier }).catch(() => undefined);
  }
  
@@ -496,7 +809,7 @@ index 8ba0e2d..2b27b70 100644
    });
  }
  
-@@ -1775,8 +1848,8 @@ function foregroundRequested(params) {
+@@ -1775,8 +1977,8 @@ function foregroundRequested(params) {
  
  async function bringToFront(tab, params) {
    if (!foregroundRequested(params)) return tab;
@@ -507,18 +820,122 @@ index 8ba0e2d..2b27b70 100644
  }
  
  function waitForTabComplete(tabId, timeoutMs) {
+diff --git a/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js b/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js
+index ceee8ce..7127a7d 100644
+--- a/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js
++++ b/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js
+@@ -430,7 +430,7 @@
+   }
+ 
+   function queryMatches(query, elements, map) {
+-    if (!query) return [];
++    if (!query) return { matches: [], coverage: undefined };
+     const candidates = [];
+     for (const element of elements) {
+       const hay = [element.role, element.label, element.selector, element.type, element.href].filter(Boolean).join(" ");
+@@ -438,7 +438,8 @@
+       if (score > 0) candidates.push({ score, kind: "element", ...element });
+     }
+     const textNodes = [];
+-    for (const block of Array.from(document.querySelectorAll("h1,h2,h3,h4,p,li,td,th,label,summary,[role='alert']")).filter(isElementVisible).slice(0, 300)) {
++    const blocks = Array.from(document.querySelectorAll("h1,h2,h3,h4,p,li,td,th,label,summary,[role='alert']")).filter(isElementVisible).slice(0, 300);
++    for (const block of blocks) {
+       const text = textOf(block, 300);
+       const score = tokenScore(text, query);
+       if (score > 0) textNodes.push({ score, kind: "text", uid: rememberElement(block), tag: block.tagName.toLowerCase(), role: roleOf(block), text, rect: rectSummary(block) });
+@@ -447,7 +448,8 @@
+       const score = tokenScore([region.kind, region.label, ...(region.headings || [])].join(" "), query);
+       if (score > 0) candidates.push({ score, kind: "region", ...region });
+     }
+-    return candidates.concat(textNodes).sort((a, b) => b.score - a.score).slice(0, 20);
++    const matches = candidates.concat(textNodes).sort((a, b) => b.score - a.score);
++    return { matches: matches.slice(0, 20), coverage: { matches: matches.length, controls: elements.length, textBlocks: blocks.length } };
+   }
+ 
+   function rectSummary(element) {
+@@ -519,10 +521,10 @@
+     return snippets;
+   }
+ 
+-  function snapshotPage(maxElements, containingText, roleFilter, nearUid, mode, query, maxTextChars) {
++  async function snapshotPage(maxElements, containingText, roleFilter, nearUid, mode, query, maxTextChars, textOffset = 0, expectedTextVersion) {
+     installPiChromeInstrumentation();
+     mode = ["auto", "interactive", "forms", "pageMap", "text", "changes", "full"].includes(mode) ? mode : "auto";
+-    const fullTextLimit = Number(maxTextChars || (mode === "full" ? 30000 : mode === "text" ? 18000 : 6000));
++    const fullTextLimit = Math.max(1, Math.min(30000, Math.trunc(Number(maxTextChars) || (mode === "full" ? 30000 : mode === "text" ? 18000 : 6000))));
+     let candidates = Array.from(document.querySelectorAll('a, button, input, textarea, select, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])'));
+     if (containingText) {
+       const needle = String(containingText).toLowerCase();
+@@ -565,7 +567,22 @@
+     const focused = activeElementSummary();
+     const modal = modalSummary();
+     const bodyText = document.body ? document.body.innerText.replace(/\s+\n/g, "\n").trim() : "";
+-    const text = bodyText.slice(0, fullTextLimit);
++    const observedAt = new Date().toISOString();
++    // A native page revision works on HTTP pages too, where SubtleCrypto is
++    // unavailable. Exact text and URL equality pin continuation, not a weak hash.
++    const textState = getPiChromeState();
++    if (!textState.bodyTextVersion || textState.bodyTextVersion.text !== bodyText || textState.bodyTextVersion.url !== location.href) {
++      const random = crypto.getRandomValues(new Uint32Array(4));
++      textState.bodyTextVersion = { text: bodyText, url: location.href, version: "text:" + Array.from(random, value => value.toString(16).padStart(8, "0")).join("") };
++    }
++    const version = textState.bodyTextVersion.version;
++    if (expectedTextVersion && expectedTextVersion !== version) throw new Error("Chrome page text or URL changed since the previous range. Take a fresh snapshot before combining excerpts.");
++    let start = Math.min(bodyText.length, Math.max(0, Math.trunc(Number(textOffset) || 0)));
++    if (start > 0 && /[\uDC00-\uDFFF]/.test(bodyText[start] ?? "")) start--;
++    let end = Math.min(bodyText.length, start + fullTextLimit);
++    if (end < bodyText.length && /[\uD800-\uDBFF]/.test(bodyText[end - 1] ?? "")) end += end === start + 1 ? 1 : -1;
++    const text = bodyText.slice(start, end);
++    const queryResult = queryMatches(query, queryElements, map);
+     const snapshot = {
+       title: document.title,
+       url: location.href,
+@@ -584,13 +601,17 @@
+       focused: focused || undefined,
+       modal: modal || undefined,
+       text,
+-      textTruncated: bodyText.length > text.length,
++      observedAt,
++      textRange: { start, end, total: bodyText.length, version },
++      ...(end < bodyText.length ? { continuation: { tool: "chrome_snapshot", mode: "text", textOffset: end, expectedTextVersion: version } } : {}),
++      textTruncated: start > 0 || end < bodyText.length,
+       textSnippets: visibleTextSnippets(mode === "text" ? 12000 : 3000),
+       elements,
+       forms,
+       layout,
+       pageMap: map,
+-      matches: queryMatches(query, queryElements, map),
++      matches: queryResult.matches,
++      queryCoverage: queryResult.coverage,
+       filter: { containingText: containingText || undefined, roleFilter: roleFilter || undefined, nearUid: nearUid || undefined },
+     };
+     if (snapshot.modal) snapshot.summary.hints.push("A modal/dialog is visible; interact with it before the underlying page.");
+@@ -627,7 +648,7 @@
+       snapshot.elements = elements.slice(0, 20);
+     } else if (mode !== "full") {
+       snapshot.elements = elements.slice(0, Math.min(maxElements, 40));
+-      snapshot.text = text.slice(0, Math.min(text.length, 6000));
++      snapshot.text = text;
+     }
+     return snapshot;
+   }
 diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profile-bridge/index.ts
-index 1917956..1a79306 100644
+index 1917956..c964cc4 100644
 --- a/extensions/chrome-profile-bridge/index.ts
 +++ b/extensions/chrome-profile-bridge/index.ts
-@@ -1,5 +1,6 @@
+@@ -1,8 +1,10 @@
  import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
  import { Type } from "typebox";
-+import { randomUUID, timingSafeEqual } from "node:crypto";
- import { existsSync, readFileSync, statSync } from "node:fs";
+-import { existsSync, readFileSync, statSync } from "node:fs";
++import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
++import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
  import { mkdir, writeFile } from "node:fs/promises";
  import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-@@ -20,7 +21,7 @@ import { dirname, join, resolve } from "node:path";
++import { tmpdir } from "node:os";
+ import { dirname, join, resolve } from "node:path";
+ 
+ /**
+@@ -20,7 +22,7 @@ import { dirname, join, resolve } from "node:path";
  type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
  
  type ToolTextResult = {
@@ -527,7 +944,7 @@ index 1917956..1a79306 100644
  	details?: Record<string, unknown>;
  };
  
-@@ -40,6 +41,7 @@ type PendingCommand = {
+@@ -40,6 +42,7 @@ type PendingCommand = {
  
  type BridgeResult = {
  	id: string;
@@ -535,7 +952,7 @@ index 1917956..1a79306 100644
  	ok: boolean;
  	result?: unknown;
  	error?: string;
-@@ -62,6 +64,8 @@ const PI_CHROME_AUTH_KEY = "__piChromeProfileBridgeAuth__";
+@@ -62,13 +65,56 @@ const PI_CHROME_AUTH_KEY = "__piChromeProfileBridgeAuth__";
  const DEFAULT_HOST = process.env.PI_CHROME_BRIDGE_HOST ?? "127.0.0.1";
  const DEFAULT_PORT = Number(process.env.PI_CHROME_BRIDGE_PORT ?? "17318");
  const DEFAULT_TIMEOUT_MS = 30_000;
@@ -544,7 +961,221 @@ index 1917956..1a79306 100644
  const MAX_TEXT_CHARS = 30_000;
  const MAX_ELEMENTS = 80;
  const BACKGROUND_PARAM_DESCRIPTION = "If true, avoid explicit Chrome focus/tab activation for this call. /chrome background on (default) enforces this for every call and ignores false. Ask the user to run /chrome background off to allow foreground work.";
-@@ -259,27 +263,32 @@ function summarizeActionResult(result: unknown): string | undefined {
+ 
+-function truncateText(text: string, maxChars = MAX_TEXT_CHARS): string {
+-	if (text.length <= maxChars) return text;
+-	return `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} characters]`;
++type ChromeResultStore = { directory?: string; bytes: number; files: Map<string, string> };
++const chromeResultStoresKey = Symbol.for("pi-chrome:result-stores:v1");
++const chromeResultGlobals = globalThis as typeof globalThis & { [chromeResultStoresKey]?: Map<string, ChromeResultStore> };
++const chromeResultStores = chromeResultGlobals[chromeResultStoresKey] ??= new Map<string, ChromeResultStore>();
++function saveChromeResult(owner: string, text: string, extension: string): { path?: string; digest: string; error?: string } {
++  const digest = createHash("sha256").update(text).digest("hex");
++  const store = chromeResultStores.get(owner) ?? { bytes: 0, files: new Map<string, string>() };
++  chromeResultStores.set(owner, store);
++  const key = digest + "." + extension;
++  const existing = store.files.get(key);
++  if (existing) return { path: existing, digest };
++  const bytes = Buffer.byteLength(text);
++  if (bytes > 32 * 1024 * 1024 || store.bytes + bytes > 256 * 1024 * 1024) return { digest, error: "Chrome result storage limit reached (32 MiB per result, 256 MiB per session). Use a narrower native query or text range; this result was not stored." };
++  try {
++    store.directory ??= mkdtempSync(join(tmpdir(), "pi-chrome-results-"));
++    const path = join(store.directory, key);
++    writeFileSync(path, text, { mode: 0o600, flag: "wx" });
++    store.files.set(key, path); store.bytes += bytes;
++    return { path, digest };
++  } catch { return { digest, error: "Chrome result could not be saved. Use a narrower native query or text range; this result was not stored." }; }
++}
++function clearChromeResults(owner: string): void {
++  const store = chromeResultStores.get(owner);
++  if (store?.directory) rmSync(store.directory, { recursive: true, force: true });
++  chromeResultStores.delete(owner);
++}
++function boundChromeResult(result: ToolTextResult, owner: string): ToolTextResult {
++  const actionResult = result.details?.result as { snapshot?: unknown } | undefined;
++  const snapshot = result.details?.snapshot ?? actionResult?.snapshot;
++  const text = result.content.filter(part => part.type === "text").map(part => part.text).join("\n");
++  const large = text.length > MAX_TEXT_CHARS;
++  // Compact observations are summaries of the captured snapshot. Keep that
++  // immutable evidence available through Pi's ordinary read tool, not a replay.
++  if ((!snapshot || (snapshot as { mode?: string }).mode === "full") && !large) return result;
++  const full = snapshot ? safeJson(actionResult?.snapshot ? actionResult : snapshot) : text;
++  const saved = saveChromeResult(owner, full, snapshot ? "json" : "txt");
++  const source = snapshot as { url?: string; observedAt?: string } | undefined;
++  const notice = [
++    source?.url ? "Source: " + source.url : "Chrome result",
++    "Captured: " + (source?.observedAt ?? new Date().toISOString()),
++    "Captured result SHA-256: " + saved.digest,
++    saved.path ? "Complete captured " + (actionResult?.snapshot ? "action result and snapshot JSON" : snapshot ? "snapshot JSON" : "result") + " saved to: " + saved.path + " — use read with offset/limit, or search the file. Captured ranges and sampled structure remain as declared in the snapshot." : saved.error!,
++  ].join("\n");
++  return { ...result, content: [{ type: "text", text: large ? notice : text + "\n\n" + notice }, ...result.content.filter(part => part.type === "image")] };
+ }
+ 
+ function safeJson(value: unknown): string {
+@@ -89,7 +135,7 @@ function rectText(rect: any): string {
+ 
+ function formatChromeSnapshot(snapshot: any): string {
+ 	if (!snapshot || typeof snapshot !== "object") return safeJson(snapshot);
+-	if (snapshot.mode === "full") return truncateText(safeJson(snapshot));
++	if (snapshot.mode === "full") return safeJson(snapshot);
+ 	const lines: string[] = [];
+ 	lines.push(`# Chrome snapshot${snapshot.mode ? ` (${snapshot.mode})` : ""}`);
+ 	lines.push(`${snapshot.title || "(untitled)"}`);
+@@ -99,22 +145,22 @@ function formatChromeSnapshot(snapshot: any): string {
+ 	if (snapshot.summary?.focused) lines.push(`focused: ${snapshot.summary.focused.uid} ${snapshot.summary.focused.role || ""} ${compactLine(snapshot.summary.focused.label)}`);
+ 	if (Array.isArray(snapshot.summary?.hints) && snapshot.summary.hints.length) {
+ 		lines.push("\n## Hints");
+-		for (const hint of snapshot.summary.hints.slice(0, 6)) lines.push(`- ${hint}`);
++		for (const hint of snapshot.summary.hints) lines.push(`- ${hint}`);
+ 	}
+ 	if (snapshot.diff && !snapshot.diff.firstSnapshot) {
+ 		const changed = [
+ 			...(snapshot.diff.changes || []).map((c: any) => c.kind === "textChanged" ? "text changed" : `${c.kind}: ${compactLine(c.before, 50)} → ${compactLine(c.after, 50)}`),
+-			...(snapshot.diff.added || []).slice(0, 4).map((e: any) => `added ${e.uid} ${e.role || ""} ${compactLine(e.label)}`),
+-			...(snapshot.diff.updated || []).slice(0, 4).map((u: any) => `updated ${u.uid} ${compactLine(u.after?.label || u.before?.label)}`),
++			...(snapshot.diff.added || []).map((e: any) => `added ${e.uid} ${e.role || ""} ${compactLine(e.label)}`),
++			...(snapshot.diff.updated || []).map((u: any) => `updated ${u.uid} ${compactLine(u.after?.label || u.before?.label)}`),
+ 		];
+ 		if (changed.length) {
+ 			lines.push("\n## Changed since last snapshot");
+-			for (const item of changed.slice(0, 10)) lines.push(`- ${item}`);
++			for (const item of changed) lines.push(`- ${item}`);
+ 		}
+ 	}
+ 	if (Array.isArray(snapshot.matches) && snapshot.matches.length) {
+ 		lines.push(`\n## Matches for "${snapshot.query}"`);
+-		for (const match of snapshot.matches.slice(0, 12)) {
++		for (const match of snapshot.matches) {
+ 			if (match.kind === "text") lines.push(`- ${match.uid} text ${compactLine(match.text)} @ ${rectText(match.rect)}`);
+ 			else if (match.kind === "region") lines.push(`- ${match.uid} region ${compactLine(match.label)} headings=${(match.headings || []).map((h: string) => compactLine(h, 50)).join(" | ")}`);
+ 			else lines.push(`- ${match.uid} ${match.role || match.tag || "element"}${match.disabled ? " disabled" : ""} ${compactLine(match.label || match.selector)} @ ${rectText(match.rect)}`);
+@@ -122,22 +168,22 @@ function formatChromeSnapshot(snapshot: any): string {
+ 	}
+ 	if (snapshot.mode === "pageMap" && snapshot.pageMap) {
+ 		lines.push("\n## Page map");
+-		for (const region of (snapshot.pageMap.regions || []).slice(0, 18)) {
++		for (const region of (snapshot.pageMap.regions || [])) {
+ 			lines.push(`- ${region.uid} ${region.kind}: ${compactLine(region.label)}`);
+-			for (const action of (region.actions || []).slice(0, 5)) lines.push(`  - ${action.uid} ${action.role || ""}${action.disabled ? " disabled" : ""} ${compactLine(action.label)}`);
++			for (const action of (region.actions || [])) lines.push(`  - ${action.uid} ${action.role || ""}${action.disabled ? " disabled" : ""} ${compactLine(action.label)}`);
+ 		}
+ 		if (snapshot.pageMap.headings?.length) {
+ 			lines.push("\nHeadings:");
+-			for (const h of snapshot.pageMap.headings.slice(0, 20)) lines.push(`- ${h.uid} h${h.level || ""} ${compactLine(h.text)}`);
++			for (const h of snapshot.pageMap.headings) lines.push(`- ${h.uid} h${h.level || ""} ${compactLine(h.text)}`);
+ 		}
+ 	}
+ 	if (Array.isArray(snapshot.layout) && snapshot.layout.length && snapshot.mode !== "changes") {
+ 		lines.push("\n## Layout / context");
+-		for (const section of snapshot.layout.slice(0, snapshot.mode === "pageMap" ? 18 : 8)) {
++		for (const section of snapshot.layout) {
+ 			const bits = [`${section.uid}`, section.role || section.tag, compactLine(section.label || section.text || "(unnamed section)", 110), `@ ${rectText(section.rect)}`];
+ 			lines.push(`- ${bits.filter(Boolean).join(" ")}`);
+-			const fieldLabels = (section.fields || []).slice(0, 4).map((f: any) => `${f.uid} ${compactLine(f.label || f.role, 40)}`);
+-			const actionLabels = (section.actions || []).slice(0, 5).map((a: any) => `${a.uid}${a.disabled ? " disabled" : ""} ${compactLine(a.label || a.role, 40)}`);
++			const fieldLabels = (section.fields || []).map((f: any) => `${f.uid} ${compactLine(f.label || f.role, 40)}`);
++			const actionLabels = (section.actions || []).map((a: any) => `${a.uid}${a.disabled ? " disabled" : ""} ${compactLine(a.label || a.role, 40)}`);
+ 			if (fieldLabels.length) lines.push(`  fields: ${fieldLabels.join("; ")}`);
+ 			if (actionLabels.length) lines.push(`  actions: ${actionLabels.join("; ")}`);
+ 		}
+@@ -146,30 +192,38 @@ function formatChromeSnapshot(snapshot: any): string {
+ 		const fields = snapshot.forms?.fields || [];
+ 		const submits = snapshot.forms?.submits || [];
+ 		if (fields.length || submits.length) lines.push("\n## Forms");
+-		for (const field of fields.slice(0, snapshot.mode === "forms" ? 40 : 12)) {
++		for (const field of fields) {
+ 			const bits = [field.uid, field.role || field.tag, field.required ? "required" : "", field.invalid ? "invalid" : "", field.disabled ? "disabled" : "", compactLine(field.label || field.selector, 90)];
+ 			if (field.value) bits.push(`value=${compactLine(field.value, 50)}`);
+ 			else if (field.valueRedacted) bits.push("value=[redacted]");
+ 			lines.push(`- ${bits.filter(Boolean).join(" ")} @ ${rectText(field.rect)}`);
+ 		}
+-		for (const submit of submits.slice(0, 8)) lines.push(`- ${submit.uid} submit/action${submit.disabled ? " disabled" : ""} ${compactLine(submit.label || submit.selector)} @ ${rectText(submit.rect)}`);
++		for (const submit of submits) lines.push(`- ${submit.uid} submit/action${submit.disabled ? " disabled" : ""} ${compactLine(submit.label || submit.selector)} @ ${rectText(submit.rect)}`);
+ 	}
+ 	if (Array.isArray(snapshot.elements) && snapshot.mode !== "pageMap") {
+ 		lines.push("\n## Visible actions");
+-		for (const el of snapshot.elements.slice(0, snapshot.mode === "interactive" ? 60 : 25)) {
++		for (const el of snapshot.elements) {
+ 			const flags = [el.disabled ? "disabled" : "", el.occluded ? `occluded-by-${el.occluded.tag}` : ""].filter(Boolean).join(",");
+ 			const context = el.context?.label ? ` in ${el.context.uid} ${compactLine(el.context.label, 60)}` : "";
+ 			lines.push(`- ${el.uid} ${el.role || el.tag}${flags ? ` [${flags}]` : ""} ${compactLine(el.label || el.selector)}${context} @ ${rectText(el.rect)}`);
+ 		}
+-		if (snapshot.elements.length > (snapshot.mode === "interactive" ? 60 : 25)) lines.push(`- … ${snapshot.elements.length - (snapshot.mode === "interactive" ? 60 : 25)} more; retry with maxElements or mode=interactive`);
+-	}
+-	if ((snapshot.mode === "text" || snapshot.mode === "auto") && Array.isArray(snapshot.textSnippets) && snapshot.textSnippets.length) {
+-		lines.push("\n## Text snippets");
+-		for (const snip of snapshot.textSnippets.slice(0, snapshot.mode === "text" ? 40 : 14)) lines.push(`- ${snip.uid} ${compactLine(snip.text, snapshot.mode === "text" ? 240 : 160)}`);
+-		if (snapshot.textTruncated) lines.push("- … page text truncated; retry with mode=text or maxTextChars for more");
+ 	}
++	if ((snapshot.mode === "text" || snapshot.mode === "auto") && typeof snapshot.text === "string") {
++    lines.push("\n## Page text", snapshot.text);
++    if (snapshot.textRange) {
++      const range = snapshot.textRange;
++      lines.push(`Characters ${range.start}–${range.end} of ${range.total}. Text version: ${range.version}`);
++      if (range.end < range.total) lines.push(`More page text: chrome_snapshot({ targetId: ${JSON.stringify(snapshot.targetId)}, mode: "text", textOffset: ${range.end}, expectedTextVersion: ${JSON.stringify(range.version)} }). A changed text version requires a fresh observation.`);
++    } else if (snapshot.textTruncated) lines.push("Page text is incomplete. This companion cannot provide verified text ranges; update it to continue with textOffset and expectedTextVersion.");
++  }
++  if (Array.isArray(snapshot.elements) && typeof snapshot.summary?.totalInteractiveVisible === "number") {
++    const total = snapshot.summary.totalInteractiveVisible;
++    lines.push(`Controls returned: ${snapshot.elements.length} of ${total} matching visible controls.`);
++    if (snapshot.elements.length < total) lines.push("More controls are available: use mode:\"interactive\" and increase maxElements, or focus with containingText, roleFilter or nearUid. Structural sections and labels are compact summaries; inspect specific uids for detail.");
++  }
++  if (snapshot.queryCoverage) lines.push(`Query matches returned: ${snapshot.matches?.length ?? 0} of ${snapshot.queryCoverage.matches}; searched ${snapshot.queryCoverage.controls} controls and ${snapshot.queryCoverage.textBlocks} text blocks. Refine the query or use text ranges when this sampled search is insufficient.`);
+ 	lines.push("\nTip: use chrome_snapshot({query:'...', mode:'interactive|forms|pageMap|text|changes|full'}) or nearUid to zoom in.");
+-	return truncateText(lines.join("\n"));
++	return lines.join("\n");
+ }
+ 
+ function formatIncludedSnapshotText(raw: unknown, text: string): string {
+@@ -188,22 +242,22 @@ function formatChromeInspect(inspect: any): string {
+ 	if (inspect.clickSuggestion) lines.push(`suggested click: chrome_click({ uid: "${inspect.clickSuggestion.uid}" }) or x=${inspect.clickSuggestion.x}, y=${inspect.clickSuggestion.y}`);
+ 	if (Array.isArray(inspect.nearbyText) && inspect.nearbyText.length) {
+ 		lines.push("\n## Nearby text");
+-		for (const item of inspect.nearbyText.slice(0, 12)) lines.push(`- ${item.uid} ${compactLine(item.text, 180)}`);
++		for (const item of inspect.nearbyText) lines.push(`- ${item.uid} ${compactLine(item.text, 180)}`);
+ 	}
+ 	if (inspect.formContext) {
+ 		lines.push("\n## Form context");
+-		for (const field of (inspect.formContext.fields || []).slice(0, 20)) lines.push(`- ${field.uid} ${field.role || field.tag}${field.disabled ? " disabled" : ""} ${compactLine(field.label || field.selector)}${field.value ? ` value=${compactLine(field.value, 60)}` : field.valueRedacted ? " value=[redacted]" : ""}`);
+-		for (const action of (inspect.formContext.actions || []).slice(0, 10)) lines.push(`- ${action.uid} action${action.disabled ? " disabled" : ""} ${compactLine(action.label || action.selector)}`);
++		for (const field of (inspect.formContext.fields || [])) lines.push(`- ${field.uid} ${field.role || field.tag}${field.disabled ? " disabled" : ""} ${compactLine(field.label || field.selector)}${field.value ? ` value=${compactLine(field.value, 60)}` : field.valueRedacted ? " value=[redacted]" : ""}`);
++		for (const action of (inspect.formContext.actions || [])) lines.push(`- ${action.uid} action${action.disabled ? " disabled" : ""} ${compactLine(action.label || action.selector)}`);
+ 	}
+ 	if (Array.isArray(inspect.nearbyActions) && inspect.nearbyActions.length) {
+ 		lines.push("\n## Nearby actions");
+-		for (const action of inspect.nearbyActions.slice(0, 18)) lines.push(`- ${action.uid} ${action.role || action.tag}${action.disabled ? " disabled" : ""} ${compactLine(action.label || action.selector)} @ ${rectText(action.rect)}`);
++		for (const action of inspect.nearbyActions) lines.push(`- ${action.uid} ${action.role || action.tag}${action.disabled ? " disabled" : ""} ${compactLine(action.label || action.selector)} @ ${rectText(action.rect)}`);
+ 	}
+ 	if (Array.isArray(inspect.ancestors) && inspect.ancestors.length) {
+ 		lines.push("\n## Ancestors");
+-		for (const a of inspect.ancestors.slice(0, 6)) lines.push(`- ${a.uid} ${a.role || a.tag} ${compactLine(a.label || a.selector, 120)}`);
++		for (const a of inspect.ancestors) lines.push(`- ${a.uid} ${a.role || a.tag} ${compactLine(a.label || a.selector, 120)}`);
+ 	}
+-	return truncateText(lines.join("\n"));
++	return lines.join("\n");
+ }
+ 
+ function extensionRoot(): string {
+@@ -240,6 +294,10 @@ function summarizeActionResult(result: unknown): string | undefined {
+ 	if (!result || typeof result !== "object") return undefined;
+ 	const r = result as Record<string, unknown>;
+ 	const parts: string[] = [];
++	if (r.input === "dom-fallback") {
++		parts.push("DOM fallback (untrusted page events)");
++		if (typeof r.reason === "string") parts.push(r.reason.slice(0, 500));
++	}
+ 	// NOTE: pageMutated is a coarse heuristic (a hash over body text + input values + node count).
+ 	// Many real effects — class/aria/data-state toggles, JS-held state, canvas, async updates —
+ 	// don't move it, so a false value is NOT proof the action did nothing. Surface it only as a
+@@ -252,6 +310,7 @@ function summarizeActionResult(result: unknown): string | undefined {
+ 		parts.push(`occluded by <${o.tag ?? "?"}${o.id ? "#" + o.id : ""}>`);
+ 	}
+ 	if (r.valueMatches === false) parts.push("input value did not stick");
++	if (r.submitted === false) parts.push("not submitted: field value differs");
+ 	if (r.autoplayHint) parts.push("autoplay-gated affordance");
+ 	return parts.length ? parts.join("; ") : undefined;
+ }
+@@ -259,27 +318,32 @@ function summarizeActionResult(result: unknown): string | undefined {
  function readRequestBody(request: IncomingMessage): Promise<string> {
  	return new Promise((resolveBody, rejectBody) => {
  		const chunks: Buffer[] = [];
@@ -583,7 +1214,7 @@ index 1917956..1a79306 100644
  	const secFetchSite = String(request.headers["sec-fetch-site"] ?? "");
  	return !secFetchSite || secFetchSite === "none" || secFetchSite === "same-origin";
  }
-@@ -297,6 +306,14 @@ function sendJson(response: ServerResponse, status: number, body: unknown, extra
+@@ -297,20 +361,42 @@ function sendJson(response: ServerResponse, status: number, body: unknown, extra
  	response.end(JSON.stringify(body));
  }
  
@@ -598,8 +1229,10 @@ index 1917956..1a79306 100644
  class ChromeProfileBridge {
  	private server: Server | undefined;
  	private pending = new Map<string, PendingCommand>();
-@@ -305,12 +322,20 @@ class ChromeProfileBridge {
+ 	private queue: BridgeCommand[] = [];
+ 	private waiters: Array<(command: BridgeCommand | undefined) => void> = [];
  	private lastSeenAt: number | undefined;
++    private companionVersion: string | undefined;
  	private clientName: string | undefined;
  	private mode: "server" | "client" | undefined;
 +	private starting: Promise<void> | undefined;
@@ -615,11 +1248,16 @@ index 1917956..1a79306 100644
  	) {}
  
 +    private get protocolVersion(): number { return this.connection?.bridge.major ?? BRIDGE_PROTOCOL_VERSION; }
++    private observeCompanion(): void {
++        if (this.stopped || !this.companionVersion) return;
++        this.lastSeenAt = Date.now();
++        if (this.connection) this.observe?.({ connectionId: this.connection.connectionId, state: "connected", extensionVersion: this.companionVersion });
++    }
 +
  	get url(): string {
  		return `http://${this.host}:${this.port}`;
  	}
-@@ -325,6 +350,8 @@ class ChromeProfileBridge {
+@@ -325,6 +411,8 @@ class ChromeProfileBridge {
  	status(): Record<string, unknown> {
  		return {
  			url: this.url,
@@ -628,7 +1266,7 @@ index 1917956..1a79306 100644
  			mode: this.mode ?? "starting",
  			connected: this.connected,
  			lastSeenAt: this.lastSeenAt,
-@@ -335,8 +362,10 @@ class ChromeProfileBridge {
+@@ -335,8 +423,10 @@ class ChromeProfileBridge {
  	}
  
  	async start(): Promise<void> {
@@ -640,7 +1278,7 @@ index 1917956..1a79306 100644
  	}
  
  	// Try to own the bridge port. On success we are the server; on EADDRINUSE another Pi
-@@ -355,11 +384,13 @@ class ChromeProfileBridge {
+@@ -355,11 +445,13 @@ class ChromeProfileBridge {
  					resolveStart();
  				});
  			});
@@ -654,7 +1292,7 @@ index 1917956..1a79306 100644
  			// Another Pi session already owns the bridge port. Use it as the shared
  			// machine-local broker so multiple Pi sessions can control Chrome at once.
  			this.mode = "client";
-@@ -377,45 +408,65 @@ class ChromeProfileBridge {
+@@ -377,45 +469,65 @@ class ChromeProfileBridge {
  	}
  
  	stop(): void {
@@ -726,7 +1364,7 @@ index 1917956..1a79306 100644
  			};
  			const timer = setTimeout(() => {
  				const entry = this.pending.get(id);
-@@ -442,8 +493,9 @@ class ChromeProfileBridge {
+@@ -442,8 +554,9 @@ class ChromeProfileBridge {
  	private timeoutMessage(entry: PendingCommand | undefined, timeoutMs: number): string {
  		const pollAgeMs = this.lastSeenAt === undefined ? undefined : Date.now() - this.lastSeenAt;
  		if (entry?.deliveredAt) {
@@ -737,7 +1375,7 @@ index 1917956..1a79306 100644
  		if (pollAgeMs === undefined || pollAgeMs > 60_000) {
  			return `Timed out after ${timeoutMs}ms: the Chrome extension is not polling (last seen ${pollAgeMs === undefined ? "never" : Math.round(pollAgeMs / 1000) + "s ago"}). Run /chrome onboard, then load the bundled browser-extension folder in your normal Chrome profile and keep that Chrome window open.`;
  		}
-@@ -459,10 +511,10 @@ class ChromeProfileBridge {
+@@ -459,10 +572,10 @@ class ChromeProfileBridge {
  			else signal.addEventListener("abort", forwardAbort, { once: true });
  		}
  		try {
@@ -750,7 +1388,7 @@ index 1917956..1a79306 100644
  				signal: controller.signal,
  			});
  			const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; error?: string };
-@@ -475,18 +527,14 @@ class ChromeProfileBridge {
+@@ -475,18 +588,14 @@ class ChromeProfileBridge {
  			return payload.result;
  		} catch (error) {
  			if ((error as Error).name === "AbortError") {
@@ -775,7 +1413,7 @@ index 1917956..1a79306 100644
  			}
  			throw error;
  		} finally {
-@@ -515,21 +563,33 @@ class ChromeProfileBridge {
+@@ -515,21 +624,33 @@ class ChromeProfileBridge {
  	}
  
  	private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -812,7 +1450,7 @@ index 1917956..1a79306 100644
  			if (!isLocalProcessRequest(request)) {
  				sendJson(response, 403, { ok: false, error: "Chrome commands are accepted only from local Pi processes" });
  				return;
-@@ -538,24 +598,58 @@ class ChromeProfileBridge {
+@@ -538,24 +659,64 @@ class ChromeProfileBridge {
  				action?: string;
  				params?: Record<string, unknown>;
  				timeoutMs?: number;
@@ -845,7 +1483,11 @@ index 1917956..1a79306 100644
 +		if (request.method === "GET" && url.pathname === "/command-state-v2") {
 +			if (!isBrowserOriginAllowed(request, this.connection ? this.connection.extensionOrigin.slice(0, -1) : undefined)) { sendJson(response, 403, { ok: false }, corsHeaders); return; }
 +			const entry = this.pending.get(url.searchParams.get("id") ?? "");
-+			sendJson(response, 200, { protocolVersion: this.protocolVersion, active: Boolean(entry?.deliveredAt) && (!this.companionToken || url.searchParams.get("epoch") === this.epoch), ...(this.companionToken ? { bridgeEpoch: this.epoch } : {}) }, corsHeaders);
++            const active = Boolean(entry?.deliveredAt) && (!this.companionToken || url.searchParams.get("epoch") === this.epoch);
++            // A long command pauses /next polling. Its authenticated cancellation
++            // heartbeat is current liveness, without issuing another command.
++            if (active) this.observeCompanion();
++			sendJson(response, 200, { protocolVersion: this.protocolVersion, active, ...(this.companionToken ? { bridgeEpoch: this.epoch } : {}) }, corsHeaders);
 +			return;
 +		}
 +		if (request.method === "GET" && url.pathname === "/next-v2") {
@@ -865,16 +1507,18 @@ index 1917956..1a79306 100644
 +                    && this.connection.bridge.capabilities.every(value => capabilities.includes(value))
 +                : url.searchParams.get("protocol") === String(BRIDGE_PROTOCOL_VERSION) && version === readPiChromeVersion();
 +            if (!compatible) {
++                this.companionVersion = undefined;
 +                const state = Number(url.searchParams.get("protocol")) > this.protocolVersion ? "update_app" : "update_extension";
 +                if (this.connection) this.observe?.({ connectionId: this.connection.connectionId, state, extensionVersion: version });
 +                sendJson(response, 409, { ok: false, state, protocolVersion: this.protocolVersion, expectedExtensionVersion: readPiChromeVersion(), error: "Chrome connection update required" }, corsHeaders);
 +                return;
 +            }
-+            if (this.connection) this.observe?.({ connectionId: this.connection.connectionId, state: "connected", extensionVersion: version });
++            this.companionVersion = version;
++            this.observeCompanion();
  			this.lastSeenAt = Date.now();
  			this.clientName = url.searchParams.get("name") ?? undefined;
  			let aborted = false;
-@@ -573,9 +667,10 @@ class ChromeProfileBridge {
+@@ -573,9 +734,10 @@ class ChromeProfileBridge {
  			if (aborted) {
  				// Long-poll connection died before we could deliver. Requeue any command we pulled
  				// so the next live /next picks it up instead of dropping it on the floor.
@@ -886,7 +1530,7 @@ index 1917956..1a79306 100644
  			// Mark the command as delivered so a later timeout can distinguish "extension never
  			// picked it up" from "extension is running it / failed to post a result".
  			if (command) {
-@@ -588,19 +683,20 @@ class ChromeProfileBridge {
+@@ -588,25 +750,27 @@ class ChromeProfileBridge {
  				response,
  				200,
  				command
@@ -909,7 +1553,14 @@ index 1917956..1a79306 100644
  			const pending = this.pending.get(result.id);
  			if (!pending) {
  				sendJson(response, 404, { ok: false, error: "unknown command id" }, corsHeaders);
-@@ -636,6 +732,100 @@ class ChromeProfileBridge {
+ 				return;
+ 			}
+ 			clearTimeout(pending.timer);
++			if (pending.deliveredAt) this.observeCompanion();
+ 			this.pending.delete(result.id);
+ 			if (result.ok) pending.resolve(result.result);
+ 			else pending.reject(new Error(result.error ?? "Chrome extension command failed"));
+@@ -636,6 +800,100 @@ class ChromeProfileBridge {
  	}
  }
  
@@ -994,7 +1645,7 @@ index 1917956..1a79306 100644
 +		};
 +        const connection = await options.getConnection?.();
 +        if ((connection ? result.capabilities?.protocolVersion !== connection.bridge.major : result.extensionVersion !== PI_CHROME_VERSION || result.capabilities?.protocolVersion !== BRIDGE_PROTOCOL_VERSION) || result.capabilities?.cancellation !== true) {
-+			return { state: "setup_required" as const, reason: "Reload the matching Chrome companion in chrome://extensions.", version: result.extensionVersion };
++			return { state: "setup_required" as const, reason: "Reload the matching Chrome companion in chrome://extensions.", version: result.extensionVersion, compatibilityRejected: true };
 +		}
 +		return { state: "ready" as const, reason: "Chrome companion is connected.", version: result.extensionVersion, protocolVersion: connection?.bridge.major ?? BRIDGE_PROTOCOL_VERSION };
 +	} catch (error) {
@@ -1010,7 +1661,7 @@ index 1917956..1a79306 100644
  const tabActionValues = ["list", "new", "activate", "close", "group", "ungroup", "version"] as const;
  const imageFormatValues = ["png", "jpeg"] as const;
  const waitForValues = ["selector", "expression"] as const;
-@@ -666,7 +856,8 @@ function StringEnum<T extends readonly [string, ...string[]]>(values: T) {
+@@ -666,7 +924,8 @@ function StringEnum<T extends readonly [string, ...string[]]>(values: T) {
  	return Type.Union(values.map((value) => Type.Literal(value)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]);
  }
  
@@ -1020,7 +1671,7 @@ index 1917956..1a79306 100644
  	const instanceToken = Symbol("pi-chrome-instance");
  	const currentRoot = extensionRoot();
  	const globalState = globalThis as typeof globalThis & {
-@@ -674,7 +865,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -674,7 +933,7 @@ export default function (pi: ExtensionAPI): void {
  		[PI_CHROME_AUTH_KEY]?: { until: number | "indefinite" };
  	};
  	const alreadyLoaded = globalState[PI_CHROME_GLOBAL_KEY];
@@ -1029,7 +1680,7 @@ index 1917956..1a79306 100644
  		console.warn(
  			`pi-chrome already loaded from ${alreadyLoaded.root} (v${alreadyLoaded.version}); skipping duplicate from ${currentRoot}.`,
  		);
-@@ -683,13 +874,14 @@ export default function (pi: ExtensionAPI): void {
+@@ -683,13 +942,14 @@ export default function (pi: ExtensionAPI): void {
  	// pi-chrome <=0.15.19 set the singleton flag but did not clear it on reload.
  	// If the stale flag points at this same extension root, replace it instead of
  	// skipping the freshly reloaded extension.
@@ -1048,7 +1699,7 @@ index 1917956..1a79306 100644
  	if (persistedAuth) {
  		if (persistedAuth.until === "indefinite" || persistedAuth.until > Date.now()) {
  			chromeAuthorizedUntil = persistedAuth.until;
-@@ -698,6 +890,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -698,6 +958,7 @@ export default function (pi: ExtensionAPI): void {
  		}
  	}
  	const persistAuth = (): void => {
@@ -1056,10 +1707,12 @@ index 1917956..1a79306 100644
  		if (chromeAuthorizedUntil === undefined) delete globalState[PI_CHROME_AUTH_KEY];
  		else globalState[PI_CHROME_AUTH_KEY] = { until: chromeAuthorizedUntil };
  	};
-@@ -707,6 +900,10 @@ export default function (pi: ExtensionAPI): void {
+@@ -707,6 +968,12 @@ export default function (pi: ExtensionAPI): void {
  	let countdownInterval: NodeJS.Timeout | undefined;
  	// Remembered so bridge sends can tag tabs with this session's group even when ctx isn't handy.
  	let sessionCtx: ExtensionContext | undefined;
++  const fallbackResultOwner = randomUUID();
++  const resultOwner = () => sessionCtx?.sessionManager.getSessionId() ?? fallbackResultOwner;
 +    let releaseWork: (() => void) | undefined;
 +    let workConnectionId: string | undefined;
 +    const finishWork = () => { releaseWork?.(); releaseWork = undefined; workConnectionId = undefined; };
@@ -1067,7 +1720,7 @@ index 1917956..1a79306 100644
  
  	const clearAuthExpiryTimer = (): void => {
  		if (!authExpiryTimer) return;
-@@ -764,6 +961,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -764,6 +1031,7 @@ export default function (pi: ExtensionAPI): void {
  	// this in the background; shutdown must wait before tearing down the bridge.
  	const cleanupAutomationTargetBestEffort = async (timeoutMs = 2_000): Promise<void> => {
  		const sessionKey = sessionKeyFor(sessionCtx);
@@ -1075,7 +1728,7 @@ index 1917956..1a79306 100644
  		if (sessionKey === undefined) return; // Never clean up an unscoped/default session.
  		const controller = new AbortController();
  		let timer: ReturnType<typeof setTimeout> | undefined;
-@@ -795,6 +993,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -795,6 +1063,7 @@ export default function (pi: ExtensionAPI): void {
  	};
  
  	const authSummary = (): string => {
@@ -1083,7 +1736,7 @@ index 1917956..1a79306 100644
  		if (chromeAuthorizedUntil === "indefinite") return "authorized indefinitely";
  		if (typeof chromeAuthorizedUntil === "number") {
  			const remainingMs = chromeAuthorizedUntil - Date.now();
-@@ -884,14 +1083,20 @@ export default function (pi: ExtensionAPI): void {
+@@ -884,14 +1153,20 @@ export default function (pi: ExtensionAPI): void {
  
  	const authorizedBridgeSend = async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> => {
  		requireChromeControlAuthorized();
@@ -1110,7 +1763,7 @@ index 1917956..1a79306 100644
  		}
  		// Scope every action to this session's dedicated automation target and tab group.
  		const sessionKey = sessionKeyFor(sessionCtx);
-@@ -931,7 +1136,7 @@ export default function (pi: ExtensionAPI): void {
+@@ -931,7 +1206,7 @@ export default function (pi: ExtensionAPI): void {
  
  	pi.on("session_start", async (_event, ctx) => {
  		sessionCtx = ctx;
@@ -1119,7 +1772,7 @@ index 1917956..1a79306 100644
  		// Reestablish in-memory state after a /reload restored chromeAuthorizedUntil from globalThis.
  		if (chromeControlAuthorized()) {
  			activateChromeTools();
-@@ -948,11 +1153,14 @@ export default function (pi: ExtensionAPI): void {
+@@ -948,11 +1223,15 @@ export default function (pi: ExtensionAPI): void {
  	pi.on("session_shutdown", async (event) => {
  		clearAuthExpiryTimer();
  		clearCountdownInterval();
@@ -1130,12 +1783,13 @@ index 1917956..1a79306 100644
  		if (event?.reason !== "reload") await cleanupAutomationTargetBestEffort();
  		bridge.stop();
 -		if (globalState[PI_CHROME_GLOBAL_KEY]?.token === instanceToken) {
++    if (event?.reason !== "reload") clearChromeResults(resultOwner());
 +        finishWork();
 +		if (!embedded && globalState[PI_CHROME_GLOBAL_KEY]?.token === instanceToken) {
  			delete globalState[PI_CHROME_GLOBAL_KEY];
  		}
  	});
-@@ -986,11 +1194,15 @@ Usage rules:
+@@ -986,11 +1265,15 @@ Usage rules:
  7. If you hit a native file-picker or privileged browser prompt gate, tell the user; generic clicks/typing/CSP gates are handled by Chrome input.
  8. Run /chrome doctor when in doubt about connectivity or capabilities.
  </chrome-profile-bridge>`;
@@ -1152,7 +1806,7 @@ index 1917956..1a79306 100644
  			ctx.ui.notify("Checking pi-chrome…", "info");
  			const lines: string[] = [
  				`pi-chrome v${PI_CHROME_VERSION}`,
-@@ -1011,7 +1223,7 @@ Usage rules:
+@@ -1011,7 +1294,7 @@ Usage rules:
  				};
  				const latencyMs = Date.now() - started;
  				extensionAlive = true;
@@ -1161,7 +1815,7 @@ index 1917956..1a79306 100644
  					versionMismatch = true;
  					lines.push(
  						`✗ The Chrome companion extension is on an old version (${version.extensionVersion}); this pi-chrome is ${PI_CHROME_VERSION}.`,
-@@ -1113,6 +1325,7 @@ Usage rules:
+@@ -1113,6 +1396,7 @@ Usage rules:
  	};
  
  	const authorizeHandler = async (ctx: ExtensionContext, args: string) => {
@@ -1169,7 +1823,7 @@ index 1917956..1a79306 100644
  		const grant = parseAuthorizeArg(args);
  		if (!grant) {
  			ctx.ui.notify("Unknown authorize duration. Use minutes (15m, 30m, 45) or indefinite.", "warning");
-@@ -1122,13 +1335,15 @@ Usage rules:
+@@ -1122,13 +1406,15 @@ Usage rules:
  	};
  
  	const revokeHandler = (ctx: ExtensionContext) => {
@@ -1186,7 +1840,7 @@ index 1917956..1a79306 100644
  		const proceed = await ctx.ui.confirm(
  			"Install the pi-chrome Chrome extension?",
  			`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
-@@ -1153,7 +1368,7 @@ Usage rules:
+@@ -1153,7 +1439,7 @@ Usage rules:
  		const parts: string[] = [];
  		try {
  			const version = (await bridge.send("tab.version", {}, 5_000)) as { extensionVersion?: string };
@@ -1195,7 +1849,7 @@ index 1917956..1a79306 100644
  				parts.push(`⚠ Chrome extension v${version.extensionVersion} (pi-chrome v${PI_CHROME_VERSION}, reload extension)`);
  			} else {
  				parts.push(`✓ Chrome connected`);
-@@ -1222,9 +1437,16 @@ Usage rules:
+@@ -1222,9 +1508,16 @@ Usage rules:
  	};
  
  	pi.registerCommand("chrome", {
@@ -1213,7 +1867,7 @@ index 1917956..1a79306 100644
  			const raw = prefix;
  			const trimmedRight = raw.replace(/\s+$/, "");
  			const tokens = trimmedRight ? trimmedRight.split(/\s+/) : [];
-@@ -1266,6 +1488,13 @@ Usage rules:
+@@ -1266,6 +1559,13 @@ Usage rules:
  			return filtered.map((c) => ({ value: c.fullValue, label: c.label, description: c.description }));
  		},
  		handler: async (args, ctx) => {
@@ -1227,16 +1881,19 @@ index 1917956..1a79306 100644
  			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
  			if (tokens.length === 0) {
  				await openCommandMenu(ctx);
-@@ -1293,28 +1522,42 @@ Usage rules:
+@@ -1293,28 +1593,44 @@ Usage rules:
  		},
  	});
  
 +	if (embedded) registerChromeTools(pi);
 +
  	function registerChromeTools(pi: ExtensionAPI): void {
++    const registerTool = (tool: Parameters<ExtensionAPI["registerTool"]>[0]) => pi.registerTool({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => boundChromeResult(await tool.execute(...args), resultOwner()) });
++
  		if (chromeToolsRegistered) return;
  		chromeToolsRegistered = true;
  
+-	pi.registerTool({
 +        const backgroundDescription = embedded
 +            ? "Calls stay in the background by default. Set false to bring the targeted tab forward for this call."
 +            : BACKGROUND_PARAM_DESCRIPTION;
@@ -1244,7 +1901,7 @@ index 1917956..1a79306 100644
 +            ? "Calls stay in the background by default; background=false explicitly brings the target forward."
 +            : "Background mode (default) blocks explicit focus/tab activation even with background=false; /chrome background off allows foreground/watch mode.";
 +
- 	pi.registerTool({
++	registerTool({
  		name: "chrome_launch",
  		label: "Chrome Bridge Setup",
 -		description:
@@ -1273,7 +1930,7 @@ index 1917956..1a79306 100644
  			return {
  				content: [
  					{
-@@ -1325,11 +1568,11 @@ Usage rules:
+@@ -1325,19 +1641,19 @@ Usage rules:
  							`1. Open chrome://extensions in the Chrome profile you normally use.\n` +
  							`2. Enable Developer mode.\n` +
  							`3. Click “Load unpacked”.\n` +
@@ -1287,8 +1944,9 @@ index 1917956..1a79306 100644
  			};
  		},
  	});
-@@ -1337,7 +1580,7 @@ Usage rules:
- 	pi.registerTool({
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_tab",
  		label: "Chrome Tab",
 -		description: "List, create, activate, close, group, ungroup, or inspect tabs in the user's existing Chrome profile via the companion extension. New/grouped tabs always use this session's Pi tab group. Background mode keeps new tabs inactive and blocks activate; ask the user to run /chrome background off for foreground/watch mode. activate/close/group/ungroup require a target (targetId/urlIncludes/titleIncludes); with no target they act on this session's pi-chrome automation tab if one exists, and otherwise error rather than touching the user's active tab.",
@@ -1296,7 +1954,7 @@ index 1917956..1a79306 100644
  		promptSnippet: "List/open/activate/close/group existing Chrome tabs through the companion extension.",
  		parameters: Type.Object({
  			action: StringEnum(tabActionValues),
-@@ -1348,6 +1591,7 @@ Usage rules:
+@@ -1348,6 +1664,7 @@ Usage rules:
  			group: Type.Optional(Type.Boolean({ description: "Deprecated; ignored. Pi-created tabs always join this session's own tab group." })),
  			groupTitle: Type.Optional(Type.String({ description: "Deprecated for action=new/group; ignored so one Pi session uses one tab group ('Pi Session: <name-or-id>')." })),
  			groupColor: Type.Optional(Type.String({ description: "Tab group color for action=group/new: grey, blue, red, yellow, green, pink, purple, cyan, or orange. Defaults to blue." })),
@@ -1304,16 +1962,28 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1373,7 +1617,7 @@ Usage rules:
+@@ -1369,11 +1686,11 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_snapshot",
  		label: "Chrome Snapshot",
  		description:
 -			"Inspect a page in the user's existing Chrome profile. Default output is a concise, agent-friendly observation with structural layout/context, stable uids, visible actions, form fields, page hints, and changes since the previous snapshot. Use mode/query/nearUid to zoom instead of dumping the whole page. Background mode (default) blocks explicit focus/tab activation even with background=false. Ask the user to run /chrome background off for foreground/watch mode.",
-+			"Inspect a page in the user's existing Chrome profile. Default output is a concise, agent-friendly observation with structural layout/context, stable uids, visible actions, form fields, page hints, and changes since the previous snapshot. Use mode/query/nearUid to zoom instead of dumping the whole page. " + backgroundBehavior,
++			"Inspect a page in the user's existing Chrome profile. Default output is a concise, agent-friendly observation with structural layout/context, stable uids, visible actions, form fields, page hints, and changes since the previous snapshot. Use mode/query/nearUid to focus the observation. mode=text returns body text; continue with textOffset and expectedTextVersion. Complete captured results are available via native read when an artifact path is returned. " + backgroundBehavior,
  		promptSnippet: "Observe the current Chrome page: concise summary, structural layout, visible actions, forms, page map, query matches, and stable uids.",
  		parameters: Type.Object({
  			targetId: Type.Optional(Type.String()),
-@@ -1386,7 +1630,7 @@ Usage rules:
+@@ -1382,11 +1699,13 @@ Usage rules:
+ 			maxElements: Type.Optional(Type.Number({ default: MAX_ELEMENTS })),
+ 			mode: Type.Optional(StringEnum(snapshotModeValues)),
+ 			query: Type.Optional(Type.String({ description: "Find/rank elements, regions, and text matching this phrase, e.g. 'merge button', 'email error', 'approve PR'." })),
+-			maxTextChars: Type.Optional(Type.Number({ description: "Max body text chars included in the underlying snapshot. Defaults are smaller for concise modes." })),
++			maxTextChars: Type.Optional(Type.Number({ minimum: 1, maximum: 30000, description: "Max body text chars included in the underlying snapshot. Defaults are smaller for concise modes." })),
++			textOffset: Type.Optional(Type.Integer({ minimum: 0, description: "Continue page text at this character offset; pair with expectedTextVersion from the previous snapshot." })),
++			expectedTextVersion: Type.Optional(Type.String({ description: "Reject continuation if page body text changed." })),
  			containingText: Type.Optional(Type.String({ description: "Only return elements whose label/text contains this string (case-insensitive). Useful when the page has many controls." })),
  			roleFilter: Type.Optional(Type.String({ description: "Only return elements matching this ARIA role or tag name (case-insensitive). e.g. 'button', 'link', 'textbox'." })),
  			nearUid: Type.Optional(Type.String({ description: "Sort elements by proximity to this snapshot uid. Useful for finding controls near a known anchor." })),
@@ -1322,7 +1992,22 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1414,7 +1658,7 @@ Usage rules:
+@@ -1397,11 +1716,12 @@ Usage rules:
+ 				DEFAULT_TIMEOUT_MS,
+ 				signal,
+ 			);
+-			return { content: [{ type: "text", text: formatChromeSnapshot(snapshot) }], details: { snapshot } };
++			if ((params.textOffset || params.expectedTextVersion) && !(snapshot as any)?.textRange) throw new Error("This Chrome companion does not support verified text continuation. Update the companion and take a fresh snapshot.");
++				return { content: [{ type: "text", text: formatChromeSnapshot(snapshot) }], details: { snapshot } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_find",
+ 		label: "Chrome Find",
+ 		description:
+@@ -1414,7 +1734,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1331,7 +2016,16 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1442,7 +1686,7 @@ Usage rules:
+@@ -1429,7 +1749,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_inspect",
+ 		label: "Chrome Inspect Element",
+ 		description:
+@@ -1442,7 +1762,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1340,7 +2034,12 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1478,7 +1722,7 @@ Usage rules:
+@@ -1474,11 +1794,11 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_navigate",
  		label: "Chrome Navigate",
  		description:
@@ -1349,9 +2048,12 @@ index 1917956..1a79306 100644
  		promptSnippet: "Navigate a Chrome tab in the user's existing profile.",
  		parameters: Type.Object({
  			url: Type.String(),
-@@ -1488,13 +1732,14 @@ Usage rules:
+@@ -1486,23 +1806,24 @@ Usage rules:
+ 			urlIncludes: Type.Optional(Type.String()),
+ 			titleIncludes: Type.Optional(Type.String()),
  			waitUntilLoad: Type.Optional(Type.Boolean({ default: true })),
- 			timeoutMs: Type.Optional(Type.Number({ default: 15_000 })),
+-			timeoutMs: Type.Optional(Type.Number({ default: 15_000 })),
++			timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 2147480000, default: 15_000 })),
  			initScript: Type.Optional(Type.String({ description: "Optional JavaScript source to run in MAIN world at document_start of the next navigation. Useful for seeding localStorage, stubbing Date.now(), or defining navigator.webdriver=undefined. Requires the companion extension's webNavigation permission." })),
 -			background: Type.Optional(Type.Boolean({ description: BACKGROUND_PARAM_DESCRIPTION })),
 +			background: Type.Optional(Type.Boolean({ description: backgroundDescription })),
@@ -1366,7 +2068,8 @@ index 1917956..1a79306 100644
  		},
  	});
  
-@@ -1502,7 +1747,7 @@ Usage rules:
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_evaluate",
  		label: "Chrome Evaluate",
  		description:
@@ -1375,7 +2078,7 @@ index 1917956..1a79306 100644
  		promptSnippet: "Evaluate JavaScript in the active Chrome tab through the companion extension.",
  		parameters: Type.Object({
  			expression: Type.String(),
-@@ -1510,7 +1755,7 @@ Usage rules:
+@@ -1510,7 +1831,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1384,7 +2087,21 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1542,7 +1787,7 @@ Usage rules:
+@@ -1521,11 +1842,11 @@ Usage rules:
+ 				: typeof value === "string"
+ 					? value
+ 					: safeJson(value) ?? "undefined";
+-			return { content: [{ type: "text", text: truncateText(text) }], details: { value: value as Json } };
++			return { content: [{ type: "text", text }], details: { value: value as Json } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_click",
+ 		label: "Chrome Click",
+ 		description:
+@@ -1542,7 +1863,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1393,7 +2110,27 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1573,7 +1818,7 @@ Usage rules:
+@@ -1556,24 +1877,24 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_type",
+ 		label: "Chrome Type",
+ 		description:
+-			"Focus an optional snapshot uid or CSS selector, then type using Chrome's real input. Contenteditables use one native text insertion; other fields use key events. Set perCharacter=true for editors needing individual keydown events. Pass includeSnapshot=true to verify after typing.",
++			"Focus an optional snapshot uid or CSS selector, then type using Chrome's real input. Text inputs, textareas and contenteditables use one native text insertion; other fields use key events. Set perCharacter=true for editors needing individual keydown events. Pass includeSnapshot=true to verify after typing.",
+ 		promptSnippet: "Type text into Chrome, optionally focusing a snapshot uid or selector first.",
+ 		parameters: Type.Object({
+ 			text: Type.String(),
+ 			uid: Type.Optional(Type.String({ description: "Stable element uid from chrome_snapshot." })),
+ 			selector: Type.Optional(Type.String({ description: "CSS selector to focus before typing." })),
+-			perCharacter: Type.Optional(Type.Boolean({ default: false, description: "Send individual key events even in contenteditables. Default: one native text insertion for contenteditables; key events for other fields." })),
++			perCharacter: Type.Optional(Type.Boolean({ default: false, description: "Send individual key events for widgets that depend on keydown/keyup. Text newlines still use native insertion, never Enter. Default: one native insertion for text inputs, textareas and contenteditables; key events for other fields." })),
+ 			includeSnapshot: Type.Optional(Type.Boolean({ description: "If true, include a fresh chrome_snapshot result after typing." })),
+ 			maxElements: Type.Optional(Type.Number({ default: MAX_ELEMENTS, description: "Max elements in the included snapshot." })),
+ 			pressEnter: Type.Optional(Type.Boolean()),
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1402,7 +2139,28 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1606,7 +1851,7 @@ Usage rules:
+@@ -1588,17 +1909,17 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_fill",
+ 		label: "Chrome Fill",
+ 		description:
+-			"Set the full value of a text input, textarea, or contenteditable using Chrome click/select/delete/type input. Contenteditables use one native text insertion; perCharacter=true retains individual keydown events. Accepts a snapshot uid or CSS selector. Pass includeSnapshot=true to verify after filling.",
++			"Set the full value of a text input, textarea, or contenteditable using Chrome click/select/delete/type input. Text inputs, textareas and contenteditables use one native text insertion; perCharacter=true retains individual keydown events except text newlines. Accepts a snapshot uid or CSS selector. Pass includeSnapshot=true to verify after filling.",
+ 		promptSnippet: "Fill a Chrome form field by snapshot uid or selector, optionally returning a fresh snapshot.",
+ 		parameters: Type.Object({
+ 			text: Type.String(),
+ 			uid: Type.Optional(Type.String({ description: "Stable element uid from chrome_snapshot." })),
+ 			selector: Type.Optional(Type.String({ description: "CSS selector to fill if uid is omitted." })),
+-			perCharacter: Type.Optional(Type.Boolean({ default: false, description: "Send individual key events even in contenteditables. Default: one native text insertion for contenteditables; key events for other fields." })),
++			perCharacter: Type.Optional(Type.Boolean({ default: false, description: "Send individual key events for widgets that depend on keydown/keyup. Text newlines still use native insertion, never Enter. Default: one native insertion for text inputs, textareas and contenteditables; key events for other fields." })),
+ 			submit: Type.Optional(Type.Boolean({ description: "If true, press Enter after filling." })),
+ 			domFallback: Type.Optional(Type.Boolean({ description: "If true (default), fall back to DOM value-setting if Chrome's CDP input path is blocked by another extension overlay or debugger failure." })),
+ 			includeSnapshot: Type.Optional(Type.Boolean({ description: "If true, include a fresh chrome_snapshot result after filling." })),
+@@ -1606,7 +1927,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1411,7 +2169,12 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1625,7 +1870,7 @@ Usage rules:
+@@ -1621,11 +1942,11 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_key",
  		label: "Chrome Key",
  		description:
@@ -1420,7 +2183,7 @@ index 1917956..1a79306 100644
  		promptSnippet: "Press keys in Chrome through the companion extension.",
  		parameters: Type.Object({
  			key: Type.String(),
-@@ -1640,7 +1885,7 @@ Usage rules:
+@@ -1640,7 +1961,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1429,7 +2192,34 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1687,7 +1932,7 @@ Usage rules:
+@@ -1654,7 +1975,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_wait_for",
+ 		label: "Chrome Wait For",
+ 		description: "Poll an existing Chrome tab until a selector exists or a JavaScript expression returns truthy.",
+@@ -1662,7 +1983,7 @@ Usage rules:
+ 		parameters: Type.Object({
+ 			kind: StringEnum(waitForValues),
+ 			value: Type.String({ description: "CSS selector when kind=selector; JavaScript expression when kind=expression." }),
+-			timeoutMs: Type.Optional(Type.Number({ default: 10_000 })),
++			timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 2147480000, default: 10_000 })),
+ 			intervalMs: Type.Optional(Type.Number({ default: 250 })),
+ 			targetId: Type.Optional(Type.String()),
+ 			urlIncludes: Type.Optional(Type.String()),
+@@ -1676,7 +1997,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_list_console_messages",
+ 		label: "Chrome Console Messages",
+ 		description:
+@@ -1687,17 +2008,17 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1438,7 +2228,19 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1709,7 +1954,7 @@ Usage rules:
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.console.list", params, DEFAULT_TIMEOUT_MS, signal);
+-			return { content: [{ type: "text", text: truncateText(safeJson(result)) }], details: { result: result as Json } };
++			return { content: [{ type: "text", text: safeJson(result) }], details: { result: result as Json } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_list_network_requests",
+ 		label: "Chrome Network Requests",
+ 		description:
+@@ -1709,17 +2030,17 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1447,7 +2249,19 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1729,7 +1974,7 @@ Usage rules:
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.network.list", params, DEFAULT_TIMEOUT_MS, signal);
+-			return { content: [{ type: "text", text: truncateText(safeJson(result)) }], details: { result: result as Json } };
++			return { content: [{ type: "text", text: safeJson(result) }], details: { result: result as Json } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_get_network_request",
+ 		label: "Chrome Network Request",
+ 		description: "Retrieve one captured fetch/XMLHttpRequest entry, including response body when available, by requestId from chrome_list_network_requests.",
+@@ -1729,31 +2050,31 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1456,7 +2270,15 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1743,17 +1988,17 @@ Usage rules:
+ 		async execute(_id, params, signal): Promise<ToolTextResult> {
+ 			const result = await authorizedBridgeSend("page.network.get", params, DEFAULT_TIMEOUT_MS, signal);
+-			return { content: [{ type: "text", text: truncateText(safeJson(result)) }], details: { result: result as Json } };
++			return { content: [{ type: "text", text: safeJson(result) }], details: { result: result as Json } };
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
  		name: "chrome_screenshot",
  		label: "Chrome Screenshot",
  		description:
@@ -1478,7 +2300,7 @@ index 1917956..1a79306 100644
  			host: Type.Optional(Type.String()),
  			port: Type.Optional(Type.Number()),
  		}),
-@@ -1770,7 +2015,32 @@ Usage rules:
+@@ -1770,7 +2091,32 @@ Usage rules:
  				dimensions?: { width: number; height: number; viewportHeight: number; dpr: number };
  				tiles?: Array<{ y: number; dataUrl: string }>;
  			};
@@ -1512,7 +2334,16 @@ index 1917956..1a79306 100644
  			if (result.fullPage && result.tiles && result.dimensions) {
  				// Stitch via PNG if format is png; otherwise we fall back to writing tile files and a
  				// manifest. We avoid pulling in an image library by writing each tile next to the main
-@@ -1810,7 +2080,7 @@ Usage rules:
+@@ -1797,7 +2143,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_hover",
+ 		label: "Chrome Hover",
+ 		description: "Hover over an element by uid, selector, or x/y using Chrome pointer movement.",
+@@ -1810,7 +2156,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1521,7 +2352,16 @@ index 1917956..1a79306 100644
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.hover", params, DEFAULT_TIMEOUT_MS, signal);
-@@ -1836,7 +2106,7 @@ Usage rules:
+@@ -1818,7 +2164,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_drag",
+ 		label: "Chrome Drag",
+ 		description: "Drag from one uid/selector/point to another using Chrome pointer input.",
+@@ -1836,7 +2182,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1530,7 +2370,16 @@ index 1917956..1a79306 100644
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.drag", params, DEFAULT_TIMEOUT_MS, signal);
-@@ -1858,7 +2128,7 @@ Usage rules:
+@@ -1844,7 +2190,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_tap",
+ 		label: "Chrome Tap (Touch)",
+ 		description:
+@@ -1858,7 +2204,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1539,7 +2388,16 @@ index 1917956..1a79306 100644
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.tap", params, DEFAULT_TIMEOUT_MS, signal);
-@@ -1881,7 +2151,7 @@ Usage rules:
+@@ -1867,7 +2213,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_scroll",
+ 		label: "Chrome Scroll",
+ 		description: "Scroll the page or a specific scrollable element by dispatching real wheel events with momentum-shaped deltas, then applying the scroll. Positive deltaY scrolls down. Pass uid/selector to scroll within a container, otherwise the document scrolls.",
+@@ -1881,7 +2227,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1548,7 +2406,16 @@ index 1917956..1a79306 100644
  		}),
  		async execute(_id, params, signal): Promise<ToolTextResult> {
  			const result = await authorizedBridgeSend("page.scroll", params, DEFAULT_TIMEOUT_MS, signal);
-@@ -1901,7 +2171,7 @@ Usage rules:
+@@ -1889,7 +2235,7 @@ Usage rules:
+ 		},
+ 	});
+ 
+-	pi.registerTool({
++	registerTool({
+ 		name: "chrome_upload_file",
+ 		label: "Chrome Upload File",
+ 		description: "Attach local files to an <input type=file> element using Chrome DevTools file-input control. Does NOT open the native file picker; works with React/Vue/Angular controlled inputs.",
+@@ -1901,7 +2247,7 @@ Usage rules:
  			targetId: Type.Optional(Type.String()),
  			urlIncludes: Type.Optional(Type.String()),
  			titleIncludes: Type.Optional(Type.String()),
@@ -1597,7 +2464,7 @@ index 7f46597..72be2df 100644
        },
        ungroup: async (id) => { const ids = Array.isArray(id) ? id : [id]; for (const tid of ids) { const t = tabs.get(tid); if (t) t.groupId = -1; } },
 @@ -227,6 +230,9 @@ async function run() {
-
+ 
      const opened = await w.dispatch("tab.new", { url: "https://pi.test/new-tab", groupTitle, sessionKey: SK });
      ok(state.groups.size === groupsBefore, "tab.new-group: did not create another same-session group");
 +    ok(nav.windowId !== state.userWindowId, "group-window: initial navigation retains its dedicated unfocused window");
@@ -1605,9 +2472,9 @@ index 7f46597..72be2df 100644
 +    ok(status.windowId === nav.windowId, "group-window: recorded owner and actual tab window agree");
      ok(opened.tab.groupId === groupId, "tab.new-group: opened tab joined the existing session group");
      ok(opened.tab.windowId === nav.windowId, "tab.new-group: opened tab was created in the existing group's window");
-
+ 
 diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/background-policy.test.mjs
-index e78fa49..8a2e1e8 100644
+index e78fa49..bebcdb0 100644
 --- a/test-suite/unit/background-policy.test.mjs
 +++ b/test-suite/unit/background-policy.test.mjs
 @@ -19,12 +19,12 @@ function section(start, end) {
@@ -1625,7 +2492,7 @@ index e78fa49..8a2e1e8 100644
      async send(action, params, timeout, signal) {
        calls.push({ action, params: clone(params), timeout, signal });
        if (signal?.aborted) throw new Error("Chrome command aborted");
-@@ -37,11 +37,11 @@ function piHarness({ session = "alpha", send } = {}) {
+@@ -37,23 +37,23 @@ function piHarness({ session = "alpha", send } = {}) {
    };
    const Type = new Proxy({}, { get: () => (value = {}) => value });
    const sandbox = {
@@ -1639,7 +2506,12 @@ index e78fa49..8a2e1e8 100644
      requireChromeControlAuthorized() { if (!authorized) throw new Error("Chrome control locked"); },
      sessionCtx: ctx, sessionKeyFor: (c) => c?.key, sessionGroupTitle: (c) => c.title,
      chromeToolsRegistered: false, StringEnum: () => ({}),
-@@ -53,7 +53,7 @@ function piHarness({ session = "alpha", send } = {}) {
+     tabActionValues: [], snapshotModeValues: [], waitForValues: [], imageFormatValues: [],
+-    safeJson: JSON.stringify, truncateText: (s) => s, formatChromeSnapshot: JSON.stringify,
++    safeJson: JSON.stringify, truncateText: (s) => s, formatChromeSnapshot: JSON.stringify, boundChromeResult: result => result, resultOwner: () => "fixture",
+     formatChromeInspect: JSON.stringify, summarizeActionResult: () => "", formatIncludedSnapshotText: (_r, text) => text,
+     workspaceCwd: () => ctx.cwd, ...path,
+     mkdir: async () => {}, writeFile: async (...args) => writes.push(args),
    };
    const registrations = indexSource.slice(indexSource.indexOf("function registerChromeTools(pi:"), indexSource.lastIndexOf("\n}"));
    vm.runInNewContext(stripTypeScriptTypes([
@@ -1698,18 +2570,19 @@ index 3fb4462..b009496 100644
      bridge: {
 diff --git a/test-suite/unit/embedded-host.test.mjs b/test-suite/unit/embedded-host.test.mjs
 new file mode 100644
-index 0000000..21f771b
+index 0000000..07e2b29
 --- /dev/null
 +++ b/test-suite/unit/embedded-host.test.mjs
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,377 @@
 +// Actual maintained factory and broker; fake Pi and an HTTP companion, never real Chrome.
 +import assert from 'node:assert/strict';
 +import fs from 'node:fs';
 +import fsp from 'node:fs/promises';
 +import path from 'node:path';
++import { tmpdir } from 'node:os';
 +import vm from 'node:vm';
 +import { createServer } from 'node:http';
-+import { randomUUID, timingSafeEqual } from 'node:crypto';
++import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 +import { stripTypeScriptTypes } from 'node:module';
 +import { test } from 'node:test';
 +const directory=path.resolve(import.meta.dirname,'../../extensions/chrome-profile-bridge');
@@ -1722,9 +2595,9 @@ index 0000000..21f771b
 +async function until(fn){for(let i=0;i<100;i++){if(await fn())return;await pause(5);}assert.fail('condition did not settle');}
 +function moduleHarness(fetchImpl=fetch){
 + let starts=0;
-+ const sandbox={console,Buffer,randomUUID,timingSafeEqual,URL,Symbol,Map,Set,Promise,AbortController,setTimeout,clearTimeout,setInterval,clearInterval,
++ const sandbox={console,Buffer,createHash,randomUUID,timingSafeEqual,URL,Symbol,Map,Set,Promise,AbortController,setTimeout,clearTimeout,setInterval,clearInterval,
 +  process:{env:{},platform:process.platform},__dirname:directory,
-+  Type:new Proxy({},{get:()=>value=>value}),...path,...fs,mkdir:fsp.mkdir,writeFile:fsp.writeFile,
++  tmpdir,Type:new Proxy({},{get:()=>value=>value}),...path,...fs,mkdir:fsp.mkdir,writeFile:fsp.writeFile,
 +  createServer(...a){starts++;return createServer(...a);},fetch:fetchImpl};
 + const javascript=stripTypeScriptTypes(source,{mode:'transform'}).replace(/^import .*;\n/gm,'').replace('export default createChromeExtension();','').replaceAll('export function ','function ').replaceAll('export async function ','async function ');
 + vm.runInNewContext(javascript+'\nglobalThis.factory=createChromeExtension; globalThis.Bridge=ChromeProfileBridge;globalThis.probe=probeChromeConnection;globalThis.startConnection=startChromeConnection;',sandbox);
@@ -1898,6 +2771,26 @@ index 0000000..21f771b
 +function storeNextUrl(url,extra=''){return url+'/next-v2?protocol=3&minor=0&version=1.2.7&capabilities='+encodeURIComponent(JSON.stringify(['cancellation','hard-background','profile-binding']))+extra;}
 +async function storeReply(url,f,c,result={}){const r=await storeFetch(url+'/result',f,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:c.id,bridgeEpoch:c.bridgeEpoch,ok:true,result})});assert.equal(r.status,200);}
 +
++test('authenticated active-command heartbeats sustain liveness without another command or trusting stale ownership',async()=>{
++ const h=moduleHarness(),f=storeFacilities(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness();
++ h.create({embedded:true,port,...f.options})(a.pi);await a.events.get('session_start')({},a.ctx('heartbeat'));
++ const retained=await h.sandbox.startConnection({port,...f.options});
++ try {
++  const operation=a.call('chrome_tab',{action:'list'});const c=(await(await storeFetch(storeNextUrl(url),f)).json()).command;
++  const heartbeat=url+'/command-state-v2?id='+c.id+'&epoch='+c.bridgeEpoch;
++  let count=f.observations.length;
++  for(const headers of [{'x-pi-chrome-connection':randomUUID()},{'x-pi-chrome-companion':'e'.repeat(64)},{origin:'chrome-extension://'+'b'.repeat(32)}]) assert.equal((await storeFetch(heartbeat,f,{headers})).status,403);
++  assert.equal(f.observations.length,count);
++  for(const address of [heartbeat.replace(c.bridgeEpoch,'stale'),heartbeat.replace(c.id,'unknown')]) assert.equal((await(await storeFetch(address,f)).json()).active,false);
++  assert.equal(f.observations.length,count);
++  assert.equal((await(await storeFetch(heartbeat,f)).json()).active,true);
++  assert.equal(f.observations.length,++count);assert.equal(f.observations.at(-1).state,'connected');assert.equal(f.observations.at(-1).extensionVersion,'1.2.7');
++  await storeReply(url,f,c,[]);await operation;assert.equal(f.observations.length,++count,'accepted completion also refreshes liveness');
++  assert.equal((await(await storeFetch(heartbeat,f)).json()).active,false);assert.equal(f.observations.length,count);
++  await a.events.get('agent_end')();await a.events.get('session_shutdown')({reason:'reload'});
++ } finally {retained.close();}
++});
++
 +test('published companion negotiates independent version, exact origin/lease before dequeue and turn ownership across tool gaps',async()=>{
 + const h=moduleHarness(),f=storeFacilities(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness(),b=piHarness();
 + h.create({embedded:true,port,...f.options})(a.pi);h.create({embedded:true,port,...f.options})(b.pi);assert.equal(h.starts(),0);
@@ -1942,11 +2835,135 @@ index 0000000..21f771b
 + const doctor=a.commands.get('chrome').handler('doctor',a.ctx('guidance'));const c=(await(await storeFetch(storeNextUrl(url),f)).json()).command;assert.equal(c.action,'tab.version');await storeReply(url,f,c,{extensionVersion:'1.5.0',capabilities:{protocolVersion:3,cancellation:true}});await doctor;assert.match(a.notices.at(-1),/connected/);assert.doesNotMatch(a.notices.at(-1),/old version|reload/i);
 + await a.events.get('session_shutdown')({reason:'reload'});
 +});
++
++
++test('companion respects an explicit wait timeout beyond its ordinary command deadline', async()=>{
++ const h=workerHarness({timeout:15,dispatch:async()=>{await pause(40);return {observed:true};}});
++ await h.context.run({id:'long-wait',protocolVersion:2,action:'page.waitFor',params:{timeoutMs:80}});
++ assert.equal(h.results[0].ok,true);assert.equal(h.results[0].result.observed,true);
++});
++
++function inputHarness({visibility='visible',editor='',editable=false,tag='TEXTAREA',type='text',shadow=false,failAfter,failReadback=false,targetMissing=false,maximum=Infinity}={}) {
++ const calls=[],fallbacks=[];let value=editor,selected=false,caret=1,submits=0;
++ const field={tagName:tag,type,isContentEditable:editable,isConnected:true,contains:el=>el===field,get value(){return value;}};
++ const document={activeElement:shadow?{shadowRoot:{activeElement:field}}:field,querySelector:()=>targetMissing?null:field,createRange:()=>({selectNodeContents:()=>{selected=true;}})};
++ const window={__PI_CHROME_STATE__:{elements:{e1:field}},getSelection:()=>({removeAllRanges:()=>{},addRange:()=>{}})};
++ const context={console,Promise,Map,Set,Error,navigator:{platform:"MacIntel"},activeCommand:undefined,
++  chrome:{tabs:{get:async()=>({id:44,windowId:7,active:false})},windows:{get:async()=>({state:'normal'})}},
++  getTabByParams:async()=>({id:44,windowId:7,active:false}),bringToFront:async()=>{},attachDebugger:async()=>{},foregroundRequested:params=>params.background===false,
++  resolveTargetInTab:async()=>({found:true,rect:{left:0,top:0,width:50,height:20},tag}),pickInsideRect:()=>({x:5,y:5}),cdpMoveTo:async()=>{},sleep:async()=>{},rng:()=>0,
++  cdpModifiersFor:()=>0,cdpKeyInfo:key=>({key,code:key,windowsVirtualKeyCode:65,text:key}),
++  executeScriptTimed:async({func,args=[]})=>{if(failReadback&&func.toString().includes('expected.replace'))throw new Error('observation timed out');return [{result:vm.runInNewContext('('+func.toString()+')(...args)',{document,window,args})}];},
++  cdp:async(_id,method,params)=>{calls.push({method,params});if(method==='Runtime.evaluate')return {result:{value:visibility}};
++   if(params.commands?.includes('selectAll'))selected=true;
++   if(params.commands?.includes('moveToEndOfDocument'))caret=value.length;
++   if(params.key==='Delete'&&params.type==='keyDown'){value=selected?'':value.slice(0,caret)+value.slice(caret+1);caret=0;selected=false;}
++   if(method==='Input.insertText'){let inserted=tag==='INPUT'?params.text.replace(/\n/g,' '):params.text;value=(value.slice(0,caret)+inserted+value.slice(caret)).slice(0,maximum);caret+=inserted.length;if(failAfter==='insert')throw new Error('input timeout after effect');}
++   if(params.key==='Enter'&&params.type==='keyDown'){submits++;if(failAfter==='submit')throw new Error('submit timeout after effect');}
++   if(method==='Input.dispatchMouseEvent'&&params.type==='mouseReleased'&&failAfter==='click')throw new Error('click timeout after effect');
++  },
++  cdpTypeChar:async(_id,ch)=>{calls.push({method:'Input.dispatchKeyEvent',params:{key:ch}});if(ch==='\n')return;value=(value.slice(0,caret)+ch+value.slice(caret)).slice(0,maximum);caret++;},
++  domClickFallback:async(_id,_params,error)=>{fallbacks.push(error);return {input:'dom-fallback',reason:error.message}},
++  domFillFallback:async(_id,params,error)=>{value=params.text;fallbacks.push(error);return {input:'dom-fallback',reason:error.message}},
++ };
++ vm.runInNewContext(section(worker,'// Chrome drops trusted CDP input','async function chromeInputClick')+section(worker,'async function chromeInputClick','async function chromeInputHover')+section(worker,'async function chromeInputHover','// Read the actual focused editor')+section(worker,'async function contentEditableInTab','async function domFillFallback')+section(worker,'async function chromeInputFill','async function chromeInputUpload'),context);
++ context.domClickFallback=async(_id,_params,error)=>{fallbacks.push(error);return {input:'dom-fallback',reason:error.message}};
++ context.domFillFallback=async(_id,params,error)=>{value=params.text;fallbacks.push(error);return {input:'dom-fallback',reason:error.message}};
++ return {context,calls,fallbacks,value:()=>value,submits:()=>submits};
++}
++
++test('hidden pages fail before trusted input; click and fill disclose their DOM fallback',async()=>{
++ const h=inputHarness({visibility:'hidden'});
++ for(const [name,params] of [['Hover',{selector:'#field'}],['Key',{key:'Enter'}],['Type',{selector:'#field',text:'hello'}],['Scroll',{deltaY:200}],['Tap',{x:10,y:10}],['Drag',{fromX:10,fromY:10,toX:20,toY:20}]]){
++  await assert.rejects(h.context['chromeInput'+name](params),/hidden.*Chrome ignores trusted input/);
++ }
++ for(const name of ['Click','Fill']) {
++  await assert.rejects(h.context['chromeInput'+name]({selector:'#field',text:'hello',domFallback:false}),/hidden/);
++  const result=await h.context['chromeInput'+name]({selector:'#field',text:'hello'});assert.equal(result.input,'dom-fallback');assert.match(result.reason,/hidden/);
++ }
++ assert.equal(h.calls.filter(x=>x.method.startsWith('Input.')).length,0,'no dropped events can be reported as successful input');
++});
++
++test('fill replaces the entire multiline textarea; targeted type appends and untargeted type keeps the caret',async()=>{
++ const h=inputHarness({editor:'first line\nsecond line\nthird line'});
++ const result=await h.context.chromeInputFill({selector:'#field',text:'replacement\nsecond line',domFallback:false});assert.equal(result.input,'chrome');assert.equal(h.value(),'replacement\nsecond line');assert.equal(result.valueMatches,true);
++ assert.ok(h.calls.some(x=>x.params.commands?.includes('selectAll')&&x.params.modifiers===4));
++ const typed=inputHarness({editor:'existing'});await typed.context.chromeInputType({selector:'#field',text:' appended'});assert.equal(typed.value(),'existing appended');
++ const caret=inputHarness({editor:'existing'});await caret.context.chromeInputType({text:'X'});assert.equal(caret.value(),'eXxisting');
++});
++
++test('text newlines preserve multiline editors without pressing Enter or submitting forms',async()=>{
++ for(const perCharacter of [false,true]) {
++  const h=inputHarness();await h.context.chromeInputFill({selector:'#field',text:'a\r\nb\rc',perCharacter});assert.equal(h.value(),'a\nb\nc');assert.equal(h.submits(),0);
++  const typed=inputHarness({editor:'old'});await typed.context.chromeInputType({selector:'#field',text:'a\nb',perCharacter});assert.equal(typed.value(),'olda\nb');assert.equal(typed.submits(),0);
++  const single=inputHarness({tag:'INPUT'});const result=await single.context.chromeInputFill({selector:'#field',text:'a\nb',perCharacter});assert.equal(single.value(),perCharacter?'ab':'a b');assert.equal(single.submits(),0);assert.equal(result.valueMatches,false);
++ }
++});
++
++test('native insertion detects text inputs in shadow roots while date fields keep key events',async()=>{
++ const shadow=inputHarness({tag:'INPUT',shadow:true});await shadow.context.chromeInputType({uid:'e1',text:'hello'});assert.equal(shadow.value(),'hello');assert.ok(shadow.calls.some(x=>x.method==='Input.insertText'));
++ const date=inputHarness({tag:'INPUT',type:'date'});await date.context.chromeInputFill({selector:'#field',text:'2026-10-02'});assert.equal(date.calls.some(x=>x.method==='Input.insertText'),false);
++ const masked=inputHarness({maximum:3});const result=await masked.context.chromeInputFill({selector:'#field',text:'abcdef'});assert.equal(result.valueMatches,false);assert.equal(masked.fallbacks.length,0);
++});
++
++test('value verification is best-effort and a definite mismatch prevents requested submit',async()=>{
++ for(const targetMissing of [false,true]) {
++  const h=inputHarness({failReadback:!targetMissing,targetMissing});const result=await h.context.chromeInputFill({selector:'#field',text:'once',submit:true});assert.equal(result.valueMatches,undefined);assert.equal(h.value(),'once');assert.equal(h.submits(),1);assert.equal(h.fallbacks.length,0);
++ }
++ for(const type of ['Fill','Type']) {
++  const h=inputHarness({maximum:3});const result=await h.context['chromeInput'+type]({selector:'#field',text:'abcdef',submit:true,pressEnter:true});assert.equal(result.valueMatches,false);assert.equal(result.submitted,false);assert.equal(h.submits(),0);assert.equal(h.fallbacks.length,0);
++ }
++});
++
++test('DOM fallback verifies before submitting and reports a rejected field value',async()=>{
++ let value='',submits=0;
++ const el={tagName:'INPUT',get value(){return value;},set value(v){value=v.replace(/\n/g,'').slice(0,3);},scrollIntoView(){},focus(){},dispatchEvent(){},closest:()=>({requestSubmit(){submits++;}})};
++ const page={document:{querySelector:()=>el},window:{},HTMLTextAreaElement:class{},HTMLInputElement:class{},InputEvent:class{},Event:class{},location:{href:'https://fixture.test/'}};
++ const context={String,executeScriptTimed:async({func,args})=>[{result:await vm.runInNewContext('('+func.toString()+')(...args)',{...page,args})}]};
++ vm.runInNewContext(section(worker,'async function domFillFallback','async function chromeInputFill'),context);
++ const mismatch=await context.domFillFallback(44,{selector:'#field',text:'abcdef',submit:true},new Error('hidden tab'));
++ assert.equal(mismatch.valueMatches,false);assert.equal(mismatch.submitted,false);assert.equal(submits,0);
++ const matches=await context.domFillFallback(44,{selector:'#field',text:'abc',submit:true},new Error('hidden tab'));
++ assert.equal(matches.valueMatches,true);assert.equal(matches.submitted,true);assert.equal(submits,1);
++});
++
++test('click, native insertion and submit failures never replay input through DOM fallback',async()=>{
++ for(const failAfter of ['insert','submit']) {
++  const h=inputHarness({failAfter});await assert.rejects(h.context.chromeInputFill({selector:'#field',text:'once',submit:failAfter==='submit'}),/timeout after effect/);assert.equal(h.value(),'once');assert.equal(h.fallbacks.length,0);assert.equal(h.submits(),failAfter==='submit'?1:0);
++ }
++ const click=inputHarness({failAfter:'click'});await assert.rejects(click.context.chromeInputClick({selector:'#button'}),/click timeout after effect/);assert.equal(click.fallbacks.length,0);
++});
++
++test('new automation groups stay in the target window rather than moving to the current user window',async()=>{
++ let grouped;
++ const context={chrome:{tabGroups:{update:async()=>{}},tabs:{group:async params=>{grouped=params;return 12},get:async()=>({id:44,windowId:7,groupId:12})}},cleanGroupTitle:x=>x,cleanGroupColor:x=>x,findGroupByTitle:async()=>null,checkedChromeCall:fn=>fn(),formatTab:async tab=>tab,groupRecord:async()=>({id:12})};
++ vm.runInNewContext(section(worker,'async function groupTab(','async function dispatch('),context);
++ await context.groupTab({id:44,windowId:7,groupId:-1},'Worker','blue');assert.equal(grouped.createProperties.windowId,7);assert.deepEqual(Array.from(grouped.tabIds),[44]);
++});
++
++test('long-poll deadline aborts a half-open request and releases polling without replaying a command',async()=>{
++ let polling=false,commandCalls=0,timerMs,aborted=false;
++ const context={console,AbortController,BRIDGE_URL:'http://fixture',CLIENT_NAME:'fixture',BRIDGE_PROTOCOL_VERSION:3,POLL_ERROR_BACKOFF_MS:1,encodeURIComponent,
++  chrome:{runtime:{getManifest:()=>({version:'1.2.8'})}},companionHeaders:async()=>({}),sleep:async()=>{},
++  setTimeout:(fn,ms)=>{timerMs=ms;return setTimeout(fn,5)},clearTimeout,
++  fetch:async(_url,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>{aborted=true;reject(Error('timeout'))},{once:true})),handleCommand:async()=>{commandCalls++},
++ };
++ vm.runInNewContext('let polling=false;\n'+section(worker,'async function pollLoop()','async function handleCommand(')+'\nglobalThis.isPolling=()=>polling;',context);
++ const running=context.pollLoop();await running;assert.equal(aborted,true);assert.equal(timerMs,45_000);assert.equal(context.isPolling(),false);assert.equal(commandCalls,0);
++});
 diff --git a/test-suite/unit/session-cleanup.test.mjs b/test-suite/unit/session-cleanup.test.mjs
-index 7e3285f..7467986 100644
+index 7e3285f..72969b1 100644
 --- a/test-suite/unit/session-cleanup.test.mjs
 +++ b/test-suite/unit/session-cleanup.test.mjs
-@@ -24,9 +24,10 @@ function harness(send, sessionKey = "session:test") {
+@@ -17,6 +17,7 @@ const listener = section('pi.on("session_shutdown",', 'pi.on("before_agent_start
+ function harness(send, sessionKey = "session:test") {
+   const timers = new Map();
+   const events = [];
++  const cleaned = [];
+   let shutdown;
+   const token = Symbol();
+   const globalState = { loaded: { token } };
+@@ -24,14 +25,16 @@ function harness(send, sessionKey = "session:test") {
      AbortController, Promise,
      setTimeout(fn, ms) { const key = Symbol(); timers.set(key, { fn, ms }); return key; },
      clearTimeout(key) { timers.delete(key); },
@@ -1955,7 +2972,35 @@ index 7e3285f..7467986 100644
 +    bridge: { cancelSession() {}, send(...args) { events.push("send"); return send(...args); }, stop() { events.push("stop"); } },
      sessionCtx: {}, sessionKeyFor: () => sessionKey ?? undefined,
 -    clearAuthExpiryTimer() {}, clearCountdownInterval() {},
++    resultOwner: () => sessionKey, clearChromeResults: owner => cleaned.push(owner),
 +    clearAuthExpiryTimer() {}, clearCountdownInterval() {}, finishWork() {},
      globalState, PI_CHROME_GLOBAL_KEY: "loaded", instanceToken: token,
      pi: { on(name, handler) { assert.equal(name, "session_shutdown"); shutdown = handler; } },
    };
+   vm.runInNewContext(`${helper}\n${listener}`, context);
+-  return { shutdown, timers, events, globalState };
++  return { shutdown, timers, events, globalState, cleaned };
+ }
+ 
+ // Delivery must settle before bridge.stop; reload does not issue cleanup at all.
+@@ -53,11 +56,13 @@ function harness(send, sessionKey = "session:test") {
+   assert.deepEqual(h.events, ["send", "stop"]);
+   assert.equal(h.timers.size, 0);
+   assert.equal(h.globalState.loaded, undefined);
++  assert.deepEqual(h.cleaned, ["session:test"]);
+ }
+ {
+   const h = harness(() => { throw new Error("reload must not send"); });
+   await h.shutdown({ reason: "reload" });
+   assert.deepEqual(h.events, ["stop"]);
++  assert.deepEqual(h.cleaned, []);
+   assert.equal(h.timers.size, 0);
+ }
+ 
+@@ -89,5 +94,6 @@ for (const send of [() => Promise.reject(new Error("offline")), () => { throw ne
+   const h = harness(() => { throw new Error("unscoped cleanup must not send"); }, null);
+   await h.shutdown({ reason: "exit" });
+   assert.deepEqual(h.events, ["stop"]);
++  assert.deepEqual(h.cleaned, [null]);
+ }
+ console.log("session-cleanup: shutdown ordering, reload, deadline, failures, and missing identity passed");

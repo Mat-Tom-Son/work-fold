@@ -6,13 +6,13 @@ import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/r
 import { safeExternalHref } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
-import { savedWorkTrailPreviews } from "../../lib/chat-work-trail";
+import { assistantTurnView, savedWorkTrailPreviews } from "../../lib/chat-work-trail";
 import { collectSpacePathCandidates, findSpacePathMentions, spacePathCandidate } from "../../lib/space-path-links";
 import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
-import { RuntimeContextPreview } from "./activity";
+import { RuntimeContextPreview, type SpacePathLinkResolver } from "./activity";
 
-export type SpacePathLinkResolver = (paths: string[]) => Promise<Map<string, string>>;
+export type { SpacePathLinkResolver };
 
 const assistantMessageSpacePathCache = new Map<string, {
   content: string;
@@ -28,6 +28,7 @@ interface ChatMessageRowProps {
   showRuntimePreview: boolean;
   runtimePreviews: RuntimePreviewEntry[];
   spaceId: string;
+  spaceRoot: string;
   onOpenSpaceFile?: (path: string) => void;
   resolveSpacePathLinks?: SpacePathLinkResolver;
   onCopyMessage: (messageId: string, content: string) => void | Promise<void>;
@@ -41,6 +42,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   showRuntimePreview,
   runtimePreviews,
   spaceId,
+  spaceRoot,
   onOpenSpaceFile,
   resolveSpacePathLinks,
   onCopyMessage,
@@ -54,6 +56,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   const visibleRuntimePreviews = showRuntimePreview && runtimePreviews.length
     ? runtimePreviews
     : savedRuntimePreviews;
+  const turnView = assistantTurnView(message.content, message.role === "assistant" ? message.assistantPresentation : undefined, visibleRuntimePreviews);
 
   useEffect(() => {
     if (message.role !== "assistant" || !resolveSpacePathLinks || !onOpenSpaceFile) return;
@@ -74,30 +77,38 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <article className={`message ${message.role}${suppressEnterAnimation ? " settled" : ""}`}>
       <div className="message-surface">
-        {visibleRuntimePreviews.length ? <RuntimeContextPreview entries={visibleRuntimePreviews} /> : null}
-        <MarkdownMessage
-          content={message.content}
+        {turnView.steps.length ? (
+          <RuntimeContextPreview
+            entries={turnView.steps}
+            spaceRoot={spaceRoot}
+            onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
+            resolveSpacePathLinks={message.role === "assistant" ? resolveSpacePathLinks : undefined}
+            renderText={(content, links) => <MarkdownMessage content={content} spaceLinks={links} onOpenSpaceFile={onOpenSpaceFile} />}
+          />
+        ) : null}
+        {turnView.answer ? <MarkdownMessage
+          content={turnView.answer}
           spaceLinks={message.role === "assistant" ? spaceLinks : null}
           onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
           key={spaceLinkVersion}
-        />
+        /> : null}
         {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
         {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
       </div>
       <footer className="message-footer">
         <span className="message-footer-meta">
-          {message.role === "user" && message.delivery === "steer" ? (
-            <span className="message-delivery" title="Sent while the Assistant was working; it applied after the step in progress.">Sent mid-turn</span>
-          ) : null}
+          <MessageActions
+            copied={copied}
+            onCopy={() => void onCopyMessage(message.id, message.content)}
+          />
           {message.createdAt && messageTime ? (
             <time className="message-time" dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>
               {messageTime}
             </time>
           ) : null}
-          <MessageActions
-            copied={copied}
-            onCopy={() => void onCopyMessage(message.id, message.content)}
-          />
+          {message.role === "user" && message.delivery === "steer" ? (
+            <span className="message-delivery" title="Sent while the Assistant was working; it applied after the step in progress.">Sent mid-turn</span>
+          ) : null}
         </span>
       </footer>
     </article>
@@ -115,6 +126,7 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previousMessage.kind === nextMessage.kind
     && previousMessage.landing === nextMessage.landing
     && previousMessage.workTrail === nextMessage.workTrail
+    && previousMessage.assistantPresentation === nextMessage.assistantPresentation
     && previousMessage.interruption === nextMessage.interruption
     && previousMessage.delivery === nextMessage.delivery
   );
@@ -128,6 +140,7 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previous.showRuntimePreview === next.showRuntimePreview
     && sameRuntimePreview
     && previous.spaceId === next.spaceId
+    && previous.spaceRoot === next.spaceRoot
     && previous.onOpenSpaceFile === next.onOpenSpaceFile
     && previous.resolveSpacePathLinks === next.resolveSpacePathLinks
     && previous.onCopyMessage === next.onCopyMessage;

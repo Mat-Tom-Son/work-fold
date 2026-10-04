@@ -40,6 +40,8 @@ export interface SpaceCustomization {
   bannerName?: string;
   bannerImage?: string | null;
   bannerImagePosition?: SpaceBannerImagePosition;
+  bannerPreset?: import("../../src/shared/space-appearance").SpaceAppearanceBannerPresetId;
+  bannerFraming?: import("../../src/shared/space-appearance").SpaceAppearanceBannerFraming;
 }
 
 export type SpaceCustomizationMap = Record<string, SpaceCustomization>;
@@ -59,6 +61,8 @@ export interface TreeEntry {
   ignored?: boolean;
   descendantIgnoredCount?: number;
   children?: TreeEntry[];
+  /** Its own registered Folder: Files shows it as a door, not a subtree. */
+  nestedFolder?: true;
 }
 
 export type ChangeKind = "created" | "modified" | "deleted" | "remote_deleted";
@@ -102,6 +106,7 @@ export interface ChatMessage {
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
   workTrail?: ChatMessageWorkTrailEntry[];
+  assistantPresentation?: import("../../src/shared/chat-presentation").AssistantPresentation;
   interruption?: ChatMessageInterruption;
   turnId?: string;
   requestId?: string;
@@ -125,22 +130,11 @@ export interface ChatMessageInterruptionActivity {
   phase?: AgentActivityPhase;
 }
 
-export interface ChatMessageWorkTrailEntry {
-  kind: "thinking" | "tool";
-  text: string;
-  detail?: string;
-  toolName?: string;
-  phase?: AgentActivityPhase;
-}
+export type ChatMessageWorkTrailEntry = import("../../src/shared/chat-presentation").ChatWorkTrailEntry;
 
 export type AgentActivityPhase = "queued" | "running" | "streaming" | "complete" | "error";
-export interface RuntimePreviewEntry {
-  id: string;
-  kind: "thinking" | "tool";
-  text: string;
-  detail?: string;
-  toolName?: string;
-  phase?: AgentActivityPhase;
+export interface RuntimePreviewEntry extends Omit<import("../../src/shared/chat-presentation").ChatLiveWorkTrailEntry, "kind"> {
+  kind: "thinking" | "tool" | "progress" | "command";
 }
 
 export interface ChatActionsState {
@@ -164,6 +158,7 @@ export interface ContextAttachment {
   reason: string | null;
   estimatedTokens: number;
   budgetTokens: number;
+  budgetStatus?: "preview";
   provenance: string[];
   warnings: string[];
   userLabel: string;
@@ -192,6 +187,8 @@ export interface PendingChatSend {
   contextPaths: string[];
   transientConversation: boolean;
   draftStorageKey: string;
+  /** Folder Workers the message @-mentions (2026-10-01). */
+  addressedSpaceIds?: string[];
 }
 export interface SpaceFixtureConversation extends ConversationSummary {
   messages: ChatMessage[];
@@ -213,7 +210,6 @@ export type SpaceSurfaceTab =
   | (SpaceSurfaceTabBase & { kind: "chat"; conversationId: string | null })
   | (SpaceSurfaceTabBase & { kind: "file"; path: string })
   | (SpaceSurfaceTabBase & { kind: "history"; checkpointId?: string })
-  | (SpaceSurfaceTabBase & { kind: "appearance" })
   | (SpaceSurfaceTabBase & { kind: "app-studio" })
   | (SpaceSurfaceTabBase & { kind: "checks" })
   | (SpaceSurfaceTabBase & { kind: "space-automations" })
@@ -914,6 +910,13 @@ export interface ChatStreamEvent {
   phase?: AgentActivityPhase;
   thinkingPhase?: "start" | "delta" | "end";
   detail?: string;
+  workTrailId?: string;
+  order?: number;
+  startedAt?: number;
+  durationMs?: number;
+  edit?: import("../../src/shared/chat-presentation").ChatToolEdit;
+  assistantPresentation?: import("../../src/shared/chat-presentation").AssistantPresentation;
+  presentation?: import("../../src/shared/chat-presentation").ChatLiveTurnPresentation;
   request?: ExtensionUiRequest;
   requests?: ExtensionUiRequest[];
   proposal?: RestrictedAppProposal;

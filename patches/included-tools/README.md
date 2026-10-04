@@ -1,6 +1,23 @@
 # Reviewed native integrations
 
-The manifest pins the upstream package version, source, license, every input/output file digest, and patch digest. `scripts/prepare-included-tools.mjs` refuses mixed or unknown source states and verifies the result. These are ordinary native Pi Extensions; `resources/included-tools` supplies the explicit host context through Pi's event bus. No separate Pi package format or tool registry is introduced.
+The manifest pins the upstream package version, source, license, every input/output file digest, and patch digest. `scripts/prepare-included-tools.mjs` refuses mixed or unknown source states and verifies the result. Integrations remain ordinary native Pi Extensions; `resources/included-tools` supplies the explicit host context through Pi's event bus. Narrow runtime/dependency corrections use the same reviewed patch lane. No separate Pi package format or tool registry is introduced.
+
+## Pi coding agent 0.80.6
+
+Native overflow recovery removes the failed assistant before compaction, but
+rebuilding context from the session can restore it. The retry cleanup previously
+removed only `error`, leaving an empty `length` overflow response as the last
+message; native continuation then failed before contacting the provider. The
+patch also removes `length` within the existing `willRetry` path and prevents
+another length response from resetting the recovery counter. Compaction freshness
+uses recorded session order for known messages, so a retry in the same millisecond
+is not mistaken for retained context; unknown messages retain the upstream timestamp
+fallback. Pi still decides
+whether an overflow occurred and permits only its existing one
+compact-and-retry attempt. Ordinary output exhaustion does not gain automatic
+continuation or effect replay. Actual native provider fixtures cover both overflow
+forms, repeated overflow with matching timestamps and ordinary partial output, and packaged verification pins the corrected
+runtime file. Remove the patch when a reviewed upstream release passes these cases.
 
 ## Computer 0.5.1: Linux additions
 
@@ -55,13 +72,48 @@ results, session-owned cleanup, unknown-effect cancellation and no replay remain
 the upstream tool path. See [distribution](../../docs/chrome-extension-distribution.md)
 and the package's maintained `docs/EMBEDDED-HOST.md` for the additive interface.
 
-Creating a new Chrome tab group pins `createProperties.windowId` to the target
-tab's existing window. Chrome otherwise uses the current window and moves the
-tab, breaking the owned-window invariant and stalling background capture on
-Linux. The upstream automation-target fixture models that documented default;
-its regression fails with the old grouping call. The companion candidate uses
-the existing CDP screenshot path without activating the target or substituting
-an image of the user's active tab.
+Text snapshots return the actual selected body range, its page revision, capture time
+and target. `textOffset` with `expectedTextVersion` continues a page and rejects
+changed text or URLs by exact comparison, including ordinary HTTP pages. Compact snapshots preserve their complete captured JSON in private
+temporary files; large results also use native Pi `read` instead of clipping
+JSON. Files remain available for the owning session, including reload, and are
+removed on session shutdown. Storage is bounded at 32 MiB per result and 256 MiB
+per session, without eviction; failures say the result was not stored. Native
+structure remains sampled, with captured control/query counts and refinement
+guidance. Explicit navigation/wait timeouts also govern the companion deadline.
+
+Authenticated active-command heartbeats and accepted results also refresh the
+app's connection observation. Only requests from the authenticated companion
+supply liveness; writing a server response is not evidence of browser contact. Wrong
+origins, credentials, generations, epochs and unknown command IDs remain inert.
+
+Focused upstream browser corrections are backported without replacing the
+reviewed embedded factory: new groups name the target window; hidden pages fail
+before trusted input rather than claiming success; click/fill may use their
+existing disclosed DOM fallback. Fill selects all of a multiline field and
+targeted type moves to its end. A forty-five-second fetch/body deadline recovers
+a half-open long poll without timing out or replaying a command. These fixes
+follow upstream 0.15.53–0.15.56
+([source and changelog](https://github.com/tianrendong/pi-chrome)); the pinned
+0.15.51 runtime, standalone behavior and Stop/lease fences remain reviewed here.
+The native worker harness covers hidden input, multiline replacement, caret
+behavior, window grouping and socket timeout as well as authenticated liveness.
+Companion-side changes require the separately built Chrome extension update;
+Store approval is not implied by a desktop build.
+
+## Computer Control 0.5.1
+
+The native protocol check preserves its canonical executable comparison. A
+Gatekeeper-translocated helper may also pass only when it is beneath the current
+user's temporary AppTranslocation directory, its entire bounded regular-file
+bundle matches the expected helper's modes and bytes, and both strict code
+signatures validate. Every comparison rechecks the current artifact. It never
+removes quarantine, admits another protocol, or accepts a filename or signing
+team alone. Native regression tests cover the initial and after-relaunch paths,
+altered executables, metadata and resources, symlinks, unrelated copies,
+invalid seals, cancellation and inspection failures without a helper restart.
+Packaged checks pin the verifier and caller
+bytes to this manifest.
 
 ## MCP 2.33.0
 
@@ -74,6 +126,12 @@ The public setup helpers reuse upstream configuration merging, credential storag
 Pi 0.80.6 does not supply the `ModelRegistry.complete` method used by this adapter's sampling implementation, so the included configuration disables MCP sampling. The upstream package pins its MCP client/core SDK to commit `3b205e7dd2f997b6a87e479e36421f7eaa2058e0`; the root lockfile pins those downloads. Re-test this seam before changing either native runtime or adapter versions.
 
 Legacy stdio elicitation does not carry a reliable originating `tools/call` id. A question arriving on a reused transport remains owned by its Chat when its original turn has settled; it must not borrow the currently running task's identity. Explicit Stop still cancels the Chat's callbacks. Manual non-loopback OAuth callback entry is not exposed by the included desktop setup.
+
+Structured MCP results accompany text summaries in model-visible content, unless
+an existing JSON block already contains the same value. The native output guard
+spills large combined results without replaying the call. Searches distinguish
+undiscovered lazy servers from empty catalogs and provide the existing `connect`
+operation; discovery itself remains cold until explicitly requested.
 
 ## Web 0.29.0
 
@@ -124,8 +182,18 @@ PptxGenJS 1.1.5 downgrade. Remove the patch only after a reviewed upstream fix
 passes the same compatibility and packaged checks.
 
 Pi 0.80.6 carries a shrinkwrap. The checked normalizer replaces only the
-reviewed nested brace-expansion 5.0.9, protobufjs 7.6.5 and undici 8.10.0 entries;
+reviewed nested brace-expansion 5.0.12, protobufjs 7.6.5 and undici 8.10.2 entries;
 `package-lock.json` records those resulting versions. Re-run normalization and
 restore those exact lock entries after npm dependency resolution, then audit
 the prepared tree. Changes to these exceptions require new source review and
 consumer tests.
+
+The September 30, 2026 release review advances brace-expansion to 5.0.12 for
+bounded expansion and undici to 8.10.2 for its upstream transport security fixes.
+Pi remains at 0.80.6; the normalizer still rejects unreviewed nested versions.
+Electron advances within major 42 to 42.11.10, which includes the sandboxed
+preload-cache fix and upstream Chromium fixes. The reviewed image-size source
+patch remains in place with its malformed-input and packaged-byte tests.
+Upstream references: [brace-expansion 5.0.12](https://github.com/juliangruber/brace-expansion/releases/tag/v5.0.12),
+[undici 8.10.2](https://github.com/nodejs/undici/releases/tag/v8.10.2), and
+[Electron 42.11.10](https://github.com/electron/electron/releases/tag/v42.11.10).

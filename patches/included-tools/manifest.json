@@ -5,7 +5,7 @@
     "source": "https://github.com/tianrendong/pi-chrome/tree/4811ee616d2bbd5ead669a7e2f33a0bb14bd43ef",
     "license": "MIT",
     "patch": "pi-chrome-0.15.51.patch",
-    "sha256": "f1b667807f49db56c85dc32e869a3efeb60193013a44a5549e28487aa121c081",
+    "sha256": "6698c9ab38e1ff63b2c66d638d65eec53d0f05b78aeb3fb96ab559c6a228cc6f",
     "files": [
       {
         "path": "docs/EMBEDDED-HOST.md",
@@ -25,17 +25,17 @@
       {
         "path": "extensions/chrome-profile-bridge/browser-extension/service_worker.js",
         "before": "ac1e346d88aaa684d1998b17f899c4b50077d27f01eeb1a3393649013643ee3f",
-        "after": "fc2feb0aeab7d909b6ac7a34da64b39ee582cdc32307e367accef36d78eed6f2"
+        "after": "2f1d0bcb813812458378766678b64f2054ac4d8cc12018b9f593a2f7e3a2a973"
       },
       {
         "path": "extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js",
         "before": "25f9cb6c866846bca9a8b7c7f943e9c1ca1af82e5179b03e8a5550629e95bf9b",
-        "after": "25f9cb6c866846bca9a8b7c7f943e9c1ca1af82e5179b03e8a5550629e95bf9b"
+        "after": "a8f5fa66215122f4125aaf926a4899a44354557311713dd0747cbf838af3a2a4"
       },
       {
         "path": "extensions/chrome-profile-bridge/index.ts",
         "before": "fc38900ea5f9d8e7bb8b1988ff6e172d49c24e50213f9c8905d689187728d187",
-        "after": "391e8aabd380f609256ea7e9d21a4fade841e82159561e4ae93b9766e59cce18"
+        "after": "38cb7226db4352804389764f74bb4fbbc75afe37f96e9e02bd5ce7dcbfd4484b"
       },
       {
         "path": "package.json",
@@ -45,7 +45,7 @@
       {
         "path": "test-suite/unit/background-policy.test.mjs",
         "before": "a1718cf6536685165ed126163df30cf012303fd3c825ccb1c618b6dcd5d847fa",
-        "after": "71916b18011c31d53037a538028e79fabaf240327e344020036a0561e7db9f0b"
+        "after": "13e2c716737320f1354a69632727527e2af7e6c9b383a480d45f616db2288eb6"
       },
       {
         "path": "test-suite/unit/chrome-command.test.mjs",
@@ -55,12 +55,12 @@
       {
         "path": "test-suite/unit/embedded-host.test.mjs",
         "before": null,
-        "after": "34e74187c6bfe2c316f1e7a87005cbe3adf0f151a2a3cb061aa58bab50963d45"
+        "after": "7987cd259aa7088c4bcb0ee67aed89368c4027c9938c967cecf04c27a6ef2757"
       },
       {
         "path": "test-suite/unit/session-cleanup.test.mjs",
         "before": "a19b3d47dfbb7415c973132017bc36d79a859373a561de6cb62080af797ccc87",
-        "after": "2bf7a4749c8aaabf69cba450a905f96582c84a50b6e418c664e2a193e4db2702"
+        "after": "1ff89c6669a4b47df9f095c7130ca25394cfa671272dc0f55deec0d2b27c9b18"
       },
       {
         "path": "test-suite/unit/automation-target.test.mjs",
@@ -75,7 +75,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "661c3d5b3ad857b169b09623bf2a8d2105ebfc8417a14baa5abff02609c1757e",
+    "sha256": "1d7f7b447bbc62ec28a27d73b0c1f132a886bfdc3194197fb85a1154e6998f9c",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -145,12 +145,12 @@
       {
         "path": "src/platform/macos/helper.ts",
         "before": "4c344d4396a61f58cba7334f67e17108f40d9950c24940ce470f8d640a75eff3",
-        "after": "974c5c4f2adcbf42d2b1ec8e4a33957a225719519693870cca0bfbfc09092593"
+        "after": "96cff8b61ae1accab894b27b5596a7c4abdb10ce43dc80e4777279fd020a782b"
       },
       {
         "path": "src/platform/macos/permissions.ts",
         "before": "ee453e77162fb49fae1a63d851e1c14b2e69d065af378348bc592c04b247c814",
-        "after": "f3bbae7e51697c0cfb08120b431db07e74bc0050bb8991db80de76ffe34fcd3c"
+        "after": "fcfbc1e78701e10eb1ffe6412019048d247d5604a32f29ed3c647d369c92448b"
       },
       {
         "path": "src/runtime.ts",
@@ -241,6 +241,16 @@
         "path": "src/contract.ts",
         "before": "b2873c27f392c7254c49e71be6a2dfd8a2c0b865f29acd57ce0a49698dabbc41",
         "after": "68bf5679a78636476505465f1669df7543caba7d3dff4b549fafee5a55a0f85a"
+      },
+      {
+        "path": "src/platform/macos/helper-identity.mjs",
+        "before": null,
+        "after": "b8a8f261d4ea0c5fbe580c836594c8ad0ddd9b54a0ebd9c7fe4da825f7fb3b75"
+      },
+      {
+        "path": "src/platform/macos/helper-identity.d.mts",
+        "before": null,
+        "after": "16cbedd529e87d714a17bd13659fef510a8bb66d8bf5ceb79929237fa7cb67e2"
       }
     ]
   },
@@ -250,7 +260,7 @@
     "source": "https://github.com/nicobailon/pi-mcp-adapter/tree/32b67f916745b31a30a80371a86f00f70ba0a561",
     "license": "MIT",
     "patch": "pi-mcp-adapter-2.33.0.patch",
-    "sha256": "d7f9f53af9fb38a353a7899f375941b6c3a768c9c6d3a7c76d7a9862e057ec8c",
+    "sha256": "05ab9c41189593c4dff8df8869aebde6157ca2e41d39eccc736321ba1f718c5c",
     "files": [
       {
         "path": "index.ts",
@@ -270,7 +280,7 @@
       {
         "path": "direct-tools.ts",
         "before": "315dbe7557ae044194dcc939dcbc969a812394d55813d71c4fc1a2939ca1947a",
-        "after": "6d9bfe741ebd99cc04d79eec5d88e3032be4be882c04c93881c0df1bde0650fe"
+        "after": "ad45baee9b75abfdd74bd48ee5e51512b47a927a20eb409d5aaa5a7103ddfd47"
       },
       {
         "path": "config.ts",
@@ -316,6 +326,21 @@
         "path": "mcp-auth.ts",
         "before": "3509e617f8c500a7af57d67cd893612139fff910729a34cdcbc75bd6b2273fac",
         "after": "c3be34a14670d869b64655fe7faf3781ec7486c510172aa3f6971259e82bda7d"
+      },
+      {
+        "path": "tool-registrar.ts",
+        "before": "4bc8f3c25743d6be3a7bbed5ec2425f80a66cbbbeda3d5922302c1961b67a170",
+        "after": "5bc3b8b15e76acbfa6ce24b5d60fd7a2eb05fc928275d2cf62f7428b4713ef47"
+      },
+      {
+        "path": "proxy-modes.ts",
+        "before": "ba56835ab431494504733307138d940edefe04b886689642c5ab6b997cc123be",
+        "after": "fc283c55cebcafbfeac2fe824b01422da5d2d8f11ea2148971af82dbb31924c4"
+      },
+      {
+        "path": "mcp-code.ts",
+        "before": "fecfde07f4c12b754fce355b6595455c9ce46dd52473dfc82f9dd5161a2b6040",
+        "after": "90b6c52839a80e20f746c79850dc9a9267f97a0c159c69cf7f6980b5f9ea46d4"
       }
     ]
   },
@@ -371,6 +396,21 @@
         "path": "dist/types/icns.js",
         "before": "5e6a097fca237b0bb3b68a1be920e39a3846c0018d8917658b5ed88590a710e8",
         "after": "1ce9480d8cf4433957edb828aa7b8e81653e0cb091e07f3d270afb96cee008d1"
+      }
+    ]
+  },
+  {
+    "package": "@earendil-works/pi-coding-agent",
+    "version": "0.80.6",
+    "source": "https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/0.80.6",
+    "license": "MIT",
+    "patch": "pi-coding-agent-0.80.6.patch",
+    "sha256": "c5f1919f2f5fd129e6b8dc26627e5b2c72fc879ae2c1b11189b8bb1e29ed1870",
+    "files": [
+      {
+        "path": "dist/core/agent-session.js",
+        "before": "b2b3b0e2b95ff88290232da4117920a6fd0cceb06bb5d66bb8f120fc934644e7",
+        "after": "1c5d551b28b679a8a3142702113f472a7a89116c1fabdb092f8310f74991ef7c"
       }
     ]
   }

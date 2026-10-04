@@ -21,7 +21,7 @@ export async function captureLinuxSboms(root, output, version) {
   if (listing.error) throw listing.error;
   const problems = JSON.parse(listing.stdout).problems ?? [];
   const reviewed = new Set([
-    `invalid: undici@8.10.0 ${join(root, "node_modules/@earendil-works/pi-coding-agent/node_modules/undici")}`,
+    `invalid: undici@8.10.2 ${join(root, "node_modules/@earendil-works/pi-coding-agent/node_modules/undici")}`,
     `invalid: @modelcontextprotocol/core@2.0.0 ${join(root, "node_modules/@modelcontextprotocol/core")}`,
   ]);
   if (problems.some(problem => !reviewed.has(problem)) || (listing.status !== 0 && !problems.length)) throw new Error("Unexpected npm dependency problems prevent SBOM generation");

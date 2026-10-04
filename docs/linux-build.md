@@ -5,6 +5,14 @@ Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
 not a separate Linux agent. The public release and automatic-update lane remains
 macOS. Linux candidates have no update feed and are not published by these commands.
 
+The 0.4.50 candidate integrates main through `cc16e4b` (Mac 0.4.41),
+including Folder customization, nested Folders and Worker mentions, bounded
+History review, the revised Files and Chats UI, document engines, and current
+browser/readiness fixes. Linux retains its native CLI, window controls,
+app-wide Wayland sharing and accepted-turn ownership. Computer **Check** is
+read-only; **Start and Check** and **Check accessibility** deliberately probe
+the helper without repairing it or disposing peer Chats.
+
 For everyday iteration, prepare the native development app once and use
 `npm start`; rebuild only the renderer, TypeScript, or native helper that changed.
 `npm run desktop:test:linux-dev` checks a real Pi turn using the development
@@ -46,7 +54,7 @@ For Docker on an Ubuntu host:
 sudo apparmor_parser -r -W desktop/linux/work-fold-linux-build.apparmor
 docker build --build-arg WORKFOLD_BUILD_UID="$(id -u)" \
   --build-arg WORKFOLD_BUILD_GID="$(id -g)" -t work-fold-linux-build desktop/linux
-docker run --rm --user "$(id -u):$(id -g)" \
+docker run --rm --init --user "$(id -u):$(id -g)" \
   --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
   -v "$PWD:/work" -e HOME=/tmp/work-fold-build work-fold-linux-build \
   bash -lc 'unshare --user --map-root-user --pid --net --fork true && mkdir -p "$HOME" && npm ci && npm run check && npm run desktop:computer-helper && npm run desktop:linux-native-hosts && npm run desktop:linux-native-tests && npm test && dbus-run-session -- xvfb-run -a npm run desktop:make:linux'
@@ -59,6 +67,8 @@ selected for these disposable containers. Ubuntu restricts unprivileged user
 namespaces even under a plain `apparmor=unconfined` container; the named profile
 permits Chromium's namespace setup without changing the host restriction sysctl.
 It is a build profile, separate from the installed product's path-scoped profile.
+The container uses `--init` to reap stopped native-tool descendants, including
+optional document engines; retain that option with rootless Podman too.
 See [Docker's custom-profile interface](https://docs.docker.com/engine/security/apparmor/).
 For rootless Podman on Fedora, omit the AppArmor setup and those build arguments, replace `docker` with `podman`, replace `--user ...` with
 `--userns keep-id:uid=1000,gid=1000 --user 1000:1000`, and use `--security-opt label=disable` instead of the AppArmor
@@ -189,7 +199,9 @@ conversation. Minimize keeps that entry available; Close quits and removes it.
   Testing 154 Stable (X11 and GNOME Wayland) and 155 Beta (X11). The approved
   Store update must still be installed and qualified before public release. The
   listing still describes Mac support. Chromium, Flatpak and Snap browser
-  registration paths are not claimed by this lane.
+  registration paths are not claimed by this lane. The merged desktop now builds
+  companion candidate 1.0.2 with the newer text/input and long-poll fixes; the
+  earlier Linux desktop evidence does not qualify those new companion bytes.
 
 The computer factory stays cold during catalog inspection. One scheduler
 coordinates physical actions across Chats. An aborted dispatched Linux helper

@@ -1,8 +1,8 @@
 # Security
 
 In this document, current product language calls a registered **Space** a
-**Folder**, its Assistant a **Worker**, the above-Folder management Assistant
-the **work-fold agent**, and deterministic cross-Folder routings
+**work-folder**, its Assistant a **Worker**, the management Assistant above
+work-folders the **work-fold agent**, and deterministic cross-Folder routings
 **Automations**. Technical security boundaries retain their shipped `space`,
 `fold`, and `routing` identifiers.
 
@@ -41,6 +41,15 @@ work-fold is local first, but local does not mean that every action is sandboxed
 - Personal capabilities are available across Spaces and should be reviewed even though they do not use registered-Space authorization.
 
 work-fold intentionally treats successful Space creation or registration as the project-runtime grant and removes the redundant trust prompt. Native Pi Extensions in that folder can execute with the current user's permissions during catalog loading, and later local, source-control, or synchronization changes to `.pi` do not trigger another prompt. Removing the Space revokes work-fold's exact-root override; it does not rewrite Pi's independent trust store for other Pi clients.
+
+A nested work-folder is another explicit registration, with the same project
+runtime authorization. Its nearest registered container is projected as
+`parentSpaceId` in the kernel and CLI inventory. Parent file operations refuse
+delete, move, or rename across nested ownership, and Files stops at that
+boundary. These app controls do not sandbox full-trust Pi tools. Local message
+routes accept at most eight addressed Worker ids, resolve them against the
+registry, and omit the sender and removed registrations. Those context hints
+grant no new powers and do not change a retried message's acceptance identity.
 
 ### Included native integrations
 
@@ -398,3 +407,20 @@ child reports enter a Space Chat; app task reads remain pinned to their own
 installation. See the contract for stop, expiry and restart behavior.
 
 The popover’s saved-chat list and explicitly selected summary use the authenticated renderer lane and read only management-scope transcripts. The paired web chat list adds request state and an answer indicator only for requests owned by that browser/grant; this does not widen question, answer, result, or Stop authority. Inline Space previews reuse the existing bounded inert preview broker. Preparing a Space/file chat draft is local UI state and does not execute work.
+
+### History comparison and selected edit evidence
+
+Authenticated `history read`/`history diff` and the corresponding local API routes
+resolve an explicit registered Folder, checkpoint and relative path before reading
+saved content. They do not accept arbitrary object hashes or expose file bytes in
+content-free protocol v1. They reject reserved paths, symlinks and nested registered
+Folder traversal, verify saved bytes, and disclose unavailable or incomplete
+evidence. Reads create no capture or restoration; remote and restricted-app operation
+allowlists are unchanged. Large saved-text ranges stream-verify the complete checkpoint-owned object before releasing a bounded UTF-8 range. List and Search continuation cursors bind scope and source identities and expire on host restart; cursors grant no additional authority. Search streams ordinary files, honors ignore/internal/nested-Folder exclusions, and discloses unreadable or changed coverage. See [the History review contract](docs/management-layer.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
+
+Only selected built-in edit details may enter portable work-trail metadata, within
+per-edit/per-turn bounds and after Folder path checks at tool start and completion.
+Unknown/overridden tools keep the generic fallback. This projection does not sandbox
+native tools or extensions; Pi remains full trust. Office attachment extraction
+bounds actual decompression and expanded output, and refuses incomplete packages
+instead of silently sending partial text as complete context.

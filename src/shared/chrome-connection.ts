@@ -10,6 +10,8 @@ export interface ChromeConnectionSummary {
   extensionVersion?: string;
   /** Supplied by the running host; an unreachable helper must not guess it. */
   hasSelection?: boolean;
+  /** Bounded host diagnosis; never a raw error or private endpoint. */
+  problem?: "transport_unavailable" | "native_host_unavailable";
 }
 
 export type ChromeSetupAction = "connect-chrome" | "disconnect-chrome" | "change-chrome-profile" | "check";

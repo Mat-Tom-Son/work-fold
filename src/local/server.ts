@@ -1,3 +1,4 @@
+import { boundedLiveTurnPresentation } from "./agent/turn-live-presentation.js";
 import { createLocalEventSink, createLocalEventChannel, localEventTarget, parseLocalEventSubscriptions, type LocalEventSink } from "./local-event-stream.js";
 import { localEventStreamLimits, type LocalEventEnvelope } from "../shared/local-event-stream.js";
 import { createIncludedMcpSetup } from "./agent/included-mcp-setup.js";
@@ -14,6 +15,7 @@ import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-previe
 import { turnFileChanges } from "./agent/turn-file-changes.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { workRequestLabel, type WorkRequestView } from "../shared/request-presentation.js";
+import { childFolderPaths } from "../shared/folder-nesting.js";
 import {
   routingTriggerSummary,
   type FolderAutomationState,
@@ -40,12 +42,14 @@ import {
   type PiChatEvent,
   type PiRuntimeProvider,
 } from "./agent/pi-client.js";
+import { parseAssistantPresentation } from "./agent/turn-presentation.js";
 import {
   maxDurableTurnTextChars,
   WorkFoldTurnReplayConflictError,
   WorkFoldTurnStore,
   type WorkFoldDurableTurnRecord,
 } from "./agent/turn-store.js";
+import { TurnCheckpointWriter } from "./agent/turn-checkpoint-writer.js";
 import {
   RoutedPiExtensionUiBridge,
   type PiExtensionUiEvent,
@@ -133,7 +137,9 @@ import {
   type PiOAuthHooks,
   type PiSetupStatus,
 } from "./agent/pi-runtime-config.js";
-import { loadConversationContextAttachmentsForTurn, previewConversationContextAttachment } from "./conversation-context.js";
+import { getAzureOpenAIConnection, saveAzureOpenAIConnection } from "./agent/azure-openai-connection.js";
+import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, type AzureOpenAIConnection } from "../shared/azure-openai.js";
+import { loadConversationContextReferencesForTurn, previewConversationContextReference } from "./conversation-context.js";
 import {
   classifyManagementAttachments,
   loadManagementAttachmentsForTurn,
@@ -163,7 +169,7 @@ import {
 import { WorkFoldRequestStore } from "./requests/request-store.js";
 import { workFoldRequestLimits, workFoldRoutingDeclarationBounds } from "../shared/fold-limits.js";
 import { spaceOperationsGuideForScope } from "./agent/space-operations-guide.js";
-import { buildSpaceTurnContext, spaceTurnParentHandle, type PiSpaceTurnContext } from "./agent/space-turn-context.js";
+import { buildSpaceTurnContext, spaceTurnHistory, spaceTurnParentHandle, type PiSpaceTurnContext } from "./agent/space-turn-context.js";
 import type {
   WorkFoldRemoteFacade,
   WorkFoldRemoteOperation,
@@ -176,14 +182,16 @@ import {
   createSpaceMutationCheckpoint,
   discardSpaceCheckpoint,
   getSpaceCheckpoint,
-  listFileVersions,
   listSpaceCheckpoints,
+  listSpaceCheckpointPage,
+  listFileVersionPage,
   restoreFileVersion,
   restoreSpaceCheckpoint,
   previewSpaceCheckpointRestore,
   type SpaceCheckpoint,
   type SpaceFileVersion,
 } from "./history.js";
+import { compareHistoryFile, readHistoryFile } from "./history-review.js";
 import {
   copyResourcesToSpace,
   createResourceFolder,
@@ -377,6 +385,9 @@ import {
   resolveSpaceDeleteTarget,
   resolveSpacePath,
   scanSpaceTree,
+  nestedRegisteredSpacePaths,
+  registeredSpaceOutline,
+  resolveNestableFolderPath,
   spaceRemovalPendingResult,
   touchSpaceRoot,
   writeSpaceTextFile,
@@ -708,7 +719,7 @@ interface LocalApiState {
   activeTurnIdsByKey: Map<string, string>;
   /** Mid-turn steering messages already appended, keyed by client key + request id, for idempotent retries. */
   steeredMessages: Map<string, ChatMessage>;
-  turnCheckpointTimers: Map<string, NodeJS.Timeout>;
+  turnCheckpointWriter: TurnCheckpointWriter;
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
   activeTurnPromises: Set<Promise<void>>;
@@ -757,6 +768,7 @@ interface ChatEventLogEntry {
 
 interface ChatEventLog {
   nextId: number;
+  turnId?: string;
   events: ChatEventLogEntry[];
   bytes: number;
   assistantText: string;
@@ -999,7 +1011,15 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     chatEventLogs: new Map(),
     activeTurnIdsByKey: new Map(),
     steeredMessages: new Map(),
-    turnCheckpointTimers: new Map(),
+    turnCheckpointWriter: new TurnCheckpointWriter({
+      activeTask: (key) => state.activeTurnIdsByKey.get(key),
+      activeTasks: () => state.activeTurnIdsByKey,
+      currentText: (key) => chatEventLog(state, key).assistantText,
+      writeCheckpoint: (taskId, text) => turnStore.checkpoint(taskId, text),
+      reportFailure: (error, operation) => {
+        console.error(`Could not ${operation === "checkpoint" ? "persist" : "flush"} Assistant stream checkpoint: ${errorMessage(error)}`);
+      },
+    }),
     clients: new Map(),
     runningTurns: new Set(),
     activeTurnPromises: new Set(),
@@ -1393,6 +1413,26 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  // Which Folder Workers are mid-turn right now, including turns no Chat tab
+  // is showing (a handoff into a nested Folder). Content-free: ids only. The
+  // renderer requeries on the "activity" control hint.
+  // The registered Folders' ids, names, and roots for the @ menus: read from
+  // the registry alone, with no manifest writes or setup checks, so a
+  // popover can ask on every show.
+  if (method === "GET" && url.pathname === "/api/spaces/outline") {
+    const spaces = (await registeredSpaceOutline()).filter((space) => existsSync(space.spaceRoot));
+    sendJson(res, { spaces });
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/spaces/activity") {
+    const running = [...state.activeTurnTasks.values()]
+      .filter((task) => task.spaceId !== workFoldManagementScopeId)
+      .map((task) => ({ spaceId: task.spaceId, conversationId: task.conversationId }));
+    sendJson(res, { running });
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/api/appearance") {
     sendJson(res, { appearance: state.appearance.snapshot() });
     return;
@@ -1581,6 +1621,22 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       state,
       () => registerSpaceInternal(state, body.spaceRoot!, body.providerHint),
     );
+    sendJson(res, { space }, 201);
+    return;
+  }
+
+  // "Make a work-folder" (2026-10-01): a person registers a folder inside
+  // a Folder they already registered, from Files. The parent's registration
+  // is the trust root for the path, so no fresh folder picker grant is asked
+  // for; the explicit click is this Folder's registration act, exactly as
+  // choosing a folder in the picker is.
+  const nestedFolderMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/nested-folders$/);
+  if (method === "POST" && nestedFolderMatch) {
+    const parent = await getSpace(nestedFolderMatch[1]);
+    const body = await readJsonBody<{ path?: unknown }>(state, req);
+    if (typeof body.path !== "string" || !body.path.trim()) throw badRequest("Choose a folder inside this work-folder.");
+    const target = await resolveNestableFolderPath(parent.spaceRoot, body.path);
+    const space = await runCheckSpaceRegistryMutation(state, () => registerSpaceInternal(state, target));
     sendJson(res, { space }, 201);
     return;
   }
@@ -2284,6 +2340,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         includeFiles: scope !== "chats",
         includeChats: scope !== "files",
         signal: controller.signal,
+        path: url.searchParams.get("path") ?? undefined,
+        cursor: url.searchParams.get("cursor") ?? undefined,
+        maxMatches: optionalBoundedInteger(url.searchParams.get("limit"), "limit"),
       });
       if (!controller.signal.aborted && !res.destroyed) sendJson(res, result);
     } catch (error) {
@@ -2304,7 +2363,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       space.spaceRoot,
       maxDepth,
       url.searchParams.get("path") ?? "",
-      { includeIgnored: url.searchParams.get("includeIgnored") !== "0" },
+      { includeIgnored: url.searchParams.get("includeIgnored") !== "0", nestedFolderPaths: await nestedRegisteredSpacePaths(space.spaceRoot) },
     );
     sendJson(res, { tree: scan.entries, truncated: scan.truncated });
     return;
@@ -2546,7 +2605,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const checkpointCollectionMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/history\/checkpoints$/);
   if (checkpointCollectionMatch && method === "GET") {
     const space = await getSpace(checkpointCollectionMatch[1]);
-    sendJson(res, { checkpoints: await listSpaceCheckpoints(space.spaceRoot) });
+    sendJson(res, await listSpaceCheckpointPage(space.spaceRoot, { cursor: url.searchParams.get("cursor") ?? undefined, limit: optionalBoundedInteger(url.searchParams.get("limit"), "limit") }));
     return;
   }
   if (checkpointCollectionMatch && method === "POST") {
@@ -2572,12 +2631,44 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  const historyReviewMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/history\/(read|diff)$/);
+  if (method === "GET" && historyReviewMatch) {
+    const space = await getSpace(historyReviewMatch[1]);
+    const path = url.searchParams.get("path")?.trim();
+    if (!path) throw badRequest("A Folder-relative file path is required.");
+    if (historyReviewMatch[2] === "read") {
+      const checkpointId = url.searchParams.get("checkpointId")?.trim();
+      if (!checkpointId) throw badRequest("A checkpointId is required.");
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      req.once("aborted", abort); res.once("close", abort);
+      try {
+        const review = await readHistoryFile(space.spaceRoot, {
+          path, checkpointId, signal: controller.signal,
+          offsetBytes: optionalBoundedInteger(url.searchParams.get("offsetBytes"), "offsetBytes"),
+          lengthBytes: optionalBoundedInteger(url.searchParams.get("lengthBytes"), "lengthBytes"),
+          expectedSha256: url.searchParams.get("expectedSha256") ?? undefined,
+        });
+        if (!controller.signal.aborted && !res.destroyed) sendJson(res, { review });
+      } catch (error) { if (!controller.signal.aborted) throw error; }
+      finally { req.off("aborted", abort); res.off("close", abort); }
+    } else {
+      const fromCheckpointId = url.searchParams.get("fromCheckpointId")?.trim();
+      if (!fromCheckpointId) throw badRequest("A fromCheckpointId is required.");
+      const toCheckpointId = url.searchParams.get("toCheckpointId")?.trim();
+      sendJson(res, { comparison: await compareHistoryFile(space.spaceRoot, {
+        path, fromCheckpointId, ...(toCheckpointId ? { toCheckpointId } : {}),
+      }) });
+    }
+    return;
+  }
+
   const fileVersionsMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/history\/file-versions$/);
   if (method === "GET" && fileVersionsMatch) {
     const space = await getSpace(fileVersionsMatch[1]);
     const path = url.searchParams.get("path")?.trim();
     if (!path) throw badRequest("A Space-relative file path is required.");
-    sendJson(res, { path, versions: await listFileVersions(space.spaceRoot, path) });
+    sendJson(res, { path, ...await listFileVersionPage(space.spaceRoot, path, { cursor: url.searchParams.get("cursor") ?? undefined, limit: optionalBoundedInteger(url.searchParams.get("limit"), "limit") }) });
     return;
   }
   if (method === "POST" && fileVersionsMatch) {
@@ -2599,6 +2690,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       })),
       status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
       catalogs: await listPiModelCatalogs(state.runtimeProvider),
+      azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider),
       instructions: scope.id === workFoldManagementScopeId
         ? null
         : await getPiAssistantInstructions(scope.spaceRoot, state.runtimeProvider),
@@ -2663,21 +2755,41 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/configure") {
-    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string; apiKey?: string }>(state, req);
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string; apiKey?: string; azure?: unknown }>(state, req);
     const scope = await configuredAssistantModelScope(body.scope, body.spaceId, body.provider, body.model);
-    const selected = (await listPiModels(scope.spaceRoot, state.runtimeProvider))
-      .find((model) => model.provider === body.provider && model.id === body.model);
-    if (!selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
-    if (!body.apiKey?.trim() && !selected.authConfigured) {
-      throw badRequest(`Enter an API key for ${selected.providerName}.`);
+    let azure: AzureOpenAIConnection | undefined;
+    if (body.azure !== undefined) {
+      if (body.provider !== AZURE_OPENAI_PROVIDER) throw badRequest("Azure settings require the Azure OpenAI provider.");
+      try { azure = normalizeAzureOpenAIConnection(body.azure); } catch (error) { throw badRequest(errorMessage(error)); }
+    }
+    const available = await listPiModels(scope.spaceRoot, state.runtimeProvider);
+    const selected = available.find((model) => model.provider === body.provider && model.id === body.model);
+    if (azure) {
+      if (!azure.deployments.includes(body.model!)) throw badRequest("Choose one of the Azure deployment names you entered.");
+    } else if (!selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
+    const providerAuth = azure
+      ? available.some((model) => model.provider === body.provider && model.authConfigured)
+      : selected?.authConfigured;
+    if (!body.apiKey?.trim() && !providerAuth) {
+      throw badRequest(`Enter an API key for ${selected?.providerName ?? "Azure OpenAI"}.`);
     }
     await runCapabilityMutation(state, scope, "global", async () => {
-      if (body.apiKey?.trim()) {
+      if (azure) {
+        await saveAzureOpenAIConnection(scope.spaceRoot, azure, body.apiKey, state.runtimeProvider);
+      } else if (body.apiKey?.trim()) {
         await savePiApiKey(scope.spaceRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
       }
       await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
     }, { requireProjectTrust: false });
-    sendJson(res, { status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)) });
+    sendJson(res, {
+      status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
+      ...(azure ? {
+        azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider),
+        models: (await listPiModels(scope.spaceRoot, state.runtimeProvider)).map((model) => ({
+          ...model, oauthSupported: model.oauthSupported && Boolean(state.piOAuthHooks),
+        })),
+      } : {}),
+    });
     return;
   }
   if (method === "DELETE" && url.pathname === "/api/agent/auth") {
@@ -2690,6 +2802,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, {
       models: await listPiModels(scope.spaceRoot, state.runtimeProvider),
       status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
+      ...(body.provider === AZURE_OPENAI_PROVIDER ? { azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider) } : {}),
     });
     return;
   }
@@ -2844,8 +2957,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     res.once("close", closed);
     try {
       const operation = () => setupIncludedTool(space.spaceRoot, body.id!, body.action!, { secret: body.secret }, state.runtimeProvider, signal.signal);
-      // A recheck may restart the physical helper. Never interrupt an accepted turn.
-      const result = body.action === "check" && body.id !== "computer" || body.id === "computer" && body.action === "stop-sharing"
+      // Read-only checks and deliberate start preserve peer Chats.
+      // Sharing preserves clients; Stop remains available during accepted work.
+      const result = body.action === "check" || body.id === "computer" && ["start-check", "stop-sharing"].includes(body.action)
         ? await operation() : await runCapabilityMutation(state, space, "global", operation, {
             preserveClients: body.id === "computer" && body.action === "share-screen",
           });
@@ -3055,7 +3169,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const space = await getSpace(contextAttachmentMatch[1]);
     const body = await readJsonBody<{ path?: string }>(state, req);
     if (!body.path?.trim()) throw badRequest("A file path is required.");
-    sendJson(res, { attachment: await previewConversationContextAttachment(space.spaceRoot, { path: body.path }) }, 201);
+    sendJson(res, { attachment: await previewConversationContextReference(space.spaceRoot, { path: body.path }) }, 201);
     return;
   }
 
@@ -3077,6 +3191,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       requestId?: unknown;
       userMessageId?: unknown;
       delivery?: unknown;
+      addressedSpaceIds?: unknown;
     }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
@@ -3092,11 +3207,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     }
     const selectedPath = normalizeSelectedPath(space.spaceRoot, body.selectedPath);
     const contextPaths = normalizeContextPaths(space.spaceRoot, body.contextPaths);
+    const addressedSpaceIds = await normalizeAddressedSpaceIds(body.addressedSpaceIds, space.id);
     const { message, taskId, replayed } = await acceptConversationTurn(state, space, conversationId, {
       content,
       contextPaths,
       selectedPath,
       actorKind: "assistant",
+      ...(addressedSpaceIds.length ? { addressedSpaceIds } : {}),
       requestId: optionalTurnIdentity(body.requestId, "requestId"),
       userMessageId: optionalTurnIdentity(body.userMessageId, "userMessageId"),
     });
@@ -3192,9 +3309,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       continuationTaskId?: unknown;
       requestId?: unknown;
       userMessageId?: unknown;
+      addressedSpaceIds?: unknown;
     }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
+    const addressedSpaceIds = await normalizeAddressedSpaceIds(body.addressedSpaceIds, workFoldManagementScopeId);
     const rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];
     if (rawAttachments.length > maxManagementAttachments) {
       throw badRequest(`At most ${maxManagementAttachments} attachments are allowed per request.`);
@@ -3251,6 +3370,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       selectedPath: null,
       actorKind: "renderer",
       managementAttachments: attachments,
+      ...(addressedSpaceIds.length ? { addressedSpaceIds } : {}),
       ...(continuationTaskId ? { continuedFromManagementTaskId: continuationTaskId } : {}),
       ...(continuedRequestId ? { request: { joinRequestId: continuedRequestId } } : {}),
       requestId,
@@ -3740,6 +3860,8 @@ async function acceptConversationTurn(
     releasedChildTaskIds?: string[];
     /** Which durable request this turn creates or joins (docs/collaboration-contract.md, F25). */
     request?: AcceptedTurnRequestInput;
+    /** Folder Workers the person addressed with @ (2026-10-01); registered ids, never this scope's own. */
+    addressedSpaceIds?: string[];
   },
 ): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string; replayed: boolean }> {
   if (!state.acceptingTurns) throw httpError(503, "work-fold is closing and cannot accept another Assistant turn.");
@@ -3843,6 +3965,7 @@ async function acceptConversationTurn(
   });
   state.activeTurnTasks.set(task.id, { spaceId: space.id, conversationId });
   state.activeTurnIdsByKey.set(turnKey, task.id);
+  publishControlHint(state, "activity");
   const managementAttachments = space.id === workFoldManagementScopeId
     ? input.managementAttachments ?? []
     : undefined;
@@ -3887,6 +4010,7 @@ async function acceptConversationTurn(
     state.cancelledTurnTasks.delete(task.id);
     state.activeTurnIdsByKey.delete(turnKey);
     state.kernel.finishTask(task.id);
+    publishControlHint(state, "activity");
     const detail = error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError
       ? error.message
       : "The accepted user message could not be persisted.";
@@ -3917,6 +4041,7 @@ async function acceptConversationTurn(
       // `chat answer` names the question, and a person's free-text reply
       // answers whichever of this request's questions were waiting on them.
       ...(answeredQuestionId ? { answeredQuestionId } : {}),
+      ...(input.addressedSpaceIds?.length ? { addressedSpaceIds: input.addressedSpaceIds } : {}),
     },
   );
   state.activeTurnPromises.add(turn);
@@ -4149,6 +4274,9 @@ function assistantTurnRequestDigest(input: {
   actorKind?: string;
   continuedFromManagementTaskId?: string;
 }): string {
+  // Addressed Workers are deliberately outside the digest: they are a hint for
+  // this turn's context, and a retry must replay even if one of them was
+  // removed in between.
   return createHash("sha256").update(JSON.stringify({
     content: input.content,
     contextPaths: input.contextPaths,
@@ -5271,7 +5399,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           const spaceId = remoteStableId(input.spaceId, "Space id", 512);
           const path = input.path === undefined ? "" : remoteRelativePath(input.path);
           const space = await getSpace(spaceId);
-          const scan = await scanSpaceTree(space.spaceRoot, 0, path, { includeIgnored: false });
+          const scan = await scanSpaceTree(space.spaceRoot, 0, path, { includeIgnored: false, nestedFolderPaths: await nestedRegisteredSpacePaths(space.spaceRoot) });
           const maximumEntries = 500;
           const tree: WorkFoldRemoteTreeResult["tree"] = scan.entries.slice(0, maximumEntries).map((entry) => ({
             name: entry.name,
@@ -6404,8 +6532,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     },
     async historyList(input) {
       const space = await resolveSpace(input.space);
-      const checkpoints = await runActOperation(() => listSpaceCheckpoints(space.spaceRoot));
-      return { space: toActSpaceRef(space), checkpoints: checkpoints.map(toActCheckpointSummary) };
+      const page = await runActOperation(() => listSpaceCheckpointPage(space.spaceRoot, input));
+      return { space: toActSpaceRef(space), ...page, checkpoints: page.checkpoints.map(toActCheckpointSummary) };
     },
     async historySave(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -6458,8 +6586,18 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = await resolveSpace(input.space);
       const path = input.path.trim();
       if (!path) throw new WorkFoldCliError("usage", "A Space-relative file path is required.");
-      const versions = await runActOperation(() => listFileVersions(space.spaceRoot, path));
-      return { space: toActSpaceRef(space), path, versions: versions.map(toActFileVersionRef) };
+      const page = await runActOperation(() => listFileVersionPage(space.spaceRoot, path, input));
+      return { space: toActSpaceRef(space), path, ...page, versions: page.versions.map(toActFileVersionRef) };
+    },
+    async historyRead(input) {
+      const space = await resolveSpace(input.space);
+      const review = await runActOperation(() => readHistoryFile(space.spaceRoot, input));
+      return { space: toActSpaceRef(space), review };
+    },
+    async historyDiff(input) {
+      const space = await resolveSpace(input.space);
+      const comparison = await runActOperation(() => compareHistoryFile(space.spaceRoot, input));
+      return { space: toActSpaceRef(space), comparison };
     },
     async historyRestoreFile(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -6606,6 +6744,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const result = await runActOperation(() => searchSpace(space.spaceRoot, query, {
         includeFiles: scope !== "chats",
         includeChats: scope !== "files",
+        path: input.path, cursor: input.cursor, maxMatches: input.limit,
       }));
       return { space: toActSpaceRef(space), scope, ...result };
     },
@@ -10968,7 +11107,7 @@ async function composeContinuationMessage(
   lines.push(
     "",
     root.owner.spaceId
-      ? "Bring these selected results together for your assignment. Answer questions addressed to you, then use chat report for your result and end your turn. Child files remain in their source Space until explicitly copied."
+      ? "Bring these selected results together for your assignment. Answer questions addressed to you. Submit any needed chat report before your final reply, then give the complete useful answer in that reply. Child files remain in their source Space until explicitly copied."
       : `The whole record: work-fold requests show --request ${root.requestId} --json. Bring these results together for the person; answer what is yours to answer; if the request is finished, say so and end your turn.`,
   );
   return clampUtf8(lines.join("\n"), workFoldRoutingDeclarationBounds.maxResolvedMessageBytes);
@@ -11067,6 +11206,8 @@ async function runAgentTurn(
     assignment?: string;
     /** The question this turn's message answers, when it is a continuation (F27). */
     answeredQuestionId?: string;
+    /** Folder Workers the person addressed with @ in this message (2026-10-01). */
+    addressedSpaceIds?: string[];
   } = {},
 ): Promise<void> {
   const { managementAttachments, answeredQuestionId } = options;
@@ -11080,22 +11221,39 @@ async function runAgentTurn(
   let settledMessageId: string | undefined;
   let settledError: string | undefined;
   let capturedWorkTrail: ReturnType<PiConversationClient["getTurnWorkTrail"]> = [];
+  let capturedPresentation: ReturnType<PiConversationClient["getTurnPresentation"]>;
   let beforeCheckpoint: import("./history.js").SpaceCheckpoint | null = null;
   let afterCheckpoint: import("./history.js").SpaceCheckpoint | null = null;
   changeTurnCount(state, 1);
   try {
     client = await getClient(state, spaceId, spaceRoot, conversationId);
-    const contextAttachments = managementAttachments
-      ? await loadManagementAttachmentsForTurn(managementAttachments)
-      : await loadConversationContextAttachmentsForTurn(spaceRoot, contextPaths);
+    const loadContextAttachments = (budgetTokens: number) => managementAttachments
+      ? loadManagementAttachmentsForTurn(managementAttachments, budgetTokens)
+      : loadConversationContextReferencesForTurn(spaceRoot, contextPaths, budgetTokens);
     const attachedLinks = managementAttachments ? managementAttachmentLinks(managementAttachments) : [];
-    const managementSpaces = spaceId === workFoldManagementScopeId
-      ? (await state.kernel.getSpaces({ kind: "renderer" })).spaces.map((space) => ({
+    const managementRegistry = spaceId === workFoldManagementScopeId
+      ? (await state.kernel.getSpaces({ kind: "renderer" })).spaces
+      : null;
+    // Folder turns read nesting from the registry file only — never listSpaces(),
+    // which rewrites every Folder's portable manifest — and a failed read just
+    // leaves the nesting context out instead of failing the turn.
+    const registeredSpaces: Array<{ id: string; name: string; spaceRoot: string }> = managementRegistry
+      ?? await registeredSpaceOutline().catch(() => []);
+    const managementSpaces = managementRegistry
+      ? managementRegistry.map((space) => ({
           id: space.id,
           name: space.name,
           spaceRoot: space.spaceRoot,
+          ...(space.parentSpaceId ? { parentSpaceId: space.parentSpaceId } : {}),
         }))
       : undefined;
+    // Folders inside Folders (2026-10-01): the person's @ mentions resolve to
+    // the ids handoff and send take, and a parent's Worker learns which of
+    // its own subfolders belong to another Worker.
+    const addressedFolders = (options.addressedSpaceIds ?? []).flatMap((id) => {
+      const space = registeredSpaces.find((item) => item.id === id);
+      return space ? [{ spaceId: space.id, name: space.name }] : [];
+    });
     // A Space turn's own identity (F26): its ids, and when delegated, an
     // opaque handle for the request that asked. Never for the management
     // scope, which carries the registry snapshot instead.
@@ -11122,19 +11280,27 @@ async function runAgentTurn(
       }
     }
     beforeCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "pre_turn");
+    if (spaceTurn) spaceTurn.history = spaceTurnHistory(beforeCheckpoint);
+    const ownSpace = registeredSpaces.find((item) => item.id === spaceId);
+    if (spaceTurn && ownSpace) {
+      const nested = [...childFolderPaths(ownSpace, registeredSpaces)].map(([path, child]) => ({ spaceId: child.id, name: child.name, path }));
+      if (nested.length) spaceTurn.nestedFolders = nested;
+    }
     await state.beforeAgentPrompt?.({ spaceId, conversationId, taskId, ...(spaceTurn ? { spaceTurn } : {}) });
     throwIfTurnCancelled(state, taskId);
     promptStarted = true;
     const finalText = await client.prompt(content, {
-      contextAttachments,
+      loadContextAttachments,
       selectedPath,
       ...(spaceId === workFoldManagementScopeId ? { managementTaskId: taskId } : {}),
       ...(managementSpaces ? { managementSpaces } : {}),
       ...(spaceTurn ? { spaceTurn } : {}),
       ...(attachedLinks.length ? { attachedLinks } : {}),
+      ...(addressedFolders.length ? { addressedFolders } : {}),
     });
     // Capture synchronously with prompt completion. Shutdown may dispose the
     // client while the server awaits checkpoint persistence below.
+    capturedPresentation = parseAssistantPresentation(client.getTurnPresentation(), finalText);
     capturedWorkTrail = client.getTurnWorkTrail();
     promptStarted = false;
     afterCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
@@ -11145,6 +11311,7 @@ async function runAgentTurn(
       id: randomUUID(),
       role: "assistant" as const,
       content: finalText,
+      ...(capturedPresentation ? { assistantPresentation: capturedPresentation } : {}),
       createdAt: new Date().toISOString(),
       turnId: taskId,
       ...(durable?.requestId ? { requestId: durable.requestId } : {}),
@@ -11176,6 +11343,12 @@ async function runAgentTurn(
       console.warn(`Could not persist a generated Chat title: ${errorMessage(error)}`);
     }
   } catch (error) {
+    // A reused client still holds its previous turn until prompt resets it.
+    // Pre-prompt cancellation/failure must never inherit that turn's evidence.
+    if (promptStarted) {
+      capturedPresentation ??= client?.getTurnPresentation();
+      capturedWorkTrail = client?.getTurnWorkTrail() ?? [];
+    }
     const cancelled = isPiTurnCancelledError(error);
     if (promptStarted) {
       promptStarted = false;
@@ -11190,11 +11363,14 @@ async function runAgentTurn(
     const publicDetail = cancelled
       ? "The Assistant was stopped before it completed this response."
       : assistantFailurePublicDetail(error);
-    const workTrail = capturedWorkTrail.length ? capturedWorkTrail : client?.getTurnWorkTrail() ?? [];
+    const workTrail = capturedWorkTrail;
+    const interruptedContent = assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled);
+    const interruptedPresentation = parseAssistantPresentation(capturedPresentation, interruptedContent);
     const interruptedMessage = {
       id: randomUUID(),
       role: "assistant" as const,
-      content: assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled),
+      content: interruptedContent,
+      ...(interruptedPresentation ? { assistantPresentation: interruptedPresentation } : {}),
       createdAt: new Date().toISOString(),
       turnId: taskId,
       ...(durable?.requestId ? { requestId: durable.requestId } : {}),
@@ -11278,9 +11454,9 @@ async function runAgentTurn(
       ...(settledError ? { error: settledError } : {}),
     });
     broadcast(state, key, settledStatus === "succeeded"
-      ? { type: "done", conversationId }
-      : { type: "error", conversationId, message: settledError ?? "The Assistant turn did not finish." });
-    broadcast(state, key, turnStateEvent(conversationId, false));
+      ? { type: "done", conversationId, turnId: taskId }
+      : { type: "error", conversationId, turnId: taskId, message: settledError ?? "The Assistant turn did not finish." });
+    broadcast(state, key, turnStateEvent(conversationId, false, taskId));
     changeTurnCount(state, -1);
     // F28: once this turn's own settlement is fully visible, the request
     // graph above it may owe the fold one continuation turn. Fire-and-forget
@@ -11406,6 +11582,7 @@ function settleTurnTask(
   state.activeTurnTasks.delete(taskId);
   state.cancelledTurnTasks.delete(taskId);
   state.settledTurns.set(taskId, { taskId, endedAt: new Date().toISOString(), ...record });
+  publishControlHint(state, "activity");
   while (state.settledTurns.size > maxSettledTurnRecords) {
     const oldest = state.settledTurns.keys().next().value;
     if (oldest === undefined) break;
@@ -11574,11 +11751,11 @@ function capabilityRegistrySort(value: string | null): CapabilitySort | undefine
   throw badRequest("Capability sort must be official, downloads, recent, or name.");
 }
 
-function optionalBoundedInteger(value: string | null, label: "offset" | "limit"): number | undefined {
+function optionalBoundedInteger(value: string | null, label: "offset" | "limit" | "offsetBytes" | "lengthBytes"): number | undefined {
   if (value === null || value === "") return undefined;
   const parsed = Number(value);
   const minimum = label === "limit" ? 1 : 0;
-  if (!Number.isInteger(parsed) || parsed < minimum) throw badRequest(`Capability ${label} is invalid.`);
+  if (!Number.isInteger(parsed) || parsed < minimum) throw badRequest(`${label} is invalid.`);
   return parsed;
 }
 
@@ -13774,7 +13951,7 @@ function openChatStream(
   res: LocalEventSink,
   spaceId: string,
   conversationId: string,
-  lastEventId?: string | string[],
+  _lastEventId?: string | string[],
 ): void {
   if (res.closed) return;
   const key = streamKey(spaceId, conversationId);
@@ -13784,25 +13961,19 @@ function openChatStream(
   // mistake that reservation for a readable accepted message/answer.
   const turnId = state.activeTurnIdsByKey.get(key);
   const running = state.runningTurns.has(key) && Boolean(turnId && state.turnStore.get(turnId)?.userMessagePersisted);
-  const cursor = parseSseCursor(lastEventId);
-  const firstRetainedId = log.events[0]?.id ?? log.nextId;
-  const canReplay = cursor !== null && cursor >= firstRetainedId - 1 && cursor < log.nextId;
-  if (canReplay) {
-    for (const event of log.events) if (event.id > cursor) writeSseEntry(res, event);
-  } else {
-    const snapshotId = log.nextId - 1;
-    writeSseData(res, {
-      type: "turn_snapshot",
-      conversationId,
-      running,
-      turnId: running ? turnId ?? null : null,
-      text: log.assistantText,
-    }, snapshotId > 0 ? snapshotId : undefined);
-  }
-  // Keep the original handshake event for older local consumers while the
-  // richer snapshot provides cursor/text reconciliation to newer renderers.
-  const handshakeId = log.nextId - 1;
-  writeSseData(res, turnStateEvent(conversationId, running), handshakeId > 0 ? handshakeId : undefined);
+  // A reconnect reads current state. Replaying deltas would repeat local
+  // timers/rows and an old process's numeric cursor could match a new log.
+  // No model or tool execution is restarted by this read-only projection.
+  const presentation = (running && turnId ? state.clients.get(key)?.getTurnLivePresentation(turnId) : undefined)
+    ?? boundedLiveTurnPresentation({ text: log.assistantText, workTrail: [], truncated: false });
+  const snapshotId = log.nextId - 1;
+  writeSseData(res, {
+    type: "turn_snapshot", conversationId, running,
+    turnId: turnId ?? log.turnId ?? null,
+    text: presentation.text, presentation,
+  }, snapshotId > 0 ? snapshotId : undefined);
+  // Older consumers retain their original handshake alongside the richer view.
+  writeSseData(res, turnStateEvent(conversationId, running, turnId ?? log.turnId ?? null), snapshotId > 0 ? snapshotId : undefined);
   const streams = state.chatStreams.get(key) ?? new Set<LocalEventSink>();
   streams.add(res);
   state.chatStreams.set(key, streams);
@@ -13914,10 +14085,27 @@ function normalizeSelectedPath(spaceRoot: string, value: string | null | undefin
   return path;
 }
 
+/**
+ * The Folder Workers a person addressed with @ (2026-10-01): at most eight
+ * distinct registered Space ids in a stable order, never the sending scope's
+ * own. An id that is no longer registered is dropped rather than refused, so a
+ * retried send still replays after a Folder was removed.
+ */
+async function normalizeAddressedSpaceIds(value: unknown, ownScopeId: string): Promise<string[]> {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 8 || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 512)) {
+    throw badRequest("addressedSpaceIds must list at most 8 Folder ids.");
+  }
+  const ids = [...new Set((value as string[]).map((item) => item.trim()))].filter((id) => id !== ownScopeId);
+  if (!ids.length) return [];
+  const registered = new Set((await registeredSpaceOutline()).map((space) => space.id));
+  return ids.filter((id) => registered.has(id)).sort();
+}
+
 function normalizeContextPaths(spaceRoot: string, value: unknown): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw badRequest("Chat context paths must be an array of strings.");
-  const paths = [...new Set(value.map((item) => normalizeSpaceRelativePath(item)).filter(Boolean))].slice(0, 32);
+  const paths = [...new Set(value.map((item) => normalizeSpaceRelativePath(item)).filter(Boolean))];
   for (const path of paths) {
     try { resolveSpacePath(spaceRoot, path); } catch (error) { throw badRequest(errorMessage(error)); }
   }
@@ -14030,13 +14218,13 @@ const maxChatEventEntries = 512;
 const maxChatEventBytes = 1024 * 1024;
 const maxIdleChatEventLogs = 200;
 const maxChatStreamQueuedBytes = 512 * 1024;
-const turnCheckpointDelayMs = 500;
 
 function resetChatEventTurn(state: LocalApiState, key: string): void {
   const log = chatEventLog(state, key);
   log.events = [];
   log.bytes = 0;
   log.assistantText = "";
+  delete log.turnId;
 }
 
 function chatEventLog(state: LocalApiState, key: string): ChatEventLog {
@@ -14060,7 +14248,8 @@ function chatEventLog(state: LocalApiState, key: string): ChatEventLog {
 function appendChatEvent(state: LocalApiState, key: string, data: unknown): ChatEventLogEntry {
   const log = chatEventLog(state, key);
   if (data && typeof data === "object" && !Array.isArray(data)) {
-    const event = data as { type?: unknown; text?: unknown };
+    const event = data as { type?: unknown; text?: unknown; turnId?: unknown };
+    if (typeof event.turnId === "string" && event.turnId) log.turnId = event.turnId;
     if (event.type === "assistant_delta" && typeof event.text === "string") {
       const remaining = maxDurableTurnTextChars - log.assistantText.length;
       if (remaining > 0) log.assistantText += event.text.slice(0, remaining);
@@ -14086,41 +14275,17 @@ function appendChatEvent(state: LocalApiState, key: string, data: unknown): Chat
 }
 
 function scheduleTurnCheckpoint(state: LocalApiState, key: string): void {
-  if (!state.activeTurnIdsByKey.has(key) || state.turnCheckpointTimers.has(key)) return;
-  const timer = setTimeout(() => {
-    state.turnCheckpointTimers.delete(key);
-    const taskId = state.activeTurnIdsByKey.get(key);
-    if (!taskId) return;
-    void state.turnStore.checkpoint(taskId, chatEventLog(state, key).assistantText).catch((error) => {
-      console.error(`Could not persist Assistant stream checkpoint: ${errorMessage(error)}`);
-    });
-  }, turnCheckpointDelayMs);
-  timer.unref();
-  state.turnCheckpointTimers.set(key, timer);
+  state.turnCheckpointWriter.schedule(key);
 }
 
 async function flushTurnCheckpoint(state: LocalApiState, key: string, taskId: string): Promise<void> {
-  const timer = state.turnCheckpointTimers.get(key);
-  if (timer) {
-    clearTimeout(timer);
-    state.turnCheckpointTimers.delete(key);
-  }
-  await state.turnStore.checkpoint(taskId, chatEventLog(state, key).assistantText).catch((error) => {
-    console.error(`Could not flush Assistant stream checkpoint: ${errorMessage(error)}`);
-    return null;
-  });
+  await state.turnCheckpointWriter.flush(key, taskId);
 }
 
 async function flushAllTurnCheckpoints(state: LocalApiState): Promise<void> {
-  await Promise.all([...state.activeTurnIdsByKey].map(([key, taskId]) => flushTurnCheckpoint(state, key, taskId)));
+  await state.turnCheckpointWriter.close();
 }
 
-function parseSseCursor(value: string | string[] | undefined): number | null {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!raw || !/^\d+$/.test(raw)) return null;
-  const parsed = Number(raw);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
-}
 
 function writeSseEntry(response: LocalEventSink, entry: ChatEventLogEntry): void {
   writeSseData(response, entry.data, entry.id);
@@ -14131,6 +14296,13 @@ function writeSseData(response: LocalEventSink, data: unknown, id?: number): voi
 }
 
 function broadcast(state: LocalApiState, key: string, event: unknown): void {
+  if (event && typeof event === "object" && !Array.isArray(event)) {
+    const activeTurnId = state.activeTurnIdsByKey.get(key);
+    const supplied = (event as { turnId?: unknown }).turnId;
+    // Native callbacks from a draining earlier turn cannot alter a newer view.
+    if (typeof supplied === "string" && activeTurnId && supplied !== activeTurnId) return;
+    if (supplied === undefined || supplied === null) event = { ...event, turnId: activeTurnId ?? chatEventLog(state, key).turnId ?? null };
+  }
   const entry = appendChatEvent(state, key, event);
   const listeners = state.chatEventListeners.get(key);
   if (listeners) {
@@ -14243,7 +14415,7 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
 }
 
 /** Content-free hints only. Reconnect always sends reset; no events are replayed. */
-function publishControlHint(state: LocalApiState, type: "apps" | "spaces" | "assistant"): void {
+function publishControlHint(state: LocalApiState, type: "apps" | "spaces" | "assistant" | "activity"): void {
   for (const response of state.controlStreams) {
     if (response.closed) continue;
     // A slow renderer must reconnect and requery instead of accumulating a queue.
@@ -14396,8 +14568,8 @@ function changeTurnCount(state: LocalApiState, delta: number): void {
   }
 }
 
-function turnStateEvent(conversationId: string, running: boolean): { type: "turn_state"; conversationId: string; running: boolean } {
-  return { type: "turn_state", conversationId, running };
+function turnStateEvent(conversationId: string, running: boolean, turnId?: string | null): { type: "turn_state"; conversationId: string; running: boolean; turnId?: string | null } {
+  return { type: "turn_state", conversationId, running, ...(turnId === undefined ? {} : { turnId }) };
 }
 
 function numberFromEnv(name: string, fallback: number): number {

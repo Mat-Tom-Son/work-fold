@@ -1,8 +1,11 @@
 import {
-  applicationAppearanceKey, applicationPresetsKey, defaultApplicationAppearance, migrateApplicationAppearance,
+  applicationAppearanceKey, applicationAppearanceVersion, applicationPresetsKey, defaultApplicationAppearance, migrateApplicationAppearance,
   parseApplicationAppearance, parseAppearancePreset, appearancePresetKind,
   type ApplicationAppearance, type AppearancePreset,
 } from "../../../src/shared/application-appearance.js";
+
+/** The saved presets collection: bumped with the preferences it holds so an older build leaves it untouched. */
+const presetsCollectionVersion = applicationAppearanceVersion;
 
 export const maximumAppearancePresets = 24;
 export const maximumAppearanceImportBytes = 16_384;
@@ -48,7 +51,7 @@ export class ApplicationAppearanceStore {
       const raw = this.raw(applicationAppearanceKey);
       if (raw !== null) {
         const value = this.decode(raw) as { version?: unknown } | null;
-        this.futureAppearance = Boolean(value && typeof value.version === "number" && value.version > 1);
+        this.futureAppearance = Boolean(value && typeof value.version === "number" && value.version > applicationAppearanceVersion);
         preferences = parseApplicationAppearance(value);
       } else {
         let typography: unknown = null;
@@ -65,8 +68,8 @@ export class ApplicationAppearanceStore {
       if (raw === null) presets = [];
       else {
         const value = this.decode(raw) as { version?: unknown; presets?: unknown } | null;
-        this.futurePresets = Boolean(value && typeof value.version === "number" && value.version > 1);
-        if (!value || value.version !== 1 || Object.keys(value).some((key) => key !== "version" && key !== "presets") || !Array.isArray(value.presets) || value.presets.length > maximumAppearancePresets) throw new Error("Invalid presets");
+        this.futurePresets = Boolean(value && typeof value.version === "number" && value.version > presetsCollectionVersion);
+        if (!value || (value.version !== 1 && value.version !== presetsCollectionVersion) || Object.keys(value).some((key) => key !== "version" && key !== "presets") || !Array.isArray(value.presets) || value.presets.length > maximumAppearancePresets) throw new Error("Invalid presets");
         presets = value.presets.map(parseAppearancePreset);
         if (new Set(presets.map((preset) => preset.name.toLocaleLowerCase())).size !== presets.length) throw new Error("Duplicate names");
       }
@@ -103,7 +106,8 @@ export class ApplicationAppearanceStore {
     if (raw.length > maximumStoredAppearanceBytes) throw new Error("Saved settings are too large to replace safely.");
     let value: unknown;
     try { value = JSON.parse(raw); } catch { return false; }
-    return Boolean(value && typeof value === "object" && "version" in value && typeof value.version === "number" && value.version > 1);
+    const current = key === applicationPresetsKey ? presetsCollectionVersion : applicationAppearanceVersion;
+    return Boolean(value && typeof value === "object" && "version" in value && typeof value.version === "number" && value.version > current);
   }
   private persist(preferences: ApplicationAppearance, notice: string) {
     let error: string | null = null;
@@ -146,7 +150,7 @@ export class ApplicationAppearanceStore {
     if (!this.fixture) {
       try {
         if (!this.storage) throw new Error("Storage unavailable");
-        this.storage.setItem(applicationPresetsKey, JSON.stringify({ version: 1, presets }));
+        this.storage.setItem(applicationPresetsKey, JSON.stringify({ version: presetsCollectionVersion, presets }));
       } catch { throw new Error("The presets could not be saved. Your saved collection is unchanged."); }
     }
     this.publish({ presets, presetsError: null, notice: this.fixture ? "Preview preset updated" : notice });

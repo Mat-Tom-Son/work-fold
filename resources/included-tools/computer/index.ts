@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hostContext } from "../host.ts";
 import { linuxComputer, probeLinuxComputer, shutdownLinuxComputer } from "./linux.ts";
+import { includedComputerStatus } from "../readiness.ts";
 
 export type IncludedComputerConfig = { helperAppPath: string; stateRoot: string; prepareComputerHelper?: () => Promise<void>; repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void> };
 export type IncludedComputerSetupAction = "request-permissions" | "accessibility" | "screen-recording" | "recheck";
@@ -14,7 +15,7 @@ type NativeModules = {
   helper: typeof import("@injaneity/pi-computer-use/src/platform/macos/helper.ts");
   scheduler: InstanceType<typeof import("@injaneity/pi-computer-use/src/runtime.ts").ResourceScheduler>;
 };
-type HostRuntime = { config: IncludedComputerConfig; socketPath: string; native: Promise<NativeModules> };
+type HostRuntime = { config: IncludedComputerConfig; socketPath: string; native: Promise<NativeModules>; readinessAt?: number; readinessPending?: Promise<void> };
 const runtimeKey = Symbol.for("work-fold:included-computer-host:v1");
 const globals = globalThis as typeof globalThis & { [runtimeKey]?: HostRuntime };
 
@@ -65,7 +66,9 @@ function runtime(config: IncludedComputerConfig): HostRuntime {
 export async function probeIncludedComputer(config: IncludedComputerConfig, options: { launch?: boolean; signal?: AbortSignal } = {}) {
   if (process.platform === "linux") return probeLinuxComputer(config, options);
   options.signal?.throwIfAborted();
-  if (options.launch && supportsIncludedComputer()) await prepareForSetup(config, options.signal);
+  // A deliberate start verifies/materializes the immutable helper but never
+  // repairs it or disposes peer sessions. Repair remains a separate setup act.
+  if (options.launch && supportsIncludedComputer()) await config.prepareComputerHelper?.();
   options.signal?.throwIfAborted();
   const { permissions } = await runtime(config).native;
   return permissions.probeMacosComputerUse(options);
@@ -104,6 +107,7 @@ export async function shutdownIncludedComputer(config: IncludedComputerConfig): 
   if (process.platform === "linux") return shutdownLinuxComputer();
   if (!globals[runtimeKey]) return;
   const { helper, scheduler } = await runtime(config).native;
+  await globals[runtimeKey]?.readinessPending;
   await scheduler.close();
   try {
     await helper.macosHelper.daemonCommand("shutdown", {}, 2_000);
@@ -116,7 +120,24 @@ export default async function includedComputer(pi: ExtensionAPI) {
   const context = hostContext(pi);
   if (!context?.helperAppPath) throw new Error("The included computer Extension requires its bundled helper configuration.");
   if (process.platform === "linux") return linuxComputer(pi, { helperAppPath: context.helperAppPath, stateRoot: context.stateRoot }, context);
-  const native = await runtime({ helperAppPath: context.helperAppPath, stateRoot: context.stateRoot }).native;
+  const host = runtime({ helperAppPath: context.helperAppPath, stateRoot: context.stateRoot });
+  const native = await host.native;
+  async function observeReadiness(signal?: AbortSignal, force = false) {
+    if (!context?.beginIncludedToolObservation || signal?.aborted) return;
+    if (host.readinessPending) return host.readinessPending;
+    if (!force && host.readinessAt !== undefined && Date.now() - host.readinessAt < 30_000) return;
+    const finish = context.beginIncludedToolObservation("computer");
+    host.readinessPending = (async () => {
+      try {
+        // Execution has already used the helper. Observe its real permissions,
+        // without launching it or prompting merely to refresh the UI.
+        const result = await native.permissions.probeMacosComputerUse({ launch: false, signal });
+        if (!signal?.aborted) { finish(includedComputerStatus(result)); host.readinessAt = Date.now(); }
+      } catch { /* Readiness evidence must never change the tool's result. */ }
+      finally { host.readinessPending = undefined; }
+    })();
+    return host.readinessPending;
+  }
   // Each factory owns its states, handles, output references and cancellation.
   // Only scheduling of the shared physical computer crosses Chat boundaries.
   const api = new Proxy(pi, {
@@ -125,9 +146,16 @@ export default async function includedComputer(pi: ExtensionAPI) {
       return (tool: Parameters<ExtensionAPI["registerTool"]>[0]) => pi.registerTool({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => {
         if (supportsIncludedComputer()) {
           args[2]?.throwIfAborted();
-          await context.prepareComputerHelper?.();
+          try { await context.prepareComputerHelper?.(); }
+          catch (error) {
+            if (!args[2]?.aborted) context.beginIncludedToolObservation?.("computer")?.({ id: "computer", state: "unavailable", checkedAt: new Date().toISOString(), detail: "The computer helper could not be verified. Open setup to repair it." });
+            throw error;
+          }
           args[2]?.throwIfAborted();
-          return tool.execute(...args);
+          let failed = false;
+          try { return await tool.execute(...args); }
+          catch (error) { failed = true; throw error; }
+          finally { void observeReadiness(args[2], failed); }
         }
         return {
         isError: true,

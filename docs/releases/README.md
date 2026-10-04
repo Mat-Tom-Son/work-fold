@@ -4,6 +4,28 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## September 30, 2026
+
+[0.4.40](work-fold-0.4.40.md) brings the Customize Folder popup, four included
+banner images with framing controls, a larger searchable icon picker, clearer
+color presets, contextual Settings back navigation, and the rail highlight fix.
+
+[0.4.39](work-fold-0.4.39.md) adds folder creation in Files, simplifies file
+attachments, improves automatic Chat titles for Azure reasoning models, and
+aligns message copy controls and timestamps.
+
+## September 29, 2026
+
+[0.4.38](work-fold-0.4.38.md) adds Azure OpenAI connection setup with
+user-entered deployment names, shared connection settings, and clear save
+feedback.
+
+## September 27, 2026
+
+[0.4.37](work-fold-0.4.37.md) improves Worker steps and reconnect recovery,
+large-file search, History inspection, document and attachment coverage, and
+tool-result continuation.
+
 ## September 26, 2026
 
 [0.4.36](work-fold-0.4.36.md) brings the Skills & Extensions popup, app

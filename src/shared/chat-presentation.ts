@@ -1,0 +1,61 @@
+/** Optional portable presentation data; the existing message content remains authoritative. */
+export interface AssistantPresentation {
+  version: 1;
+  /** UTF-16 offsets into the unchanged ChatMessage.content string. */
+  segments: AssistantPresentationSegment[];
+  /** Some later segment boundaries were omitted because the metadata limit was reached. */
+  truncated: boolean;
+}
+
+export interface AssistantPresentationSegment {
+  start: number;
+  end: number;
+  kind: "progress" | "final" | "command";
+  /** Turn-local chronology shared with work-trail rows; absent on legacy messages. */
+  order?: number;
+}
+
+/** Selected native edit evidence, not a raw tool result or a currently live file preview. */
+export interface ChatToolEdit {
+  /** A validated Folder-relative path, with portable forward slashes. */
+  path: string;
+  /** Pi's display diff at the time of the successful edit; never a runnable patch. */
+  diff: string;
+  firstChangedLine?: number;
+  truncated: boolean;
+}
+
+export const maxAssistantPresentationSegments = 256;
+export const maxChatToolEditDiffBytes = 16 * 1024;
+export const maxTurnToolEditDiffBytes = 64 * 1024;
+
+export interface ChatWorkTrailEntry {
+  kind: "thinking" | "tool";
+  text: string;
+  detail?: string;
+  toolName?: string;
+  phase?: "queued" | "running" | "streaming" | "complete" | "error";
+  edit?: ChatToolEdit;
+  durationMs?: number;
+  /** Assigned once at the first event for this row. */
+  order?: number;
+}
+
+export interface ChatLiveWorkTrailEntry extends ChatWorkTrailEntry {
+  /** Stable within one turn; never inferred from a renderer's clock. */
+  id: string;
+  /** Epoch milliseconds for a currently active thinking row. */
+  startedAt?: number;
+}
+
+/** Transient read projection; a host restart does not resume this work. */
+export interface ChatLiveTurnPresentation {
+  text: string;
+  assistantPresentation?: AssistantPresentation;
+  workTrail: ChatLiveWorkTrailEntry[];
+  truncated: boolean;
+  textTruncated?: boolean;
+}
+
+/** Leaves room for the legacy text field in the 512 KiB stream queue. */
+export const maxLiveTurnPresentationBytes = 192 * 1024;

@@ -21,8 +21,27 @@ test("appearance migrates existing preferences without rewriting any storage on 
   assert.equal(storage.data.get("work-fold.theme"), "system");
 });
 
+test("a record saved before a setting existed reads as its default and is only rewritten on the next change", () => {
+  const { version: _version, chatSteps: _chatSteps, ...saved } = defaultApplicationAppearance;
+  const storage = memory({
+    [applicationAppearanceKey]: JSON.stringify({ ...saved, version: 1, palette: "slate" }),
+    [applicationPresetsKey]: JSON.stringify({ version: 1, presets: [preset("Old paper", { ...saved, version: 1, palette: "paper" } as never)] }),
+  });
+  const store = new ApplicationAppearanceStore(storage);
+  assert.deepEqual({ version: store.getSnapshot().preferences.version, palette: store.getSnapshot().preferences.palette, chatSteps: store.getSnapshot().preferences.chatSteps }, { version: 2, palette: "slate", chatSteps: "every" });
+  assert.equal(store.getSnapshot().presets[0]?.preferences.chatSteps, "every");
+  assert.equal(store.getSnapshot().presetsError, null);
+  assert.equal(storage.writes, 0);
+  store.update({ chatSteps: "current" });
+  assert.deepEqual({ version: JSON.parse(storage.data.get(applicationAppearanceKey)!).version, chatSteps: JSON.parse(storage.data.get(applicationAppearanceKey)!).chatSteps }, { version: 2, chatSteps: "current" });
+  store.savePreset("Fresh");
+  assert.equal(JSON.parse(storage.data.get(applicationPresetsKey)!).version, 2);
+  assert.throws(() => parseApplicationAppearance({ ...defaultApplicationAppearance, chatSteps: "all" }), /chatSteps/);
+  assert.throws(() => parseApplicationAppearance({ ...defaultApplicationAppearance, version: 1, chatSteps: "all" }), /chatSteps/);
+});
+
 test("future appearance and preset bytes survive both initialization and explicit changes", () => {
-  const future = JSON.stringify({ version: 2, custom: "new setting" });
+  const future = JSON.stringify({ version: 3, custom: "new setting" });
   const storage = memory({ [applicationAppearanceKey]: future, [applicationPresetsKey]: future });
   const store = new ApplicationAppearanceStore(storage);
   store.update({ palette: "paper" });
@@ -121,7 +140,7 @@ test("a custom accent is independent of device color and has explicit fill/on-fi
 test("effect-time checks preserve a future record written before its storage event is delivered", () => {
   const storage = memory();
   const store = new ApplicationAppearanceStore(storage);
-  const future = JSON.stringify({ version: 2, extra: "another build wrote this" });
+  const future = JSON.stringify({ version: 3, extra: "another build wrote this" });
   storage.data.set(applicationAppearanceKey, future);
   storage.data.set(applicationPresetsKey, future);
   store.update({ palette: "ink" });

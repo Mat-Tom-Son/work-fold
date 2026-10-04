@@ -25,7 +25,7 @@ function buttonsIn(row: Element): string[] {
 }
 
 test("role sentences use the Folder's own terms", () => {
-  assert.equal(folderAutomationRoleSentence(["watches", "copies-from"]), "Watches this folder · Copies files from here");
+  assert.equal(folderAutomationRoleSentence(["watches", "copies-from"]), "Watches this work-folder · Copies files from here");
   assert.equal(folderAutomationRoleSentence(["copies-to", "chats-here", "checks-here"]), "Copies files here · Starts a Chat here · Runs a Check here");
 });
 
@@ -56,7 +56,7 @@ test("the preview renders Home projects' two automations from fixture data with 
   const [on, off] = rowTexts(dom.container);
   assert.match(on!, /On/);
   assert.match(on!, /When Kitchen refresh changes/);
-  assert.match(on!, /Watches this folder · Copies files from here/);
+  assert.match(on!, /Watches this work-folder · Copies files from here/);
   assert.match(on!, /Last run /);
   assert.deepEqual(buttonsIn(rows[0]!), ["Run Now", "Turn Off"]);
   assert.match(off!, /Off/);
@@ -111,6 +111,6 @@ test("Turn off posts the Folder-scoped act and refreshes; an emptied list says s
   assert.deepEqual(calls, [{ url: "/api/spaces/fixture-home/automations/routing-kitchen-to-trip/disable", method: "POST" }]);
 
   await dom.render(createElement(SpaceAutomationsPane, { ...props, automations: [] }));
-  assert.equal(dom.container.querySelector(".folder-automations-empty")?.textContent, "No automations touch this folder.");
+  assert.equal(dom.container.querySelector(".folder-automations-empty")?.textContent, "No automations touch this work-folder.");
   assert.equal(dom.container.querySelectorAll(".folder-automations-empty").length, 1);
 });

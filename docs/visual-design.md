@@ -44,7 +44,7 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Chats in the selected Space remain visually primary. Every other registered Space appears afterward as a compact, collapsed disclosure row with its current-view count and aggregate activity across all of its Chats; opening one reveals its matching Chats without making it look like another permanent navigation level.
 - The Skills & Extensions Installed view places the Included with work-fold strip above Everywhere and This folder only, which sit side by side and stack on narrow widths; rows open their details on click.
 - With four or more tabs open, tabs narrow but keep their Space icon and a normal close button.
-- Settings → AI Models chooses its scope with two large buttons (This worker, naming the Space, and work-fold agent) rather than radio circles; its model list has a search box and groups models under vendor headings. Settings → Automations keeps Limits collapsed under a disclosure by default.
+- Settings → AI Models chooses its scope with two large buttons (This worker, naming the Space, and work-fold agent) rather than radio circles; its model is a dropdown that shows the chosen model closed and opens with a search box at the top and vendor headings, closing again on a choice. Settings → Automations keeps Limits collapsed under a disclosure by default.
 - User Chat bubbles use one solid primary Space accent, never a gradient between accent colors. Assistant message headers are text-only and do not repeat a decorative Assistant avatar.
 - Forms use stacked labels and hints with an explicit action row.
 - Notices use `icon | copy | action` and stack only when their own pane becomes narrow.
@@ -93,10 +93,16 @@ For Electron-integrated changes, repeat a packaged-app pass that confirms the pl
 ## Appearance scopes
 
 - **Settings → Appearance** controls the application theme, font, and text size.
-- **Customize Space** controls one Space's accent, compact banner, and Fluent identity icon.
-- Customize Space is opened from the Space card and lives in one right-side appearance tab per Space. Changes repaint every identity consumer immediately.
+- **Customize Folder** controls one Folder's accent, compact banner, and Fluent identity icon.
+- Customize Folder opens a popup from the Folder header, Manage Folders, or Settings → Appearance, pinned to that Folder. The work tab remains in place. Changes repaint every identity consumer immediately.
 - Per-Space appearance is personal application state. It is not written into the user's ordinary folder and does not travel with shared files.
 - The editor shows light and dark previews together and reports the semantic contrast audit without claiming that arbitrary images or gradients are statically certified.
+- Banner, Icon, and Color sit at the top right of the fixed popup header. Name and paired previews
+  keep the same geometry across sections; only the control region scrolls. Bundled images use named
+  thumbnails; image framing uses draggable previews and an on-demand position/zoom popover. Color
+  offers 24 labeled accent swatches; second colors belong only to Banner’s pattern controls. Icons start with a small Popular
+  selection and add Nature, Life, Creative, Travel, Work, and All filters with larger 24px glyphs.
+  Keep utility copy short. Worker shortcuts open the existing Folder-scoped model and instruction settings.
 - A custom image is resized and compressed before machine-local service storage. Unsafe image formats and malformed stored values are rejected.
 - Every Space appearance control updates the preview, saves immediately, and offers Undo and Reset. Import/export uses the same typed, code-free proposal format as the agent harness.
 - Layout order, native chrome, permission UI, target sizes, and non-colour state indicators are invariants, not customization options.

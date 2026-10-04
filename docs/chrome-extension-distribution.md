@@ -86,6 +86,22 @@ existing bridge epoch. Uncertain browser effects are never automatically
 replayed. Cleanup may close only the session's created tabs and remove its
 own grouping; ordinary user tabs remain open.
 
+The 1.0.2 companion source includes target-window grouping, hidden-input
+failure reporting, complete multiline field replacement, targeted typing at
+field end, and recovery from half-open long polls. Text insertion preserves
+line breaks without sending Enter; widgets that require key events can use
+`perCharacter: true`. Click and fill fall back only before trusted input is
+dispatched, and results explicitly identify DOM fallback as untrusted page
+events. Native fill reports field-value mismatches without retrying, and a
+definite mismatch prevents a requested submission. Read-back is best-effort:
+missing verification does not repeat a successful input. The
+desktop observes compatible polls, accepted results and active-command
+heartbeats rather than mistaking a long operation for a lost connection.
+Desktop status refreshes do
+not upgrade an installed extension. Companion-side fixes require the reviewed
+1.0.2 ZIP to be approved and installed separately; the Store item remains
+unpublished until Google accepts that submission.
+
 ## Build and publication
 
 `npm run chrome:build` writes a deterministic ZIP plus per-file SHA-256 evidence

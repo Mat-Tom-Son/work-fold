@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
-import type { ChatActivityStatus } from "../types";
+import { chatActivityKey, conversationLifecycleView } from "../lib/chat-lifecycle";
+import type { ChatActivityStatus, ConversationSummary } from "../types";
 
 const attentionStorageKey = "work-fold.space.chat-attention.v1";
 
@@ -24,14 +25,79 @@ export function useChatActivity(fixtureMode = false) {
     if (running) setAttention(key, false);
   }, [setAttention]);
 
+  // Turns the host reports running that no mounted Chat tab follows — a
+  // handoff into a nested Folder, a CLI send. When one ends unwatched, its
+  // Chat earns the same "new reply" dot a background tab would.
+  const [backgroundKeys, setBackgroundKeys] = useState<Set<string>>(() => new Set());
+  const backgroundRef = useRef<Set<string>>(new Set());
+  const syncBackgroundRunning = useCallback((next: ReadonlySet<string>, isWatched: (key: string) => boolean): string[] => {
+    const transition = backgroundRunningTransition(backgroundRef.current, next, isWatched);
+    for (const key of transition.started) setAttention(key, false);
+    for (const key of transition.finishedUnwatched) setAttention(key, true);
+    if (transition.changed) {
+      backgroundRef.current = new Set(next);
+      setBackgroundKeys(backgroundRef.current);
+    }
+    return transition.finished;
+  }, [setAttention]);
+
   const statuses = useMemo<Record<string, ChatActivityStatus>>(() => {
     const result: Record<string, ChatActivityStatus> = {};
     for (const key of attentionKeys) result[key] = "attention";
+    for (const key of backgroundKeys) result[key] = "running";
     for (const key of runningKeys) result[key] = "running";
     return result;
-  }, [attentionKeys, runningKeys]);
+  }, [attentionKeys, backgroundKeys, runningKeys]);
 
-  return { statuses, setRunning, setAttention };
+  // Saved "new reply" marks outlive their Chats (deleted from the CLI, a
+  // removed Folder). Drop the ones the caller can prove are gone.
+  const pruneAttention = useCallback((isGone: (key: string) => boolean) => {
+    setAttentionKeys((current) => {
+      const next = new Set([...current].filter((key) => !isGone(key)));
+      if (next.size === current.size) return current;
+      if (!fixtureMode) writeStoredJsonValue(attentionStorageKey, [...next].sort());
+      return next;
+    });
+  }, [fixtureMode]);
+
+  return { statuses, setRunning, setAttention, syncBackgroundRunning, pruneAttention };
+}
+
+/** What changed between two host reports of running turns. Pure, for tests. */
+export function backgroundRunningTransition(previous: ReadonlySet<string>, next: ReadonlySet<string>, isWatched: (key: string) => boolean) {
+  const started = [...next].filter((key) => !previous.has(key));
+  const finished = [...previous].filter((key) => !next.has(key));
+  return {
+    started,
+    finished,
+    finishedUnwatched: finished.filter((key) => !isWatched(key)),
+    changed: started.length > 0 || finished.length > 0,
+  };
+}
+
+/**
+ * One dot per Folder. A running turn counts wherever it is; a waiting reply
+ * counts only for a Chat the person can open from the active Chats list, so a
+ * deleted, archived, or snoozed Chat never leaves a Folder dot nobody can clear.
+ */
+export function folderActivityStatuses(
+  statuses: Readonly<Record<string, ChatActivityStatus>>,
+  conversations: Readonly<Record<string, readonly ConversationSummary[]>>,
+  now = Date.now(),
+): Record<string, ChatActivityStatus> {
+  const result: Record<string, ChatActivityStatus> = {};
+  for (const [key, status] of Object.entries(statuses)) {
+    if (status !== "running") continue;
+    const spaceId = key.slice(0, key.indexOf(":"));
+    if (spaceId) result[spaceId] = "running";
+  }
+  for (const [spaceId, list] of Object.entries(conversations)) {
+    if (result[spaceId]) continue;
+    if (list.some((chat) => statuses[chatActivityKey(spaceId, chat.id)] === "attention" && conversationLifecycleView(chat, now) === "active")) {
+      result[spaceId] = "attention";
+    }
+  }
+  return result;
 }
 
 function updateSet(current: Set<string>, key: string, present: boolean): Set<string> {

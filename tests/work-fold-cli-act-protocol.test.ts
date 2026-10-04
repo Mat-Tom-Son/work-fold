@@ -1707,7 +1707,7 @@ test("file, search, and Library acts dispatch to the facade, stamp receipts, and
   const searched = await execute(["search", "--space", "space-1", "--query", "quarterly budget", "--scope", "files"]);
   assert.match(searched.stdout, /1 match for "quarterly budget" in Fold Space \[space-1\] \(scope files\):/);
   assert.match(searched.stdout, /- notes\/plan\.md:2 — the Quarterly budget is due/);
-  assert.match(searched.stdout, /A search bound stopped before covering everything/);
+  assert.match(searched.stdout, /Coverage is incomplete/);
   assert.deepEqual(calls.at(-1)?.input, { space: "space-1", query: "quarterly budget", scope: "files" });
   assert.equal(lastOk().detail, "scope files");
   assert.doesNotMatch(JSON.stringify(records), /quarterly/, "receipts never record the query text");

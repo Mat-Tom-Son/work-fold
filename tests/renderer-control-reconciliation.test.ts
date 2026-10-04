@@ -224,6 +224,48 @@ async function loadChatPanel(t: { after: (cleanup: () => void) => void }) {
   return import("../web-local/src/components/chat/ChatPanel.js");
 }
 
+test("attached file references show only the file icon, name and removal control, and deduplicate paths", async (t) => {
+  const { ChatPanel } = await loadChatPanel(t);
+  const dom = await createDomHarness();
+  HTMLElement.prototype.scrollIntoView = () => {};
+  const previousFetch = globalThis.fetch;
+  t.after(async () => { await dom.cleanup(); globalThis.fetch = previousFetch; });
+  const target = space("workshop");
+  const path = "Notes/Review.pdf";
+  let attachmentRequests = 0;
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input);
+    if (url === "/api/events") return closedStream(init);
+    if (url.endsWith("/context-attachments")) {
+      attachmentRequests++;
+      return Response.json({ attachment: { sourcePath: path, sourceFileName: "Review.pdf", mode: "path_only_reference", includedInPrompt: false, reason: null, warnings: [] } });
+    }
+    if (url.endsWith("/conversations")) return Response.json({ conversations: [] });
+    if (url.endsWith("/agent/catalog")) return Response.json({ commands: [], skills: [], extensions: [], diagnostics: [] });
+    if (url.includes("/agent/status")) return Response.json({ status: { configured: true, provider: "test", model: "synthetic" } });
+    if (url.includes("/agent/composer")) return Response.json({ composer: { thinkingLevel: "off", thinkingLevels: ["off"] } });
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+  const chatProps = {
+    space: target, spaceCustomizations: {},
+    selectedPath: null, onAgentFinished() {}, surfaceTabId: "attachment-chat",
+  };
+  const request = (id: number) => ({ id, path, spaceId: target.id, surfaceTabId: "attachment-chat" });
+  await dom.render(createElement(ChatPanel, { ...chatProps, contextPathRequest: request(1) }));
+  await dom.waitFor(() => dom.container.querySelector(".context-chip-name")?.textContent === "Review.pdf");
+  const chip = dom.container.querySelector<HTMLElement>(".context-chip")!;
+  assert.equal(chip.className, "context-chip", "a normal reference has no error or extraction state styling");
+  assert.equal(chip.title, path);
+  assert.ok(chip.querySelector(".file-icon"));
+  assert.equal(chip.querySelectorAll("button").length, 1, "the only chip action is removal");
+  assert.equal(chip.querySelector(".context-chip-status"), null);
+  await dom.render(createElement(ChatPanel, { ...chatProps, contextPathRequest: request(2) }));
+  assert.equal(dom.container.querySelectorAll(".context-chip").length, 1);
+  assert.equal(attachmentRequests, 1);
+  await dom.act(() => { chip.querySelector<HTMLButtonElement>("button")!.click(); });
+  assert.equal(dom.container.querySelector('[aria-label="Attached files"]'), null);
+});
+
 test("an externally accepted answer is visible during its continuation and an older settlement cannot restore the previous reply", async (t) => {
   const { ChatPanel } = await loadChatPanel(t);
   const dom = await createDomHarness();
@@ -232,7 +274,7 @@ test("an externally accepted answer is visible during its continuation and an ol
   t.after(async () => { await dom.cleanup(); globalThis.fetch = previousFetch; });
   const stamp = "2026-09-12T12:00:00Z";
   let messages = [{ id: "old", role: "assistant", content: "Previous reply", createdAt: stamp }];
-  let send!: (event: unknown) => void;
+  let send!: (event: Record<string, unknown>) => void;
   let lastSubscriptions: Array<{ path: string }> = [];
   let holdNext = false;
   let finishOld!: (response: Response) => void;
@@ -245,7 +287,7 @@ test("an externally accepted answer is visible during its continuation and an ol
       const write = (event: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
       for (const subscription of subscriptions) {
         if (subscription.path.endsWith("/saved/events")) {
-          send = (event) => write({ subscriptionId: subscription.id, event });
+          send = (event) => write({ subscriptionId: subscription.id, event: { conversationId: "saved", ...event } });
           send({ type: "turn_snapshot", running: false, text: "Previous reply" });
           send({ type: "turn_state", running: false });
         }
@@ -265,17 +307,17 @@ test("an externally accepted answer is visible during its continuation and an ol
   await dom.render(createElement(ChatPanel, chatProps));
   await dom.waitFor(() => Boolean(send) && dom.container.textContent?.includes("Previous reply") === true);
   messages = [...messages, { id: "answer", role: "user", content: "Accepted answer: CAD", createdAt: stamp }];
-  await dom.act(() => send({ type: "turn_state", running: true }));
+  await dom.act(async () => send({ type: "turn_state", running: true, turnId: "first-continuation" }));
   await dom.waitFor(() => dom.container.textContent?.includes("Accepted answer: CAD") === true);
   assert.equal(dom.container.textContent?.split("Previous reply").length, 2, "the previous final never becomes a second streaming bubble");
-  await dom.act(() => send({ type: "assistant_message", text: "First continuation response" }));
+  await dom.act(async () => send({ type: "assistant_message", text: "First continuation response", turnId: "first-continuation" }));
   holdNext = true;
-  await dom.act(() => send({ type: "done" }));
+  await dom.act(async () => send({ type: "done", turnId: "first-continuation" }));
   assert.ok(finishOld);
   messages = [...messages, { id: "next-answer", role: "user", content: "Next accepted message", createdAt: stamp }];
-  await dom.act(() => { send({ type: "turn_state", running: true }); send({ type: "assistant_message", text: "Second continuation is still working" }); });
+  await dom.act(async () => { send({ type: "turn_state", running: true, turnId: "second-continuation" }); send({ type: "assistant_message", text: "Second continuation is still working", turnId: "second-continuation" }); });
   await dom.waitFor(() => dom.container.textContent?.includes("Next accepted message") === true);
-  await dom.act(() => finishOld(Response.json({ messages: [{ id: "old", role: "assistant", content: "Stale transcript", createdAt: stamp }] })));
+  await dom.act(async () => finishOld(Response.json({ messages: [{ id: "old", role: "assistant", content: "Stale transcript", createdAt: stamp }] })));
   assert.match(dom.container.textContent ?? "", /Second continuation is still working/);
   assert.doesNotMatch(dom.container.textContent ?? "", /Stale transcript|First continuation response/);
   // Another tab reconnects the shared stream while a final transcript read
@@ -283,18 +325,18 @@ test("an externally accepted answer is visible during its continuation and an ol
   await dom.render(createElement(ChatPanel, { ...chatProps, active: false }));
   assert.ok(lastSubscriptions.some((item) => item.path.endsWith("/saved/events")), "a running background Chat stays subscribed");
   holdNext = true;
-  await dom.act(() => send({ type: "done" }));
+  await dom.act(async () => send({ type: "done", turnId: "second-continuation" }));
   const finishSettlement = finishOld;
   messages = [...messages, { id: "final", role: "assistant", content: "Persisted second continuation", createdAt: stamp }];
   const { createEventSource } = await import("../web-local/src/lib/api.js");
   let extra!: ReturnType<typeof createEventSource>;
-  await dom.act(() => { extra = createEventSource("/api/spaces/workshop/file-events"); });
+  await dom.act(async () => { extra = createEventSource("/api/spaces/workshop/file-events"); });
   await dom.waitFor(() => dom.container.textContent?.includes("Persisted second continuation") === true && !dom.container.querySelector('[aria-label="Stop Assistant"]'));
-  await dom.act(() => finishSettlement(Response.json({ messages: [{ id: "stale-final", role: "assistant", content: "Late settlement", createdAt: stamp }] })));
+  await dom.act(async () => finishSettlement(Response.json({ messages: [{ id: "stale-final", role: "assistant", content: "Late settlement", createdAt: stamp }] })));
   assert.doesNotMatch(dom.container.textContent ?? "", /Late settlement/);
   assert.equal(dom.container.querySelector('[aria-label="Stop Assistant"]'), null);
   await dom.waitFor(() => !lastSubscriptions.some((item) => item.path.endsWith("/saved/events")));
-  await dom.act(() => extra.close());
+  await dom.act(async () => extra.close());
   await dom.settle();
 });
 

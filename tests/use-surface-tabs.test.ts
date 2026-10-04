@@ -34,7 +34,7 @@ interface SpaceSummary {
 
 interface SurfaceTab {
   id: string;
-  kind: "chat" | "file" | "history" | "appearance" | "app-studio" | "checks" | "space-automations" | "extension" | "restricted-app";
+  kind: "chat" | "file" | "history" | "app-studio" | "checks" | "space-automations" | "extension" | "restricted-app";
   spaceId: string;
   conversationId?: string | null;
   path?: string;
@@ -200,26 +200,33 @@ test("restored tabs belonging to removed Spaces are discarded", () => {
   assert.deepEqual(restoreStoredSurfaceTabsForSpaces({
     tabs: [
       { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" },
-      { id: "appearance:space-2", kind: "appearance", spaceId: "space-2", title: "Customize Other Space" },
+      { id: "history:space-2", kind: "history", spaceId: "space-2", title: "History" },
     ],
-    activeTabId: "appearance:space-2",
+    activeTabId: "history:space-2",
   }, [space]), {
     tabs: [{ id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" }],
     activeTabId: "chat:space-1:new",
   });
 });
 
-test("restored appearance tabs follow a renamed Space", () => {
-  assert.deepEqual(restoreStoredSurfaceTabsForSpaces({
+test("retired Customize tabs are discarded without losing other tabs or leaving a blank active tab", () => {
+  assert.deepEqual(normalizeStoredSurfaceTabsValue({
     tabs: [
       { id: "appearance:space-1", kind: "appearance", spaceId: "space-1", title: "Customize Old name" },
+      { id: "chat:space-1:keep", kind: "chat", spaceId: "space-1", conversationId: "keep", title: "Keep my Chat" },
     ],
     activeTabId: "appearance:space-1",
-  }, [space]), {
+  }), {
     tabs: [
-      { id: "appearance:space-1", kind: "appearance", spaceId: "space-1", title: "Customize First Space" },
+      { id: "chat:space-1:keep", kind: "chat", spaceId: "space-1", conversationId: "keep", title: "Keep my Chat" },
     ],
-    activeTabId: "appearance:space-1",
+    activeTabId: "chat:space-1:keep",
+  });
+  withStoredTabs(JSON.stringify({ tabs: [{ id: "appearance:space-1", kind: "appearance", spaceId: "space-1", title: "Customize" }], activeTabId: "appearance:space-1" }), () => {
+    assert.deepEqual(readStoredSurfaceTabsState(space, [space]), {
+      tabs: [{ id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New Chat" }],
+      activeTabId: "chat:space-1:new",
+    });
   });
 });
 

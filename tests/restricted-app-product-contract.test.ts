@@ -22,7 +22,7 @@ const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, profes
 ]);
 
 test("Apps product hierarchy starts with the Assistant and keeps local preview loading advanced", () => {
-  assert.match(apps, /Apps in This Folder/);
+  assert.match(apps, /Apps in This work-folder/);
   // Building an app is a plain ask in a Chat; there is no button for it (2026-09-25).
   assert.doesNotMatch(apps, /Build with worker|onBuildApp/);
   assert.match(apps, /<details className="restricted-app-advanced"><summary>Advanced Local Preview/);
@@ -39,7 +39,7 @@ test("adding an app shows its declarations and enabled powers with narrowing in 
   assert.match(apps, /restricted-app-authority-list/);
   assert.match(apps, /On when added/);
   assert.doesNotMatch(apps, /Off when added|access off|approve|Reviewed|Unrestricted|staged/);
-  assert.match(apps, /Starts a Chat in this folder/);
+  assert.match(apps, /Starts a Chat in this work-folder/);
   // The reviewed viewer declaration (docs/fold-publishing.md, rung 3) is part
   // of review copy and the install decision: the group shows the viewer entry
   // and the complete viewer-readable surface, states that exposure is its own
@@ -78,7 +78,7 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Revoke access/);
   assert.match(apps, /Replace connection/);
   assert.match(apps, /Disconnect/);
-  assert.match(apps, /Folder files/);
+  assert.match(apps, /work-folder files/);
   assert.match(apps, /Automations/);
   assert.match(apps, /Local app data/);
   assert.match(apps, /App access overview/);

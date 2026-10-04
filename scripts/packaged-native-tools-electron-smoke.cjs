@@ -40,7 +40,7 @@ app.dock?.hide();
       const catalog = await value.getCatalog();
       assert.deepEqual(catalog.diagnostics.filter(item => item.type === "error" || item.type === "collision"), [], "Native session must have no loader errors");
       const state = await value.getState();
-      for (const name of ["find_roots", "chrome_tab", "web_search", "mcp", "mcpScript", "document_run"]) assert.ok(state.activeTools.includes(name), `Missing active packaged tool ${name}`);
+      for (const name of ["find_roots", "chrome_tab", "web_search", "mcp", "mcpScript", "document_run", "document_engine"]) assert.ok(state.activeTools.includes(name), `Missing active packaged tool ${name}`);
       return { value, cwd };
     }
     async function call(owner, name, args) {
@@ -60,7 +60,7 @@ app.dock?.hide();
         let result;
         if (message.method === "initialize") result = { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "packaged-fixture", version: "1" } };
         else if (message.method === "tools/list") result = { tools: [{ name: "echo", description: "Return the fixture note", inputSchema: { type: "object", properties: { note: { type: "string" } }, required: ["note"], additionalProperties: false } }] };
-        else if (message.method === "tools/call") result = { content: [{ type: "text", text: message.params.arguments.note }] };
+        else if (message.method === "tools/call") result = { content: [{ type: "text", text: message.params.arguments.note }], structuredContent: { records: ["structured-record"], nextCursor: "packaged-next-page" } };
         else result = {};
         response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
       } catch (error) { response.writeHead(500); response.end("Fixture protocol error"); }
@@ -75,6 +75,8 @@ app.dock?.hide();
       await call(first, "mcp", { connect: "fixture" });
       const result = await call(first, "mcp", { server: "fixture", tool: "echo", args: { note: "packaged-mcp-ok" } });
       assert.match(JSON.stringify(result), /packaged-mcp-ok/);
+      assert.match(JSON.stringify(result.content), /structured-record/);
+      assert.match(JSON.stringify(result.content), /packaged-next-page/, "pagination survives in model-visible content");
       assert.ok(requests.includes("initialize") && requests.includes("tools/list") && requests.includes("tools/call"));
       await first.value.stop();
       await call(second, "mcp", { connect: "fixture" });
@@ -88,6 +90,9 @@ app.dock?.hide();
 
     try {
       const first = await client("document-space-a"), second = await client("document-space-b");
+      const engineStatus = await call(first, "document_engine", { operation: "status" });
+      assert.match(JSON.stringify(engineStatus.content), /libreoffice/);
+      assert.match(JSON.stringify(engineStatus.content), /tesseract/);
       for (const owner of [first, second]) await fs.copyFile(documentFixture, join(owner.cwd, "create.mjs"));
       const results = await Promise.all([first, second].map(owner => call(owner, "document_run", { script: "create.mjs", timeoutMs: 20_000 })));
       for (const [index, result] of results.entries()) {

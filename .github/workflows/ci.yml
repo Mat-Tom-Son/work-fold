@@ -1,5 +1,8 @@
 name: CI
 
+# Dormant: GitHub Actions is disabled in the canonical source repository.
+# Local verification is authoritative; re-enable only on explicit request.
+
 on:
   push:
     branches: [main]
@@ -29,13 +32,13 @@ jobs:
       - name: Verify and package Linux
         id: linux-package
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --init --user "$(id -u):$(id -g)" \
             --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
             -v "$PWD:/work" -e HOME=/tmp/work-fold-build work-fold-linux-build \
             bash -lc 'unshare --user --map-root-user --pid --net --fork true && mkdir -p "$HOME" && npm ci && npm run check && npm run desktop:computer-helper && npm run desktop:linux-native-hosts && npm run desktop:linux-native-tests && npm test && dbus-run-session -- xvfb-run -a npm run desktop:make:linux'
       - name: Test unpackaged Worker CLI and cold restart
         run: |
-          docker run --rm -i --user "$(id -u):$(id -g)" \
+          docker run --rm --init -i --user "$(id -u):$(id -g)" \
             --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
             -v "$PWD:/work:ro" -e HOME=/tmp/work-fold-development-test work-fold-linux-build \
             bash -seu <<'CONTAINER'
@@ -48,7 +51,7 @@ jobs:
           CONTAINER
       - name: Test encrypted credentials across keyring restarts
         run: |
-          docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+          docker run --rm --init --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
             -v "$PWD:/work:ro" -e WORKFOLD_CONTAINER_INSTALL_TEST=1 work-fold-linux-build \
             runuser -u ubuntu -- bash /work/scripts/linux-credentials-smoke.sh
       - name: Test native GNOME sharing on Ubuntu and Fedora
@@ -58,39 +61,39 @@ jobs:
           for image in work-fold-gnome-acceptance work-fold-gnome-fedora-acceptance; do
             layout=us
             if [ "$image" = work-fold-gnome-fedora-acceptance ]; then layout=de; fi
-            docker run --rm --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+            docker run --rm --init --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
               -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \
               -e WORKFOLD_NATIVE_TEST_SIZE=2880x1800 -e WORKFOLD_NATIVE_TEST_LAYOUT="$layout" \
               -e WORKFOLD_NATIVE_TEST_LIVE_SCALE=1 "$image" \
               bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/acceptance.sh'
-            docker run --rm --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+            docker run --rm --init --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
               -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \
               -e WORKFOLD_NATIVE_TEST_SECOND_MONITOR=2560x1440 "$image" \
               bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/acceptance.sh'
             for transform in 1 2 3; do
-              docker run --rm --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+              docker run --rm --init --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
                 -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 \
                 -e WORKFOLD_NATIVE_TEST_TRANSFORM="$transform" "$image" \
                 bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/acceptance.sh'
             done
-            docker run --rm --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+            docker run --rm --init --user 1000:1000 --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
               -v "$PWD:/work:ro" -e HOME=/tmp/workfold-gnome-home -e WORKFOLD_ISOLATED_GNOME_TEST=1 "$image" \
               bash -euc 'mkdir -p "$HOME"; bash /work/scripts/linux-wayland-probe/desktop-acceptance.sh'
           done
       - name: Test AppImage workflow and unsafe-launch refusal
         run: |
-          docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+          docker run --rm --init --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
             -v "$PWD:/work:ro" work-fold-linux-build \
             runuser -u ubuntu -- dbus-run-session -- xvfb-run -a bash -euc \
             'export APPIMAGE_EXTRACT_AND_RUN=1; node /work/scripts/linux-sandbox-smoke.mjs /work/out/linux/*.AppImage --launcher-fallback; node /work/scripts/linux-installed-smoke.mjs /work/out/linux/*.AppImage /work/out/linux/linux-unpacked/bin/work-fold'
       - name: Test DEB installation and removal
         run: |
-          docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+          docker run --rm --init --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
             -v "$PWD:/work:ro" -e WORKFOLD_CONTAINER_INSTALL_TEST=1 work-fold-linux-build \
             bash -c 'bash /work/scripts/linux-deb-install-smoke.sh /work/out/linux/*.deb'
       - name: Test RPM installation and removal on Fedora
         run: |
-          docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
+          docker run --rm --init --security-opt seccomp=unconfined --security-opt apparmor=work-fold-linux-build \
             -v "$PWD:/work:ro" -e WORKFOLD_CONTAINER_INSTALL_TEST=1 registry.fedoraproject.org/fedora:44 \
             bash -c 'dnf install -y nodejs24-bin xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring && useradd --create-home --uid 1000 smoke && bash /work/scripts/linux-rpm-install-smoke.sh /work/out/linux/*.rpm'
       - name: Save Linux candidate and verification record

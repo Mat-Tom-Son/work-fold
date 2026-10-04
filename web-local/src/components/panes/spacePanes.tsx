@@ -1,9 +1,12 @@
+import { HistoryFileComparison } from "./HistoryFileComparison";
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
@@ -25,8 +28,11 @@ import {
   History16Regular,
   History20Regular,
   MoreHorizontal16Regular,
+  Search16Regular,
 } from "@fluentui/react-icons";
 import { api, apiForm, errorText } from "../../lib/api";
+import { ActivityDot } from "../chrome/ActivityDot";
+import { descendantFolders, folderTreeRows } from "../../lib/folder-nesting";
 import { aggregateChatActivityStatus, chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
 import { shortFolderLocation } from "../../lib/folder-location";
 import { formatChatListTime, formatItemCount } from "../../lib/format";
@@ -77,7 +83,7 @@ export function SpacesPane({
 
   return (
     <div className="space-pane-content spaces-pane professional-surface professional-spaces" ref={paneRef} tabIndex={-1}>
-      <div className="professional-space-actions" aria-label="Add a folder">
+      <div className="professional-space-actions" aria-label="Add a work-folder">
         <button className="professional-space-action" type="button" onClick={onOpenFolder}>
           <span className="professional-space-action-icon" aria-hidden="true"><FolderOpen20Regular /></span>
           <strong>Existing Folder</strong>
@@ -90,7 +96,7 @@ export function SpacesPane({
 
       <section className="space-pane-section professional-section-card">
         <div className="professional-section-heading">
-          <span>Your folders</span>
+          <span>Your work-folders</span>
           <span className="spaces-pane-heading-end">
             <strong>{formatItemCount(spaces.length, "folder")}</strong>
             {onDone ? <button className="spaces-pane-done" type="button" onClick={onDone}>Done</button> : null}
@@ -111,14 +117,14 @@ export function SpacesPane({
                     type="button"
                     onClick={() => onCustomize(item)}
                     aria-label={`Customize ${item.name}`}
-                    title="Customize folder"
+                    title="Customize work-folder"
                   >
                     <span className="space-tab-icon space-identity-icon"><SpaceIconGlyph icon={identity.Icon} size={16} /></span>
                     <span className="space-tab-copy">
                       <strong>{item.name}</strong>
                       {subtitle ? <span title={item.spaceRoot || undefined}>{subtitle}</span> : null}
                     </span>
-                    {active ? <span className="active-dot" aria-label="Active folder"><Checkmark12Regular /></span> : null}
+                    {active ? <span className="active-dot" aria-label="Active work-folder"><Checkmark12Regular /></span> : null}
                   </button>
                   <span className="space-card-actions">
                     {onRemove ? (
@@ -127,7 +133,7 @@ export function SpacesPane({
                         type="button"
                         onClick={() => onRemove(item)}
                         aria-label={`${deletesFolder ? "Delete" : "Remove"} ${item.name}`}
-                        title={deletesFolder ? "Delete Folder" : "Remove folder"}
+                        title={deletesFolder ? "Delete work-folder" : "Remove work-folder"}
                       >
                         <Delete16Regular />
                       </button>
@@ -166,96 +172,104 @@ export function ChatsPane({
 }) {
   const spaceIdentityFor = useSpaceIdentityResolver();
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<ChatLifecycleView>("active");
   const [now, setNow] = useState(() => Date.now());
   const [expandedOtherSpaceIds, setExpandedOtherSpaceIds] = useState<Set<string>>(() => new Set());
+  // Snoozed and Archived are quiet rows at the bottom (2026-10-01), closed
+  // until asked for, instead of a tab bar every visit has to read past.
+  const [openShelves, setOpenShelves] = useState<Set<"snoozed" | "archived">>(() => new Set());
   const normalized = query.trim().toLocaleLowerCase();
-  const orderedSpaces = [space, ...spaces.filter((item) => item.id !== space.id)];
-  const allConversations = Object.values(conversations).flat();
-  const counts = {
-    active: allConversations.filter((chat) => conversationLifecycleView(chat, now) === "active").length,
-    snoozed: allConversations.filter((chat) => conversationLifecycleView(chat, now) === "snoozed").length,
-    archived: allConversations.filter((chat) => conversationLifecycleView(chat, now) === "archived").length,
-  };
+  // The Folders inside this one belong to it here: their Chats sit right
+  // under its own, indented the way the Folder switcher shows them.
+  const nestedRows = useMemo(() => folderTreeRows(descendantFolders(space, spaces)), [space, spaces]);
+  const nestedIds = new Set(nestedRows.map((row) => row.space.id));
+  const orderedSpaces = [space, ...nestedRows.map((row) => row.space), ...spaces.filter((item) => item.id !== space.id && !nestedIds.has(item.id))];
+  const allChats = orderedSpaces.flatMap((item) => (conversations[item.id] ?? []).map((chat) => ({ item, chat })));
+  const shelfChats = (view: "snoozed" | "archived") => allChats.filter(({ chat }) => conversationLifecycleView(chat, now) === view);
 
   useEffect(() => {
-    if (!allConversations.some((chat) => conversationLifecycleView(chat, now) === "snoozed")) return;
+    if (!allChats.some(({ chat }) => conversationLifecycleView(chat, now) === "snoozed")) return;
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
-  }, [allConversations.map((chat) => chat.snoozedUntil ?? "").join("|"), now]);
+  }, [allChats.map(({ chat }) => chat.snoozedUntil ?? "").join("|"), now]);
 
   useEffect(() => {
     setExpandedOtherSpaceIds(new Set());
   }, [space.id]);
 
+  const matchesQuery = (chat: ConversationSummary) => !normalized || chat.title.toLocaleLowerCase().includes(normalized);
+  // While searching, every Chat is fair game, snoozed and archived included.
   function chatsFor(item: SpaceSummary): ConversationSummary[] {
     return (conversations[item.id] ?? []).filter((chat) =>
-      conversationLifecycleView(chat, now) === view
-      && (!normalized || chat.title.toLocaleLowerCase().includes(normalized)));
+      (normalized ? true : conversationLifecycleView(chat, now) === "active") && matchesQuery(chat));
   }
 
-  function toggleOtherSpace(spaceId: string): void {
-    setExpandedOtherSpaceIds((current) => {
+  function toggle<T>(setter: React.Dispatch<React.SetStateAction<Set<T>>>, value: T): void {
+    setter((current) => {
       const next = new Set(current);
-      if (next.has(spaceId)) next.delete(spaceId);
-      else next.add(spaceId);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
       return next;
     });
   }
 
-  function renderChatList(item: SpaceSummary, list: ConversationSummary[], current: boolean): ReactNode {
+  function chatSecondary(chat: ConversationSummary, item: SpaceSummary | null): string {
+    const view = conversationLifecycleView(chat, now);
+    const time = view === "snoozed" && chat.snoozedUntil
+      ? chatSnoozeTimeLabel(chat.snoozedUntil)
+      : view === "archived" && chat.archivedAt
+        ? `Archived ${formatChatListTime(chat.archivedAt)}`
+        : isRecentlyResurfaced(chat, now)
+          ? "Back now"
+          : formatChatListTime(chat.updatedAt);
+    return item ? `${item.name} · ${time}` : time;
+  }
+
+  function renderChatRows(entries: Array<{ item: SpaceSummary; chat: ConversationSummary }>, showFolder: boolean): ReactNode {
+    return entries.map(({ item, chat }) => {
+      const status = activityStatuses[chatActivityKey(item.id, chat.id)];
+      const resurfaced = conversationLifecycleView(chat, now) === "active" && isRecentlyResurfaced(chat, now);
+      return (
+        <div
+          className={[
+            "chat-space-row-shell",
+            chat.id === activeConversationId ? "active" : "",
+            status ? `status-${status}` : "",
+            resurfaced ? "resurfaced" : "",
+          ].filter(Boolean).join(" ")}
+          key={`${item.id}:${chat.id}`}
+          onContextMenu={(event) => { event.preventDefault(); onActions(item, chat, event); }}
+        >
+          <button
+            className="chat-space-row"
+            type="button"
+            aria-current={chat.id === activeConversationId ? "page" : undefined}
+            onClick={() => onOpen(item, chat)}
+          >
+            <span className="chat-space-row-title">{chat.title}</span>
+            <span className="chat-space-row-meta">
+              {status ? <ActivityDot status={status} labeled /> : null}
+              <span className="chat-space-row-time">{chatSecondary(chat, showFolder ? item : null)}</span>
+            </span>
+          </button>
+          <button
+            className="chat-space-row-actions"
+            type="button"
+            aria-label={`Actions for ${chat.title}`}
+            title="Chat actions"
+            onClick={(event) => onActions(item, chat, event)}
+          >
+            <MoreHorizontal16Regular />
+          </button>
+        </div>
+      );
+    });
+  }
+
+  function renderChatList(item: SpaceSummary, list: ConversationSummary[], className: string, emptyText: string | null): ReactNode {
     return (
-      <div className={current ? "chat-space-list chat-space-list-current" : "chat-space-list chat-space-list-other"}>
-        {list.map((chat) => {
-          const status = activityStatuses[chatActivityKey(item.id, chat.id)];
-          const resurfaced = view === "active" && isRecentlyResurfaced(chat, now);
-          const secondary = view === "snoozed" && chat.snoozedUntil
-            ? chatSnoozeTimeLabel(chat.snoozedUntil)
-            : view === "archived" && chat.archivedAt
-              ? `Archived ${formatChatListTime(chat.archivedAt)}`
-              : resurfaced
-                ? "Back now"
-                : formatChatListTime(chat.updatedAt);
-          return (
-            <div
-              className={[
-                "chat-space-row-shell",
-                chat.id === activeConversationId ? "active" : "",
-                status ? `status-${status}` : "",
-                resurfaced ? "resurfaced" : "",
-              ].filter(Boolean).join(" ")}
-              key={chat.id}
-              onContextMenu={(event) => { event.preventDefault(); onActions(item, chat, event); }}
-            >
-              <button
-                className="chat-space-row"
-                type="button"
-                aria-current={chat.id === activeConversationId ? "page" : undefined}
-                onClick={() => onOpen(item, chat)}
-              >
-                <span className="chat-space-row-title">{chat.title}</span>
-                <span className="chat-space-row-meta">
-                  {status ? <ChatActivityIndicator status={status} labeled /> : null}
-                  <span className="chat-space-row-time">{secondary}</span>
-                </span>
-              </button>
-              <button
-                className="chat-space-row-actions"
-                type="button"
-                aria-label={`Actions for ${chat.title}`}
-                title="Chat actions"
-                onClick={(event) => onActions(item, chat, event)}
-              >
-                <MoreHorizontal16Regular />
-              </button>
-            </div>
-          );
-        })}
-        {!list.length ? (
-          <span className="chat-space-empty">
-            {normalized ? `No ${view} Chat titles match` : chatViewEmptyLabel(view)}
-          </span>
-        ) : null}
+      <div className={`chat-space-list ${className}`}>
+        {renderChatRows(list.map((chat) => ({ item, chat })), false)}
+        {!list.length && emptyText ? <span className="chat-space-empty">{emptyText}</span> : null}
       </div>
     );
   }
@@ -263,19 +277,20 @@ export function ChatsPane({
   const currentList = chatsFor(space);
   const currentIdentity = spaceIdentityFor(space, customizations);
   const otherSpaceGroups = spaces
-    .filter((item) => item.id !== space.id)
+    .filter((item) => item.id !== space.id && !nestedIds.has(item.id))
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((item) => {
       const list = chatsFor(item);
       const status = aggregateChatActivityStatus(item.id, conversations[item.id] ?? [], activityStatuses);
       return { item, list, status };
     });
+  const shelves = (["snoozed", "archived"] as const).map((view) => ({ view, entries: shelfChats(view) })).filter((shelf) => shelf.entries.length > 0);
 
   return (
     <div className="space-pane-content chats-pane professional-surface professional-chats">
       <div className="file-tree-toolbar professional-pane-toolbar">
         <label className="file-tree-search">
-          <Chat16Regular />
+          <Search16Regular aria-hidden="true" />
           <input
             type="search"
             value={query}
@@ -292,44 +307,6 @@ export function ChatsPane({
           {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear Chat search" title="Clear Chat search"><Dismiss16Regular /></button> : null}
         </label>
       </div>
-      <div
-        className="chat-lifecycle-tabs"
-        role="tablist"
-        aria-label="Chat view"
-        onKeyDown={(event) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          const views: ChatLifecycleView[] = ["active", "snoozed", "archived"];
-          const currentIndex = views.indexOf(view);
-          const nextIndex = event.key === "Home"
-            ? 0
-            : event.key === "End"
-              ? views.length - 1
-              : event.key === "ArrowRight"
-                ? (currentIndex + 1) % views.length
-                : (currentIndex - 1 + views.length) % views.length;
-          const tablist = event.currentTarget;
-          event.preventDefault();
-          setView(views[nextIndex]!);
-          window.requestAnimationFrame(() => {
-            tablist.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
-          });
-        }}
-      >
-        {(["active", "snoozed", "archived"] as ChatLifecycleView[]).map((item) => (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === item}
-            tabIndex={view === item ? 0 : -1}
-            className={view === item ? "active" : ""}
-            key={item}
-            onClick={() => setView(item)}
-          >
-            <span>{item[0]!.toUpperCase() + item.slice(1)}</span>
-            <small>{counts[item]}</small>
-          </button>
-        ))}
-      </div>
       <div className="chat-space-groups">
         <section className="chat-space-group chat-space-group-current" style={spaceIdentityStyle(currentIdentity)}>
           <div className="chat-space-heading">
@@ -337,17 +314,35 @@ export function ChatsPane({
             <strong>{space.name}</strong>
             <button className="minimal-icon-button" type="button" onClick={() => onNew(space)} aria-label={`New Chat in ${space.name}`} title="New Chat"><Chat16Regular /></button>
           </div>
-          {renderChatList(space, currentList, true)}
+          {renderChatList(space, currentList, "chat-space-list-current", normalized ? null : nestedRows.length ? null : "No Chats yet")}
+          {nestedRows.map(({ space: item, depth }) => {
+            const identity = spaceIdentityFor(item, customizations);
+            const list = chatsFor(item);
+            if (normalized && !list.length) return null;
+            const status = aggregateChatActivityStatus(item.id, conversations[item.id] ?? [], activityStatuses);
+            return (
+              <div className="chat-nested-space" key={item.id} style={{ ...spaceIdentityStyle(identity), "--folder-depth": depth + 1 } as CSSProperties}>
+                <div className="chat-nested-space-heading">
+                  <span className="space-identity-icon chat-other-space-icon" aria-hidden="true"><SpaceIconGlyph icon={identity.Icon} size={13} /></span>
+                  <span className="chat-nested-space-name">{item.name}</span>
+                  {status ? <ActivityDot status={status} /> : null}
+                  <button className="minimal-icon-button" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
+                </div>
+                {list.length ? renderChatList(item, list, "chat-space-list-nested", null) : null}
+              </div>
+            );
+          })}
         </section>
         {otherSpaceGroups.length ? (
-          <section className="chat-other-spaces" aria-label="Chats in other folders">
+          <section className="chat-other-spaces" aria-label="Chats in other work-folders">
             <div className="chat-other-spaces-heading">
-              <span>Other folders</span>
+              <span>Other work-folders</span>
               <small>{otherSpaceGroups.length}</small>
             </div>
             {otherSpaceGroups.map(({ item, list, status }) => {
               const identity = spaceIdentityFor(item, customizations);
               const expanded = Boolean(normalized) || expandedOtherSpaceIds.has(item.id);
+              if (normalized && !list.length) return null;
               return (
                 <div className={expanded ? "chat-other-space expanded" : "chat-other-space"} key={item.id} style={spaceIdentityStyle(identity)}>
                   <div className="chat-other-space-header">
@@ -358,17 +353,40 @@ export function ChatsPane({
                       aria-label={`${expanded ? "Hide" : "Show"} chats in ${item.name}`}
                       aria-expanded={expanded}
                       aria-controls={`chat-other-space-${item.id}`}
-                      onClick={() => toggleOtherSpace(item.id)}
+                      onClick={() => toggle(setExpandedOtherSpaceIds, item.id)}
                     >
                       <span className="space-identity-icon chat-other-space-icon" aria-hidden="true"><SpaceIconGlyph icon={identity.Icon} size={14} /></span>
                       <span>{item.name}</span>
-                      {status ? <ChatActivityIndicator status={status} /> : null}
+                      {status ? <ActivityDot status={status} /> : null}
                       <small>{list.length}</small>
                       <ChevronRight16Regular aria-hidden="true" />
                     </button>
                     <button className="minimal-icon-button" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
                   </div>
-                  {expanded ? <div id={`chat-other-space-${item.id}`}>{renderChatList(item, list, false)}</div> : null}
+                  {expanded ? <div id={`chat-other-space-${item.id}`}>{renderChatList(item, list, "chat-space-list-other", "No Chats yet")}</div> : null}
+                </div>
+              );
+            })}
+          </section>
+        ) : null}
+        {!normalized && shelves.length ? (
+          <section className="chat-shelves" aria-label="Snoozed and archived Chats">
+            {shelves.map(({ view, entries }) => {
+              const open = openShelves.has(view);
+              return (
+                <div className={open ? "chat-shelf open" : "chat-shelf"} key={view}>
+                  <button
+                    className="chat-shelf-toggle"
+                    type="button"
+                    aria-expanded={open}
+                    aria-controls={`chat-shelf-${view}`}
+                    onClick={() => toggle(setOpenShelves, view)}
+                  >
+                    <span>{view === "snoozed" ? "Snoozed" : "Archived"}</span>
+                    <small>{entries.length}</small>
+                    <ChevronRight16Regular aria-hidden="true" />
+                  </button>
+                  {open ? <div className="chat-space-list chat-shelf-list" id={`chat-shelf-${view}`}>{renderChatRows(entries, true)}</div> : null}
                 </div>
               );
             })}
@@ -378,29 +396,12 @@ export function ChatsPane({
           spaces={orderedSpaces}
           conversations={conversations}
           query={query}
-          view={view}
           now={now}
           onOpen={onOpen}
         />
       </div>
     </div>
   );
-}
-
-function ChatActivityIndicator({ status, labeled = false }: { status: ChatActivityStatus; labeled?: boolean }) {
-  const label = status === "running" ? "Working" : "New reply";
-  return (
-    <span className={`chat-activity-indicator ${status}${labeled ? " labeled" : ""}`} role="status">
-      <span className="chat-activity-dot" aria-hidden="true" />
-      <span className={labeled ? "chat-activity-label" : "sr-only"}>{label}</span>
-    </span>
-  );
-}
-
-function chatViewEmptyLabel(view: ChatLifecycleView): string {
-  if (view === "snoozed") return "No snoozed Chats";
-  if (view === "archived") return "No archived Chats";
-  return "No active Chats yet";
 }
 
 interface HistoryRestorePreview {
@@ -429,6 +430,9 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   const [preview, setPreview] = useState<HistoryRestorePreview | null>(null);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [previewError, setPreviewError] = useState("");
+  const [comparisonPath, setComparisonPath] = useState("");
+  const [pathInput, setPathInput] = useState("");
+  useEffect(() => { setComparisonPath(""); setPathInput(""); }, [space.id, selectedCheckpointId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -496,6 +500,11 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
       {notice ? <p role="status">{notice}</p> : null}
       {previewError ? <p role="alert">{previewError}</p> : null}
       {!preview && !previewError ? <p role="status">Inspecting current files…</p> : null}
+      {!fixtureItems ? <form className="history-file-picker" onSubmit={(event) => { event.preventDefault(); setComparisonPath(pathInput.trim()); }}>
+        <label>Compare a file <input aria-label="File path to compare" placeholder="notes.txt" value={pathInput} onChange={(event) => setPathInput(event.target.value)} /></label>
+        <button className="professional-button professional-button-secondary" type="submit" disabled={!pathInput.trim()}>Compare with current file</button>
+      </form> : null}
+      {comparisonPath && !fixtureItems ? <HistoryFileComparison spaceId={space.id} path={comparisonPath} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} /> : null}
       {preview ? <>
         {preview.conflicts.map((conflict) => <p role="alert" key={conflict}>{conflict}</p>)}
         {([ ["Restore files", preview.restoreFiles], ["Remove paths", preview.removePaths],
@@ -504,7 +513,7 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
           ["Current content outside History coverage", preview.uncoveredPaths],
         ] as Array<[string, string[]]>).map(([title, paths]) => <section key={title}>
           <h2>{title} · {paths.length}</h2>
-          {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul> : <p>None</p>}
+          {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code>{(title === "Restore files" || title === "Remove paths") && !fixtureItems ? <button className="professional-button professional-button-secondary" type="button" onClick={() => { setPathInput(path); setComparisonPath(path); }}>Compare</button> : null}</li>)}</ul> : <p>None</p>}
         </section>)}
         <button className="professional-button professional-button-primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0 || (preview.restoreFiles.length + preview.removePaths.length + preview.moves.length === 0)} onClick={() => selected && void restore(selected)}>
           {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo these changes" : "Restore these files"}

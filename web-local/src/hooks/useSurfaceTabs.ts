@@ -156,12 +156,6 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openAppearanceSurfaceTab(targetSpace: SpaceSummary): void {
-    const tab = appearanceSurfaceTab(targetSpace);
-    setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
-    setActiveSurfaceTabId(tab.id);
-  }
-
   function openAppStudioSurfaceTab(targetSpace: SpaceSummary): void {
     const tab = appStudioSurfaceTab(targetSpace);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
@@ -296,7 +290,6 @@ export function useSurfaceTabs({
     openChatSurfaceTab,
     openHistorySurfaceTab,
     openFileSurfaceTab,
-    openAppearanceSurfaceTab,
     openAppStudioSurfaceTab,
     openChecksSurfaceTab,
     openSpaceAutomationsSurfaceTab,
@@ -405,14 +398,6 @@ function normalizeStoredSurfaceTab(value: unknown): SpaceSurfaceTab | null {
       title: record.title,
     };
   }
-  if (record.kind === "appearance") {
-    return {
-      id: record.id,
-      kind: "appearance",
-      spaceId: record.spaceId,
-      title: record.title,
-    };
-  }
   if (record.kind === "app-studio") {
     return {
       id: `app-studio:${record.spaceId}`,
@@ -481,17 +466,8 @@ function restoreStoredSurfaceTabsForSpaces(state: SurfaceTabsState, spaces: Spac
 }
 
 function filterSurfaceTabsToSpaces(tabs: SpaceSurfaceTab[], spaces: SpaceSummary[]): SpaceSurfaceTab[] {
-  const spacesById = new Map(spaces.map((item) => [item.id, item]));
-  return tabs.reduce<SpaceSurfaceTab[]>((next, tab) => {
-    const owningSpace = spacesById.get(tab.spaceId);
-    if (!owningSpace) return next;
-    if (tab.kind !== "appearance") next.push(tab);
-    else {
-      const title = `Customize ${owningSpace.name}`;
-      next.push(tab.title === title ? tab : { ...tab, title });
-    }
-    return next;
-  }, []);
+  const spaceIds = new Set(spaces.map((item) => item.id));
+  return tabs.filter((tab) => spaceIds.has(tab.spaceId));
 }
 
 function normalizeActiveSurfaceTab(state: SurfaceTabsState): SurfaceTabsState {
@@ -593,15 +569,6 @@ function fileSurfaceTabId(spaceId: string): string {
 
 function fileSurfaceTitle(path: string): string {
   return path.split("/").pop() || path;
-}
-
-function appearanceSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
-  return {
-    id: `appearance:${space.id}`,
-    kind: "appearance",
-    spaceId: space.id,
-    title: `Customize ${space.name}`,
-  };
 }
 
 export function appStudioSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {

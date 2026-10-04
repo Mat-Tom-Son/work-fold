@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { parseTurnFileChanges, type WorkFoldTurnFileChanges } from "./turn-file-changes.js";
 
 export const workFoldTurnRecordSchema = "work-fold.turn.v1" as const;
+/** Recent terminal outcomes retained in addition to every unfinished turn. */
 export const maxDurableTurnRecords = 1_000;
 export const maxDurableTurnTextChars = 2_000_000;
 const turnJournalCompactBytes = 16 * 1024 * 1024;
@@ -55,6 +56,7 @@ export interface WorkFoldDurableTurnRecord {
 export interface WorkFoldTurnStoreOptions {
   stateRoot: string;
   now?: () => Date;
+  /** Maximum terminal records; accepted and running turns are never evicted. */
   maxRecords?: number;
   compactBytes?: number;
 }
@@ -247,7 +249,6 @@ export class WorkFoldTurnStore {
         throw new Error("work-fold could not read the durable turn journal.", { cause: error });
       }
     }
-    this.#trimMemory();
     await this.#compactIfNeeded(true);
   }
 
@@ -257,9 +258,11 @@ export class WorkFoldTurnStore {
   }
 
   async #compactIfNeeded(forceRepair: boolean): Promise<void> {
+    // Bound terminal history on every write, even below the disk-compaction
+    // threshold. Loading calls this only after replaying every record's state.
+    this.#trimMemory();
     const info = await stat(this.path).catch(() => null);
     if (!info || (!forceRepair && info.size <= this.#compactBytes)) return;
-    this.#trimMemory();
     const records = [...this.#records.values()].sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
     const tempPath = `${this.path}.tmp-${randomUUID()}`;
     await writeFile(tempPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length ? "\n" : ""), {
@@ -278,10 +281,16 @@ export class WorkFoldTurnStore {
 
   #trimMemory(): void {
     if (this.#records.size <= this.#maxRecords) return;
-    const records = [...this.#records.values()].sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+    // An unfinished turn still owns its acceptance, checkpoint, and replay
+    // identity. Only terminal outcomes compete for the history allowance.
+    const records = [...this.#records.values()]
+      .filter((record) => record.status !== "accepted" && record.status !== "running")
+      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
     for (const record of records.slice(0, Math.max(0, records.length - this.#maxRecords))) {
       this.#records.delete(record.turnId);
-      this.#requests.delete(requestKey(record.spaceId, record.conversationId, record.requestId));
+      const key = requestKey(record.spaceId, record.conversationId, record.requestId);
+      // An expired request may have a newer acceptance later in the journal.
+      if (this.#requests.get(key) === record.turnId) this.#requests.delete(key);
     }
   }
 }

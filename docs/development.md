@@ -150,8 +150,8 @@ repository instruction source.
 - `npm test` runs the application suite. While editing, run a focused file with
   `node --import tsx --test tests/documentation-contract.test.ts`, substituting
   the relevant test file. Use the full suite before handing off behavior changes.
-  CI divides the same discovered test files into four disjoint shards; reproduce
-  one with `npm test -- --shard=1/4` (through `4/4`). Every file belongs to exactly
+  The runner can divide the discovered test files into four disjoint shards;
+  run one with `npm test -- --shard=1/4` (through `4/4`). Every file belongs to exactly
   one shard; an unsharded `npm test` still runs everything.
 - `npm ci --prefix services/bridge` and `npm test --prefix services/bridge` run
   the bridge suite. It uses an in-memory test database; a live PostgreSQL server
@@ -160,11 +160,10 @@ repository instruction source.
   preloads, and the real restricted-app sandbox. After a compiled native change,
   `npm run desktop:restricted-app:smoke` is the focused sandbox probe.
 
-Full CI runs in the background on PRs and pushed `main` with seven jobs:
-Repository & TypeScript, four Application tests shards, Web bridge tests, and
-Electron integration. Version tags run only `Release tag verification`, which
-checks the annotated tag, package version, and canonical source identity. It
-does not repeat dependency installation or tests, or wait for main CI.
+GitHub Actions is disabled in the canonical source repository as of September
+30, 2026. Pushes, PRs, and release tags do not run remote checks. The checked-in
+CI and source-tag workflows remain dormant diagnostics; use local verification
+and do not re-enable Actions unless explicitly requested.
 
 Public Mac releases use `npm run desktop:release:mac:check` on the final clean,
 committed release SHA with Node 24, supported npm, and Google Chrome on an
@@ -226,3 +225,30 @@ Loading conventions verified against [Codex instructions](https://developers.ope
 [Claude memory](https://code.claude.com/docs/en/memory#agentsmd), and
 [Claude Skills](https://code.claude.com/docs/en/skills#where-skills-live).
 Repository behavior remains defined by `AGENTS.md`.
+
+
+## Focused harness evaluation
+
+Before proposing a new runtime layer, exercise ordinary content work with the
+existing real-Pi driver in disposable Folders. Keep app state, Pi resources and
+reference fixtures separate as above; an isolated profile is not an OS sandbox.
+The installed CLI addresses its running desktop host, so do not accidentally point
+a development Worker at production management commands. Tests needing that lane
+must supply a matching development broker/host. `work-fold:drive` alone does not
+start the installed desktop's CLI broker.
+
+Useful repeatable cases are narrow edits across prose and a guide with unrelated
+bytes held out; CSV reconciliation with duplicates, refunds and separate currencies;
+a small code repair against independent inputs; and a fresh-Chat comparison of a
+saved file with current bytes. Seed known before/after files and keep expected outputs
+outside model context. Check final claims as well as file bytes: a correct calculation
+can still have an incorrect explanation. Record model, reasoning level, instructions,
+resources and starting bytes, and change one factor at a time. Tool counts are
+observations, not pass criteria. Keep live-provider results separate from deterministic
+regressions and do not report one run as a measured success rate.
+
+The deterministic harness coverage now includes `local-history-review`,
+`work-fold-history-review-adapters`, `conversation-context-office`, `chat-presentation`,
+`history-comparison-ui`, `history-comparison-keyboard`, and `work-fold-turn-store`
+test files. They cover scope, completeness, persistence and UI behavior without
+requiring a paid model or production user data.

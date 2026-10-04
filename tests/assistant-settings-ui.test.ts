@@ -23,9 +23,9 @@ interface Request {
   body: Record<string, unknown> | null;
   finish: (body: unknown, status?: number) => void;
 }
-/** The model the list currently shows as chosen. */
+/** The model the closed dropdown currently shows as chosen. */
 function selectedModel(dom: { container: HTMLElement }): string | undefined {
-  return dom.container.querySelector('#assistant-model [role="option"][aria-selected="true"]')?.getAttribute("data-model-id") ?? undefined;
+  return dom.container.querySelector('#assistant-model[aria-haspopup="listbox"]')?.getAttribute("data-model-id") || undefined;
 }
 
 async function setup(t: TestContext) {
@@ -54,16 +54,19 @@ async function setup(t: TestContext) {
     return dom.render(strict ? createElement(StrictMode, null, component) : component);
   };
   const finish = async (request: Request, body: unknown, responseStatus = 200) => { await dom.act(async () => { request.finish(body, responseStatus); }); };
-  const select = async (selector: string, value: string) => { await dom.act(() => {
+  const select = async (selector: string, value: string) => {
     const field = dom.container.querySelector<HTMLElement>(selector)!;
-    if (field.getAttribute("role") === "listbox") {
-      // The model list (2026-09-25): options are buttons that carry their model id.
-      field.querySelector<HTMLButtonElement>(`[role="option"][data-model-id="${value}"]`)!.click();
+    if (field.getAttribute("aria-haspopup") === "listbox") {
+      // The model dropdown (2026-09-27): open it, then pick the option that carries the model id.
+      if (field.getAttribute("aria-expanded") !== "true") await dom.act(() => field.click());
+      await dom.act(() => dom.container.querySelector<HTMLButtonElement>(`[role="option"][data-model-id="${value}"]`)!.click());
       return;
     }
-    (field as HTMLSelectElement).value = value;
-    field.dispatchEvent(new Event("change", { bubbles: true }));
-  }); };
+    await dom.act(() => {
+      (field as HTMLSelectElement).value = value;
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  };
   const type = async (selector: string, value: string) => { await dom.act(() => {
     const field = dom.container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
     const prototype = field.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
@@ -196,6 +199,53 @@ test("saved credentials are readable status, with separate explicit connection a
   assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Worker Instructions"]);
 });
 
+
+test("Azure setup starts with user-entered deployments, accepts multiple names, and preserves failed edits", async (t) => {
+  const ui = await setup(t);
+  const azureStatus = { ...status, configured: false, provider: "azure-openai-responses", model: null };
+  const azureModels = [{ ...models[0]!, provider: "azure-openai-responses", providerName: "Azure OpenAI", id: "catalog-model", name: "Catalog model", authConfigured: false }];
+  await ui.render(space("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ status: azureStatus, models: azureModels, azure: { baseUrl: "", deployments: [] } }));
+  assert.equal(ui.dom.container.querySelector("#assistant-model"), null, "no catalog model is required");
+  assert.equal(ui.button("Save Azure settings").disabled, true);
+  await ui.type("#assistant-azure-endpoint", "https://example.cognitiveservices.azure.com/openai/responses?api-version=2025-04-01-preview");
+  await ui.type("#assistant-api-key", "synthetic-key");
+  await ui.type("#assistant-azure-deployments", "team=wrong");
+  await ui.submit("connection");
+  assert.match(ui.dom.container.querySelector('[role="alert"]')!.textContent!, /Use deployment names/);
+  assert.equal(ui.requests.filter((request) => request.path === "/api/agent/configure").length, 0);
+  await ui.type("#assistant-azure-deployments", "my-deployment, fast\nthird");
+  await ui.select("#assistant-azure-selected", "fast");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "synthetic-key");
+  await ui.submit("connection", true);
+  const write = ui.requests.at(-1)!;
+  const azure = { baseUrl: "https://example.cognitiveservices.azure.com/openai/v1", deployments: ["my-deployment", "fast", "third"] };
+  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "azure-openai-responses", model: "fast", apiKey: "synthetic-key", azure });
+  assert.equal(ui.requests.filter((request) => request.path === "/api/agent/configure").length, 1);
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-azure-endpoint")?.disabled, true);
+  const savedStatus = { ...azureStatus, configured: true, model: "fast" };
+  const savedModels = azure.deployments.map((id) => ({ ...azureModels[0]!, id, name: id, authConfigured: true, authSource: "stored", authType: "api_key" }));
+  await ui.finish(write, { status: savedStatus, azure, models: savedModels });
+  assert.match(ui.dom.container.textContent!, /Azure settings saved/);
+  assert.match(ui.dom.container.textContent!, /connection has not been tested/);
+  assert.equal(ui.button("Save Azure settings").disabled, true);
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "");
+  await ui.type("#assistant-azure-endpoint", "https://new.openai.azure.com");
+  await ui.hint();
+  await ui.finish(ui.requests.at(-1)!, modelResponse({ status: savedStatus, models: savedModels, azure: { ...azure, baseUrl: "https://external.openai.azure.com" } }));
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-azure-endpoint")?.value, "https://new.openai.azure.com");
+  assert.match(ui.dom.container.textContent!, /Saved settings have changed/);
+  await ui.submit("connection");
+  assert.equal(ui.requests.at(-1)!.body.apiKey, undefined, "edits keep the existing key");
+  await ui.finish(ui.requests.at(-1)!, { error: "An Assistant turn is still running." }, 409);
+  assert.match(ui.dom.container.querySelector('[role="alert"]')!.textContent!, /still running/);
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-azure-endpoint")?.value, "https://new.openai.azure.com");
+  await ui.type("#assistant-azure-deployments", "my-deployment");
+  assert.equal(ui.dom.container.querySelector("#assistant-azure-selected"), null);
+  await ui.submit("connection");
+  assert.equal(ui.requests.at(-1)!.body.model, "my-deployment", "removing the selected name selects the remaining deployment");
+  await ui.finish(ui.requests.at(-1)!, { status: { ...savedStatus, model: "my-deployment" }, azure: { ...azure, baseUrl: "https://new.openai.azure.com/openai/v1", deployments: ["my-deployment"] }, models: [savedModels[0]] });
+});
 
 test("outside settings changes refresh clean forms without replacing unsaved drafts", async (t) => {
   const ui = await setup(t);

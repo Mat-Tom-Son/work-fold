@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type * as React from "react";
 import {
   ArrowClockwise20Regular,
+  ArrowLeft20Regular,
   Checkmark16Regular,
   Dismiss20Regular,
   Apps20Regular,
@@ -58,7 +59,7 @@ export function settingsTabForPage(page: SettingsPage, section?: FoldSettingsSec
   return page;
 }
 
-export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, focusAssistantInstructions = false, onAgentConfigured, onAssistantChanged, onClose, onBackToCustomization, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
   onCustomizeSpace?: (spaceId: string) => void;
   space: SpaceSummary | null;
@@ -76,9 +77,11 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
   initialSection?: FoldSettingsSection;
   initialAssistantScope?: AssistantModelScope;
   focusAssistantModel?: boolean;
+  focusAssistantInstructions?: boolean;
   onAgentConfigured: (status: AgentStatus) => void;
   onAssistantChanged?: (scope: AssistantModelScope, status: AgentStatus) => void;
   onClose: () => void;
+  onBackToCustomization?: () => void;
   updateStatus: DesktopUpdateStatus | null;
   onUpdateAction?: () => void;
 }) {
@@ -167,6 +170,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
       <section ref={dialogRef} tabIndex={-1} className="settings-modal settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title settings-title">
           <div className="settings-title-copy">
+            {onBackToCustomization ? <button className="minimal-icon-button settings-customization-back" type="button" onClick={onBackToCustomization} aria-label="Back to Customize work-folder" title="Back to Customize work-folder"><ArrowLeft20Regular /></button> : null}
             <div><h2 id="settings-title">Settings</h2></div>
           </div>
           <button ref={closeRef} className="minimal-icon-button settings-close-button" type="button" onClick={onClose} aria-label="Close settings"><Dismiss20Regular /></button>
@@ -198,7 +202,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
             ) : null}
             {page === "assistant" || assistantVisited ? (
               <div hidden={page !== "assistant"} className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                <AssistantSetupPane active={page === "assistant"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
+                <AssistantSetupPane active={page === "assistant"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} focusInstructionsOnOpen={focusAssistantInstructions} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
               </div>
             ) : null}
             {page === "web-access" ? (

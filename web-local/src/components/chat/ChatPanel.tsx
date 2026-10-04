@@ -1,3 +1,6 @@
+import { surfaceDomIdSuffix } from "../../lib/space-ui";
+import { FolderMentionMenu, type MentionFolderOption } from "./FolderMentionMenu";
+import { activeFolderMention, addressedFolderIds, insertFolderMention, matchingMentionFolders } from "../../lib/folder-mentions";
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useWorkRequest } from "../../hooks/useWorkRequest";
@@ -21,7 +24,6 @@ import {
   chatDraftStorageKey,
   clearStoredChatDraft,
   clearStoredPendingChatSend,
-  formatBytes,
   latestTranscriptTime,
   modelConversationTitle,
   readStoredChatDraft,
@@ -30,14 +32,16 @@ import {
   writeStoredPendingChatSend,
 } from "../../lib/format";
 import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHasNewAssistantMessage } from "../../lib/chat-turn-artifacts";
+import { assistantTurnView } from "../../lib/chat-work-trail";
+import type { AssistantPresentation } from "../../../../src/shared/chat-presentation";
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
 import { spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
 import type { AgentCatalog, AgentCommand, AgentModel, AgentStatus, AssistantComposerState, ChatContextPathRequest,
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
 import { ExtensionQuestions } from "./ExtensionQuestions";
+import { AttachmentChip } from "./AttachmentChip";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
-import { FileTypeIcon } from "../tree/FileTree";
 import { RuntimeContextPreview } from "./activity";
 import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
 import { ChatMessageRow, MarkdownMessage, copyMarkdownToClipboard } from "./messages";
@@ -93,6 +97,8 @@ function clientTurnIdentity(prefix: "request" | "message" | "chat"): string {
   return `${prefix}-${value}`;
 }
 
+const emptyMentionFolders: readonly MentionFolderOption[] = [];
+
 export function ChatPanel({
   surfaceTabId,
   space,
@@ -120,6 +126,7 @@ export function ChatPanel({
   fixtureMode = false,
   fixtureConversations,
   fixtureTreeEntries = emptyFixtureTreeEntries,
+  mentionFolders = emptyMentionFolders,
 }: {
   surfaceTabId: string;
   space: SpaceSummary;
@@ -147,6 +154,8 @@ export function ChatPanel({
   fixtureMode?: boolean;
   fixtureConversations?: SpaceFixtureConversation[];
   fixtureTreeEntries?: TreeEntry[];
+  /** Workers this composer can address with @ (2026-10-01), nested Folders first. */
+  mentionFolders?: readonly MentionFolderOption[];
 }) {
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
   const workState = useWorkRequest(!fixtureMode && conversation ? `/api/spaces/${encodeURIComponent(space.id)}/conversations/${encodeURIComponent(conversation.id)}/work` : null);
@@ -172,16 +181,22 @@ export function ChatPanel({
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
   const [streamingAssistant, setStreamingAssistant] = useState("");
+  const [streamingPresentation, setStreamingPresentation] = useState<{ text: string; metadata?: AssistantPresentation }>({ text: "" });
+  const [previewTruncated, setPreviewTruncated] = useState(false);
+  const pendingTextOrderRef = useRef<number | undefined>(undefined);
+  const activeStreamTurnIdRef = useRef<string | null>(null);
   const [runtimePreviews, setRuntimePreviews] = useState<RuntimePreviewEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [contextAttachments, setContextAttachments] = useState<ContextAttachment[]>([]);
   const [attachingPath, setAttachingPath] = useState<string | null>(null);
-  const [activeContextPath, setActiveContextPath] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [commands, setCommands] = useState<AgentCommand[]>([]);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const [dismissedCommandDraft, setDismissedCommandDraft] = useState<string | null>(null);
+  const [composerCaret, setComposerCaret] = useState(0);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [configuredAssistant, setConfiguredAssistant] = useState<AgentStatus | null>(null);
   const [assistantComposer, setAssistantComposer] = useState<AssistantComposerState | null>(null);
@@ -274,6 +289,15 @@ export function ChatPanel({
   const commandMenuOpen = commandQuery !== null
     && dismissedCommandDraft !== draft
     && commandSuggestions.length > 0;
+  const activeMention = useMemo(() => mentionFolders.length ? activeFolderMention(draft, composerCaret) : null, [composerCaret, draft, mentionFolders.length]);
+  const mentionSuggestions = useMemo(
+    () => activeMention ? matchingMentionFolders(mentionFolders, activeMention.query) : [],
+    [activeMention, mentionFolders],
+  );
+  const mentionKey = activeMention ? `${activeMention.start}:${draft}` : null;
+  const mentionMenuOpen = !commandMenuOpen && mentionSuggestions.length > 0 && mentionKey !== dismissedMentionKey;
+  const mentionMenuId = `composer-mentions-${surfaceDomIdSuffix(surfaceTabId)}`;
+  useEffect(() => { setActiveMentionIndex(0); }, [activeMention?.start, activeMention?.query]);
   const composerModelPicker: ComposerModelPickerProps = {
     spaceId: space.id,
     fixtureMode,
@@ -461,22 +485,23 @@ export function ChatPanel({
     const fixtureConversationSummaryValue = fixtureConversation ? fixtureConversationSummary(fixtureConversation) : null;
     const fixtureRunning = fixtureConversation?.running ?? fixtureAgentRunning();
     setError(null);
-    const fixturePreviews = fixtureConversation?.runtimePreviews ?? fixtureRuntimePreviews();
+    // `?agentEvents=1` previews the live steps strip and wins over a Chat's own
+    // saved trail; while it runs, no reply text is shown so the rows stay open.
+    const eventPreviews = fixtureRuntimePreviews();
+    const fixturePreviews = eventPreviews.length ? eventPreviews : fixtureConversation?.runtimePreviews ?? [];
     commitConversations((fixtureConversations ?? []).map(fixtureConversationSummary));
     if (fixtureConversation && fixtureConversationSummaryValue) {
       setConversation(fixtureConversationSummaryValue);
       onConversationActivated?.(fixtureConversationSummaryValue);
       setMessages(fixtureConversation.messages.filter((message) => message.role !== "system"));
-      setStreamingAssistant(fixtureConversation.streamingAssistant ?? (fixtureRunning ? "I’m reading the selected files and checking the generated outputs now." : ""));
+      setStreamingAssistant(fixtureConversation.streamingAssistant ?? (fixtureRunning && !eventPreviews.length ? "I’m reading the selected files and checking the generated outputs now." : ""));
       setContextAttachments(fixtureConversation.contextAttachments ?? []);
-      setActiveContextPath(null);
     } else {
       setConversation(null);
       onConversationActivated?.(null);
       setMessages([]);
       setStreamingAssistant("");
       setContextAttachments([]);
-      setActiveContextPath(null);
     }
     setRunning(fixtureRunning);
     setRuntimePreviews(fixturePreviews);
@@ -496,7 +521,6 @@ export function ChatPanel({
       clearRuntimePreviews();
       cancelStreamingFlush();
       setContextAttachments([]);
-      setActiveContextPath(null);
       userPinnedToBottomRef.current = true;
       setUserPinnedToBottom(true);
       onConversationActivated?.(null);
@@ -563,10 +587,14 @@ export function ChatPanel({
     };
     source.onmessage = (event) => {
       const data = JSON.parse(event.data) as ChatStreamEvent;
+      if (data.conversationId !== conversationId) return;
+      const turnFrame = data.type === "turn_state" || data.type === "turn_snapshot";
+      if (!turnFrame && data.turnId && activeStreamTurnIdRef.current && data.turnId !== activeStreamTurnIdRef.current) return;
       if (data.type === "turn_state" || data.type === "turn_snapshot") {
         const sendTransitioning = pendingSendRef.current?.conversation.id === conversationId
           || postingPendingSendRef.current;
-        const startingTurn = data.running === true && (!runningRef.current || settlingTurnRef.current);
+        const startingTurn = data.running === true && (!runningRef.current || settlingTurnRef.current
+          || Boolean(data.turnId && activeStreamTurnIdRef.current && data.turnId !== activeStreamTurnIdRef.current));
         if (startingTurn) {
           // An answer or CLI message can start a turn without this composer's
           // send path. Retire the last reply and any older transcript request.
@@ -578,9 +606,21 @@ export function ChatPanel({
           resetTurnArtifactTracking();
           if (!sendTransitioning) void loadMessages(conversationId, false).catch(() => undefined);
         }
+        if (data.running && data.turnId) activeStreamTurnIdRef.current = data.turnId;
         if (data.type === "turn_snapshot" && typeof data.text === "string" && data.running === true) {
-          flushStreamingText();
-          setStreamingAssistant(data.text);
+          // This frame replaces state at its cursor. Replaying it must not
+          // append an older row or restart a thinking timer.
+          cancelStreamingFlush();
+          const snapshot = data.presentation;
+          const text = snapshot?.text ?? data.text;
+          setStreamingAssistant(text);
+          setStreamingPresentation({ text, metadata: snapshot?.assistantPresentation });
+          pendingTextOrderRef.current = undefined;
+          setPreviewTruncated(snapshot?.truncated === true);
+          if (snapshot) {
+            setRuntimePreviews(snapshot.workTrail);
+            activeThinkingPreviewIdRef.current = [...snapshot.workTrail].reverse().find((entry) => entry.kind === "thinking" && ["running", "streaming"].includes(entry.phase ?? ""))?.id ?? null;
+          }
         }
         const decision = observeChatTurnState(turnStateGate, data.running === true, sendTransitioning);
         if (decision === "running") {
@@ -601,15 +641,17 @@ export function ChatPanel({
       }
       if (data.type === "tool") {
         beginTurnArtifactTracking();
-        const toolPreviewId = data.toolCallId?.trim()
+        const toolPreviewId = data.workTrailId ?? (data.toolCallId?.trim()
           ? `tool-${data.toolCallId.trim()}`
-          : `tool-${++runtimePreviewIdRef.current}`;
+          : `tool-${++runtimePreviewIdRef.current}`);
         addRuntimePreview({
           id: toolPreviewId,
           kind: "tool",
           text: data.message?.trim() || data.toolName?.trim() || "Assistant tool",
           ...(data.detail?.trim() ? { detail: data.detail.trim() } : {}),
           ...(data.toolName?.trim() ? { toolName: data.toolName.trim() } : {}),
+          ...(data.order !== undefined ? { order: data.order } : {}),
+          ...(data.edit ? { edit: data.edit } : {}),
           phase: data.phase ?? "running",
         });
       }
@@ -617,20 +659,23 @@ export function ChatPanel({
         beginTurnArtifactTracking();
         runningRef.current = true;
         setRunning(true);
-        if (data.thinkingPhase === "start") startThinkingPreview();
-        if (data.text) appendThinkingPreview(data.text);
-        if (data.thinkingPhase === "end") finishThinkingPreview();
+        if (data.thinkingPhase === "start") startThinkingPreview(data);
+        if (data.text) appendThinkingPreview(data.text, data);
+        if (data.thinkingPhase === "end") finishThinkingPreview(data);
       }
       if (data.type === "assistant_delta" && data.text) {
         beginTurnArtifactTracking();
         runningRef.current = true;
         setRunning(true);
+        pendingTextOrderRef.current = data.order;
         queueStreamingText(data.text);
       }
       if (data.type === "assistant_message" && typeof data.text === "string") {
         beginTurnArtifactTracking();
         flushStreamingText();
         setStreamingAssistant(data.text);
+        setStreamingPresentation({ text: data.text, metadata: data.assistantPresentation });
+        pendingTextOrderRef.current = undefined;
       }
       if (data.type === "extension_ui_request" && data.request) {
         if (data.request.method === "notify") {
@@ -763,21 +808,23 @@ export function ChatPanel({
     });
   }
 
-  function startThinkingPreview() {
-    const id = `thinking-${++runtimePreviewIdRef.current}`;
+  function startThinkingPreview(event?: ChatStreamEvent) {
+    const id = event?.workTrailId ?? `thinking-${++runtimePreviewIdRef.current}`;
     activeThinkingPreviewIdRef.current = id;
     addRuntimePreview({
       id,
       kind: "thinking",
       text: "",
       phase: "streaming",
+      startedAt: event?.startedAt ?? Date.now(),
+      ...(event?.order !== undefined ? { order: event.order } : {}),
     });
   }
 
-  function appendThinkingPreview(text: string) {
-    let id = activeThinkingPreviewIdRef.current;
+  function appendThinkingPreview(text: string, event?: ChatStreamEvent) {
+    let id = event?.workTrailId ?? activeThinkingPreviewIdRef.current;
     if (!id) {
-      startThinkingPreview();
+      startThinkingPreview(event);
       id = activeThinkingPreviewIdRef.current;
     }
     if (!id) return;
@@ -788,13 +835,14 @@ export function ChatPanel({
     )));
   }
 
-  function finishThinkingPreview() {
-    const id = activeThinkingPreviewIdRef.current;
+  function finishThinkingPreview(event?: ChatStreamEvent) {
+    const id = event?.workTrailId ?? activeThinkingPreviewIdRef.current;
     if (!id) return;
     activeThinkingPreviewIdRef.current = null;
+    const endedAt = Date.now();
     setRuntimePreviews((current) => current.map((entry) => (
       entry.id === id
-        ? { ...entry, phase: "complete" }
+        ? { ...entry, phase: "complete", ...(event?.durationMs !== undefined ? { durationMs: event.durationMs } : entry.startedAt ? { durationMs: Math.max(0, endedAt - entry.startedAt) } : {}) }
         : entry
     )));
   }
@@ -802,6 +850,10 @@ export function ChatPanel({
   function clearRuntimePreviews() {
     activeThinkingPreviewIdRef.current = null;
     setRuntimePreviews([]);
+    setStreamingPresentation({ text: "" });
+    pendingTextOrderRef.current = undefined;
+    activeStreamTurnIdRef.current = null;
+    setPreviewTruncated(false);
   }
 
   function reportChatSettled(conversationId: string): void {
@@ -842,7 +894,6 @@ export function ChatPanel({
     setRunning(false);
     setRuntimePreviews([]);
     setContextAttachments(conversation.contextAttachments ?? []);
-    setActiveContextPath(null);
     setDraft("");
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
@@ -934,7 +985,6 @@ export function ChatPanel({
     clearRuntimePreviews();
     resetTurnArtifactTracking();
     setContextAttachments([]);
-    setActiveContextPath(null);
     setConversation(null);
     setMessages([]);
     onConversationActivated?.(null);
@@ -962,7 +1012,6 @@ export function ChatPanel({
       setStreamingAssistant("");
       clearRuntimePreviews();
       setContextAttachments([]);
-      setActiveContextPath(null);
       onConversationActivated?.(null);
       return;
     }
@@ -972,7 +1021,6 @@ export function ChatPanel({
     clearRuntimePreviews();
     resetTurnArtifactTracking();
     setContextAttachments([]);
-    setActiveContextPath(null);
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
     const result = await api<{ conversation: ConversationSummary }>(`/api/spaces/${space.id}/conversations`, {
@@ -998,7 +1046,6 @@ export function ChatPanel({
     clearRuntimePreviews();
     cancelStreamingFlush();
     setContextAttachments([]);
-    setActiveContextPath(null);
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
     const transcript = await loadMessages(selected.id, true);
@@ -1025,6 +1072,7 @@ export function ChatPanel({
       contextPaths: stored.contextPaths,
       transientConversation: stored.transientConversation,
       draftStorageKey: stored.draftStorageKey,
+      ...(stored.addressedSpaceIds?.length ? { addressedSpaceIds: stored.addressedSpaceIds } : {}),
     };
     if (stored.transientConversation) transientConversationIdsRef.current.add(selected.id);
     beginTurnArtifactTracking();
@@ -1034,9 +1082,13 @@ export function ChatPanel({
     if (eventStreamReadyConversationIdRef.current === selected.id) void postPendingMessage();
   }
 
+  const liveTurnView = assistantTurnView(streamingAssistant, streamingPresentation.metadata, runtimePreviews, {
+    canonicalText: streamingPresentation.text, pendingOrder: pendingTextOrderRef.current,
+  });
   const hasVisibleRuntimePreview = runtimePreviews.some((entry) => (
     entry.kind === "tool"
     || Boolean(entry.text.trim())
+    || (entry.durationMs ?? 0) > 0
     || entry.phase === "queued"
     || entry.phase === "running"
     || entry.phase === "streaming"
@@ -1144,6 +1196,7 @@ export function ChatPanel({
     cancelStreamingFlush();
     setStreamingAssistant("");
     const sentDraftStorageKey = draftStorageKey;
+    const addressedSpaceIds = addressedFolderIds(content, mentionFolders);
     if (contentOverride === undefined) setDraft("");
     setRunning(true);
     setError(null);
@@ -1204,6 +1257,7 @@ export function ChatPanel({
         contextPaths: contextAttachments.map((attachment) => attachment.sourcePath),
         transientConversation: transientConversationIdsRef.current.has(activeConversation.id),
         draftStorageKey: sentDraftStorageKey,
+        ...(addressedSpaceIds.length ? { addressedSpaceIds } : {}),
       };
       pendingSendRef.current = pending;
       writeStoredPendingChatSend(space.id, activeConversation.id, {
@@ -1216,6 +1270,7 @@ export function ChatPanel({
         contextPaths: pending.contextPaths,
         transientConversation: pending.transientConversation,
         draftStorageKey: sentDraftStorageKey,
+        ...(pending.addressedSpaceIds ? { addressedSpaceIds: pending.addressedSpaceIds } : {}),
       });
       if (eventStreamReadyConversationIdRef.current === activeConversation.id) void postPendingMessage();
     } catch (sendError) {
@@ -1283,6 +1338,7 @@ export function ChatPanel({
           contextPaths: pending.contextPaths,
           requestId: pending.requestId,
           userMessageId: pending.userMessageId,
+          ...(pending.addressedSpaceIds?.length ? { addressedSpaceIds: pending.addressedSpaceIds } : {}),
         },
       });
       clearStoredChatDraft(pending.draftStorageKey);
@@ -1456,7 +1512,6 @@ export function ChatPanel({
 
   function removeContextAttachment(sourcePath: string) {
     setContextAttachments((current) => current.filter((attachment) => attachment.sourcePath !== sourcePath));
-    if (activeContextPath === sourcePath) setActiveContextPath(null);
   }
 
   const copyMessage = useCallback(async (messageId: string, content: string) => {
@@ -1551,7 +1606,6 @@ export function ChatPanel({
     }
   }
 
-  const activeContextAttachment = contextAttachments.find((attachment) => attachment.sourcePath === activeContextPath) ?? null;
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant") ?? null;
   const latestAssistantMessageId = latestAssistantMessage?.id ?? null;
   const suggestedNextPrompt = !running && !streamingAssistant
@@ -1581,7 +1635,7 @@ export function ChatPanel({
     setAppProposalBusy(true);
     try {
       const app = await installRestrictedAppProposal(space.id, proposal.conversationId, proposal.id);
-      showToast({ text: `Added ${app.manifest.title} to this folder.`, tone: "success" });
+      showToast({ text: `Added ${app.manifest.title} to this work-folder.`, tone: "success" });
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -1623,6 +1677,17 @@ export function ChatPanel({
     });
   }
 
+  function chooseMentionFolder(folder: MentionFolderOption): void {
+    if (!activeMention) return;
+    const next = insertFolderMention(draft, activeMention, folder);
+    setDraft(next.value);
+    setComposerCaret(next.caret);
+    window.requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+      composerTextareaRef.current?.setSelectionRange(next.caret, next.caret);
+    });
+  }
+
   function toggleComposerCommands(): void {
     if (commandMenuOpen) {
       setDismissedCommandDraft(draft);
@@ -1660,6 +1725,7 @@ export function ChatPanel({
                 showRuntimePreview={showRuntimePreview}
                 runtimePreviews={runtimePreviews}
                 spaceId={space.id}
+                spaceRoot={space.spaceRoot}
                 onOpenSpaceFile={onOpenSpaceFile}
                 resolveSpacePathLinks={resolveSpacePathLinks}
                 onCopyMessage={copyMessage}
@@ -1667,15 +1733,19 @@ export function ChatPanel({
               />
             );
           })}
-          {running && (streamingAssistant || hasVisibleRuntimePreview) ? (
+          {running ? (
             <article className="message assistant streaming">
-              {hasVisibleRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} running={running} /> : null}
-              {streamingAssistant ? <MarkdownMessage content={streamingAssistant} /> : null}
-            </article>
-          ) : null}
-          {running && !streamingAssistant && !hasVisibleRuntimePreview ? (
-            <article className="message assistant streaming working-message">
-              <div className="typing-line"><Loader2 className="spin" size={14} /> Thinking…</div>
+              <RuntimeContextPreview
+                entries={liveTurnView.steps}
+                running
+                replyStarted={liveTurnView.hasFinal}
+                renderText={(content, links) => <MarkdownMessage content={content} spaceLinks={links} onOpenSpaceFile={onOpenSpaceFile} />}
+                spaceRoot={space.spaceRoot}
+                onOpenSpaceFile={onOpenSpaceFile}
+                resolveSpacePathLinks={resolveSpacePathLinks}
+              />
+              {previewTruncated ? <p className="work-step-evidence-note" role="note">This live preview omits some earlier activity. The saved reply will appear when the turn ends.</p> : null}
+              {liveTurnView.answer ? <MarkdownMessage content={liveTurnView.answer} /> : null}
             </article>
           ) : null}
           {!hasTranscript ? (
@@ -1750,41 +1820,26 @@ export function ChatPanel({
             {contextAttachments.length ? (
               <div className="context-pill-list">
                 {contextAttachments.map((attachment) => (
-                  <div className={`context-chip ${attachment.mode}`} key={attachment.sourcePath}>
-                    <button
-                      className="context-chip-main"
-                      type="button"
-                      onClick={() => setActiveContextPath((current) => current === attachment.sourcePath ? null : attachment.sourcePath)}
-                      title={attachment.detail}
-                      aria-label={`Show attachment details for ${attachment.sourceFileName}`}
-                    >
-                      <FileTypeIcon path={attachment.sourcePath} />
-                      <span className="context-chip-name">{attachment.sourceFileName}</span>
-                      <ContextModeIcon attachment={attachment} />
-                    </button>
-                    <button className="context-chip-remove" type="button" onClick={() => removeContextAttachment(attachment.sourcePath)} aria-label={`Remove ${attachment.sourceFileName}`}>
-                      <X size={12} />
-                    </button>
-                  </div>
+                  <AttachmentChip key={attachment.sourcePath} path={attachment.sourcePath} name={attachment.sourceFileName} onRemove={() => removeContextAttachment(attachment.sourcePath)} />
                 ))}
               </div>
             ) : null}
             {attachingPath ? (
               <div className="context-chip checking">
-                <span className="file-icon file-icon-unknown">
+                <span className="file-icon">
                   <Loader2 className="spin" size={13} />
                 </span>
-                <span className="context-chip-name">Checking</span>
+                <span className="context-chip-name">Attaching</span>
               </div>
-            ) : null}
-            {activeContextAttachment ? (
-              <ContextAttachmentPopover attachment={activeContextAttachment} onClose={() => setActiveContextPath(null)} />
             ) : null}
           </div>
         ) : null}
         <div className="composer-input-shell">
+          {mentionMenuOpen ? (
+            <FolderMentionMenu id={mentionMenuId} folders={mentionSuggestions} activeIndex={activeMentionIndex} onHover={setActiveMentionIndex} onChoose={chooseMentionFolder} />
+          ) : null}
           {commandMenuOpen ? (
-            <div className="composer-command-menu" role="listbox" aria-label="Assistant commands">
+            <div className="composer-command-menu" role="listbox" aria-label="Commands and Skills">
               <div className="composer-command-menu-heading">
                 <span>Commands and Skills</span>
                 <kbd>Enter</kbd>
@@ -1810,12 +1865,18 @@ export function ChatPanel({
           <textarea
             ref={composerTextareaRef}
             aria-label="Message worker"
+            aria-autocomplete="list"
+            aria-expanded={mentionMenuOpen}
+            aria-controls={mentionMenuOpen ? mentionMenuId : undefined}
+            aria-activedescendant={mentionMenuOpen ? `${mentionMenuId}-${activeMentionIndex}` : undefined}
             rows={2}
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value);
+              setComposerCaret(event.target.selectionStart ?? event.target.value.length);
               if (event.target.value !== dismissedCommandDraft) setDismissedCommandDraft(null);
             }}
+            onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart ?? 0)}
             onPaste={(event) => {
               // A pasted image (screenshot, copied picture) is an explicit act:
               // it lands in the Space's dated Dropped/ folder like a dropped
@@ -1826,9 +1887,26 @@ export function ChatPanel({
               void attachDroppedNativeFiles(transfer);
             }}
             onKeyDown={(event) => {
-              // Candidate navigation/confirmation belongs to the input method.
-              // Some engines end composition before the final keydown (229).
-              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+              // An IME composition owns Enter, arrows, and Escape until it commits.
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+              const plainKey = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+              if (mentionMenuOpen && plainKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                const step = event.key === "ArrowDown" ? 1 : -1;
+                setActiveMentionIndex((current) => (current + step + mentionSuggestions.length) % mentionSuggestions.length);
+                return;
+              }
+              if (mentionMenuOpen && plainKey && (event.key === "Enter" || event.key === "Tab")) {
+                event.preventDefault();
+                const folder = mentionSuggestions[activeMentionIndex];
+                if (folder) chooseMentionFolder(folder);
+                return;
+              }
+              if (mentionMenuOpen && event.key === "Escape") {
+                event.preventDefault();
+                setDismissedMentionKey(mentionKey);
+                return;
+              }
               if (commandMenuOpen && event.key === "ArrowDown") {
                 event.preventDefault();
                 setActiveCommandIndex((current) => (current + 1) % commandSuggestions.length);
@@ -1856,7 +1934,9 @@ export function ChatPanel({
                 if (!draft.trim()) return;
                 if (running) {
                   const content = draft.trim();
-                  if (event.metaKey || event.ctrlKey || pendingSendRef.current || fixtureMode) {
+                  // A message that addresses another Worker starts its own turn:
+                  // steering cannot carry the mention, so it waits like ⌘Enter.
+                  if (event.metaKey || event.ctrlKey || pendingSendRef.current || fixtureMode || addressedFolderIds(content, mentionFolders).length) {
                     // ⌘/Ctrl+Enter holds the draft for after this turn; a turn
                     // that has not been accepted yet cannot be steered either.
                     setQueuedSend((current) => (current ? `${current}\n${content}` : content));
@@ -1881,7 +1961,7 @@ export function ChatPanel({
               type="button"
               onClick={toggleComposerCommands}
               aria-expanded={commandMenuOpen}
-              title="Browse Assistant commands and Skills"
+              title="Browse commands and Skills"
             >
               <span aria-hidden="true">/</span>
               <span>Commands</span>
@@ -2382,49 +2462,6 @@ function formatTokenCount(value: number | null): string {
   return value.toLocaleString();
 }
 
-function ContextModeIcon({ attachment }: { attachment: ContextAttachment }) {
-  if (attachment.mode === "path_only_reference") {
-    return <AlertTriangle className="context-chip-status blocked" size={12} aria-hidden="true" />;
-  }
-  if (attachment.warnings.length) {
-    return <AlertTriangle className="context-chip-status review" size={12} aria-hidden="true" />;
-  }
-  return <CircleCheck className="context-chip-status verified" size={12} aria-hidden="true" />;
-}
-
-function ContextAttachmentPopover({ attachment, onClose }: { attachment: ContextAttachment; onClose: () => void }) {
-  const chatSpacePercent = attachment.budgetTokens > 0 ? Math.round((attachment.estimatedTokens / attachment.budgetTokens) * 100) : 0;
-  const chatSpaceLabel = chatSpacePercent === 0 ? "under 1%" : `about ${chatSpacePercent}% of the limit`;
-  return (
-    <div className="context-meta-popover">
-      <div className="context-meta-title">
-        <FileTypeIcon path={attachment.sourcePath} />
-        <strong>{attachment.sourceFileName}</strong>
-        <button type="button" onClick={onClose} aria-label="Close context details">
-          <X size={13} />
-        </button>
-      </div>
-      <dl className="context-meta-grid">
-        <div>
-          <dt>Attached as</dt>
-          <dd>{attachment.userLabel}</dd>
-        </div>
-        <div>
-          <dt>Size</dt>
-          <dd>{formatBytes(attachment.sourceSizeBytes)}</dd>
-        </div>
-        <div>
-          <dt>Chat context</dt>
-          <dd>{chatSpaceLabel}</dd>
-        </div>
-      </dl>
-      <p>{attachment.detail}</p>
-      {attachment.provenance.length ? <p>{attachment.provenance.join("; ")}</p> : null}
-      {attachment.warnings.length ? <p>Review notes: {attachment.warnings.join("; ")}</p> : null}
-    </div>
-  );
-}
-
 function ChatEmptyState({
   greeting,
   space,
@@ -2495,28 +2532,45 @@ function fixtureRuntimePreviews(): RuntimePreviewEntry[] {
       kind: "thinking",
       text: "I need to compare the project notes, inspect the spreadsheet, and identify the decisions that need the user’s attention.\n\n**Checking the files**\n\nI’m matching the notes against the budget so the answer can point to the exact files involved.",
       phase: "complete",
-    },
-    {
-      id: "fixture-thinking-formatting",
-      kind: "thinking",
-      text: "**Organizing the result**\n\nI’m separating the cost differences from the open questions so the next action is easy to see.",
-      phase: running ? "streaming" : "complete",
+      durationMs: 6_400,
     },
     {
       id: "fixture-tool-read",
       kind: "tool",
       toolName: "read",
-      text: running ? "Read running" : "Read finished",
-      detail: "Project Notes.docx",
-      phase: running ? "running" : "complete",
+      text: "Read finished",
+      detail: "Kitchen refresh/ideas.md",
+      phase: "complete",
+    },
+    {
+      id: "fixture-thinking-hidden",
+      kind: "thinking",
+      text: "",
+      phase: "complete",
+      durationMs: 2_800,
     },
     {
       id: "fixture-tool-search",
       kind: "tool",
-      toolName: "search",
-      text: "Search finished",
-      detail: "budget variance",
+      toolName: "bash",
+      text: "Bash finished",
+      detail: "rg -n \"allowance|cabinetry\" \"Kitchen refresh/ideas.md\" | head -20 && wc -l \"Kitchen refresh/ideas.md\"",
       phase: "complete",
+    },
+    {
+      id: "fixture-thinking-formatting",
+      kind: "thinking",
+      text: "**Organizing the result**\n\nI’m separating the cost differences from the open questions so the next action is easy to see:\n\n```\n| Option | Best for | Main risk | A note that is only here so the line is long enough to need wrapping inside the thought |\n```",
+      phase: "complete",
+      durationMs: 3_100,
+    },
+    {
+      id: "fixture-tool-read-budget",
+      kind: "tool",
+      toolName: "read",
+      text: running ? "Read running" : "Read finished",
+      detail: "Kitchen refresh/budget.xlsx",
+      phase: running ? "running" : "complete",
     },
   ];
   if (running) {
@@ -2525,6 +2579,7 @@ function fixtureRuntimePreviews(): RuntimePreviewEntry[] {
       kind: "thinking",
       text: "",
       phase: "streaming",
+      startedAt: Date.now() - 1_500,
     });
   }
   return previews;

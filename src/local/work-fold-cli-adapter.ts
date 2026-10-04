@@ -307,6 +307,7 @@ function summarizeSpace(space: WorkFoldSpaceSnapshot, active: boolean): WorkFold
     name: space.name,
     spaceRoot: space.spaceRoot,
     active,
+    ...(space.parentSpaceId ? { parentSpaceId: space.parentSpaceId } : {}),
   };
 }
 

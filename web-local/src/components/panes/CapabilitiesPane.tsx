@@ -171,11 +171,18 @@ export function CapabilitiesPane({
   useEffect(() => {
     if (fixtureMode || view !== "installed") return;
     const operation = operationGateRef.current.capture();
-    const controller = new AbortController();
-    const revisions = new Map(readinessRevisions.current);
-    void api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(space.id)}`, { signal: controller.signal })
+    let controller: AbortController | undefined;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = () => {
+      if (stopped || document.visibilityState === "hidden") return;
+      controller?.abort();
+      const request = new AbortController();
+      controller = request;
+      const revisions = new Map(readinessRevisions.current);
+      void api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(space.id)}`, { signal: request.signal })
       .then(({ tools }) => {
-        if (!controller.signal.aborted && operationGateRef.current.isCurrent(operation)) {
+        if (!request.signal.aborted && operationGateRef.current.isCurrent(operation)) {
           setReadiness((current) => {
             const merged = new Map((current?.spaceId === operation.spaceId ? current.tools : []).map((tool) => [tool.id, tool]));
             for (const tool of tools) {
@@ -186,9 +193,16 @@ export function CapabilitiesPane({
         }
       })
       .catch((caught) => {
-        if (!controller.signal.aborted && operationGateRef.current.isCurrent(operation)) setReadiness((current) => ({ spaceId: operation.spaceId, tools: current?.spaceId === operation.spaceId ? current.tools : [], error: errorText(caught) }));
+        if (!request.signal.aborted && operationGateRef.current.isCurrent(operation)) setReadiness((current) => ({ spaceId: operation.spaceId, tools: current?.spaceId === operation.spaceId ? current.tools.map((tool) => ({ ...tool, stale: true })) : [], error: errorText(caught) }));
       });
-    return () => controller.abort();
+    };
+    // Read only the host's observations. Never POST a check or launch a tool.
+    const tick = () => { refresh(); timer = setTimeout(tick, 5_000); };
+    const returned = () => refresh();
+    tick();
+    window.addEventListener("focus", returned);
+    document.addEventListener("visibilitychange", returned);
+    return () => { stopped = true; clearTimeout(timer); controller?.abort(); window.removeEventListener("focus", returned); document.removeEventListener("visibilitychange", returned); };
   }, [fixtureMode, space.id, view]);
 
   function rememberReadiness(id: IncludedToolId, tool: IncludedToolStatus | null, operation: SpaceOperationToken) {
@@ -402,7 +416,7 @@ export function CapabilitiesPane({
     const confirmed = await requestConfirm({
       title: `Remove ${item.name}?`,
       body: item.scope === "project"
-        ? `The Skill folder is deleted from this folder's .pi/skills. The worker in ${space.name} stops using it with the next turn.`
+        ? `The Skill folder is deleted from this work-folder's .pi/skills. The worker in ${space.name} stops using it with the next turn.`
         : "The Skill folder is deleted from your Pi skills. The work-fold agent and every worker stop using it with the next turn.",
       confirmLabel: "Remove Skill",
       tone: "danger",
@@ -671,7 +685,7 @@ function ScopeGroup({ scope, spaceName, items, hiddenByQuery, onSelect }: {
     <section className={`capabilities-panel capabilities-scope-group scope-${scope}`} aria-labelledby={titleId}>
       <div className="capabilities-scope-heading">
         <div>
-          <h3 id={titleId}>{personal ? "Everywhere" : "This Folder Only"}</h3>
+          <h3 id={titleId}>{personal ? "Everywhere" : "This work-folder only"}</h3>
           <p>{personal ? "work-fold agent and all workers" : spaceName}</p>
         </div>
         <span className="capabilities-scope-count">{items.length}</span>
@@ -722,6 +736,7 @@ function IncludedToolTile({ item, readiness, onSelect }: { item: InstalledCapabi
         <strong>{item.name}</strong>
       </span>
       <span className="capabilities-included-status"><span className="capabilities-status-dot" aria-hidden="true" />{state.label}</span>
+      {readiness?.stale && readiness.state === "ready" ? <span className="capabilities-included-checked">Verified earlier · details</span> : null}
       {state.setup ? <span className="capabilities-included-setup">Set Up<ChevronRight16Regular aria-hidden="true" /></span> : null}
     </button>
   );
@@ -768,7 +783,7 @@ function ScopeChooser({ value, spaceName, disabled, onChange }: {
 }) {
   const options: Array<{ scope: AgentCapabilityScope; title: string; detail: string }> = [
     { scope: "global", title: "Everywhere", detail: "work-fold agent and all workers" },
-    { scope: "project", title: "This Folder Only", detail: spaceName },
+    { scope: "project", title: "This work-folder only", detail: spaceName },
   ];
   return (
     <fieldset className="capabilities-scope-chooser" disabled={disabled}>
@@ -1292,7 +1307,7 @@ function fixtureCatalog(): AgentCatalog {
     skills: [{ id: "trip-planner", name: "Trip planner", description: "Turns bookings and preferences into a practical itinerary.", path: "skills/trip-planner/SKILL.md", source: { source: "anthropics/skills", scope: "user", origin: "package", packageSource: "github:anthropics/skills" }, scope: "global", origin: "package", packageSource: "github:anthropics/skills", enabled: true, loaded: true, content: "---\nname: trip-planner\ndescription: Plan a trip\n---\n\n# Trip planner\n\nBuild an itinerary from confirmed details, preferences, and constraints." }],
     extensions: [{ id: "calendar", name: "Calendar helper", path: ".pi/extensions/calendar.ts", source: { source: ".pi/extensions/calendar.ts", scope: "project", origin: "top-level" }, scope: "project", origin: "top-level", enabled: true, loaded: true, commands: ["calendar"], tools: ["read_calendar"], flags: ["calendar-account"] }],
     tools: [
-      { name: "read", label: "Read files", description: "Read files in the current folder", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
+      { name: "read", label: "Read files", description: "Read files in the current work-folder", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
       { name: "write", label: "Write files", description: "Create and update files", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
       { name: "read_calendar", label: "Read calendar", description: "Read connected calendar events", source: "Calendar helper", active: false, kind: "extension", core: false, configurable: false, configurationScope: "chat" },
     ],

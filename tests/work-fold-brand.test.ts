@@ -212,7 +212,7 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
   }
 
   assert.match(onboarding, /Add existing folder/);
-  assert.match(onboarding, /Create new folder/);
+  assert.match(onboarding, /Create new work-folder/);
   assert.match(app, /<WorkFoldLoadingState message=/);
   assert.match(settings, /<WorkFoldLockup className="about-work-fold-brand"/);
   assert.match(popover, /<WorkFoldLockup className="popover-loading-brand" animated/);

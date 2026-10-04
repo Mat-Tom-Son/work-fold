@@ -59,11 +59,9 @@ export const workFoldTrashMaxRetentionDays = 365;
  * "Settings → Automations → Limits".
  *
  * Requests have no fixed lifetime or total-work quotas. The remaining values
- * bound transport envelopes, active concurrency, and retained history.
+ * bound transport envelopes and retained history, with an optional spending cap.
  */
 export const workFoldRequestLimits = Object.freeze({
-  /** Space turns one root request may have running at the same time. */
-  maxConcurrentChildrenPerRoot: 8,
   /** Shipped default is no cap; a host may set one, and reaching it fails the request. */
   providerBudgetUsd: null as number | null,
   maxQuestionTextBytes: 16 * 1024,

@@ -5,7 +5,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 
 const root = process.cwd();
-const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer, piClient] = await Promise.all([
+const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer, piClient, activityDot] = await Promise.all([
   read("web-local/src/App.tsx"),
   read("web-local/src/components/chat/SpaceSurfaceTabBar.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
@@ -22,6 +22,7 @@ const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes
   read("desktop/src/main.ts"),
   read("src/local/server.ts"),
   read("src/local/agent/pi-client.ts"),
+  read("web-local/src/components/chrome/ActivityDot.tsx"),
 ]);
 
 test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cancellable draft that sends on settle", () => {
@@ -75,9 +76,12 @@ function readFileSyncLike(relativePath: string): Promise<string> {
   return readFile(join(root, relativePath), "utf8");
 }
 
-test("Files removes unsupported create controls and naming uses in-app UI", () => {
-  assert.doesNotMatch(app, /aria-label="New (?:file|folder)"/i);
-  assert.doesNotMatch(app, /onNewFolder=|onNewFile=/);
+test("Files exposes folder creation and naming uses in-app UI", () => {
+  // Folder creation lives in the right-click menu (2026-10-01); Files has no toolbar buttons.
+  assert.doesNotMatch(app, /aria-label="New folder"/);
+  assert.match(app, /onNewFolder=\{requestNewFolder\}/);
+  assert.match(app, /else if \(command === "new-folder"\) requestNewFolder\(entry\.path\);/);
+  assert.doesNotMatch(app, /aria-label="New file"|onNewFile=/i);
   assert.doesNotMatch(`${app}\n${panes}`, /window\.prompt\s*\(/);
   assert.match(app, /<TextInputModal[^>]*title=\{`Rename/);
 });
@@ -94,10 +98,12 @@ test("one Space menu trigger can create a Chat in every Space", () => {
 });
 
 test("Chat work can be deferred, found again, and resumed without interrupting active turns", () => {
-  for (const view of ["active", "snoozed", "archived"]) {
-    assert.match(panes, new RegExp(`"${view}"`));
-  }
-  assert.match(panes, /role="tablist"\s+aria-label="Chat view"/);
+  // Snoozed and Archived are closed rows at the bottom (2026-10-01), not a
+  // tab bar: active Chats lead, and deferred ones stay one click away.
+  assert.doesNotMatch(panes, /role="tablist"\s+aria-label="Chat view"/);
+  assert.match(panes, /\(\["snoozed", "archived"\] as const\)/);
+  assert.match(panes, /className="chat-shelf-toggle"/);
+  assert.match(panes, /aria-label="Snoozed and archived Chats"/);
   assert.match(panes, /aria-label=\{`Actions for \$\{chat\.title\}`\}/);
   assert.match(chatActions, />Snooze</);
   assert.match(chatActions, />Resume Now</);
@@ -113,21 +119,29 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
   assert.match(app, /<ChatPanel[\s\S]*?active=\{active\}/);
   assert.match(tabBar, /surface-tab-chat-status/);
   assert.match(panes, /status=\{status\} labeled/);
-  assert.match(panes, /status === "running" \? "Working" : "New reply"/);
+  // One shared activity mark (2026-10-01) labels the Chats list, the Folder switcher, and Files.
+  assert.match(panes, /import \{ ActivityDot \} from "\.\.\/chrome\/ActivityDot"/);
+  assert.match(activityDot, /status === "running" \? "Working" : "New reply"/);
   assert.match(chatPanel, /onRunningChangeRef\.current/);
   assert.match(chatPanel, /reportChatSettled\(conversationId\)/);
 });
 
+test("Chats show the Folders inside this one under its own Chats", () => {
+  assert.match(panes, /folderTreeRows\(descendantFolders\(space, spaces\)\)/);
+  assert.match(panes, /className="chat-nested-space"/);
+  assert.match(panes, /\.filter\(\(item\) => item\.id !== space\.id && !nestedIds\.has\(item\.id\)\)/, "nested Folders are not repeated under Other work-folders");
+});
+
 test("Chats foreground the active Space and collapse other Spaces until requested", () => {
   assert.match(panes, /const \[expandedOtherSpaceIds, setExpandedOtherSpaceIds\]/);
-  assert.match(panes, /<span>Other folders<\/span>/);
+  assert.match(panes, /<span>Other work-folders<\/span>/);
   assert.doesNotMatch(panes, /\.filter\(\(\{ list \}\) => list\.length > 0\)/);
   assert.match(panes, /<small>\{list\.length\}<\/small>/);
   assert.match(panes, /aggregateChatActivityStatus\(item\.id, conversations\[item\.id\] \?\? \[\], activityStatuses\)/);
   assert.match(panes, /aria-label=\{`\$\{expanded \? "Hide" : "Show"\} chats in \$\{item\.name\}`\}/);
   assert.match(panes, /aria-expanded=\{expanded\}/);
   assert.match(panes, /const expanded = Boolean\(normalized\) \|\| expandedOtherSpaceIds\.has/);
-  assert.match(panes, /onClick=\{\(\) => toggleOtherSpace\(item\.id\)\}/);
+  assert.match(panes, /onClick=\{\(\) => toggle\(setExpandedOtherSpaceIds, item\.id\)\}/);
   assert.match(panes, /aria-label=\{`New Chat in \$\{item\.name\}`\}/);
 });
 
@@ -270,7 +284,7 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /\.filter\(\(model\) => model\.authConfigured\)/);
   assert.match(chatPanel, /"\/api\/agent\/configure", \{\s*method: "POST",\s*body: \{ scope: "space", spaceId, provider: model\.provider, model: model\.id \}/);
   assert.match(chatPanel, /onOpenModelSettings\?\.\(\);\s*\}\}\s*>\s*Model settings/);
-  assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("assistant", "space", true\)\}/);
+  assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("assistant", "space", true, targetSpace\.id\)\}/);
   assert.match(settingsModal, /initialScope=\{initialAssistantScope\} focusModelOnOpen=\{focusAssistantModel\}/);
   assert.match(panes, /<ModelCatalogList id="assistant-model" labelledBy="assistant-model-label"/);
 
@@ -291,29 +305,36 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });
 
-test("reasoning and real tool calls form one compact work trail", () => {
+test("reasoning and real tool calls form one chronological steps strip", () => {
+  // Rows keep the order events arrived in; the strip folds into a plain
+  // summary once a native final reply is known; hidden reasoning keeps its duration.
   assert.match(activity, /entry\.kind === "thinking"/);
   assert.match(activity, /entry\.kind === "tool"/);
-  assert.match(activity, /runtime-thinking-label/);
+  assert.match(activity, /className="work-steps-summary"/);
   assert.match(activity, /Thinking…/);
-  assert.match(activity, /<div className="runtime-preview-text">[\s\S]*?<ReactMarkdown/);
-  assert.match(activity, /runtime-tool-list/);
-  assert.match(activity, /runtime-tool-row/);
-  assert.match(activity, /phaseLabel/);
-  assert.match(chatPanel, /if \(data\.type === "tool"\)/);
-  assert.match(chatPanel, /kind: "tool"/);
+  assert.match(activity, /Working…/);
+  assert.match(activity, /Thought for \$\{formatDuration\(entry\.durationMs \?\? 0\)\}/);
+  assert.match(activity, /className=\{`work-step-thought\$\{live \? " live" : ""\}`\}[\s\S]*?<ReactMarkdown/);
   assert.match(activity, /repairReasoningMarkdownArtifacts/);
   assert.match(activity, /node\.type === "text"/);
+  assert.match(activity, /spacePathCandidate\(value\.slice\(root\.length \+ 1\)/);
+  assert.match(chatPanel, /if \(data\.type === "tool"\)/);
+  assert.match(chatPanel, /kind: "tool"/);
+  assert.match(chatPanel, /replyStarted=\{liveTurnView\.hasFinal\}/);
+  assert.match(chatPanel, /durationMs: Math\.max\(0, endedAt - entry\.startedAt\)/);
+  assert.match(messages, /spaceRoot=\{spaceRoot\}/);
   assert.match(piClient, /event\.detail = previous\?\.detail \|\| event\.detail \|\| ""/);
   assert.match(piClient, /summarizeToolValue\(args\)/);
   assert.doesNotMatch(piClient, /summarizeToolValue\(args \?\? result\)/);
+  assert.match(piClient, /\|\| \(entry\.durationMs \?\? 0\) > 0\)/);
   assert.doesNotMatch(activity, /Brain|["']THINKING["']|Working through the request|AgentActivityEvent/);
   assert.doesNotMatch(activity, /return "Complete"/);
   assert.doesNotMatch(chatPanel, /agent-activity-toggle|agent-activity-log|>Activity</);
-  assert.doesNotMatch(styles, /\.runtime-preview\s*\{[^}]*border-left:/);
-  assert.match(styles, /\.runtime-preview-text\s*\{/);
-  assert.match(styles, /\.runtime-tool-list\s*\{/);
-  assert.match(styles, /\.runtime-tool-row\s*\{/);
+  assert.doesNotMatch(chatPanel, /typing-line|working-message/);
+  assert.match(styles, /\.work-step-thought \{[^}]*min-width: 0;/);
+  assert.match(styles, /\.work-step-thought pre \{[^}]*white-space: pre-wrap;/);
+  assert.match(styles, /\.work-steps\.settled:not\(\.open\) \.work-steps-rows \{[^}]*grid-template-rows: 0fr;/);
+  assert.doesNotMatch(styles, /\.runtime-preview|\.runtime-tool-|\.runtime-thinking|\.typing-line/);
 });
 
 test("manual restore points distinguish a new snapshot from already-covered files", () => {
@@ -339,10 +360,10 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
               </div>
               <footer class="message-footer">
                 <span class="message-footer-meta">
-                  <time class="message-time">now</time>
                   <div class="message-actions">
                     <button class="message-copy-button" aria-label="Copy message"></button>
                   </div>
+                  <time class="message-time">now</time>
                 </span>
               </footer>
             </article>

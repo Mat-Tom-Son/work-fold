@@ -220,14 +220,19 @@ test("a shared file carries a quiet mark in Files and on its tab", async () => {
   assert.equal(fileSharing.sharedMarkTooltip, "Shared as a page. Anyone with the link can read it.");
 });
 
-test("the main window has no glance panel; the Space-identity header carries no action and the files refresh sits in the toolbar", () => {
+test("the main window has no glance panel; the Space-identity header carries no action and Files keeps its actions in the right-click menu", () => {
   // The menu-bar popover's GlanceSection and the server digest stay; the
   // main-window "Since you last looked" panel is gone, so the renderer
   // neither fetches nor acknowledges the glance from the main window.
   assert.doesNotMatch(app, /GlanceHeaderControl|GlancePanel|useGlance/);
   assert.doesNotMatch(app, /headerAction/);
-  assert.match(app, /const refreshFilesButton = <button className="minimal-icon-button"[\s\S]{0,300}?aria-label="Refresh files"/);
-  assert.match(app, /\{refreshFilesButton\}\s*<button className="minimal-icon-button"[\s\S]{0,200}?aria-label="Add files"/);
+  // 2026-10-01: the search box spans the toolbar; refresh, new folder, and
+  // add files are right-click actions, and a background refresh never dims
+  // the tree.
+  assert.doesNotMatch(app, /refreshFilesButton|aria-label="Refresh files"|aria-label="Add files"/);
+  assert.match(app, /onRefresh=\{\(\) => void tree\.refresh\(false\)\}/);
+  assert.match(app, /else if \(command === "refresh"\) await tree\.refresh\(false\);/);
+  assert.doesNotMatch(app, /refreshing-files/);
   assert.doesNotMatch(app, /primaryItems[\s\S]{0,400}glance/i);
 });
 
@@ -321,7 +326,7 @@ test("new-Chat Space menu has deterministic roving keyboard navigation", () => {
 test("persistent Space menu has deterministic roving keyboard navigation", () => {
   assert.match(spaceChrome, /aria-controls=\{switcherId\}/);
   assert.match(spaceChrome, /onBlurCapture=/);
-  assert.match(spaceChrome, /aria-label="Folder menu"/);
+  assert.match(spaceChrome, /aria-label="work-folder menu"/);
   assert.match(spaceChrome, /nextMenuItemIndex\(currentIndex,\s*items\.length/);
   assert.match(spaceChrome, /event\.key !== "Escape"[\s\S]*?switchTriggerRef\.current\?\.focus\(\)/);
 });

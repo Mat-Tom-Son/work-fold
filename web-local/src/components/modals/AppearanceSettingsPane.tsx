@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { applicationPalettes, builtInAppearancePresets, type ApplicationAppearance, type AppearancePreset } from "../../../../src/shared/application-appearance.js";
+import { applicationPalettes, builtInAppearancePresets, defaultApplicationAppearance, type ApplicationAppearance, type AppearancePreset } from "../../../../src/shared/application-appearance.js";
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { maximumAppearanceImportBytes } from "../../lib/application-appearance-store";
 import { typographyFontOptionsForPlatform } from "../../constants";
@@ -24,6 +24,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
   useEffect(() => () => { importRevision.current += 1; }, []);
   useEffect(() => { setAccentDraft(null); setAccentError(null); }, [p.accent]);
   const fontOptions = typographyFontOptionsForPlatform(window.workFoldDesktop?.app.platform);
+  const atDefaults = JSON.stringify(p) === JSON.stringify(defaultApplicationAppearance);
   const update = (patch: Partial<ApplicationAppearance>) => store.update(patch);
   function runPreset(action: () => void) {
     setPresetError(null);
@@ -54,12 +55,13 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
       <p role="status">{appearance.error ?? appearance.notice ?? ""}</p>
     </div>
     <section className="appearance-settings-section" aria-labelledby="appearance-presets-title">
-      <div className="appearance-settings-section-heading"><h3 id="appearance-presets-title">Presets</h3><div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" onClick={store.reset}>Reset</button></div></div>
+      <div className="appearance-settings-section-heading"><h3 id="appearance-presets-title">Presets</h3><div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" disabled={atDefaults} onClick={store.reset}>Reset</button></div></div>
       <div className="appearance-settings-presets">
         {builtInAppearancePresets.map(({ name, ...patch }) => {
           const grounds = applicationPalettes[patch.palette][appearance.theme];
-          return <button type="button" key={name} className={p.palette === patch.palette ? "appearance-preset active" : "appearance-preset"} aria-label={`${name} preset`} onClick={() => store.applyPreset({ ...p, ...patch })}>
-            <span aria-hidden="true" className="appearance-preset-swatch" style={{ "--preset-canvas": grounds.canvas, "--preset-surface": grounds.surface, "--preset-text": grounds.text, "--preset-accent": applicationPalettes[patch.palette].accent } as CSSProperties}><span /><i /><b /></span><span>{name}</span>
+          const active = p.palette === patch.palette;
+          return <button type="button" key={name} className={active ? "appearance-preset active" : "appearance-preset"} aria-label={`${name} preset`} aria-pressed={active} onClick={() => store.applyPreset({ ...p, ...patch })}>
+            <span aria-hidden="true" className="appearance-preset-swatch" style={{ "--preset-canvas": grounds.canvas, "--preset-surface": grounds.surface, "--preset-text": grounds.text, "--preset-accent": applicationPalettes[patch.palette].accent } as CSSProperties}><span><i /><b /><b /></span></span><span>{name}</span>
           </button>;
         })}
       </div>
@@ -92,6 +94,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
       <Choice label="Reading width" value={p.measure} onChange={(measure) => update({ measure })} options={[["focused", "Focused"], ["standard", "Standard"], ["wide", "Wide"]]} />
       <Choice label="Line spacing" value={p.spacing} onChange={(spacing) => update({ spacing })} options={[["tight", "Tight"], ["standard", "Standard"], ["relaxed", "Relaxed"]]} />
       <Choice label="Your messages" value={p.messages} onChange={(messages) => update({ messages })} options={[["tinted", "Tinted"], ["quiet", "Quiet"]]} />
+      <Choice label="Worker steps" detail="Shown while a Worker is working" value={p.chatSteps} onChange={(chatSteps) => update({ chatSteps })} options={[["every", "Show every step"], ["current", "Show the current step only"]]} />
       <Choice label="Code font" value={p.codeFont} onChange={(codeFont) => update({ codeFont })} options={[["system", "System monospace"], ["menlo", "Menlo"], ["consolas", "Consolas"]]} />
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-accessibility-title">
@@ -109,7 +112,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
       {appearance.presets.map((preset) => <div className="appearance-settings-saved" key={preset.name}><span>{preset.name}</span><div className="appearance-settings-actions"><button type="button" aria-label={`Apply ${preset.name}`} onClick={() => store.applyPreset(preset.preferences)}>Apply</button><button type="button" aria-label={`Export ${preset.name}`} onClick={() => runPreset(() => exportPreset(preset))}>Export</button><button type="button" aria-label={`Remove ${preset.name}`} onClick={() => runPreset(() => store.removePreset(preset.name))}>Remove</button></div></div>)}
       {presetError || appearance.presetsError ? <p className="appearance-settings-error" role="alert">{presetError ?? appearance.presetsError}</p> : null}
     </section>
-    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this folder</button></section> : null}
+    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this work-folder</button></section> : null}
   </div>;
 }
 
