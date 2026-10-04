@@ -202,8 +202,9 @@ export function renderLanding(app) {
   if (!reducedMotion) followScroll(shell);
 }
 
-// Scroll-linked depth. Each frame writes a few custom properties that CSS
-// turns into transforms; layout never changes, so nothing is hidden or pinned.
+// Let the compositor track the hero on browsers with scroll timelines. The
+// fallback uses the same measured endpoints; scrolling never remeasures the
+// animated image or interleaves layout reads with transform writes.
 function followScroll(shell) {
   const win = window;
   const root = shell.ownerDocument.documentElement;
@@ -211,57 +212,83 @@ function followScroll(shell) {
   const copy = shell.querySelector(".landing-hero-copy");
   const stack = [...shell.querySelectorAll(".landing-stack .landing-folder")];
   const app = shell.querySelector(".landing-app .landing-shot-media");
+  const appFrame = app?.closest(".landing-shot");
   const devices = shell.querySelector(".landing-devices");
   const stacking = matchMedia("(min-width: 900px) and (min-height: 640px)");
   const clamp = (value) => Math.min(1, Math.max(0, value));
+  const nativeScroll = win.CSS?.supports("animation-timeline", "scroll(root block)")
+    && win.CSS.supports("animation-range", "0px 1px");
+  if (nativeScroll) shell.classList.add("css-scroll");
   let frame = 0;
-  function reveal(first) {
-    // The first folder starts large beside the hero copy, bleeding off the
-    // right edge, then grows into its place at the front of the stack.
-    const inner = first.querySelector(".landing-folder-inner");
-    const stickTop = parseFloat(win.getComputedStyle(first).top) || 0;
-    const nav = shell.querySelector(".landing-nav").offsetHeight;
+  let geometry;
+  let needsMeasure = true;
+  function measure(first) {
+    // Measure its place in document flow, even after the sticky stack has
+    // settled. Only viewport/font changes require these layout reads.
+    shell.classList.add("is-measuring");
     const natural = first.getBoundingClientRect();
-    const travel = Math.max(1, hero.getBoundingClientRect().bottom + win.scrollY - stickTop);
-    const progress = clamp(win.scrollY / travel);
-    const eased = progress * progress * (3 - 2 * progress);
-    const width = first.offsetWidth, height = first.offsetHeight;
-    const viewWidth = root.clientWidth, viewHeight = win.innerHeight;
-    const left = copy.getBoundingClientRect().right + Math.min(64, viewWidth * 0.04);
-    const scale = Math.min(1, (viewWidth + Math.min(viewWidth * 0.06, 120) - left) / width, (viewHeight - nav - 48) / height);
-    // Centre the folder on the hero copy, as laid out before any scrolling.
     const box = copy.getBoundingClientRect();
+    const heroBottom = hero.getBoundingClientRect().bottom + win.scrollY;
+    const nav = shell.querySelector(".landing-nav").offsetHeight;
+    shell.classList.remove("is-measuring");
+    const stickTop = parseFloat(win.getComputedStyle(first).top) || 0;
+    const travel = Math.max(1, heroBottom - stickTop);
+    const width = natural.width, height = natural.height;
+    const viewWidth = root.clientWidth, viewHeight = win.innerHeight;
+    const left = box.right + Math.min(64, viewWidth * 0.04);
+    const scale = Math.min(1, (viewWidth + Math.min(viewWidth * 0.06, 120) - left) / Math.max(1, width), (viewHeight - nav - 48) / Math.max(1, height));
     const copyCenter = box.top + win.scrollY + box.height / 2;
     const top = Math.max(nav + 20, Math.min(copyCenter - (height * scale) / 2, viewHeight - 24 - height * scale));
-    inner.style.setProperty("--tx", `${(left + (natural.left - left) * eased - natural.left).toFixed(1)}px`);
+    geometry = { stickTop, travel, x: left - natural.left, top, scale };
+    const inner = first.querySelector(".landing-folder-inner");
+    inner.style.setProperty("--hero-x", `${geometry.x}px`);
+    inner.style.setProperty("--hero-y", `${top - natural.top - win.scrollY}px`);
+    inner.style.setProperty("--hero-end-y", `${stickTop - natural.top - win.scrollY}px`);
+    inner.style.setProperty("--hero-scale", scale);
+    shell.style.setProperty("--hero-travel", `${travel}px`);
+    needsMeasure = false;
+  }
+  function reveal(first, natural) {
+    const { stickTop, travel, x, top, scale } = geometry;
+    const progress = clamp(win.scrollY / travel);
+    const eased = progress * progress * (3 - 2 * progress);
+    const inner = first.querySelector(".landing-folder-inner");
+    inner.style.setProperty("--tx", `${x * (1 - eased)}px`);
     // Once the stack itself scrolls away, follow it instead of holding the stop.
     const settled = top + (stickTop - top) * eased + Math.min(0, natural.top - stickTop);
-    inner.style.setProperty("--ty", `${(settled - natural.top).toFixed(1)}px`);
-    inner.style.setProperty("--sc", (scale + (1 - scale) * eased).toFixed(4));
+    inner.style.setProperty("--ty", `${settled - natural.top}px`);
+    inner.style.setProperty("--sc", scale + (1 - scale) * eased);
     copy.style.setProperty("--fade", clamp(progress * 1.7).toFixed(3));
   }
   function update() {
     frame = 0;
     const height = win.innerHeight;
+    if (stacking.matches && stack.length && needsMeasure) measure(stack[0]);
+    // Read untransformed frames first. The inbox's own scaled bounds would
+    // feed its last transform back into the next frame and make it oscillate.
+    const boxes = stacking.matches ? stack.map((item) => item.getBoundingClientRect()) : [];
+    const appBox = appFrame?.getBoundingClientRect();
+    const devicesBox = devices?.getBoundingClientRect();
     if (stacking.matches && stack.length) {
-      reveal(stack[0]);
-      const stickTop = parseFloat(win.getComputedStyle(stack[0]).top) || 0;
+      if (!nativeScroll) reveal(stack[0], boxes[0]);
+      const { stickTop } = geometry;
       let front = 0;
-      stack.forEach((item, index) => { if (item.getBoundingClientRect().top <= stickTop + 1) front = index; });
-      stack.forEach((item, index) => { item.dataset.state = index < front ? "filed" : index === front ? "front" : "ahead"; });
+      boxes.forEach((box, index) => { if (box.top <= stickTop + 1) front = index; });
+      stack.forEach((item, index) => {
+        const state = index < front ? "filed" : index === front ? "front" : "ahead";
+        if (item.dataset.state !== state) item.dataset.state = state;
+      });
     } else if (stack.length) {
       for (const name of ["--tx", "--ty", "--sc"]) stack[0].querySelector(".landing-folder-inner").style.removeProperty(name);
       copy.style.removeProperty("--fade");
       stack.forEach((item) => { delete item.dataset.state; });
     }
-    if (app) {
-      const box = app.getBoundingClientRect();
+    if (appBox) {
       // Starts close on the sidebar app, pulls back to the whole window.
-      app.style.setProperty("--reveal", clamp((height - box.top) / (height * 0.9)).toFixed(3));
+      app.style.setProperty("--reveal", clamp((height - appBox.top) / (height * 0.9)).toFixed(3));
     }
-    if (devices) {
-      const box = devices.getBoundingClientRect();
-      devices.style.setProperty("--drift", clamp((height - box.top) / (height + box.height)).toFixed(3));
+    if (devicesBox) {
+      devices.style.setProperty("--drift", clamp((height - devicesBox.top) / (height + devicesBox.height)).toFixed(3));
     }
   }
   // Keyboard focus never lands on something faded or covered: the hero copy
@@ -292,7 +319,9 @@ function followScroll(shell) {
   shell.addEventListener("focusin", (event) => nextFrame(() => { align(event.target); update(); }));
   const request = () => { if (!frame) frame = nextFrame(update); };
   win.addEventListener("scroll", request, { passive: true });
-  win.addEventListener("resize", request);
-  stacking.addEventListener?.("change", request);
+  const remeasure = () => { needsMeasure = true; request(); };
+  win.addEventListener("resize", remeasure);
+  stacking.addEventListener?.("change", remeasure);
+  shell.ownerDocument.fonts?.ready.then(remeasure);
   update();
 }
