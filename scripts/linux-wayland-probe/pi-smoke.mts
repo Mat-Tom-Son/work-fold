@@ -131,8 +131,11 @@ try {
   assert.equal((await events()).clicks, 1);
   assert.equal(service.status().state, "active"); assert.equal(service.status().controlInUse, false, "Turn completion releases the native seat");
   await client.stop();
-  assert.equal(service.status().state, "idle", "Chat disposal ends its grant");
-  console.log("PASS real Pi client → included Pi tools → host accepted-turn lease → native portal → PipeWire image → provider request → libei input → exact saved bytes → turn release → Chat teardown. Provider responses are scripted.");
+  assert.equal(service.status().state, "active", "Idle Chat disposal preserves app-wide sharing");
+  assert.equal(service.status().controlInUse, false);
+  await service.stop();
+  assert.equal(service.status().state, "idle", "Explicit Stop ends app-wide sharing");
+  console.log("PASS real Pi client → included Pi tools → host accepted-turn lease → native portal → PipeWire image → provider request → libei input → exact saved bytes → turn release → idle Chat teardown preserves sharing → explicit Stop. Provider responses are scripted.");
 } finally {
   await client.stop().catch(() => {}); await service.close();
   await new Promise<void>(resolve => server.close(() => resolve()));
