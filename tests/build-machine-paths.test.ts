@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import test from "node:test";
 import { buildMachinePathNeedles, containsBuildMachinePath, rustBuildEnvironment } from "../scripts/build-machine-paths.mjs";
 
@@ -11,8 +12,8 @@ test("Rust builds remap the build account's profile, Cargo and rustup paths", ()
   assert.deepEqual(env.CARGO_ENCODED_RUSTFLAGS.split("\x1f"), [
     "-C", "target-cpu=x86-64-v2",
     `--remap-path-prefix=${home}=~`,
-    `--remap-path-prefix=${home}\\.cargo=cargo`,
-    `--remap-path-prefix=${home}\\.rustup=rustup`,
+    `--remap-path-prefix=${join(home, ".cargo")}=cargo`,
+    `--remap-path-prefix=${join(home, ".rustup")}=rustup`,
   ]);
   const custom = rustBuildEnvironment({ CARGO_ENCODED_RUSTFLAGS: "-Cdebuginfo=0", CARGO_HOME: "D:\\cargo home" }, home);
   assert.deepEqual(custom.CARGO_ENCODED_RUSTFLAGS.split("\x1f").slice(0, 3), ["-Cdebuginfo=0", `--remap-path-prefix=${home}=~`, "--remap-path-prefix=D:\\cargo home=cargo"]);

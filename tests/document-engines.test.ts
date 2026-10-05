@@ -16,7 +16,7 @@ const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 test("Windows document discovery finds executables on PATH and ignores directories", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-windows-engine-path-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await writeFile(join(root, "tesseract.exe"), "discovery fixture");
+  await writeFile(join(root, "tesseract.exe"), "discovery fixture", { mode: 0o700 });
   await mkdir(join(root, "soffice.exe"));
   const engines = await discoverDocumentEngines({ path: `"${root}"`, platform: "win32", env: {} });
   assert.equal(engines.tesseract.executable, join(root, "tesseract.exe"));
@@ -32,14 +32,14 @@ test("Windows document discovery finds installed engines outside PATH and prefer
   const ocr = join(root, "Tesseract-OCR", "tesseract.exe");
   await mkdir(join(root, "LibreOffice", "program"), { recursive: true });
   await mkdir(join(root, "Tesseract-OCR"));
-  await writeFile(office, "discovery fixture");
-  await writeFile(ocr, "discovery fixture");
+  await writeFile(office, "discovery fixture", { mode: 0o700 });
+  await writeFile(ocr, "discovery fixture", { mode: 0o700 });
   const options = { path: "", platform: "win32", env: { ProgramFiles: root } };
   const installed = await discoverDocumentEngines(options);
   assert.equal(installed.libreoffice.executable, office);
   assert.equal(installed.tesseract.executable, ocr);
   const preferred = join(root, "soffice.exe");
-  await writeFile(preferred, "discovery fixture");
+  await writeFile(preferred, "discovery fixture", { mode: 0o700 });
   assert.equal((await discoverDocumentEngines({ ...options, path: root })).libreoffice.executable, preferred);
 });
 
