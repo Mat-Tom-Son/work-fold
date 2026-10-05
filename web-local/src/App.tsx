@@ -130,7 +130,7 @@ export function App() {
   const handleRestrictedAppError = useCallback((caught: unknown) => setError(errorText(caught)), []);
   // Installed apps live above the Folder view so Settings → Apps and the rail read one list.
   const restrictedAppsState = useRestrictedApps({ activeSpaceId: boot ? activeSpaceId : "", spaces: boot?.spaces, fixtureMode: Boolean(fixture), onError: handleRestrictedAppError });
-  const showDesktopTitleBar = window.workFoldDesktop?.app.platform === "win32";
+  const showDesktopTitleBar = ["win32", "linux"].includes(window.workFoldDesktop?.app.platform ?? "");
 
   const openKeyboardShortcuts = useCallback(() => {
     keyboardShortcutsReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;

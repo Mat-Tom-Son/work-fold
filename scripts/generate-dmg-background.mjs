@@ -39,11 +39,8 @@ const backgroundBytes = await sharp(background)
   .png()
   .toBuffer();
 
-// Text renders with the host's fonts. The tracked copy is the macOS rendering,
-// so other hosts refresh only the ignored build output.
-await Promise.all([
-  writeFile(join(outDir, "dmg-background.png"), backgroundBytes),
-  ...(process.platform === "darwin" ? [writeFile(join(assetsDir, "dmg-background.png"), backgroundBytes)] : []),
-]);
+// Font rendering varies between build hosts. Installer artwork belongs only
+// in ignored output so preparation cannot dirty its own source identity.
+await writeFile(join(outDir, "dmg-background.png"), backgroundBytes);
 
 console.log(`Generated work-fold DMG background at ${join(outDir, "dmg-background.png")}`);

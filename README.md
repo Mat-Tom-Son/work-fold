@@ -45,10 +45,15 @@ Use **Compare** in Version History or a selected work-folder restore point to re
 3. Open an existing folder or create a work-folder, then start a Chat.
 
 [Windows and Linux test previews](docs/platform-previews.md) are also available
-for early testers. They come from separate platform branches and have no
+for early testers. Their published builds retain separate source tags and have no
 automatic updates; the supported production distribution remains Mac.
 
 Files live on your computer. Content used by the Assistant goes to your chosen model provider. Optional web access is in private alpha and needs your Mac online. See [Privacy](PRIVACY.md) for details.
+
+Linux x64 local candidates can also be built for Ubuntu and Fedora. See the
+[Linux build guide](docs/linux-build.md) for DEB/RPM/AppImage packaging, keyring
+setup and the current Wayland computer-control limits. Production distribution and automatic updates remain Mac-only; the
+[platform previews](docs/platform-previews.md) retain separate test downloads.
 
 ## Help build work-fold
 

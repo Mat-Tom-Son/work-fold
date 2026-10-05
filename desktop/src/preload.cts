@@ -130,6 +130,12 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     },
   },
   window: {
+    control: (action: "state" | "minimize" | "toggle-maximize" | "quit") => ipcRenderer.invoke("work-fold:window:control", action),
+    onMaximized: (callback: (maximized: boolean) => void) => {
+      const listener = (_event: unknown, value: unknown) => { if (typeof value === "boolean") callback(value); };
+      ipcRenderer.on("work-fold:window:maximized", listener);
+      return () => ipcRenderer.removeListener("work-fold:window:maximized", listener);
+    },
     material: windowMaterial,
     setTheme: (theme: "light" | "dark", source?: "light" | "dark" | "system") => ipcRenderer.send("work-fold:window:set-theme", theme, source),
     railTooltip: {

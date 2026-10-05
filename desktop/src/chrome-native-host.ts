@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -24,9 +24,32 @@ interface Options {
   appExecutable?: string;
   /** Windows: injected in tests; defaults to HKCU through reg.exe. */
   registry?: ChromeHostRegistry;
+  appPath?: string;
 }
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const run = promisify(execFile);
+
+/** Open the pinned Store listing in Google Chrome, never the default browser. */
+export async function openChromeStore(storeId: string | null, platform: NodeJS.Platform = process.platform): Promise<void> {
+  if (!storeId || !/^[a-p]{32}$/.test(storeId)) throw new Error("Chrome connection is not available yet.");
+  const url = `https://chromewebstore.google.com/detail/${storeId}`;
+  const executable = platform === "win32" ? await windowsChromeExecutable() : "google-chrome";
+  if (!executable) throw new Error("Google Chrome is not installed. Install Chrome, then connect again.");
+  try {
+    if (platform === "linux" || platform === "win32") {
+      // A cold Chrome launch lives until the browser quits. Waiting for exit
+      // holds connection setup's serialization lock and blocks its own native
+      // bootstrap. Only wait for OS launch; authenticated polling owns readiness.
+      await new Promise<void>((resolveLaunch, rejectLaunch) => {
+        const browser = spawn(executable, [url], { detached: true, stdio: "ignore" });
+        browser.once("error", rejectLaunch);
+        browser.once("spawn", () => { browser.unref(); resolveLaunch(); });
+      });
+    } else {
+      await run("/usr/bin/open", ["-a", "Google Chrome", url]);
+    }
+  } catch { throw new Error("Google Chrome could not open the work-fold listing."); }
+}
 
 /** Register only this app's exact Store origin, never inspect or edit a Chrome profile. */
 export class ChromeNativeHostRegistration {
@@ -34,6 +57,8 @@ export class ChromeNativeHostRegistration {
   private get windows(): boolean { return (this.options.platform ?? process.platform) === "win32"; }
   async register(explicit: boolean): Promise<void> {
     const { distribution } = this.options;
+    const platform = this.options.platform ?? process.platform;
+    const verifySignature = platform === "darwin" && this.options.verifySignature !== false;
     if (!this.options.enabled) throw new Error("Chrome Store setup is available in the installed work-fold app.");
     if (!distribution.storeId || !/^[a-p]{32}$/.test(distribution.storeId) || !/^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(distribution.nativeHostName)) throw new Error("The Chrome Store connection identity is not available.");
     const origin = `chrome-extension://${distribution.storeId}/`;
@@ -42,11 +67,12 @@ export class ChromeNativeHostRegistration {
     const provenance = JSON.parse(await readFile(join(this.options.sourceDirectory, "source.json"), "utf8"));
     if (provenance.schema !== "work-fold.chrome-native-host-source.v1" || provenance.origin !== origin || provenance.nativeHostName !== distribution.nativeHostName || provenance.bootstrapVersion !== distribution.bootstrapVersion) throw new Error("The signed Chrome bootstrap does not match this app's Store identity.");
     // Windows pins the reviewed build's exact bytes; there is no bundle seal to check.
-    const verify = (path: string) => !windows && this.options.verifySignature !== false ? run("/usr/bin/codesign", ["--verify", "--strict", path]) : Promise.resolve();
+    const verify = (path: string) => verifySignature ? run("/usr/bin/codesign", ["--verify", "--strict", path]) : Promise.resolve();
     await verify(source);
     const bytes = await readFile(source), sha256 = digest(bytes);
     // Signing changes the bytes but not the PE content the build recorded.
     if (windows && provenance.executableContentSha256 !== peContentSha256(bytes)) throw new Error("The Chrome bootstrap does not match this app's reviewed build.");
+    if (platform === "linux" && (provenance.target !== "x86_64-unknown-linux-gnu" || provenance.binarySha256 !== sha256)) throw new Error("The Linux Chrome bootstrap does not match its packaged provenance.");
     const root = resolve(this.options.stateRoot, "chrome", "native-host");
     // The bootstrap admits launch.json only from an owner-only directory.
     await ensurePrivateDirectory(root);
@@ -54,7 +80,7 @@ export class ChromeNativeHostRegistration {
     // Chrome scans a profile directory on macOS; on Windows a registry value names the manifest.
     const manifestPath = windows
       ? join(root, `${distribution.nativeHostName}.json`)
-      : join(this.options.chromeUserDataRoot ?? join(homedir(), "Library/Application Support/Google/Chrome"), "NativeMessagingHosts", `${distribution.nativeHostName}.json`);
+      : join(this.options.chromeUserDataRoot ?? (platform === "linux" ? join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "google-chrome") : join(homedir(), "Library/Application Support/Google/Chrome")), "NativeMessagingHosts", `${distribution.nativeHostName}.json`);
     const registry = windows ? this.options.registry ?? windowsChromeHostRegistry(distribution.nativeHostName) : undefined;
     const receiptPath = join(root, "registration.json");
     const manifest = { name: distribution.nativeHostName, description: "Connect Chrome to work-fold", path: binary, type: "stdio", allowed_origins: [origin] };
@@ -98,7 +124,7 @@ export class ChromeNativeHostRegistration {
     await mkdir(dirname(manifestPath), { recursive: true });
     await atomicJson(manifestPath, manifest);
     await registry?.write(manifestPath);
-    await atomicJson(receiptPath, { version: 1, manifestPath, binary, sha256 });
+    await atomicJson(receiptPath, { version: 1, manifestPath, binary, sha256, ...(this.options.appPath ? { appPath: this.options.appPath } : {}) });
   }
 }
 

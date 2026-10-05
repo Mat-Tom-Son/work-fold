@@ -1,8 +1,9 @@
 # Windows and Linux test previews
 
 Status reviewed **2026-10-05**. work-fold has experimental Windows and Linux
-downloads for early testers. Their implementations remain on separate branches;
-the production distribution and automatic-update feed remain Apple-silicon Mac.
+downloads for early testers. This integration branch combines their reviewed
+implementations; the published installers still belong to the exact source tags
+below. The production distribution and automatic-update feed remain Apple-silicon Mac.
 GitHub Actions is disabled. Preview uploads are manual and do not add release
 gates to the Mac lane.
 
@@ -22,8 +23,9 @@ package signatures. Neither preview has automatic updates.
 tracks the original port plus portable test-fixture fixes on
 `codex/windows-preview-hygiene`; the original platform branch is preserved.
 
-Build commands and native setup live with the implementation, rather than
-being copied into `main` before the port is integrated:
+The combined source includes [Windows build instructions](windows-build.md)
+and [Linux build instructions](linux-build.md). For reproducing a published
+preview, use its original guide:
 
 - [Windows build guide at the published tag](https://github.com/Mat-Tom-Son/work-fold/blob/windows-test-0.4.50/docs/windows-build.md).
 - [Linux build guide at the published tag](https://github.com/Mat-Tom-Son/work-fold/blob/linux-test-0.4.52/docs/linux-build.md)
@@ -70,13 +72,16 @@ regression evidence; they do not replace native Windows or Linux acceptance.
    companion, clean desktop/provider matrix, physical desktop/sleep behavior,
    and KDE support before claiming those paths. Windows 10 and ARM64 remain
    outside the qualified Windows preview scope.
-2. **Reconcile the shared code in an integration branch.** Each published
-   source merges cleanly with October 5 `main`, but merging the ports together
-   produces 18 content conflicts. These cover Chrome/native hosts, Electron
-   startup, Computer Control patches and provenance, shared readiness and
-   setup UI, dependency versions, installer artwork, and tests. Review the
-   combined behavior and rerun all native lanes after resolving them. An
-   individual PR's clean merge status does not establish combined compatibility.
+2. **Validate the combined source on each platform.** The
+   `codex/platform-preview-integration` branch resolves the shared Chrome/native
+   hosts, Electron startup, Computer Control patch and provenance, readiness,
+   setup UI, version, installer artwork, and test conflicts. The Computer Control
+   patch was regenerated from both reviewed source trees against their common
+   ancestor, with every file digest recalculated. Windows keeps its host-owned
+   helper and HKCU registration; Linux keeps its portal lifecycle and immutable
+   native helpers. Rebuild and rerun native acceptance on this combined source
+   before publishing a replacement preview. Earlier platform evidence does not
+   qualify a newly combined installer.
 3. **Finish production distribution separately.** Establish Windows public
    signing/updater ownership and Linux production signing-key custody,
    repository hosting, and metadata renewal. Preserve the existing Mac identity,
@@ -93,5 +98,5 @@ historical evidence. Update this page when the current preview or implementation
 branch changes. Never infer a tag's source from a release's `targetCommitish`
 label: resolve the actual tag commit and compare it with the build record.
 
-The retained `main` Windows diagnostics are described in [Windows build](windows-build.md).
+Windows diagnostics and preview packaging are described in [Windows build](windows-build.md).
 Mac release authority remains in [the release runbook](macos-release.md).

@@ -111,6 +111,16 @@ test("native observations are runtime-bound, ordered against explicit checks, an
   assert.match(includedComputerStatus({ status: "not_running" }).detail, /idle/);
 });
 
+test("Linux computer readiness preserves session evidence without advertising another platform's permission controls", () => {
+  for (const state of ["ready", "unavailable"]) {
+    const status = includedComputerStatus({ platform: "linux", sessionType: "wayland", status: state, accessibility: true, reason: "Linux helper diagnostics." });
+    assert.equal(status.computer, undefined);
+    assert.equal(status.facts?.platform, "linux");
+    assert.equal(status.facts?.session, "wayland");
+    assert.equal(status.state, state);
+  }
+});
+
 test("Windows computer readiness reports its helper without inventing macOS permission evidence", () => {
   const helper = { appPath: "C:\\state\\native-helpers\\computer\\abc\\work-fold Computer", name: "work-fold Computer" };
   const ready = includedComputerStatus({ status: "ready", permissionModel: "none", helper });

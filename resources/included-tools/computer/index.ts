@@ -3,6 +3,7 @@ import { homedir, release } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hostContext } from "../host.ts";
+import { linuxComputer, probeLinuxComputer, shutdownLinuxComputer } from "./linux.ts";
 import { includedComputerStatus } from "../readiness.ts";
 
 export type IncludedComputerConfig = { helperAppPath: string; stateRoot: string; prepareComputerHelper?: () => Promise<void>; repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void> };
@@ -152,6 +153,7 @@ function windowsNative(normalized: { helperAppPath: string; stateRoot: string })
 }
 
 export async function probeIncludedComputer(config: IncludedComputerConfig, options: ProbeOptions = {}) {
+  if (process.platform === "linux") return probeLinuxComputer(config, options);
   options.signal?.throwIfAborted();
   // A deliberate start verifies/materializes the immutable helper but never
   // repairs it or disposes peer sessions. Repair remains a separate setup act.
@@ -162,6 +164,7 @@ export async function probeIncludedComputer(config: IncludedComputerConfig, opti
 }
 
 export async function setupIncludedComputer(config: IncludedComputerConfig, action: IncludedComputerSetupAction, signal?: AbortSignal) {
+  if (process.platform === "linux") return probeLinuxComputer(config, { launch: true, signal });
   signal?.throwIfAborted();
   // Refuse macOS privacy actions before touching, stopping or repairing anything.
   if (process.platform === "win32" && supportsIncludedComputer() && action !== "recheck") throw new Error("Windows does not use separate permissions for Computer Control. Use Restart and Recheck.");
@@ -186,6 +189,7 @@ async function prepareForSetup(config: IncludedComputerConfig, signal?: AbortSig
 
 /** Called after host sessions stop. Never launches a helper just to shut it down. */
 export async function shutdownIncludedComputer(config: IncludedComputerConfig): Promise<void> {
+  if (process.platform === "linux") return shutdownLinuxComputer();
   if (!globals[runtimeKey]) return;
   const { helper, scheduler } = await runtime(config).native;
   await globals[runtimeKey]?.readinessPending;
@@ -196,6 +200,7 @@ export async function shutdownIncludedComputer(config: IncludedComputerConfig): 
 export default async function includedComputer(pi: ExtensionAPI) {
   const context = hostContext(pi);
   if (!context?.helperAppPath) throw new Error("The included computer Extension requires its bundled helper configuration.");
+  if (process.platform === "linux") return linuxComputer(pi, { helperAppPath: context.helperAppPath, stateRoot: context.stateRoot }, context);
   const host = runtime({ helperAppPath: context.helperAppPath, stateRoot: context.stateRoot });
   const native = await host.native;
   async function observeReadiness(signal?: AbortSignal, force = false) {

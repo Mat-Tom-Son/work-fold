@@ -1,4 +1,5 @@
 import type { ChromeConnectionSummary } from "./chrome-connection.js";
+import type { ComputerSessionSummary } from "./computer-session.js";
 
 export const includedToolDefinitions = [
   { id: "computer", title: "Computer Control", package: "@injaneity/pi-computer-use", version: "0.5.1", description: "Observe and operate desktop apps, with screenshots and accessibility information." },
@@ -13,4 +14,4 @@ export type IncludedToolId = typeof includedToolDefinitions[number]["id"];
 export type IncludedToolReadiness = "ready" | "setup_required" | "unavailable" | "unknown";
 /** How the host grants Computer Control: macOS privacy permissions, or none (Windows UI Automation). */
 export interface IncludedComputerSummary { permissions: "macos" | "none" }
-export interface IncludedToolStatus { id: IncludedToolId; state: IncludedToolReadiness; detail: string; checkedAt: string; stale?: boolean; facts?: Record<string, string | boolean>; chrome?: ChromeConnectionSummary; computer?: IncludedComputerSummary; }
+export interface IncludedToolStatus { id: IncludedToolId; state: IncludedToolReadiness; detail: string; checkedAt: string; stale?: boolean; facts?: Record<string, string | boolean>; chrome?: ChromeConnectionSummary; computer?: IncludedComputerSummary; computerSession?: ComputerSessionSummary; }

@@ -1,22 +1,25 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsBuildMachinePath, rustBuildEnvironment } from "./build-machine-paths.mjs";
 import { peContentSha256 } from "./pe-image.mjs";
+import { writeCargoNotices } from "./cargo-license-notices.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const packageRoot = join(root, "node_modules", "@injaneity", "pi-computer-use");
 const platform = process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM || process.platform;
-if (platform === "darwin") {
+if (platform === "linux") {
+  await buildLinux();
+} else if (platform === "darwin") {
   if (process.platform !== "darwin") throw new Error("Building the computer helper requires macOS and Xcode Command Line Tools.");
   await build();
 } else if (platform === "win32") {
   if (process.platform !== "win32") throw new Error("Building the Windows computer helper requires Windows and the Rust MSVC toolchain.");
   await buildWindows();
 } else {
-  console.log("The included computer helper is built in the macOS and Windows desktop lanes only.");
+  console.log("The included computer helper is built in the macOS, Windows and Linux desktop lanes only.");
 }
 
 /** Every build input must match the reviewed integration manifest. */
@@ -144,3 +147,31 @@ function assertWindowsConsoleExecutable(bytes) {
 }
 
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
+
+async function buildLinux() {
+  if (process.platform !== "linux" || process.arch !== "x64") throw new Error("Build the Linux x64 helper on Linux x64.");
+  const packageRoot = join(root, "node_modules/@injaneity/pi-computer-use");
+  const entries = JSON.parse(await readFile(join(root, "patches/included-tools/manifest.json"), "utf8"));
+  const entry = entries.find(item => item.package === "@injaneity/pi-computer-use");
+  const sources = entry.files.filter(file => file.path.startsWith("native/linux/bridge-rs/"));
+  if (!sources.length) throw new Error("Missing reviewed Linux helper sources.");
+  for (const file of sources) if (sha256(await readFile(join(packageRoot, file.path))) !== file.after) throw new Error(`Unreviewed Linux helper source: ${file.path}`);
+  const target = join(root, "out/linux-computer-target");
+  execFileSync("cargo", ["build", "--release", "--locked", "--manifest-path", join(packageRoot, "native/linux/bridge-rs/Cargo.toml")], {
+    cwd: root, stdio: "inherit", env: { ...process.env, CARGO_TARGET_DIR: target },
+  });
+  const output = join(root, "out/included-tools/computer-helper");
+  await mkdir(output, { recursive: true });
+  await writeCargoNotices(join(packageRoot, "native/linux/bridge-rs/Cargo.toml"), join(output, "THIRD-PARTY-LICENSES.txt"));
+  const binary = join(output, "linux-bridge");
+  await copyFile(join(target, "release/linux-bridge"), binary); await chmod(binary, 0o755);
+  await copyFile(join(packageRoot, "LICENSE"), join(output, "LICENSE.pi-computer-use"));
+  await writeFile(join(output, "source.json"), `${JSON.stringify({
+    schema: "work-fold.computer-helper-source.v1", package: entry.package, version: entry.version,
+    source: entry.source, license: entry.license, integrationPatchSha256: entry.sha256,
+    sources: sources.map(file => ({ path: file.path, sha256: file.after })),
+    target: "x86_64-unknown-linux-gnu", protocolVersion: 4, binarySha256: sha256(await readFile(binary)),
+    compiler: execFileSync("rustc", ["--version"], { encoding: "utf8" }).trim(),
+  }, null, 2)}\n`);
+  console.log(`Built included Linux computer helper: ${binary}`);
+}

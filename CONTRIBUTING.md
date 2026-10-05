@@ -102,7 +102,7 @@ local lane needs Node 24 and Google Chrome on an Apple-silicon Mac. GitHub
 Actions is disabled and does not gate publication. Use the
 [release runbook](docs/macos-release.md).
 Windows and Linux have [experimental test previews](docs/platform-previews.md)
-on separate branches. Production distribution and automatic updates remain
+with separate immutable source tags. Production distribution and automatic updates remain
 Mac-only; platform preview work does not gate Mac releases.
 
 ## Bugs, security, and license

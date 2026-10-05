@@ -6,5 +6,5 @@ import { syncBuiltinESMExports } from "node:module";
 if (process.platform === "win32") {
   os.release = () => "6.1.7601";
   syncBuiltinESMExports();
-} else Object.defineProperty(process, "platform", { value: "linux" });
+} else Object.defineProperty(process, "platform", { value: "freebsd" });
 await import("./computer-native.mts");

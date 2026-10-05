@@ -1,6 +1,6 @@
 # macOS build and release lane
 
-work-fold retains one Electron, React, local API, Pi, management-kernel, restricted-app, and versioning codebase with cross-platform seams. Apple-silicon macOS is the production distribution and automatic-update lane. [Windows and Linux test previews](platform-previews.md) remain on separate branches and do not gate Mac releases; GitHub Actions is disabled.
+work-fold retains one Electron, React, local API, Pi, management-kernel, restricted-app, and versioning codebase with cross-platform seams. Apple-silicon macOS is the production distribution and automatic-update lane. [Windows and Linux test previews](platform-previews.md) retain separate published source tags and do not gate Mac releases; GitHub Actions is disabled.
 
 ## Legacy Workspace baseline evidence
 

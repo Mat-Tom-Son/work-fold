@@ -1,6 +1,6 @@
 # macOS release runbook
 
-This runbook publishes the active Apple silicon work-fold desktop release to the separate public feed at [`Mat-Tom-Son/work-fold-mac-releases`](https://github.com/Mat-Tom-Son/work-fold-mac-releases). [Windows and Linux test previews](platform-previews.md) remain on separate branches, without production distribution or automatic updates. They add no CI package gate, tag workflow, or Mac-release prerequisite.
+This runbook publishes the active Apple silicon work-fold desktop release to the separate public feed at [`Mat-Tom-Son/work-fold-mac-releases`](https://github.com/Mat-Tom-Son/work-fold-mac-releases). [Windows and Linux test previews](platform-previews.md) retain separate published source tags, without production distribution or automatic updates. They add no CI package gate, tag workflow, or Mac-release prerequisite.
 
 ## One-time workstation setup
 

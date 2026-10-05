@@ -8,6 +8,7 @@ import type { NativeResource } from "./resource-lifecycle.js";
 
 import { includedToolDefinitions } from "../../shared/included-tools.js";
 import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
+import type { ComputerSessionService, ComputerTurn, NativeComputerOwner } from "./computer-session.js";
 import { beginIncludedToolObservation } from "./included-tool-observations.js";
 export { includedToolDefinitions, type IncludedToolId } from "../../shared/included-tools.js";
 export interface IncludedToolsConfiguration {
@@ -17,6 +18,7 @@ export interface IncludedToolsConfiguration {
   prepareComputerHelper?: () => Promise<void>;
   repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void>;
   chromeConnection?: IncludedChromeConnectionHost;
+  computerSession?: ComputerSessionService;
 }
 
 export function includedToolsRoot(): string {
@@ -48,7 +50,7 @@ export async function resolveIncludedResources(cwd: string, runtime: ResolvedPiR
 }
 
 /** A per-runtime native event bus; no process-global current Chat or renderer capability. */
-export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session") {
+export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session", computer?: { owner: NativeComputerOwner; turn(): ComputerTurn | undefined }) {
   const config = runtime.config.includedTools;
   if (!config) return {};
   const resources = await resolveIncludedResources(cwd, runtime);
@@ -61,6 +63,7 @@ export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRu
       prepareComputerHelper: config.prepareComputerHelper,
       ...(mode === "session" ? { beginIncludedToolObservation: (id: "computer" | "documents") => beginIncludedToolObservation(runtime, id) } : {}),
       companionPath: join(config.stateRoot, "chrome-companion"),
+      ...(mode === "session" && computer && config.computerSession ? config.computerSession.forSession(computer.owner, computer.turn) : {}),
       ...(config.chromeConnection ? {
         getChromeConnection: config.chromeConnection.getChromeConnection,
         onChromeConnectionRevoked: config.chromeConnection.onChromeConnectionRevoked,
