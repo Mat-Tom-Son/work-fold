@@ -6,6 +6,8 @@ import test from "node:test";
 import {
   hasPackagedDesktopUpdateFeed,
   hasDownloadedUpdatePayload,
+  isUnpublishedFeedUpdateError,
+  summarizeUpdateError,
   DesktopUpdater,
   type DesktopUpdateCheckResultLike,
   type DesktopUpdateMessage,
@@ -131,6 +133,38 @@ test("manual update failures remain visible instead of being silently deferred",
   assert.equal(status.phase, "error");
   assert.match(status.error ?? "", /ERR_INTERNET_DISCONNECTED/);
   updater.dispose();
+});
+
+// The shape electron-updater produced for the installed Windows build's feed.
+const githubFeedError = [
+  "HttpError: 406 ",
+  "\"method: GET url: https://github.com/Mat-Tom-Son/work-fold/releases/latest\\n\\nPlease double check that your authentication token is correct. Due to security reasons, actual status maybe not reported, but 404.\\n\"",
+  `Headers: ${JSON.stringify({ "content-type": "text/html; charset=utf-8", "x-github-request-id": "ABCD:1234", vary: "X-PJAX, X-PJAX-Container, Turbo-Visit, Turbo-Frame, Accept-Encoding, Accept, X-Requested-With", "content-security-policy": "default-src 'none'; ".repeat(40) }, null, 2)}`,
+].join("\n");
+
+test("update errors reach people as one bounded line while the log keeps the response", async () => {
+  assert.equal(summarizeUpdateError(githubFeedError), "No published work-fold release was found in the update feed.");
+  assert.equal(isUnpublishedFeedUpdateError("Cannot find latest.yml in the latest release artifacts (https://github.com/o/r/releases/download/v1/latest.yml): HttpError: 404"), true);
+  assert.equal(isUnpublishedFeedUpdateError("net::ERR_INTERNET_DISCONNECTED"), false);
+  const dump = `Error: certificate has expired\n${"x".repeat(5_000)}`;
+  assert.equal(summarizeUpdateError(dump), "Error: certificate has expired");
+  assert.ok(summarizeUpdateError("y".repeat(1_000)).length <= 160);
+
+  const { adapter, host, updater } = createHarness();
+  adapter.checkError = new Error(githubFeedError);
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (message: string) => { warnings.push(message); };
+  try {
+    const background = await updater.check(false);
+    assert.equal(background.phase, "not_available", "nothing published is not a rail error");
+    assert.equal(background.error, null);
+    assert.equal(host.statuses.some((status) => status.phase === "error"), false, "a background check never flashes an error");
+    const manual = await updater.check(true);
+    assert.equal(manual.phase, "error", "an explicit check still reports what it found");
+    assert.equal(manual.error, "No published work-fold release was found in the update feed.");
+    assert.ok(warnings.some((message) => message.includes("x-github-request-id")), "the full diagnostic stays in the log");
+  } finally { console.warn = warn; updater.dispose(); }
 });
 
 test("choosing Later keeps a downloaded update ready for explicit install on quit", async () => {

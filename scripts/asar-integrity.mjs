@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
+import { normalize } from "node:path";
 import { extractFile, getRawHeader, uncache } from "@electron/asar";
 
 /** Verify the bytes Electron will read, not just the signed archive header.
- * Unpacked Mach-O binaries are signed after ASAR creation, so their old header
- * hashes are checked only before signing; codesign owns their final integrity.
- * Unpacked scripts and other resources keep their byte-level checks afterward.
+ * Unpacked Mach-O binaries and Windows executables are signed after ASAR
+ * creation, so their old header hashes are checked only before signing;
+ * codesign or Authenticode owns their final integrity, and the release
+ * verifiers check those signatures. An unsigned unpacked executable, scripts
+ * and other resources keep their byte-level checks afterward.
  */
 export function verifyAsarFileIntegrity(archivePath, { includeUnpacked = false } = {}) {
   uncache(archivePath);
@@ -26,8 +29,8 @@ export function verifyAsarFileIntegrity(archivePath, { includeUnpacked = false }
         failures.push(`${path}: missing or invalid SHA256 integrity metadata`); continue;
       }
       try {
-        const bytes = extractFile(archivePath, path);
-        if (unpacked && !includeUnpacked && isMachO(bytes)) { signedNativeFiles++; continue; }
+        const bytes = extractFile(archivePath, normalize(path));
+        if (unpacked && !includeUnpacked && (isMachO(bytes) || isSignedPe(bytes))) { signedNativeFiles++; continue; }
         checkedFiles++; checkedBytes += bytes.length;
         if (bytes.length !== entry.size) failures.push(`${path}: expected ${entry.size} bytes, read ${bytes.length}`);
         if (sha256(bytes) !== integrity.hash) failures.push(`${path}: file hash mismatch`);
@@ -45,6 +48,15 @@ export function verifyAsarFileIntegrity(archivePath, { includeUnpacked = false }
   return { checkedFiles, checkedBytes, unpackedFiles, signedNativeFiles };
 }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
+/** A PE image that carries an Authenticode certificate table, as signtool leaves it. */
+function isSignedPe(bytes) {
+  if (bytes.length < 0x40 || bytes.toString("latin1", 0, 2) !== "MZ") return false;
+  const pe = bytes.readUInt32LE(0x3c);
+  if (pe + 26 > bytes.length || bytes.toString("latin1", pe, pe + 4) !== "PE\0\0") return false;
+  const magic = bytes.readUInt16LE(pe + 24);
+  const security = pe + 24 + (magic === 0x20b ? 112 : 96) + 4 * 8;
+  return (magic === 0x10b || magic === 0x20b) && security + 8 <= bytes.length && bytes.readUInt32LE(security + 4) > 0;
+}
 function isMachO(bytes) {
   return bytes.length >= 4 && [0xfeedface, 0xcefaedfe, 0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca].includes(bytes.readUInt32BE(0));
 }

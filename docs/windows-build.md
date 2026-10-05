@@ -6,7 +6,53 @@
 > automation without first updating the contributor contract and release
 > architecture.
 
-work-fold requires Node 22.19.0 or newer. GitHub CI and releases use Node 24; use that runtime for release work when it is available.
+Use Node 24 and npm 11.16.0 or newer for contributor installs and verification.
+The minimum application runtime is Node 22.19.0. GitHub Actions is disabled;
+the checked-in workflows are dormant diagnostics.
+
+## Local Windows port
+
+The Windows shell, Mica fallback, tray, PowerShell CLI, isolated development
+profile, Electron Builder configuration, and NSIS configuration are retained.
+The local port can be exercised with the existing manual commands below.
+This does not reactivate public Windows distribution or tag automation.
+
+The included Web, Documents, and Service Connections tools use the shared Pi
+runtime. Documents discovers `soffice.exe` and `tesseract.exe` on PATH and in
+the usual Program Files and per-user Programs locations; neither optional
+engine is bundled. Chrome uses a Rust native messaging host built from
+`desktop/native/chrome-host-windows` by the same `desktop:prepare` step and
+registered per user under HKCU by the NSIS-installed app only; see
+[Chrome distribution](chrome-extension-distribution.md#bootstrap-and-ownership).
+Directories holding tokens and launch descriptors get a protected owner-only
+DACL, because an inherited profile ACL can admit other principals.
+
+Computer Control uses the dependency's Windows UI Automation backend through the
+reviewed integration patch. `desktop:prepare` builds its Rust helper from the
+pinned crate sources with `cargo build --release --locked` (target
+`x86_64-pc-windows-msvc`), so Windows desktop preparation requires
+[rustup](https://rustup.rs/) with the stable MSVC toolchain. The upstream
+prebuilt executable is never shipped, and normal installation runs no upstream
+helper setup. The build writes
+`out/included-tools/computer-helper/work-fold Computer/` with the executable,
+its license, and a `source.json` binding the build inputs to the manifest;
+packaging places it under `resources\computer-helper`, outside `app.asar`, and
+packaged verification rechecks that provenance. A signed build signs the helper
+with every other packaged executable; an unsigned build leaves it unsigned.
+
+Windows source checkouts also need real Git symlinks for the shared Claude
+Skill. Enable Windows symlink creation and use `git clone -c core.symlinks=true`
+for a new checkout. If Git flattened that link into a text file, `repo:check`
+must continue to diagnose it. The full suite includes symlink, POSIX-shell,
+Unix-permission, and native-helper fixtures; failures in those fixtures must
+be accounted for before claiming complete Windows verification.
+
+Initial History metadata creation is shared by concurrent file captures, so
+Windows rename contention cannot mark readable files as uncaptured. App working
+copies use Windows' refusal to rename over an existing directory rather than
+the POSIX empty-directory claim. App action journals retry only the exact staged
+file replacement for brief Windows sharing failures; admission and worker
+effects are never replayed.
 
 ## Feedback ladder
 
@@ -50,7 +96,11 @@ The NSIS include adds `<install>\bin` idempotently to the current user's `HKCU\E
 
 The NSIS product must keep `deleteAppDataOnUninstall: false`. Uninstall removes
 the installed application and its PATH entry, not the work-fold profile, Space
-metadata, or any preserved legacy Workspace data.
+metadata, or any preserved legacy Workspace data. Chrome's per-user HKCU
+registration also stays, pointing into that preserved profile as the macOS
+manifest does, so a reinstall resumes the selected Chrome profile through its
+owned-registration repair; while no app is installed, **Open work-fold** in the
+extension reports that the app is not running.
 
 Protocol v1 exposes only read operations (`context`, `spaces list`, `tasks list`, and `capabilities list`). Its request directory is a same-user coordination channel, not an authenticated caller boundary. Do not add mutations to this protocol without caller authorization and an authenticated transport or equivalent per-launch request authentication.
 
@@ -85,7 +135,21 @@ For a build signed with the current user's personal certificate:
 
 The PFX and its DPAPI-protected password are stored in `%USERPROFILE%\.work-fold-signing`, never in this repository. The certificate is self-signed and therefore remains untrusted on other computers unless they deliberately trust its public certificate. Replace the two GitHub signing secrets with a certificate-authority-backed PFX when one is available.
 
-Use Node 22.19.0 or newer. On the primary development workstation, `build-signed-windows.ps1` deliberately invokes the bundled Node runtime rather than the older system Node.
+`build-signed-windows.ps1` uses the Node on PATH (or `-Node <path>`), requires Node 22.19.0 or newer (Node 24 for release builds), and runs the npm installed beside that Node, so an older system npm cannot be picked up.
+
+Every Windows candidate is scanned for the build account's profile path, in ASCII and UTF-16 and both slash styles. Rust embeds dependency source paths in panic messages, so the helper builds remap the profile, Cargo, and rustup directories with `--remap-path-prefix`.
+
+## Test builds for early testers
+
+A Windows test build is a self-signed installer published as a GitHub pre-release on the source repository under a `windows-test-<version>` tag, like the Linux test builds. It is not a release: it has no automatic updates, no publicly trusted signature, and no Windows release repository behind it. Build it from a clean, committed tree with a version no other build has used:
+
+```powershell
+.\scripts\build-signed-windows.ps1 -TestBuild
+```
+
+`-TestBuild` sets `WORKFOLD_WINDOWS_TEST_BUILD=1`, so Electron Builder writes neither `app-update.yml` nor `latest.yml` and the installed app reports that updates are not available. Testers upgrade by running a later installer, which replaces the app in place and keeps `%APPDATA%\work-fold`. The build keeps the production app id and profile, so a later signed release installs over it. After verification, `scripts/windows-test-build-record.mjs` writes `SHA256SUMS` and `work-fold-<version>-windows-build.json` (source commit, signer, toolchain, and helper provenance) beside the installer; it refuses a dirty tree or a build that has an update feed.
+
+Publish the installer, `SHA256SUMS`, and the build record as a pre-release whose notes say plainly that Windows will report an unknown publisher and may show a SmartScreen warning. Never ask testers to trust the personal certificate; a trusted root from a stranger is a standing risk, not an install step.
 
 ## Packaged QA checklist
 

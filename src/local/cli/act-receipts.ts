@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { WORKFOLD_CLI_REQUEST_MAX_AGE_MS, workFoldCliBrokerPaths } from "./broker.js";
 import { WorkFoldCliError, type WorkFoldCliErrorCode } from "./protocol.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 export const WORKFOLD_CLI_ACT_RECEIPTS_MAX_BYTES = 1024 * 1024;
 
@@ -127,7 +128,7 @@ export class WorkFoldCliActReceipts {
             ? { undoRef: { kind: entry.undoRef.kind, value: scrubText(entry.undoRef.value) } }
             : {}),
         };
-        await mkdir(this.#directory, { recursive: true, mode: 0o700 });
+        await ensurePrivateDirectory(this.#directory);
         await this.#rotateIfNeeded();
         await appendFile(this.path, `${JSON.stringify(record)}\n`, { mode: 0o600, flush: true });
         return true;

@@ -53,6 +53,26 @@ helper under the app's private state root. App updates repair their owned
 registration. A development or isolated profile must not replace the normal
 Chrome registration. See [macOS build](macos-build.md) for packaging details.
 
+On Windows the same contract uses a Rust host built from
+`desktop/native/chrome-host-windows` with its locked dependencies and the
+Store origin compiled in. Chrome finds native hosts through the registry, so
+only the NSIS-installed app writes
+`HKCU\Software\Google\Chrome\NativeMessagingHosts\com.work_fold.chrome`, whose
+default value names the manifest in the app's private `chrome\native-host`
+directory; unpacked, development and state-overridden builds never touch it.
+Automatic repair keeps the macOS ownership rule: it never replaces another
+installation's registration, and only an explicit **Connect Chrome** chooses
+this one. The host also accepts the `--parent-window=<handle>` argument Chrome
+adds on Windows. In place of the POSIX owner and `mode & 0o077` check, it admits
+`launch.json` only as a single-link regular file owned by the current user whose
+DACL allows no one but that user, SYSTEM and Administrators; the app gives the
+directory a protected DACL of exactly those principals, because an inherited
+profile ACL can admit others. The host reads through a handle that still lets
+the app replace the descriptor atomically, and speaks HTTP/1.0 so the reply is
+never chunked. **Open work-fold** starts only an absolute `work-fold.exe` named
+by the app's own `app.json` in that directory. The Store listing opens in Google
+Chrome found through its App Paths registration rather than the default browser.
+
 Both Disconnect and Change profile refuse while affected accepted Chrome work
 is active. A turn acquires that fence on its first Chrome operation and retains
 it through pauses between tools until turn end, Stop, or disposal. Chat Stop

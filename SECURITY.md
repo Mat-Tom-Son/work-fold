@@ -59,7 +59,10 @@ package versions, licenses and before/after patch digests are pinned in
 [the integration manifest](patches/included-tools/manifest.json). Preparation
 refuses unknown or partially patched input. The computer helper is built from
 reviewed source and included in the app's signing lane; normal installation
-does not run upstream helper downloads. These checks establish provenance,
+does not run upstream helper downloads. On Windows the reviewed Rust helper is
+built from its pinned sources and locked dependencies and stays unsigned until
+Windows signing is reactivated. Windows has no per-app grant for it, so it acts
+with the signed-in user's desktop authority, excluding elevated windows. These checks establish provenance,
 not a sandbox or proof that every external action is safe.
 
 Native resource enable/disable preserves Pi's filters and scopes, pins the
@@ -77,7 +80,10 @@ HTTP polls/results require the selected origin, credential and connection ID,
 with protocol/capabilities checked before command delivery. Disconnect and
 profile changes refuse affected active work, then revoke stale queues/results
 at the accepted safe point. Readiness requires authenticated transport evidence;
-socket reachability and issuing a lease are insufficient. See
+socket reachability and issuing a lease are insufficient. On Windows the Rust
+bootstrap replaces the POSIX owner and mode check with an owner and DACL check,
+and the app writes its descriptor into a directory whose protected DACL admits
+only the user, SYSTEM and Administrators. See
 [Chrome distribution](docs/chrome-extension-distribution.md).
 Computer setup names the actual helper identity for macOS permissions. Both
 return requested observations through Pi; neither provides continuous screen

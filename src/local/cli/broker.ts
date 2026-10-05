@@ -32,6 +32,7 @@ import {
   type WorkFoldCliActRequest,
   type WorkFoldCliBrokeredRequest,
 } from "./act-protocol.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 export const WORKFOLD_CLI_MAX_REQUEST_BYTES = 128 * 1024;
 export const WORKFOLD_CLI_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -105,7 +106,7 @@ export class WorkFoldCliFileBroker {
     if (!stateInfo.isDirectory() || stateInfo.isSymbolicLink()) {
       throw new WorkFoldCliError("permissionDenied", "CLI broker state root is not a safe directory.");
     }
-    await mkdir(this.paths.root, { recursive: true, mode: 0o700 });
+    await ensurePrivateDirectory(this.paths.root);
     await assertSafeDirectory(this.paths.root, this.paths.root, "CLI broker root");
     for (const path of [this.paths.requests, this.paths.claims, this.paths.responses]) {
       await mkdir(path, { recursive: true, mode: 0o700 });

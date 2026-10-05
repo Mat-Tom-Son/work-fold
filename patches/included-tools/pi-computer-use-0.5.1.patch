@@ -874,10 +874,10 @@ index b9657a4..c442dd4 100755
  ].map((file) => path.join(rootDir, "native", "macos", file));
 diff --git a/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
 new file mode 100644
-index 0000000..9ff6376
+index 0000000..b921a38
 --- /dev/null
 +++ b/scripts/check-embedded.mjs
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,109 @@
 +import assert from 'node:assert/strict';
 +import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 +import os from 'node:os';
@@ -930,7 +930,9 @@ index 0000000..9ff6376
 + assert(outB.readStoredOutput('@o1',0).text.startsWith('B'));
 + outA.clearStoredOutputs();assert(outB.readStoredOutput('@o1',0).text.startsWith('B'));outB.clearStoredOutputs();
 + for(const [name,value]of[['a',true],['b',false]]){const dir=path.join(root,name,'.pi');await mkdir(dir,{recursive:true});await writeFile(path.join(dir,'computer-use.json'),JSON.stringify({headless:value}));}
-+ await Promise.all([withComputerUseConfig(path.join(root,'a'),async()=>{await new Promise(r=>setTimeout(r,10));seen.push(getComputerUseConfig().headless)}),withComputerUseConfig(path.join(root,'b'),async()=>{await new Promise(r=>setTimeout(r,5));seen.push(getComputerUseConfig().headless)})]);
++ // A stays suspended until B has finished, without depending on timer resolution.
++ let releaseA;const aWaits=new Promise(r=>{releaseA=r});
++ await Promise.all([withComputerUseConfig(path.join(root,'a'),async()=>{await aWaits;seen.push(getComputerUseConfig().headless)}),withComputerUseConfig(path.join(root,'b'),async()=>{await new Promise(r=>setTimeout(r,5));seen.push(getComputerUseConfig().headless);releaseA()})]);
 + assert.deepEqual(seen,[false,true],'one session must not change another active operation configuration');
 + const focusable={ref:'focusable',wireRef:'fixture-focusable',role:'AXOutline',actions:[],canFocus:true,canSetValue:false,isTextInput:false,pictureOnly:false,children:[]};
 + const actionEnv={headless:false,image:{width:400,height:300},node:()=>focusable,center:()=>({x:10,y:10}),validatePoint:()=>{}};
@@ -2327,3 +2329,701 @@ index 0000000..46c24a2
 +++ b/src/platform/macos/helper-identity.d.mts
 @@ -0,0 +1 @@
 +export function verifyHelperExecutable(actual: string, expected: string, signal?: AbortSignal): Promise<boolean>;
+diff --git a/native/windows/bridge-rs/src/error.rs b/native/windows/bridge-rs/src/error.rs
+index ff4cd4d..bc74f0b 100644
+--- a/native/windows/bridge-rs/src/error.rs
++++ b/native/windows/bridge-rs/src/error.rs
+@@ -32,6 +32,9 @@ pub enum ErrorCode {
+     OccludedTarget,
+     #[serde(rename = "secure_text_unreadable")]
+     SecureTextUnreadable,
++    /// The host cancelled an effect between keystrokes or batched actions.
++    #[serde(rename = "interrupted")]
++    Interrupted,
+ }
+ 
+ impl fmt::Display for ErrorCode {
+@@ -51,6 +54,7 @@ impl fmt::Display for ErrorCode {
+             ErrorCode::ForegroundRequired => "foreground_required",
+             ErrorCode::OccludedTarget => "occluded_target",
+             ErrorCode::SecureTextUnreadable => "secure_text_unreadable",
++            ErrorCode::Interrupted => "interrupted",
+         };
+         write!(f, "{s}")
+     }
+diff --git a/native/windows/bridge-rs/src/input.rs b/native/windows/bridge-rs/src/input.rs
+index b9b01ba..0c64811 100644
+--- a/native/windows/bridge-rs/src/input.rs
++++ b/native/windows/bridge-rs/src/input.rs
+@@ -2,6 +2,29 @@ use serde_json::{json, Value};
+ 
+ use crate::error::{ErrorCode, ProtocolError};
+ 
++/// Cooperative cancellation for the request a worker thread is serving.
++/// Effects check it between keystrokes and batched actions, never mid-stroke,
++/// so a held modifier is always released.
++pub mod cancellation {
++    use std::cell::RefCell;
++    use std::sync::atomic::{AtomicBool, Ordering};
++    use std::sync::Arc;
++
++    thread_local! { static CURRENT: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) }; }
++
++    /// Runs `work` with `flag` as this thread's cancellation signal.
++    pub fn scope<T>(flag: Arc<AtomicBool>, work: impl FnOnce() -> T) -> T {
++        CURRENT.with(|current| *current.borrow_mut() = Some(flag));
++        let result = work();
++        CURRENT.with(|current| *current.borrow_mut() = None);
++        result
++    }
++
++    pub fn requested() -> bool {
++        CURRENT.with(|current| current.borrow().as_ref().is_some_and(|flag| flag.load(Ordering::SeqCst)))
++    }
++}
++
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum ActTarget {
+     Ref(String),
+@@ -141,7 +164,7 @@ fn invalid(message: impl Into<String>) -> ProtocolError {
+ mod native {
+     use super::*;
+     use windows::Win32::UI::Input::KeyboardAndMouse::*;
+-    use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
++    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId, SetCursorPos};
+ 
+     pub fn open_browser_location(url: &str) -> Result<(), ProtocolError> {
+         hotkey(&[VK_CONTROL], VK_L)?;
+@@ -366,13 +389,115 @@ mod native {
+         send(&inputs)
+     }
+ 
++    // Typing pace. WinUI and other TSF-backed text hosts (Windows 11 Notepad)
++    // process injected input asynchronously: under a faster pace they drop
++    // keys, read Shift after it was released, and read a Unicode packet's
++    // character late, so lagging characters are typed as later ones. Measured
++    // against Notepad, 10 ms lost keys and case, 40 ms lost only the key after
++    // a Tab, and 80 ms was exact.
++    const KEY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(40);
++    /// Enter and Tab make an editor reflow or move, so the next key waits longer.
++    const AFTER_STRUCTURAL_KEY: std::time::Duration = std::time::Duration::from_millis(150);
++    /// A Unicode packet is isolated on both sides: a host that reads it late
++    /// otherwise takes a later packet's character or drops a neighbouring key.
++    const PACKET_INTERVAL: std::time::Duration = std::time::Duration::from_millis(120);
++    /// Shift is held around its key long enough for a lagging host to see it.
++    const MODIFIER_GAP: std::time::Duration = std::time::Duration::from_millis(15);
++
++    #[derive(Clone, Copy, PartialEq)]
++    enum Stroke {
++        Key(VIRTUAL_KEY),
++        Shifted(VIRTUAL_KEY),
++        Structural(VIRTUAL_KEY),
++        Packet(char),
++    }
++
++    /// Types like a keyboard: one stroke per SendInput call, using the
++    /// foreground window's layout for every character it can produce with at
++    /// most Shift. Line breaks and tabs are real Enter and Tab keys. Only
++    /// characters the layout cannot produce plainly (other scripts, symbols,
++    /// dead keys, AltGr) fall back to Unicode packets.
+     fn send_text(text: &str) -> Result<(), ProtocolError> {
+-        let mut inputs = Vec::new();
+-        for unit in text.encode_utf16() {
+-            inputs.push(unicode(unit, false));
+-            inputs.push(unicode(unit, true));
++        let layout = unsafe {
++            let thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
++            GetKeyboardLayout(thread)
++        };
++        let caps_lock = unsafe { GetKeyState(VK_CAPITAL.0 as i32) } & 1 != 0;
++        let mut previous: Option<Stroke> = None;
++        let mut previous_carriage_return = false;
++        let total = text.chars().count();
++        for (typed, character) in text.chars().enumerate() {
++            // Stop between strokes when the host cancels; report how far it got.
++            if crate::input::cancellation::requested() {
++                return Err(ProtocolError::new(
++                    format!("Typing stopped after {typed} of {total} characters."),
++                    ErrorCode::Interrupted,
++                ));
++            }
++            // "\r\n" is one line break.
++            if character == '\n' && previous_carriage_return {
++                previous_carriage_return = false;
++                continue;
++            }
++            previous_carriage_return = character == '\r';
++            let stroke = match character {
++                '\r' | '\n' => Stroke::Structural(VK_RETURN),
++                '\t' => Stroke::Structural(VK_TAB),
++                _ => layout_stroke(character, layout, caps_lock).unwrap_or(Stroke::Packet(character)),
++            };
++            match (previous, stroke) {
++                (None, _) => {}
++                (Some(Stroke::Structural(_)), _) => std::thread::sleep(AFTER_STRUCTURAL_KEY),
++                (Some(Stroke::Packet(_)), _) | (_, Stroke::Packet(_)) => std::thread::sleep(PACKET_INTERVAL),
++                _ => std::thread::sleep(KEY_INTERVAL),
++            }
++            match stroke {
++                Stroke::Key(vk) | Stroke::Structural(vk) => send(&[key(vk, false), key(vk, true)])?,
++                Stroke::Shifted(vk) => {
++                    send(&[key(VK_SHIFT, false)])?;
++                    std::thread::sleep(MODIFIER_GAP);
++                    let typed = send(&[key(vk, false), key(vk, true)]);
++                    std::thread::sleep(MODIFIER_GAP);
++                    // Never leave Shift held, even when the key itself failed.
++                    send(&[key(VK_SHIFT, true)])?;
++                    typed?;
++                }
++                Stroke::Packet(character) => send(&packet_inputs(character))?,
++            }
++            previous = Some(stroke);
+         }
+-        send(&inputs)
++        Ok(())
++    }
++
++    /// The key that produces `character` on `layout`, or None when it needs
++    /// more than Shift or is a dead key that would combine with the next one.
++    fn layout_stroke(character: char, layout: HKL, caps_lock: bool) -> Option<Stroke> {
++        let mut unit = [0u16; 2];
++        if character.encode_utf16(&mut unit).len() != 1 {
++            return None;
++        }
++        let scanned = unsafe { VkKeyScanExW(unit[0], layout) };
++        if scanned == -1 || (scanned >> 8) & 0xfe != 0 {
++            return None;
++        }
++        let vk = VIRTUAL_KEY((scanned & 0xff) as u16);
++        // The high bit of the mapped character marks a dead key.
++        if unsafe { MapVirtualKeyExW(vk.0 as u32, MAPVK_VK_TO_CHAR, layout) } & 0x8000_0000 != 0 {
++            return None;
++        }
++        // Caps Lock inverts Shift for letters.
++        let shift = ((scanned >> 8) & 1 != 0) != (caps_lock && character.is_alphabetic());
++        Some(if shift { Stroke::Shifted(vk) } else { Stroke::Key(vk) })
++    }
++
++    fn packet_inputs(character: char) -> Vec<INPUT> {
++        let mut units = [0u16; 2];
++        let mut inputs = Vec::with_capacity(4);
++        for unit in character.encode_utf16(&mut units).iter() {
++            inputs.push(unicode(*unit, false));
++            inputs.push(unicode(*unit, true));
++        }
++        inputs
+     }
+ 
+     fn send_keys(keys: &[Value]) -> Result<(), ProtocolError> {
+@@ -427,8 +552,20 @@ mod native {
+             "shift" => Some(VK_SHIFT),
+             "alt" | "option" => Some(VK_MENU),
+             "cmd" | "win" | "meta" => Some(VK_LWIN),
+-            key if key.len() == 1 => {
+-                Some(VIRTUAL_KEY(key.as_bytes()[0].to_ascii_uppercase() as u16))
++            key if key.chars().count() == 1 => {
++                let character = key.chars().next()?;
++                if character.is_ascii_alphanumeric() {
++                    return Some(VIRTUAL_KEY(character.to_ascii_uppercase() as u16));
++                }
++                // Punctuation has no VK equal to its ASCII code ("." is
++                // 0x2E, VK_DELETE). Use the layout's key, and refuse one that
++                // needs Shift or AltGr rather than pressing a different key.
++                let mut unit = [0u16; 2];
++                if character.encode_utf16(&mut unit).len() != 1 {
++                    return None;
++                }
++                let scanned = unsafe { VkKeyScanW(unit[0]) };
++                (scanned != -1 && (scanned >> 8) & 0xff == 0).then(|| VIRTUAL_KEY((scanned & 0xff) as u16))
+             }
+             key if key.starts_with('f') => key[1..]
+                 .parse::<u16>()
+diff --git a/native/windows/bridge-rs/src/main.rs b/native/windows/bridge-rs/src/main.rs
+index e175da2..970ecb9 100644
+--- a/native/windows/bridge-rs/src/main.rs
++++ b/native/windows/bridge-rs/src/main.rs
+@@ -1,6 +1,7 @@
+ use std::cell::Cell;
+ use std::collections::{HashMap, VecDeque};
+ use std::io::{self, BufRead, Write};
++use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::{mpsc, Arc, Mutex, OnceLock};
+ use std::thread::{self, sleep};
+ use std::time::{Duration, Instant};
+@@ -103,6 +104,25 @@ fn helper_state() -> &'static Mutex<HelperState> {
+     STATE.get_or_init(|| Mutex::new(HelperState::default()))
+ }
+ 
++/// Cancellation flags for requests that are queued or running, keyed by id.
++/// Registered at enqueue time, so a cancel never misses a queued request.
++fn cancellations() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
++    static FLAGS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
++    FLAGS.get_or_init(|| Mutex::new(HashMap::new()))
++}
++
++/// Answered on the reader thread, so it never waits behind the request it stops.
++fn cancel_request(request: &Request) -> Response {
++    let Some(target) = request.args.get("id").and_then(Value::as_str) else {
++        return Response::err(&request.id, invalid("cancel requires id"));
++    };
++    let flag = cancellations().lock().ok().and_then(|flags| flags.get(target).cloned());
++    if let Some(flag) = &flag {
++        flag.store(true, Ordering::SeqCst);
++    }
++    Response::ok(&request.id, json!({ "cancelled": flag.is_some() }))
++}
++
+ fn physical_input_lock() -> &'static Mutex<()> {
+     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+     LOCK.get_or_init(|| Mutex::new(()))
+@@ -143,7 +163,18 @@ fn main() {
+                     Err(_) => return,
+                 };
+                 match request {
+-                    Ok(request) => emit_response(&handle_request(&request)),
++                    Ok(request) => {
++                        let flag = cancellations()
++                            .lock()
++                            .ok()
++                            .and_then(|flags| flags.get(&request.id).cloned())
++                            .unwrap_or_default();
++                        let response = input::cancellation::scope(flag, || handle_request(&request));
++                        if let Ok(mut flags) = cancellations().lock() {
++                            flags.remove(&request.id);
++                        }
++                        emit_response(&response)
++                    }
+                     Err(_) => return,
+                 }
+             })
+@@ -182,6 +213,13 @@ fn main() {
+                 continue;
+             }
+         };
++        if request.cmd == "cancel" {
++            emit_response(&cancel_request(&request));
++            continue;
++        }
++        if let Ok(mut flags) = cancellations().lock() {
++            flags.insert(request.id.clone(), Arc::new(AtomicBool::new(false)));
++        }
+         if sender.send(request).is_err() {
+             break;
+         }
+@@ -833,6 +871,11 @@ fn handle_act_batch(args: &Value) -> Result<Value, ProtocolError> {
+         let mut steps = Vec::new();
+         let mut stopped_at = None;
+         for (index, action) in actions.iter().enumerate() {
++            if input::cancellation::requested() {
++                steps.push(json!({ "outcome": "didnt", "error": { "code": ErrorCode::Interrupted.to_string(), "message": "Stopped before this action." } }));
++                stopped_at = Some(index);
++                break;
++            }
+             let mut deferred = action.clone();
+             deferred["deferRootDelta"] = json!(true);
+             let step = match handle_act(&deferred) {
+diff --git a/src/platform/windows/backend.ts b/src/platform/windows/backend.ts
+index 80e77b1..ebe150c 100644
+--- a/src/platform/windows/backend.ts
++++ b/src/platform/windows/backend.ts
+@@ -1,7 +1,7 @@
+ import { parseLookResponse, type LookResponse } from "../../outline.ts";
+ import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
+ import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformReadyState, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformTarget, PlatformWaitForRequest, PlatformWaitForResponse } from "../types.ts";
+-import { WINDOWS_HELPER_PROTOCOL_VERSION, windowsHelper } from "./helper.ts";
++import { WINDOWS_HELPER_HOST_OWNED, WINDOWS_HELPER_PROTOCOL_VERSION, windowsHelper } from "./helper.ts";
+ import { assertPlatformArchitecture } from "../architecture.ts";
+ 
+ function normalizedProcessName(appName: string): string {
+@@ -99,7 +99,9 @@ async function ensureReady(_ctx: unknown, state: PlatformReadyState, signal?: Ab
+ 
+ export const windowsBackend: ComputerUsePlatformBackend = {
+ 	name: "windows",
+-	shutdown(): void { windowsHelper.dispose(); },
++	// One helper serves every session in this process. A host that owns it stops
++	// it after all sessions end; ending one session must not fail its peers.
++	shutdown(): void { if (!WINDOWS_HELPER_HOST_OWNED) windowsHelper.dispose(); },
+ 	ensureReady,
+ 	async listApps(signal?: AbortSignal): Promise<PlatformApp[]> {
+ 		return appsFromRoots(parseRoots(await windowsHelper.command("listRoots", {}, { signal })));
+diff --git a/src/platform/windows/helper.ts b/src/platform/windows/helper.ts
+index 7b5c305..49c0696 100644
+--- a/src/platform/windows/helper.ts
++++ b/src/platform/windows/helper.ts
+@@ -10,24 +10,48 @@ const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
+ const SETUP_HELPER_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "setup-helper.mjs");
+ const HELPER_SETUP_TIMEOUT_MS = 60_000;
+ const COMMAND_TIMEOUT_MS = 15_000;
++const MAX_RESPONSE_CHARS = 16 * 1024 * 1024;
++const MAX_STDERR_CHARS = 4 * 1024;
++// Commands whose effect can already have happened once dispatched.
++const EFFECT_COMMANDS = new Set(["act", "actBatch", "focusWindow", "openBrowserLocation"]);
++const UNCERTAIN_SETTLE_MS = 2_000;
+ 
+ export const WINDOWS_HELPER_PROTOCOL_VERSION = 4;
+ export const WINDOWS_HELPER_PATH = process.env.PI_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "windows-bridge.exe");
++/** An embedding host deploys the helper and owns its process; sessions never stop it. */
++export const WINDOWS_HELPER_HOST_OWNED = process.env.PI_COMPUTER_USE_HOST_OWNED_HELPER === "1";
++
++export class WindowsHelperCommandError extends Error {
++	readonly code?: string;
++
++	constructor(message: string, code?: string) {
++		super(message);
++		this.name = "WindowsHelperCommandError";
++		this.code = code;
++	}
++}
+ 
+ interface Pending<T> {
++	cmd: string;
+ 	resolve(value: T): void;
+ 	reject(error: Error): void;
+ 	timer: NodeJS.Timeout;
++	/** Set once the caller gave up on a dispatched effect; its end closes the wait with what the helper reported. */
++	abandoned?: (detail?: string) => void;
+ }
+ 
+ async function isExecutable(filePath: string): Promise<boolean> {
+ 	try { await access(filePath, fsConstants.X_OK); return true; } catch { return false; }
+ }
+ 
++function uncertain(reason: string): WindowsHelperCommandError {
++	return new WindowsHelperCommandError(`${reason} The computer operation's outcome is uncertain. Observe before continuing; do not automatically repeat it.`, "interrupted_unknown");
++}
++
+ async function runProcess(command: string, args: string[], timeoutMs: number, signal?: AbortSignal, env?: NodeJS.ProcessEnv): Promise<void> {
+ 	if (signal?.aborted) throw new Error("Operation aborted.");
+ 	await new Promise<void>((resolve, reject) => {
+-		const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env });
++		const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env, windowsHide: true });
+ 		let stdout = "";
+ 		let stderr = "";
+ 		const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
+@@ -50,19 +74,29 @@ export class WindowsHelperClient {
+ 	private installChecked = false;
+ 	private child?: ChildProcessWithoutNullStreams;
+ 	private buffer = "";
++	private stderrTail = "";
+ 	private pending = new Map<string, Pending<unknown>>();
+ 
++	constructor(private readonly helper: { path: string; args?: string[] } = { path: WINDOWS_HELPER_PATH }) {}
++
++	/** True while a helper process is live; observing this never starts one. */
++	get running(): boolean {
++		return Boolean(this.child && this.child.exitCode === null && !this.child.killed);
++	}
++
++	get helperPath(): string {
++		return this.helper.path;
++	}
++
+ 	dispose(): void {
+-		const error = new Error("Windows helper closed because the Pi session ended.");
+-		for (const pending of this.pending.values()) {
+-			clearTimeout(pending.timer);
+-			pending.reject(error);
+-		}
+-		this.pending.clear();
+-		this.buffer = "";
++		this.stop("Windows helper closed because its host stopped it.");
++	}
+ 
++	private stop(reason: string): void {
+ 		const child = this.child;
+ 		this.child = undefined;
++		this.buffer = "";
++		this.failPending(child !== undefined, reason);
+ 		if (!child) return;
+ 		child.stdin.destroy();
+ 		child.stdout.destroy();
+@@ -72,66 +106,142 @@ export class WindowsHelperClient {
+ 	}
+ 
+ 	async ensureInstalled(signal?: AbortSignal): Promise<void> {
+-		if ((await isExecutable(WINDOWS_HELPER_PATH)) && this.installChecked) return;
++		if (await isExecutable(this.helper.path)) {
++			if (this.installChecked || process.env.PI_COMPUTER_USE_NO_RUNTIME_INSTALL === "1") return;
++		} else if (process.env.PI_COMPUTER_USE_NO_RUNTIME_INSTALL === "1") {
++			throw new Error(`The included computer helper is missing at ${this.helper.path}. Reinstall the application; runtime installation is disabled.`);
++		}
+ 		// Re-enter Electron and Bun standalone hosts as their JavaScript runtimes.
+ 		await runProcess(process.execPath, [SETUP_HELPER_SCRIPT, "--platform", "windows", "--runtime"], HELPER_SETUP_TIMEOUT_MS, signal, { ...process.env, ELECTRON_RUN_AS_NODE: "1", BUN_BE_BUN: "1" });
+ 		this.installChecked = true;
+-		if (!(await isExecutable(WINDOWS_HELPER_PATH))) throw new Error(`Failed to install Windows helper at ${WINDOWS_HELPER_PATH}.`);
++		if (!(await isExecutable(this.helper.path))) throw new Error(`Failed to install Windows helper at ${this.helper.path}.`);
++	}
++
++	private liveChild(): ChildProcessWithoutNullStreams {
++		if (!this.child || !this.running) throw new Error("The Windows helper is not running.");
++		return this.child;
+ 	}
+ 
+ 	private async process(signal?: AbortSignal): Promise<ChildProcessWithoutNullStreams> {
+ 		await this.ensureInstalled(signal);
+-		if (this.child && this.child.exitCode === null && !this.child.killed) return this.child;
+-		const child = spawn(WINDOWS_HELPER_PATH, [], { stdio: ["pipe", "pipe", "pipe"] });
++		if (signal?.aborted) throw new Error("Operation aborted.");
++		if (this.child && this.running) return this.child;
++		// The helper is a console program; never flash a console window for it.
++		const child = spawn(this.helper.path, this.helper.args ?? [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+ 		child.stdout.setEncoding("utf8");
+ 		child.stderr.setEncoding("utf8");
+ 		child.stdin.setDefaultEncoding("utf8");
+-		child.stdout.on("data", (chunk: string) => this.onStdout(chunk));
+-		child.on("exit", () => { if (this.child === child) this.child = undefined; });
+-		child.on("error", () => { if (this.child === child) this.child = undefined; });
++		child.stdout.on("data", (chunk: string) => { if (this.child === child) this.onStdout(chunk); });
++		// Drain stderr so a chatty helper can never block on a full pipe.
++		child.stderr.on("data", (chunk: string) => { if (this.child === child) this.stderrTail = (this.stderrTail + chunk).slice(-MAX_STDERR_CHARS); });
++		child.stdin.on("error", () => { /* Reported through the request or the exit below. */ });
++		const ended = (reason: string) => {
++			if (this.child !== child) return;
++			this.child = undefined;
++			this.buffer = "";
++			this.failPending(true, reason);
++		};
++		child.on("exit", (code) => ended(`Windows helper exited${code === null ? "" : ` with code ${code}`}.${this.stderrTail.trim() ? ` ${this.stderrTail.trim()}` : ""}`));
++		child.on("error", (error) => ended(`Windows helper failed: ${error.message}`));
+ 		this.child = child;
+ 		this.buffer = "";
++		this.stderrTail = "";
+ 		return child;
+ 	}
+ 
++	/** A dispatched effect that loses its helper is uncertain, never a clean failure. */
++	private failPending(dispatched: boolean, reason: string): void {
++		const entries = [...this.pending.values()];
++		this.pending.clear();
++		for (const pending of entries) {
++			clearTimeout(pending.timer);
++			if (pending.abandoned) pending.abandoned(reason);
++			else if (dispatched && EFFECT_COMMANDS.has(pending.cmd)) pending.reject(uncertain(reason));
++			else pending.reject(new Error(reason));
++		}
++	}
++
+ 	private onStdout(chunk: string): void {
+ 		this.buffer += chunk;
+ 		for (;;) {
+ 			const newline = this.buffer.indexOf("\n");
+-			if (newline < 0) return;
++			if (newline < 0) break;
+ 			const line = this.buffer.slice(0, newline).trim();
+ 			this.buffer = this.buffer.slice(newline + 1);
+ 			if (!line) continue;
+ 			let parsed: any;
+ 			try { parsed = JSON.parse(line); } catch { continue; }
+-			const pending = this.pending.get(parsed.id);
++			const pending = this.pending.get(parsed?.id);
+ 			if (!pending) continue;
+ 			this.pending.delete(parsed.id);
+ 			clearTimeout(pending.timer);
+-			if (parsed.protocolVersion !== WINDOWS_HELPER_PROTOCOL_VERSION) {
++			if (pending.abandoned) {
++				pending.abandoned(parsed.ok === true ? "The helper finished the action before it could stop." : parsed.error?.message);
++			} else if (parsed.protocolVersion !== WINDOWS_HELPER_PROTOCOL_VERSION) {
+ 				pending.reject(new Error(`Windows helper protocol mismatch: expected ${WINDOWS_HELPER_PROTOCOL_VERSION}, got ${parsed.protocolVersion ?? "unknown"}. Restart Pi to use the installed helper.`));
+ 			} else if (parsed.ok === true) {
+ 				pending.resolve(parsed.result);
+ 			} else {
+-				const error = new Error(parsed.error?.message ?? "Windows helper command failed.") as Error & { code?: string };
+-				error.code = parsed.error?.code;
+-				pending.reject(error);
++				pending.reject(new WindowsHelperCommandError(parsed.error?.message ?? "Windows helper command failed.", parsed.error?.code));
+ 			}
+ 		}
++		// An unbounded line is a protocol violation; restart rather than buffer it.
++		if (this.buffer.length > MAX_RESPONSE_CHARS) this.stop("Windows helper response exceeded 16 MiB.");
+ 	}
+ 
+-	async command<T>(cmd: string, args: Record<string, unknown> = {}, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
+-		const child = await this.process(options?.signal);
++	/** `launch: false` only talks to a live helper, so an inspection can never start one. */
++	async command<T>(cmd: string, args: Record<string, unknown> = {}, options?: { timeoutMs?: number; signal?: AbortSignal; launch?: boolean }): Promise<T> {
++		const signal = options?.signal;
++		if (signal?.aborted) throw new Error("Operation aborted.");
++		const child = options?.launch === false ? this.liveChild() : await this.process(signal);
++		if (signal?.aborted) throw new Error("Operation aborted.");
+ 		const id = randomUUID();
+ 		const timeoutMs = options?.timeoutMs ?? COMMAND_TIMEOUT_MS;
+ 		return await new Promise<T>((resolve, reject) => {
+-			const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Helper command '${cmd}' timed out after ${timeoutMs}ms.`)); }, timeoutMs);
+-			this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
++			let settled = false;
++			const finish = (action: () => void) => {
++				if (settled) return;
++				settled = true;
++				signal?.removeEventListener("abort", onAbort);
++				action();
++			};
++			// A read is simply abandoned. A dispatched effect is cancelled in the
++			// helper, which stops between keystrokes or batched actions, and keeps
++			// its slot until the helper answers (bounded), so physical input is never
++			// released while it may still run. It then fails as uncertain, with the
++			// helper's account of how far it got, and is never retried.
++			const giveUp = (reason: string) => {
++				const pending = this.pending.get(id);
++				if (!pending || pending.abandoned) return;
++				clearTimeout(pending.timer);
++				if (!EFFECT_COMMANDS.has(cmd)) {
++					this.pending.delete(id);
++					finish(() => reject(new Error(reason)));
++					return;
++				}
++				pending.abandoned = (detail) => { clearTimeout(pending.timer); finish(() => reject(uncertain(detail ? `${reason} ${detail}` : reason))); };
++				child.stdin.write(`${JSON.stringify({ protocolVersion: WINDOWS_HELPER_PROTOCOL_VERSION, id: randomUUID(), cmd: "cancel", args: { id } })}\n`, () => { /* The settle window bounds a lost cancel. */ });
++				pending.timer = setTimeout(() => {
++					if (this.pending.get(id) === pending) this.pending.delete(id);
++					pending.abandoned?.();
++				}, UNCERTAIN_SETTLE_MS);
++			};
++			const onAbort = () => giveUp("Operation aborted.");
++			this.pending.set(id, {
++				cmd,
++				resolve: (value) => finish(() => resolve(value as T)),
++				reject: (error) => finish(() => reject(error)),
++				timer: setTimeout(() => giveUp(`Helper command '${cmd}' timed out after ${timeoutMs}ms.`), timeoutMs),
++			});
++			signal?.addEventListener("abort", onAbort, { once: true });
+ 			child.stdin.write(`${JSON.stringify({ protocolVersion: WINDOWS_HELPER_PROTOCOL_VERSION, id, cmd, args })}\n`, (error) => {
+ 				if (!error) return;
++				const pending = this.pending.get(id);
++				if (!pending || pending.abandoned) return;
+ 				this.pending.delete(id);
+-				clearTimeout(timer);
+-				reject(error);
++				clearTimeout(pending.timer);
++				// A failed write never reached the helper, so nothing took effect.
++				finish(() => reject(error));
+ 			});
+ 		});
+ 	}
+diff --git a/native/windows/bridge-rs/src/window.rs b/native/windows/bridge-rs/src/window.rs
+index d9a4790..64d6ea7 100644
+--- a/native/windows/bridge-rs/src/window.rs
++++ b/native/windows/bridge-rs/src/window.rs
+@@ -94,7 +94,8 @@ use windows::core::PWSTR;
+ use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, RECT, TRUE};
+ #[cfg(windows)]
+ use windows::Win32::System::Threading::{
+-    OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
++    AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
++    PROCESS_QUERY_LIMITED_INFORMATION,
+ };
+ #[cfg(windows)]
+ use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+@@ -102,11 +103,11 @@ use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+ use windows::Win32::UI::HiDpi::GetDpiForWindow;
+ #[cfg(windows)]
+ use windows::Win32::UI::WindowsAndMessaging::{
+-    EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetMessageW, GetWindow,
+-    GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
+-    IsWindowVisible, SetForegroundWindow, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+-    EVENT_OBJECT_HIDE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GWL_EXSTYLE, GW_OWNER, MSG,
+-    WINEVENT_OUTOFCONTEXT, WS_EX_DLGMODALFRAME,
++    BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetMessageW,
++    GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
++    IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, EVENT_OBJECT_CREATE,
++    EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GWL_EXSTYLE,
++    GW_OWNER, MSG, SW_RESTORE, WINEVENT_OUTOFCONTEXT, WS_EX_DLGMODALFRAME,
+ };
+ 
+ #[cfg(windows)]
+@@ -500,7 +501,7 @@ pub fn focus_window(
+         })?;
+         let hwnd = HWND(native.raw() as *mut _);
+         let already_focused = unsafe { GetForegroundWindow() == hwnd };
+-        let focused = already_focused || unsafe { SetForegroundWindow(hwnd).as_bool() };
++        let focused = bring_to_foreground(hwnd);
+         Ok(json!({ "focused": focused, "alreadyFocused": already_focused }))
+     }
+ }
+@@ -519,15 +520,7 @@ pub fn ensure_foreground(hwnd: isize) -> Result<(), ProtocolError> {
+     }
+     #[cfg(windows)]
+     {
+-        let target = HWND(hwnd as *mut _);
+-        for _ in 0..4 {
+-            if unsafe { GetForegroundWindow() == target } {
+-                return Ok(());
+-            }
+-            let _ = unsafe { SetForegroundWindow(target) };
+-            thread::sleep(Duration::from_millis(20));
+-        }
+-        if unsafe { GetForegroundWindow() == target } {
++        if bring_to_foreground(HWND(hwnd as *mut _)) {
+             Ok(())
+         } else {
+             Err(ProtocolError::new(
+@@ -538,6 +531,70 @@ pub fn ensure_foreground(hwnd: isize) -> Result<(), ProtocolError> {
+     }
+ }
+ 
++/// Ask for the foreground and report whether `target` observably holds it.
++///
++/// The helper is a background child of its host, so the foreground lock
++/// usually refuses a plain SetForegroundWindow. Sharing the current foreground
++/// thread's input state lets the request count as coming from that thread.
++/// No keystroke is injected to release the lock: Alt opens the target's menu.
++#[cfg(windows)]
++fn bring_to_foreground(target: HWND) -> bool {
++    if unsafe { IsIconic(target).as_bool() } {
++        let _ = unsafe { ShowWindow(target, SW_RESTORE) };
++    }
++    for _ in 0..4 {
++        if unsafe { GetForegroundWindow() == target } {
++            return true;
++        }
++        if unsafe { SetForegroundWindow(target).as_bool() && GetForegroundWindow() == target } {
++            return true;
++        }
++        {
++            let _attached = ForegroundInputAttachment::attach();
++            let _ = unsafe { BringWindowToTop(target) };
++            let _ = unsafe { SetForegroundWindow(target) };
++        }
++        thread::sleep(Duration::from_millis(20));
++    }
++    unsafe { GetForegroundWindow() == target }
++}
++
++/// This thread's input state joined to the foreground window's thread.
++/// Dropping it always detaches, including when the attempt unwinds.
++#[cfg(windows)]
++struct ForegroundInputAttachment {
++    current: u32,
++    foreground: u32,
++}
++
++#[cfg(windows)]
++impl ForegroundInputAttachment {
++    fn attach() -> Option<Self> {
++        let window = unsafe { GetForegroundWindow() };
++        if window.0.is_null() {
++            return None;
++        }
++        let foreground = unsafe { GetWindowThreadProcessId(window, None) };
++        let current = unsafe { GetCurrentThreadId() };
++        if foreground == 0 || foreground == current {
++            return None;
++        }
++        unsafe { AttachThreadInput(current, foreground, true) }
++            .as_bool()
++            .then_some(Self {
++                current,
++                foreground,
++            })
++    }
++}
++
++#[cfg(windows)]
++impl Drop for ForegroundInputAttachment {
++    fn drop(&mut self) {
++        let _ = unsafe { AttachThreadInput(self.current, self.foreground, false) };
++    }
++}
++
+ // ---------------------------------------------------------------------------
+ // Tests
+ // ---------------------------------------------------------------------------

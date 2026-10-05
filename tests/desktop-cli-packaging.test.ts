@@ -35,6 +35,7 @@ test("macOS DMG artwork keeps the tracked source and generated packaging artifac
   assert.match(generator, /join\(rootDir, "out", "generated-assets"\)/);
   assert.match(generator, /writeFile\(join\(outDir, "dmg-background\.png"\), backgroundBytes\)/);
   assert.match(generator, /writeFile\(join\(assetsDir, "dmg-background\.png"\), backgroundBytes\)/);
+  assert.match(generator, /process\.platform === "darwin" \? \[writeFile\(join\(assetsDir/, "only macOS refreshes the tracked macOS rendering");
   assert.match(preflight, /out\/generated-assets\/dmg-background\.png/);
 });
 
@@ -205,7 +206,8 @@ function assertActLaneShimContract(shim: string): void {
   // F28: the wait loop settles on a task that is waiting on an answer, not
   // only on a terminal turn state, and says which by printing the status
   // document in that case. A shim that reads only task.state fails here.
-  assert.match(shim, /data\.waiting|\$data\.waiting/, "the wait loop must read the status document's waiting field");
+  // PowerShell reads through a strict-mode-safe accessor (see desktop-cli-wait-status).
+  assert.match(shim, /data\.waiting|\$data\.waiting|\$data 'waiting'/, "the wait loop must read the status document's waiting field");
   assert.match(shim, /waiting/);
   assert.match(shim, /act-token\.json/);
   assert.match(shim, /\[A-Za-z0-9_-\]\{16,256\}/);
@@ -220,7 +222,7 @@ function assertActLaneShimContract(shim: string): void {
   assert.match(shim, /Open work-fold to run this command/);
   assert.match(shim, /exit\s*\(?6\)?/);
   assert.match(shim, /--task/);
-  assert.match(shim, /task\.state/);
+  assert.match(shim, /task\.state|\$data 'task'\) 'state'/);
   assert.match(shim, /accepted/);
   assert.match(shim, /--timeout/);
   assert.match(shim, /timed out after/);

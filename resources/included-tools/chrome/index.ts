@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { chmod, copyFile, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createChromeExtension, probeChromeConnection, startChromeConnection } from "pi-chrome/extensions/chrome-profile-bridge/index.ts";
 import type { ChromeHostFacilities } from "../../../src/shared/chrome-connection.js";
 import { hostContext } from "../host.ts";
+import { ensurePrivateDirectory } from "../private-directory.ts";
 
 const require = createRequire(import.meta.url);
 export type IncludedChromeConfig = { companionPath: string };
@@ -32,8 +33,7 @@ async function companionToken(config: IncludedChromeConfig): Promise<string | un
 export async function prepareIncludedChromeCompanion(config: IncludedChromeConfig): Promise<{ path: string }> {
   const token = await companionToken(config).catch(() => undefined) ?? randomBytes(32).toString("hex");
   const source = join(dirname(require.resolve("pi-chrome/package.json")), "extensions", "chrome-profile-bridge", "browser-extension");
-  await mkdir(config.companionPath, { recursive: true, mode: 0o700 });
-  await chmod(config.companionPath, 0o700);
+  await ensurePrivateDirectory(config.companionPath);
   await copyCompanion(source, config.companionPath);
   const temporary = join(config.companionPath, `host-config.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
   await writeFile(temporary, `${JSON.stringify({ version: 1, mode: "embedded", token })}\n`, { mode: 0o600 });

@@ -56,8 +56,9 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
       : { id, state: "ready", detail: "DuckDuckGo search and public page reading are available without setup.", checkedAt: now };
     const checked = includedToolObservation(runtime, id);
-    return checked ? checked
-      : { id, state: "unknown", detail: "Check setup to verify this tool on your computer.", checkedAt: now };
+    const status: IncludedToolStatus = checked ?? { id, state: "unknown", detail: "Check setup to verify this tool on your computer.", checkedAt: now };
+    // The host, not the viewing browser, decides which setup controls apply.
+    return id === "computer" ? { ...status, computer: status.computer ?? { permissions: process.platform === "win32" ? "none" : "macos" } } : status;
   });
 }
 

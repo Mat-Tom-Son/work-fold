@@ -16,6 +16,7 @@ import {
 } from "../desktop/src/shell-environment.js";
 
 const launchdPath = "/usr/bin:/bin:/usr/sbin:/sbin";
+// Login-shell resolution is POSIX-only; Windows never runs it (see the first test).
 
 test("GUI launches resolve the login shell; terminal launches, Windows, probes, and opt-outs do not", () => {
   assert.equal(shouldResolveLoginShellEnvironment({ PATH: launchdPath }, "darwin").resolve, true);
@@ -47,7 +48,7 @@ test("parsing keeps only the NUL-separated block between the markers", () => {
   assert.equal(parseLoginShellEnvironment(`${marker}PATH=/bin`, marker), null);
 });
 
-test("merging prefers the shell PATH order, keeps process-only entries, and protects explicit configuration", () => {
+test("merging prefers the shell PATH order, keeps process-only entries, and protects explicit configuration", { skip: process.platform === "win32" }, () => {
   const processEnv: NodeJS.ProcessEnv = {
     PATH: `${launchdPath}${delimiter}/Applications/work-fold.app/Contents/bin`,
     HOME: "/Users/mat",
@@ -89,7 +90,7 @@ test("merging prefers the shell PATH order, keeps process-only entries, and prot
   assert.deepEqual(merged.importedKeys, ["EDITOR", "NVM_DIR", "PATH", "WORKFOLD_CHAT_CONTEXT_BUDGET_TOKENS"]);
 });
 
-test("a login shell that prints profile noise still yields its environment end to end", async () => {
+test("a login shell that prints profile noise still yields its environment end to end", { skip: process.platform === "win32" }, async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "work-fold-shell-env-"));
   try {
     const fakeShell = join(sandbox, "fake-shell");
@@ -117,7 +118,7 @@ test("a login shell that prints profile noise still yields its environment end t
   }
 });
 
-test("a hanging or missing login shell leaves the launch environment untouched", async () => {
+test("a hanging or missing login shell leaves the launch environment untouched", { skip: process.platform === "win32" }, async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "work-fold-shell-env-"));
   try {
     const hangingShell = join(sandbox, "hanging-shell");
@@ -139,7 +140,7 @@ test("a hanging or missing login shell leaves the launch environment untouched",
   }
 });
 
-test("the default login shell follows $SHELL and falls back to a platform shell that exists", () => {
+test("the default login shell follows $SHELL and falls back to a platform shell that exists", { skip: process.platform === "win32" }, () => {
   assert.equal(defaultLoginShell({ SHELL: "/definitely/missing/shell" }, "darwin"), "/bin/zsh");
   assert.equal(defaultLoginShell({}, "linux"), "/bin/bash");
   assert.equal(defaultLoginShell({ SHELL: "/bin/sh" }, "darwin"), "/bin/sh");

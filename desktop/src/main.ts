@@ -69,8 +69,8 @@ import { includedToolsRoot } from "../../src/local/agent/included-tools.js";
 import { IncludedChromeConnectionService } from "../../src/local/agent/included-chrome-connection.js";
 import type { ChromeHostFacilities } from "../../src/shared/chrome-connection.js";
 import chromeDistribution from "../../src/shared/chrome-distribution.json" with { type: "json" };
-import { ChromeNativeHostRegistration } from "./chrome-native-host.js";
-import { ComputerHelperInstallation } from "./computer-helper-installation.js";
+import { ChromeNativeHostRegistration, windowsChromeExecutable } from "./chrome-native-host.js";
+import { ComputerHelperInstallation, computerHelperBundleName } from "./computer-helper-installation.js";
 import { createJiti } from "jiti";
 import { applyLoginShellEnvironment, formatLoginShellEnvironmentResult, type LoginShellEnvironmentResult } from "./shell-environment.js";
 import { createRestrictedAppConnectionStore } from "./restricted-app-connections.js";
@@ -529,22 +529,39 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         stateRoot: join(userData, "assistant-tools"), distribution: chromeDistribution,
         sourceDirectory: app.isPackaged ? join(process.resourcesPath, "chrome-native-host") : join(app.getAppPath(), "out/included-tools/chrome-native-host"),
         // An isolated/dev host must not replace the normal Chrome registration.
-        enabled: process.platform === "darwin" && app.isPackaged && !localMacSmokeBuild && !workFoldDesktopStateOverride(process.env),
+        // On Windows only the NSIS-installed app owns the per-user HKCU entry.
+        enabled: !workFoldDesktopStateOverride(process.env) && (process.platform === "darwin" ? app.isPackaged && !localMacSmokeBuild
+          : process.platform === "win32" && workFoldDesktopUsesInstalledProductData({ executablePath: process.execPath, productName, isPackaged: app.isPackaged, fileExists: existsSync })),
+        appExecutable: process.execPath,
       });
       const chromeConnection = await IncludedChromeConnectionService.create({
         stateRoot: join(userData, "assistant-tools"), distribution: chromeDistribution,
         registerNativeHost: (explicit) => chromeRegistration.register(explicit),
         openStore: async () => {
           if (!chromeDistribution.storeId || !/^[a-p]{32}$/.test(chromeDistribution.storeId)) throw new Error("Chrome connection is not available yet.");
-          await new Promise<void>((resolveOpen, rejectOpen) => execFile("/usr/bin/open", ["-a", "Google Chrome", `https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`], error => error ? rejectOpen(new Error("Google Chrome could not open the work-fold listing.")) : resolveOpen()));
+          const listing = `https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`;
+          const failed = () => new Error("Google Chrome could not open the work-fold listing.");
+          // The listing must open in Google Chrome itself, not whichever browser is the default.
+          if (process.platform !== "win32") {
+            await new Promise<void>((resolveOpen, rejectOpen) => execFile("/usr/bin/open", ["-a", "Google Chrome", listing], error => error ? rejectOpen(failed()) : resolveOpen()));
+            return;
+          }
+          const chrome = await windowsChromeExecutable();
+          if (!chrome) throw new Error("Google Chrome is not installed. Install Chrome, then connect again.");
+          // A newly started chrome.exe is the browser itself, so never wait for it to exit.
+          await new Promise<void>((resolveOpen, rejectOpen) => {
+            const browser = spawn(chrome, [listing], { detached: true, stdio: "ignore" });
+            browser.once("error", () => rejectOpen(failed()));
+            browser.once("spawn", () => { browser.unref(); resolveOpen(); });
+          });
         },
         startTransport: async (facilities) => (await loadChromeConnection()).startIncludedChromeConnection(facilities),
         probe: async () => { await (await loadChromeConnection()).probeIncludedChromeConnection(chromeConnection); },
       });
       const bundledComputerHelper = app.isPackaged
-        ? join(process.resourcesPath, "computer-helper", "work-fold Computer.app")
-        : join(app.getAppPath(), "out", "included-tools", "computer-helper", "work-fold Computer.app");
-      const computerHelper = process.platform === "darwin" && app.isPackaged
+        ? join(process.resourcesPath, "computer-helper", computerHelperBundleName())
+        : join(app.getAppPath(), "out", "included-tools", "computer-helper", computerHelperBundleName());
+      const computerHelper = (process.platform === "darwin" || process.platform === "win32") && app.isPackaged
         ? await ComputerHelperInstallation.create({ sourceAppPath: bundledComputerHelper, stateRoot: join(userData, "assistant-tools") })
         : undefined;
       const runtime = new PackagedPiRuntimeProvider({

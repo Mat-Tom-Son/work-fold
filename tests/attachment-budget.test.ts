@@ -7,6 +7,8 @@ import { SettingsManager, type AgentSession } from "@earendil-works/pi-coding-ag
 import { admitAttachments, availableAttachmentTokens } from "../src/local/agent/attachment-budget.js";
 import { buildTurnContextMessage } from "../src/local/agent/pi-client.js";
 import { loadConversationContextAttachmentsForTurn, previewConversationContextAttachment, type LoadedConversationContextAttachment } from "../src/local/conversation-context.js";
+import { currentWindowsUserSid } from "../src/local/private-access.js";
+import { readWindowsAccess } from "./support/windows-acl.js";
 
 function session(contextWindow: number, occupied = 0) {
   return {
@@ -105,10 +107,14 @@ test("reference overflow preserves every selected path in a body-free ordinary m
   assert.deepEqual(manifest.references.map((item: { path: string }) => item.path), attachments.map((item) => item.sourcePath));
   assert.equal(result.referenceManifest!.sha256, createHash("sha256").update(text).digest("hex"));
   assert.doesNotMatch(text, /SHOULD_NOT_COPY/);
-  assert.equal((await stat(result.referenceManifest!.path)).mode & 0o777, 0o600);
+  if (process.platform === "win32") {
+    // Windows ignores modes; the manifest inherits the directory's protected owner-only DACL.
+    const user = await currentWindowsUserSid();
+    assert.deepEqual((await readWindowsAccess(result.referenceManifest!.path)).allowed.sort(), [user, "S-1-5-18", "S-1-5-32-544"].sort());
+  } else assert.equal((await stat(result.referenceManifest!.path)).mode & 0o777, 0o600);
   assert.match(manifest.retention, /until deliberately removed/);
   const prompt = buildTurnContextMessage({ attachmentReferenceManifest: result.referenceManifest });
-  assert.match(prompt, /75 attachment paths/); assert.ok(prompt.includes(result.referenceManifest!.path));
+  assert.match(prompt, /75 attachment paths/); assert.ok(prompt.includes(JSON.stringify(result.referenceManifest!.path)), "the prompt names the manifest by its quoted path");
   assert.match(prompt, /Read the manifest.*in ranges/); assert.doesNotMatch(prompt, /selected\/74.txt/);
   const second = await prepareAttachmentContext(attachments, 0, render, { cwd: root, conversationId: "other-turn", stateRoot: root });
   assert.notEqual(second.referenceManifest!.path, result.referenceManifest!.path);

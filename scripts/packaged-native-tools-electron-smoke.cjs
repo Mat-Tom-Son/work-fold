@@ -3,7 +3,7 @@ const { app } = require("electron");
 const fs = require("node:fs/promises");
 const { createServer } = require("node:http");
 const { createRequire } = require("node:module");
-const { dirname, join, resolve } = require("node:path");
+const { dirname, join, resolve, sep } = require("node:path");
 const { pathToFileURL } = require("node:url");
 const [archiveArgument, rootArgument, documentFixture] = process.argv.slice(2);
 const archive = resolve(archiveArgument), root = resolve(rootArgument);
@@ -20,7 +20,7 @@ app.dock?.hide();
   let peer;
   try {
     const nativeRequire = createRequire(join(archive, "package.json"));
-    assert.ok(nativeRequire.resolve("jiti").startsWith(`${archive}/node_modules/`), "Jiti must come from the built archive");
+    assert.ok(nativeRequire.resolve("jiti").startsWith(join(archive, "node_modules") + sep), "Jiti must come from the built archive");
     const pptxRequire = createRequire(nativeRequire.resolve("pptxgenjs"));
     assert.equal(pptxRequire.resolve("image-size/package.json"), join(archive, "node_modules/image-size/package.json"), "PptxGenJS must resolve the hash-verified archived image parser, with no nested or ancestor replacement");
     const sdkPath = join(archive, "node_modules/@earendil-works/pi-coding-agent/dist/index.js");

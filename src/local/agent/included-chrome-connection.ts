@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
+import { ensurePrivateDirectory } from "../private-access.js";
 import type { ChromeBootstrapRequest, ChromeBootstrapResponse, ChromeBridgeCompatibility, ChromeConnectionObservation, ChromeConnectionSummary, ChromeHostFacilities, ChromeRuntimeConnection } from "../../shared/chrome-connection.js";
 
 export interface ChromeDistribution {
@@ -95,7 +96,7 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
   }
   async #persist(next: SavedConnection) {
     if (this.#recordUnreadable) throw new Error("The Chrome connection settings could not be read. They have not been replaced.");
-    await mkdir(this.#root, { recursive: true, mode: 0o700 }); await chmod(this.#root, 0o700);
+    await ensurePrivateDirectory(this.#root);
     const temporary = `${this.#recordPath}.${randomUUID()}.tmp`;
     try { await writeFile(temporary, `${JSON.stringify(next)}\n`, { mode: 0o600 }); await rename(temporary, this.#recordPath); }
     finally { await rm(temporary, { force: true }); }
@@ -283,7 +284,7 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Chrome bootstrap did not bind loopback.");
       if (this.#closed) return;
-      await mkdir(this.#root, { recursive: true, mode: 0o700 }); await chmod(this.#root, 0o700);
+      await ensurePrivateDirectory(this.#root);
       const temporary = `${this.#descriptorPath}.${this.#launchId}.tmp`;
       try { await writeFile(temporary, `${JSON.stringify({ version: 1, launchId: this.#launchId, endpoint: `http://127.0.0.1:${address.port}/bootstrap`, bootstrapToken: this.#bootstrapToken })}\n`, { mode: 0o600 }); await rename(temporary, this.#descriptorPath); }
       finally { await rm(temporary, { force: true }); }

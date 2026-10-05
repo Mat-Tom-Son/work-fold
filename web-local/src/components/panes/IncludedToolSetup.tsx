@@ -80,24 +80,39 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
   const label = !enabled ? "Turned Off" : includedToolReadiness(status ?? undefined).label;
   const needsSetup = enabled && status?.state === "setup_required";
   const requirement = enabled && status && ["setup_required", "unavailable"].includes(status.state) ? status.detail : null;
+  // The host decides which grants exist. Keep the last answer while an action is
+  // pending so open details do not collapse, and show neither set before it arrives.
+  const knownPermissions = useRef<"macos" | "none" | null>(null);
+  if (status?.computer) knownPermissions.current = status.computer.permissions;
+  const permissions = tool.id === "computer" ? knownPermissions.current : null;
+  const facts = status?.facts ? <dl className="included-tool-facts">{Object.entries(status.facts).map(([key, value]) => <div key={key}><dt>{key === "accessibility" ? "Accessibility" : key === "screenRecording" ? "Screen Recording" : key === "helper" ? "Helper" : key === "path" ? "Location" : key}</dt><dd>{typeof value === "boolean" ? value ? "Allowed" : "Not verified" : value}</dd></div>)}</dl> : null;
   return <section className="included-tool-setup" aria-label={`${tool.title} setup`} aria-busy={busy}>
     {tool.id !== "mcp" || !enabled ? <div className="included-tool-status"><strong role="status">{label}</strong>{tool.id !== "mcp" ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act("check")}>{busy ? "Checking…" : "Check"}</button> : null}</div> : null}
     {requirement ? <p>{requirement}</p> : null}
     {enabled && tool.id === "mcp" && status?.facts?.connections !== undefined && status.facts.connections !== "0" ? <p>Configured connections are checked when used. Open each connection below to verify it now.</p> : null}
-    {enabled && tool.id === "computer" && status?.state === "unknown" ? <p>The helper starts when you use Computer Control. Being idle does not mean its permissions were lost.</p> : null}
+    {enabled && tool.id === "computer" && status?.state === "unknown" ? <p>{permissions === "none" ? "The helper starts when you use Computer Control. Being idle is not a lost connection." : "The helper starts when you use Computer Control. Being idle does not mean its permissions were lost."}</p> : null}
     {enabled && status?.stale && status.state === "ready" ? <p>Last verified {new Date(status.checkedAt).toLocaleString()}. This is an earlier successful check, not a live connection. Readiness refreshes when you use this tool.</p> : null}
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
     {tool.id === "computer" ? <>
       {enabled && status?.state === "unknown" ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("start-check")}>Start and Check</button> : null}
-      {needsSetup ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set Up Permissions</button> : null}
-      <details className="included-tool-optional"><summary>Permissions</summary>
+      {permissions === "macos" ? <>
+        {needsSetup ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set Up Permissions</button> : null}
+        <details className="included-tool-optional"><summary>Permissions</summary>
+          <div className="included-tool-actions">
+            <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("accessibility")}>Accessibility</button>
+            <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("screen-recording")}>Screen Recording</button>
+            <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("recheck")}>Repair and Recheck</button>
+          </div>
+          {facts}
+        </details>
+      </> : null}
+      {permissions === "none" ? <details className="included-tool-optional"><summary>Helper</summary>
+        <p>Windows needs no separate permission for Computer Control. It cannot operate apps running as administrator.</p>
         <div className="included-tool-actions">
-          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("accessibility")}>Accessibility</button>
-          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("screen-recording")}>Screen Recording</button>
-          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("recheck")}>Repair and Recheck</button>
+          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("recheck")}>Restart and Recheck</button>
         </div>
-        {status?.facts ? <dl className="included-tool-facts">{Object.entries(status.facts).map(([key, value]) => <div key={key}><dt>{key === "accessibility" ? "Accessibility" : key === "screenRecording" ? "Screen Recording" : key}</dt><dd>{typeof value === "boolean" ? value ? "Allowed" : "Not verified" : value}</dd></div>)}</dl> : null}
-      </details>
+        {facts}
+      </details> : null}
     </> : null}
     {tool.id === "web" ? <details className="included-tool-optional"><summary>Brave Search</summary><form onSubmit={(event) => { event.preventDefault(); void act("connect-brave"); }}><label>API Key<input type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} disabled={busy} /></label><div className="included-tool-actions"><button type="submit" className="professional-button professional-button-primary" disabled={busy || !enabled || !secret.trim()}>Connect</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("disconnect-brave")}>Use DuckDuckGo</button></div></form></details> : null}
     {tool.id === "mcp" ? <IncludedMcpSetup spaceId={spaceId} enabled={enabled} /> : null}

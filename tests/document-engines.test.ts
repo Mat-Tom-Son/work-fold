@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { watch } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -12,6 +12,36 @@ import { PDFDocument } from "pdf-lib";
 import { discoverDocumentEngines, runDocumentEngine } from "../resources/included-tools/documents/engines.mjs";
 
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+
+test("Windows document discovery finds executables on PATH and ignores directories", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-windows-engine-path-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "tesseract.exe"), "discovery fixture", { mode: 0o700 });
+  await mkdir(join(root, "soffice.exe"));
+  const engines = await discoverDocumentEngines({ path: `"${root}"`, platform: "win32", env: {} });
+  assert.equal(engines.tesseract.executable, join(root, "tesseract.exe"));
+  assert.equal(engines.tesseract.available, true);
+  assert.equal(engines.libreoffice.available, false);
+  assert.match(engines.libreoffice.setup, /Install LibreOffice/);
+});
+
+test("Windows document discovery finds installed engines outside PATH and prefers PATH", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-windows-engine-install-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const office = join(root, "LibreOffice", "program", "soffice.exe");
+  const ocr = join(root, "Tesseract-OCR", "tesseract.exe");
+  await mkdir(join(root, "LibreOffice", "program"), { recursive: true });
+  await mkdir(join(root, "Tesseract-OCR"));
+  await writeFile(office, "discovery fixture", { mode: 0o700 });
+  await writeFile(ocr, "discovery fixture", { mode: 0o700 });
+  const options = { path: "", platform: "win32", env: { ProgramFiles: root } };
+  const installed = await discoverDocumentEngines(options);
+  assert.equal(installed.libreoffice.executable, office);
+  assert.equal(installed.tesseract.executable, ocr);
+  const preferred = join(root, "soffice.exe");
+  await writeFile(preferred, "discovery fixture", { mode: 0o700 });
+  assert.equal((await discoverDocumentEngines({ ...options, path: root })).libreoffice.executable, preferred);
+});
 
 test("installed LibreOffice renders Word and recalculates a new workbook without touching sources", { timeout: 60_000 }, async (t) => {
   const engines = await discoverDocumentEngines();
