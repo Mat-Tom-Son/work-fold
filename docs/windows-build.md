@@ -1,6 +1,11 @@
 # Windows build (inactive reference)
 
-> Windows CI packaging and public distribution are inactive. These commands are
+Windows 11 x64 has an experimental test preview on the separate
+`claude/windows-port-foundation-52959d` branch. See [Platform previews](platform-previews.md)
+for the pinned download and that branch's build guide. This document describes
+the retained commands on `main`; the port has not been merged here.
+
+> Windows CI packaging and production distribution are inactive. These commands are
 > retained as dormant manual diagnostics for a future deliberate Windows
 > reactivation; they are not release gates and must not be added to CI or tag
 > automation without first updating the contributor contract and release

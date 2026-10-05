@@ -79,7 +79,8 @@ viewer pages and app views are a separate shipped capability.
 | [Appearance role inventory](customization-role-inventory.md) | Historical CSS census; re-audit current consumers before continuing migration |
 | [T3 Code audit](t3code-reference-audit.md) | Dated reference snapshot, not current product gaps |
 | [Rebrand launch plan](work-fold-rebrand-plan.md) | Historical clean-break launch evidence and original checklist |
-| [Windows build](windows-build.md), [Windows releases](windows-release.md) | Inactive platform references; no Windows gate on Mac releases |
+| [Platform previews](platform-previews.md) | Windows/Linux test downloads, pinned source branches, verification limits, and integration work |
+| [Windows build](windows-build.md), [Windows releases](windows-release.md) | Retained main-branch diagnostics and inactive production release references; no Windows gate on Mac releases |
 
 ## Keep the map accurate
 
