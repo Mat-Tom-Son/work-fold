@@ -3,11 +3,19 @@ import { createJiti } from "jiti";
 import { resolvePiRuntime, type PiRuntimeProvider } from "./pi-runtime-config.js";
 import type { ChromeConnectionState, ChromeConnectionSummary, ChromeSetupAction } from "../../shared/chrome-connection.js";
 import { includedToolDefinitions, type IncludedToolId, type IncludedToolStatus } from "../../shared/included-tools.js";
+import type { ComputerSessionSummary } from "../../shared/computer-session.js";
 import { includedComputerStatus } from "../../../resources/included-tools/readiness.js";
 import { beginIncludedToolObservation, includedToolObservation } from "./included-tool-observations.js";
 import { loadIncludedMcpConfig } from "./included-mcp-setup.js";
 
 const jiti = createJiti(import.meta.url, { moduleCache: true });
+
+function computerStatus(summary: ComputerSessionSummary, accessibility?: IncludedToolStatus): IncludedToolStatus {
+  if (accessibility && Date.now() - Date.parse(accessibility.checkedAt) >= 5 * 60_000) accessibility = undefined;
+  return { id: "computer", state: summary.state === "active" ? "ready" : summary.state === "error" ? "unavailable" : accessibility?.state ?? "setup_required",
+    detail: summary.detail, checkedAt: summary.checkedAt, computerSession: summary,
+    facts: { ...accessibility?.facts, platform: "linux", session: "wayland" } };
+}
 
 /** Explicit projection: native leases, profile identities and bootstrap proofs stay in the host. */
 function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
@@ -51,17 +59,20 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
   return includedToolDefinitions.map(({ id }) => {
     if (id === "mcp") return mcp;
     if (id === "chrome") return chromeStatus(runtime.config.includedTools?.chromeConnection?.status());
+    if (id === "computer" && runtime.config.includedTools?.computerSession) return computerStatus(
+      runtime.config.includedTools.computerSession.status(), includedToolObservation(runtime, id));
     const now = new Date().toISOString();
     if (id === "web") return runtime.authStorage.get("work-fold:web:brave")?.type === "api_key"
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
       : { id, state: "ready", detail: "DuckDuckGo search and public page reading are available without setup.", checkedAt: now };
     const checked = includedToolObservation(runtime, id);
-    return checked ? checked
-      : { id, state: "unknown", detail: "Check setup to verify this tool on your computer.", checkedAt: now };
+    const status: IncludedToolStatus = checked ?? { id, state: "unknown", detail: "Check setup to verify this tool on your computer.", checkedAt: now };
+    // The host, not the viewing browser, decides which setup controls apply.
+    return id === "computer" ? { ...status, computer: status.computer ?? { permissions: process.platform === "win32" ? "none" : "macos" } } : status;
   });
 }
 
-export type IncludedSetupAction = ChromeSetupAction | "start-check" | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave";
+export type IncludedSetupAction = ChromeSetupAction | "start-check" | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave" | "share-screen" | "stop-sharing";
 export interface IncludedSetupResult { status: IncludedToolStatus }
 
 /** Trusted local setup only. Secrets and permission prompts never enter an Assistant turn. */
@@ -69,6 +80,15 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
   const runtime = await resolvePiRuntime(cwd, provider, { requestProjectTrust: false });
   const config = runtime.config.includedTools;
   if (!config) throw new Error("Included Assistant tools are unavailable in this host.");
+  if (id === "computer" && ["share-screen", "stop-sharing"].includes(action)) {
+    const service = config.computerSession;
+    if (!service) throw new Error("Screen sharing requires the work-fold desktop app in a supported Wayland session.");
+    if (action === "stop-sharing") await service.stop();
+    else {
+      await service.start(signal);
+    }
+    return { status: computerStatus(service.status(), includedToolObservation(runtime, id)) };
+  }
   if (id === "chrome") {
     if (!["connect-chrome", "disconnect-chrome", "change-chrome-profile", "check"].includes(action)) throw new Error("Unknown Chrome setup action.");
     const service = config.chromeConnection;
@@ -115,7 +135,8 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
     signal?.throwIfAborted();
     status = { ...status, state: result.state, detail: result.reason, facts: result.versions };
   } else throw new Error("Use service connection setup to configure MCP.");
-  return { status: finishObservation(status) };
+  const observed = finishObservation(status);
+  return { status: id === "computer" && config.computerSession ? computerStatus(config.computerSession.status(), observed) : observed };
 }
 
 /** Host shutdown follows session disposal, so one Chat never stops a peer's helper. */

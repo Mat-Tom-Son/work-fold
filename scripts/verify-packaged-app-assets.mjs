@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { extractFile, listPackage } from "@electron/asar";
 import electronFuses from "@electron/fuses";
 import { verifyAsarFileIntegrity } from "./asar-integrity.mjs";
+import { windowsChromeHostSourceSha256 } from "./build-chrome-native-host.mjs";
+import { peContentSha256 } from "./pe-image.mjs";
 
 const { FuseV1Options, getCurrentFuseWire } = electronFuses;
 
@@ -43,7 +45,7 @@ const executablePath = packagedPlatform === "win32"
   ? join(appDir, `${identity.productName}.exe`)
   : packagedPlatform === "darwin"
     ? join(appDir, "Contents", "MacOS", macExecutableName)
-    : join(appDir, identity.productName);
+    : join(appDir, "work-fold-desktop");
 
 assertPath(executablePath, `${identity.productName} executable`);
 assertPath(asarPath, "app.asar");
@@ -53,9 +55,97 @@ assertPath(join(resourcesDir, "assets", "icon.png"), "desktop icon");
 assertPath(join(resourcesDir, "assets", "iconTemplate.png"), "menu-bar template icon");
 assertPath(join(resourcesDir, "assets", "iconTemplate@2x.png"), "menu-bar template icon (2x)");
 assertPath(join(binDir, identity.cliCommand), `${identity.productName} CLI shell shim`);
+if (packagedPlatform === "linux") {
+  assertPath(join(binDir, "work-fold-cli"), "Linux native CLI");
+  assertPath(join(resourcesDir, "computer-helper", "linux-bridge"), "Linux computer helper");
+  assertPath(join(resourcesDir, "computer-helper", "source.json"), "Linux computer helper provenance");
+  assertPath(join(resourcesDir, "chrome-native-host", "work-fold-chrome-host"), "Linux Chrome native host");
+  assertPath(join(resourcesDir, "wayland-helper", "work-fold-wayland"), "Wayland sharing helper");
+  for (const directory of [binDir, join(resourcesDir, "computer-helper"), join(resourcesDir, "chrome-native-host"), join(resourcesDir, "wayland-helper")]) assertPath(join(directory, "THIRD-PARTY-LICENSES.txt"), "Rust dependency license notices");
+  for (const file of [executablePath, join(binDir, identity.cliCommand), join(binDir, "work-fold-cli"), join(resourcesDir, "computer-helper", "linux-bridge"), join(resourcesDir, "chrome-native-host", "work-fold-chrome-host"), join(resourcesDir, "wayland-helper", "work-fold-wayland")]) {
+    if (existsSync(file) && !(statSync(file).mode & 0o111)) failures.push(`Linux file is not executable: ${file}`);
+  }
+  try {
+    const hash = path => createHash("sha256").update(readFileSync(path)).digest("hex");
+    const expected = JSON.parse(readFileSync(join(rootDir, "patches/included-tools/manifest.json"), "utf8")).find(entry => entry.package === "@injaneity/pi-computer-use");
+    const source = JSON.parse(readFileSync(join(resourcesDir, "computer-helper/source.json"), "utf8"));
+    const inputs = expected.files.filter(file => file.path.startsWith("native/linux/bridge-rs/"));
+    if (source.schema !== "work-fold.computer-helper-source.v1" || source.package !== expected.package || source.version !== expected.version
+      || source.integrationPatchSha256 !== expected.sha256 || source.target !== "x86_64-unknown-linux-gnu" || source.protocolVersion !== 4
+      || source.binarySha256 !== hash(join(resourcesDir, "computer-helper/linux-bridge"))
+      || source.sources?.length !== inputs.length || inputs.some(file => source.sources.find(input => input.path === file.path)?.sha256 !== file.after)) {
+      failures.push("Linux computer helper does not match the reviewed source and binary provenance.");
+    }
+    const wayland = JSON.parse(readFileSync(join(resourcesDir, "wayland-helper/source.json"), "utf8"));
+    const waylandInputs = ["Cargo.toml", "Cargo.lock", "build.rs", "src/lib.rs", "src/main.rs", "src/capture.rs", "src/ei.rs", "src/keyboard.rs", "src/portal.rs", "src/seat.rs"];
+    if (wayland.schema !== "work-fold.wayland-helper-source.v1" || wayland.protocolVersion !== 1 || wayland.target !== "x86_64-unknown-linux-gnu"
+      || wayland.binarySha256 !== hash(join(resourcesDir, "wayland-helper/work-fold-wayland"))
+      || wayland.sources?.length !== waylandInputs.length || waylandInputs.some(path => wayland.sources.find(input => input.path === path)?.sha256 !== hash(join(rootDir, "desktop/native/linux-wayland", path)))
+      || ["gstreamer-1.0", "gstreamer-app-1.0", "gstreamer-video-1.0", "libei-1.0", "xkbcommon"].some(name => typeof wayland.systemLibraries?.[name] !== "string")) failures.push("Wayland helper has stale or altered source, binary, or dependency provenance.");
+    const distribution = JSON.parse(readFileSync(join(rootDir, "src/shared/chrome-distribution.json"), "utf8"));
+    for (const [directory, executable, schema] of [[binDir, "work-fold-cli", "work-fold.linux-cli-source.v1"], [join(resourcesDir, "chrome-native-host"), "work-fold-chrome-host", "work-fold.chrome-native-host-source.v1"]]) {
+      const provenance = JSON.parse(readFileSync(join(directory, "source.json"), "utf8"));
+      const sources = ["Cargo.toml", "Cargo.lock", "src/lib.rs", "src/cli.rs", "src/chrome.rs"];
+      if (provenance.schema !== schema || provenance.target !== "x86_64-unknown-linux-gnu" || provenance.binarySha256 !== hash(join(directory, executable))
+        || provenance.distributionSha256 !== createHash("sha256").update(JSON.stringify(distribution)).digest("hex")
+        || provenance.sources?.length !== sources.length || sources.some(path => provenance.sources.find(input => input.path === path)?.sha256 !== hash(join(rootDir, "desktop/native/linux", path)))) failures.push(`Linux ${executable} has stale or altered provenance.`);
+      if (executable === "work-fold-chrome-host" && (provenance.origin !== `chrome-extension://${distribution.storeId}/`
+        || provenance.nativeHostName !== distribution.nativeHostName || provenance.bootstrapVersion !== distribution.bootstrapVersion)) failures.push("Linux Chrome bootstrap has the wrong Store identity.");
+    }
+  } catch (error) { failures.push(`Could not verify Linux native provenance: ${formatError(error)}`); }
+}
 if (packagedPlatform === "win32") {
   assertPath(join(binDir, `${identity.cliCommand}.cmd`), `${identity.productName} CLI command shim`);
   assertPath(join(binDir, `${identity.cliCommand}-cli.ps1`), `${identity.productName} CLI PowerShell helper`);
+  const computerHelper = join(resourcesDir, "computer-helper", "work-fold Computer");
+  assertPath(join(computerHelper, "work-fold Computer.exe"), "included computer helper");
+  assertPath(join(computerHelper, "LICENSE.pi-computer-use"), "computer helper license");
+  assertPath(join(computerHelper, "source.json"), "computer helper provenance");
+  try {
+    const expected = JSON.parse(readFileSync(join(rootDir, "patches", "included-tools", "manifest.json"), "utf8"))
+      .find((entry) => entry.package === "@injaneity/pi-computer-use");
+    const source = JSON.parse(readFileSync(join(computerHelper, "source.json"), "utf8"));
+    if (source.schema !== "work-fold.computer-helper-source.v1" || source.package !== expected.package
+      || source.version !== expected.version || source.integrationPatchSha256 !== expected.sha256
+      || source.source !== (expected.sourceURL || expected.source) || source.license !== expected.license
+      || source.protocolVersion !== 4 || source.target !== "x86_64-pc-windows-msvc") {
+      failures.push("Computer helper provenance does not match the reviewed integration source.");
+    }
+    const crate = "native/windows/bridge-rs";
+    const paths = ["Cargo.toml", "Cargo.lock", ...["capture", "error", "input", "lib", "main", "protocol", "refs", "state", "uia", "window"].map((name) => `src/${name}.rs`)].map((name) => `${crate}/${name}`);
+    if (!Array.isArray(source.sources) || source.sources.length !== paths.length || paths.some((path) =>
+      source.sources.find((item) => item.path === path)?.sha256 !== expected.files.find((item) => item.path === path)?.after)) {
+      failures.push("Computer helper build inputs do not match the reviewed source hashes.");
+    }
+    if (peContentSha256(readFileSync(join(computerHelper, "work-fold Computer.exe"))) !== source.executableContentSha256) {
+      failures.push("Computer helper executable does not match its recorded build.");
+    }
+    for (const path of ["src/platform/windows/helper.ts", "src/platform/windows/backend.ts"]) {
+      const bytes = extractFile(asarPath, join("node_modules", expected.package, path));
+      if (createHash("sha256").update(bytes).digest("hex") !== expected.files.find((item) => item.path === path)?.after) {
+        failures.push(`Computer helper runtime does not match the reviewed source: ${path}.`);
+      }
+    }
+  } catch (error) { failures.push(`Could not verify computer helper provenance: ${formatError(error)}`); }
+  // Only the source-built helper ships; the dependency's upstream binary never does.
+  const upstreamPrebuilt = "node_modules/@injaneity/pi-computer-use/prebuilt";
+  if (existsSync(join(resourcesDir, "app.asar.unpacked", ...upstreamPrebuilt.split("/")))
+    || (existsSync(asarPath) && listPackage(asarPath).some((entry) => entry.replaceAll("\\", "/").startsWith(`/${upstreamPrebuilt}/`)))) {
+    failures.push("The upstream prebuilt computer helper must not be packaged.");
+  }
+  const chromeHost = join(resourcesDir, "chrome-native-host");
+  assertPath(join(chromeHost, "work-fold-chrome-host.exe"), "Chrome native bootstrap");
+  assertPath(join(chromeHost, "source.json"), "Chrome native bootstrap provenance");
+  try {
+    const distribution = JSON.parse(readFileSync(join(rootDir, "src/shared/chrome-distribution.json"), "utf8"));
+    const provenance = JSON.parse(readFileSync(join(chromeHost, "source.json"), "utf8"));
+    const expectedOrigin = distribution.storeId ? `chrome-extension://${distribution.storeId}/` : "";
+    if (provenance.schema !== "work-fold.chrome-native-host-source.v1" || provenance.origin !== expectedOrigin
+      || provenance.nativeHostName !== distribution.nativeHostName || provenance.bootstrapVersion !== distribution.bootstrapVersion
+      || provenance.target !== "x86_64-pc-windows-msvc" || provenance.sourceSha256 !== await windowsChromeHostSourceSha256()
+      || provenance.distributionSha256 !== createHash("sha256").update(JSON.stringify(distribution)).digest("hex")
+      || provenance.executableContentSha256 !== peContentSha256(readFileSync(join(chromeHost, "work-fold-chrome-host.exe")))) failures.push("Chrome native bootstrap does not match the reviewed source and Store identity.");
+  } catch (error) { failures.push(`Could not verify Chrome native bootstrap: ${formatError(error)}`); }
 } else if (packagedPlatform === "darwin") {
   assertPath(join(binDir, `${identity.cliCommand}-cli.jxa.js`), `${identity.productName} CLI macOS helper`);
   assertPath(join(resourcesDir, "icon.icns"), "macOS application icon");
@@ -81,7 +171,7 @@ if (packagedPlatform === "win32") {
       failures.push("Computer helper build inputs do not match the reviewed source hashes.");
     }
     for (const path of ["src/platform/macos/helper.ts", "src/platform/macos/permissions.ts", "src/platform/macos/helper-identity.mjs"]) {
-      const bytes = extractFile(asarPath, `node_modules/${expected.package}/${path}`);
+      const bytes = extractFile(asarPath, join("node_modules", expected.package, path));
       if (createHash("sha256").update(bytes).digest("hex") !== expected.files.find((item) => item.path === path)?.after) {
         failures.push(`Computer helper identity runtime does not match the reviewed source: ${path}.`);
       }
@@ -115,7 +205,7 @@ for (const oldShim of ["workspace", "workspace.cmd", "workspace-cli.ps1", "works
   if (existsSync(join(binDir, oldShim))) failures.push(`Legacy CLI shim must not be packaged: ${oldShim}.`);
 }
 
-if (existsSync(executablePath) && (packagedPlatform === "win32" || packagedPlatform === "darwin")) {
+if (existsSync(executablePath)) {
   try {
     const wire = await getCurrentFuseWire(executablePath);
     const expectedFuses = new Map([

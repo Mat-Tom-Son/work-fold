@@ -4,6 +4,10 @@ const identity = require("./src/shared/product-identity.json");
 const root = __dirname;
 const macReleaseBuild = process.env.WORKFOLD_MAC_RELEASE_BUILD === "1";
 const unsignedMacBuild = process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD === "1";
+const windowsBuild = (process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM || process.platform) === "win32";
+// A Windows test build has no update feed. Testers replace it by running a
+// later installer, and it never treats the source repository as a channel.
+const windowsTestBuild = windowsBuild && process.env.WORKFOLD_WINDOWS_TEST_BUILD === "1";
 const macSignIdentity = process.env.WORKFOLD_MAC_SIGN_IDENTITY?.trim();
 const electronBuilderMacIdentity = macSignIdentity?.replace(/^Developer ID Application:\s*/i, "");
 const macReleaseOwner = process.env.WORKFOLD_MAC_RELEASE_OWNER?.trim() || identity.sourceRepositoryOwner;
@@ -22,7 +26,7 @@ module.exports = {
   forceCodeSigning: macReleaseBuild || process.env.WORKFOLD_REQUIRE_CODE_SIGNING === "1",
   electronUpdaterCompatibility: ">=2.16",
   generateUpdatesFilesForAllChannels: false,
-  publish: [
+  publish: windowsTestBuild ? null : [
     {
       provider: "github",
       owner: macFeedBuild ? macReleaseOwner : identity.sourceRepositoryOwner,
@@ -44,7 +48,9 @@ module.exports = {
     output: outputDirectory,
     buildResources: "desktop/assets",
   },
-  files: ["package.json", "LICENSE", "THIRD_PARTY_NOTICES.md", "dist/desktop/**/*", "resources/included-tools/**/*"],
+  files: ["package.json", "LICENSE", "THIRD_PARTY_NOTICES.md", "dist/desktop/**/*", "resources/included-tools/**/*",
+    // Windows ships only the reviewed helper built from source, never the dependency's upstream binary.
+    ...(windowsBuild ? ["!node_modules/@injaneity/pi-computer-use/prebuilt/**/*"] : [])],
   extraFiles: [
     {
       from: "desktop/cli",
@@ -69,12 +75,23 @@ module.exports = {
   asarUnpack: ["resources/included-tools/documents/worker.mjs", "node_modules/@napi-rs/**/*.node"],
   compression: "normal",
   npmRebuild: false,
+  // Supported builder toolset with a statically linked AppImage runtime.
+  // It removes the host libfuse2 dependency; Chromium still needs namespaces.
+  toolsets: { appimage: "1.0.3" },
+  appImage: { executableArgs: [] },
   win: {
     target: [
       {
         target: "nsis",
         arch: ["x64"],
       },
+    ],
+    // The source-built UI Automation helper stays outside app.asar; the host
+    // copies it to a private versioned directory before first use. The Chrome
+    // bootstrap is copied to a private directory at registration.
+    extraResources: [
+      { from: "out/included-tools/computer-helper", to: "computer-helper", filter: ["work-fold Computer/**/*"] },
+      { from: "out/included-tools/chrome-native-host", to: "chrome-native-host", filter: ["work-fold-chrome-host.exe", "source.json"] },
     ],
     icon: path.join(root, "desktop", "assets", "icon.ico"),
     executableName: identity.productName,
@@ -86,6 +103,38 @@ module.exports = {
       signingHashAlgorithms: ["sha256"],
       rfc3161TimeStampServer: "http://timestamp.digicert.com",
     },
+  },
+  linux: {
+    target: [{ target: "deb", arch: ["x64"] }, { target: "rpm", arch: ["x64"] }, { target: "AppImage", arch: ["x64"] }],
+    executableName: "work-fold-desktop",
+    syncDesktopName: true,
+    category: "Office",
+    maintainer: identity.sourceRepositoryOwner,
+    synopsis: "Work with AI in ordinary folders",
+    // hicolor's standard theme includes 512px; a lone 1024px PNG is installed
+    // into an unindexed directory and appears as a missing icon in GNOME.
+    icon: path.join(root, "desktop", "assets", "icon-512.png"),
+    // Linux candidates are downloadable packages until a Linux feed has passed
+    // installed upgrade acceptance. Never inherit the production Mac feed.
+    publish: null,
+    extraFiles: [{ from: "out/included-tools/linux-cli", to: "bin" }],
+    extraResources: [{ from: "out/included-tools/computer-helper", to: "computer-helper", filter: ["linux-bridge", "source.json", "LICENSE.pi-computer-use", "THIRD-PARTY-LICENSES.txt"] },
+      { from: "out/included-tools/wayland-helper", to: "wayland-helper" },
+      { from: "out/included-tools/chrome-native-host", to: "chrome-native-host" }],
+    desktop: { entry: { StartupWMClass: "work-fold", Keywords: "AI;Assistant;Folders;" } },
+  },
+  deb: {
+    afterInstall: "out/generated-linux-assets/after-install.sh",
+    afterRemove: "out/generated-linux-assets/after-remove.sh",
+    depends: ["libc6 (>= 2.39)", "libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libglib2.0-bin", "libatspi2.0-0", "libsecret-1-0", "libuuid1", "libgbm1", "libasound2",
+      "libei1 (>= 1.2)", "libxkbcommon0", "libgstreamer1.0-0", "libgstreamer-plugins-base1.0-0", "gstreamer1.0-plugins-base", "gstreamer1.0-pipewire", "xdg-desktop-portal"],
+    recommends: ["gnome-keyring"],
+  },
+  rpm: {
+    afterInstall: "out/generated-linux-assets/after-install.sh",
+    afterRemove: "out/generated-linux-assets/after-remove.sh",
+    depends: ["glibc >= 2.39", "gtk3", "libnotify", "nss", "libXScrnSaver", "libXtst", "xdg-utils", "glib2", "at-spi2-core", "libsecret", "libuuid", "mesa-libgbm", "alsa-lib",
+      "libei >= 1.2", "libxkbcommon", "gstreamer1", "gstreamer1-plugins-base", "pipewire-gstreamer", "xdg-desktop-portal"],
   },
   mac: {
     extraResources: [{ from: "out/included-tools/computer-helper", to: "computer-helper" }, { from: "out/included-tools/chrome-native-host", to: "chrome-native-host" }],

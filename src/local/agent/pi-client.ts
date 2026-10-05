@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { describeModelContextDispatch, installModelContextInspection } from "./model-context-inspector.js";
 import { includedResourceOptions } from "./included-tools.js";
+import type { NativeComputerOwner } from "./computer-session.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -355,6 +356,7 @@ export class PiConversationClient extends EventEmitter {
       this.activeExtensionTurn = null;
       if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
       this.promptInFlight = false;
+      if (owner.taskId) await this.resolvedRuntime?.config.includedTools?.computerSession?.releaseTurn(owner.taskId, owner.cancelled);
     }
   }
 
@@ -397,6 +399,7 @@ export class PiConversationClient extends EventEmitter {
     this.emitEvent({ type: "status", message: reason });
     this.rejectPrompt?.(error);
     if (session) void session.abort().catch(() => undefined);
+    await this.resolvedRuntime?.config.includedTools?.computerSession?.releaseSession(this.computerOwner());
     return true;
   }
 
@@ -583,15 +586,27 @@ export class PiConversationClient extends EventEmitter {
   }
 
   /** A bounded, settled copy of the thinking and tool trail shown for this turn. */
-  getTurnWorkTrail(): PiTurnWorkTrailEntry[] {
+  getTurnWorkTrail(options: { interrupted?: boolean } = {}): PiTurnWorkTrailEntry[] {
+    // In an interrupted turn a tool still running did not complete: it settles
+    // as an error that says so, because its effect on files or apps may be
+    // partial. Saved phases stay within the portable transcript's values.
     return [...this.turnWorkTrail.values()]
       .filter((entry) => entry.kind === "tool" || entry.text.trim().length > 0 || (entry.durationMs ?? 0) > 0)
       .slice(0, 64)
-      .map((entry) => ({
-        ...entry,
-        ...(entry.edit ? { edit: { ...entry.edit } } : {}),
-        phase: entry.phase === "error" ? "error" : "complete",
-      }));
+      .map((entry) => {
+        const stopped = options.interrupted === true && unsettledTool(entry);
+        return {
+          ...entry,
+          ...(entry.edit ? { edit: { ...entry.edit } } : {}),
+          ...(stopped ? { text: `${humanize(entry.toolName ?? "Assistant tool")} was stopped before it finished; its effect may be incomplete` } : {}),
+          phase: entry.phase === "error" || stopped ? "error" : "complete",
+        };
+      });
+  }
+
+  /** Tools that had started but not finished: an interrupted turn may have left their effects partial. */
+  getUnsettledToolLabels(): string[] {
+    return [...this.turnWorkTrail.values()].filter(unsettledTool).map((entry) => humanize(entry.toolName ?? "Assistant tool"));
   }
 
   /** Text boundaries only; a stopped or incomplete native response has no final segment. */
@@ -628,6 +643,10 @@ export class PiConversationClient extends EventEmitter {
     const preserveActiveTurnTrail = this.promptInFlight;
     this.runtimeGeneration += 1;
     if (this.activeExtensionTurn) this.activeExtensionTurn.cancelled = true;
+    const stopScreen = this.resolvedRuntime?.config.includedTools?.computerSession?.releaseSession(this.computerOwner());
+    // Attach rejection handling while the Pi session drains; still propagate
+    // a failed native teardown to the caller below.
+    void stopScreen?.catch(() => undefined);
     this.resolvedRuntime?.config.extensionUi?.forgetScope?.(this.extensionUiScope());
     // Bounded app inference has no turn to settle; abort it so callers see an interruption, not a hang.
     for (const call of this.boundedCalls) call.abort();
@@ -652,6 +671,12 @@ export class PiConversationClient extends EventEmitter {
     // shutdown-triggered stop. Keep it alive until that settlement completes.
     if (!preserveActiveTurnTrail) this.resetTurnState();
     if (runtime) await settleWithin(runtime.dispose(), 2_000).catch(() => undefined);
+    await stopScreen;
+  }
+
+  private computerOwner(): NativeComputerOwner {
+    return { scope: this.hostCapabilities ? "space" : "management", conversationId: this.conversationId,
+      spaceRoot: this.spaceRoot, ...(this.hostCapabilities ? { spaceId: this.hostCapabilities.spaceId } : {}) };
   }
 
   private get session(): AgentSession {
@@ -699,7 +724,10 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
-          ...await includedResourceOptions(options.cwd, runtime, "session"),
+          ...await includedResourceOptions(options.cwd, runtime, "session", { owner: this.computerOwner(), turn: () => {
+            const owner = this.extensionTurn.getStore();
+            return owner?.taskId ? owner as PiTurnOwner & { taskId: string } : undefined;
+          } }),
           // Space instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendSpaceOperationsGuide(
@@ -1928,6 +1956,11 @@ function summarizeToolValue(value: unknown): string {
 
 function humanize(value: string): string {
   return value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/** A tool call that started executing and had not reported a result. */
+function unsettledTool(entry: PiTurnWorkTrailEntry): boolean {
+  return entry.kind === "tool" && (entry.phase === "running" || entry.phase === "streaming");
 }
 
 function compactText(value: string): string {

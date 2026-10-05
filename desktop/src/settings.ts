@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { safeStorage } from "electron";
+import { secureStorageAvailable } from "./secure-storage.js";
 import type { PiAuthStorageData, PiAuthStorageHost } from "../../src/local/agent/auth-storage.js";
 import type { WorkFoldPublicationKeyStore } from "../../src/local/publications.js";
 
@@ -63,7 +64,7 @@ export class SecureSettingsStore implements PiAuthStorageHost {
   constructor(private readonly filePath: string) {}
 
   async status(): Promise<SecureSettingsStatus> {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!secureStorageAvailable(safeStorage)) {
       return { encryptionAvailable: false, configuredProviders: [] };
     }
     const data = await this.read();
@@ -235,8 +236,10 @@ export class SecureSettingsStore implements PiAuthStorageHost {
   }
 
   private assertEncryptionAvailable(): void {
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error("Operating-system secure storage is not available for this session.");
+    if (!secureStorageAvailable(safeStorage)) {
+      throw new Error(process.platform === "linux"
+        ? "Secure storage is unavailable. Unlock GNOME Keyring or KWallet in your desktop session, then restart work-fold."
+        : "Operating-system secure storage is not available for this session.");
     }
   }
 }

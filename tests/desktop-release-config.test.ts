@@ -77,6 +77,8 @@ test("desktop release configuration uses the isolated work-fold identities and f
   assert.equal(builder.nsis.deleteAppDataOnUninstall, false);
   assert.equal(builder.electronFuses.runAsNode, false);
   assert.equal(builder.electronFuses.onlyLoadAppFromAsar, true);
+  assert.equal(builder.toolsets.appimage, "1.0.3", "Use the pinned static runtime without a host libfuse2 dependency");
+  assert.deepEqual(builder.appImage.executableArgs, [], "Desktop launcher must not request an unsandboxed renderer");
   assert.equal(builder.win.verifyUpdateCodeSignature, false);
   assert.equal(builder.nsis.differentialPackage, true);
   assert.deepEqual(builder.mac.target, ["dmg", "zip"]);
@@ -87,6 +89,32 @@ test("desktop release configuration uses the isolated work-fold identities and f
   assert.equal(packageJson.scripts["desktop:release:mac:first"], undefined);
   assert.equal(packageJson.scripts["desktop:release:mac:first:resume"], undefined);
   assert.match(packageJson.scripts["desktop:verify:installed:mac"], /verify-installed-mac-app/);
+});
+
+test("a Windows test build carries no update feed, and the switch is Windows-only", () => {
+  const require = createRequire(import.meta.url);
+  const builderPath = join(rootDir, "electron-builder.desktop.cjs");
+  const keys = ["WORKFOLD_DESKTOP_RELEASE_PLATFORM", "WORKFOLD_WINDOWS_TEST_BUILD"] as const;
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  const load = (platform: string) => {
+    process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM = platform;
+    process.env.WORKFOLD_WINDOWS_TEST_BUILD = "1";
+    delete require.cache[require.resolve(builderPath)];
+    return require(builderPath);
+  };
+  try {
+    const windowsTest = load("win32");
+    const mac = load("darwin");
+    assert.equal(windowsTest.publish, null, "electron-builder then writes neither app-update.yml nor latest.yml");
+    assert.equal(windowsTest.extraMetadata.workFoldBuildChannel, "production", "testers keep the production profile into later releases");
+    assert.equal(mac.publish[0].repo, "work-fold-mac-releases");
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    delete require.cache[require.resolve(builderPath)];
+  }
 });
 
 test("Mac-only CI and publication keep credentials out of the application", () => {
@@ -123,7 +151,7 @@ test("background CI tests every PR/main file in four shards and verifies source 
   assert.equal(workflow.concurrency.group, "ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "non-PR runs have unique groups so queued release evidence cannot be replaced");
   const jobs = Object.values(workflow.jobs) as Array<{ name: string; "runs-on": string; "continue-on-error"?: boolean; if?: string; steps: Array<{ run?: string; if?: string; "continue-on-error"?: boolean; uses?: string }> }>;
   const commands = jobs.flatMap((job) => {
-    assert.equal(job["runs-on"], "macos-latest");
+    assert.equal(job["runs-on"], job === workflow.jobs.linux ? "ubuntu-24.04" : "macos-latest");
     assert.equal(job["continue-on-error"], undefined);
     assert.equal(job.if, undefined, "every required job runs on PRs and main");
     return job.steps.filter((step) => step.run).map((step) => {
@@ -143,6 +171,9 @@ test("background CI tests every PR/main file in four shards and verifies source 
     : [job.name]);
   assert.deepEqual(publishedJobNames.sort(), [...MAIN_CI_JOBS].sort(), "the optional CI diagnostic must inspect exactly the jobs CI runs");
   assert.ok(jobs.some((job) => job.steps.some((step) => step.uses?.startsWith("actions/upload-artifact@") && step.if === "failure()")));
+  const linux = workflow.jobs.linux.steps.map((step: { run?: string }) => step.run ?? "").join("\n");
+  for (const command of ["npm ci", "npm run check", "npm test", "npm run desktop:make:linux"]) assert.ok(linux.includes(command));
+  assert.doesNotMatch(linux, /--no-sandbox|desktop:publish|desktop:release:mac/);
 
   const tagWorkflow = require("js-yaml").load(read(".github/workflows/release-tag.yml"));
   assert.deepEqual(tagWorkflow.on, { push: { tags: ["v*"] } });

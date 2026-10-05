@@ -19,6 +19,37 @@ continuation or effect replay. Actual native provider fixtures cover both overfl
 forms, repeated overflow with matching timestamps and ordinary partial output, and packaged verification pins the corrected
 runtime file. Remove the patch when a reviewed upstream release passes these cases.
 
+## Computer 0.5.1: Linux additions
+
+The same reviewed package contains the Rust Linux helper. Its Cargo lockfile
+and every Rust input are pinned in the integration manifest. The Linux client
+accepts the app-owned helper path with runtime setup disabled, so the packaged
+app never needs system Node, Cargo or a helper download. Catalog loading stays
+cold. Dispatch cancellation waits for helper termination before rejecting with
+an uncertain-effect outcome; no native action is automatically replayed.
+
+AT-SPI's `Application.Id` is an arbitrary registry number, not an operating
+system PID ([interface contract](https://gnome.pages.gitlab.gnome.org/at-spi2-core/devel-docs/doc-org.a11y.atspi.Application.html)).
+The reviewed Linux patch resolves the accessible application's D-Bus peer PID
+instead, so explicit process selection and X11 window correlation use the right
+identity. The live [accessibility smoke](../../scripts/linux-accessibility-smoke.cjs)
+targets only its own GTK editor, edits and saves a sentence, then verifies the
+file. `tests/linux-computer-helper.test.ts` covers pre-dispatch abort, helper
+termination before rejection and no replay. The optional shared-screen backend
+in the same Pi factory adds a distinct visual target to the existing tools,
+StateStore and ResourceScheduler. It never manufactures a PID or accessible
+window, accepts stale session references, opens a portal chooser, or falls back
+to foreground browser capture. The host supplies Chat/turn-bound facilities;
+[the Wayland helper](../../desktop/native/linux-wayland/src/main.rs) owns the
+portal, frame and input lease. Its independent Cargo lockfile and packaged
+source/binary manifest are verified by the Linux native build lane.
+
+Root, observation and element identities include a fresh native session nonce.
+After a stopped or crashed helper restarts, a surviving Chat's old references
+cannot collide with another Chat's new observations. The Rust regression suite
+checks this across independent helper states. Concurrent calls wait for a
+stopping helper to drain before starting its replacement.
+
 ## Chrome 0.15.51
 
 The optional embedded factory registers ordinary Pi tools per session and stays
@@ -84,6 +115,60 @@ invalid seals, cancellation and inspection failures without a helper restart.
 Packaged checks pin the verifier and caller
 bytes to this manifest.
 
+The Windows client patch keeps the upstream JSON-lines stdio protocol and adds
+host ownership. With `PI_COMPUTER_USE_NO_RUNTIME_INSTALL=1` it never re-enters
+`process.execPath` with `ELECTRON_RUN_AS_NODE` (packaged work-fold disables that
+fuse); a missing helper is an error instead. With
+`PI_COMPUTER_USE_HOST_OWNED_HELPER=1`, ending one session no longer kills the
+helper shared by every Chat. The child starts hidden and its stderr is drained
+and bounded. A `launch: false` command only reaches a live helper, so readiness
+checks cannot start one. Cancelled or timed-out reads are abandoned. A
+dispatched `act`, `actBatch`, `focusWindow` or `openBrowserLocation` is
+cancelled in the helper: a `cancel` command, answered on the helper's reader
+thread so it never queues behind the busy worker, sets that request's flag,
+and typing and batches stop before their next keystroke or action with an
+`interrupted` error saying how far they got. The client waits for that reply
+(at most two seconds) and fails as `interrupted_unknown` with the helper's
+account, as the macOS transport does. A drag is never cut mid-path, so the
+mouse button is always released. A helper exit or host disposal makes pending effects
+uncertain, and responses are bounded to 16 MiB. Every Windows Rust build input
+is pinned by digest, so a changed upstream crate fails preparation before
+reaching cargo; unpatched files have equal before/after digests, and only the
+`input.rs` and `window.rs` changes below alter the crate. The embedded
+isolation check orders its two configuration sessions with an explicit gate
+rather than 5 and 10 ms timers, which Windows' coarse timer resolution can fire
+in the same tick under load.
+
+The Windows helper's `send_text` is patched because Windows 11 Notepad
+(WinUI/TSF) garbled injected text in UAT: one burst of Unicode packets
+dropped characters and typed later ones in their place, and U+000A was not
+a line break. Text is now typed like a keyboard, one stroke per SendInput
+call: characters the foreground window's layout produces with at most Shift
+are real key presses (Caps Lock and dead keys respected), Enter and Tab are
+real keys, and only other characters are Unicode packets, isolated by 120 ms
+on both sides. Keys are 40 ms apart, 150 ms after Enter or Tab, and Shift is
+held 15 ms around its key. These values were measured against Notepad,
+where 10 ms lost keys and case. `vk_for` no longer maps punctuation to the
+virtual key with the same code ("." was VK_DELETE); it uses the layout and
+refuses a key that needs Shift or AltGr.
+
+The helper's foregrounding in `window.rs` is patched because Windows UAT
+refused physical input with "Windows refused to foreground the target". The
+helper is a background child of work-fold, so the foreground lock refuses its
+plain `SetForegroundWindow` once another window has had input. A freshly
+started helper's first request still succeeded in testing, which hid this in
+short runs. A minimized target is restored first. When a plain request does
+not take, the worker thread joins the current foreground thread's input with
+`AttachThreadInput`, calls `BringWindowToTop` and `SetForegroundWindow`, and a
+drop guard detaches on every path. No Alt keypress is injected, because it can
+open the target's menu bar. Success is still only `GetForegroundWindow()`
+returning the target; otherwise the existing error is returned and no input is
+sent. `focusWindow` uses the same path and reports `focused` from that
+observation instead of the API's advisory return. Live check: a Notepad tab
+behind File Explorer that had fresh input, two acts in one helper session. The
+previous helper refused the second act and typed nothing; the patched helper
+typed both, including when Notepad had been minimized.
+
 ## MCP 2.33.0
 
 The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.
@@ -113,6 +198,11 @@ The additive `createWebAccessExtension` factory uses upstream DuckDuckGo/Brave s
 The optional `WORKFOLD_LIVE_WEB_TEST=1` fixture runs an actual DuckDuckGo search. It is excluded from the normal network-free test lane. Packaged Electron, live model use, OS permission setup, and the Chrome companion in a real profile still need the release acceptance lane; passing local fixtures does not certify those user paths.
 
 ## Document dependency review
+
+The `.gitattributes` rule disables Git's source-whitespace checks inside patch
+files: their context markers, blank context lines, and upstream indentation are
+meaningful bytes covered by the manifest. Check ordinary source files normally;
+never trim a pinned patch just to make `git diff --check` quiet.
 
 ExcelJS 4.4.0 uses only the CommonJS `uuid.v4()` API in its extended conditional
 formatting writer. The narrowly scoped `exceljs → uuid@11.1.1` override retains
@@ -149,6 +239,18 @@ source evidence, not a clean upstream audit or a guarantee for separately
 installed copies. Do not suppress the advisories or apply npm audit's obsolete
 PptxGenJS 1.1.5 downgrade. Remove the patch only after a reviewed upstream fix
 passes the same compatibility and packaged checks.
+
+As of 2026-10-05, upstream image-size 2.0.3 and newer contain these fixes.
+PptxGenJS still requests 1.2.1, so the verified patch remains in place until a
+reviewed migration passes the existing parser, PowerPoint, and packaging tests.
+The HTTP cache dependency is separately pinned to 4.3.0 for
+[GHSA-ch52-4w7c-c8xp](https://github.com/advisories/GHSA-ch52-4w7c-c8xp).
+The retained Forge 7 diagnostic toolchain still pulls braces 3.0.3, affected by
+[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm),
+which has no patched upstream version. It is a development dependency path;
+upgrading that toolchain to Forge 8 also requires its fuses 2 peer and separate
+packaging qualification. Do not treat the raw audit count as proof that the
+reviewed image parsers are unpatched or that the Forge advisory is resolved.
 
 Pi 0.80.6 carries a shrinkwrap. The checked normalizer replaces only the
 reviewed nested brace-expansion 5.0.12, protobufjs 7.6.5 and undici 8.10.2 entries;

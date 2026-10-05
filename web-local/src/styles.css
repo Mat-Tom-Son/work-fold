@@ -9565,10 +9565,15 @@ body:has(> #root > .desktop-chrome-shell) {
   mask-image: linear-gradient(180deg, transparent 0, #000 34%);
 }
 
-/* Outranks the file-link and command rules so the gradient stays clipped to text. */
+/* Outranks the file-link and command rules so the gradient stays clipped to text.
+   Themes change only the custom properties: re-declaring the background in a
+   more specific theme rule would revive the gradient under the reduced-motion
+   fallback, whose `background: none` resets the clip to the whole box. */
 .work-steps .work-step-shimmer {
+  --work-step-shimmer-base: #5b6b80;
+  --work-step-shimmer-glint: #cdd4de;
   color: transparent !important;
-  background: linear-gradient(90deg, #5b6b80 0%, #5b6b80 38%, #cdd4de 50%, #5b6b80 62%, #5b6b80 100%);
+  background: linear-gradient(90deg, var(--work-step-shimmer-base) 0%, var(--work-step-shimmer-base) 38%, var(--work-step-shimmer-glint) 50%, var(--work-step-shimmer-base) 62%, var(--work-step-shimmer-base) 100%);
   background-size: 260% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -9594,7 +9599,7 @@ body:has(> #root > .desktop-chrome-shell) {
 
 @media (prefers-reduced-motion: reduce) {
   .work-steps .work-step-shimmer {
-    color: #5b6b80 !important;
+    color: var(--work-step-shimmer-base) !important;
     background: none;
     animation: none;
   }
@@ -12824,7 +12829,8 @@ body:has(> #root > .desktop-chrome-shell) {
 }
 
 .app-shell[data-theme="dark"] .work-steps .work-step-shimmer {
-  background-image: linear-gradient(90deg, #8b98ab 0%, #8b98ab 38%, #e2e8f0 50%, #8b98ab 62%, #8b98ab 100%);
+  --work-step-shimmer-base: #8b98ab;
+  --work-step-shimmer-glint: #e2e8f0;
 }
 
 .app-shell[data-theme="dark"] .work-step.error .work-step-verb,
@@ -18169,3 +18175,17 @@ body:has(> #root > .desktop-chrome-shell) {
 .app-shell[data-theme="dark"] .surface-tab-new-chat:focus-within > .surface-tab-new-chat-trigger {
   box-shadow: inset 1px 0 0 var(--space-selection-border);
 }
+
+.desktop-titlebar-linux {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 0 0 0 8px;
+}
+.desktop-window-controls { display: flex; align-self: stretch; -webkit-app-region: no-drag; }
+.desktop-window-controls button {
+  display: grid; place-items: center; width: 46px; border: 0; border-radius: 0;
+  color: inherit; background: transparent; -webkit-app-region: no-drag;
+}
+.desktop-window-controls svg { fill: none; stroke: currentColor; stroke-width: 1; }
+.desktop-window-controls button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.desktop-window-controls button:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
+.desktop-window-controls .desktop-window-quit:hover { background: #c42b1c; color: white; }

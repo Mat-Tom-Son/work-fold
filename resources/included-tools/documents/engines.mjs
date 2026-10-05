@@ -7,16 +7,21 @@ import { delimiter, dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { finished } from "node:stream/promises";
 
-const candidates = {
+const unixCandidates = {
   libreoffice: ["soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice", "/opt/homebrew/bin/soffice", "/usr/local/bin/soffice"],
   tesseract: ["tesseract", "/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract"],
 };
 
-export async function discoverDocumentEngines({ path = process.env.PATH ?? "" } = {}) {
+export async function discoverDocumentEngines({ path = process.env.PATH ?? "", platform = process.platform, env = process.env } = {}) {
+  const programRoots = [...new Set([env.ProgramW6432, env.ProgramFiles, env["ProgramFiles(x86)"], env.LOCALAPPDATA && join(env.LOCALAPPDATA, "Programs")].filter(Boolean))];
+  const candidates = platform === "win32" ? {
+    libreoffice: ["soffice.exe", ...programRoots.map(root => join(root, "LibreOffice", "program", "soffice.exe"))],
+    tesseract: ["tesseract.exe", ...programRoots.map(root => join(root, "Tesseract-OCR", "tesseract.exe"))],
+  } : unixCandidates;
   const found = {};
   for (const [name, entries] of Object.entries(candidates)) {
     let executable = null;
-    for (const entry of entries.flatMap((entry) => entry.includes("/") ? [entry] : path.split(delimiter).filter(Boolean).map((dir) => join(dir, entry)))) {
+    for (const entry of entries.flatMap((entry) => /[\\/]/.test(entry) ? [entry] : path.split(delimiter).filter(Boolean).map((dir) => join(dir.replace(/^"|"$/g, ""), entry)))) {
       try { await access(entry, constants.X_OK); if ((await stat(entry)).isFile()) { executable = entry; break; } } catch {}
     }
     found[name] = { available: !!executable, executable, operations: name === "libreoffice" ? ["render", "recalculate"] : ["ocr"],

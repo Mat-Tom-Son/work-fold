@@ -3,13 +3,16 @@ import { spawn } from "node:child_process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-for (const [name, path, marker] of [
-  ["native session ownership and quiet startup", "./fixtures/included-tools/computer-native.mts", "PASS computer wrapper"],
-  ["unsupported hosts never enter native setup", "./fixtures/included-tools/computer-unsupported.mts", "PASS computer wrapper"],
-  ["observation, output and scheduler isolation", "../node_modules/@injaneity/pi-computer-use/scripts/check-embedded.mjs", "PASS embedded"],
-  ["stale daemon recovery before dispatch and no action replay", "./fixtures/included-tools/computer-daemon-recovery.mts", "PASS stale daemon relaunch"],
-  ["native transport cancellation and uncertain outcomes", "../node_modules/@injaneity/pi-computer-use/scripts/check-helper-cancellation.mjs", "PASS cancelled-before-dispatch"],
-]) test(`included computer: ${name}`, { timeout: 45_000 }, async () => {
+// The macOS daemon fixtures speak its Unix-socket transport; Windows uses a stdio child.
+const macosTransport = process.platform === "win32";
+for (const [name, path, marker, skip] of [
+  ["native session ownership and quiet startup", "./fixtures/included-tools/computer-native.mts", "PASS computer wrapper", false],
+  ["unsupported hosts never enter native setup", "./fixtures/included-tools/computer-unsupported.mts", "PASS computer wrapper", false],
+  ["observation, output and scheduler isolation", "../node_modules/@injaneity/pi-computer-use/scripts/check-embedded.mjs", "PASS embedded", false],
+  ["stale daemon recovery before dispatch and no action replay", "./fixtures/included-tools/computer-daemon-recovery.mts", "PASS stale daemon relaunch", macosTransport],
+  ["native transport cancellation and uncertain outcomes", "../node_modules/@injaneity/pi-computer-use/scripts/check-helper-cancellation.mjs", "PASS cancelled-before-dispatch", macosTransport],
+  ["Windows helper lifecycle, cancellation and host ownership", "./fixtures/included-tools/computer-windows-helper.mts", "PASS windows helper client", false],
+] as const) test(`included computer: ${name}`, { skip, timeout: 45_000 }, async () => {
   const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL(path, import.meta.url))], { stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });

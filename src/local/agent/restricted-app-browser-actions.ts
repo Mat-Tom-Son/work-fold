@@ -304,7 +304,16 @@ export class BrowserAppActionService {
     try {
       const handle = await open(temp, "wx", 0o600);
       try { await handle.writeFile(serialized); await handle.sync(); } finally { await handle.close(); }
-      await rename(temp, this.#path);
+      // A reader can briefly hold the existing journal open on Windows. Retry
+      // only this exact staged replacement, never admission or worker effects.
+      for (let attempt = 0; ; attempt++) {
+        try { await rename(temp, this.#path); break; }
+        catch (error) {
+          if (process.platform !== "win32" || attempt >= 4
+            || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+      }
       if (process.platform !== "win32") {
         const directory = await open(dirname(this.#path), "r");
         try { await directory.sync(); } finally { await directory.close(); }

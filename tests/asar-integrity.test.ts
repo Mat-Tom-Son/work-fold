@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createPackageWithOptions, getRawHeader } from "@electron/asar";
 import { verifyAsarFileIntegrity } from "../scripts/asar-integrity.mjs";
+import { simulateSignature, syntheticPe } from "./support/pe.js";
 
 async function fixture(t: any) {
   const root = await mkdtemp(join(tmpdir(), "workfold-asar-integrity-"));
@@ -20,6 +21,39 @@ async function fixture(t: any) {
   await createPackageWithOptions(source, archive, { unpack: "*.{node,mjs}" });
   return { source, archive };
 }
+
+test("ASAR integrity checks nested packed and unpacked paths on the host platform", async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-nested-asar-integrity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, "source"), archive = join(root, "app.asar");
+  await mkdir(join(source, "runtime", "documents"), { recursive: true });
+  await writeFile(join(source, "runtime", "documents", "worker.mjs"), "export const value = 1;");
+  await writeFile(join(source, "runtime", "documents", "data.txt"), "nested content");
+  await createPackageWithOptions(source, archive, { unpack: "*.mjs" });
+  assert.equal(verifyAsarFileIntegrity(archive).checkedFiles, 2);
+  await writeFile(join(`${archive}.unpacked`, "runtime", "documents", "worker.mjs"), "export const value = 2;");
+  assert.throws(() => verifyAsarFileIntegrity(archive), /worker\.mjs: file hash mismatch/);
+});
+
+test("unpacked Windows executables are byte-checked until Authenticode signs them", async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-pe-asar-integrity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, "source"), archive = join(root, "app.asar");
+  await mkdir(source);
+  const image = syntheticPe("dependency helper");
+  await writeFile(join(source, "helper.exe"), image);
+  await writeFile(join(source, "data.txt"), "packed");
+  await createPackageWithOptions(source, archive, { unpack: "*.exe" });
+  const unpacked = join(`${archive}.unpacked`, "helper.exe");
+  assert.equal(verifyAsarFileIntegrity(archive).checkedFiles, 2, "an unsigned unpacked executable keeps its byte check");
+  await writeFile(unpacked, syntheticPe("tampered helper"));
+  assert.throws(() => verifyAsarFileIntegrity(archive), /helper\.exe: /, "an unsigned change is never accepted");
+  await writeFile(unpacked, simulateSignature(image));
+  assert.throws(() => verifyAsarFileIntegrity(archive, { includeUnpacked: true }), /helper\.exe: /, "the pre-signing check still sees the original bytes only");
+  const verified = verifyAsarFileIntegrity(archive);
+  assert.equal(verified.signedNativeFiles, 1, "Authenticode owns a signed executable's final bytes");
+  assert.equal(verified.checkedFiles, 1);
+});
 
 test("ASAR integrity covers every packed file and block, with an explicit pre-sign unpacked check", async t => {
   const { source, archive } = await fixture(t);

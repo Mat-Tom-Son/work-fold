@@ -111,6 +111,29 @@ test("native observations are runtime-bound, ordered against explicit checks, an
   assert.match(includedComputerStatus({ status: "not_running" }).detail, /idle/);
 });
 
+test("Linux computer readiness preserves session evidence without advertising another platform's permission controls", () => {
+  for (const state of ["ready", "unavailable"]) {
+    const status = includedComputerStatus({ platform: "linux", sessionType: "wayland", status: state, accessibility: true, reason: "Linux helper diagnostics." });
+    assert.equal(status.computer, undefined);
+    assert.equal(status.facts?.platform, "linux");
+    assert.equal(status.facts?.session, "wayland");
+    assert.equal(status.state, state);
+  }
+});
+
+test("Windows computer readiness reports its helper without inventing macOS permission evidence", () => {
+  const helper = { appPath: "C:\\state\\native-helpers\\computer\\abc\\work-fold Computer", name: "work-fold Computer" };
+  const ready = includedComputerStatus({ status: "ready", permissionModel: "none", helper });
+  assert.equal(ready.state, "ready");
+  assert.deepEqual(ready.computer, { permissions: "none" });
+  assert.deepEqual(ready.facts, { helper: "work-fold Computer", path: helper.appPath });
+  const failed = includedComputerStatus({ status: "error", permissionModel: "none", helper });
+  assert.equal(failed.state, "unavailable");
+  assert.doesNotMatch(failed.detail, /Accessibility|Screen Recording/, "a Windows failure never asks for macOS grants");
+  assert.equal(includedComputerStatus({ status: "not_running", permissionModel: "none" }).state, "unknown");
+  assert.deepEqual(includedComputerStatus({ status: "ready", accessibility: true, screenRecording: true }).computer, { permissions: "macos" }, "macOS results keep their permission model");
+});
+
 test("Computer Check observes without starting or repairing the helper", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-computer-check-"));
   t.after(() => rm(root, { recursive: true, force: true }));

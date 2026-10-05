@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const MAC_RELEASE_STATE_SCHEMA = 1;
 export const MAC_RELEASE_STAGES = ["prepare", "package", "packaged-assets", "finalize", "manifest", "verify"];
@@ -81,7 +81,8 @@ export async function captureArtifactReceipt(rootDir, paths) {
     const absolutePath = resolveInsideRoot(rootDir, path);
     const info = await lstat(absolutePath).catch(() => null);
     if (!info?.isFile() || info.size === 0) throw new Error(`Cannot checkpoint missing release artifact ${absolutePath}.`);
-    files[relative(rootDir, absolutePath)] = {
+    // Receipt keys stay POSIX-relative so publication matches them on any host.
+    files[relative(rootDir, absolutePath).split(sep).join("/")] = {
       bytes: info.size,
       sha256: await sha256File(absolutePath),
     };

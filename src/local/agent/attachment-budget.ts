@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { estimateTokens as estimateNativeTokens, type AgentSession } from "@earendil-works/pi-coding-agent";
 import { chatContextBudgetTokens, estimateTokens, type LoadedConversationContextAttachment } from "../conversation-context.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 /** Admission for app-added material only. Pi still owns history and compaction. */
 export function availableAttachmentTokens(
@@ -69,7 +70,7 @@ export async function prepareAttachmentContext(
 
   const storage = owner.stateRoot ?? owner.sessionDir;
   const base = join(storage ? resolve(storage) : tmpdir(), "attachment-artifacts");
-  await mkdir(base, { recursive: true, mode: 0o700 });
+  await ensurePrivateDirectory(base);
   const directory = await mkdtemp(join(base, "turn-"));
   const path = join(directory, "references.json");
   const cwd = resolve(owner.cwd);

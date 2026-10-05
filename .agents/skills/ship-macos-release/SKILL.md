@@ -9,6 +9,12 @@ Follow the repository's release authority rather than reconstructing commands.
 Keep signing material outside the repository and choose the least expensive lane
 that proves the requested behavior.
 
+Read `../../../docs/platform-previews.md` when auditing Windows/Linux work
+alongside a Mac candidate. Their source is shared, but test preview tags and
+Mac production artifacts have separate publication authority. Native preview
+acceptance does not replace the Mac receipt for the final merged source; preview
+packaging is not a Mac release prerequisite.
+
 ## Establish the release context
 
 1. Read `../../../AGENTS.md`, `../../../docs/macos-build.md`, and
@@ -55,8 +61,8 @@ that proves the requested behavior.
 - Use `npm run desktop:make:mac:release` for a fresh complete DMG/ZIP candidate
   without publication.
 - Use `npm run desktop:release:mac` only when the user explicitly requests the
-  guarded public Mac release. Windows is not an active release lane or a Mac
-  publication prerequisite.
+  guarded public Mac release. Windows/Linux production distribution is inactive;
+  their manual test previews are not a Mac publication prerequisite.
 
 Do not use a signed or packaged lane to check ordinary UI copy or styling.
 Release-tooling-only changes need focused and normal local checks, not a new

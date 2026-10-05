@@ -205,7 +205,8 @@ test("release check environment cannot inherit test filters or a non-Mac Electro
   assert.equal(supplied.NODE_OPTIONS, "--test-only", "do not mutate the caller's environment");
 });
 
-test("npm user configuration cannot silently filter the verification suite", async (t) => {
+// The macOS release verifier pins npm's script shell to /bin/sh.
+test("npm user configuration cannot silently filter the verification suite", { skip: process.platform === "win32" }, async (t) => {
   const f = await fixture();
   t.after(f.close);
   const userConfig = join(f.root, "user.npmrc");

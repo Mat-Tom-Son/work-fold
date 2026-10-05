@@ -1337,6 +1337,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       // turn this instant; let it finish so that turn is in the drained set
       // below or was refused by the flag above, never left running unseen.
       await state.requestSettleChain.catch(() => undefined);
+      await stopComputerSharingForScope(state, workFoldManagementRoot()).catch((error) => console.warn("Screen sharing shutdown:", errorMessage(error)));
       await Promise.allSettled([...state.clients.values()].map((client) => client.stop()));
       await Promise.allSettled([...state.activeTurnPromises]);
       await shutdownIncludedToolHost(workFoldManagementRoot(), state.runtimeProvider).catch((error) => console.warn("Computer helper shutdown:", errorMessage(error)));
@@ -2956,9 +2957,12 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     res.once("close", closed);
     try {
       const operation = () => setupIncludedTool(space.spaceRoot, body.id!, body.action!, { secret: body.secret }, state.runtimeProvider, signal.signal);
-      // Observation and deliberate start never repair or dispose peer Chats.
-      // Repair/permission setup keeps the mutation fence and idle-client reset.
-      const result = body.action === "check" || body.id === "computer" && body.action === "start-check" ? await operation() : await runCapabilityMutation(state, space, "global", operation);
+      // Read-only checks and deliberate start preserve peer Chats.
+      // Sharing preserves clients; Stop remains available during accepted work.
+      const result = body.action === "check" || body.id === "computer" && ["start-check", "stop-sharing"].includes(body.action)
+        ? await operation() : await runCapabilityMutation(state, space, "global", operation, {
+            preserveClients: body.id === "computer" && body.action === "share-screen",
+          });
       sendJson(res, result);
     } finally { res.off("close", closed); }
     return;
@@ -3107,6 +3111,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       if (Date.parse(body.snoozedUntil) <= Date.now()) throw badRequest("Choose a future snooze time.");
     }
     const conversation = await runConversationMutation(state, space.id, conversationId, async () => {
+      if (body.archived === true) await stopComputerSharingForScope(state, space.spaceRoot, space.id, conversationId);
       const updated = body.title !== undefined
         ? await renameConversation(space.spaceRoot, conversationId, body.title)
         : await updateConversationLifecycle(space.spaceRoot, conversationId, {
@@ -4823,6 +4828,7 @@ async function removeSpaceRegistrationInternal(
             + `served from this Space before removing it: ${named}${more}.`,
         );
       }
+      await stopComputerSharingForScope(state, space.spaceRoot, space.id);
       const intent = await beginSpaceRemoval(space.id, state.spaceBase, removal.io, {
         ...(options.managedFolderDisposition ? { folderDisposition: options.managedFolderDisposition } : {}),
       });
@@ -6446,6 +6452,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       return runActOperation(() => runConversationMutation(state, space.id, input.conversationId, async () => {
         const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
         if (summary.archivedAt) throw new WorkFoldCliError("conflict", "This Chat is already archived.");
+        await stopComputerSharingForScope(state, space.spaceRoot, space.id, input.conversationId);
         const conversation = await runActOperation(() =>
           updateConversationLifecycle(space.spaceRoot, input.conversationId, { archived: true }));
         await recordFacadeAction(state, input.parentTaskId, { command: "chat.archive", space, conversationId: conversation.id });
@@ -8523,6 +8530,7 @@ async function deleteManagementConversation(
     }
     // An idle client can still hold the Pi session and extension callbacks.
     // Stop disposes that session before its transcript leaves the live root.
+    await stopComputerSharingForScope(state, root, workFoldManagementScopeId, conversationId);
     await state.clients.get(key)?.stop();
     // `readConversationSummary` validated the id before this join. The source
     // remains a single known transcript below the app-owned management root.
@@ -8583,6 +8591,7 @@ async function deleteSpaceConversation(
       && !isWorkFoldRequestTerminalState(request.state))) {
       throw httpError(409, "Finish or stop this Chat's outstanding work before deleting it.");
     }
+    await stopComputerSharingForScope(state, space.spaceRoot, space.id, conversationId);
     await state.clients.get(key)?.stop();
     // `readConversationSummary` validated the id before this join.
     const relativePath = `.work-fold/conversations/${conversationId}.jsonl`;
@@ -11336,9 +11345,11 @@ async function runAgentTurn(
   } catch (error) {
     // A reused client still holds its previous turn until prompt resets it.
     // Pre-prompt cancellation/failure must never inherit that turn's evidence.
+    let stoppedTools: string[] = [];
     if (promptStarted) {
       capturedPresentation ??= client?.getTurnPresentation();
-      capturedWorkTrail = client?.getTurnWorkTrail() ?? [];
+      stoppedTools = client?.getUnsettledToolLabels() ?? [];
+      capturedWorkTrail = client?.getTurnWorkTrail({ interrupted: true }) ?? [];
     }
     const cancelled = isPiTurnCancelledError(error);
     if (promptStarted) {
@@ -11351,11 +11362,13 @@ async function runAgentTurn(
     if (!cancelled) {
       console.warn(`Assistant turn failed in ${spaceId}/${conversationId}: ${providerCreditFailureDetail(error) ?? errorMessage(error)}`);
     }
-    const publicDetail = cancelled
+    // An action cut off mid-way may already have changed files or apps.
+    const stoppedNote = stoppedToolsNote(stoppedTools);
+    const publicDetail = [cancelled
       ? "The Assistant was stopped before it completed this response."
-      : assistantFailurePublicDetail(error);
+      : assistantFailurePublicDetail(error), stoppedNote].filter(Boolean).join(" ");
     const workTrail = capturedWorkTrail;
-    const interruptedContent = assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled);
+    const interruptedContent = [assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled), stoppedNote].filter(Boolean).join("\n\n");
     const interruptedPresentation = parseAssistantPresentation(capturedPresentation, interruptedContent);
     const interruptedMessage = {
       id: randomUUID(),
@@ -11608,6 +11621,14 @@ function assistantFailureReason(error: unknown): "provider_error" | "setup_error
   return isAssistantSetupError(error) ? "setup_error" : "assistant_error";
 }
 
+/** Names tools an interruption cut off; their effects may be partial and must not be blindly repeated. */
+function stoppedToolsNote(labels: string[]): string {
+  const unique = [...new Set(labels)];
+  if (!unique.length) return "";
+  const named = unique.length === 1 ? unique[0]! : `${unique.slice(0, -1).join(", ")} and ${unique.at(-1)!}`;
+  return `${named} ${unique.length === 1 ? "was" : "were"} still running, so ${unique.length === 1 ? "its" : "their"} effect may be incomplete. Check the result before repeating it.`;
+}
+
 function assistantFailureTranscriptContent(error: unknown, checkpointText = "", cancelled = false): string {
   const checkpoint = checkpointText.trim();
   if (error instanceof PiTurnFailure) {
@@ -11709,10 +11730,22 @@ async function invalidateWorkFoldClients(state: LocalApiState, spaceId: string):
 }
 
 async function invalidateAllClients(state: LocalApiState): Promise<void> {
+  await stopComputerSharingForScope(state, workFoldManagementRoot());
   for (const [key, client] of [...state.clients]) {
     await client.stop().catch(() => undefined);
     state.clients.delete(key);
   }
+}
+
+/** Removing the controlling Chat/Folder revokes input. Idle app-wide sharing
+ * survives unrelated Chat lifecycle changes. */
+async function stopComputerSharingForScope(state: LocalApiState, root: string, spaceId?: string, conversationId?: string): Promise<void> {
+  const service = (await state.runtimeProvider.resolveRuntime(root)).includedTools?.computerSession;
+  const owner = service?.status().owner;
+  if (!owner) return;
+  if (spaceId !== undefined && (spaceId === workFoldManagementScopeId ? owner.scope !== "management" : owner.scope !== "space" || owner.spaceId !== spaceId)) return;
+  if (conversationId !== undefined && owner.conversationId !== conversationId) return;
+  await service!.stop();
 }
 
 type CapabilityScope = "global" | "project";
@@ -11761,7 +11794,7 @@ async function runCapabilityMutation<T>(
   space: { id: string; spaceRoot: string },
   scope: CapabilityScope,
   operation: () => Promise<T>,
-  options: { requireProjectTrust?: boolean } = {},
+  options: { requireProjectTrust?: boolean; preserveClients?: boolean } = {},
 ): Promise<T> {
   const key = scope === "global" ? globalCapabilityMutationKey : space.id;
   reserveCapabilityMutation(state, space.id, scope, key);
@@ -11774,8 +11807,10 @@ async function runCapabilityMutation<T>(
       throw forbidden("Trust this Space before changing Space-scoped capabilities.");
     }
     const result = await operation();
-    if (scope === "global") await invalidateAllClients(state);
-    else await invalidateWorkFoldClients(state, space.id);
+    if (!options.preserveClients) {
+      if (scope === "global") await invalidateAllClients(state);
+      else await invalidateWorkFoldClients(state, space.id);
+    }
     publishControlHint(state, "assistant");
     return result;
   } finally {

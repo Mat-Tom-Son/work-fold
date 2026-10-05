@@ -59,7 +59,11 @@ package versions, licenses and before/after patch digests are pinned in
 [the integration manifest](patches/included-tools/manifest.json). Preparation
 refuses unknown or partially patched input. The computer helper is built from
 reviewed source and included in the app's signing lane; normal installation
-does not run upstream helper downloads. These checks establish provenance,
+does not run upstream helper downloads. On Windows the reviewed Rust helper is
+built from its pinned sources and locked dependencies. The manual Windows
+test-build lane signs it with a timestamped personal self-signed certificate;
+that establishes build identity, not public certificate trust. Windows has no per-app grant for it, so it acts
+with the signed-in user's desktop authority, excluding elevated windows. These checks establish provenance,
 not a sandbox or proof that every external action is safe.
 
 Native resource enable/disable preserves Pi's filters and scopes, pins the
@@ -77,7 +81,10 @@ HTTP polls/results require the selected origin, credential and connection ID,
 with protocol/capabilities checked before command delivery. Disconnect and
 profile changes refuse affected active work, then revoke stale queues/results
 at the accepted safe point. Readiness requires authenticated transport evidence;
-socket reachability and issuing a lease are insufficient. See
+socket reachability and issuing a lease are insufficient. On Windows the Rust
+bootstrap replaces the POSIX owner and mode check with an owner and DACL check,
+and the app writes its descriptor into a directory whose protected DACL admits
+only the user, SYSTEM and Administrators. See
 [Chrome distribution](docs/chrome-extension-distribution.md).
 Computer setup names the actual helper identity for macOS permissions. Both
 return requested observations through Pi; neither provides continuous screen
@@ -86,6 +93,37 @@ receipts. Document scripts run full trust in a terminable worker, with bounded
 helper outputs; independent child processes created by a script are outside
 that worker's cancellation boundary. See the reviewed dependency mitigations
 in [the integration notes](patches/included-tools/README.md).
+
+Linux candidates bundle the reviewed Rust computer helper, with runtime
+installation disabled and executable hashes checked before use. AT-SPI
+observations and semantic actions remain full trust. GNOME Wayland sharing uses
+one explicitly selected monitor through the XDG ScreenCast/RemoteDesktop portal,
+ASHPD, GStreamer/PipeWire, libei and the compositor's libxkbcommon keymap. Trusted
+setup grants sharing to work-fold for its full-trust Folder Chats and management
+agent, without requiring an existing conversation. Native Pi tools still require
+a specific Chat's live accepted turn and one exclusive OS-backed seat lease.
+The active controller is reported in setup; other Chats cannot interleave input. A monitor is a separate
+visual target, without an invented application or accessibility identity.
+Keyboard input affects the focused application on that desktop. Stop fences
+access immediately, terminates and reaps the helper, and never replays uncertain
+effects. Portal revocation, GNOME screen lock, sleep, host death, or disposal of
+the controlling Chat/Folder end sharing. Ordinary completion releases its lease;
+idle Chat/Folder removal leaves the app-wide grant available. No restore token or automatic regrant
+is stored. Full-trust Extensions retain their ordinary native authority; this
+is coordination, not a sandbox against arbitrary native code. Linux credential stores reject Electron's `basic_text`
+fallback and require GNOME Keyring/libsecret or KWallet. The native CLI preserves
+the same read/act protocol and private launch token under
+`$XDG_CONFIG_HOME/work-fold/cli` (default `~/.config/work-fold/cli`). Linux packages
+retain Chromium sandboxing and hardened fuses. Linux refuses `--no-sandbox`
+before starting its host, including when an AppImage launcher injects that switch
+after a failed namespace check. Use the DEB/RPM's supported sandbox integration;
+do not disable the sandbox to launch an AppImage. Linux does not support Electron's
+runtime embedded-ASAR integrity enforcement, so build-time ASAR hashes are
+verification evidence, not equivalent to macOS code signing. Linux candidates
+have no automatic updater or public Linux feed. Local APT/RPM/AppImage signing
+and tamper-rejection tests exist; production key custody and hosting remain
+unconfigured. See
+[Linux builds](docs/linux-build.md).
 
 MCP setup is a trusted local operation bound to an open setup session and an
 exact registered Space/runtime. Credential writes and OAuth token commits
@@ -280,7 +318,7 @@ compromised desktop endpoint. Public/full-trust release requires either a
 separately installed and pinned signing client or another authority design that
 does not grant mutable first-load web code this power.
 
-The installed `work-fold` command uses a separate protocol-v1 file broker under the platform application-data directory (`%APPDATA%\work-fold\cli` on Windows and `~/Library/Application Support/work-fold/cli` on macOS). Requests and responses are UUID-named, atomic, size- and age-bounded, path-confined, and rejected when they are symbolic links or unsafe file types. Electron's single-instance host serializes accepted requests and cleans stale files.
+The installed `work-fold` command uses a separate protocol-v1 file broker under the platform application-data directory (`%APPDATA%\work-fold\cli` on installed Windows, `~/Library/Application Support/work-fold/cli` on macOS, and `$XDG_CONFIG_HOME/work-fold/cli`, default `~/.config/work-fold/cli`, on Linux). Development and isolated profiles keep their own broker root. Requests and responses are UUID-named, atomic, size- and age-bounded, path-confined, and rejected when they are symbolic links or unsafe file types. Electron's single-instance host serializes accepted requests and cleans stale files.
 
 That broker is same-operating-system-user coordination, not authenticated interprocess communication. Another process running as the same user may be able to submit a request or read its result. Protocol v1 — the read lane — therefore exposes only compact Space names/paths, running-task metadata, and capability provenance/status. It does not return file contents, conversation text, API keys, provider credentials, or signing material, and it never mutates anything.
 
@@ -302,10 +340,15 @@ Optional publishing serves one explicitly designated Space file or an installed 
 
 ## Release integrity
 
-Windows packaging and public distribution are inactive. Version tags do not
-start a Windows workflow, and Windows artifacts are not Mac release authority.
-The retained manual Windows scripts are development references only and must
-not be presented as a supported or publicly trusted release lane.
+Windows and Linux have manual experimental test previews, recorded with exact
+source tags, checksums, build evidence and limitations in
+[Platform previews](docs/platform-previews.md). Windows previews use a personal
+self-signed certificate; Linux previews have no production package signatures.
+Neither has automatic updates or a qualified production distribution channel.
+Do not ask testers to install the Windows certificate as a trusted root.
+Published preview tags and assets are immutable; replacements need new versions
+and fresh native acceptance. GitHub Actions is disabled, and version tags do
+not start remote builds. Preview artifacts are not Mac release authority.
 
 Local Mac smoke candidates are ad hoc signed and are not public release artifacts. They use the distinct `work-fold Local Smoke` name, `com.work-fold.desktop.local-smoke` bundle id, build-channel marker and application-data directory, and never start the production updater. They must not be renamed or installed over `work-fold.app`; interactive release-workstation testing uses a Developer ID-signed candidate because a user-data override does not isolate macOS Keychain access control. Public Mac releases use the separate `Mat-Tom-Son/work-fold-mac-releases` feed and require an exact public source tag, Developer ID signing, hardened runtime, Apple notarization and stapling, Gatekeeper acceptance, matching DMG/ZIP update metadata, and remote size/SHA-256 verification. The manually installed first release establishes the new identity; a later higher work-fold release must prove the new updater path end to end.
 

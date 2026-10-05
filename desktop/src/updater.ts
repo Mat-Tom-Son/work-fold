@@ -238,7 +238,7 @@ export class DesktopUpdater {
         phase: "error",
         progressPercent: null,
         message: "Update download failed.",
-        error: errorMessage(error),
+        error: summarizeUpdateError(errorMessage(error)),
       });
     }
   }
@@ -308,7 +308,12 @@ export class DesktopUpdater {
     } catch (error) {
       const message = errorMessage(error);
       if (background && isTransientNetworkUpdateError(message)) return this.deferTransientCheck(message);
-      return this.setStatus({ phase: "error", progressPercent: null, message: "Update check failed.", error: message });
+      console.warn(`work-fold update check failed: ${message}`);
+      // A reachable feed with nothing published is not actionable from the rail.
+      if (background && isUnpublishedFeedUpdateError(message)) {
+        return this.setStatus({ phase: "not_available", availableVersion: null, progressPercent: null, checkedAt: this.host.now(), message: "No published update was found.", error: null });
+      }
+      return this.setStatus({ phase: "error", progressPercent: null, message: "Update check failed.", error: summarizeUpdateError(message) });
     } finally {
       this.backgroundCheckInFlight = false;
     }
@@ -356,8 +361,10 @@ export class DesktopUpdater {
     return this.installPromise;
   }
 
-  private restoreReadyAfterInstallFailure(message: string): DesktopUpdateStatus {
+  private restoreReadyAfterInstallFailure(failure: string): DesktopUpdateStatus {
     this.installPromise = null;
+    console.warn(`work-fold update install failed: ${failure}`);
+    const message = summarizeUpdateError(failure);
     const installerPath = this.downloadedInstallerPath();
     if (hasDownloadedUpdatePayload({
       platform: this.host.platform(),
@@ -484,8 +491,10 @@ export class DesktopUpdater {
       this.deferTransientCheck(message);
       return;
     }
+    // The background check's own result settles an unpublished feed quietly.
+    if (this.backgroundCheckInFlight && isUnpublishedFeedUpdateError(message)) return;
     if (this.status.phase === "downloading") this.downloadedUpdateReady = false;
-    this.setStatus({ phase: "error", progressPercent: null, message: "Update check failed.", error: message });
+    this.setStatus({ phase: "error", progressPercent: null, message: "Update check failed.", error: summarizeUpdateError(message) });
   };
 
   private isDeferredNetworkStatus(): boolean {
@@ -593,6 +602,22 @@ function defaultElectronHost(getWindow: () => BrowserWindow | null): DesktopUpda
       }
     },
   };
+}
+
+/** The feed answered but holds nothing for this app: GitHub replies 404 or 406
+ * to a repository without a published release or without this platform's file. */
+export function isUnpublishedFeedUpdateError(message: string): boolean {
+  return /no published versions on github|unable to find latest version on github|cannot find latest(?:-mac)?\.yml/i.test(message)
+    || /^\s*HttpError:\s*(?:404|406)\b/i.test(message);
+}
+
+/** Updater errors can embed whole HTTP responses and headers. The log keeps
+ * them; people see one bounded line. */
+export function summarizeUpdateError(message: string): string {
+  if (isUnpublishedFeedUpdateError(message)) return "No published work-fold release was found in the update feed.";
+  const line = message.split(/\r?\n/).map((part) => part.trim()).find(Boolean) ?? "Unknown error.";
+  const summary = line.split(/\s+(?:Headers:|Data:|"method:)/)[0]!.trim() || "Unknown error.";
+  return summary.length > 160 ? `${summary.slice(0, 157)}...` : summary;
 }
 
 function errorMessage(error: unknown): string {

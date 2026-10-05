@@ -4,6 +4,22 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## October 5, 2026 test previews
+
+[Windows 0.4.50](https://github.com/Mat-Tom-Son/work-fold/releases/tag/windows-test-0.4.50)
+and [Linux 0.4.52](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.4.52)
+are source-repository prereleases with separate exact source tags and no automatic
+updates. [Platform previews](../platform-previews.md) records their build evidence,
+limitations, and the combined source under review. They are not Mac update feed entries.
+
+## October 2, 2026
+
+[0.4.41](work-fold-0.4.41.md) is
+[published in the Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/tag/v0.4.41).
+It improves included-tool readiness and Chrome continuity, adds nested
+work-folders and Worker mentions, and updates Files/Chats presentation. Its
+Chrome companion update has separate Store review and installation requirements.
+
 ## September 30, 2026
 
 [0.4.40](work-fold-0.4.40.md) brings the Customize Folder popup, four included

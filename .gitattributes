@@ -13,3 +13,6 @@
 *.xlsx binary
 *.ppt binary
 *.pptx binary
+
+# Embedded diff context is data; changing its whitespace breaks pinned patches.
+*.patch -whitespace

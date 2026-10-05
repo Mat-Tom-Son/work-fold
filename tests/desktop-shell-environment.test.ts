@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
@@ -16,6 +16,20 @@ import {
 } from "../desktop/src/shell-environment.js";
 
 const launchdPath = "/usr/bin:/bin:/usr/sbin:/sbin";
+// Login-shell resolution is POSIX-only; Windows never runs it (see the first test).
+
+test("shell repair keeps the live desktop session and cannot invent a stale display", () => {
+  const graphical = {
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+    WAYLAND_DISPLAY: "wayland-1", XDG_RUNTIME_DIR: "/run/user/1000",
+    XDG_SESSION_TYPE: "wayland", XDG_CURRENT_DESKTOP: "GNOME",
+  };
+  const launch = { ...graphical, PATH: "/usr/bin" };
+  const shell = Object.fromEntries(Object.keys(graphical).map(key => [key, "stale-session"]));
+  const merged = mergeLoginShellEnvironment(launch, { ...shell, DISPLAY: ":99", XAUTHORITY: "/stale/cookie", PATH: "/tools:/usr/bin" });
+  assert.deepEqual({ ...launch, ...merged.env }, { ...launch, PATH: "/tools:/usr/bin" });
+  assert.deepEqual(merged.importedKeys, ["PATH"]);
+});
 
 test("GUI launches resolve the login shell; terminal launches, Windows, probes, and opt-outs do not", () => {
   assert.equal(shouldResolveLoginShellEnvironment({ PATH: launchdPath }, "darwin").resolve, true);
@@ -47,7 +61,7 @@ test("parsing keeps only the NUL-separated block between the markers", () => {
   assert.equal(parseLoginShellEnvironment(`${marker}PATH=/bin`, marker), null);
 });
 
-test("merging prefers the shell PATH order, keeps process-only entries, and protects explicit configuration", () => {
+test("merging prefers the shell PATH order, keeps process-only entries, and protects explicit configuration", { skip: process.platform === "win32" }, () => {
   const processEnv: NodeJS.ProcessEnv = {
     PATH: `${launchdPath}${delimiter}/Applications/work-fold.app/Contents/bin`,
     HOME: "/Users/mat",
@@ -89,7 +103,7 @@ test("merging prefers the shell PATH order, keeps process-only entries, and prot
   assert.deepEqual(merged.importedKeys, ["EDITOR", "NVM_DIR", "PATH", "WORKFOLD_CHAT_CONTEXT_BUDGET_TOKENS"]);
 });
 
-test("a login shell that prints profile noise still yields its environment end to end", async () => {
+test("a login shell that prints profile noise still yields its environment end to end", { skip: process.platform === "win32" }, async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "work-fold-shell-env-"));
   try {
     const fakeShell = join(sandbox, "fake-shell");
@@ -117,7 +131,7 @@ test("a login shell that prints profile noise still yields its environment end t
   }
 });
 
-test("a hanging or missing login shell leaves the launch environment untouched", async () => {
+test("a hanging or missing login shell leaves the launch environment untouched", { skip: process.platform === "win32" }, async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "work-fold-shell-env-"));
   try {
     const hangingShell = join(sandbox, "hanging-shell");
@@ -139,8 +153,8 @@ test("a hanging or missing login shell leaves the launch environment untouched",
   }
 });
 
-test("the default login shell follows $SHELL and falls back to a platform shell that exists", () => {
-  assert.equal(defaultLoginShell({ SHELL: "/definitely/missing/shell" }, "darwin"), "/bin/zsh");
+test("the default login shell follows $SHELL and falls back to a platform shell that exists", { skip: process.platform === "win32" }, () => {
+  assert.equal(defaultLoginShell({ SHELL: "/definitely/missing/shell" }, "darwin"), existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/bash");
   assert.equal(defaultLoginShell({}, "linux"), "/bin/bash");
   assert.equal(defaultLoginShell({ SHELL: "/bin/sh" }, "darwin"), "/bin/sh");
 });

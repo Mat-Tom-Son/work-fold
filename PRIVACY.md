@@ -5,7 +5,7 @@ needed. In the product, a registered Space is presented as a **work-folder**, it
 Assistant as a **Worker**, the management Assistant as the **work-fold agent**,
 and deterministic routings as **Automations**.
 
-Last updated: October 2, 2026
+Last updated: October 5, 2026
 
 work-fold is a local-first desktop application. Core Space use does not require a work-fold account; a person may optionally create a private work-fold Remote access address. The current application does not include first-party analytics, advertising, or usage telemetry.
 
@@ -31,7 +31,7 @@ By default, work-fold stores:
 - Pi settings, sessions, Pi's independent trust decisions, personal Skills, Extensions, and packages under the configured Pi agent directory, normally `~/.pi/agent`.
 - Provider credentials in an application-scoped file encrypted through Electron's operating-system-backed `safeStorage`. work-fold refuses credential operations when that encryption is unavailable.
 - Restricted-app Development-preview receipts and package snapshots; machine-local App Project identity and presentation; immutable content-addressed Release envelopes; prepared/published state; install/update operation journals; local App Instance records; per-automation enablement/cadence state and bounded run receipts; retained-data records; and Tenant-and-Data-Namespace-owned JSON storage under the application-data `restricted-apps` directory. Separately encrypted restricted-app connections bind their exact runtime and installation identities in `restricted-app-connections.bin`.
-- Short-lived CLI request, claim, and response files under the owning app's application-data directory: `%APPDATA%\work-fold\cli` for an installed Windows app, `%APPDATA%\work-fold Development\cli` for an uninstalled Windows package, and the corresponding production or separately identified smoke-app directory on macOS.
+- Short-lived CLI request, claim, and response files under the owning app's application-data directory: `%APPDATA%\work-fold\cli` for an installed Windows app, `%APPDATA%\work-fold Development\cli` for an uninstalled Windows package, the corresponding production or separately identified smoke-app directory on macOS, and `$XDG_CONFIG_HOME/work-fold/cli` (default `~/.config/work-fold/cli`) on Linux. Development profiles and explicit profile overrides use their own broker root.
 - The management conversation's machine-local transcript under the application-data `management/` root. When a request includes attachments, its user message stores their typed absolute local paths or http(s) links; remote uploads land in an app-owned holding folder under `management/Incoming/Remote/`. Request records — the turns and Spaces one ask spans, its questions and answers, and the results handed back — are durable machine-local app state under the application-data `requests/` directory, reconciled after a restart and never replayed, and kept for 30 days after the request settles; act lineage stays metadata in the receipt journal. Like the other records below, nothing in `requests/` is written into a Space folder, captured by History, or synchronized by anything that synchronizes a Space.
 - Unsent answers to Assistant questions in the current renderer or browser tab’s session storage. They survive refresh/reconnect, clear when accepted or when the tab session ends, and are not sent to the host or model until submitted. The paired browser also clears these drafts on sign-out or when its grant is removed.
 - Optional Remote access device credentials, P-256 private keys, paired-browser public keys, and revocation state in the same operating-system-encrypted secure settings file as other application credentials. A paired browser keeps its own non-exportable private keys and grant identity in that browser's IndexedDB; it does not store a transcript or Space file cache there.
@@ -94,15 +94,37 @@ baseline does not import browser cookies, initialize media services or call a
 second model. Chrome operates the connected signed-in profile through an
 explicitly prepared companion; account content and external actions carry
 that profile's normal permissions. Computer control captures selected native
-observations using macOS permissions granted to its helper.
+observations using macOS permissions granted to its helper. Windows uses the
+reviewed UI Automation helper with the signed-in user's desktop authority and
+no separate per-app privacy grant; elevated applications are outside its
+supported control boundary. Linux candidates use
+AT-SPI accessibility, the upstream X11 backend, and explicit GNOME Wayland
+screen sharing. In Computer setup the person shares a monitor with work-fold
+through the desktop portal. This makes the monitor available to all full-trust
+Folder Chats and the work-fold agent, including new Chats, one controller at a
+time. The helper receives that granted stream while sharing is
+active and retains a bounded latest frame in memory. Only requested observations
+enter Pi's ordinary tool results, session and model-provider context; the helper
+does not write a recording or save a restore token. Images may include content
+outside the selected Folder. Keyboard input goes to the desktop's focused
+application. Stop sharing, screen lock, sleep, app exit or removal of the currently controlling
+Chat/Folder ends the grant. Normal turn completion and idle Chat removal do not. See [Linux builds](docs/linux-build.md) for the
+qualified desktop and input limits.
 
 The Chrome extension's random installation ID and connection proof stay in
 trusted-only local extension storage, never Chrome sync. work-fold stores the
 selected installation and proof hash under its private application-data
-directory. A signed Native Messaging helper authenticates the exact extension
+directory. A Native Messaging helper (Developer ID-signed on macOS, provenance-verified
+on Windows and Linux) authenticates the exact extension
 ID and forwards setup requests to the running app; it does not identify the
 Chrome profile by itself. Temporary connection credentials stay in the browser
 service worker's memory and native host runtime, outside Chat and setup status.
+
+Linux application data defaults to `~/.config/work-fold` (or
+`$XDG_CONFIG_HOME/work-fold`), including the private CLI broker. Saved app-managed
+credentials require GNOME Keyring/libsecret or KWallet; work-fold refuses the
+`basic_text` fallback. Removing the Linux package leaves personal app data,
+Pi resources and ordinary Folders intact.
 
 The Chrome extension can process requested tab URLs/titles, page text and
 structure, form inputs, screenshots, and page console/network observations.
@@ -258,7 +280,7 @@ Sharing a page serves the current content of one explicitly designated Space fil
 
 ### Model providers
 
-When a user sends an Assistant message, Pi sends the request to the provider and model selected in Settings → Agents. The request can include the message, relevant conversation history and instructions, explicitly selected text attachments, and tool results produced during the turn. A Space's optional **Space instructions** stay in machine-local application state rather than the Space folder, but they are appended to every subsequent model request for that Space and therefore sent to the selected provider. Management attachments are references: readable text files can be included directly within the shared context budget; folders, binaries, and oversized files are initially path-only; and attached links are listed as data. If the Assistant later inspects one with filesystem or network tools, information those tools return may become part of model context. If the Assistant uses filesystem, Extension, or restricted-app tools, information those tools return may likewise become part of later model context. A restricted-app tool receives a bounded action input selected by the Assistant, and its bounded result can therefore be sent to the model provider as part of the tool exchange or later context.
+When a user sends an Assistant message, Pi sends the request to the provider and model selected in Settings → AI Models. The request can include the message, relevant conversation history and instructions, explicitly selected text attachments, and tool results produced during the turn. A Space's optional **Worker instructions** stay in machine-local application state rather than the Space folder, but they are appended to every subsequent model request for that Space and therefore sent to the selected provider. Management attachments are references: readable text files can be included directly within the shared context budget; folders, binaries, and oversized files are initially path-only; and attached links are listed as data. If the Assistant later inspects one with filesystem or network tools, information those tools return may become part of model context. If the Assistant uses filesystem, Extension, or restricted-app tools, information those tools return may likewise become part of later model context. A restricted-app tool receives a bounded action input selected by the Assistant, and its bounded result can therefore be sent to the model provider as part of the tool exchange or later context.
 
 work-fold does not proxy these requests through a work-fold account service. The selected provider receives and processes them under that provider's terms and settings. Do not send sensitive material to a provider unless its handling is acceptable for that material.
 

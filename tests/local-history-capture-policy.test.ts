@@ -4,10 +4,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createSpaceCheckpoint, createSpaceMutationCheckpoint, restoreSpaceCheckpoint } from "../src/local/history.js";
+import { createSpaceCheckpoint, createSpaceMutationCheckpoint, readSpaceBlob, restoreSpaceCheckpoint, storeSpaceBlob } from "../src/local/history.js";
 import { GitignoreDirectoryRules, createFullHistoryCapturePolicy } from "../src/local/history-capture-policy.js";
 import { setSpaceIgnoreState } from "../src/local/space-ignore.js";
 import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
+
+test("concurrent first captures retain every blob while creating History metadata once", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-history-first-capture-"));
+  const root = join(sandbox, "space");
+  await mkdir(root);
+  configureWorkFoldStateRoot(join(sandbox, "state"));
+  t.after(async () => { configureWorkFoldStateRoot(undefined); await rm(sandbox, { recursive: true, force: true }); });
+  const contents = Array.from({ length: 32 }, (_, index) => Buffer.from(`concurrent content ${index}`));
+  const blobs = await Promise.all(contents.map((bytes) => storeSpaceBlob(root, bytes)));
+  for (const [index, blob] of blobs.entries()) assert.deepEqual(await readSpaceBlob(root, blob.hashSha256), contents[index]);
+});
 
 test("gitignore directory rules follow git precedence: anchoring, any-depth names, descendants, negation, nesting", () => {
   const rules = new GitignoreDirectoryRules();

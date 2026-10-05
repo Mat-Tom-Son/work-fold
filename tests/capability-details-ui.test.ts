@@ -97,6 +97,69 @@ test("ready included tools need no repeated setup copy and MCP keeps connection 
   assert.deepEqual(operations, ["open", "check", "close"]);
 });
 
+test("Computer setup offers only the host's own permission controls", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  let permissions: "macos" | "none" | undefined = "none";
+  const writes: unknown[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    const status = { id: "computer", state: "unknown", detail: "Idle.", checkedAt: "2026-10-03T16:00:00.000Z", ...(permissions ? { computer: { permissions } } : {}) };
+    if (init?.method === "POST") { writes.push(JSON.parse(String(init.body))); return Response.json({ status: { ...status, state: "ready", facts: { helper: "work-fold Computer" } } }); }
+    return Response.json({ tools: [status] });
+  }) as typeof fetch;
+  const text = () => dom.container.textContent!;
+  const button = (name: string) => [...dom.container.querySelectorAll("button")].find((item) => item.textContent === name);
+  await dom.render(createElement(CapabilityDetailsDialog, { key: "windows", item: included("computer"), spaceId: "workshop", busy: false, onClose() {} }));
+  await dom.waitFor(() => text().includes("Start and Check"));
+  assert.ok(button("Restart and Recheck"), "a Windows host offers its helper restart");
+  assert.match(text(), /needs no separate permission/);
+  assert.doesNotMatch(text(), /Accessibility|Screen Recording|Set Up Permissions|permissions were lost/);
+  await dom.act(() => button("Restart and Recheck")!.click());
+  assert.deepEqual(writes, [{ spaceId: "workshop", id: "computer", action: "recheck" }]);
+  await dom.waitFor(() => text().includes("Ready"));
+  assert.ok(button("Restart and Recheck"), "the helper controls stay mounted through an action");
+  permissions = "macos";
+  await dom.render(createElement(CapabilityDetailsDialog, { key: "macos", item: included("computer"), spaceId: "workshop", busy: false, onClose() {} }));
+  await dom.waitFor(() => text().includes("Start and Check"));
+  assert.ok(button("Accessibility") && button("Screen Recording") && button("Repair and Recheck"));
+  assert.equal(button("Restart and Recheck"), undefined);
+  permissions = undefined;
+  await dom.render(createElement(CapabilityDetailsDialog, { key: "unknown", item: included("computer"), spaceId: "workshop", busy: false, onClose() {} }));
+  await dom.waitFor(() => text().includes("Start and Check"));
+  assert.equal(button("Accessibility") ?? button("Restart and Recheck"), undefined, "no platform controls appear before the host says which apply");
+});
+
+test("combined Computer setup keeps Linux sharing and accessibility separate from Windows and macOS controls", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  const writes: unknown[] = [];
+  let sharing = false;
+  const status = () => ({ id: "computer", state: sharing ? "ready" : "setup_required", detail: "Linux desktop sharing.", checkedAt: "2026-10-05T16:00:00.000Z",
+    facts: { platform: "linux", session: "wayland", accessibility: true },
+    computerSession: { state: sharing ? "active" : "idle", capture: sharing, pointer: sharing, keyboard: sharing, controlInUse: false, detail: "Linux desktop sharing.", checkedAt: "2026-10-05T16:00:00.000Z" } });
+  globalThis.fetch = (async (_input, init) => {
+    if (init?.method === "POST") {
+      const body = JSON.parse(String(init.body)); writes.push(body); sharing = body.action === "share-screen";
+      return Response.json({ status: status() });
+    }
+    return Response.json({ tools: [status()] });
+  }) as typeof fetch;
+  const button = (name: string) => [...dom.container.querySelectorAll("button")].find((item) => item.textContent === name);
+  await dom.render(createElement(CapabilityDetailsDialog, { item: included("computer"), spaceId: "workshop", busy: false, onClose() {} }));
+  await dom.waitFor(() => Boolean(button("Share desktop")));
+  assert.ok(button("Check accessibility"));
+  assert.equal(button("Accessibility") ?? button("Screen Recording") ?? button("Repair and Recheck") ?? button("Restart and Recheck") ?? button("Set Up Permissions"), undefined);
+  await dom.act(() => button("Share desktop")!.click());
+  await dom.waitFor(() => Boolean(button("Stop sharing")));
+  assert.match(dom.container.textContent!, /Shared with all chats and the work-fold agent/);
+  await dom.act(() => button("Stop sharing")!.click());
+  await dom.waitFor(() => Boolean(button("Share desktop")));
+  assert.deepEqual(writes, [
+    { spaceId: "workshop", id: "computer", action: "share-screen" },
+    { spaceId: "workshop", id: "computer", action: "stop-sharing" },
+  ]);
+});
+
 test("Installed separates cold readiness from native loading and keeps a newer setup result through late summary reads", async (t) => {
   const dom = await createDomHarness(); t.after(() => dom.cleanup());
   const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });

@@ -84,6 +84,7 @@ import {
   type WorkFoldResultEnvelope,
   type WorkFoldResultRecord,
 } from "./request-records.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 /** "Daily while awake": `purgeExpiredIfDue` runs at most this often by default. */
 export const WORKFOLD_REQUEST_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -161,6 +162,7 @@ export class WorkFoldRequestStore {
 
   static async open(options: WorkFoldRequestStoreOptions): Promise<WorkFoldRequestStore> {
     const rootPath = resolve(options.rootPath);
+    await ensurePrivateDirectory(rootPath);
     await mkdir(join(rootPath, "results"), { recursive: true, mode: 0o700 });
     const settings = await loadSettings(join(rootPath, "settings.json"));
     const store = new WorkFoldRequestStore(rootPath, options, settings.settings);

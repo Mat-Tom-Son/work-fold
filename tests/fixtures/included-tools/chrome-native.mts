@@ -3,6 +3,9 @@ import { createServer } from "node:http";
 import { mkdtemp, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readWindowsAccess } from "../../support/windows-acl.ts";
+import { currentWindowsUserSid } from "../../../src/local/private-access.ts";
 import { createJiti } from "jiti";
 const root = await mkdtemp(join(tmpdir(), "workfold-chrome-native-"));
 const reservation = createServer();
@@ -13,7 +16,7 @@ process.env.PI_CHROME_BRIDGE_PORT = String(port);
 process.env.PI_CODING_AGENT_DIR = join(root, "agent");
 const { AuthStorage, createAgentSession, createEventBus, DefaultResourceLoader, ModelRegistry, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
-const chrome = await jiti.import<any>(new URL("../../../resources/included-tools/chrome/index.ts", import.meta.url).pathname);
+const chrome = await jiti.import<any>(fileURLToPath(new URL("../../../resources/included-tools/chrome/index.ts", import.meta.url)));
 const config = { companionPath: join(root, "companion") }, url = `http://127.0.0.1:${port}`;
 const sessions: any[] = [];
 let token: string;
@@ -52,7 +55,14 @@ try {
   await chrome.prepareIncludedChromeCompanion(config);
   token = JSON.parse(await readFile(join(config.companionPath, "host-config.json"), "utf8")).token;
   assert.match(token, /^[a-f0-9]{64}$/);
-  assert.equal((await stat(join(config.companionPath, "host-config.json"))).mode & 0o777, 0o600);
+  const hostConfig = join(config.companionPath, "host-config.json");
+  if (process.platform === "win32") {
+    // Windows ignores modes; the token must sit behind a protected owner-only DACL.
+    const access = await readWindowsAccess(hostConfig), user = await currentWindowsUserSid();
+    assert.equal(access.owner, user);
+    assert.deepEqual(access.allowed.sort(), [user, "S-1-5-18", "S-1-5-32-544"].sort());
+    assert.equal((await readWindowsAccess(config.companionPath)).protected, true);
+  } else assert.equal((await stat(hostConfig)).mode & 0o777, 0o600);
   await chrome.prepareIncludedChromeCompanion(config);
   assert.equal(JSON.parse(await readFile(join(config.companionPath, "host-config.json"), "utf8")).token, token);
   // Setup checks must bootstrap their own connection before any successful
