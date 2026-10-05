@@ -70,6 +70,11 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.equal(screenshot.headers.get("content-type"), "image/jpeg");
   assert.equal(Buffer.from(await screenshot.arrayBuffer()).toString("hex", 0, 3), "ffd8ff");
 
+  const workScreen = await fetch(`${baseUrl}/screens/work-research-1440.webp`);
+  assert.equal(workScreen.status, 200);
+  assert.equal(workScreen.headers.get("content-type"), "image/webp");
+  assert.equal(Buffer.from(await workScreen.arrayBuffer()).toString("latin1", 8, 12), "WEBP");
+
   const applicationScript = await fetch(`${baseUrl}/app.js`);
   const applicationSource = await applicationScript.text();
   assert.match(applicationSource, /import \{ renderLanding \} from "\.\/landing\.js"/);
