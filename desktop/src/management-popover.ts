@@ -77,7 +77,7 @@ export class ManagementPopover {
     this.#pendingShow = (async () => {
       const window = await this.#ensureWindow();
       if (this.#destroyed || window.isDestroyed()) return;
-      window.setPosition(...popoverPosition(anchor));
+      if (process.platform !== "linux" || process.env.XDG_SESSION_TYPE !== "wayland") window.setPosition(...popoverPosition(anchor));
       window.show();
       if (process.platform === "darwin") {
         // The popover is a nonactivating panel: show() alone grants it key
@@ -140,12 +140,12 @@ export class ManagementPopover {
       width: popoverWidth,
       height: popoverHeight,
       show: false,
-      frame: false,
+      frame: process.platform === "linux",
       resizable: false,
       maximizable: false,
       minimizable: false,
       fullscreenable: false,
-      skipTaskbar: true,
+      skipTaskbar: process.platform !== "linux",
       alwaysOnTop: true,
       // A nonactivating macOS panel takes key status (typing works) without
       // activating the app, so opening the popover never raises the main
@@ -177,6 +177,7 @@ export class ManagementPopover {
     }
     this.#options.configureNavigation(window);
     window.on("blur", () => {
+      if (process.platform === "linux") return;
       if (window.isDestroyed() || window.webContents.isDevToolsOpened()) return;
       // Arm the tray-click grace only for blur-caused hides: if the window is
       // already hidden this blur is the tail of a programmatic hide (Escape,

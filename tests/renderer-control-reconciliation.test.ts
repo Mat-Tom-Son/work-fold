@@ -147,6 +147,68 @@ test("an external Assistant hint refreshes draft models while existing Chat sess
   assert.match(dom.container.querySelector("#saved")?.textContent ?? "", /Session Model/);
 });
 
+test("Chat composition keys preserve the draft and command menu until an ordinary Enter", async (t) => {
+  const { ChatPanel } = await loadChatPanel(t);
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  HTMLElement.prototype.scrollIntoView = () => {};
+  const previousFetch = globalThis.fetch; t.after(() => { globalThis.fetch = previousFetch; });
+  const sent: Array<{ content: string }> = [];
+  const stamp = "2026-09-24T12:00:00.000Z";
+  globalThis.fetch = (async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/api/events')) return new Response(new ReadableStream({ start(controller) {
+      init?.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      for (const item of JSON.parse(String(init?.body)).subscriptions) {
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ subscriptionId: item.id, ready: true })}\n\n`));
+      }
+    } }), { headers: { 'content-type': 'text/event-stream' } });
+    if (path.includes('/agent/status')) return Response.json({ status: { configured: true, ready: true } });
+    if (path.includes('/agent/composer')) return Response.json({ composer: { thinkingLevel: 'off', thinkingLevels: ['off'] } });
+    if (path.endsWith('/agent/catalog')) return Response.json({ commands: [{ name: 'model', source: 'builtin' }, { name: 'compact', source: 'builtin' }], skills: [], extensions: [], diagnostics: [] });
+    if (path.endsWith('/conversations')) return Response.json({ conversations: [{ id: 'ime-chat', title: 'IME', createdAt: stamp, updatedAt: stamp }] });
+    if (path.endsWith('/ime-chat')) return Response.json({ messages: [] });
+    if (path.endsWith('/runtime')) return Response.json({ runtime: null });
+    if (path.endsWith('/work')) return Response.json({ work: null });
+    if (path.endsWith('/messages') && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)); sent.push(body);
+      return Response.json({ accepted: true, message: { id: body.userMessageId, role: 'user', content: body.content, createdAt: stamp } });
+    }
+    throw new Error(`Unexpected IME test request: ${path}`);
+  }) as typeof fetch;
+  const props = { surfaceTabId: "ime", space: space("ime"), spaceCustomizations: {},
+    contextPathRequest: null, selectedPath: null, onAgentFinished() {}, targetConversationId: 'ime-chat' };
+  const seed = async (text: string, id: number) => {
+    await dom.render(createElement(ChatPanel, { ...props, draftRequest: { id, text, spaceId: "ime", surfaceTabId: "ime" } }));
+    await dom.settle();
+    return dom.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message worker"]')!;
+  };
+  const composer = await seed("/", 1);
+  assert.ok(dom.container.querySelector('.composer-command-menu [role="option"]'));
+  for (const init of [{ isComposing: true }, { isComposing: false, keyCode: 229 }]) {
+    for (const key of ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"]) {
+      const selected = dom.container.querySelector('.composer-command-menu [aria-selected="true"]')?.textContent;
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+      await dom.act(() => { composer.dispatchEvent(event); });
+      assert.equal(event.defaultPrevented, false, `${key} must remain available to the input method`);
+      assert.equal(composer.value, "/");
+      assert.equal(dom.container.querySelector('.composer-command-menu [aria-selected="true"]')?.textContent, selected);
+    }
+  }
+  await seed("你好", 2);
+  for (const init of [{ isComposing: true }, { isComposing: false, keyCode: 229 }]) {
+    await dom.press("Enter", init);
+    assert.equal(composer.value, "你好", "An IME confirmation must not send the draft");
+    assert.equal(dom.container.querySelector('.message.user'), null);
+    assert.equal(sent.length, 0);
+  }
+  await dom.press("Enter");
+  assert.equal(composer.value, "");
+  assert.equal(dom.container.querySelectorAll('.message.user').length, 1);
+  assert.match(dom.container.querySelector('.message.user')!.textContent!, /你好/);
+  await dom.waitFor(() => sent.length === 1);
+  assert.equal(sent[0]!.content, '你好');
+});
+
 async function loadChatPanel(t: { after: (cleanup: () => void) => void }) {
   // Vite supplies SVG URLs and CommonJS icon exports in the app. The DOM
   // test needs only inert graphics; the real Chat state/effects stay intact.

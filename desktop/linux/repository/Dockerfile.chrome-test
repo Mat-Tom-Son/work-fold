@@ -1,0 +1,7 @@
+FROM work-fold-linux-build
+USER root
+# Xvfb alone has no window manager: background Chrome windows then have no
+# normal desktop mapping/stacking behavior. This is an isolated X11 test seat.
+RUN apt-get update && apt-get install -y --no-install-recommends openbox python3-gi python3-pil gir1.2-atspi-2.0 at-spi2-core \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /work
