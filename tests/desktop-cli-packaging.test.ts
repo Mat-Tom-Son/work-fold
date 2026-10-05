@@ -35,6 +35,7 @@ test("macOS DMG artwork keeps the tracked source and generated packaging artifac
   assert.match(generator, /join\(rootDir, "out", "generated-assets"\)/);
   assert.match(generator, /writeFile\(join\(outDir, "dmg-background\.png"\), backgroundBytes\)/);
   assert.match(generator, /writeFile\(join\(assetsDir, "dmg-background\.png"\), backgroundBytes\)/);
+  assert.match(generator, /process\.platform === "darwin" \? \[writeFile\(join\(assetsDir/, "only macOS refreshes the tracked macOS rendering");
   assert.match(preflight, /out\/generated-assets\/dmg-background\.png/);
 });
 
