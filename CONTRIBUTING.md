@@ -99,9 +99,11 @@ Mac publication is a maintainer operation with separate authorization and an
 exact-commit local verification receipt from `npm run desktop:release:mac:check`,
 followed by a signed build under the same Node/npm and dependency state. The
 local lane needs Node 24 and Google Chrome on an Apple-silicon Mac. GitHub
-GitHub Actions is disabled and does not gate publication. Use the
+Actions is disabled and does not gate publication. Use the
 [release runbook](docs/macos-release.md).
-Windows packaging remains inactive and does not gate Mac work.
+Windows and Linux have [experimental test previews](docs/platform-previews.md)
+on separate branches. Production distribution and automatic updates remain
+Mac-only; platform preview work does not gate Mac releases.
 
 ## Bugs, security, and license
 

@@ -44,6 +44,10 @@ Use **Compare** in Version History or a selected work-folder restore point to re
 2. Connect your model provider in **Settings → AI Models**. Provider usage may cost money.
 3. Open an existing folder or create a work-folder, then start a Chat.
 
+[Windows and Linux test previews](docs/platform-previews.md) are also available
+for early testers. They come from separate platform branches and have no
+automatic updates; the supported production distribution remains Mac.
+
 Files live on your computer. Content used by the Assistant goes to your chosen model provider. Optional web access is in private alpha and needs your Mac online. See [Privacy](PRIVACY.md) for details.
 
 ## Help build work-fold

@@ -114,6 +114,11 @@ The optional `WORKFOLD_LIVE_WEB_TEST=1` fixture runs an actual DuckDuckGo search
 
 ## Document dependency review
 
+The `.gitattributes` rule disables Git's source-whitespace checks inside patch
+files: their context markers, blank context lines, and upstream indentation are
+meaningful bytes covered by the manifest. Check ordinary source files normally;
+never trim a pinned patch just to make `git diff --check` quiet.
+
 ExcelJS 4.4.0 uses only the CommonJS `uuid.v4()` API in its extended conditional
 formatting writer. The narrowly scoped `exceljs → uuid@11.1.1` override retains
 that API and fixes the [buffer-bounds advisory](https://github.com/advisories/GHSA-w5hq-g745-h8pq).
@@ -149,6 +154,18 @@ source evidence, not a clean upstream audit or a guarantee for separately
 installed copies. Do not suppress the advisories or apply npm audit's obsolete
 PptxGenJS 1.1.5 downgrade. Remove the patch only after a reviewed upstream fix
 passes the same compatibility and packaged checks.
+
+As of 2026-10-05, upstream image-size 2.0.3 and newer contain these fixes.
+PptxGenJS still requests 1.2.1, so the verified patch remains in place until a
+reviewed migration passes the existing parser, PowerPoint, and packaging tests.
+The HTTP cache dependency is separately pinned to 4.3.0 for
+[GHSA-ch52-4w7c-c8xp](https://github.com/advisories/GHSA-ch52-4w7c-c8xp).
+The retained Forge 7 diagnostic toolchain still pulls braces 3.0.3, affected by
+[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm),
+which has no patched upstream version. It is a development dependency path;
+upgrading that toolchain to Forge 8 also requires its fuses 2 peer and separate
+packaging qualification. Do not treat the raw audit count as proof that the
+reviewed image parsers are unpatched or that the Forge advisory is resolved.
 
 Pi 0.80.6 carries a shrinkwrap. The checked normalizer replaces only the
 reviewed nested brace-expansion 5.0.12, protobufjs 7.6.5 and undici 8.10.2 entries;
