@@ -978,7 +978,8 @@ The Connected inbox package includes a project-service panel. To test it:
    node examples/services/restricted-app-demo-service.mjs
    ```
 
-4. In Settings → Apps, allow the app's **project-service** destination.
+4. In Settings → Apps, confirm the app's **project-service** destination remains
+   enabled by installation. Revoking it is the person's narrowing control.
 5. Open the app's **Project service** tab and use **Check health** or **Run
    refresh job**.
 

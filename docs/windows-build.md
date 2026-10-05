@@ -1,15 +1,14 @@
-# Windows build (inactive reference)
+# Windows builds and test previews
 
-Windows 11 x64 has an experimental test preview on the separate
-`claude/windows-port-foundation-52959d` branch. See [Platform previews](platform-previews.md)
-for the pinned download and that branch's build guide. This document describes
-the retained commands on `main`; the port has not been merged here.
+Windows 11 x64 has a published experimental test preview. The combined
+Windows/Linux source is under review in draft [PR #27](https://github.com/Mat-Tom-Son/work-fold/pull/27);
+it has not yet reached `main` or produced a replacement Windows installer.
+See [Platform previews](platform-previews.md) for exact source, downloads,
+verification evidence, and remaining native acceptance.
 
-> Windows CI packaging and production distribution are inactive. These commands are
-> retained as dormant manual diagnostics for a future deliberate Windows
-> reactivation; they are not release gates and must not be added to CI or tag
-> automation without first updating the contributor contract and release
-> architecture.
+> Manual Windows test previews are supported by the commands below. Production
+> Windows distribution, automatic updates, CI packaging, and tag automation
+> remain inactive. Preview packaging is not a prerequisite for a Mac release.
 
 Use Node 24 and npm 11.16.0 or newer for contributor installs and verification.
 The minimum application runtime is Node 22.19.0. GitHub Actions is disabled;
@@ -20,7 +19,7 @@ the checked-in workflows are dormant diagnostics.
 The Windows shell, Mica fallback, tray, PowerShell CLI, isolated development
 profile, Electron Builder configuration, and NSIS configuration are retained.
 The local port can be exercised with the existing manual commands below.
-This does not reactivate public Windows distribution or tag automation.
+The manual preview lane does not activate production distribution or tag automation.
 
 The included Web, Documents, and Service Connections tools use the shared Pi
 runtime. Documents discovers `soffice.exe` and `tesseract.exe` on PATH and in
@@ -70,7 +69,7 @@ Use the smallest lane that exercises the layer you changed:
 | Type and behavior | `npm run check`, then `npm test` | Normal implementation feedback and every behavior handoff. |
 | Desktop integration | `npm run desktop:prepare` | Electron/local API changes, runtime resources, renderer production build, native Pi preflight, and the real-Electron restricted-app probe. |
 | Release-layout smoke | `npm run desktop:package:smoke` | Packaged-path behavior, Electron assets, preload/main integration, and local QA without NSIS compression. |
-| Installer/release | `npm run desktop:make` | A versioned Windows release candidate only. |
+| Test installer | `scripts/build-signed-windows.ps1 -TestBuild` | A clean, committed Windows preview with a new unique version and no update feed. |
 
 During UI work, `npm run local:dev` is the normal live-reload loop. Run independent checks in parallel when the machine has capacity. Do not repeatedly run `desktop:make` to validate a renderer-only copy or styling change; promote the change through the later lanes once it is ready to hand off.
 
@@ -78,22 +77,22 @@ The `local:api`, `local:dev`, non-packaged Electron, and every uninstalled Windo
 
 The lanes are cumulative confidence, not interchangeable artifacts. A passing development server does not verify ASAR/package paths, and an unpacked app does not verify the NSIS updater output. The retained `npm run desktop:package` command creates the slower Forge package and is useful only when diagnosing or changing that alternate lane; routine packaged QA should use `desktop:package:smoke` because it shares Electron Builder configuration with the release.
 
-Electron Builder's unpacked `--dir` lane does not generate `resources/app-update.yml`. work-fold therefore keeps updater controls disabled in that smoke package instead of presenting a missing-feed error. The NSIS `desktop:make` lane and the tagged GitHub build are the updater verification boundary.
+Electron Builder's unpacked `--dir` lane does not generate `resources/app-update.yml`. work-fold therefore keeps updater controls disabled in that smoke package instead of presenting a missing-feed error. `-TestBuild` also excludes updater metadata from the NSIS installer. A future production updater requires its own deliberately activated and verified release lane.
 
 In one warm local comparison on the primary Windows workstation, `desktop:package:smoke` completed in about 68 seconds and the Forge `desktop:package` lane took about 412 seconds—roughly 6.2 times faster and nearly six minutes saved. Exact times depend on hardware and caches; the structural saving comes from using the release packager while skipping the alternate Forge pass and NSIS artifact work.
 
-CI runs `check`, `test`, and `desktop:package:smoke` as independent workflow steps so a later successful command cannot mask an earlier failure. Because the smoke command already includes `desktop:prepare`, CI does not run preparation as a separate duplicate step.
+Run local checks as separate commands and retain each result. The checked-in Windows workflows are dormant because GitHub Actions is disabled. The smoke command already includes `desktop:prepare`, so it does not need a duplicate preparation step.
 
-## Full Windows candidate
+## Manual Windows test candidate
 
 ```powershell
 npm run check
 npm test
 npm audit --audit-level=high
-npm run desktop:make
+.\scripts\build-signed-windows.ps1 -TestBuild
 ```
 
-`desktop:prepare` builds the renderer and Electron runtime, runs a native Pi resource smoke test, and launches the restricted-app hosts in real Electron. The restricted-app probe verifies sandbox startup and teardown, direct-network and out-of-lifecycle denial, bounded storage and active-view invalidation, History-covered file access, host-owned tabs and notifications, suspend behavior, and termination of a hung worker. A Node process, worker thread, or `vm` is not an equivalent security-boundary test. `desktop:package:smoke` adds Electron Builder's unpacked application plus packaged-asset and fuse verification. `desktop:make` includes preparation and uses Electron Builder as the canonical installer lane so the unpacked app, Electron fuses, NSIS installer, blockmap, `latest.yml`, and embedded `app-update.yml` come from one build.
+`desktop:prepare` builds the renderer and Electron runtime, runs a native Pi resource smoke test, and launches the restricted-app hosts in real Electron. The restricted-app probe verifies sandbox startup and teardown, direct-network and out-of-lifecycle denial, bounded storage and active-view invalidation, History-covered file access, host-owned tabs and notifications, suspend behavior, and termination of a hung worker. A Node process, worker thread, or `vm` is not an equivalent security-boundary test. `desktop:package:smoke` adds Electron Builder's unpacked application plus packaged-asset and fuse verification. The signed test script invokes `desktop:make`, including preparation, installer verification, and source-bound build evidence. It excludes `latest.yml` and embedded `app-update.yml`.
 
 Both package lanes place the public `work-fold.cmd` launcher, an extensionless `work-fold` shim for Pi/Git Bash, and the private `work-fold-cli.ps1` helper in `<package>\bin`, outside `app.asar`; packaged-asset verification rejects missing or accidentally archived shims. PowerShell and Command Prompt resolve the CMD launcher, which explicitly invokes the private helper with `-ExecutionPolicy Bypass`; POSIX-style shells resolve the extensionless shim and delegate to that same CMD entry point. Electron Builder copies the directory with `extraFiles`, and the retained Forge diagnostic lane mirrors it with an `afterComplete` hook. `RunAsNode` stays disabled—the command communicates with the desktop process through protocol-v1 request and response files instead of executing JavaScript through Electron.
 
@@ -111,9 +110,9 @@ Protocol v1 exposes only read operations (`context`, `spaces list`, `tasks list`
 
 The CLI is an adapter over the shared `WorkFoldKernel`, not a packaging-only utility. See [work-fold management layer](management-layer.md) before changing its snapshots, commands, shims, or broker.
 
-## Candidate outputs
+## Diagnostic installer outputs
 
-`desktop:make` verifies but does not publish. A successful local candidate places these artifacts under `out/builder`:
+`desktop:make` verifies but does not publish. Without `-TestBuild`, its retained updater diagnostic places these artifacts under `out/builder`. These feed-bearing artifacts are not the supported tester handoff and must not be published as a production release:
 
 | Path | Purpose |
 |---|---|
@@ -123,7 +122,7 @@ The CLI is an adapter over the shared `WorkFoldKernel`, not a packaging-only uti
 | `work-fold-Setup-<version>.exe.blockmap` | Differential updater block map. |
 | `latest.yml` | Public updater version, size, path, and SHA-512 metadata. |
 
-The tagged cloud workflow rebuilds these outputs from the tag and adds `SHA256SUMS.txt` before publishing. Local artifacts and cloud artifacts are separate builds and therefore are not expected to be byte-identical; each must verify against its own manifest and signature.
+No tagged cloud workflow currently runs. For a tester handoff, use the feed-less signed test lane below and verify its own checksums and build record.
 
 For an unsigned NSIS installer:
 
@@ -131,14 +130,14 @@ For an unsigned NSIS installer:
 npm run desktop:make
 ```
 
-For a build signed with the current user's personal certificate:
+To create the current user's personal signing identity, then build a test preview:
 
 ```powershell
 .\scripts\create-personal-signing-certificate.ps1
-.\scripts\build-signed-windows.ps1
+.\scripts\build-signed-windows.ps1 -TestBuild
 ```
 
-The PFX and its DPAPI-protected password are stored in `%USERPROFILE%\.work-fold-signing`, never in this repository. The certificate is self-signed and therefore remains untrusted on other computers unless they deliberately trust its public certificate. Replace the two GitHub signing secrets with a certificate-authority-backed PFX when one is available.
+The PFX and its DPAPI-protected password are stored in `%USERPROFILE%\.work-fold-signing`, never in this repository. The self-signed certificate provides personal artifact identity but no publicly trusted publisher. Testers must not be asked to install it as a trusted root. Production signing remains separate qualification work.
 
 `build-signed-windows.ps1` uses the Node on PATH (or `-Node <path>`), requires Node 22.19.0 or newer (Node 24 for release builds), and runs the npm installed beside that Node, so an older system npm cannot be picked up.
 
@@ -161,12 +160,12 @@ Publish the installer, `SHA256SUMS`, and the build record as a pre-release whose
 - Launch the exact `win-unpacked` binary rather than an older installed copy and confirm **About work-fold** reports the candidate version. It must use `%APPDATA%\work-fold Development` even when the release candidate contains `app-update.yml`; install through NSIS for any test that intentionally requires production state.
 - Exercise Files, Chats, History, the Skills & Extensions popup, Settings including Settings → Apps, native menus, close-to-tray, and background-turn continuity.
 - Confirm the `desktop:prepare` output reports a passing restricted-app Electron smoke. Treat a skipped, mocked, or Node-only substitute as a failed release gate.
-- In a disposable Space, add the checked-in restricted Connected inbox example through the advanced local-preview path. Confirm adding it grants no network destination, Space file, notification category, connection, or automation schedule; then exercise its rail navigator, persistent Space-owned tab, storage refresh, and explicit grant/revoke controls.
-- Enable **Refresh inbox** and its reviewed notification category separately, then run it once. Confirm the durable receipt and app result reach the active view, inactive views recover app state from storage when reopened, and clicking a Windows notification targets the exact owning Space and app. Disable the automation and confirm **Run now** still works but cannot notify. Windows Focus Assist may suppress presentation, but the host-accepted versus denied outcome must remain honest.
+- In a disposable work-folder, install the checked-in restricted Connected inbox example through the local-preview CLI. Installation grants its declared network destinations, whole-work-folder directory permission, notification category, and named automation. Inspect those powers in Settings → Apps, then exercise its rail navigator, persistent tab, storage refresh, and narrowing controls. Connections still require the person's secret entry on the trusted setup surface.
+- Run **Refresh inbox** once. Confirm the durable receipt and app result reach the active view, inactive views recover app state from storage when reopened, and clicking a Windows notification targets the exact owning work-folder and app. Disable the automation and confirm **Run now** still works but cannot notify. Windows Focus Assist may suppress presentation, but the host-accepted versus denied outcome must remain honest.
 - Revoke the example's grants, stop or remove it, suspend/resume Windows when practical, and confirm its views, workers, pending notifications, and brokered authority do not survive their lifecycle.
 - Verify Mica on Windows 11 22H2+ and the solid fallback where reduced transparency or an older host disables it; exercise light, dark, and system themes.
-- Verify unpacked smoke builds report updates as unsupported without a red missing-feed error, while the NSIS candidate contains `resources/app-update.yml` and exposes **Help > Check for Updates…**.
+- Verify unpacked smoke builds and installed test previews report updates as unsupported without a red missing-feed error. A test preview must contain neither `resources/app-update.yml` nor `latest.yml`.
 - Exercise a Space through both its normal path and any available Windows 8.3 short-path alias; the watcher must canonicalize the native watch root without changing the logical policy root.
-- Run `desktop:verify:release`, inspect Authenticode status, and compare installer size/hash to `latest.yml` before handoff.
+- Run `desktop:verify:release`, inspect Authenticode status, and compare the installer hash to `SHA256SUMS` and the source-bound test-build record before handoff.
 
-See [Windows releases and signing](windows-release.md) for the public tag workflow.
+See [Windows previews and production signing](windows-release.md) for the handoff boundary and remaining production qualification.

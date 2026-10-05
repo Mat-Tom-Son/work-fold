@@ -17,29 +17,33 @@ security architecture.
   code adapts to the rail navigator and app-owned work tabs using
   `workFoldRestrictedApp.context`.
 - `worker.js` exposes an Assistant action and the `refresh-inbox` automation;
-  that automation records its remote result and may select the separately
-  granted `inbox-refresh-finished` notification.
+  that automation records its remote result and may select the declared
+  `inbox-refresh-finished` notification while its grant remains enabled.
 - Network calls and tab creation go through the narrow
   `workFoldRestrictedApp` bridge; the app has no Node, filesystem, process,
   or direct network access. Search and automation status use the host
   storage bridge, active visible UI re-reads after bounded invalidation hints,
-  and service exports use a separately granted Space folder plus History
-  safety.
+  and service exports use the installed directory permission plus History
+  safety. That permission binds to the whole work-folder; app code chooses the
+  declared export path.
 
-The normal generated-app path begins in a Space Chat: the Assistant writes the
-completed Space-relative package, proposes it through work-fold's host-owned
-tool, and the person reviews and installs the exact digest in that Chat. For
-this checked-in developer sample, register the repository as a Space or copy
+The normal generated-app path begins in a work-folder Chat: the Worker writes
+the completed folder-relative package and installs the digest-pinned preview
+through work-fold's host-owned tool. The act executes once and leaves a receipt.
+For this checked-in developer sample, register the repository as a work-folder or copy
 this directory into one, then run
 `work-fold apps install-preview --space <id-or-name> --package examples/packages/restricted-connected-inbox`
-(adjust the Space-relative path if copied) and review the pending decision.
+(adjust the folder-relative path if copied). Settings → Apps shows the installed
+preview, its declared powers, and the receipt.
 
 The mail endpoint is intentionally non-functional and declares API-key or
-bearer authentication. It would need both a destination grant and a host-owned
-connection configured in the Apps tab; the example contains no real
-credential. The local `project-service` destination is anonymous and expects a
-service on `127.0.0.1:4317`, but still requires its own destination grant.
-Together they demonstrate that installing an app grants nothing. work-fold
+bearer authentication. Its destination is granted by installation, but a
+host-owned connection still needs the person's secret entry in Settings → Apps;
+the example contains no real credential. The local `project-service`
+destination is anonymous and expects a service on `127.0.0.1:4317`.
+Installation grants both destinations, the declared whole-work-folder directory
+permission, and the notification category, and enables **Refresh inbox**.
+The person can narrow those powers in Settings → Apps. work-fold
 verifies the loopback address and port, but this version does not verify
 process ownership.
 
@@ -53,7 +57,7 @@ node examples/services/restricted-app-demo-service.mjs
 ```
 
 It binds only `127.0.0.1:4317` and implements `GET /health` plus
-`POST /jobs/refresh`. Allow **project-service** for this app in the Apps tab,
+`POST /jobs/refresh`. Confirm **project-service** remains enabled in Settings → Apps,
 open **Project service**, then use **Check health** or **Run refresh job**.
 
 This helper is an ordinary developer process outside the restricted app
@@ -62,7 +66,7 @@ trust it. work-fold verifies only the reviewed numeric loopback address and
 port before brokering a request; it does not verify that this particular
 process owns the port. Stop the helper from its terminal when testing is done.
 
-Notifications are separately off after installation. If allowed, they can be
+The declared notification category is enabled by installation. While allowed, it can be
 shown only during an enabled automation run while work-fold is running, using
 the exact title and body reviewed in `agent-app.json`; app code cannot supply
 dynamic notification copy, actions, or URLs. An explicit **Run now** while the
@@ -72,9 +76,10 @@ automation is disabled has no notification authority.
 
 1. Open this app and choose **View all** so its Inbox work tab remains selected
    on the right.
-2. Open **Add → Apps**, expand this app, enable **Refresh inbox**,
-   and choose **Allow notifications** for **Inbox refresh finished**. The
-   `mail-api` network grant may remain off.
+2. Open **Settings → Apps** and inspect this app. **Refresh inbox** and
+   **Inbox refresh finished** begin enabled. Revoke `mail-api` access if you
+   want to test a denied network result; the endpoint is otherwise fake and
+   still has no configured credential.
 3. Choose **Run now** and inspect its receipt. A granted notification is also
    requested even when the fake endpoint is denied or unavailable.
 4. Return to the Inbox tab to see the durable result loaded from app storage.

@@ -19,6 +19,7 @@ model credentials, Apple signing credentials, and Railway access are separate.
 | Optional hosted relay | See [Bridge development](../services/bridge/README.md#local-development) | Separate dependencies and local PostgreSQL; unnecessary for ordinary desktop work |
 | Packaged Mac candidate | See [Mac build lanes](macos-build.md) | Packaging, signing, and publication are separate from everyday development |
 | Windows/Linux test previews | See [Platform previews](platform-previews.md) | Immutable published source tags, platform-specific setup, and qualified test evidence |
+| Packaged Windows preview | See [Windows builds](windows-build.md) | Manual NSIS test installer, personal signing, no public update feed |
 | Packaged Linux candidate | See [Linux builds](linux-build.md) | Ubuntu/Fedora x64, Rust native helpers, DEB/RPM/AppImage; no public update feed |
 
 The browser preview cannot prove native dialogs, secure storage, preloads, or
@@ -52,8 +53,9 @@ create a file with a History restore point, and finish the file through Pi.
 It also checks Folder, Chat, Library, request, model, and renderer sandbox state.
 Use `-- --profile-root <empty-directory>` to retain the test profile, then
 `-- --profile-root <same-directory> --phase verify` to check a cold restart.
-CI runs both phases on a private Xvfb desktop. This tests integration, not a
-real provider's model decisions or OAuth.
+The checked-in diagnostic workflow describes both phases on a private Xvfb
+desktop. Actions is disabled; run them locally for current evidence. This tests
+integration, not a real provider's model decisions or OAuth.
 
 ## Development state and model access
 
@@ -220,7 +222,9 @@ ln -s ../../.agents/skills/my-skill .claude/skills/my-skill
 
 Add `!/.claude/skills/my-skill` to the allowlist in `.gitignore`, run
 `npm run repo:check`, and commit the source and link together. Edit the canonical
-source when updating it. The optional `agents/openai.yaml` is discovery/UI
+source when updating it; the Claude link reads that updated file directly.
+`CLAUDE.md` can link to owning guides, but contributor policy stays in `AGENTS.md`.
+The optional `agents/openai.yaml` is discovery/UI
 metadata, not a second workflow. Never copy the Skill into the Claude directory.
 Git must preserve symlinks; a flattened link is diagnosed by `repo:check`.
 

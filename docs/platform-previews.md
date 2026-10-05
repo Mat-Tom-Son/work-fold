@@ -36,7 +36,31 @@ baseline. `main` at `825b969` adds the subsequent landing-page download update.
 Check the current PR head when reviewing new work; a moving branch is not the
 source identity of an already published installer.
 
-## What the evidence establishes
+## Combined source and review status
+
+As reviewed on October 5, [draft PR #27](https://github.com/Mat-Tom-Son/work-fold/pull/27)
+on `codex/platform-preview-integration` combines the Linux port from
+[PR #7](https://github.com/Mat-Tom-Son/work-fold/pull/7), the Windows review from
+[PR #25](https://github.com/Mat-Tom-Son/work-fold/pull/25), and repository hygiene
+from [PR #26](https://github.com/Mat-Tom-Son/work-fold/pull/26). The combined
+source merges cleanly into the reviewed `main` baseline. These are review
+branches; creating or pushing the draft does not merge it into `main`.
+
+Runtime source `7e132525f4de0a7f2a78e90318435a24795f85ac` passed fresh dependency
+installation and all reviewed patches, repository/TypeScript checks, the full
+application suite (1,885 passed, 13 platform-specific skips, zero failures), and
+Electron preparation on Apple-silicon macOS with Node 24.18.0 and npm 11.16.0.
+Focused integration suites passed 38 tests with one Windows-only skip. The
+Computer Control patch combines the actual reviewed source trees against their
+common ancestor and pins 49 source files. No new Windows or Linux installer was
+built or qualified from this combined source.
+
+The source version is still 0.4.52 from the Linux preview. That version is not
+permission to replace its published artifacts. Choose a higher unused version,
+commit the final source, rebuild and qualify native artifacts, and retain the
+matching tag and evidence for any replacement preview.
+
+## What the published-preview evidence establishes
 
 The October 5 review matched both build records to their tag commits and
 compared recorded installer sizes and SHA-256 values with `SHA256SUMS` and

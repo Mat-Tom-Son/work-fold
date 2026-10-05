@@ -2,10 +2,11 @@
 
 ## Current product language
 
-Current user-facing documentation uses **Folder** for the ordinary registered
-working folder, **Worker** for its AI assistant, **work-fold agent** for the
-management Worker above all Folders, and **Automation** for the deterministic
-cross-Folder feature formerly presented as Routings. Technical contracts keep
+Current user-facing documentation uses **work-folder**, always lowercase, for
+the registered working context, **Worker** for its AI assistant, **work-fold
+agent** for the management Worker above all work-folders, and **Automation**
+for the deterministic cross-work-folder feature formerly presented as Routings.
+An ordinary directory remains a plain folder. Technical contracts keep
 their established identifiers (`space`, `fold`, `routing`, `work-fold
 routings`, and related paths, schemas, and API fields) until a separately
 designed domain migration. Historical release notes, dated evidence, quoted
@@ -29,7 +30,7 @@ instruction to implement its contents.
 | Web access and sharing | [Bridge operations](../services/bridge/README.md), [Publishing and viewers](fold-publishing.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |
 | Desktop interaction and appearance | [Desktop parity](ui-parity.md), [Collaboration experience](collaboration-experience.md), [Visual system](visual-design.md), [Application appearance](application-appearance.md), [Space customization](space-customization.md) |
 | Mac distribution | [Build lanes](macos-build.md), [Release procedure](macos-release.md), [Release notes and candidate history](releases/README.md) |
-| Linux candidates | [Build, packaging and desktop acceptance](linux-build.md) |
+| Windows and Linux previews | [Published downloads, source integration and remaining acceptance](platform-previews.md), [Windows builds](windows-build.md), [Linux builds](linux-build.md), [Windows previews and production signing](windows-release.md) |
 
 The App platform's [ontology](app-platform-ontology.md),
 [publication/data contracts](app-platform-publication-data.md), and
@@ -69,7 +70,7 @@ viewer pages and app views are a separate shipped capability.
 |---|---|
 | [Checks expansion](checks-expansion.md) | Shipped decisions reconciled with remaining proposals; the Checks register wins |
 | [Next product directions](next-product-directions.md) | Proposed priorities for discussion, not accepted scope |
-| [Linux completion plan](linux-roadmap.md) | Researched proposal for installed desktop acceptance, Wayland computer work, real upgrades and public Linux distribution; not shipped capabilities |
+| [Linux completion plan](linux-roadmap.md) | Dated implementation/acceptance checkpoints and remaining qualification/distribution proposals; current build support is in the Linux build guide |
 | [Extensions and computer work](extension-foundation.md) | Shared Extension design, first interaction implementation, inclusion candidates and outstanding compatibility/release work |
 | [Feedback during Assistant work](tool-feedback.md) | General native-tool feedback contract, adversarial review decisions, local model-context inspection and implementation evidence |
 | [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Design rationale behind wave B and the dated 0.4.23 gap assessment; the built specification is the collaboration contract |
@@ -81,8 +82,6 @@ viewer pages and app views are a separate shipped capability.
 | [Appearance role inventory](customization-role-inventory.md) | Historical CSS census; re-audit current consumers before continuing migration |
 | [T3 Code audit](t3code-reference-audit.md) | Dated reference snapshot, not current product gaps |
 | [Rebrand launch plan](work-fold-rebrand-plan.md) | Historical clean-break launch evidence and original checklist |
-| [Platform previews](platform-previews.md) | Windows/Linux test downloads, pinned source branches, verification limits, and integration work |
-| [Windows build](windows-build.md), [Windows releases](windows-release.md) | Windows preview build instructions and inactive production release references; no Windows gate on Mac releases |
 
 ## Keep the map accurate
 

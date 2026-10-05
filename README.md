@@ -52,8 +52,11 @@ Files live on your computer. Content used by the Assistant goes to your chosen m
 
 Linux x64 local candidates can also be built for Ubuntu and Fedora. See the
 [Linux build guide](docs/linux-build.md) for DEB/RPM/AppImage packaging, keyring
-setup and the current Wayland computer-control limits. Production distribution and automatic updates remain Mac-only; the
-[platform previews](docs/platform-previews.md) retain separate test downloads.
+setup and the current Wayland computer-control limits. Windows packaging is
+described in the [Windows build guide](docs/windows-build.md). The
+[platform preview record](docs/platform-previews.md) distinguishes published test
+installers from the combined source under review. Production distribution and
+automatic updates remain Mac-only.
 
 ## Help build work-fold
 

@@ -9,3 +9,7 @@ Project Skills in `.claude/skills/` are tracked symlinks to `.agents/skills/`.
 Edit the canonical source, never a Claude-only copy. Other `.claude/` files
 are machine-local state. See [Development](docs/development.md#agent-setup-and-shared-skills)
 for discovery and Skill maintenance.
+
+[Platform previews](docs/platform-previews.md) records the combined Windows/Linux
+source, published test builds, and remaining native acceptance. Use the
+[documentation map](docs/README.md) to find each owning contract.

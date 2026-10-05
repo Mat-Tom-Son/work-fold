@@ -1,11 +1,13 @@
 # Linux builds
 
 The Linux x64 lane produces **local candidates** for Ubuntu 24.04 or newer and
-Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
-not a separate Linux agent. The public release and automatic-update lane remains
-macOS. Linux candidates have no update feed and are not published by these commands.
+Fedora on Intel/AMD PCs. It packages the shared Electron app and Pi runtime.
+[Platform previews](platform-previews.md) records the published 0.4.52 test
+installer and the combined Windows/Linux source under review. Production
+distribution and automatic updates remain macOS-only. These build commands
+create local artifacts without publication; Linux has no update feed.
 
-The 0.4.52 candidate integrates main through `cc16e4b` (Mac 0.4.41),
+The published 0.4.52 preview integrates main through `cc16e4b` (Mac 0.4.41),
 including Folder customization, nested Folders and Worker mentions, bounded
 History review, the revised Files and Chats UI, document engines, and current
 browser/readiness fixes. Linux retains its native CLI, window controls,
@@ -46,7 +48,7 @@ archive hashes, security fuses, bundled helper hashes and source provenance.
 `--skip-prepare` is only for an already prepared tree with `--dir` during packaging diagnostics;
 it is not a substitute for the complete acceptance lane.
 
-The reproducible build environment is [desktop/linux/Dockerfile](../desktop/linux/Dockerfile).
+The Ubuntu baseline build environment is [desktop/linux/Dockerfile](../desktop/linux/Dockerfile).
 For Docker on an Ubuntu host:
 
 ```sh
@@ -217,9 +219,12 @@ The [Linux completion plan](linux-roadmap.md) scopes the remaining implementatio
 desktop test matrix, upgrade verification and distribution work. It separates
 the current candidate evidence from proposed capabilities and release criteria.
 
-The automated Linux CI job runs the complete build and packages local artifacts
-on Ubuntu 24.04, then installs/reinstalls/removes the DEB and RPM in separate
-disposable Ubuntu and Fedora 44 containers. It checks the installed launchers,
+The dormant Linux diagnostic workflow is configured to build local artifacts
+on Ubuntu 24.04, then install/reinstall/remove the DEB and RPM in separate
+disposable Ubuntu and Fedora 44 containers. GitHub Actions is disabled, so this
+configuration is not a current run or an acceptance result. Run the native and
+package lifecycle harnesses locally from the final combined source. They check
+the installed launchers,
 application launch and preserved user data, plus ownership of an unrelated CLI
 on Ubuntu. The RPM removal hook preserves launchers when replacing an installed
 package, following RPM's [scriptlet arguments](https://rpm.org/docs/4.20.x/manual/triggers.html).

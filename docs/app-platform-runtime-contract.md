@@ -789,7 +789,7 @@ adapters and operational evidence:
 - every current Connected inbox power maps to this contract without broader authority: navigator/tabs, storage, granted exports, exact network destinations, connection injection, action, named refresh job, notification, and receipt;
 - the community-garden fixture maps shared instance data, principal-private data, document/object access, role-bound actions, and a reminder job without assuming an IDE or cloud account;
 - a no-account local Development Instance remains source-bound and release-less, while every App Instance is release-backed and explicitly locally or remotely hosted;
-- a no-account local Development Instance retains current review, sender binding, default-off grants, explicit connection, History, and automation behavior;
+- a no-account local Development Instance retains digest-pinned installation, sender binding, installation of declared powers, explicit connection setup, History, and automation behavior under the foundation's current authority decisions;
 - host context and ids cannot be replayed or supplied by Feature code to cross Tenant, Runtime Instance, Feature Installation, Data Namespace, Principal, or view boundaries;
 - new installation versus reviewed update tests prove the required `featureInstallationId` transition, while retention/migration tests prove `dataNamespaceId` is separate;
 - every dispatch, lease, receipt, migration, and sensitive broker carries the complete `AuthorityStamp` and validates the relevant current fields immediately before its effect/commit;

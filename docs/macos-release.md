@@ -278,4 +278,4 @@ Workspace 0.4.14 to 0.4.15 passed the same proof on July 27, 2026. Invoking the 
 
 ## Release ownership
 
-The source repository owns code, exact release tags, issues, and documentation. `work-fold-mac-releases` is the active desktop artifact feed only. Do not develop or hand-edit release metadata in the feed repository, and do not add a competing tag publisher. Windows distribution remains dormant until it is deliberately redesigned, documented, and reactivated.
+The source repository owns code, exact release tags, issues, and documentation. `work-fold-mac-releases` is the active desktop artifact feed only. Do not develop or hand-edit release metadata in the feed repository, and do not add a competing tag publisher. Windows production distribution remains inactive; manual Windows and Linux test previews are recorded in [Platform previews](platform-previews.md). Neither adds a Mac publication prerequisite.

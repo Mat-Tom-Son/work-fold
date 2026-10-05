@@ -40,18 +40,18 @@ The translation is intentionally narrow. It does not justify replacing the shell
 
 ### Desktop shell
 
-- Preserve the Windows custom title bar and the platform menu contract; macOS uses its native hidden-inset title bar plus application, File, Edit, View, Window, and Help menus.
+- Preserve the Windows custom title bar and Linux compact File/Edit/View/Help title row with explicit Minimize, Maximize/Restore, and Quit controls; macOS uses its native hidden-inset title bar plus application, File, Edit, View, Window, and Help menus.
 - Preserve window size, position, maximized state, theme integration, and renderer recovery behavior.
-- On Windows, closing the window may hide work-fold to the system tray when the preference is enabled. On macOS, closing the last window keeps the application host alive and the Dock icon recreates the window. Explicit Quit exits cleanly on both. Close-to-tray remains Windows behavior: the macOS menu-bar item never changes what closing the last macOS window means.
+- On Windows, closing the window may hide work-fold to the system tray when the preference is enabled. On macOS, closing the last window keeps the application host alive and the Dock icon recreates the window. On Linux, closing the window requests coordinated Quit; minimizing keeps the host running. Explicit Quit exits cleanly on every platform. Close-to-tray remains Windows behavior: the macOS menu-bar item never changes what closing the last macOS window means.
 - The tray exposes clear **Your fold**, **Show**, and **Quit** actions and does not strand an invisible process.
-- Both platforms carry the management popover (**Your fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon become reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, holds drops without sending, and its Stop names the management turn and every delegated Space turn it aborts.
-- Update status and commands remain available from both the platform-appropriate desktop menu and settings surface.
+- All three platforms carry the management popover (**Your fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon become reference chips; the Windows tray offers the same popover through its menu while click still opens the main window; Linux exposes it through the work-fold agent tray/AppIndicator menu when the desktop supports that integration. The popover works with the main window closed, holds drops without sending, and its Stop names the management turn and every delegated Space turn it aborts.
+- Update status and commands remain available from the platform-appropriate desktop menu and settings surface. Windows/Linux test previews report automatic updates as unavailable; they must not contact the production Mac feed.
 
 ### Files and folders
 
 - The Files rail item, resizable file pane, search, expandable tree, file-type icons, details pane, and file history remain first-class for the selected Space.
 - Right-click actions are available throughout the file tree and use native desktop context behavior where appropriate.
-- Supported actions include open, reveal in Explorer/Finder, copy path, attach to chat, rename, move, upload/import, delete, and version history. **New folder** in the Files toolbar creates a directory at the Folder root; **New Folder Here** in a folder's context menu creates a child directory. Both use an in-app naming dialog and the existing History restore-point path, including the native macOS menu. File creation remains unavailable.
+- Supported actions include open, reveal in the native file manager, copy path, attach to chat, rename, move, upload/import, delete, and version history. **New folder** in the Files toolbar creates a directory at the Folder root; **New Folder Here** in a folder's context menu creates a child directory. Both use an in-app naming dialog and the existing History restore-point path, including the native macOS menu. File creation remains unavailable.
 - Attach to Chat stages a quiet file icon, filename and remove control above the owning Chat's composer, without a success toast or extraction-status badge. Folder file attachments give the Worker the selected paths to inspect with tools; supported images retain bounded native vision admission. Missing files or invalid paths show a real error instead of a successful attachment chip.
 - Desktop drag-out, file opening, and reveal operations use safe Space-relative paths and never escape the Space root.
 - Delete moves content into History's undo window or Recently deleted; confirmations may remain, but nothing is permanent at the moment it happens and the Undo toast restores from whichever holds it.
@@ -120,8 +120,8 @@ A corrective port is ready for release only when all of the following are true:
 5. Type checks, tests, renderer build, desktop compile/preflight, the real-Electron restricted-app probe, and a packaged smoke build pass on the supported Node runtime.
 6. The app contains no user-facing Kai, Kymanox, Kits, Sources, SharePoint, Microsoft-login, or legacy Workspace copy except in historical documentation.
 7. The packaged CLI resolves context, lists Spaces/tasks/capabilities, coexists with the GUI, and cleans its request/response handoff.
-8. No public release is published until the product review is accepted and the exact release commit is green on both main and matching source-tag CI.
-9. The checked-in restricted Connected inbox example has been exercised in a disposable Space for default-off grants and schedules, rail and persistent-tab ownership, storage invalidation/reload, explicit named automation runs and receipts, static notification routing, revocation, suspend/resume, and teardown.
+8. No public release is published until the product review is accepted and the exact clean, committed release source passes its local release lane. For Mac, the source-bound local verification receipt and matching signed artifact receipts are required; GitHub Actions is disabled.
+9. The checked-in restricted Connected inbox example has been exercised in a disposable work-folder for installation of declared powers and automations, narrowing controls, rail and persistent-tab ownership, storage invalidation/reload, explicit named automation runs and receipts, static notification routing, revocation, suspend/resume, and teardown.
 10. An installed-updater smoke preserves version-2 restricted-app reviewed digests, grants, encrypted connection status, automation settings and receipts, local storage, and Space-owned surfaces across the version change.
 
 ## Accepted public baseline

@@ -60,8 +60,9 @@ package versions, licenses and before/after patch digests are pinned in
 refuses unknown or partially patched input. The computer helper is built from
 reviewed source and included in the app's signing lane; normal installation
 does not run upstream helper downloads. On Windows the reviewed Rust helper is
-built from its pinned sources and locked dependencies and stays unsigned until
-Windows signing is reactivated. Windows has no per-app grant for it, so it acts
+built from its pinned sources and locked dependencies. The manual Windows
+test-build lane signs it with a timestamped personal self-signed certificate;
+that establishes build identity, not public certificate trust. Windows has no per-app grant for it, so it acts
 with the signed-in user's desktop authority, excluding elevated windows. These checks establish provenance,
 not a sandbox or proof that every external action is safe.
 
@@ -317,7 +318,7 @@ compromised desktop endpoint. Public/full-trust release requires either a
 separately installed and pinned signing client or another authority design that
 does not grant mutable first-load web code this power.
 
-The installed `work-fold` command uses a separate protocol-v1 file broker under the platform application-data directory (`%APPDATA%\work-fold\cli` on Windows and `~/Library/Application Support/work-fold/cli` on macOS). Requests and responses are UUID-named, atomic, size- and age-bounded, path-confined, and rejected when they are symbolic links or unsafe file types. Electron's single-instance host serializes accepted requests and cleans stale files.
+The installed `work-fold` command uses a separate protocol-v1 file broker under the platform application-data directory (`%APPDATA%\work-fold\cli` on installed Windows, `~/Library/Application Support/work-fold/cli` on macOS, and `$XDG_CONFIG_HOME/work-fold/cli`, default `~/.config/work-fold/cli`, on Linux). Development and isolated profiles keep their own broker root. Requests and responses are UUID-named, atomic, size- and age-bounded, path-confined, and rejected when they are symbolic links or unsafe file types. Electron's single-instance host serializes accepted requests and cleans stale files.
 
 That broker is same-operating-system-user coordination, not authenticated interprocess communication. Another process running as the same user may be able to submit a request or read its result. Protocol v1 — the read lane — therefore exposes only compact Space names/paths, running-task metadata, and capability provenance/status. It does not return file contents, conversation text, API keys, provider credentials, or signing material, and it never mutates anything.
 
@@ -339,10 +340,15 @@ Optional publishing serves one explicitly designated Space file or an installed 
 
 ## Release integrity
 
-Windows packaging and public distribution are inactive. Version tags do not
-start a Windows workflow, and Windows artifacts are not Mac release authority.
-The retained manual Windows scripts are development references only and must
-not be presented as a supported or publicly trusted release lane.
+Windows and Linux have manual experimental test previews, recorded with exact
+source tags, checksums, build evidence and limitations in
+[Platform previews](docs/platform-previews.md). Windows previews use a personal
+self-signed certificate; Linux previews have no production package signatures.
+Neither has automatic updates or a qualified production distribution channel.
+Do not ask testers to install the Windows certificate as a trusted root.
+Published preview tags and assets are immutable; replacements need new versions
+and fresh native acceptance. GitHub Actions is disabled, and version tags do
+not start remote builds. Preview artifacts are not Mac release authority.
 
 Local Mac smoke candidates are ad hoc signed and are not public release artifacts. They use the distinct `work-fold Local Smoke` name, `com.work-fold.desktop.local-smoke` bundle id, build-channel marker and application-data directory, and never start the production updater. They must not be renamed or installed over `work-fold.app`; interactive release-workstation testing uses a Developer ID-signed candidate because a user-data override does not isolate macOS Keychain access control. Public Mac releases use the separate `Mat-Tom-Son/work-fold-mac-releases` feed and require an exact public source tag, Developer ID signing, hardened runtime, Apple notarization and stapling, Gatekeeper acceptance, matching DMG/ZIP update metadata, and remote size/SHA-256 verification. The manually installed first release establishes the new identity; a later higher work-fold release must prove the new updater path end to end.
 

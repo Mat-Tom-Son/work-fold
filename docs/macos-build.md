@@ -2,6 +2,11 @@
 
 work-fold retains one Electron, React, local API, Pi, management-kernel, restricted-app, and versioning codebase with cross-platform seams. Apple-silicon macOS is the production distribution and automatic-update lane. [Windows and Linux test previews](platform-previews.md) retain separate published source tags and do not gate Mac releases; GitHub Actions is disabled.
 
+The same source includes both preview implementations. Their earlier native
+evidence does not qualify a new combined build, and a draft-branch test run is
+not a Mac release receipt. The final merged commit requires the local release
+check before signed distribution.
+
 ## Legacy Workspace baseline evidence
 
 The Apple silicon lane was verified on July 15, 2026 against Workspace 0.2.9:

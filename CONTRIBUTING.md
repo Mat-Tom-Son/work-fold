@@ -61,7 +61,7 @@ your change; `AGENTS.md` identifies the required ones.
 | The work-fold agent, CLI, or shared task state | [Kernel](src/local/work-fold-kernel.ts), [CLI](src/local/cli/), [Management layer](docs/management-layer.md) |
 | Checks or cross-Folder work | [Checks](docs/checks.md), [Automations](docs/fold-routings.md) |
 | Worker-built Folder apps | [App foundation](docs/app-platform-foundation.md), [Authoring](docs/restricted-app-authoring.md), [Runtime](docs/restricted-app-runtime.md) |
-| Native desktop behavior | `desktop/src/`, [macOS builds](docs/macos-build.md) |
+| Native desktop behavior | `desktop/src/`, [Mac builds](docs/macos-build.md), [Windows builds](docs/windows-build.md), [Linux builds](docs/linux-build.md) |
 | Landing page or web client | `services/bridge/public/`, [Bridge guide](services/bridge/README.md) |
 
 ## Verify and submit
@@ -102,8 +102,10 @@ local lane needs Node 24 and Google Chrome on an Apple-silicon Mac. GitHub
 Actions is disabled and does not gate publication. Use the
 [release runbook](docs/macos-release.md).
 Windows and Linux have [experimental test previews](docs/platform-previews.md)
-with separate immutable source tags. Production distribution and automatic updates remain
-Mac-only; platform preview work does not gate Mac releases.
+with separate immutable source tags. The combined implementation is tracked in
+[draft PR #27](https://github.com/Mat-Tom-Son/work-fold/pull/27); it needs fresh
+native platform acceptance before another preview. Production distribution and
+automatic updates remain Mac-only; platform preview work does not gate Mac releases.
 
 ## Bugs, security, and license
 

@@ -8,6 +8,16 @@ The [Linux build guide](linux-build.md) describes the current lane;
 [tool feedback](tool-feedback.md), and the
 [collaboration contract](collaboration-contract.md) remain the owning contracts.
 
+## October 5, 2026 source integration checkpoint
+
+Linux 0.4.52 and Windows 0.4.50 are published test previews. Their source is now
+combined in [draft PR #27](https://github.com/Mat-Tom-Son/work-fold/pull/27).
+[Platform previews](platform-previews.md) records exact tags, Mac-host regression
+results, remaining native acceptance and production distribution work. Earlier
+checkpoints below retain the versions and evidence they actually tested; they
+cannot qualify a newly combined installer. GitHub Actions is disabled, so CI
+proposals below remain dormant until explicitly reactivated.
+
 ## Outcome and scope
 
 Deliver the existing work-fold app on **Ubuntu and Fedora, x86-64 Intel/AMD PCs**:
@@ -793,7 +803,8 @@ bytes, then publish those same bytes with their evidence.
 
 Linux hosting/repository and signing ownership are still decisions. Do not use
 the Mac release repository or frozen legacy repositories for Linux artifacts.
-Keep Windows inactive. Treat an AppImage self-updater as separate work requiring
+Keep production Windows distribution inactive; manual Windows test previews
+are recorded separately. Treat an AppImage self-updater as separate work requiring
 its own authenticity and two-version tests; keep the present Linux updater
 disabled in this plan.
 
