@@ -49,26 +49,37 @@ test("one brand treatment: the horizontal lockup appears once and is never rebui
   assert.equal(document.querySelectorAll("h1").length, 1);
 });
 
-test("Mac and Windows downloads are ordinary links with the supplied platform icons", (t) => {
+test("both download groups offer Mac, Windows and Linux with the supplied platform icons", (t) => {
   const { document } = render(t);
-  const downloads = [...document.querySelectorAll(".landing-download")];
-  assert.ok(downloads.length >= 2);
-  for (const link of downloads) {
-    assert.ok(link.getAttribute("href"));
-    assert.equal(link.getAttribute("aria-disabled"), null);
-    const icon = link.querySelector("use")?.getAttribute("href");
-    assert.ok(/^#landing-icon-(apple|windows)$/.test(icon));
-    assert.ok(/Download for (Mac|Windows)/.test(link.textContent));
+  const platforms = [
+    { name: "Mac", icon: "apple", href: "/download/macos" },
+    { name: "Windows", icon: "windows", href: "https://github.com/Mat-Tom-Son/work-fold/releases/download/windows-test-0.4.50/work-fold-Setup-0.4.50.exe" },
+    { name: "Linux", icon: "linux", href: "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.4.52" },
+  ];
+  const groups = [...document.querySelectorAll(".landing-download-group")];
+  assert.equal(groups.length, 2);
+  for (const group of groups) {
+    assert.equal(group.querySelector(".landing-download-label").textContent, "Download");
+    const links = [...group.querySelectorAll(".landing-download")];
+    assert.equal(links.length, platforms.length);
+    links.forEach((link, index) => {
+      const platform = platforms[index];
+      assert.equal(link.getAttribute("href"), platform.href);
+      assert.equal(link.getAttribute("aria-disabled"), null);
+      assert.equal(link.querySelector("use").getAttribute("href"), `#landing-icon-${platform.icon}`);
+      assert.equal(link.textContent.trim(), platform.name);
+      assert.equal(link.getAttribute("aria-label"), `Download for ${platform.name}`);
+    });
   }
-  assert.ok(downloads.some((link) => link.textContent.includes("Windows")));
   assert.equal(/coming soon|waitlist|waiting list/i.test(document.body.textContent), false);
 });
 
-test("the sprite carries the four supplied icons verbatim", async (t) => {
+test("the sprite carries the supplied icons verbatim", async (t) => {
   const { document } = render(t);
   const supplied = {
     apple: "ant-design--apple-filled.svg",
     windows: "dinkie-icons--windows.svg",
+    linux: "mingcute--linux-fill.svg",
     chrome: "ant-design--chrome-filled.svg",
     github: "akar-icons--github-fill.svg",
   };
@@ -77,8 +88,8 @@ test("the sprite carries the four supplied icons verbatim", async (t) => {
     assert.ok(symbol, `${name} symbol exists`);
     assert.ok(document.querySelector(`use[href="#landing-icon-${name}"]`), `${name} icon is used`);
     const original = await readFile(new URL(`./landing-icons/${file}`, import.meta.url), "utf8");
-    const path = original.match(/<path fill="currentColor"[^>]*? d="([^"]+)"/)[1];
-    assert.equal(symbol.querySelector('path[fill="currentColor"]').getAttribute("d"), path);
+    const paths = [...original.matchAll(/<path fill="currentColor"[^>]*? d="([^"]+)"/g)].map((match) => match[1]);
+    assert.deepEqual([...symbol.querySelectorAll('path[fill="currentColor"]')].map((path) => path.getAttribute("d")), paths);
     assert.equal(symbol.getAttribute("viewBox"), original.match(/viewBox="([^"]+)"/)[1]);
   }
 });
