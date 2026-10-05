@@ -5,6 +5,9 @@ const root = __dirname;
 const macReleaseBuild = process.env.WORKFOLD_MAC_RELEASE_BUILD === "1";
 const unsignedMacBuild = process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD === "1";
 const windowsBuild = (process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM || process.platform) === "win32";
+// A Windows test build has no update feed. Testers replace it by running a
+// later installer, and it never treats the source repository as a channel.
+const windowsTestBuild = windowsBuild && process.env.WORKFOLD_WINDOWS_TEST_BUILD === "1";
 const macSignIdentity = process.env.WORKFOLD_MAC_SIGN_IDENTITY?.trim();
 const electronBuilderMacIdentity = macSignIdentity?.replace(/^Developer ID Application:\s*/i, "");
 const macReleaseOwner = process.env.WORKFOLD_MAC_RELEASE_OWNER?.trim() || identity.sourceRepositoryOwner;
@@ -23,7 +26,7 @@ module.exports = {
   forceCodeSigning: macReleaseBuild || process.env.WORKFOLD_REQUIRE_CODE_SIGNING === "1",
   electronUpdaterCompatibility: ">=2.16",
   generateUpdatesFilesForAllChannels: false,
-  publish: [
+  publish: windowsTestBuild ? null : [
     {
       provider: "github",
       owner: macFeedBuild ? macReleaseOwner : identity.sourceRepositoryOwner,

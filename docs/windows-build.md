@@ -37,8 +37,8 @@ helper setup. The build writes
 `out/included-tools/computer-helper/work-fold Computer/` with the executable,
 its license, and a `source.json` binding the build inputs to the manifest;
 packaging places it under `resources\computer-helper`, outside `app.asar`, and
-packaged verification rechecks that provenance. The helper is unsigned until
-Windows signing is deliberately reactivated.
+packaged verification rechecks that provenance. A signed build signs the helper
+with every other packaged executable; an unsigned build leaves it unsigned.
 
 Windows source checkouts also need real Git symlinks for the shared Claude
 Skill. Enable Windows symlink creation and use `git clone -c core.symlinks=true`
@@ -136,6 +136,20 @@ For a build signed with the current user's personal certificate:
 The PFX and its DPAPI-protected password are stored in `%USERPROFILE%\.work-fold-signing`, never in this repository. The certificate is self-signed and therefore remains untrusted on other computers unless they deliberately trust its public certificate. Replace the two GitHub signing secrets with a certificate-authority-backed PFX when one is available.
 
 `build-signed-windows.ps1` uses the Node on PATH (or `-Node <path>`), requires Node 22.19.0 or newer (Node 24 for release builds), and runs the npm installed beside that Node, so an older system npm cannot be picked up.
+
+Every Windows candidate is scanned for the build account's profile path, in ASCII and UTF-16 and both slash styles. Rust embeds dependency source paths in panic messages, so the helper builds remap the profile, Cargo, and rustup directories with `--remap-path-prefix`.
+
+## Test builds for early testers
+
+A Windows test build is a self-signed installer published as a GitHub pre-release on the source repository under a `windows-test-<version>` tag, like the Linux test builds. It is not a release: it has no automatic updates, no publicly trusted signature, and no Windows release repository behind it. Build it from a clean, committed tree with a version no other build has used:
+
+```powershell
+.\scripts\build-signed-windows.ps1 -TestBuild
+```
+
+`-TestBuild` sets `WORKFOLD_WINDOWS_TEST_BUILD=1`, so Electron Builder writes neither `app-update.yml` nor `latest.yml` and the installed app reports that updates are not available. Testers upgrade by running a later installer, which replaces the app in place and keeps `%APPDATA%\work-fold`. The build keeps the production app id and profile, so a later signed release installs over it. After verification, `scripts/windows-test-build-record.mjs` writes `SHA256SUMS` and `work-fold-<version>-windows-build.json` (source commit, signer, toolchain, and helper provenance) beside the installer; it refuses a dirty tree or a build that has an update feed.
+
+Publish the installer, `SHA256SUMS`, and the build record as a pre-release whose notes say plainly that Windows will report an unknown publisher and may show a SmartScreen warning. Never ask testers to trust the personal certificate; a trusted root from a stranger is a standing risk, not an install step.
 
 ## Packaged QA checklist
 

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildMachinePathNeedles, containsBuildMachinePath } from "./build-machine-paths.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageJson = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
@@ -14,16 +15,28 @@ const installerPath = join(builderDir, installerName);
 const blockmapPath = `${installerPath}.blockmap`;
 const latestPath = join(builderDir, "latest.yml");
 const appUpdatePath = join(packageDir, "resources", "app-update.yml");
+// Test builds are replaced by a later installer and carry no update feed.
+const testBuild = process.env.WORKFOLD_WINDOWS_TEST_BUILD === "1";
 const failures = [];
 
 for (const [path, label] of [
   [installerPath, "NSIS installer"],
-  [blockmapPath, "NSIS blockmap"],
-  [latestPath, "latest.yml"],
-  [appUpdatePath, "embedded app-update.yml"],
+  ...(testBuild ? [] : [[blockmapPath, "NSIS blockmap"], [latestPath, "latest.yml"], [appUpdatePath, "embedded app-update.yml"]]),
 ]) {
   if (!existsSync(path)) failures.push(`Missing ${label}: ${path}.`);
   else if (statSync(path).size === 0) failures.push(`${label} is empty: ${path}.`);
+}
+if (testBuild && existsSync(appUpdatePath)) failures.push("A Windows test build must not embed an update feed (app-update.yml).");
+if (testBuild && existsSync(latestPath) && readYamlScalar(readFileSync(latestPath, "utf8"), "version") === packageJson.version) {
+  failures.push("A Windows test build must not produce update metadata (latest.yml).");
+}
+
+// Nothing distributed may reveal the build account's profile path.
+if (existsSync(packageDir)) {
+  const needles = buildMachinePathNeedles();
+  for (const path of listFiles(packageDir)) {
+    if (containsBuildMachinePath(readFileSync(path), needles)) failures.push(`${relative(builderDir, path)} embeds this build account's profile path.`);
+  }
 }
 
 if (existsSync(packageDir)) {
@@ -39,7 +52,7 @@ if (existsSync(packageDir)) {
   failures.push(`Missing unpacked application: ${packageDir}.`);
 }
 
-if (existsSync(appUpdatePath)) {
+if (!testBuild && existsSync(appUpdatePath)) {
   const appUpdate = readFileSync(appUpdatePath, "utf8");
   expectYamlScalar(appUpdate, "provider", "github", "embedded update provider");
   expectYamlScalar(appUpdate, "owner", "Mat-Tom-Son", "embedded update owner");
@@ -53,7 +66,7 @@ if (existsSync(appUpdatePath)) {
   }
 }
 
-if (existsSync(latestPath) && existsSync(installerPath)) {
+if (!testBuild && existsSync(latestPath) && existsSync(installerPath)) {
   const latest = readFileSync(latestPath, "utf8");
   expectYamlScalar(latest, "version", packageJson.version, "release version");
   expectYamlScalar(latest, "path", installerName, "release installer path");
@@ -92,7 +105,7 @@ if (failures.length) {
 }
 
 console.log(`Verified ${identity.productName} ${packageJson.version} Windows release assets in ${builderDir}.`);
-console.log(`Installer: ${basename(installerPath)}`);
+console.log(`Installer: ${basename(installerPath)}${testBuild ? " (test build, no update feed)" : ""}`);
 console.log(`Authenticode: ${signature.status}${signature.subject ? ` (${signature.subject})` : ""}`);
 
 function expectYamlScalar(source, key, expected, label) {
@@ -127,13 +140,17 @@ function readAuthenticodeSignature(path) {
   }
 }
 
-function listExecutables(directory) {
+function listFiles(directory) {
   if (!existsSync(directory)) return [];
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) return listExecutables(path);
-    return entry.isFile() && entry.name.toLowerCase().endsWith(".exe") ? [path] : [];
+    if (entry.isDirectory()) return listFiles(path);
+    return entry.isFile() ? [path] : [];
   });
+}
+
+function listExecutables(directory) {
+  return listFiles(directory).filter((path) => path.toLowerCase().endsWith(".exe"));
 }
 
 /** One PowerShell run for many files; paths travel as JSON, never as code. */

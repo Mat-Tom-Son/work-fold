@@ -2,7 +2,9 @@ param(
   [string]$CertificatePath = (Join-Path $HOME ".work-fold-signing\work-fold-Personal-Code-Signing.pfx"),
   [string]$PasswordFile = (Join-Path $HOME ".work-fold-signing\work-fold-Personal-Code-Signing.password.dpapi"),
   # Defaults to the node on PATH; use fnm or nvm to put Node 24 first.
-  [string]$Node = ""
+  [string]$Node = "",
+  # A test build has no update feed and ends with SHA256SUMS and a build record.
+  [switch]$TestBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,11 +38,16 @@ try {
   $env:WORKFOLD_REQUIRE_CODE_SIGNING = "1"
   $env:WORKFOLD_TRUSTED_CODE_SIGNING = "0"
   $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+  if ($TestBuild) { $env:WORKFOLD_WINDOWS_TEST_BUILD = "1" }
 
   Push-Location $repoRoot
   try {
     & $node $npmCli run desktop:make
     if ($LASTEXITCODE -ne 0) { throw "Signed work-fold build failed with exit code $LASTEXITCODE." }
+    if ($TestBuild) {
+      & $node (Join-Path $repoRoot "scripts\windows-test-build-record.mjs")
+      if ($LASTEXITCODE -ne 0) { throw "Recording the test build failed with exit code $LASTEXITCODE." }
+    }
   } finally {
     Pop-Location
   }
@@ -50,6 +57,7 @@ try {
   Remove-Item Env:\WORKFOLD_REQUIRE_CODE_SIGNING -ErrorAction SilentlyContinue
   Remove-Item Env:\WORKFOLD_TRUSTED_CODE_SIGNING -ErrorAction SilentlyContinue
   Remove-Item Env:\CSC_IDENTITY_AUTO_DISCOVERY -ErrorAction SilentlyContinue
+  Remove-Item Env:\WORKFOLD_WINDOWS_TEST_BUILD -ErrorAction SilentlyContinue
   if ($pointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
   $plainPassword = $null
   $securePassword.Dispose()

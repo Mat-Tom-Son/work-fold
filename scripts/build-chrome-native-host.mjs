@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { containsBuildMachinePath, rustBuildEnvironment } from "./build-machine-paths.mjs";
 import { peContentSha256 } from "./pe-image.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -48,10 +49,11 @@ export async function buildWindowsChromeNativeHost({ destination, distribution, 
   catch { throw new Error("Building the Windows Chrome host requires Rust. Install rustup with the stable MSVC toolchain, then rerun desktop:prepare."); }
   // The Store origin is compiled in, as identity.swift is on macOS.
   execFileSync("cargo", ["build", "--release", "--locked", "--target", target, "--manifest-path", join(root, "desktop/native/chrome-host-windows/Cargo.toml"), "--target-dir", targetDirectory], {
-    stdio: "inherit", env: { ...process.env, WORKFOLD_CHROME_ORIGIN: origin },
+    stdio: "inherit", env: { ...rustBuildEnvironment(), WORKFOLD_CHROME_ORIGIN: origin },
   });
   const bytes = await readFile(join(targetDirectory, target, "release", "work-fold-chrome-host.exe"));
   if (bytes.toString("latin1", 0, 2) !== "MZ" || bytes.readUInt16LE(bytes.readUInt32LE(0x3c) + 4) !== 0x8664) throw new Error("Chrome native host must be an x64 Windows executable.");
+  if (containsBuildMachinePath(bytes)) throw new Error("The Windows Chrome host embeds this build account's profile path.");
   await mkdir(destination, { recursive: true });
   const temporary = join(destination, `.build-${process.pid}.exe`);
   try {

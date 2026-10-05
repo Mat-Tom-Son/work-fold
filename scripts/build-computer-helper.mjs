@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { containsBuildMachinePath, rustBuildEnvironment } from "./build-machine-paths.mjs";
 import { peContentSha256 } from "./pe-image.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -96,10 +97,11 @@ async function buildWindows() {
   const targetDir = join(root, "out", "included-tools", "computer-helper-cargo");
   // --locked keeps the reviewed Cargo.lock authoritative; the target directory
   // stays outside node_modules so the pinned crate bytes are never rewritten.
-  cargo(["build", "--release", "--locked", "--target", target, "--manifest-path", join(packageRoot, crate, "Cargo.toml"), "--target-dir", targetDir], { stdio: "inherit" });
+  cargo(["build", "--release", "--locked", "--target", target, "--manifest-path", join(packageRoot, crate, "Cargo.toml"), "--target-dir", targetDir], { stdio: "inherit", env: rustBuildEnvironment() });
   const built = join(targetDir, target, "release", "windows-bridge.exe");
   const executableBytes = await readFile(built);
   assertWindowsConsoleExecutable(executableBytes);
+  if (containsBuildMachinePath(executableBytes)) throw new Error("The Windows computer helper embeds this build account's profile path.");
   const outputDir = join(root, "out", "included-tools", "computer-helper");
   const output = join(outputDir, "work-fold Computer");
   const temporary = join(outputDir, `work-fold Computer.build-${process.pid}`);

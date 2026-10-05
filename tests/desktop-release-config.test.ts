@@ -89,6 +89,32 @@ test("desktop release configuration uses the isolated work-fold identities and f
   assert.match(packageJson.scripts["desktop:verify:installed:mac"], /verify-installed-mac-app/);
 });
 
+test("a Windows test build carries no update feed, and the switch is Windows-only", () => {
+  const require = createRequire(import.meta.url);
+  const builderPath = join(rootDir, "electron-builder.desktop.cjs");
+  const keys = ["WORKFOLD_DESKTOP_RELEASE_PLATFORM", "WORKFOLD_WINDOWS_TEST_BUILD"] as const;
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  const load = (platform: string) => {
+    process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM = platform;
+    process.env.WORKFOLD_WINDOWS_TEST_BUILD = "1";
+    delete require.cache[require.resolve(builderPath)];
+    return require(builderPath);
+  };
+  try {
+    const windowsTest = load("win32");
+    const mac = load("darwin");
+    assert.equal(windowsTest.publish, null, "electron-builder then writes neither app-update.yml nor latest.yml");
+    assert.equal(windowsTest.extraMetadata.workFoldBuildChannel, "production", "testers keep the production profile into later releases");
+    assert.equal(mac.publish[0].repo, "work-fold-mac-releases");
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    delete require.cache[require.resolve(builderPath)];
+  }
+});
+
 test("Mac-only CI and publication keep credentials out of the application", () => {
   const updaterSource = read("desktop/src/updater.ts");
   const workflow = read(".github/workflows/ci.yml");
