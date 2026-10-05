@@ -252,6 +252,29 @@ function Get-WorkFoldChatWaitPlan {
   return [pscustomobject]$plan
 }
 
+function Read-WorkFoldWaitStatus {
+  param([string]$Json)
+  # Strict mode throws on an absent property. A status document carries
+  # either `requestGraph` or `request`, and `waiting` may be omitted.
+  $property = {
+    param($Object, [string]$Name)
+    if ($null -eq $Object) { return $null }
+    $found = $Object.PSObject.Properties[$Name]
+    if ($null -eq $found) { return $null }
+    return $found.Value
+  }
+  $data = & $property ($Json | ConvertFrom-Json) 'data'
+  if ($null -eq $data) { throw 'The task status has no data.' }
+  $graph = & $property $data 'requestGraph'
+  $request = & $property $data 'request'
+  $requestState = if ($graph) { [string](& $property $graph 'state') } elseif ($request) { [string](& $property $request 'state') } else { '' }
+  return [pscustomobject]@{
+    State = [string](& $property (& $property $data 'task') 'state')
+    Waiting = & $property $data 'waiting'
+    RequestState = $requestState
+  }
+}
+
 function Invoke-WorkFoldChatWait {
   param([pscustomobject]$Plan, [string]$ActToken)
   # Waiting is task-scoped: it follows the exact turn the send accepted, so
@@ -274,18 +297,14 @@ function Invoke-WorkFoldChatWait {
       Write-WorkFoldOutcome $status
       return $status.ExitCode
     }
-    $state = ''
-    $waiting = $null
-    $requestState = ""
     try {
-      $data = ($status.Stdout | ConvertFrom-Json).data
-      $state = [string]$data.task.state
-      $waiting = $data.waiting
-      if ($data.requestGraph) { $requestState = [string]$data.requestGraph.state }
-      elseif ($data.request) { $requestState = [string]$data.request.state }
+      $parsed = Read-WorkFoldWaitStatus -Json $status.Stdout
     } catch {
       throw 'work-fold returned an unreadable task status.'
     }
+    $state = $parsed.State
+    $waiting = $parsed.Waiting
+    $requestState = $parsed.RequestState
     if ($null -ne $waiting -or $requestState -eq "waiting") {
       if ($Plan.Json) {
         Write-WorkFoldOutcome $status

@@ -34,3 +34,4 @@ Thumbs.db
 # Python bytecode
 __pycache__/
 *.pyc
+desktop/native/chrome-host-windows/target/

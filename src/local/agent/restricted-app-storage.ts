@@ -12,6 +12,7 @@ import {
   type RuntimeInstanceId,
   type TenantId,
 } from "./app-platform-contract.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 export const restrictedAppStorageLimits = {
   appBytes: 5 * 1024 * 1024,
@@ -676,7 +677,7 @@ function storageUsage(entries: RestrictedAppStorageEntry[]): number {
 }
 
 async function ensureSafeRoot(rootPath: string): Promise<void> {
-  await mkdir(rootPath, { recursive: true, mode: 0o700 });
+  await ensurePrivateDirectory(rootPath);
   const info = await safeInfo(rootPath);
   if (!info) throw new RestrictedAppStorageError("STORAGE_UNSAFE", "Restricted app storage root could not be created.");
   assertDirectory(info, "Restricted app storage root");

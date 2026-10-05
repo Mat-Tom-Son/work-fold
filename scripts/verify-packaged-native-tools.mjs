@@ -19,7 +19,7 @@ async function verifyPackagedPatch(archivePath, packageName, label) {
   if (!entry?.files?.length) throw new Error(`Missing ${label} patch manifest.`);
   const prefix = `node_modules/${packageName}`;
   const read = path => {
-    try { return extractFile(resolve(archivePath), `${prefix}/${path}`); }
+    try { return extractFile(resolve(archivePath), join(prefix, path)); }
     catch { throw new Error(`Packaged ${label} verification failed: missing ${path}`); }
   };
   const metadata = JSON.parse(read("package.json").toString("utf8"));

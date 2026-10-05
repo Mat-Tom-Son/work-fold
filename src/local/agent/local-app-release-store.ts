@@ -29,6 +29,7 @@ import {
   type AppReleaseLimits,
   type AppReleasePresentation,
 } from "./app-platform-release.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 export const localAppReleaseStoreFileName = "release.json" as const;
 
@@ -688,7 +689,7 @@ export class LocalAppReleaseStore {
   async #ensureRoot(create: boolean): Promise<boolean> {
     let info = await pathInfo(this.#rootPath);
     if (!info && create) {
-      await mkdir(this.#rootPath, { recursive: true, mode: 0o700 });
+      await ensurePrivateDirectory(this.#rootPath);
       info = await pathInfo(this.#rootPath);
     }
     if (!info) return false;

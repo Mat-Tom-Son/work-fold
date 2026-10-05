@@ -3,6 +3,7 @@ import { open } from "node:fs/promises";
 import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseTurnFileChanges, type WorkFoldTurnFileChanges } from "./turn-file-changes.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 export const workFoldTurnRecordSchema = "work-fold.turn.v1" as const;
 /** Recent terminal outcomes retained in addition to every unfinished turn. */
@@ -253,7 +254,7 @@ export class WorkFoldTurnStore {
   }
 
   async #append(record: WorkFoldDurableTurnRecord): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
+    await ensurePrivateDirectory(dirname(this.path));
     await appendFile(this.path, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600, flush: true });
   }
 

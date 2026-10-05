@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { extractFile, listPackage } from "@electron/asar";
 import electronFuses from "@electron/fuses";
 import { verifyAsarFileIntegrity } from "./asar-integrity.mjs";
+import { windowsChromeHostSourceSha256 } from "./build-chrome-native-host.mjs";
+import { peContentSha256 } from "./pe-image.mjs";
 
 const { FuseV1Options, getCurrentFuseWire } = electronFuses;
 
@@ -56,6 +58,55 @@ assertPath(join(binDir, identity.cliCommand), `${identity.productName} CLI shell
 if (packagedPlatform === "win32") {
   assertPath(join(binDir, `${identity.cliCommand}.cmd`), `${identity.productName} CLI command shim`);
   assertPath(join(binDir, `${identity.cliCommand}-cli.ps1`), `${identity.productName} CLI PowerShell helper`);
+  const computerHelper = join(resourcesDir, "computer-helper", "work-fold Computer");
+  assertPath(join(computerHelper, "work-fold Computer.exe"), "included computer helper");
+  assertPath(join(computerHelper, "LICENSE.pi-computer-use"), "computer helper license");
+  assertPath(join(computerHelper, "source.json"), "computer helper provenance");
+  try {
+    const expected = JSON.parse(readFileSync(join(rootDir, "patches", "included-tools", "manifest.json"), "utf8"))
+      .find((entry) => entry.package === "@injaneity/pi-computer-use");
+    const source = JSON.parse(readFileSync(join(computerHelper, "source.json"), "utf8"));
+    if (source.schema !== "work-fold.computer-helper-source.v1" || source.package !== expected.package
+      || source.version !== expected.version || source.integrationPatchSha256 !== expected.sha256
+      || source.source !== (expected.sourceURL || expected.source) || source.license !== expected.license
+      || source.protocolVersion !== 4 || source.target !== "x86_64-pc-windows-msvc") {
+      failures.push("Computer helper provenance does not match the reviewed integration source.");
+    }
+    const crate = "native/windows/bridge-rs";
+    const paths = ["Cargo.toml", "Cargo.lock", ...["capture", "error", "input", "lib", "main", "protocol", "refs", "state", "uia", "window"].map((name) => `src/${name}.rs`)].map((name) => `${crate}/${name}`);
+    if (!Array.isArray(source.sources) || source.sources.length !== paths.length || paths.some((path) =>
+      source.sources.find((item) => item.path === path)?.sha256 !== expected.files.find((item) => item.path === path)?.after)) {
+      failures.push("Computer helper build inputs do not match the reviewed source hashes.");
+    }
+    if (peContentSha256(readFileSync(join(computerHelper, "work-fold Computer.exe"))) !== source.executableContentSha256) {
+      failures.push("Computer helper executable does not match its recorded build.");
+    }
+    for (const path of ["src/platform/windows/helper.ts", "src/platform/windows/backend.ts"]) {
+      const bytes = extractFile(asarPath, join("node_modules", expected.package, path));
+      if (createHash("sha256").update(bytes).digest("hex") !== expected.files.find((item) => item.path === path)?.after) {
+        failures.push(`Computer helper runtime does not match the reviewed source: ${path}.`);
+      }
+    }
+  } catch (error) { failures.push(`Could not verify computer helper provenance: ${formatError(error)}`); }
+  // Only the source-built helper ships; the dependency's upstream binary never does.
+  const upstreamPrebuilt = "node_modules/@injaneity/pi-computer-use/prebuilt";
+  if (existsSync(join(resourcesDir, "app.asar.unpacked", ...upstreamPrebuilt.split("/")))
+    || (existsSync(asarPath) && listPackage(asarPath).some((entry) => entry.replaceAll("\\", "/").startsWith(`/${upstreamPrebuilt}/`)))) {
+    failures.push("The upstream prebuilt computer helper must not be packaged.");
+  }
+  const chromeHost = join(resourcesDir, "chrome-native-host");
+  assertPath(join(chromeHost, "work-fold-chrome-host.exe"), "Chrome native bootstrap");
+  assertPath(join(chromeHost, "source.json"), "Chrome native bootstrap provenance");
+  try {
+    const distribution = JSON.parse(readFileSync(join(rootDir, "src/shared/chrome-distribution.json"), "utf8"));
+    const provenance = JSON.parse(readFileSync(join(chromeHost, "source.json"), "utf8"));
+    const expectedOrigin = distribution.storeId ? `chrome-extension://${distribution.storeId}/` : "";
+    if (provenance.schema !== "work-fold.chrome-native-host-source.v1" || provenance.origin !== expectedOrigin
+      || provenance.nativeHostName !== distribution.nativeHostName || provenance.bootstrapVersion !== distribution.bootstrapVersion
+      || provenance.target !== "x86_64-pc-windows-msvc" || provenance.sourceSha256 !== await windowsChromeHostSourceSha256()
+      || provenance.distributionSha256 !== createHash("sha256").update(JSON.stringify(distribution)).digest("hex")
+      || provenance.executableContentSha256 !== peContentSha256(readFileSync(join(chromeHost, "work-fold-chrome-host.exe")))) failures.push("Chrome native bootstrap does not match the reviewed source and Store identity.");
+  } catch (error) { failures.push(`Could not verify Chrome native bootstrap: ${formatError(error)}`); }
 } else if (packagedPlatform === "darwin") {
   assertPath(join(binDir, `${identity.cliCommand}-cli.jxa.js`), `${identity.productName} CLI macOS helper`);
   assertPath(join(resourcesDir, "icon.icns"), "macOS application icon");
@@ -81,7 +132,7 @@ if (packagedPlatform === "win32") {
       failures.push("Computer helper build inputs do not match the reviewed source hashes.");
     }
     for (const path of ["src/platform/macos/helper.ts", "src/platform/macos/permissions.ts", "src/platform/macos/helper-identity.mjs"]) {
-      const bytes = extractFile(asarPath, `node_modules/${expected.package}/${path}`);
+      const bytes = extractFile(asarPath, join("node_modules", expected.package, path));
       if (createHash("sha256").update(bytes).digest("hex") !== expected.files.find((item) => item.path === path)?.after) {
         failures.push(`Computer helper identity runtime does not match the reviewed source: ${path}.`);
       }

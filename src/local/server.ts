@@ -11336,9 +11336,11 @@ async function runAgentTurn(
   } catch (error) {
     // A reused client still holds its previous turn until prompt resets it.
     // Pre-prompt cancellation/failure must never inherit that turn's evidence.
+    let stoppedTools: string[] = [];
     if (promptStarted) {
       capturedPresentation ??= client?.getTurnPresentation();
-      capturedWorkTrail = client?.getTurnWorkTrail() ?? [];
+      stoppedTools = client?.getUnsettledToolLabels() ?? [];
+      capturedWorkTrail = client?.getTurnWorkTrail({ interrupted: true }) ?? [];
     }
     const cancelled = isPiTurnCancelledError(error);
     if (promptStarted) {
@@ -11351,11 +11353,13 @@ async function runAgentTurn(
     if (!cancelled) {
       console.warn(`Assistant turn failed in ${spaceId}/${conversationId}: ${providerCreditFailureDetail(error) ?? errorMessage(error)}`);
     }
-    const publicDetail = cancelled
+    // An action cut off mid-way may already have changed files or apps.
+    const stoppedNote = stoppedToolsNote(stoppedTools);
+    const publicDetail = [cancelled
       ? "The Assistant was stopped before it completed this response."
-      : assistantFailurePublicDetail(error);
+      : assistantFailurePublicDetail(error), stoppedNote].filter(Boolean).join(" ");
     const workTrail = capturedWorkTrail;
-    const interruptedContent = assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled);
+    const interruptedContent = [assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled), stoppedNote].filter(Boolean).join("\n\n");
     const interruptedPresentation = parseAssistantPresentation(capturedPresentation, interruptedContent);
     const interruptedMessage = {
       id: randomUUID(),
@@ -11606,6 +11610,14 @@ function assistantTurnFailureMessage(error: unknown, partialResponsePreserved: b
 function assistantFailureReason(error: unknown): "provider_error" | "setup_error" | "assistant_error" {
   if (error instanceof PiTurnFailure) return "provider_error";
   return isAssistantSetupError(error) ? "setup_error" : "assistant_error";
+}
+
+/** Names tools an interruption cut off; their effects may be partial and must not be blindly repeated. */
+function stoppedToolsNote(labels: string[]): string {
+  const unique = [...new Set(labels)];
+  if (!unique.length) return "";
+  const named = unique.length === 1 ? unique[0]! : `${unique.slice(0, -1).join(", ")} and ${unique.at(-1)!}`;
+  return `${named} ${unique.length === 1 ? "was" : "were"} still running, so ${unique.length === 1 ? "its" : "their"} effect may be incomplete. Check the result before repeating it.`;
 }
 
 function assistantFailureTranscriptContent(error: unknown, checkpointText = "", cancelled = false): string {

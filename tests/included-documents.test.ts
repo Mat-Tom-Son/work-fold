@@ -374,14 +374,27 @@ test("failed scripts preserve logged evidence, selected images, progress, and co
 });
 
 test("timeout exposes partial observations and long selected deadlines do not overflow Node timers", async (t) => {
-  const setup = await fixture(t, `import{writeFile}from'node:fs/promises';export default async({resolve,progress})=>{await writeFile(resolve('effect'),'one');await progress({saved:resolve('effect')});console.log('saved');while(true){}};`);
-  await assert.rejects(runDocumentScript({ ...setup, timeoutMs: 2000 }), (error: Error & { partialResult?: any }) => {
-    assert.equal(error.partialResult.outcome, "timed_out");
-    assert.match(error.partialResult.value, /effect/);
-    assert.match(error.partialResult.logs, /saved/);
-    assert.equal(error.partialResult.observations[0].kind, "progress");
-    return true;
-  });
+  const setup = await fixture(t, `import{writeFile}from'node:fs/promises';export default async({resolve,progress})=>{await writeFile(resolve('effect'),'one');console.log('saved');await progress({saved:resolve('effect')});while(true){}};`);
+  // The deadline counts worker startup, and importing every bundled library
+  // can outlast a short real deadline under load. Hold the host's deadline
+  // clock until the script's last report before hanging has reached the host.
+  let now = 10_000;
+  t.mock.method(performance, "now", () => now);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let reachedHang!: () => void;
+  const hanging = new Promise<void>((resolve) => { reachedHang = resolve; });
+  const settled = runDocumentScript({ ...setup, timeoutMs: 2000, onUpdate: () => reachedHang() })
+    .then(() => assert.fail("a hung script cannot succeed"), (error: Error & { partialResult?: any }) => error);
+  await Promise.race([hanging, settled]);
+  now += 2000;
+  t.mock.timers.tick(2000);
+  const error = await settled;
+  assert.equal(error.partialResult?.outcome, "timed_out", error.message);
+  assert.match(error.partialResult.value, /effect/);
+  assert.match(error.partialResult.logs, /saved/);
+  assert.equal(error.partialResult.observations[0].kind, "progress");
+  t.mock.timers.reset();
+  t.mock.restoreAll();
   const quick = await fixture(t, "export default()=>42;");
   assert.equal((await runDocumentScript({ ...quick, timeoutMs: 2_147_483_648 })).value, "42");
   assert.equal((await runDocumentScript({ ...quick, timeoutMs: 120_001 })).value, "42");

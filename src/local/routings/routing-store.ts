@@ -18,6 +18,7 @@ import {
   workFoldRoutingReferencedSpaceIds,
   type WorkFoldRoutingDeclaration,
 } from "./routing-declarations.js";
+import { ensurePrivateDirectory } from "../private-access.js";
 
 /**
  * Machine-local routing authority and its receipts journal
@@ -255,7 +256,7 @@ export class WorkFoldRoutingReceipts {
             })) }
             : {}),
         };
-        await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
+        await ensurePrivateDirectory(dirname(this.path));
         await this.#rotateIfNeeded();
         await appendFile(this.path, `${JSON.stringify(record)}\n`, { mode: 0o600, flush: true });
         return true;
@@ -876,7 +877,7 @@ export class WorkFoldRoutingStore {
   }
 
   async #commit(draft: RoutingStoreFileShape): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
+    await ensurePrivateDirectory(dirname(this.path));
     const temporaryPath = `${this.path}.${randomUUID()}.tmp`;
     await writeFile(temporaryPath, `${JSON.stringify(draft, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     await rename(temporaryPath, this.path);

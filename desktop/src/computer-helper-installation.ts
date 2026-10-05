@@ -1,20 +1,34 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { ensurePrivateDirectory } from "../../src/local/private-access.js";
 
 const run = promisify(execFile);
-interface Options { sourceAppPath: string; stateRoot: string; verifySignature?: boolean }
+interface Options { sourceAppPath: string; stateRoot: string; verifySignature?: boolean; platform?: NodeJS.Platform }
 
-/** macOS attributes nested helper capture to the enclosing app. Keep the exact
- * signed helper outside it; constructing this configuration never copies or launches. */
+/** The helper bundle's directory name on each platform that ships one. */
+export function computerHelperBundleName(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? "work-fold Computer" : "work-fold Computer.app";
+}
+
+/** The executable the host launches inside a helper bundle. */
+export function computerHelperExecutable(bundlePath: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? join(bundlePath, "work-fold Computer.exe") : join(bundlePath, "Contents", "MacOS", "bridge");
+}
+
+/** macOS attributes nested helper capture to the enclosing app, so the exact
+ * signed helper lives outside it. Windows keeps the same private, versioned copy
+ * so an update never replaces a running helper. Constructing this configuration
+ * never copies or launches. */
 export class ComputerHelperInstallation {
   readonly helperAppPath: string;
   #pending?: Promise<void>;
   private constructor(private readonly options: Options, private readonly digest: string) {
-    this.helperAppPath = join(resolve(options.stateRoot), "native-helpers", "computer", digest, "work-fold Computer.app");
+    this.helperAppPath = join(resolve(options.stateRoot), "native-helpers", "computer", digest, computerHelperBundleName(this.platform));
   }
+  private get platform(): NodeJS.Platform { return this.options.platform ?? process.platform; }
   static async create(options: Options): Promise<ComputerHelperInstallation> {
     return new ComputerHelperInstallation(options, await bundleDigest(options.sourceAppPath));
   }
@@ -32,8 +46,9 @@ export class ComputerHelperInstallation {
     try { await pending; } finally { if (this.#pending === pending) this.#pending = undefined; }
   };
   async #verify(path: string) {
-    if (await bundleDigest(path) !== this.digest) throw new Error("The computer helper differs from the signed copy supplied by this work-fold build. Open Computer control in Skills & Extensions and choose Check setup to repair it.");
-    if (this.options.verifySignature !== false) await run("/usr/bin/codesign", ["--verify", "--strict", path]);
+    if (await bundleDigest(path) !== this.digest) throw new Error("The computer helper differs from the copy supplied by this work-fold build. Open Computer control in Skills & Extensions and choose Check setup to repair it.");
+    // Windows has no bundle seal; the digest pins the exact bytes this build shipped.
+    if (this.platform === "darwin" && this.options.verifySignature !== false) await run("/usr/bin/codesign", ["--verify", "--strict", path]);
   }
   async #prepare(beforeReplace?: () => Promise<void>) {
     await this.#verify(this.options.sourceAppPath);
@@ -48,29 +63,47 @@ export class ComputerHelperInstallation {
       else if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     const root = join(resolve(this.options.stateRoot), "native-helpers", "computer");
-    await mkdir(root, { recursive: true, mode: 0o700 }); await chmod(root, 0o700);
+    await ensurePrivateDirectory(root);
     const temporary = join(root, `.copy-${randomUUID()}`);
-    const copy = join(temporary, "work-fold Computer.app");
+    const copy = join(temporary, computerHelperBundleName(this.platform));
     await mkdir(temporary, { mode: 0o700 });
     try {
       // ditto preserves the sealed bundle, extended attributes and notarization data.
-      await run("/usr/bin/ditto", [this.options.sourceAppPath, copy]);
+      if (this.platform === "darwin") await run("/usr/bin/ditto", [this.options.sourceAppPath, copy]);
+      else await cp(this.options.sourceAppPath, copy, { recursive: true, errorOnExist: true, force: false });
       await this.#verify(copy);
       if (replace) {
         await beforeReplace!();
         const target = join(root, this.digest), previous = join(root, `.replaced-${randomUUID()}`);
-        await rename(target, previous);
-        try { await rename(temporary, target); }
-        catch (error) { await rename(previous, target); throw error; }
+        await renameFresh(target, previous, this.platform);
+        try { await renameFresh(temporary, target, this.platform); }
+        catch (error) { await renameFresh(previous, target, this.platform); throw error; }
         await rm(previous, { recursive: true, force: true });
         return;
       }
-      try { await rename(temporary, join(root, this.digest)); }
+      try { await renameFresh(temporary, join(root, this.digest), this.platform); }
       catch (error) {
-        if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+        // Windows refuses to rename onto an existing directory with EPERM.
+        const lost = ["EEXIST", "ENOTEMPTY", ...(this.platform === "win32" ? ["EPERM"] : [])];
+        if (!lost.includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
         await this.#verify(this.helperAppPath);
       }
     } finally { await rm(temporary, { recursive: true, force: true }); }
+  }
+}
+
+/** A freshly written executable can be held briefly by Windows Defender or the
+ * indexer. Retry only that transient refusal; an existing destination is never
+ * transient, so a lost creation race still reaches the caller's verification. */
+async function renameFresh(from: string, to: string, platform: NodeJS.Platform): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try { await rename(from, to); return; }
+    catch (error) {
+      // A scan of a new executable can take seconds; wait up to about 15 s.
+      if (platform !== "win32" || attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      if (await lstat(to).then(() => true, () => false)) throw error;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(100 * (attempt + 1), 1_000)));
+    }
   }
 }
 

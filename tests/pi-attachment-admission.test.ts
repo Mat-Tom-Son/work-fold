@@ -109,7 +109,7 @@ test("native dispatch spills oversized reference metadata while preserving exact
   assert.equal(manifest.owner.conversationId, "manifest-chat"); assert.equal(manifest.cwd, spaceRoot);
   assert.deepEqual(manifest.references.map((entry: { path: string }) => entry.path), references);
   const serialized = JSON.stringify(payloads[0]);
-  assert.match(serialized, /400 attachment paths/); assert.ok(serialized.includes(path));
+  assert.match(serialized, /400 attachment paths/); assert.ok(serialized.includes(JSON.stringify(JSON.stringify(path)).slice(1, -1)), "the prompt names the manifest by its quoted path");
   assert.doesNotMatch(serialized, /DO_NOT_INLINE_OR_COPY_BODY/);
   assert.doesNotMatch(JSON.stringify(manifest), /DO_NOT_INLINE_OR_COPY_BODY/);
   assert.ok(payloads[0].messages.some((message: any) => message.role === "user" && (message.content === exactMessage || (Array.isArray(message.content) && message.content.some((part: any) => part.type === "text" && part.text === exactMessage)))), "the user's exact text is sent unchanged");

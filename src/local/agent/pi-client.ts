@@ -583,15 +583,27 @@ export class PiConversationClient extends EventEmitter {
   }
 
   /** A bounded, settled copy of the thinking and tool trail shown for this turn. */
-  getTurnWorkTrail(): PiTurnWorkTrailEntry[] {
+  getTurnWorkTrail(options: { interrupted?: boolean } = {}): PiTurnWorkTrailEntry[] {
+    // In an interrupted turn a tool still running did not complete: it settles
+    // as an error that says so, because its effect on files or apps may be
+    // partial. Saved phases stay within the portable transcript's values.
     return [...this.turnWorkTrail.values()]
       .filter((entry) => entry.kind === "tool" || entry.text.trim().length > 0 || (entry.durationMs ?? 0) > 0)
       .slice(0, 64)
-      .map((entry) => ({
-        ...entry,
-        ...(entry.edit ? { edit: { ...entry.edit } } : {}),
-        phase: entry.phase === "error" ? "error" : "complete",
-      }));
+      .map((entry) => {
+        const stopped = options.interrupted === true && unsettledTool(entry);
+        return {
+          ...entry,
+          ...(entry.edit ? { edit: { ...entry.edit } } : {}),
+          ...(stopped ? { text: `${humanize(entry.toolName ?? "Assistant tool")} was stopped before it finished; its effect may be incomplete` } : {}),
+          phase: entry.phase === "error" || stopped ? "error" : "complete",
+        };
+      });
+  }
+
+  /** Tools that had started but not finished: an interrupted turn may have left their effects partial. */
+  getUnsettledToolLabels(): string[] {
+    return [...this.turnWorkTrail.values()].filter(unsettledTool).map((entry) => humanize(entry.toolName ?? "Assistant tool"));
   }
 
   /** Text boundaries only; a stopped or incomplete native response has no final segment. */
@@ -1928,6 +1940,11 @@ function summarizeToolValue(value: unknown): string {
 
 function humanize(value: string): string {
   return value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/** A tool call that started executing and had not reported a result. */
+function unsettledTool(entry: PiTurnWorkTrailEntry): boolean {
+  return entry.kind === "tool" && (entry.phase === "running" || entry.phase === "streaming");
 }
 
 function compactText(value: string): string {

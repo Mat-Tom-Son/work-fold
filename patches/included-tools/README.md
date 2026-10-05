@@ -84,6 +84,60 @@ invalid seals, cancellation and inspection failures without a helper restart.
 Packaged checks pin the verifier and caller
 bytes to this manifest.
 
+The Windows client patch keeps the upstream JSON-lines stdio protocol and adds
+host ownership. With `PI_COMPUTER_USE_NO_RUNTIME_INSTALL=1` it never re-enters
+`process.execPath` with `ELECTRON_RUN_AS_NODE` (packaged work-fold disables that
+fuse); a missing helper is an error instead. With
+`PI_COMPUTER_USE_HOST_OWNED_HELPER=1`, ending one session no longer kills the
+helper shared by every Chat. The child starts hidden and its stderr is drained
+and bounded. A `launch: false` command only reaches a live helper, so readiness
+checks cannot start one. Cancelled or timed-out reads are abandoned. A
+dispatched `act`, `actBatch`, `focusWindow` or `openBrowserLocation` is
+cancelled in the helper: a `cancel` command, answered on the helper's reader
+thread so it never queues behind the busy worker, sets that request's flag,
+and typing and batches stop before their next keystroke or action with an
+`interrupted` error saying how far they got. The client waits for that reply
+(at most two seconds) and fails as `interrupted_unknown` with the helper's
+account, as the macOS transport does. A drag is never cut mid-path, so the
+mouse button is always released. A helper exit or host disposal makes pending effects
+uncertain, and responses are bounded to 16 MiB. Every Windows Rust build input
+is pinned by digest, so a changed upstream crate fails preparation before
+reaching cargo; unpatched files have equal before/after digests, and only the
+`input.rs` and `window.rs` changes below alter the crate. The embedded
+isolation check orders its two configuration sessions with an explicit gate
+rather than 5 and 10 ms timers, which Windows' coarse timer resolution can fire
+in the same tick under load.
+
+The Windows helper's `send_text` is patched because Windows 11 Notepad
+(WinUI/TSF) garbled injected text in UAT: one burst of Unicode packets
+dropped characters and typed later ones in their place, and U+000A was not
+a line break. Text is now typed like a keyboard, one stroke per SendInput
+call: characters the foreground window's layout produces with at most Shift
+are real key presses (Caps Lock and dead keys respected), Enter and Tab are
+real keys, and only other characters are Unicode packets, isolated by 120 ms
+on both sides. Keys are 40 ms apart, 150 ms after Enter or Tab, and Shift is
+held 15 ms around its key. These values were measured against Notepad,
+where 10 ms lost keys and case. `vk_for` no longer maps punctuation to the
+virtual key with the same code ("." was VK_DELETE); it uses the layout and
+refuses a key that needs Shift or AltGr.
+
+The helper's foregrounding in `window.rs` is patched because Windows UAT
+refused physical input with "Windows refused to foreground the target". The
+helper is a background child of work-fold, so the foreground lock refuses its
+plain `SetForegroundWindow` once another window has had input. A freshly
+started helper's first request still succeeded in testing, which hid this in
+short runs. A minimized target is restored first. When a plain request does
+not take, the worker thread joins the current foreground thread's input with
+`AttachThreadInput`, calls `BringWindowToTop` and `SetForegroundWindow`, and a
+drop guard detaches on every path. No Alt keypress is injected, because it can
+open the target's menu bar. Success is still only `GetForegroundWindow()`
+returning the target; otherwise the existing error is returned and no input is
+sent. `focusWindow` uses the same path and reports `focused` from that
+observation instead of the API's advisory return. Live check: a Notepad tab
+behind File Explorer that had fresh input, two acts in one helper session. The
+previous helper refused the second act and typed nothing; the patched helper
+typed both, including when Notepad had been minimized.
+
 ## MCP 2.33.0
 
 The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.

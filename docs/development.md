@@ -22,7 +22,10 @@ model credentials, Apple signing credentials, and Railway access are separate.
 The browser preview cannot prove native dialogs, secure storage, preloads, or
 restricted-app WebContentsView behavior. Use the native lane for those changes.
 `desktop:prepare` alone builds and runs automated probes; it does not launch the
-normal interactive app or create an installer.
+normal interactive app or create an installer. Native helpers are built from
+source in that step: macOS needs the Xcode Command Line Tools and Windows needs
+[rustup](https://rustup.rs/) with the stable MSVC toolchain for the Computer
+Control helper (see [Windows build](windows-build.md#local-windows-port)).
 
 ## Development state and model access
 

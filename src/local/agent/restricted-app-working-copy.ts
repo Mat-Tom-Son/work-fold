@@ -38,7 +38,9 @@ export async function materializeRestrictedAppWorkingCopy(
       if (inspected.digest !== change.baseDigest) throw new Error("The app working copy does not match its installed revision.");
       for (const directory of [...directories].sort((a, b) => b.length - a.length)) await syncDirectory(directory);
       // Destination is an unpredictable, receipt-owned UUID path. Never merge into an existing folder.
-      await mkdir(destination);
+      // Windows already refuses a directory rename if the destination exists.
+      // POSIX needs an exclusive empty-directory claim before replacing it.
+      if (process.platform !== "win32") await mkdir(destination);
       await rename(temporary, destination);
       temporary = undefined;
       created = true;

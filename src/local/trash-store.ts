@@ -77,6 +77,7 @@ import {
   type RestrictedAppDataBackup,
   type RestrictedAppStorageOwner,
 } from "./agent/restricted-app-storage.js";
+import { ensurePrivateDirectory } from "./private-access.js";
 
 export const WORKFOLD_TRASH_DEFAULT_RETENTION_DAYS = workFoldTrashDefaultRetentionDays;
 export const WORKFOLD_TRASH_MIN_RETENTION_DAYS = workFoldTrashMinRetentionDays;
@@ -340,7 +341,7 @@ export class WorkFoldTrashStore {
     const rootPath = resolve(options.rootPath);
     const defaultRetentionDays = options.defaultRetentionDays ?? WORKFOLD_TRASH_DEFAULT_RETENTION_DAYS;
     assertRetentionDays(defaultRetentionDays);
-    await mkdir(rootPath, { recursive: true, mode: 0o700 });
+    await ensurePrivateDirectory(rootPath);
     await mkdir(join(rootPath, "entries"), { recursive: true, mode: 0o700 });
     await mkdir(join(rootPath, "incoming"), { recursive: true, mode: 0o700 });
     const settings = await loadSettings(join(rootPath, "settings.json"), defaultRetentionDays);
