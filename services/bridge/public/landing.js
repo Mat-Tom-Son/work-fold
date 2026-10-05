@@ -4,8 +4,8 @@
 const source = "https://github.com/Mat-Tom-Son/work-fold";
 const chromeExtension = "https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk";
 const macDownload = "/download/macos";
-// Replace with the Windows installer URL once it is supplied.
-const windowsDownload = "/download/windows";
+const windowsDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/download/windows-test-0.4.50/work-fold-Setup-0.4.50.exe";
+const linuxDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.4.52";
 
 // Each workflow is a work-folder; its colors are the folder's own colors in the app.
 const folders = [
@@ -78,10 +78,12 @@ function appWindow(item) {
   </figure>`;
 }
 
-// The four supplied icons, verbatim, as one sprite so each id appears once.
+// The supplied icons, verbatim, as one sprite so each id appears once.
 const sprite = `<svg class="landing-sprite" aria-hidden="true" focusable="false">
   <symbol id="landing-icon-apple" viewBox="0 0 1024 1024"><path fill="currentColor" d="M747.4 535.7c-.4-68.2 30.5-119.6 92.9-157.5c-34.9-50-87.7-77.5-157.3-82.8c-65.9-5.2-138 38.4-164.4 38.4c-27.9 0-91.7-36.6-141.9-36.6C273.1 298.8 163 379.8 163 544.6c0 48.7 8.9 99 26.7 150.8c23.8 68.2 109.6 235.3 199.1 232.6c46.8-1.1 79.9-33.2 140.8-33.2c59.1 0 89.7 33.2 141.9 33.2c90.3-1.3 167.9-153.2 190.5-221.6c-121.1-57.1-114.6-167.2-114.6-170.7m-105.1-305c50.7-60.2 46.1-115 44.6-134.7c-44.8 2.6-96.6 30.5-126.1 64.8c-32.5 36.8-51.6 82.3-47.5 133.6c48.4 3.7 92.6-21.2 129-63.7" /></symbol>
   <symbol id="landing-icon-windows" viewBox="0 0 12 12"><path fill="currentColor" d="M6 6h5V1H6Zm-6 6h5V7H0Zm0-6h5V1H0Zm6 6h5V7H6Zm0 0" /></symbol>
+  <symbol id="landing-icon-linux" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M8 6a4 4 0 0 1 8 0v1c0 1.214.502 2.267 1.166 3.354c.124.203.274.438.427.678c.207.325.42.66.588.944c.32.541.629 1.14.79 1.781a7 7 0 0 1 .192 1.358a2 2 0 0 0-1.93-.516l-.566.151l-.582-.336a2 2 0 0 0-2.996 1.613l-.238 3.965c-.021.345.022.684.121 1.003a7 7 0 0 1-.269.005h-.406q-.114 0-.226-.004c.22-.71.152-1.492-.214-2.167l-1.891-3.493a2 2 0 0 0-3.397-.195l-.385.55l-.33.058a5.4 5.4 0 0 1 .024-1.16c.037-.285.086-.567.152-.832c.254-1.018.739-1.83 1.125-2.477q.09-.147.169-.284C7.74 10.28 8 9.723 8 9zm3.597 1.664a1.5 1.5 0 0 0-1.035.114l-.822.41c.224.597.572 1.156.897 1.6c.176.24.341.441.47.588l.105-.059c.271-.154.642-.376 1.04-.646c.603-.412 1.224-.91 1.661-1.427z" clip-rule="evenodd" />
+	<path fill="currentColor" d="M18.716 16.271a1 1 0 0 0-1.225-.707l-.966.259l-.94-.543a1 1 0 0 0-1.498.806l-.238 3.965a1.809 1.809 0 0 0 2.802 1.618l3.315-2.188a1 1 0 0 0-.051-1.7l-.94-.544zM4.97 17.936a1 1 0 0 1 .81-1.159l.985-.173l.623-.89a1 1 0 0 1 1.698.098l1.892 3.493a1.809 1.809 0 0 1-1.856 2.65l-3.93-.582a1 1 0 0 1-.672-1.563l.623-.89z" /></symbol>
   <symbol id="landing-icon-chrome" viewBox="0 0 1024 1024"><path fill="currentColor" d="M371.8 512c0 77.5 62.7 140.2 140.2 140.2S652.2 589.5 652.2 512S589.5 371.8 512 371.8S371.8 434.4 371.8 512M900 362.4l-234.3 12.1c63.6 74.3 64.6 181.5 11.1 263.7l-188 289.2c78 4.2 158.4-12.9 231.2-55.2c180-104 253-322.1 180-509.8M320.3 591.9L163.8 284.1A415.35 415.35 0 0 0 96 512c0 208 152.3 380.3 351.4 410.8l106.9-209.4c-96.6 18.2-189.9-34.8-234-121.5m218.5-285.5l344.4 18.1C848 254.7 792.6 194 719.8 151.7C653.9 113.6 581.5 95.5 510.5 96c-122.5.5-242.2 55.2-322.1 154.5l128.2 196.9c32-91.9 124.8-146.7 222.2-141" /></symbol>
   <symbol id="landing-icon-github" viewBox="0 0 24 24"><g fill="none"><g clip-path="url(#landing-icon-github-clip)"><path fill="currentColor" fill-rule="evenodd" d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385c.6.105.825-.255.825-.57c0-.285-.015-1.23-.015-2.235c-3.015.555-3.795-.735-4.035-1.41c-.135-.345-.72-1.41-1.23-1.695c-.42-.225-1.02-.78-.015-.795c.945-.015 1.62.87 1.845 1.23c1.08 1.815 2.805 1.305 3.495.99c.105-.78.42-1.305.765-1.605c-2.67-.3-5.46-1.335-5.46-5.925c0-1.305.465-2.385 1.23-3.225c-.12-.3-.54-1.53.12-3.18c0 0 1.005-.315 3.3 1.23c.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23c.66 1.65.24 2.88.12 3.18c.765.84 1.23 1.905 1.23 3.225c0 4.605-2.805 5.625-5.475 5.925c.435.375.81 1.095.81 2.22c0 1.605-.015 2.895-.015 3.3c0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12" clip-rule="evenodd" /></g><defs><clipPath id="landing-icon-github-clip"><path fill="#fff" d="M0 0h24v24H0z" /></clipPath></defs></g></symbol>
 </svg>`;
@@ -115,9 +117,13 @@ function folder(item, index, { eager = false } = {}) {
   </article>`;
 }
 
-const downloads = `<div class="landing-downloads">
-  <a class="landing-download" href="${macDownload}">${icon("apple")}<span>Download for Mac</span></a>
-  <a class="landing-download" href="${windowsDownload}">${icon("windows")}<span>Download for Windows</span></a>
+const downloads = `<div class="landing-download-group" role="group" aria-label="Download work-fold">
+  <p class="landing-download-label">Download</p>
+  <div class="landing-downloads">
+    <a class="landing-download" href="${macDownload}" aria-label="Download for Mac">${icon("apple")}<span>Mac</span></a>
+    <a class="landing-download" href="${windowsDownload}" aria-label="Download for Windows">${icon("windows")}<span>Windows</span></a>
+    <a class="landing-download" href="${linuxDownload}" aria-label="Download for Linux">${icon("linux")}<span>Linux</span></a>
+  </div>
 </div>`;
 
 const browser = (shot, kind) => `<figure class="landing-browser landing-browser-${kind}">

@@ -42,10 +42,11 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .landing-skip { position: fixed; top: -100px; left: 16px; z-index: 30; padding: 10px 16px; border-radius: 8px; background: var(--text); color: var(--ink) !important; text-decoration: none; font-size: 14px; }
 .landing-skip:focus { top: 12px; }
 
-/* Icons: one box per glyph, sized so the four marks read at the same optical weight. */
+/* Icons: one box per glyph, sized so the marks read at the same optical weight. */
 .landing-icon { flex: none; display: block; width: 18px; height: 18px; }
 .landing-icon-apple { width: 19px; height: 19px; margin-top: -2px; }
 .landing-icon-windows { width: 15px; height: 15px; }
+.landing-icon-linux { width: 19px; height: 19px; }
 .landing-icon-chrome { width: 19px; height: 19px; }
 .landing-icon-github { width: 17px; height: 17px; }
 
@@ -69,8 +70,10 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .landing-shell h1 { font-family: "Poppins", "Inter Variable", system-ui, sans-serif; font-size: clamp(42px, 4.5vw, 64px); font-weight: 600; line-height: 1.04; letter-spacing: -.045em; }
 .landing-shell h1 span { display: inline-block; }
 .landing-lede { max-width: 30em; margin-top: 22px !important; color: var(--text-2); font-size: clamp(17px, 1.45vw, 20px); line-height: 1.5; letter-spacing: -.008em; text-wrap: pretty; }
-.landing-downloads { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 12px; }
-.landing-download { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: 222px; height: 50px; padding: 0 22px; border-radius: 12px; background: var(--text); color: var(--ink) !important; font-size: 15px; font-weight: 600; letter-spacing: -.005em; text-decoration: none; transition: background-color 160ms; }
+.landing-download-group { max-width: 440px; margin-top: 28px; }
+.landing-download-label { color: var(--text-2); font-size: 14px; font-weight: 500; }
+.landing-downloads { margin-top: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.landing-download { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: 50px; padding: 0 8px; border-radius: 12px; background: var(--text); color: var(--ink) !important; font-size: 15px; font-weight: 600; letter-spacing: -.005em; text-decoration: none; white-space: nowrap; transition: background-color 160ms; }
 .landing-download:hover { background: #fff; }
 .landing-note { margin-top: 16px !important; display: flex; flex-wrap: wrap; gap: 2px 0; color: var(--muted); font-size: 13px; }
 .landing-note span + span::before { content: "·"; margin: 0 10px; opacity: .7; }
@@ -201,8 +204,6 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .motion-ok .landing-hero { min-height: 100svh; display: flex; align-items: center; padding: var(--nav) 0 0; }
   .motion-ok .landing-hero-copy { width: min(500px, 37vw); margin-left: max(var(--gutter), calc((100% - 1200px) / 2)); }
   .motion-ok .landing-hero .landing-lede { font-size: clamp(16px, 1.3vw, 19px); }
-  .motion-ok .landing-hero .landing-downloads { gap: 10px; }
-  .motion-ok .landing-hero .landing-download { min-width: 0; padding: 0 18px; }
   .motion-ok .landing-stack .landing-folder-research .landing-folder-inner { transform-origin: 0 0; transform: translate3d(var(--tx, 0), var(--ty, 0), 0) scale(var(--sc, 1)); }
   /* Native timelines keep the scroll compensation and reveal on the same
      compositor frame. A linear translate cancels the folder's natural scroll
@@ -325,8 +326,6 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .landing-links .landing-icon-github { width: 19px; height: 19px; }
   .landing-links .landing-nav-download { margin-left: 4px; padding: 0 12px; }
   .landing-hero { padding-top: calc(var(--nav) + 28px); }
-  .landing-downloads { flex-direction: column; align-items: stretch; max-width: 380px; }
-  .landing-download { min-width: 0; }
   .landing-tab { min-width: 0; height: var(--tab); padding: 0 14px; font-size: 13px; border-radius: 10px 10px 0 0; }
   .landing-folder-body { border-radius: 0 12px 12px 12px; }
   .landing-folder-bar { height: auto; min-height: 48px; padding: 10px 2px 10px 4px; }
@@ -348,5 +347,6 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 }
 
 @media (max-width: 380px) {
+  .landing-download { flex-direction: column; height: 66px; gap: 4px; font-size: 14px; }
   .landing-route-lead { display: none; }
 }
