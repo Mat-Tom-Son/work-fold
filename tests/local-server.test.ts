@@ -1254,6 +1254,9 @@ test("Folder Chats delete only into Recently deleted, refuse while work is outst
     // A Chat whose Folder is gone has nowhere to go back to.
     const orphanId = await addChat(space.spaceRoot, "Orphaned notes");
     const orphan = await json(chatUrl(orphanId), { method: "DELETE" }) as { deleted: { trash: { entryId: string } } };
+    const folderWhileWaiting = await fetch(`${api.origin}/api/spaces/${space.id}`, { method: "DELETE" });
+    assert.equal(folderWhileWaiting.status, 409, "the earlier waiting Chat still owns unfinished work in this Folder");
+    await api.actFacade.manageStop({ taskId: sent.taskId });
     await ok(`${api.origin}/api/spaces/${space.id}`, { method: "DELETE" });
     const orphanEntry = (await api.actFacade.trashList()).entries.find((item) => item.id === orphan.deleted.trash.entryId);
     assert.equal(orphanEntry?.restorable, "blocked");

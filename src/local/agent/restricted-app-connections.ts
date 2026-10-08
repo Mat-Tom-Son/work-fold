@@ -1,5 +1,5 @@
 import { lookup } from "node:dns/promises";
-import { request as httpRequest } from "node:http";
+import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList } from "node:net";
 import { Readable } from "node:stream";
@@ -593,17 +593,7 @@ function httpsRequestToAddress(
       headers: Object.fromEntries(headers),
       signal: init.signal ?? undefined,
     }, (incoming) => {
-      const responseHeaders = new Headers();
-      for (const [name, value] of Object.entries(incoming.headers)) {
-        if (Array.isArray(value)) for (const item of value) responseHeaders.append(name, item);
-        else if (value !== undefined) responseHeaders.set(name, value);
-      }
-      const stream = Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
-      resolvePromise(new Response(stream, {
-        status: incoming.statusCode ?? 502,
-        statusText: incoming.statusMessage,
-        headers: responseHeaders,
-      }));
+      settleIncomingResponse(incoming, resolvePromise, reject);
     });
     request.once("error", reject);
     if (typeof init.body === "string") request.end(init.body);
@@ -633,22 +623,35 @@ function pinnedLoopbackFetch(
       headers: Object.fromEntries(headers),
       signal: init.signal ?? undefined,
     }, (incoming) => {
-      const responseHeaders = new Headers();
-      for (const [name, value] of Object.entries(incoming.headers)) {
-        if (Array.isArray(value)) for (const item of value) responseHeaders.append(name, item);
-        else if (value !== undefined) responseHeaders.set(name, value);
-      }
-      const stream = Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
-      resolvePromise(new Response(stream, {
-        status: incoming.statusCode ?? 502,
-        statusText: incoming.statusMessage,
-        headers: responseHeaders,
-      }));
+      settleIncomingResponse(incoming, resolvePromise, reject);
     });
     request.once("error", reject);
     if (typeof init.body === "string") request.end(init.body);
     else request.end();
   });
+}
+
+function settleIncomingResponse(
+  incoming: IncomingMessage,
+  resolveResponse: (response: Response) => void,
+  rejectResponse: (error: unknown) => void,
+): void {
+  try {
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(incoming.headers)) {
+      if (Array.isArray(value)) for (const item of value) headers.append(name, item);
+      else if (value !== undefined) headers.set(name, value);
+    }
+    const status = incoming.statusCode ?? 502;
+    const nullBody = status === 204 || status === 205 || status === 304;
+    const body = nullBody ? null : Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
+    const response = new Response(body, { status, statusText: incoming.statusMessage, headers });
+    if (nullBody) incoming.destroy();
+    resolveResponse(response);
+  } catch (error) {
+    incoming.destroy();
+    rejectResponse(error);
+  }
 }
 
 function strictObject(value: unknown, label: string, allowedKeys?: string[], maximumKeys = allowedKeys?.length ?? 64): Record<string, unknown> {

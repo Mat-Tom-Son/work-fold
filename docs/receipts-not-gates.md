@@ -97,6 +97,19 @@ Narrowed earlier decisions:
 
 ### Trash
 
+2026-10-08 settlement and recovery amendment: F20's unconditional recovery
+coverage does not override a busy-work conflict. File deletion and work-folder
+removal refuse while affected work is running, waiting on an answer, or still
+draining after Stop; no second approval step is added. A managed parent with
+nested registrations also refuses until those registrations are removed.
+
+A deleted work-folder's machine-local History travels with its folder into
+Recently deleted. If the process stops between those moves or before the
+manifest's final write, recovery reconstructs the carried-state marker or
+finishes moving the remaining History before clearing the removal intent.
+Missing, damaged, or ambiguous destinations keep the state instead of erasing
+it; competing History copies are never merged or replaced.
+
 - New machine-local store under the state root (`trash/`), with a manifest
   per entry: source Space id, original Space-relative path or folder, kind
   (file, folder, space, app-storage, app-retained), size, deleted-at,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,9 +9,11 @@ import { normalizeWorkFoldRoutingDeclaration, workFoldRoutingDigest } from "../s
 import { existsSync } from "node:fs";
 import { appendMessage } from "../src/local/agent/chat-store.js";
 import { WorkFoldTurnStore } from "../src/local/agent/turn-store.js";
+import { PiConversationClient } from "../src/local/agent/pi-client.js";
 import { WorkFoldCliError } from "../src/local/cli/index.js";
 import { WorkFoldRequestStore } from "../src/local/requests/request-store.js";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
+import { listSpaceCheckpoints } from "../src/local/history.js";
 import { workFoldManagementScopeId } from "../src/local/state-paths.js";
 
 /**
@@ -48,6 +50,7 @@ async function collaborationHarness(t: { after: (fn: () => unknown) => void }) {
   const stateBase = join(sandbox, "state");
   const held = new Set<string>();
   const pending: HeldTurn[] = [];
+  const failTasks = new Set<string>();
   // Once a test tears down, no turn is held any more: a continuation the
   // host accepted a moment ago may reach the gate only after the last
   // release, and a held turn would keep `close()` waiting forever.
@@ -63,6 +66,7 @@ async function collaborationHarness(t: { after: (fn: () => unknown) => void }) {
       beforeAgentPrompt: async (event) => {
         if (draining || !held.has(event.spaceId)) return;
         await new Promise<void>((release) => pending.push({ taskId: event.taskId, spaceId: event.spaceId, spaceTurn: event.spaceTurn, release }));
+        if (failTasks.has(event.taskId)) throw new Error("Synthetic failed answer continuation");
       },
       ...overrides,
     });
@@ -76,7 +80,7 @@ async function collaborationHarness(t: { after: (fn: () => unknown) => void }) {
     draining = true;
     for (const turn of pending.splice(0)) turn.release();
   };
-  return { sandbox, stateBase, held, pending, open, release, releaseAll };
+  return { sandbox, stateBase, held, pending, failTasks, open, release, releaseAll };
 }
 
 async function settled(api: LocalApiHandle, spaceId: string, taskId: string): Promise<void> {
@@ -102,6 +106,148 @@ async function spaceMessages(api: LocalApiHandle, spaceId: string, conversationI
 
 const conflict = (pattern: RegExp) => (error: unknown): boolean =>
   error instanceof WorkFoldCliError && error.code === "conflict" && pattern.test(error.message);
+
+for (const fails of [true, false]) {
+  test(`parent delivery uses the latest answer turn when it ${fails ? "fails" : "finishes without a report"}`, async (t) => {
+    const h = await collaborationHarness(t);
+    const api = await h.open();
+    h.held.add(workFoldManagementScopeId);
+    try {
+      const { space } = await api.actFacade.createSpace({ name: "Reviewer" });
+      h.held.add(space.id);
+      const root = await api.actFacade.manageSend({ content: "/hold" });
+      const child = await api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+      await writeFile(join(space.spaceRoot, "old.txt"), "Old deliverable\n");
+      await api.actFacade.chatReport({ space: space.id, taskId: child.taskId, summary: "STALE SUCCESS REPORT", outcome: "succeeded", files: ["old.txt"] });
+      const asked = await api.actFacade.chatAsk({ space: space.id, taskId: child.taskId, question: "Which quarter?", respondent: "person" });
+      await h.release(child.taskId);
+      await settled(api, space.id, child.taskId);
+      const answer = await api.actFacade.chatAnswer({ space: space.id, questionId: asked.question.questionId, answer: "/hold" });
+      if (fails) h.failTasks.add(answer.continuation.taskId);
+      await h.release(answer.continuation.taskId);
+      await settled(api, space.id, answer.continuation.taskId);
+      assert.equal(api.requests.byTaskId(child.taskId)!.state, fails ? "failed" : "done");
+      await h.release(root.taskId);
+      await settled(api, workFoldManagementScopeId, root.taskId);
+      const requestId = api.requests.byTaskId(root.taskId)!.requestId;
+      await waitFor(async () => api.requests.get(requestId)!.turns.length === 2);
+      const delivered = api.requests.get(requestId)!;
+      assert.match(delivered.content, fails ? /failed: The Assistant couldn’t complete this request/ : /finished without a report/);
+      assert.doesNotMatch(delivered.content, /STALE SUCCESS REPORT|old\.txt/);
+      assert.deepEqual(delivered.deliveredChildTaskIds, [answer.continuation.taskId]);
+      assert.equal(api.requests.byTaskId(child.taskId)!.results.length, 1, "the earlier report remains historical");
+    } finally {
+      h.releaseAll();
+      await api.close();
+    }
+  });
+}
+
+for (const lane of ["act", "http", "failed-act"] as const) {
+  test(`a child settled during ${lane} compaction is delivered once after the Chat is released`, async (t) => {
+    const h = await collaborationHarness(t);
+    const api = await h.open();
+    const originalCompact = PiConversationClient.prototype.compact;
+    let releaseCompact: (() => void) | undefined;
+    let compactStarted: () => void;
+    const started = new Promise<void>((resolve) => { compactStarted = resolve; });
+    PiConversationClient.prototype.compact = async () => {
+      compactStarted();
+      await new Promise<void>((resolve) => { releaseCompact = resolve; });
+      if (lane === "failed-act") throw new Error("Synthetic compaction failure");
+    };
+    try {
+      const { space: parentSpace } = await api.actFacade.createSpace({ name: "Coordinator" });
+      const { space: childSpace } = await api.actFacade.createSpace({ name: "Child" });
+      h.held.add(parentSpace.id);
+      h.held.add(childSpace.id);
+      const parent = await api.actFacade.sendMessage({ space: parentSpace.id, newConversation: true, content: "/hold" });
+      const child = await api.actFacade.chatHandoff({ space: parentSpace.id, taskId: parent.taskId, toSpace: childSpace.id, message: "/hold", files: [] });
+      await api.actFacade.chatReport({ space: childSpace.id, taskId: child.taskId, summary: "Fresh fact for the coordinator", outcome: "succeeded", files: [] });
+      await h.release(parent.taskId);
+      await settled(api, parentSpace.id, parent.taskId);
+      const compact = lane === "http"
+        ? fetch(`${api.origin}/api/spaces/${parentSpace.id}/conversations/${parent.conversationId}/compact`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then((response) => assert.equal(response.status, 200))
+        : api.actFacade.chatCompact({ space: parentSpace.id, conversationId: parent.conversationId }).then(
+          () => assert.notEqual(lane, "failed-act"),
+          (error) => { assert.equal(lane, "failed-act"); assert.match(String(error), /Synthetic compaction failure/); },
+        );
+      await started;
+      await h.release(child.taskId);
+      await settled(api, childSpace.id, child.taskId);
+      const requestId = api.requests.byTaskId(parent.taskId)!.requestId;
+      assert.equal(api.requests.get(requestId)!.turns.length, 1, "compaction still holds the Chat");
+      releaseCompact!();
+      await compact;
+      await waitFor(async () => api.requests.get(requestId)!.turns.length === 2);
+      const continuation = api.requests.get(requestId)!;
+      assert.deepEqual(continuation.deliveredChildTaskIds, [child.taskId]);
+      assert.match(continuation.content, /succeeded: Fresh fact for the coordinator/);
+      await h.release(continuation.turns.at(-1)!.taskId);
+      await settled(api, parentSpace.id, continuation.turns.at(-1)!.taskId);
+      assert.equal(api.requests.get(requestId)!.turns.length, 2);
+    } finally {
+      releaseCompact?.();
+      PiConversationClient.prototype.compact = originalCompact;
+      h.releaseAll();
+      await api.close();
+    }
+  });
+}
+
+test("file and work-folder deletion refuse running, waiting, and stopped-but-draining work until it settles", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const { space } = await api.actFacade.createSpace({ name: "Busy folder" });
+    h.held.add(space.id);
+    await writeFile(join(space.spaceRoot, "keep.txt"), "Keep this until settled\n");
+    const assertRefused = async () => {
+      const checkpoints = JSON.stringify(await listSpaceCheckpoints(space.spaceRoot));
+      for (const [path, body] of [
+        [`/api/spaces/${space.id}/local-file`, { path: "keep.txt" }],
+        [`/api/spaces/${space.id}`, undefined],
+      ] as const) {
+        const response = await fetch(`${api.origin}${path}`, { method: "DELETE", ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
+        assert.equal(response.status, 409, await response.text());
+      }
+      await assert.rejects(() => api.actFacade.filesDelete({ space: space.id, path: "keep.txt" }), conflict(/finish|stop|work/i));
+      assert.equal(await readFile(join(space.spaceRoot, "keep.txt"), "utf8"), "Keep this until settled\n");
+      assert.equal(JSON.stringify(await listSpaceCheckpoints(space.spaceRoot)), checkpoints, "refusal leaves no checkpoint");
+      assert.equal((await api.trash.list()).entries.length, 0);
+    };
+    const first = await api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold" });
+    await waitFor(async () => h.pending.some((turn) => turn.taskId === first.taskId));
+    await assertRefused();
+    // Busy work in this folder does not block deletion in another folder.
+    const { space: other } = await api.actFacade.createSpace({ name: "Idle folder" });
+    await writeFile(join(other.spaceRoot, "remove.txt"), "Idle\n");
+    assert.equal((await api.actFacade.filesDelete({ space: other.id, path: "remove.txt" })).deleted, true);
+    // Remove the unrelated recovery reference from the assertions below.
+    const trashBefore = (await api.trash.list()).entries.length;
+    assert.equal(trashBefore, 0, "ordinary small files are covered by History");
+    const question = await api.actFacade.chatAsk({ space: space.id, taskId: first.taskId, question: "Which draft?", respondent: "person" });
+    await h.release(first.taskId);
+    await settled(api, space.id, first.taskId);
+    assert.equal(api.requests.byTaskId(first.taskId)!.state, "waiting");
+    await assertRefused();
+    const answer = await api.actFacade.chatAnswer({ space: space.id, questionId: question.question.questionId, answer: "/hold" });
+    await waitFor(async () => h.pending.some((turn) => turn.taskId === answer.continuation.taskId));
+    const stopped = await fetch(`${api.origin}/api/spaces/${space.id}/conversations/${first.conversationId}/abort`, { method: "POST" });
+    assert.equal(stopped.status, 200);
+    assert.equal(api.requests.byTaskId(first.taskId)!.state, "stopped");
+    await assertRefused();
+    await h.release(answer.continuation.taskId);
+    await settled(api, space.id, answer.continuation.taskId);
+    assert.equal((await api.actFacade.filesDelete({ space: space.id, path: "keep.txt" })).deleted, true);
+    const removed = await fetch(`${api.origin}/api/spaces/${space.id}`, { method: "DELETE" });
+    assert.equal(removed.status, 200, await removed.text());
+    assert.equal(existsSync(space.spaceRoot), false);
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
 
 test("chat ask puts the task in waiting without suspending its turn, and chat answer continues it exactly once and brings the result back to the fold", async (t) => {
   const h = await collaborationHarness(t);

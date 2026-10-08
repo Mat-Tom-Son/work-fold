@@ -95,6 +95,9 @@ delivery returns that original acceptance rather than running the Worker twice.
 The live event stream carries resumable cursors and an authoritative
 running/text snapshot, so sleep, renderer reload, and short local-service
 disconnects reconcile without losing or duplicating the visible response.
+When a settled turn's transcript read fails, the Chat retains its reply and
+steps while retrying transient failures. It shows the Worker as idle; only a
+successful read for the same conversation and turn replaces the preview.
 
 Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. The selected Folder's active Chats lead the list, followed by the Folders nested inside it, each indented under it with its own Chats; every other registered Folder appears below as a compact, collapsed group, including a zero count when it has no active Chats. Snoozed and Archived are closed rows at the bottom of the list, each listing those Chats across every Folder with the Folder's name and time (2026-10-01; earlier the three views were tabs). Aggregate activity remains visible, and search covers active, snoozed, and archived Chats alike and may expand those groups to expose results. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.work-fold/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its Assistant turn or compaction is active. A Folder Chat can also be deleted: its transcript moves to Recently deleted and can be restored from there, and the delete refuses while the Chat has a running turn or unfinished request work.
 
@@ -119,7 +122,15 @@ The work-fold agent's menu-bar chat history offers **Rename** and **Delete** in
 each chat's actions. The paired web chat offers those actions beside its title.
 Deleting an idle chat moves its transcript to **Recently deleted**; restoring it
 returns it to the chat list. Chats with outstanding work must be stopped or
-finished before deletion.
+finished before deletion, and stopped turns must finish draining first.
+
+File deletion and work-folder removal likewise refuse until the affected
+work-folder's requests and delegated work have settled or been stopped and
+drained. Running turns, compaction, Checks, app jobs with file access, and
+Automation file work hold the same backend reservation across deletion. A waiting question still
+counts as unfinished work. This applies to desktop and CLI calls, including a
+Worker deleting from its own running turn; a busy refusal must not be bypassed
+with raw filesystem tools.
 
 Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 
@@ -534,6 +545,10 @@ instead of expanding. Right-clicking a plain folder in Files offers **Make a
 work-folder** (with the menu-bar mark), which registers it as a nested Folder in place: no files move,
 and the click is that Folder's registration act. A folder that holds a nested
 Folder is not offered Rename or Delete.
+Parent writes, creates, uploads, and copies also stop at the registered
+child's root. Deleting a managed parent work-folder requires removing its
+nested registrations first, even when their Workers are idle. A pending
+managed deletion refuses new nested registrations before any folder move.
 History, Search, Checks, and routings already treated nested Folders as
 separately owned; the Files tree now agrees.
 

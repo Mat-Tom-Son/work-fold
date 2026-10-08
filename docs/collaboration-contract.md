@@ -118,6 +118,9 @@ record. Selected direct-child reports may be admitted into a new turn's hidden
 context; their delivery identities are recorded. Otherwise an idle owner can
 receive one synthesis turn. Children finishing before their parent
 ends are eligible too. Nested owners synthesize before their own parent wakes.
+When compaction holds an otherwise idle owner, both successful and failed
+compaction cleanup reevaluate its pending child deliveries. This releases
+only results settled during the current app run; restart never replays them.
 The same child turn is not delivered twice, and a continuation cannot wake
 itself. A reserved continuation that fails acceptance or is interrupted by
 restart is recorded as failed, without redispatch.
@@ -130,6 +133,16 @@ it cannot read the machine-wide request graph. The latest turn's latest
 report describes its outcome; old partial reports remain history rather than
 permanently preventing a later successful result. File paths belong to the
 reporting Space until explicitly copied.
+Synthesis selects that same latest-turn report and its files. An older
+success cannot describe a failed answer turn or a new turn with no report;
+failed, stopped, and partial request outcomes override an optimistic report.
+
+Deleting a Chat, a file, or a work-folder refuses while its affected request
+graph remains unfinished, including questions waiting for an answer and
+accepted continuations. Stop closes outstanding work but deletion waits for
+its accepted turns to drain. File and work-folder deletion also reserve the
+affected work-folder against new turns, compaction, Checks, app jobs with file
+access, and Automation file work until the deletion completes.
 
 An app receipt keeps its installation and authority pins while following the
 whole owned request. `waiting` is ongoing and has no final result. Stop reaches

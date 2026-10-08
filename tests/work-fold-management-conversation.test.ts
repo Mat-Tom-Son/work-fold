@@ -136,7 +136,8 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Setup stays with the person\./);
     assert.match(managementContext, /never gather, accept, or relay credentials/);
     // Reversible destruction reaches the file and Space verbs themselves.
-    assert.match(managementContext, /`files delete` always succeeds/);
+    assert.match(managementContext, /Deletion refuses until the affected work-folder's work has settled/);
+    assert.match(managementContext, /Never bypass that refusal with raw tools/);
     assert.match(managementContext, /moves its folder into Recently deleted/);
     // Apps come up able to work (F21) and are usable as tools (F22 lineage).
     assert.match(managementContext, /Space apps come up able to work\./);

@@ -1499,3 +1499,110 @@ test("a live watch streams sequenced progress events under its completion", asyn
   ]);
   assert.deepEqual(headers.map((header) => header?.sequence), [1, 2, 3, 4, 5, 6]);
 });
+
+test("a pending live watch lets Stop and another browser's reads execute immediately", async () => {
+  const browser = remoteTestBrowser("grant-watch-stop");
+  const other = remoteTestBrowser("grant-watch-other");
+  const settings = remoteTestSettings([browser, other]);
+  let finishWatch!: () => void;
+  const pendingWatch = new Promise<void>((resolve) => { finishWatch = resolve; });
+  const calls: string[] = [];
+  const fixture = remoteOperationClient(settings, {
+    async execute(operation) { calls.push(operation); return operation === "management.stop" ? { stopped: { managementAborted: true, children: [] } } : { spaces: [] }; },
+    async watch() { calls.push("watch-start"); await pendingWatch; calls.push("watch-end"); return { state: "settled", settled: true }; },
+    async purgeUploads() {},
+  });
+  try {
+    await fixture.client.start();
+    fixture.socket.open();
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "watch-stop", "management.watch", { conversationId: "chat" })));
+    await waitForRemoteTest(() => calls.includes("watch-start"), "the watch was not admitted");
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "stop-now", "management.stop", { taskId: "task" })));
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, other, "read-now")));
+    await waitForRemoteTest(() => calls.includes("management.stop") && calls.includes("spaces.list"), "the pending watch blocked Stop or another browser");
+    assert.equal(calls.includes("watch-end"), false);
+  } finally {
+    finishWatch();
+    fixture.client.stop();
+  }
+});
+
+for (const revocation of ["one", "all", "stop-tasks"] as const) test(`live watch ${revocation} revocation cancels promptly and suppresses late progress`, async () => {
+  const browser = remoteTestBrowser(`grant-watch-${revocation}`);
+  const settings = remoteTestSettings([browser]);
+  let finishWatch!: () => void;
+  const pendingWatch = new Promise<void>((resolve) => { finishWatch = resolve; });
+  let watchSignal: AbortSignal | undefined;
+  let lateProgress: ((progress: { assistantDelta: string }) => void) | undefined;
+  let stopped = false;
+  const fixture = remoteOperationClient(settings, {
+    async execute(operation) { assert.equal(operation, "management.stop"); stopped = true; return { stopped: { managementAborted: true, children: [] } }; },
+    async watch(_input, _principal, emit, signal) {
+      watchSignal = signal;
+      lateProgress = emit;
+      emit({ assistantDelta: "before revocation" });
+      // Even an older facade that ignores cancellation cannot retain the
+      // client subscription or send a late completion after revocation.
+      await pendingWatch;
+      emit({ assistantDelta: "private late text" });
+      return { state: "settled", settled: true };
+    },
+    async purgeUploads() {},
+  });
+  try {
+    await fixture.client.start();
+    fixture.socket.open();
+    fixture.client.rememberActiveTask(browser.grant.id, { taskId: "watched-task" }, { browserId: browser.grant.browserId, grantId: browser.grant.id, requestId: "send" });
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "watch-revoke", "management.watch", { conversationId: "chat" })));
+    await waitForRemoteTest(() => watchSignal !== undefined, "the watch was not started");
+    const revoked = revocation === "one" ? fixture.client.revokeLocalGrant(browser.grant.id)
+      : revocation === "all" ? fixture.client.revokeAllLocalGrants() : fixture.client.stopActiveRemoteTasks();
+    assert.equal(watchSignal?.aborted, true, "the revocation fence must abort the subscription synchronously");
+    await waitForRemoteTest(() => stopped, "revocation cleanup waited for the watch to settle");
+    await revoked;
+    const afterRevocation = fixture.socket.sent.length;
+    lateProgress?.({ assistantDelta: "private late text" });
+    finishWatch();
+    await flushAsyncHandlers();
+    await flushAsyncHandlers();
+    assert.equal(fixture.socket.sent.length, afterRevocation, "neither late text nor a stale completion may leave the desktop");
+  } finally {
+    finishWatch();
+    fixture.client.stop();
+  }
+});
+
+test("revoking another browser leaves an authorized live watch running", async () => {
+  const browser = remoteTestBrowser("grant-watch-valid");
+  const other = remoteTestBrowser("grant-watch-revoke-other");
+  const settings = remoteTestSettings([browser, other]);
+  let finishWatch!: () => void;
+  const pendingWatch = new Promise<void>((resolve) => { finishWatch = resolve; });
+  let watchSignal: AbortSignal | undefined;
+  const fixture = remoteOperationClient(settings, {
+    async execute() { throw new Error("unexpected operation"); },
+    async watch(_input, _principal, emit, signal) {
+      watchSignal = signal;
+      await pendingWatch;
+      emit({ assistantDelta: "still authorized" });
+      return { state: "settled", settled: true };
+    },
+    async purgeUploads() {},
+  });
+  try {
+    await fixture.client.start();
+    fixture.socket.open();
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "watch-valid", "management.watch", { conversationId: "chat" })));
+    await waitForRemoteTest(() => watchSignal !== undefined, "the watch was not started");
+    await fixture.client.revokeLocalGrant(other.grant.id);
+    assert.equal(watchSignal?.aborted, false);
+    finishWatch();
+    await waitForRemoteTest(() => fixture.socket.sent.some((raw) => {
+      const message = JSON.parse(raw) as { type?: string; envelope?: { header?: { requestId?: string } } };
+      return message.type === "operation.complete" && message.envelope?.header?.requestId === "watch-valid";
+    }), "revoking another browser suppressed the watch completion");
+  } finally {
+    finishWatch();
+    fixture.client.stop();
+  }
+});

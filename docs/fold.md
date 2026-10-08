@@ -139,6 +139,13 @@ their specification; F8 and F9 keep the narrowings that record relies on.
 
 ## One-sentence definitions
 
+2026-10-08 deletion amendment: F20 guarantees recovery coverage after a
+deletion can run; it does not override busy-work conflicts. Files, Chats,
+and work-folders cannot be deleted while their affected request work is
+unfinished or still draining after Stop. Managed parent deletion also
+requires removing nested registrations first. See [Trash recovery](receipts-not-gates.md#trash)
+for interruption-safe folder and History moves.
+
 - **The verb ledger:** every product verb is a receipted act-lane verb —
   explicit selection, journal-first receipt, at-most-once execution, desktop
   conflict rules — except the setup-only boundary.

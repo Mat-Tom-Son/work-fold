@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -12,7 +13,7 @@ import {
   type WorkFoldCliKernel,
 } from "../src/local/cli/index.js";
 import { startLocalApi } from "../src/local/server.js";
-import { scanSpaceTree } from "../src/local/space.js";
+import { listPendingSpaceRemovals, scanSpaceTree } from "../src/local/space.js";
 
 /**
  * Folders inside Folders on the host (2026-10-01): the CLI and routes the
@@ -68,6 +69,14 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
     });
     return { status: response.status, body: await response.json().catch(() => null) as Record<string, any> | null };
   };
+  const upload = async (path: string, targetFolderPath: string, files: Array<{ name: string; content: string; relativePath?: string }>) => {
+    const body = new FormData();
+    body.set("targetFolderPath", targetFolderPath);
+    body.set("relativePaths", JSON.stringify(files.map((file) => file.relativePath ?? file.name)));
+    for (const file of files) body.append("files", new Blob([file.content], { type: "text/plain" }), file.name);
+    const response = await fetch(`${api.origin}${path}`, { method: "POST", body });
+    return { status: response.status, body: await response.json().catch(() => null) as Record<string, any> | null };
+  };
 
   const repoRoot = join(sandbox, "repo");
   await mkdir(join(repoRoot, "packages", "api"), { recursive: true });
@@ -89,25 +98,72 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
   assert.equal(nested?.nestedFolder, true);
   assert.deepEqual(nested?.children, []);
 
-  // A parent Folder cannot delete, move, or rename what a nested Folder owns,
-  // and a refused change leaves no restore point behind.
-  const checkpoints = async () => {
-    const response = await call(`/api/spaces/${repo.id}/history/checkpoints`);
+  // Every parent mutation stops at the nested boundary, and a refused change
+  // leaves both the child's bytes and each Folder's restore points intact.
+  const checkpoints = async (spaceId = repo.id) => {
+    const response = await call(`/api/spaces/${spaceId}/history/checkpoints`);
     assert.equal(response.status, 200);
     return JSON.stringify(response.body);
   };
+  assert.equal((await upload("/api/resources/upload", "", [{ name: "copy.txt", content: "copy content" }])).status, 201);
   const historyBefore = await checkpoints();
+  const childHistoryBefore = await checkpoints(child.id);
   for (const [path, method, body] of [
     [`/api/spaces/${repo.id}/local-file`, "DELETE", { path: "packages" }],
     [`/api/spaces/${repo.id}/local-file`, "DELETE", { path: "packages/api/server.ts" }],
     [`/api/spaces/${repo.id}/rename-local-entry`, "POST", { path: "packages", newName: "pkgs" }],
     [`/api/spaces/${repo.id}/move-local-entry`, "POST", { sourcePath: "README.md", targetFolderPath: "packages/api" }],
     [`/api/spaces/${repo.id}/move-local-entry`, "POST", { sourcePath: "packages/api/server.ts", targetFolderPath: "" }],
+    [`/api/spaces/${repo.id}/file`, "PUT", { path: "packages//./api/server.ts", text: "parent overwrite" }],
+    [`/api/spaces/${repo.id}/folders`, "POST", { parentPath: "packages/api", name: "parent-folder" }],
+    [`/api/spaces/${repo.id}/files`, "POST", { parentPath: "packages/api", name: "parent-file.txt", text: "parent create" }],
+    ["/api/resources/copy-to-space", "POST", { spaceId: repo.id, paths: ["copy.txt"], targetFolder: "packages/api" }],
   ] as const) {
     const response = await call(path, { method, body });
     assert.equal(response.status, 409, `${method} ${path} ${JSON.stringify(body)}: ${JSON.stringify(response.body)}`);
   }
+  for (const [targetFolder, files] of [
+    ["packages//./api", [{ name: "parent-upload.txt", content: "parent upload" }]],
+    ["", [
+      { name: "first.txt", relativePath: "Batch/first.txt", content: "first" },
+      { name: "second.txt", relativePath: "packages/api/parent-directory/second.txt", content: "second" },
+    ]],
+  ] as const) {
+    const response = await upload(`/api/spaces/${repo.id}/upload-local-files`, targetFolder, [...files]);
+    assert.equal(response.status, 409, JSON.stringify(response.body));
+  }
+  assert.equal(await readFile(join(repoRoot, "packages", "api", "server.ts"), "utf8"), "export {};\n");
+  for (const path of ["parent-folder", "parent-file.txt", "parent-upload.txt", "parent-directory", "copy.txt"]) {
+    assert.equal(existsSync(join(repoRoot, "packages", "api", path)), false, path);
+  }
+  assert.equal(existsSync(join(repoRoot, "Batch")), false, "a refused upload does not write its earlier allowed destination");
   assert.equal(await checkpoints(), historyBefore);
+  assert.equal(await checkpoints(child.id), childHistoryBefore);
+
+  // The parent can create and change siblings under a folder that contains a
+  // nested Folder, and the child retains all ordinary file operations.
+  for (const [path, method, body, status] of [
+    [`/api/spaces/${repo.id}/folders`, "POST", { parentPath: "packages", name: "sibling" }, 201],
+    [`/api/spaces/${repo.id}/files`, "POST", { parentPath: "packages/sibling", name: "note.txt", text: "sibling" }, 201],
+    [`/api/spaces/${repo.id}/file`, "PUT", { path: "packages/sibling/note.txt", text: "updated sibling" }, 200],
+    ["/api/resources/copy-to-space", "POST", { spaceId: repo.id, paths: ["copy.txt"], targetFolder: "packages/sibling" }, 200],
+    [`/api/spaces/${child.id}/file`, "PUT", { path: "server.ts", text: "child update" }, 200],
+    [`/api/spaces/${child.id}/folders`, "POST", { parentPath: "", name: "own-folder" }, 201],
+    [`/api/spaces/${child.id}/files`, "POST", { parentPath: "own-folder", name: "own-file.txt", text: "child create" }, 201],
+    ["/api/resources/copy-to-space", "POST", { spaceId: child.id, paths: ["copy.txt"], targetFolder: "own-folder" }, 200],
+  ] as const) {
+    const response = await call(path, { method, body });
+    assert.equal(response.status, status, `${method} ${path}: ${JSON.stringify(response.body)}`);
+  }
+  assert.equal((await upload(`/api/spaces/${repo.id}/upload-local-files`, "packages/sibling", [{ name: "upload.txt", content: "sibling upload" }])).status, 201);
+  assert.equal((await upload(`/api/spaces/${child.id}/upload-local-files`, "own-folder", [{ name: "upload.txt", content: "child upload" }])).status, 201);
+  assert.equal(await readFile(join(repoRoot, "packages", "sibling", "note.txt"), "utf8"), "updated sibling");
+  assert.equal(await readFile(join(repoRoot, "packages", "sibling", "copy.txt"), "utf8"), "copy content");
+  assert.equal(await readFile(join(repoRoot, "packages", "sibling", "upload.txt"), "utf8"), "sibling upload");
+  assert.equal(await readFile(join(repoRoot, "packages", "api", "server.ts"), "utf8"), "child update");
+  assert.equal(await readFile(join(repoRoot, "packages", "api", "own-folder", "own-file.txt"), "utf8"), "child create");
+  assert.equal(await readFile(join(repoRoot, "packages", "api", "own-folder", "copy.txt"), "utf8"), "copy content");
+  assert.equal(await readFile(join(repoRoot, "packages", "api", "own-folder", "upload.txt"), "utf8"), "child upload");
   // The nested Folder still changes its own files.
   assert.equal((await call(`/api/spaces/${child.id}/rename-local-entry`, { method: "POST", body: { path: "server.ts", newName: "main.ts" } })).status, 200);
 
@@ -136,4 +192,32 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
     method: "POST", body: { content: "hello", addressedSpaceIds: ["space-gone", repo.id, child.id] },
   });
   assert.equal(unknownDropped.status, 404, "validation passes and the missing Chat is what refuses");
+
+  // Even an idle nested Folder prevents managed parent deletion before any
+  // removal intent or App Project cleanup is accepted.
+  const managedResponse = await call("/api/spaces", { method: "POST", body: { name: "Managed nested parent" } });
+  assert.equal(managedResponse.status, 201);
+  const managed = managedResponse.body!.space;
+  const managedChildRoot = join(managed.spaceRoot, "Child");
+  await mkdir(managedChildRoot);
+  await writeFile(join(managedChildRoot, "keep.txt"), "nested retained content");
+  const managedChildResponse = await call(`/api/spaces/${managed.id}/nested-folders`, { method: "POST", body: { path: "Child" } });
+  assert.equal(managedChildResponse.status, 201);
+  const managedChild = managedChildResponse.body!.space;
+  assert.equal((await call(`/api/spaces/${managed.id}/app-studio`, { method: "PUT", body: { title: "Parent retained App", description: null, icon: null } })).status, 200);
+  assert.equal((await call(`/api/spaces/${managedChild.id}/app-studio`, { method: "PUT", body: { title: "Child retained App", description: null, icon: null } })).status, 200);
+  const parentStudioBefore = (await call(`/api/spaces/${managed.id}/app-studio`)).body;
+  const childStudioBefore = (await call(`/api/spaces/${managedChild.id}/app-studio`)).body;
+  const intentsBefore = await listPendingSpaceRemovals();
+  assert.deepEqual((await call("/api/spaces/activity")).body, { running: [] });
+  const refusedDelete = await call(`/api/spaces/${managed.id}`, { method: "DELETE" });
+  assert.equal(refusedDelete.status, 409, JSON.stringify(refusedDelete.body));
+  assert.match(refusedDelete.body!.error, /nested work-folder/);
+  assert.deepEqual(await listPendingSpaceRemovals(), intentsBefore);
+  assert.deepEqual((await call(`/api/spaces/${managed.id}/app-studio`)).body, parentStudioBefore);
+  assert.deepEqual((await call(`/api/spaces/${managedChild.id}/app-studio`)).body, childStudioBefore);
+  assert.equal(await readFile(join(managedChildRoot, "keep.txt"), "utf8"), "nested retained content");
+  const finalSpaces = (await call("/api/bootstrap")).body!.spaces as Array<{ id: string }>;
+  assert.equal(finalSpaces.some((item) => item.id === managed.id), true);
+  assert.equal(finalSpaces.some((item) => item.id === managedChild.id), true);
 });

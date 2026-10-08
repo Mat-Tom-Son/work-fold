@@ -26,6 +26,7 @@
  *   store.trashTree(input)                  move a file, folder, or Space folder in
  *   store.trashAppData(input)               write a verified app-data export in
  *   store.list() / store.get(id)            tolerant listing; damaged records are reported, never dropped
+ *   store.attachSpaceState(id, path)       finish carrying History after an interrupted Space deletion
  *   store.restoreTree(id, destination)      move a tree back, collision-renaming like space.ts
  *   store.readAppData(id)                   read and re-verify an app-data export
  *   store.remove(id)                        "Delete now"; refuses (HELD) for legacy `.workspace/` trees
@@ -57,7 +58,7 @@
  *   restore it or handle the folder outside the product.
  */
 import { randomUUID } from "node:crypto";
-import { existsSync, type CopyOptions } from "node:fs";
+import { existsSync, type CopyOptions, type Stats } from "node:fs";
 import { cp, lstat, mkdir, open, readdir, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
@@ -563,6 +564,42 @@ export class WorkFoldTrashStore {
   }
 
   /**
+   * Finishes an interrupted Space deletion whose folder reached the trash
+   * before its History state. Existing state is never merged or replaced;
+   * a missing source is already finished, and a missed marker write is
+   * reconstructed from the carried directory by the normal read path.
+   */
+  async attachSpaceState(id: string, stateDirPath: string): Promise<WorkFoldTrashEntry> {
+    assertEntryId(id);
+    const source = requireAbsolutePath(stateDirPath, "The Space state path");
+    return await this.#mutate(async () => {
+      const entry = await this.#requireEntry(id, true);
+      if (entry.kind !== "space" || entry.payload.kind !== "tree") {
+        throw new WorkFoldTrashError("INPUT_INVALID", "Only a Space folder can carry History state.", { entryId: id });
+      }
+      const sourceInfo = await lstat(source).catch((error: unknown) => {
+        if (isNodeError(error, "ENOENT")) return null;
+        throw new WorkFoldTrashError("MOVE_FAILED", `work-fold could not inspect the remaining History state: ${errorMessage(error)}.`, { entryId: id, cause: error });
+      });
+      if (!sourceInfo) return entry;
+      if (!sourceInfo.isDirectory() || sourceInfo.isSymbolicLink()) {
+        throw new WorkFoldTrashError("INPUT_INVALID", "The remaining History state must be a real directory.", { entryId: id });
+      }
+      if (entry.stateDir) {
+        throw new WorkFoldTrashError("MOVE_FAILED", "History state is present both in Recently deleted and at its original path. Neither copy was changed.", { entryId: id });
+      }
+      try {
+        await this.#move(source, join(entry.entryPath, "state"), { stagingDir: this.#newStagingDir() });
+      } catch (error) {
+        throw new WorkFoldTrashError("MOVE_FAILED", `work-fold could not keep the remaining History state with ${id}: ${errorMessage(error)}.`, { entryId: id, cause: error });
+      }
+      const completed = { ...manifestOf(entry), stateDir: true as const };
+      await this.#writeManifest(entry.entryPath, completed).catch(() => undefined);
+      return { ...completed, entryPath: entry.entryPath, payloadPath: entry.payloadPath };
+    });
+  }
+
+  /**
    * Moves a file, folder, or Space folder back. An occupied destination is
    * collision-renamed with the space.ts rules (`stem (2).ext` for files,
    * `name-2` for folders). On success the entry directory is removed. On
@@ -865,8 +902,25 @@ export class WorkFoldTrashStore {
     if (!payloadInfo) {
       return { state: "damaged", id, error: manifest.complete ? "its content is missing." : "its content never arrived." };
     }
-    if (manifest.stateDir && !existsSync(join(entryPath, "state"))) {
+    let stateInfo: Stats | null;
+    try {
+      stateInfo = await lstat(join(entryPath, "state"));
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) return { state: "damaged", id, error: "its History state cannot be inspected." };
+      stateInfo = null;
+    }
+    if (stateInfo && (manifest.kind !== "space" || !stateInfo.isDirectory() || stateInfo.isSymbolicLink())) {
+      return { state: "damaged", id, error: "its carried History state is not a valid Space state directory." };
+    }
+    if (manifest.stateDir && !stateInfo) {
       return { state: "damaged", id, error: "its History state is missing." };
+    }
+    let repaired = false;
+    if (stateInfo && !manifest.stateDir) {
+      // The state move can land before the final manifest commit. Also repair
+      // complete records that an earlier version recovered without this flag.
+      manifest = { ...manifest, stateDir: true };
+      repaired = true;
     }
     if (!manifest.complete) {
       // The move landed but the commit never happened (a crash between the two manifest writes).
@@ -877,8 +931,9 @@ export class WorkFoldTrashStore {
         ...(measured.approximate ? { sizeApproximate: true as const } : {}),
         complete: true,
       };
-      if (repair) await this.#writeManifest(entryPath, manifest).catch(() => undefined);
+      repaired = true;
     }
+    if (repair && repaired) await this.#writeManifest(entryPath, manifest).catch(() => undefined);
     return { state: "entry", entry: { ...manifest, entryPath, payloadPath } };
   }
 }
