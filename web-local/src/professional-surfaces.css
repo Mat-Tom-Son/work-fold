@@ -857,6 +857,10 @@
   flex-shrink: 0;
 }
 
+.professional-assistant .assistant-model-actions .professional-button {
+  margin-left: auto;
+}
+
 .professional-assistant .assistant-operation-status {
   min-height: 19px;
   min-width: 0;
@@ -876,8 +880,25 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
+
+.professional-assistant .assistant-connection-panel { display: grid; gap: 14px; min-width: 0; padding: 18px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-canvas); }
+.professional-assistant .assistant-connection-row h3 { margin: 0 0 4px; color: var(--ui-text); font: inherit; font-size: 14px; font-weight: 600; }
+.professional-assistant .assistant-connection-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.professional-assistant .assistant-connection-shared { margin: 0; color: var(--ui-text-muted); font-size: 12px; line-height: 1.55; }
+.professional-assistant .assistant-remove-credential { min-height: 34px; padding: 4px 0; border: 0; color: var(--ui-danger); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.professional-assistant .assistant-remove-credential:hover:not(:disabled) { text-decoration: underline; }
+.professional-assistant .assistant-remove-credential:disabled { opacity: .45; cursor: default; }
+.professional-assistant .assistant-key-connection { display: grid; gap: 14px; min-width: 0; }
+.professional-assistant .assistant-key-input { position: relative; display: block; min-width: 0; }
+.professional-assistant .assistant-key-input input { padding-right: 44px; }
+.professional-assistant .assistant-key-visibility { position: absolute; inset: 5px 5px 5px auto; display: grid; place-items: center; width: 30px; min-height: 28px; padding: 0; border: 0; border-radius: 5px; color: var(--ui-text-muted); background: transparent; cursor: pointer; }
+.professional-assistant .assistant-key-visibility:hover:not(:disabled) { background: var(--ui-surface-hover); color: var(--ui-text); }
+.professional-assistant .assistant-key-visibility svg { width: 20px; height: 20px; }
+.professional-assistant .assistant-connection-actions { margin-top: 0; }
+.professional-assistant .assistant-connection-actions .professional-button { margin-left: auto; }
+.professional-assistant .assistant-connection-panel .assistant-azure-connection { margin-top: 0; }
 
 .professional-assistant .assistant-connection-row > div {
   min-width: 0;
@@ -914,6 +935,8 @@
   .professional-assistant .assistant-form-fields {
     grid-template-columns: minmax(0, 1fr);
   }
+  .professional-assistant .assistant-connection-panel { padding: 14px; }
+  .professional-assistant .assistant-connection-row { align-items: flex-start; }
 }
 
 .professional-field {

@@ -1,11 +1,21 @@
 import { logicalEventController } from "./support/local-events.js";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
+import { registerHooks } from "node:module";
 import { createElement, StrictMode, type ComponentProps } from "react";
-import { AssistantSetupPane } from "../web-local/src/components/panes/AssistantSetupPane.js";
 import type { AgentModel, AgentStatus, SpaceSummary } from "../web-local/src/types.js";
 import { useModalDialog } from "../web-local/src/hooks/useModalDialog.js";
 import { createDomHarness } from "./support/dom.js";
+
+// Fluent's browser barrel needs an ESM projection in Node, as in the Settings
+// modal tests. Browser verification checks the artwork; these tests exercise
+// the actual key editor and its requests.
+const icons = registerHooks({
+  resolve(specifier, context, next) { return specifier === "@fluentui/react-icons" ? { url: "test:assistant-key-icons", shortCircuit: true } : next(specifier, context); },
+  load(url, context, next) { return url === "test:assistant-key-icons" ? { format: "module", source: "export const Eye20Regular=()=>null; export const EyeOff20Regular=()=>null;", shortCircuit: true } : next(url, context); },
+});
+const { AssistantSetupPane } = await import("../web-local/src/components/panes/AssistantSetupPane.js");
+icons.deregister();
 
 const status: AgentStatus = { configured: true, ready: true, provider: "openrouter", model: "model-a", error: null, piVersion: "fixture" };
 const space = (id: string): SpaceSummary => ({ id, name: `Space ${id}`, spaceRoot: `/synthetic/${id}` } as SpaceSummary);
@@ -196,7 +206,56 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.finish(write, { status: { ...status, provider: "anthropic", model: "claude" } });
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
   assert.match(ui.dom.container.textContent!, /Connected and model saved/);
-  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Worker Instructions"]);
+  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Anthropic connection", "Worker Instructions"]);
+});
+
+test("changing a saved API key keeps the old connection until an explicit save, and Cancel discards the replacement", async (t) => {
+  const ui = await setup(t);
+  await ui.render(space("a"));
+  await ui.finish(ui.requests[0]!, modelResponse());
+  await ui.dom.act(() => ui.button("Change API Key").click());
+  const key = () => ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")!;
+  assert.equal(key().value, "", "saved keys are never read back into the editor");
+  assert.equal(key().type, "password");
+  await ui.type("#assistant-api-key", "synthetic-replacement");
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLButtonElement>('[aria-label="Show API key"]')!.click());
+  assert.equal(key().type, "text");
+  await ui.dom.act(() => ui.button("Cancel").click());
+  assert.equal(ui.dom.container.querySelector("#assistant-api-key"), null);
+  assert.equal(ui.requests.filter((request) => request.init.method === "DELETE" || request.init.method === "POST").length, 0);
+  await ui.dom.act(() => ui.button("Change API Key").click());
+  assert.equal(key().value, "");
+  assert.equal(key().type, "password");
+  await ui.type("#assistant-api-key", "synthetic-replacement");
+  await ui.submit("connection", true);
+  const write = ui.requests.at(-1)!;
+  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "openrouter", model: "model-a", apiKey: "synthetic-replacement" });
+  assert.equal(ui.requests.filter((request) => request.path === "/api/agent/configure").length, 1);
+  assert.equal(ui.requests.some((request) => request.init.method === "DELETE"), false);
+  await ui.finish(write, { error: "Synthetic save failure" }, 409);
+  assert.equal(key().value, "synthetic-replacement");
+  assert.match(ui.dom.container.textContent!, /API key saved on this computer/);
+  await ui.submit("connection");
+  await ui.finish(ui.requests.at(-1)!, { status });
+  assert.equal(ui.dom.container.querySelector("#assistant-api-key"), null);
+  assert.match(ui.dom.container.textContent!, /Connected and model saved/);
+});
+
+test("a model-only save preserves an unsaved key replacement and never submits it", async (t) => {
+  const ui = await setup(t);
+  await ui.render(space("a"));
+  await ui.finish(ui.requests[0]!, modelResponse());
+  await ui.dom.act(() => ui.button("Change API Key").click());
+  await ui.type("#assistant-api-key", "synthetic-unsaved-key");
+  await ui.select("#assistant-model", "model-b");
+  await ui.submit("model");
+  const write = ui.requests.at(-1)!;
+  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "openrouter", model: "model-b" });
+  await ui.finish(write, { status: { ...status, model: "model-b" } });
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "synthetic-unsaved-key");
+  await ui.select('select[aria-label="Provider"]', "anthropic");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.type, "password");
 });
 
 

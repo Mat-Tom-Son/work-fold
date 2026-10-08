@@ -51,11 +51,9 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
   return <div className="appearance-settings">
-    <div className="appearance-settings-status-row">
-      <p role="status">{appearance.error ?? appearance.notice ?? ""}</p>
-    </div>
     <section className="appearance-settings-section" aria-labelledby="appearance-presets-title">
       <div className="appearance-settings-section-heading"><h3 id="appearance-presets-title">Presets</h3><div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" disabled={atDefaults} onClick={store.reset}>Reset</button></div></div>
+      {appearance.error ? <p className="appearance-settings-error" role="alert">{appearance.error}</p> : null}
       <div className="appearance-settings-presets">
         {builtInAppearancePresets.map(({ name, ...patch }) => {
           const grounds = applicationPalettes[patch.palette][appearance.theme];

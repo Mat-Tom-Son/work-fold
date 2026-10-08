@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type * as React from "react";
+import { LayoutPanelLeft } from "lucide-react";
+import { GlobeCode } from "../chrome/GlobeCodeIcon";
 import {
   ArrowClockwise20Regular,
   ArrowLeft20Regular,
   Checkmark16Regular,
   Dismiss20Regular,
-  Apps20Regular,
   Delete20Regular,
   Flash20Regular,
   Info20Regular,
@@ -139,10 +140,10 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
   const tabs: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
     { id: "assistant", label: "AI Models", icon: <Sparkle20Regular /> },
-    { id: "web-access", label: "Web Access", icon: <Window20Regular /> },
+    { id: "web-access", label: "Web Access", icon: <GlobeCode size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "shared-pages", label: "Shared Pages", icon: <Window20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
-    { id: "apps", label: "Apps", icon: <Apps20Regular /> },
+    { id: "apps", label: "Apps", icon: <LayoutPanelLeft size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
@@ -572,33 +573,48 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
       ) : null}
       {data && !shown.length && hasAddress ? <div className="remote-browser-empty">{foldPublicationsSettings.empty}</div> : null}
       {shown.length ? (
-        <div className="remote-browser-list fold-publication-list">
+        <div className="fold-publication-list">
           {shown.map((publication) => {
             const health = sharedPageHealth(publication, connection);
             const editing = editingBudgets?.publicationId === publication.publicationId ? editingBudgets : null;
             return (
               <div className="fold-publication-row" key={publication.publicationId}>
-                <div className="remote-browser-row">
-                  <div className="fold-publication-summary" title={health.reason}>
-                    <span className="fold-publication-title">
-                      <strong>{publication.title}</strong>
-                      <span className={`fold-publication-state ${health.state}`}>{foldPublicationsSettings.states[health.state]}</span>
-                    </span>
+                <div className="fold-publication-summary" title={health.reason}>
+                  <span className="fold-publication-title">
+                    <strong>{publication.title}</strong>
+                    <span className={`fold-publication-state ${health.state}`}>{foldPublicationsSettings.states[health.state]}</span>
+                  </span>
+                  <small>
+                    {publication.kind === "app" && publication.app
+                      ? <>{publication.spaceName ?? publication.spaceId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code></>
+                      : <>{publication.spaceName ?? publication.spaceId}: {publication.relativePath}</>}
+                  </small>
+                  {publication.kind === "app" && publication.app ? (
                     <small>
-                      {publication.kind === "app" && publication.app
-                        ? <>{publication.spaceName ?? publication.spaceId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code></>
-                        : <>{publication.spaceName ?? publication.spaceId}: {publication.relativePath}</>}
+                      Viewer entry {publication.app.viewerEntry} · Viewer-readable surface: {publication.app.viewerSurface.join(", ")}
                     </small>
-                    {publication.kind === "app" && publication.app ? (
-                      <small>
-                        Viewer entry {publication.app.viewerEntry} · Viewer-readable surface: {publication.app.viewerSurface.join(", ")}
-                      </small>
+                  ) : null}
+                  <small className="fold-publication-usage">{publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day</small>
+                  <small>{countersLine(publication)}</small>
+                </div>
+                {publication.state === "active" ? (
+                  <div className="fold-publication-footer">
+                    {/* Sleep copies are a page-only lane: an app at your address is
+                        structurally snapshotless, so app rows carry no toggle. The
+                        retention disclosure rides on the label's tooltip. */}
+                    {publication.kind === "page" ? (
+                      <label className="fold-publication-sleep-copy" title={foldPublicationsSettings.snapshotLabel}>
+                        <input
+                          type="checkbox"
+                          role="switch"
+                          checked={publication.snapshotEnabled}
+                          disabled={Boolean(busy)}
+                          onChange={(event) => setSleepCopy(publication, event.target.checked)}
+                        />
+                        {" "}{foldPublicationsSettings.sleepCopy}
+                      </label>
                     ) : null}
-                    <small>{publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day</small>
-                    <small>{countersLine(publication)}</small>
-                  </div>
-                  {publication.state === "active" ? (
-                    <div className="settings-actions">
+                    <div className="settings-actions fold-publication-actions">
                       <button
                         className="secondary-button"
                         type="button"
@@ -645,8 +661,8 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                         {foldPublicationsSettings.stopSharing}
                       </button>
                     </div>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
                 {revealed?.publicationId === publication.publicationId ? (
                   <div className="fold-publication-link">
                     <code className="remote-access-url">{revealed.link}</code>
@@ -694,21 +710,6 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                       </button>
                     </div>
                   </div>
-                ) : null}
-                {/* Sleep copies are a page-only lane: an app at your address is
-                    structurally snapshotless, so app rows carry no toggle. The
-                    retention disclosure rides on the label's tooltip. */}
-                {publication.kind === "page" && publication.state === "active" ? (
-                  <label className="fold-publication-sleep-copy" title={foldPublicationsSettings.snapshotLabel}>
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      checked={publication.snapshotEnabled}
-                      disabled={Boolean(busy)}
-                      onChange={(event) => setSleepCopy(publication, event.target.checked)}
-                    />
-                    {" "}{foldPublicationsSettings.sleepCopy}
-                  </label>
                 ) : null}
               </div>
             );
