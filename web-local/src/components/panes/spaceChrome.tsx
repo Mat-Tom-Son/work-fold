@@ -2,6 +2,7 @@ import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { restrictedAppRailMode, restrictedAppRailLabel } from "../../lib/restricted-app-navigation";
 import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Blocks } from "lucide-react";
+import { createPortal } from "react-dom";
 import {
   ArrowDownload20Regular,
   ArrowClockwise20Regular,
@@ -468,9 +469,10 @@ function SpacePaneHeader({
       ) : null}
       {contextMenu ? (
         <FolderContextMenu
+          anchor={headerRef.current}
           x={contextMenu.x}
           y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
+          onClose={() => { setContextMenu(null); switchTriggerRef.current?.focus(); }}
           onNewChat={onNewChat}
           onOpenAppearance={onOpenAppearance}
           onRevealFolder={onRevealFolder}
@@ -482,7 +484,8 @@ function SpacePaneHeader({
 }
 
 /** The Folder header's right-click menu: the things a person does with this Folder most. */
-function FolderContextMenu({ x, y, onClose, onNewChat, onOpenAppearance, onRevealFolder, onManageSpaces }: {
+function FolderContextMenu({ anchor, x, y, onClose, onNewChat, onOpenAppearance, onRevealFolder, onManageSpaces }: {
+  anchor: HTMLElement | null;
   x: number;
   y: number;
   onClose: () => void;
@@ -496,6 +499,8 @@ function FolderContextMenu({ x, y, onClose, onNewChat, onOpenAppearance, onRevea
     window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
     function closeOnOutside(event: PointerEvent) {
       if (menuRef.current?.contains(event.target as Node)) return;
+      event.preventDefault();
+      event.stopPropagation();
       onClose();
     }
     function closeOnEscape(event: KeyboardEvent) {
@@ -523,14 +528,18 @@ function FolderContextMenu({ x, y, onClose, onNewChat, onOpenAppearance, onRevea
 
   const run = (action: () => void) => { onClose(); action(); };
   const style: CSSProperties = { left: Math.max(8, Math.min(x, window.innerWidth - 226)), top: Math.max(8, Math.min(y, window.innerHeight - 196)) };
-  return (
-    <div ref={menuRef} className="context-menu folder-context-menu" style={style} role="menu" aria-label="work-folder actions" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
-      {onNewChat ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onNewChat)}><ChatAdd16Regular aria-hidden="true" />New Chat</button> : null}
-      {onOpenAppearance ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onOpenAppearance)}><PaintBrush16Regular aria-hidden="true" />Customize work-folder</button> : null}
-      {onRevealFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onRevealFolder)}><FolderOpen16Regular aria-hidden="true" />{revealInFileManagerLabel()}</button> : null}
-      <div className="context-menu-separator" role="separator" />
-      <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onManageSpaces)}><Folder16Regular aria-hidden="true" />Manage work-folders</button>
-    </div>
+  return createPortal(
+    <Fragment>
+      <div className="context-menu-backdrop folder-context-menu-backdrop" aria-hidden="true" onContextMenu={(event) => event.preventDefault()} />
+      <div ref={menuRef} className="context-menu folder-context-menu" style={style} role="menu" aria-label="work-folder actions" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onClose(); }}>
+        {onNewChat ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onNewChat)}><ChatAdd16Regular aria-hidden="true" />New Chat</button> : null}
+        {onOpenAppearance ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onOpenAppearance)}><PaintBrush16Regular aria-hidden="true" />Customize work-folder</button> : null}
+        {onRevealFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onRevealFolder)}><FolderOpen16Regular aria-hidden="true" />{revealInFileManagerLabel()}</button> : null}
+        <div className="context-menu-separator" role="separator" />
+        <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onManageSpaces)}><Folder16Regular aria-hidden="true" />Manage work-folders</button>
+      </div>
+    </Fragment>,
+    anchor?.closest(".app-shell") ?? document.body,
   );
 }
 

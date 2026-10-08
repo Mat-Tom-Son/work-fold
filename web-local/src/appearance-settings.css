@@ -26,7 +26,8 @@
 .appearance-preset-swatch b:last-child { width: 65%; }
 .appearance-preset.active .appearance-preset-swatch { border-color: var(--ui-accent); box-shadow: 0 0 0 2px var(--ui-accent); }
 .appearance-preset.active { color: var(--ui-accent); font-weight: 600; }
-.appearance-settings-preview { display: grid; grid-template-columns: 120px minmax(0,1fr); overflow: hidden; border: 1px solid var(--ui-border); border-radius: 10px; margin-top: 15px; background: var(--ui-surface); }
+.appearance-settings-preview { display: grid; grid-template-columns: 120px minmax(0,1fr); overflow: hidden; border: 1px solid var(--ui-border); border-radius: 10px; background: var(--ui-surface); }
+.appearance-settings .appearance-settings-presets-heading { margin: 24px 0 12px; }
 .appearance-preview-files { padding: 16px 8px; background: var(--ui-canvas); border-right: 1px solid var(--ui-border); font-size: .78em; }
 .appearance-preview-files > span { display: block; margin: 0 8px 10px; font-weight: 650; }
 .appearance-preview-files div { min-height: var(--work-fold-list-height); padding: var(--work-fold-list-padding) 8px; display: flex; align-items: center; border-radius: 4px; }
