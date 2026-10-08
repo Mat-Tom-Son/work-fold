@@ -1832,10 +1832,15 @@
 }
 
 .capabilities-view-tabs {
-  display: flex;
+  width: min(100%, 360px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  gap: 24px;
-  border-bottom: 1px solid var(--ui-border);
+  gap: 4px;
+  padding: 4px;
+  background: var(--ui-surface-subtle);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
 }
 
 .capabilities-type-chips {
@@ -2064,30 +2069,35 @@
 }
 
 .capabilities-view-tabs button {
-  min-height: 40px;
-  margin-bottom: -1px;
-  padding: 0 1px;
-  color: var(--ui-text-muted);
+  min-height: 42px;
+  margin: 0;
+  padding: 0 18px;
+  color: var(--ui-text);
   background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-md);
   font-family: var(--work-fold-ui-font);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 650;
   cursor: pointer;
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
 }
 
 .capabilities-view-tabs button:hover {
   color: var(--ui-text);
-  background: transparent;
+  background: var(--ui-surface-hover);
 }
 
 .capabilities-view-tabs button.active {
   color: var(--ui-accent);
-  background: transparent;
-  border-bottom-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  border-color: var(--ui-accent);
   box-shadow: none;
+}
+
+.capabilities-view-tabs button:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
 }
 
 .capabilities-view-content {
@@ -2206,7 +2216,14 @@
 }
 
 .capabilities-add-trigger {
-  flex: 0 0 auto;
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  border-color: var(--ui-border);
+  font-size: 12px;
 }
 
 .capabilities-add-panel {
@@ -2876,6 +2893,17 @@
 .capability-dialog .modal-title h2 { overflow-wrap: anywhere; }
 .capability-dialog .modal-title .minimal-icon-button { flex: 0 0 auto; }
 
+.capability-add-dialog .modal-title .minimal-icon-button {
+  align-self: center;
+  padding: 0;
+}
+
+.capability-add-dialog .modal-title .minimal-icon-button > svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
 .capability-dialog > form {
   min-height: 0;
   display: flex;
@@ -3178,10 +3206,6 @@
     align-items: start;
   }
 
-  .assistant-tools-header .capabilities-add-trigger {
-    justify-self: start;
-  }
-
   .capabilities-toolbar {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3359,10 +3383,6 @@
   .capabilities-view-actions {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .capabilities-add-trigger {
-    width: 100%;
   }
 
   .capabilities-add-option,

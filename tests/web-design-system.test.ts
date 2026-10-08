@@ -59,12 +59,13 @@ test("Files is the first primary surface and Space actions live in the persisten
   assert.doesNotMatch(primaryItems, /ChevronRight20Regular/);
 });
 
-test("pane navigation uses one Fluent icon contract", () => {
+test("pane navigation uses Fluent icons with the requested Blocks icon for Skills & Extensions", () => {
   for (const [name, source] of [
     ["spaceChrome.tsx", spaceChromeSource],
     ["spacePanes.tsx", spacePanesSource],
   ] as const) {
-    assert.doesNotMatch(source, /from\s+["']lucide-react["']/, `${name} must not mix Lucide into product surfaces`);
+    const navigationSource = name === "spaceChrome.tsx" ? source.replace('import { Blocks } from "lucide-react";', "") : source;
+    assert.doesNotMatch(navigationSource, /from\s+["']lucide-react["']/, `${name} must keep the Blocks exception limited to Skills & Extensions`);
     assert.match(source, /from\s+["']@fluentui\/react-icons["']/, `${name} must use Fluent icons`);
   }
 
@@ -79,7 +80,7 @@ test("pane navigation uses one Fluent icon contract", () => {
   }
 
   assert.match(spaceChromeSource, /professional-space-rail/);
-  assert.match(spaceChromeSource, /Add24Regular/);
+  assert.match(spaceChromeSource, /<Blocks size=\{24\} aria-hidden="true" \/>/);
   // The Add button opens the Skills & Extensions popup directly; there is no Add menu (2026-09-25).
   assert.match(spaceChromeSource, /aria-label="Skills & Extensions"/);
   assert.match(spaceChromeSource, /onClick=\{\(\) => onOpenAssistantTools\("installed"\)\}/);

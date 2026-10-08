@@ -220,6 +220,7 @@ export function CapabilitiesPane({
       if (operationGateRef.current.isCurrent(operation)) {
         const next = fixtureCatalog();
         setCatalog(next);
+        setReadiness({ spaceId: operation.spaceId, tools: fixtureIncludedToolStatuses() });
       }
       return;
     }
@@ -504,7 +505,6 @@ export function CapabilitiesPane({
         <div>
           <h1>Skills &amp; Extensions</h1>
         </div>
-        <button className="professional-button professional-button-primary capabilities-add-trigger" type="button" onClick={() => openAddDialog()}><Add16Regular />Add</button>
       </header>
 
       <div className="capabilities-view-tabs" role="tablist" aria-label="Skills and Extensions view">
@@ -522,6 +522,7 @@ export function CapabilitiesPane({
             onQueryChange={changeQuery}
             onTypeChange={changeTypeFilter}
             onDiscoverSortChange={setDiscoverSort}
+            onAddCustom={openAddDialog}
           />
           {!catalog ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading Skills and Extensions</div> : null}
           {readiness?.spaceId === space.id && readiness.error ? <div className="inline-error" role="alert">Setup status could not be loaded: {readiness.error}</div> : null}
@@ -573,6 +574,7 @@ export function CapabilitiesPane({
             onQueryChange={changeQuery}
             onTypeChange={changeTypeFilter}
             onDiscoverSortChange={setDiscoverSort}
+            onAddCustom={openAddDialog}
           />
           <section className="capabilities-panel capabilities-discover-panel" aria-label="Catalog results">
           <DiscoverCapabilities
@@ -637,6 +639,7 @@ function CapabilityToolbar({
   onQueryChange,
   onTypeChange,
   onDiscoverSortChange,
+  onAddCustom,
 }: {
   view: AssistantToolsView;
   query: string;
@@ -645,6 +648,7 @@ function CapabilityToolbar({
   onQueryChange: (value: string) => void;
   onTypeChange: (value: CapabilityTypeFilter) => void;
   onDiscoverSortChange: (value: DiscoverSort) => void;
+  onAddCustom: () => void;
 }) {
   const types: Array<{ value: CapabilityTypeFilter; label: string }> = [
     { value: "all", label: "All" },
@@ -664,6 +668,7 @@ function CapabilityToolbar({
           <label className="capabilities-sort"><span>Sort</span><select aria-label="Catalog sort" value={discoverSort} onChange={(event) => onDiscoverSortChange(event.target.value as DiscoverSort)}><option value="official">First-Party First</option><option value="downloads">Most Downloads</option><option value="recent">Recently Updated</option><option value="name">Name</option></select></label>
         ) : null}
       </div>
+      <button className="professional-button professional-button-secondary capabilities-add-trigger" type="button" onClick={() => onAddCustom()}><Add16Regular aria-hidden="true" />Add Custom</button>
     </section>
   );
 }
@@ -1299,13 +1304,21 @@ function stripSkillFrontmatter(content: string): string {
 }
 
 function fixtureCatalog(): AgentCatalog {
+  const includedExtensions = includedToolDefinitions.map((tool) => ({
+    id: `included-${tool.id}`, name: tool.title, path: `included/${tool.id}/index.ts`,
+    source: { source: tool.package, scope: "user" as const, origin: "top-level" as const },
+    scope: "global" as const, origin: "top-level" as const, enabled: true, loaded: true, commands: [], tools: [],
+  }));
   return {
     trust: { required: true, trusted: true, savedDecision: true },
     projectTrusted: true,
     diagnostics: [],
     packages: [{ source: "npm:@pi-work-fold/calendar-tools", scope: "global", enabled: true, displayName: "Calendar tools", types: ["extension"] }],
     skills: [{ id: "trip-planner", name: "Trip planner", description: "Turns bookings and preferences into a practical itinerary.", path: "skills/trip-planner/SKILL.md", source: { source: "anthropics/skills", scope: "user", origin: "package", packageSource: "github:anthropics/skills" }, scope: "global", origin: "package", packageSource: "github:anthropics/skills", enabled: true, loaded: true, content: "---\nname: trip-planner\ndescription: Plan a trip\n---\n\n# Trip planner\n\nBuild an itinerary from confirmed details, preferences, and constraints." }],
-    extensions: [{ id: "calendar", name: "Calendar helper", path: ".pi/extensions/calendar.ts", source: { source: ".pi/extensions/calendar.ts", scope: "project", origin: "top-level" }, scope: "project", origin: "top-level", enabled: true, loaded: true, commands: ["calendar"], tools: ["read_calendar"], flags: ["calendar-account"] }],
+    extensions: [...includedExtensions, { id: "calendar", name: "Calendar helper", path: ".pi/extensions/calendar.ts", source: { source: ".pi/extensions/calendar.ts", scope: "project", origin: "top-level" }, scope: "project", origin: "top-level", enabled: true, loaded: true, commands: ["calendar"], tools: ["read_calendar"], flags: ["calendar-account"] }],
+    resources: includedExtensions.map((extension, index) => ({
+      kind: "extensions", path: extension.path, enabled: true, metadata: extension.source, included: includedToolDefinitions[index],
+    })),
     tools: [
       { name: "read", label: "Read files", description: "Read files in the current work-folder", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
       { name: "write", label: "Write files", description: "Create and update files", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
@@ -1313,6 +1326,17 @@ function fixtureCatalog(): AgentCatalog {
     ],
     toolManagement: { mode: "session-only", persisted: false, mutable: false, scope: "chat", reason: "Pi supports active-tool selection only for a running Chat; it has no supported persisted tool setting." },
   };
+}
+
+function fixtureIncludedToolStatuses(): IncludedToolStatus[] {
+  const checkedAt = "2026-07-10T18:30:00.000Z";
+  return [
+    { id: "chrome", state: "setup_required", detail: "Preview Chrome connection", checkedAt, chrome: { state: "not_connected", hasSelection: true, checkedAt } },
+    { id: "computer", state: "ready", detail: "Preview computer check", checkedAt, stale: true },
+    { id: "web", state: "ready", detail: "Preview Web readiness", checkedAt },
+    { id: "documents", state: "ready", detail: "Preview Documents readiness", checkedAt },
+    { id: "mcp", state: "setup_required", detail: "Preview service connections", checkedAt, facts: { connections: "0" } },
+  ];
 }
 
 function fixtureDiscover(query: string, type: CapabilityTypeFilter, sort: DiscoverSort, offset: number): CapabilityDiscoverResponse {
