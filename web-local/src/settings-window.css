@@ -145,6 +145,33 @@
 .app-shell .settings-window .remote-access-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .app-shell .settings-window .remote-access-fields > .settings-field:first-child { grid-column: 1 / -1; }
 
+/* Shared pages keep their information together, with a separate action row. */
+.app-shell .settings-window .fold-publication-list { min-width: 0; display: grid; border: 1px solid var(--ui-border); border-radius: 8px; overflow: hidden; }
+.app-shell .settings-window .fold-publication-row { min-width: 0; gap: 16px; padding: 20px; }
+.app-shell[data-theme] .settings-window .fold-publication-row + .fold-publication-row { padding-top: 20px; border-top: 1px solid var(--ui-border); }
+.app-shell .settings-window .fold-publication-summary { gap: 4px; }
+.app-shell .settings-window .fold-publication-title { gap: 8px 12px; margin-bottom: 3px; }
+.app-shell .settings-window .fold-publication-title strong { color: var(--ui-text); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.app-shell .settings-window .fold-publication-summary small { color: var(--ui-text-muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.app-shell .settings-window .fold-publication-usage { margin-top: 6px; }
+.app-shell[data-theme] .settings-window .fold-publication-state { color: var(--ui-text-muted); border-color: var(--ui-border); background: var(--ui-canvas); font-size: 11px; }
+.app-shell[data-theme] .settings-window .fold-publication-state.live { color: var(--ui-success); border-color: color-mix(in srgb, var(--ui-success) 25%, var(--ui-border)); background: color-mix(in srgb, var(--ui-success) 7%, var(--ui-surface)); }
+.app-shell[data-theme] .settings-window .fold-publication-state.resting { color: var(--ui-attention); border-color: color-mix(in srgb, var(--ui-attention) 25%, var(--ui-border)); background: var(--ui-attention-soft); }
+.app-shell[data-theme] .settings-window .fold-publication-state.not-available { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 25%, var(--ui-border)); background: color-mix(in srgb, var(--ui-danger) 7%, var(--ui-surface)); }
+.app-shell .settings-window .fold-publication-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; min-width: 0; }
+.app-shell .settings-window .fold-publication-actions { display: flex; margin-left: auto; gap: 8px; }
+.app-shell .settings-window .fold-publication-actions .secondary-button { width: auto; min-width: 0; padding: 6px 10px; color: var(--ui-text); border: 1px solid var(--ui-border); background: var(--ui-surface); border-radius: 6px; }
+.app-shell .settings-window .fold-publication-actions .secondary-button:hover:not(:disabled) { background: var(--ui-surface-hover); }
+.app-shell .settings-window .fold-publication-actions .danger { color: var(--ui-danger); }
+.app-shell .settings-window .fold-publication-sleep-copy { min-height: 34px; gap: 8px; color: var(--ui-text-muted); font-size: 12px; cursor: pointer; }
+.app-shell .settings-window .fold-publication-sleep-copy input { margin: 0; accent-color: var(--ui-accent); }
+.app-shell .settings-window .fold-publication-link { gap: 10px; min-width: 0; }
+.app-shell .settings-window .fold-publication-link .remote-access-url { max-width: 100%; color: var(--ui-text); background: var(--ui-canvas); border-color: var(--ui-border); }
+.app-shell[data-theme] .settings-window .fold-publication-link small { color: var(--ui-text-muted); font-size: 12px; line-height: 1.55; }
+.app-shell[data-theme] .settings-window .fold-publication-budgets { padding-top: 16px; border-top-color: var(--ui-border); gap: 12px; }
+.app-shell .settings-window .fold-publication-budgets .settings-field { flex: 1 1 140px; width: auto; }
+.app-shell .settings-window .fold-publication-budgets .settings-actions { margin-left: auto; }
+
 .app-shell .settings-window :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 
 @media (max-width: 700px) {
@@ -154,6 +181,8 @@
   .app-shell .settings-window .settings-tab { flex: 0 0 auto; min-height: 34px; padding: 7px 10px; gap: 7px; white-space: nowrap; }
   .app-shell .settings-window .settings-content { padding: 22px 18px 28px; gap: 22px; }
   .app-shell .settings-window .settings-title { min-height: 52px; padding: 10px 14px 10px 18px; }
+  .app-shell .settings-window .fold-publication-row { padding: 16px; }
+  .app-shell[data-theme] .settings-window .fold-publication-row + .fold-publication-row { padding-top: 16px; }
   .app-shell .settings-window .font-choice-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .app-shell .settings-window .update-settings-section { grid-template-columns: 1fr; justify-items: start; }
 }

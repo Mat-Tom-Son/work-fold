@@ -56,7 +56,9 @@ test("Settings preserves save feedback and explicit remote setup", async () => {
   const settings = desktopDialogs[0] ?? "";
   // Credential visibility, removal, saves and stale responses are exercised
   // against the real form in assistant-settings-ui.test.ts.
-  assert.match(await read("web-local/src/components/modals/AppearanceSettingsPane.tsx"), /role="status">\{appearance\.error \?\? appearance\.notice/);
+  const appearance = await read("web-local/src/components/modals/AppearanceSettingsPane.tsx");
+  assert.match(appearance, /role="alert">\{appearance\.error\}/);
+  assert.doesNotMatch(appearance, /appearance-settings-status-row|appearance\.notice/);
   assert.match(settings, /settings-close-button/);
   assert.match(settings, /setCloseToTrayNotice\("Saved"\)/);
   assert.match(settings, /Private address created/);

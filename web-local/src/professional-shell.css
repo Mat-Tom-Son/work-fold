@@ -295,6 +295,11 @@
   user-select: none;
 }
 
+/* The header menu escapes the pane's stacking layer and consumes the press
+   that dismisses it, so underlying controls cannot begin a drag. */
+.folder-context-menu-backdrop { position: fixed; inset: 0; z-index: 41; cursor: default; -webkit-app-region: no-drag; }
+.folder-context-menu { z-index: 42; -webkit-app-region: no-drag; }
+
 .app-shell .space-layout .space-mode-pane .professional-pane-header,
 .app-shell .space-layout .space-mode-pane .professional-pane-header:hover,
 .app-shell .space-layout .space-mode-pane .professional-pane-header:focus-visible,

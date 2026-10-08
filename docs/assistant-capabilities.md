@@ -229,6 +229,17 @@ Results expose their source and link back to it. Search, type filters, and sorti
 
 ## Authentication and external connections
 
+**Settings → AI Models** groups provider authentication in one connection
+panel, showing the credential's actual source and its machine-wide scope.
+API-key entry is masked with an explicit Show/Hide control. A saved API key
+can be replaced through **Change API Key** without removing it first; Cancel
+clears the entered replacement and keeps the saved key. Saving a connection
+also saves the selected model for the displayed Worker or work-fold agent,
+as stated beside the action. Failed saves keep the entered key for correction;
+successful saves clear it. Keys are never read back into the form or carried
+across provider or scope changes. Account sign-in and Azure deployment setup
+continue through their existing provider-specific paths.
+
 In **Settings → AI Models**, Azure OpenAI accepts an endpoint, an API key,
 and **Deployment names**, separated by commas or new lines. Copy the Name
 under Deployment info in Azure. These names become the Azure model choices;

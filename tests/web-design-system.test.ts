@@ -408,7 +408,10 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.doesNotMatch(appSource, /dataset\.windowMaterial/, "window material must not wait for a passive React effect");
   assert.doesNotMatch(foundationCss, /--work-fold-font-size:/, "the professional layer must not override the user's text-size preference");
   assert.match(foundationCss, /\.composer textarea:focus-visible\s*\{[\s\S]*?outline:\s*0/, "the Space-colored composer shell must own the visible focus treatment");
-  assert.doesNotMatch(desktopSettingsSource, /from\s+["']lucide-react["']/);
+  const settingsIconsSource = desktopSettingsSource.replace('import { LayoutPanelLeft } from "lucide-react";', "");
+  assert.doesNotMatch(settingsIconsSource, /from\s+["']lucide-react["']/, "Settings keeps its icon exceptions limited to the requested controls");
+  assert.match(desktopSettingsSource, /id: "apps", label: "Apps", icon: <LayoutPanelLeft size=\{20\} strokeWidth=\{1\.5\} aria-hidden="true" \/>/);
+  assert.match(desktopSettingsSource, /id: "web-access", label: "Web Access", icon: <GlobeCode size=\{20\} strokeWidth=\{1\.5\} aria-hidden="true" \/>/);
   assert.match(desktopSettingsSource, /from\s+["']@fluentui\/react-icons["']/);
 });
 

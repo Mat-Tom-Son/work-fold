@@ -24,7 +24,11 @@ test("appearance controls affect the shared document, preserve explicit Space ro
   const routes: string[] = [];
   function Screen() { const appearance = useApplicationAppearance({ store, fixtureMode: true }); return createElement(AppearanceSettingsPane, { appearance, space: { id: "space-owner", name: "Workshop" } as SpaceSummary, onCustomizeSpace: (id) => routes.push(id) }); }
   await dom.render(createElement(Screen));
+  assert.equal(document.querySelector(".appearance-settings")?.firstElementChild?.getAttribute("aria-labelledby"), "appearance-preview-title");
+  assert.equal(document.querySelector("#appearance-preview-title")?.textContent, "Preview");
+  assert.ok(document.querySelector(".appearance-settings-preview")!.compareDocumentPosition(document.querySelector(".appearance-settings-presets")!) & Node.DOCUMENT_POSITION_FOLLOWING);
   await dom.act(() => document.querySelector<HTMLButtonElement>('[aria-label="Paper preset"]')!.click());
+  assert.equal(document.querySelector(".appearance-settings-status-row"), null, "applying a preset does not reserve a notice strip above Preview");
   assert.equal(document.documentElement.dataset.appearancePalette, "paper");
   assert.match(document.documentElement.style.getPropertyValue("--work-fold-reading-font"), /Georgia/);
   await dom.act(() => { changeSelect("Reading size", "22"); changeSelect("List density", "spacious"); changeSelect("Your messages", "quiet"); });

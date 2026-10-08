@@ -51,12 +51,15 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
   return <div className="appearance-settings">
-    <div className="appearance-settings-status-row">
-      <p role="status">{appearance.error ?? appearance.notice ?? ""}</p>
-    </div>
-    <section className="appearance-settings-section" aria-labelledby="appearance-presets-title">
-      <div className="appearance-settings-section-heading"><h3 id="appearance-presets-title">Presets</h3><div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" disabled={atDefaults} onClick={store.reset}>Reset</button></div></div>
-      <div className="appearance-settings-presets">
+    <section className="appearance-settings-section" aria-labelledby="appearance-preview-title">
+      <div className="appearance-settings-section-heading"><h3 id="appearance-preview-title">Preview</h3><div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" disabled={atDefaults} onClick={store.reset}>Reset</button></div></div>
+      {appearance.error ? <p className="appearance-settings-error" role="alert">{appearance.error}</p> : null}
+      <div className="appearance-settings-preview" aria-label="Appearance preview">
+        <div className="appearance-preview-files"><span>Workshop</span><div>Notes.md</div><div>Next steps.pdf</div></div>
+        <div className="appearance-preview-chat"><p className="appearance-preview-user">Plan a workshop for 12 people.</p><div className="appearance-preview-answer"><p>Your plan is ready. The workshop starts at 10 AM, with a break at noon.</p><code>workshop-plan.md</code></div></div>
+      </div>
+      <h3 className="appearance-settings-presets-heading" id="appearance-presets-title">Presets</h3>
+      <div className="appearance-settings-presets" role="group" aria-labelledby="appearance-presets-title">
         {builtInAppearancePresets.map(({ name, ...patch }) => {
           const grounds = applicationPalettes[patch.palette][appearance.theme];
           const active = p.palette === patch.palette;
@@ -64,10 +67,6 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
             <span aria-hidden="true" className="appearance-preset-swatch" style={{ "--preset-canvas": grounds.canvas, "--preset-surface": grounds.surface, "--preset-text": grounds.text, "--preset-accent": applicationPalettes[patch.palette].accent } as CSSProperties}><span><i /><b /><b /></span></span><span>{name}</span>
           </button>;
         })}
-      </div>
-      <div className="appearance-settings-preview" aria-label="Appearance preview">
-        <div className="appearance-preview-files"><span>Workshop</span><div>Notes.md</div><div>Next steps.pdf</div></div>
-        <div className="appearance-preview-chat"><p className="appearance-preview-user">Plan a workshop for 12 people.</p><div className="appearance-preview-answer"><p>Your plan is ready. The workshop starts at 10 AM, with a break at noon.</p><code>workshop-plan.md</code></div></div>
       </div>
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-color-title">

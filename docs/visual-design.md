@@ -23,7 +23,7 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Use Fluent System Icons for shell navigation, commands, status, and empty states.
 - Use regular icons at rest and the matching filled icon for a selected navigation item.
 - Use 16px icons for inline actions, 24px for the icon-only rail navigation, 20px for section markers, and no more than 24px for empty states.
-- Material file-type icons retain their familiar type colors. The rail's Skills & Extensions control uses the Lucide **Blocks** icon at 24px (2026-10-08); other shell controls retain Fluent icons.
+- Material file-type icons retain their familiar type colors. The rail's Skills & Extensions control uses the Lucide **Blocks** icon at 24px; Settings → Apps uses **Layout Panel Left** and Web Access uses **Globe Code** at 20px (2026-10-08). These requested icons use a 1.5px stroke to match the neighboring Fluent outlines and inherit the same control colors; other shell controls retain Fluent icons.
 - Keep icon-library exceptions limited to those named controls. The Space glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and Space-bound tabs. The banner itself is name-first.
 - Space color may appear as a small avatar accent or active indicator, never as a frame around the application.
 
@@ -45,6 +45,7 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - The Skills & Extensions Installed view places the Included with work-fold strip above Everywhere and This folder only, which sit side by side and stack on narrow widths; rows open their details on click.
 - With four or more tabs open, tabs narrow but keep their Space icon and a normal close button.
 - Settings → AI Models chooses its scope with two large buttons (This worker, naming the Space, and work-fold agent) rather than radio circles; its model is a dropdown that shows the chosen model closed and opens with a search box at the top and vendor headings, closing again on a choice. Settings → Automations keeps Limits collapsed under a disclosure by default.
+- Settings → Appearance starts with a labeled Preview, followed by Presets, without a reserved success-notice strip. AI Models places Save Model at the right of its action row. Shared Pages gives each page a padded summary and a separate wrapping footer with Sleep Copy and its sharing actions; state, source, budgets, and usage remain visible, and links and budget editors open within the same row.
 - User Chat bubbles use one solid primary Space accent, never a gradient between accent colors. Assistant message headers are text-only and do not repeat a decorative Assistant avatar.
 - Forms use stacked labels and hints with an explicit action row.
 - Notices use `icon | copy | action` and stack only when their own pane becomes narrow.
