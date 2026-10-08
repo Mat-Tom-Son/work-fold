@@ -80,7 +80,7 @@ test("pane navigation uses Fluent icons with the requested Blocks icon for Skill
   }
 
   assert.match(spaceChromeSource, /professional-space-rail/);
-  assert.match(spaceChromeSource, /<Blocks size=\{24\} aria-hidden="true" \/>/);
+  assert.match(spaceChromeSource, /<Blocks size=\{24\} strokeWidth=\{1\.5\} aria-hidden="true" \/>/);
   // The Add button opens the Skills & Extensions popup directly; there is no Add menu (2026-09-25).
   assert.match(spaceChromeSource, /aria-label="Skills & Extensions"/);
   assert.match(spaceChromeSource, /onClick=\{\(\) => onOpenAssistantTools\("installed"\)\}/);

@@ -184,7 +184,7 @@ function SpaceModeRail({
             onClick={() => onOpenAssistantTools("installed")}
             aria-label="Skills & Extensions"
           >
-            <Blocks size={24} aria-hidden="true" />
+            <Blocks size={24} strokeWidth={1.5} aria-hidden="true" />
             <span>Add</span>
           </button>
           <button
