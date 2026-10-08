@@ -335,10 +335,6 @@ export function ChatsPane({
         </section>
         {otherSpaceGroups.length ? (
           <section className="chat-other-spaces" aria-label="Chats in other work-folders">
-            <div className="chat-other-spaces-heading">
-              <span>Other work-folders</span>
-              <small>{otherSpaceGroups.length}</small>
-            </div>
             {otherSpaceGroups.map(({ item, list, status }) => {
               const identity = spaceIdentityFor(item, customizations);
               const expanded = Boolean(normalized) || expandedOtherSpaceIds.has(item.id);
