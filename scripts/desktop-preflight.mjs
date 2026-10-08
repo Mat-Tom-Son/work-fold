@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  AuthStorage,
+  FileCredentialStore,
   DefaultResourceLoader,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
   createAgentSession,
@@ -154,13 +154,13 @@ async function verifyNativePiResources() {
       failures.push("Pi did not load trusted project context files.");
     }
 
-    const authStorage = AuthStorage.inMemory({});
-    const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+    const authStorage = FileCredentialStore.inMemory({});
+    const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: join(agentDir, "models.json") });
     const result = await createAgentSession({
       cwd: projectDir,
       agentDir,
-      authStorage,
-      modelRegistry,
+      credentials: authStorage,
+      modelRuntime,
       resourceLoader,
       settingsManager,
       sessionManager: SessionManager.inMemory(projectDir),

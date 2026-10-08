@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { AuthStorage, ModelRegistry, ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-agent";
 import JSZip from "jszip";
 
 import { createPersistentPiAuthStorage, type PiAuthStorageData } from "../src/local/agent/auth-storage.js";
@@ -35,9 +35,9 @@ test("the composer exposes the preferred model and reasoning before a Chat sessi
   const agentDir = join(root, "agent");
   const spaceRoot = join(root, "space");
   await mkdir(spaceRoot, { recursive: true });
-  const authStorage = AuthStorage.inMemory({ composer: { type: "api_key", key: "test-key" } });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("composer", {
+  const authStorage = FileCredentialStore.inMemory({ composer: { type: "api_key", key: "test-key" } });
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("composer", {
     api: "openai-completions",
     baseUrl: "http://127.0.0.1:1/v1",
     apiKey: "test-key",
@@ -57,8 +57,8 @@ test("the composer exposes the preferred model and reasoning before a Chat sessi
     async resolveRuntime() {
       return {
         agentDir,
-        authStorage,
-        modelRegistry,
+        credentials: authStorage,
+        modelRuntime,
         settingsManager,
         preferredModel: { provider: "composer", id: "composer-model" },
       };
@@ -82,11 +82,11 @@ test("Pi model summaries distinguish stored credentials and reflect explicit rem
   const agentDir = join(root, "agent");
   const spaceRoot = join(root, "space");
   await mkdir(spaceRoot, { recursive: true });
-  const authStorage = AuthStorage.inMemory({
+  const authStorage = FileCredentialStore.inMemory({
     "credential-test": { type: "api_key", key: "test-key" },
   });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("credential-test", {
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("credential-test", {
     api: "openai-completions",
     baseUrl: "http://127.0.0.1:1/v1",
     apiKey: "$WORKFOLD_CREDENTIAL_TEST_MISSING_KEY",
@@ -102,7 +102,7 @@ test("Pi model summaries distinguish stored credentials and reflect explicit rem
   });
   const provider: PiRuntimeProvider = {
     async resolveRuntime() {
-      return { agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory() };
+      return { agentDir, credentials: authStorage, modelRuntime, settingsManager: SettingsManager.inMemory() };
     },
   };
 
@@ -118,7 +118,7 @@ test("Pi model summaries distinguish stored credentials and reflect explicit rem
   assert.equal(removed?.authType, undefined);
 });
 
-test("host-backed Pi AuthStorage persists provider-neutral API key data", async () => {
+test("host-backed Pi FileCredentialStore persists provider-neutral API key data", async () => {
   let stored: PiAuthStorageData = {};
   const persistent = await createPersistentPiAuthStorage({
     agentDir: "unused",
@@ -132,7 +132,7 @@ test("host-backed Pi AuthStorage persists provider-neutral API key data", async 
     },
   });
 
-  persistent.authStorage.set("openrouter", { type: "api_key", key: "test-key" });
+  await persistent.credentials.modify("openrouter", async () => ({ type: "api_key", key: "test-key" }));
   await persistent.flush();
   assert.deepEqual(stored, {
     openrouter: { type: "api_key", key: "test-key" },
@@ -141,7 +141,7 @@ test("host-backed Pi AuthStorage persists provider-neutral API key data", async 
     agentDir: "unused",
     host: { async load() { return stored; }, async save(data) { stored = structuredClone(data); } },
   });
-  assert.deepEqual(reopened.authStorage.get("openrouter"), { type: "api_key", key: "test-key" });
+  assert.deepEqual(await reopened.credentials.read("openrouter"), { type: "api_key", key: "test-key" });
 });
 
 test("aborting during Pi session initialization latches cancellation before prompt execution", async (t) => {
@@ -424,7 +424,7 @@ test("native Pi host discovers trusted project extensions, skills, context, comm
     persisted: false,
     mutable: false,
     scope: "chat",
-    reason: "Pi has no persisted Personal or Space tool default; tool selection belongs to each Chat.",
+    reason: "Pi's defaultTools setting supplies startup tools; this view does not change them.",
   });
   const readTool = catalog.tools.find((tool) => tool.name === "read");
   assert.equal(readTool?.label, "read");

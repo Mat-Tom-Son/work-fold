@@ -17,7 +17,7 @@ const port = (reservation.address() as { port: number }).port;
 await new Promise<void>(resolve => reservation.close(() => resolve()));
 process.env.PI_CHROME_BRIDGE_PORT = String(port);
 process.env.PI_CODING_AGENT_DIR = join(root, "agent");
-const { AuthStorage, createAgentSession, createEventBus, DefaultResourceLoader, ModelRegistry, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+const { FileCredentialStore, createAgentSession, createEventBus, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
 const chrome = await jiti.import<any>(new URL("../../../resources/included-tools/chrome/index.ts", import.meta.url).pathname);
 const distribution = { version: 1, storeId: "a".repeat(32), nativeHostName: "com.work_fold.chrome_test", bootstrapVersion: 1, extensionVersion: "1.0.0", bridge: { major: 3, minor: 0, capabilities: ["cancellation", "hard-background", "profile-binding"] } };
@@ -45,9 +45,9 @@ const resourceLoader = new DefaultResourceLoader({ cwd, agentDir: process.env.PI
   extensionFactories: [{ path: join(root, "chrome.ts"), factory: chrome.default }],
 });
 await resourceLoader.reload(); assert.deepEqual(resourceLoader.getExtensions().errors, []);
-const authStorage = AuthStorage.inMemory();
-const { session } = await createAgentSession({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, resourceLoader, settingsManager, authStorage,
-  modelRegistry: ModelRegistry.inMemory(authStorage), sessionManager: SessionManager.inMemory(), noTools: "builtin" });
+const authStorage = FileCredentialStore.inMemory();
+const { session } = await createAgentSession({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, resourceLoader, settingsManager, credentials: authStorage,
+  modelRuntime: await ModelRuntime.create({ credentials: authStorage, modelsPath: null }), sessionManager: SessionManager.inMemory(), noTools: "builtin" });
 await session.bindExtensions({ mode: "rpc" });
 const sockets = new Agent({ keepAlive: true, maxSockets: 1 });
 const intervals = new Set<ReturnType<typeof setInterval>>(), timeouts = new Set<ReturnType<typeof setTimeout>>();

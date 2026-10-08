@@ -2886,7 +2886,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         const currentRuntime = await resolvePiRuntime(current.spaceRoot, state.runtimeProvider, { requestProjectTrust: false });
         if (currentRuntime.agentDir !== runtime.agentDir || !currentRuntime.projectTrust.trusted) throw badRequest("The Assistant resource scope changed. Open connection setup again.");
       };
-      const service = createIncludedMcpSetup({ agentDir: runtime.agentDir, ...(runtime.projectTrust.trusted ? { cwd: space.spaceRoot } : {}),
+      const service = createIncludedMcpSetup({ agentDir: runtime.agentDir, mcpCredentialBackend: runtime.config.mcpCredentialBackend, credentials: runtime.credentials, providerToken: async (id) => (await runtime.modelRuntime.getAuth(id))?.auth.apiKey, ...(runtime.projectTrust.trusted ? { cwd: space.spaceRoot } : {}),
         openAuthorizationUrl: async (url) => {
           await assertCurrentOwner();
           const parsed = new URL(url);
@@ -2896,7 +2896,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         },
         withMutation: async (selection, operation) => {
           const mutation = await runDesktopSettingsAct(state, "tools.connection.configure", async () => ({
-            value: await runCapabilityMutation(state, space, selection.scope, async () => { await assertCurrentOwner(); return operation(); }), detail: `Updated service connection ${selection.name} (${selection.scope}).`,
+            value: await runCapabilityMutation(state, space, selection.scope, async () => {
+              await assertCurrentOwner();
+              // Drain and revoke native session credentials before changing standing auth.
+              if (selection.scope === "global") await invalidateAllClients(state);
+              else await invalidateWorkFoldClients(state, space.id);
+              return operation();
+            }), detail: `Updated service connection ${selection.name} (${selection.scope}).`,
           }));
           return mutation.value;
         },

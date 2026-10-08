@@ -2,22 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
-import { createJiti } from "jiti";
-import { fileURLToPath } from "node:url";
-
-const { resolveMcpResultContent } = await createJiti(import.meta.url, { moduleCache: true, fsCache: false }).import<any>(fileURLToPath(new URL("../node_modules/pi-mcp-adapter/tool-registrar.ts", import.meta.url)));
-
-test("MCP preserves structured cursors without duplicating an equivalent JSON content block", () => {
-  const structured = { records: [{ id: 1 }], nextCursor: "next-page" };
-  const summary = { type: "text", text: "Fetched one record." };
-  const result = resolveMcpResultContent({ content: [summary], structuredContent: structured });
-  assert.equal(result.length, 2);
-  assert.deepEqual(JSON.parse((result[1] as { text: string }).text), structured);
-  const duplicate = resolveMcpResultContent({ content: [{ type: "text", text: '{"nextCursor":"next-page","records":[{"id":1}]}' }], structuredContent: structured });
-  assert.equal(duplicate.length, 1);
-  assert.deepEqual(resolveMcpResultContent({ content: [], structuredContent: structured }), [{ type: "text", text: JSON.stringify(structured, null, 2) }]);
-});
-
 test("native Chrome injected snapshots continue exact body text and reject changed source", async () => {
   const script = await readFile(new URL("../node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js", import.meta.url), "utf8");
   const dom = new JSDOM("<!doctype html><html><head><title>Ranges</title></head><body><p></p></body></html>", { url: "http://fixture.invalid/ranges", runScripts: "outside-only" });

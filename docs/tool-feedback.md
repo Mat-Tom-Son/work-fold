@@ -24,7 +24,7 @@ handling, and continuation remain authoritative.
 
 ## Reuse before adding
 
-The installed Pi 0.80.6 provides these mechanisms:
+The installed Pi 1.1.0 provides these mechanisms:
 
 | Need | Existing mechanism | work-fold responsibility |
 |---|---|---|
@@ -168,10 +168,13 @@ evidence. Disabling or clearing recording invalidates in-flight recorder
 callbacks as well as deleting retained records. Restart begins with recording
 off and no captured records.
 
-Use one diagnostic observer at the bound Pi session's `agent.streamFn`, shared
+Use one diagnostic observer at the bound Pi session's `agent.streamFunction`, shared
 by normal turns and the host's title, Check, app inference and compaction calls.
 Capture a detached bounded **Assembled model context** with the effective
-model, system prompt, messages and active tool definitions. Chain the existing
+model and canonical transcript. Replay its system/tool deltas for dispatch
+digests and tool names; never infer these from the current session state.
+Native ModelRuntime image/classifier calls and cache warming have separate
+observers with the same bounded capture policy and originating async identity. Chain the existing
 native `onPayload` callback and capture its final effective result as
 **Provider payload observed**. Preserve native hook order, replacements, errors
 and return values exactly; observer failures cannot affect the request. Never
@@ -295,7 +298,7 @@ regression and did not justify replacing Pi's native compaction behavior.
 - [Pi Extensions](https://pi.dev/docs/latest/extensions): native tool results,
   result hooks, guidance, Skills integration and terminal rendering.
 - [Pi SDK](https://pi.dev/docs/latest/sdk): embedded sessions and native tools.
-- The installed Pi 0.80.6 `createReadTool`, `convertToLlm` and `ToolDefinition`
+- The installed Pi 1.1.0 `createReadTool`, `convertToLlm` and `ToolDefinition`
   exports; work-fold's [Pi client](../src/local/agent/pi-client.ts) constructs
   native sessions and projects their events into bounded UI activity.
 
@@ -392,11 +395,10 @@ Model output-length exhaustion preserves partial work and ends with an explicit
 incomplete failure, rather than recording a successful final answer or replaying work.
 Pi's existing compact-and-retry remains responsible for input overflow. A successful
 native retry clears the discarded attempt's error and text in the host projection.
-The reviewed Pi 0.80.6 patch also prevents rebuilding compacted context from
-restoring an empty length-stop overflow response that native continuation cannot
-resume, preserves the one-retry guard across repeated length responses, and uses
-session order to distinguish fresh retries from pre-compaction context. It changes
-no retry count or ordinary output-length behavior.
+Pi 1.1 persists recovery omissions as canonical context edits and retains the
+one-retry guard. The reviewed patch uses session order to distinguish fresh
+retries from pre-compaction context when timestamps are equal. It changes no
+retry count or ordinary output-length behavior.
 
 Native bash remains available for ordinary full-trust file/process work. This change
 does not install a PTY/job scheduler: native bash has no default command deadline and

@@ -3,7 +3,7 @@ import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore } from "@earendil-works/pi-coding-agent";
 import type { IncludedChromeConnectionHost } from "../src/local/agent/included-chrome-connection.js";
 import type { ChromeConnectionSummary } from "../src/shared/chrome-connection.js";
 import { listIncludedToolStatus, setupIncludedTool } from "../src/local/agent/included-tool-setup.js";
@@ -35,8 +35,8 @@ test("readiness summaries stay cold, preserve unknown setup, and disclose no sav
     await mkdir(join(included, id));
     await writeFile(join(included, id, "index.ts"), "throw new Error('A cold readiness read loaded executable resources');");
   }
-  const authStorage = AuthStorage.inMemory();
-  const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), authStorage, includedTools: { rootPath: included, stateRoot: join(root, "state") } }) };
+  const authStorage = FileCredentialStore.inMemory();
+  const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), credentials: authStorage, includedTools: { rootPath: included, stateRoot: join(root, "state") } }) };
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   globalThis.fetch = (async () => { assert.fail("Readiness inspection must not contact a provider or launch a connection"); }) as typeof fetch;
@@ -51,7 +51,7 @@ test("readiness summaries stay cold, preserve unknown setup, and disclose no sav
   assert.doesNotMatch(JSON.stringify(declared), /synthetic-config-secret|example.invalid/);
   await assert.rejects(readFile(marker), { code: "ENOENT" });
   await assert.rejects(setupIncludedTool(root, "chrome", "connect-chrome", {}, provider), /Chrome setup requires the desktop app/);
-  authStorage.set("work-fold:web:brave", { type: "api_key", key: "synthetic-secret-not-for-status" });
+  await authStorage.modify("work-fold:web:brave", async () => ({ type: "api_key", key: "synthetic-secret-not-for-status" }));
   const configured = await listIncludedToolStatus(root, provider);
   assert.equal(configured.find(({ id }) => id === "web")!.state, "unknown");
   assert.doesNotMatch(JSON.stringify(configured), /synthetic-secret-not-for-status/);
@@ -126,7 +126,7 @@ test("Computer Check observes without starting or repairing the helper", async (
     }
     export async function setupIncludedComputer() { throw new Error('Check must not enter permission setup'); }
   `);
-  const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), authStorage: AuthStorage.inMemory(), includedTools: { rootPath: included, stateRoot: join(root, "state") } }) };
+  const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), credentials: FileCredentialStore.inMemory(), includedTools: { rootPath: included, stateRoot: join(root, "state") } }) };
   const result = await setupIncludedTool(root, "computer", "check", {}, provider);
   assert.equal(result.status.state, "ready");
   assert.deepEqual(result.status.facts, { accessibility: true, screenRecording: true });
@@ -155,7 +155,7 @@ test("Chrome readiness uses only current host observations and trusted actions, 
     beginChromeWork: () => { assert.fail("Renderer setup must not admit model work"); },
   };
   const includedTools = { rootPath: join(root, "must-not-import"), stateRoot: join(root, "state"), chromeConnection: service };
-  const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), authStorage: AuthStorage.inMemory(), includedTools }) };
+  const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), credentials: FileCredentialStore.inMemory(), includedTools }) };
   const cold = (await listIncludedToolStatus(root, provider)).find(({ id }) => id === "chrome")!;
   assert.deepEqual(calls, ["status"], "cold reads must not prepare, check, or connect");
   assert.equal(cold.chrome?.state, "not_connected");

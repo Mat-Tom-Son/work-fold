@@ -1,3 +1,4 @@
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -35,7 +36,7 @@ function fakeSession(reply: Reply, options: { levels?: readonly ("off" | "low" |
     getAvailableThinkingLevels: () => options.levels ?? ["off"],
     prompt: () => { throw new Error("Must not enter a turn"); },
     agent: {
-      streamFn: async (streamModel, context, streamOptions) => {
+      streamFunction: async (streamModel, context, streamOptions) => {
         calls.push({ model: streamModel, context, options: streamOptions });
         return {
           result: async () => typeof reply === "function"
@@ -66,11 +67,12 @@ test("text inference sends one untrusted user message on the configured stream p
   assert.deepEqual(outcome, { kind: "text", text: "North leads by $25.", truncated: false, model: { provider: "test", id: "space-model" }, usage: { inputTokens: 20, outputTokens: 10, amountUsd: 0.01 } });
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.model, model);
-  const context = calls[0]!.context;
+  const transcript = calls[0]!.context;
+  const context = { systemPrompt: getCurrentSystemPrompt(transcript.messages), messages: transcript.messages.filter((m) => m.role !== "system"), tools: getCurrentTools(transcript.messages) };
   assert.equal(context.messages.length, 1);
   assert.equal(context.messages[0].role, "user");
   assert.equal(context.messages[0].content, input.input);
-  assert.equal("tools" in context, false);
+  assert.equal(context.tools.length, 0);
   assert.ok(context.systemPrompt.startsWith(boundedInferenceSystemPrompt));
   assert.match(context.systemPrompt, /untrusted/);
   assert.match(context.systemPrompt, /App instructions:\nSummarize the sales figures\.$/);
@@ -96,7 +98,8 @@ test("json inference carries the app schema as the single submit_result tool and
   const outcome = await runBoundedInference(session, request({ outputSchema: schema }));
   assert.deepEqual(outcome, { kind: "json", json: submitted, model: { provider: "test", id: "space-model" }, usage: { inputTokens: 20, outputTokens: 10, amountUsd: 0.01 } });
   assert.ok(outcome.kind === "json" && outcome.json !== submitted, "the app receives a JSON copy, not the provider object");
-  const context = calls[0]!.context;
+  const transcript = calls[0]!.context;
+  const context = { systemPrompt: getCurrentSystemPrompt(transcript.messages), messages: transcript.messages.filter((m) => m.role !== "system"), tools: getCurrentTools(transcript.messages) };
   assert.equal(context.tools?.length, 1);
   assert.equal(context.tools?.[0].name, "submit_result");
   assert.equal(context.tools?.[0].parameters, schema);
@@ -140,6 +143,10 @@ test("provider failures and interruptions map to closed codes without provider t
   const failed = fakeSession({ stopReason: "error", errorMessage: "PRIVATE PROVIDER DIAGNOSTICS", content: [{ type: "text", text: "partial" }] });
   const failure = await rejectsWith(runBoundedInference(failed.session, request()), "INFER_FAILED", /provider connection in Settings → AI Models/);
   assert.ok(!failure.message.includes("PRIVATE"));
+  for (const stopReason of ["pending", "deferred"] as const) {
+    const unfinished = fakeSession({ stopReason, content: [{ type: "text", text: "partial" }] });
+    await rejectsWith(runBoundedInference(unfinished.session, request()), "INFER_FAILED");
+  }
   const aborted = fakeSession({ stopReason: "aborted", content: [] });
   await rejectsWith(runBoundedInference(aborted.session, request()), "INFER_INTERRUPTED", /interrupted/);
   const thrown = fakeSession(async () => { throw new Error("PRIVATE TRANSPORT ERROR"); });

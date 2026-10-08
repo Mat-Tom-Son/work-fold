@@ -1,3 +1,4 @@
+import { createEncryptedMcpCredentialBackend } from "./pi-mcp-credentials.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import {
   powerSaveBlocker,
   protocol,
   screen,
+  safeStorage,
   shell,
   systemPreferences,
   Tray,
@@ -557,6 +559,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         },
         agentDir: defaultAgentSdkDir(),
         authStorageHost: settings,
+        mcpCredentialBackend: createEncryptedMcpCredentialBackend(join(userData, "pi-mcp-credentials.bin"), safeStorage),
         assistantPreferencesPath: join(userData, "assistant-model-preferences.json"),
         openRouterCatalogPath: join(userData, "model-catalogs", "openrouter.json"),
         managementRoot: workFoldManagementRoot(),

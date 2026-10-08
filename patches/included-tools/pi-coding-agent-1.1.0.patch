@@ -1,0 +1,79 @@
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -3,7 +3,7 @@
+ // Config paths
+ export { CONFIG_DIR_NAME, getAgentDir, getDocsPath, getExamplesPath, getPackageDir, getReadmePath, VERSION, } from "./config.js";
+ export { AgentSession, parseSkillBlock, } from "./core/agent-session.js";
+-export { readStoredCredential } from "./core/auth-storage.js";
++export { AuthStorage as FileCredentialStore, readStoredCredential } from "./core/auth-storage.js";
+ // Compaction
+ export { calculateContextTokens, collectEntriesForBranchSummary, compact, DEFAULT_COMPACTION_SETTINGS, estimateTokens, findCutPoint, findTurnStartIndex, generateBranchSummary, generateSummary, generateSummaryWithUsage, getLastAssistantUsage, prepareBranchEntries, serializeConversation, shouldCompact, } from "./core/compaction/index.js";
+ export { createEventBus } from "./core/event-bus.js";
+@@ -50,4 +50,9 @@
+ export { detectSupportedImageMimeTypeFromFile } from "./utils/mime.js";
+ // Shell utilities
+ export { getPowerShellConfig, getShellConfig } from "./utils/shell.js";
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
++//# sourceMappingURL=index.js.map
++export { FileAuthStorageBackend as FileCredentialStoreBackend } from "./core/auth-storage.js";
++export { loadMcpConfig, addMcpServerConfig, removeMcpServerConfig, updateMcpServerConfig } from "./extensions/mcp/config.js";
++export { validateMcpServerConfig } from "./core/mcp-servers.js";
++export { McpOAuthCredentialStore, signInMcpServer } from "./extensions/mcp/oauth.js";
++export { createDefaultTransport, McpServerConnection } from "./extensions/mcp/runtime.js";
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,7 +1,7 @@
+ export { type Args, parseArgs } from "./cli/args.ts";
+ export { CONFIG_DIR_NAME, getAgentDir, getDocsPath, getExamplesPath, getPackageDir, getReadmePath, VERSION, } from "./config.ts";
+ export { AgentSession, type AgentSessionConfig, type AgentSessionEvent, type AgentSessionEventListener, type ModelCycleResult, type ParsedSkillBlock, type PromptOptions, parseSkillBlock, type SessionStats, } from "./core/agent-session.ts";
+-export { readStoredCredential } from "./core/auth-storage.ts";
++export { AuthStorage as FileCredentialStore, readStoredCredential } from "./core/auth-storage.ts";
+ export type { CacheWarmingDecision, CacheWarmingStatus } from "./core/cache-warmer.ts";
+ export { type BranchPreparation, type BranchSummaryResult, type CollectEntriesResult, type CompactionResult, type CutPointResult, calculateContextTokens, collectEntriesForBranchSummary, compact, DEFAULT_COMPACTION_SETTINGS, estimateTokens, type FileOperations, findCutPoint, findTurnStartIndex, type GenerateBranchSummaryOptions, generateBranchSummary, generateSummary, generateSummaryWithUsage, getLastAssistantUsage, prepareBranchEntries, serializeConversation, shouldCompact, } from "./core/compaction/index.ts";
+ export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
+@@ -41,4 +41,10 @@
+ export { formatDimensionNote, type ResizedImage, resizeImage } from "./utils/image-resize.ts";
+ export { detectSupportedImageMimeTypeFromFile } from "./utils/mime.ts";
+ export { getPowerShellConfig, getShellConfig } from "./utils/shell.ts";
+-//# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=index.d.ts.map
++export { FileAuthStorageBackend as FileCredentialStoreBackend } from "./core/auth-storage.ts";
++export { loadMcpConfig, addMcpServerConfig, removeMcpServerConfig, updateMcpServerConfig } from "./extensions/mcp/config.ts";
++export { validateMcpServerConfig } from "./core/mcp-servers.ts";
++export { McpOAuthCredentialStore, signInMcpServer } from "./extensions/mcp/oauth.ts";
++export { createDefaultTransport, McpServerConnection } from "./extensions/mcp/runtime.ts";
++export type { LoadedMcpConfig, McpServerConfig, McpServerEntry } from "./extensions/mcp/config.ts";
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -2344,8 +2344,18 @@
+         // Skip compaction checks if this assistant message is older than the latest
+         // compaction boundary. This prevents a stale pre-compaction usage/error
+         // from retriggering compaction on the first prompt after compaction.
+-        const compactionEntry = getLatestCompactionEntry(this.sessionManager.getBranch());
+-        const assistantIsFromBeforeCompaction = compactionEntry !== null && assistantMessage.timestamp <= new Date(compactionEntry.timestamp).getTime();
++        const compactionBranch = this.sessionManager.getBranch();
++        const compactionEntry = getLatestCompactionEntry(compactionBranch);
++        // Canonical session order survives equal timestamps and clock changes.
++        const isBeforeCompaction = (message) => {
++            if (!compactionEntry) return false;
++            const id = this._findPersistedMessageEntryId(message);
++            const index = id ? compactionBranch.findIndex((entry) => entry.id === id) : -1;
++            return index >= 0
++                ? index < compactionBranch.indexOf(compactionEntry)
++                : message.timestamp <= new Date(compactionEntry.timestamp).getTime();
++        };
++        const assistantIsFromBeforeCompaction = isBeforeCompaction(assistantMessage);
+         if (assistantIsFromBeforeCompaction) {
+             return false;
+         }
+@@ -2432,7 +2442,7 @@
+                 const usageMsg = messages[estimate.lastUsageIndex];
+                 if (compactionEntry &&
+                     usageMsg.role === "assistant" &&
+-                    usageMsg.timestamp <= new Date(compactionEntry.timestamp).getTime()) {
++                    isBeforeCompaction(usageMsg)) {
+                     return false;
+                 }
+             }

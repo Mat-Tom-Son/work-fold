@@ -90,7 +90,7 @@ is not rendered as a desktop component.
 | Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Install work-fold from the Chrome Web Store and choose Connect in the selected profile. Native bootstrap and authenticated protocol/capability checks precede use. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
 | Web | `pi-web-access` 0.29.0 pure search and readable-page functions through an additive native factory | DuckDuckGo search needs no key; optional Brave key is entered in tool setup. Explicit HTTP(S) reading, bounded output and cancellation. No automatic cookie/profile import, media service, global fetch replacement or hidden model call. Challenges and rate limits remain visible failures. |
 | Documents | Ordinary JavaScript worker, maintained document libraries and a standard document-work Skill | DOCX/XLSX/PPTX/PDF creation, spreadsheet read/write, PDF text extraction and selected page rendering using bundled dependencies. No separate Node/Python required. The separate `document_engine` tool detects installed LibreOffice for Office rendering/XLSX recalculation and Tesseract for page-image OCR. These optional engines are not bundled; missing setup is explicit. Built-in PDF text extraction itself is not OCR. |
-| Service Connections | `pi-mcp-adapter` 2.33.0 using native MCP transport, discovery, schemas and cancellation | Configure HTTP or stdio servers in native Pi files. Trusted setup supports bearer credentials and loopback PKCE OAuth. Stdio commands need their own installed executable/runtime. Sampling is disabled for Pi 0.80.6 compatibility. No automatic imports from other applications. |
+| Service Connections | Pi 1.1.0 `createMcpExtension` using native MCP transport, discovery, schemas and cancellation | Configure HTTP or stdio servers in native Pi files. Trusted setup supports bearer credentials and loopback PKCE OAuth. Stdio commands need their own installed executable/runtime. Native MCP currently has no elicitation or sampling path. No automatic imports from other applications. |
 
 Email, calendars, databases and project services remain user-selected
 connections. Included does not mean every account is connected or every server
@@ -196,9 +196,10 @@ limitation and offers removal rather than pretending its switch worked.
 
 MCP setup sessions bind the selected Space, authorized root and Pi agent
 directory. Native global `mcp.json` and the registered Space's `.pi/mcp.json`
-merge through the adapter; ambient other-app configuration is not imported.
-Host-entered credentials use the native OS keyring with scope/endpoint-bound
-identities. Save, removal and credential operations recheck the selected
+merge through Pi; ambient other-app configuration is not imported.
+Bearer credentials use the encrypted desktop CredentialStore; OAuth state uses
+an encrypted native Pi backend with scope/endpoint-bound identities. Development
+without Electron uses native profile files. Save, removal and credential operations recheck the selected
 revision, including at the eventual OAuth token commit. An active-work fence
 covers the actual write. Closing setup cancels probes and OAuth; restart
 resumes neither. Standard native configuration remains executable full trust,
@@ -232,7 +233,7 @@ third-party code. Restart observes current reality without replaying input.
 license, version, patch hash and each before/after file digest. Preparation
 rejects unknown or partial source states. [Integration notes](../patches/included-tools/README.md)
 record compatibility constraints and dependency mitigations. The host embeds
-Pi 0.80.6; its loader's disabled module cache is not process-global isolation.
+Pi 1.1.0; its loader's disabled module cache is not process-global isolation.
 Patches make ownership and cold initialization explicit while retaining native
 transport and default upstream behavior where applicable.
 
@@ -261,7 +262,7 @@ artifact, and concurrent Chat/Stop tests must preserve unrelated work.
 - [pi-computer-use](https://github.com/injaneity/pi-computer-use)
 - [pi-chrome](https://github.com/tianrendong/pi-chrome)
 - [pi-web-access](https://github.com/nicobailon/pi-web-access)
-- [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter)
+- [Pi native MCP](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/mcp.md)
 
 
 ### Optional installed document engines

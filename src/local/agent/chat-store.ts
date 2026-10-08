@@ -604,7 +604,7 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
       ...(entry.toolName === undefined ? {} : { toolName: entry.toolName }),
       ...(entry.phase === undefined ? {} : { phase: entry.phase }),
       ...(entry.order === undefined ? {} : { order: entry.order }),
-      ...(entry.kind === "thinking" && entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
+      ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
       ...(includeEdit ? { edit } : {}),
     };
   });
@@ -614,7 +614,7 @@ function isChatMessageWorkTrailEntry(value: unknown): value is ChatMessageWorkTr
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Partial<ChatMessageWorkTrailEntry>;
   const validDuration = record.durationMs === undefined
-    || (typeof record.durationMs === "number" && Number.isFinite(record.durationMs) && record.durationMs > 0 && record.durationMs <= 86_400_000);
+    || (typeof record.durationMs === "number" && Number.isFinite(record.durationMs) && record.durationMs >= 0 && record.durationMs <= 86_400_000);
   const timedThinking = record.kind === "thinking" && record.durationMs !== undefined;
   return (record.kind === "thinking" || record.kind === "tool")
     && typeof record.text === "string"

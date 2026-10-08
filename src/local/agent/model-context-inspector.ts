@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { ProviderRequestOptions } from "@earendil-works/pi-ai";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { types } from "node:util";
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { workFoldModelContextLimits } from "../../shared/fold-limits.js";
 import type {
@@ -8,9 +11,9 @@ import type {
   ModelContextSnapshot, ModelContextValue,
 } from "../../shared/model-context-inspection.js";
 
-type StreamFunction = AgentSession["agent"]["streamFn"];
+type StreamFunction = AgentSession["agent"]["streamFunction"];
 type StreamContext = Parameters<StreamFunction>[1];
-type InspectionSession = { agent: { streamFn: StreamFunction } };
+type InspectionSession = { agent: { streamFunction: StreamFunction } };
 interface Capture {
   payload(value: unknown): void;
   response(): void;
@@ -159,13 +162,13 @@ export function installModelContextInspection(
   getProvenance?: (context: StreamContext) => unknown,
 ): () => void {
   const previous = installed.get(session.agent);
-  if (previous && session.agent.streamFn === previous.wrapped) {
+  if (previous && session.agent.streamFunction === previous.wrapped) {
     previous.inspector = inspector;
     previous.getOwner = getOwner;
     previous.getProvenance = getProvenance;
     return () => uninstall(session, previous.wrapped);
   }
-  const original = session.agent.streamFn;
+  const original = session.agent.streamFunction;
   const binding = { original, wrapped: original, inspector, getOwner, getProvenance };
   const wrapped: StreamFunction = function (this: unknown, model, context, options) {
     const capture = safely(() => binding.inspector.begin(binding.getOwner(), model, context,
@@ -201,19 +204,82 @@ export function installModelContextInspection(
   };
   binding.wrapped = wrapped;
   installed.set(session.agent, binding);
-  session.agent.streamFn = wrapped;
+  session.agent.streamFunction = wrapped;
   return () => uninstall(session, wrapped);
 }
 
 function uninstall(session: InspectionSession, wrapped: StreamFunction): void {
   const binding = installed.get(session.agent);
   if (binding?.wrapped !== wrapped) return;
-  if (session.agent.streamFn === wrapped) session.agent.streamFn = binding.original;
+  if (session.agent.streamFunction === wrapped) session.agent.streamFunction = binding.original;
   installed.delete(session.agent);
 }
 
 function safely<T>(operation: () => T): T | undefined {
   try { return operation(); } catch { return undefined; }
+}
+
+type RuntimeCall = "cache_warm" | "image" | "classifier";
+type RuntimeBinding = { inspector: ModelContextInspector; owner: (kind: RuntimeCall, options: unknown) => ModelContextOwner | undefined };
+const runtimeObservers = new WeakMap<ModelRuntime, { bindings: Set<RuntimeBinding>; restore(): void }>();
+
+/** Pi's warming and non-chat models bypass agent.streamFunction. Keep their native transports. */
+export function installModelRuntimeInspection(runtime: ModelRuntime, inspector: ModelContextInspector,
+  owner: RuntimeBinding["owner"]): () => void {
+  let observer = runtimeObservers.get(runtime);
+  if (!observer) {
+    const bindings = new Set<RuntimeBinding>();
+    const stream = runtime.streamSimple, images = runtime.generateImages, classify = runtime.classify;
+    const capture = (kind: RuntimeCall, model: unknown, context: unknown, options: unknown) => {
+      for (const binding of bindings) {
+        const selected = safely(() => binding.owner(kind, options));
+        if (selected) return safely(() => binding.inspector.begin(selected, model, context));
+      }
+      return undefined;
+    };
+    runtime.streamSimple = function(model, context, options) {
+      const record = capture("cache_warm", model, context, options);
+      return stream.call(this, model, context, record ? captureOptions(options, record) : options);
+    };
+    runtime.generateImages = async function(model, context, options) {
+      const record = capture("image", model, context, options);
+      try { return await images.call(this, model, context, record ? captureOptions(options, record) : options); }
+      catch (error) { safely(() => record?.failed()); throw error; }
+    };
+    runtime.classify = async function(model, context, options) {
+      const record = capture("classifier", model, context, options);
+      try { return await classify.call(this, model, context, record ? captureOptions(options, record) : options); }
+      catch (error) { safely(() => record?.failed()); throw error; }
+    };
+    const wrapped = { stream: runtime.streamSimple, images: runtime.generateImages, classify: runtime.classify };
+    observer = { bindings, restore() {
+      if (runtime.streamSimple === wrapped.stream) runtime.streamSimple = stream;
+      if (runtime.generateImages === wrapped.images) runtime.generateImages = images;
+      if (runtime.classify === wrapped.classify) runtime.classify = classify;
+    } };
+    runtimeObservers.set(runtime, observer);
+  }
+  const binding = { inspector, owner };
+  observer.bindings.add(binding);
+  return () => {
+    observer.bindings.delete(binding);
+    if (!observer.bindings.size) { observer.restore(); runtimeObservers.delete(runtime); }
+  };
+}
+
+function captureOptions<TModel>(options: ProviderRequestOptions<TModel> | undefined, capture: Capture): ProviderRequestOptions<TModel> {
+  return {
+    ...options,
+    async onPayload(payload, model) {
+      const replacement = await options?.onPayload?.call(options, payload, model);
+      safely(() => capture.payload(replacement === undefined ? payload : replacement));
+      return replacement;
+    },
+    async onResponse(response, model) {
+      await options?.onResponse?.call(options, response, model);
+      safely(() => capture.response());
+    },
+  };
 }
 
 function matches(record: ModelContextInspection, filter?: ModelContextFilter): boolean {
@@ -258,7 +324,18 @@ export function describeModelContextDispatch(context: unknown): Record<string, M
     return descriptor ? "value" in descriptor ? descriptor.value : unavailable : undefined;
   };
   const missing = "Unavailable: no plain data property.";
-  const systemPrompt = read(context, "systemPrompt");
+  const nativeMessages = read(context, "messages");
+  // Replay only bounded, plain diagnostic copies. Never run accessors or proxies.
+  let native: { systemPrompt: string; tools: unknown } | undefined;
+  if (!types.isProxy(nativeMessages) && Array.isArray(nativeMessages) && read(read(nativeMessages, "0"), "role") === "system") {
+    native = safely(() => {
+      const snapshot = captureValue(nativeMessages, workFoldModelContextLimits, workFoldModelContextLimits.recordBytes, 0).value;
+      if (!Array.isArray(snapshot)) throw new Error("Transcript inspection unavailable.");
+      const messages = snapshot as unknown as Parameters<typeof getCurrentSystemPrompt>[0];
+      return { systemPrompt: getCurrentSystemPrompt(messages), tools: getCurrentTools(messages) };
+    });
+  }
+  const systemPrompt = native?.systemPrompt ?? read(context, "systemPrompt");
   let prompt: ModelContextValue = systemPrompt === undefined ? null : missing;
   if (typeof systemPrompt === "string") {
     const limit = workFoldModelContextLimits.digestBytes;
@@ -269,7 +346,7 @@ export function describeModelContextDispatch(context: unknown): Record<string, M
         : { bytes, sha256: createHash("sha256").update(systemPrompt).digest("hex") };
     }
   }
-  const toolValue = read(context, "tools");
+  const toolValue = native?.tools ?? read(context, "tools");
   let tools: ModelContextValue = toolValue === undefined ? [] : missing;
   if (!types.isProxy(toolValue) && Array.isArray(toolValue)) {
     const length = read(toolValue, "length");

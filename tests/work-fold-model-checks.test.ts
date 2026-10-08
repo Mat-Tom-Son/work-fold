@@ -1,3 +1,4 @@
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -152,7 +153,7 @@ test("native model review transports only selected text and a submission tool, w
     messages: [{ role: "user", content: "PRIVATE FOLD CONVERSATION" }],
     getAvailableThinkingLevels: () => ["off"],
     prompt: () => { throw new Error("Must not enter a turn"); },
-    agent: { streamFn: async (...args: unknown[]) => {
+    agent: { streamFunction: async (...args: unknown[]) => {
       calls.push(args);
       return { result: async () => ({ stopReason: "toolUse", content: [{ type: "toolCall", name: "submit_review", arguments: { findings: [] } }], usage: { input: 20, output: 10, cost: { total: 0.01 } } }) };
     } },
@@ -162,7 +163,8 @@ test("native model review transports only selected text and a submission tool, w
   assert.equal(result.cost?.model, "test/fold-model");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.[0], model);
-  const context = calls[0]?.[1] as { messages: unknown[]; tools: Array<{ name: string }>; systemPrompt: string };
+  const transcript = calls[0]?.[1] as { messages: any[] };
+  const context = { systemPrompt: getCurrentSystemPrompt(transcript.messages), tools: getCurrentTools(transcript.messages), messages: transcript.messages.filter((m) => m.role !== "system") };
   assert.equal(context.messages.length, 1);
   assert.deepEqual(context.tools.map(({ name }) => name), ["submit_review"]);
   assert.ok(!JSON.stringify(context).includes("PRIVATE FOLD CONVERSATION"));
@@ -183,7 +185,7 @@ for (const [stopReason, diagnostic] of [
   const session = {
     model: { provider: "test", id: "fold-model", maxTokens: 8192, contextWindow: 128000 },
     getAvailableThinkingLevels: () => ["off"],
-    agent: { streamFn: async () => ({ result: async () => ({ stopReason, errorMessage: "PRIVATE PROVIDER DIAGNOSTICS", content: [{ type: "toolCall", name: "submit_review", arguments: { findings: [] } }] }) }) },
+    agent: { streamFunction: async () => ({ result: async () => ({ stopReason, errorMessage: "PRIVATE PROVIDER DIAGNOSTICS", content: [{ type: "toolCall", name: "submit_review", arguments: { findings: [] } }] }) }) },
   };
   await assert.rejects(PiConversationClient.prototype.reviewCheck.call({ ensureSession: async () => session } as never,
     { criteria: "Review", files: [], signal: new AbortController().signal }), (error: Error) => {

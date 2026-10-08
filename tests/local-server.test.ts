@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 import type { CapabilityRegistryService } from "../src/local/agent/capability-registry.js";
 import { RoutedPiExtensionUiBridge } from "../src/local/agent/extension-ui.js";
@@ -89,11 +89,11 @@ test("local API covers Space files, the Library, and external restore points", a
 test("Assistant credentials require explicit removal before replacement", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-assistant-credential-api-"));
   const agentDir = join(sandbox, "agent");
-  const authStorage = AuthStorage.inMemory({
+  const authStorage = FileCredentialStore.inMemory({
     "credential-test": { type: "api_key", key: "test-key" },
   });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("credential-test", {
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("credential-test", {
     api: "openai-completions",
     baseUrl: "http://127.0.0.1:1/v1",
     apiKey: "$WORKFOLD_CREDENTIAL_TEST_MISSING_KEY",
@@ -114,7 +114,7 @@ test("Assistant credentials require explicit removal before replacement", async 
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
-        return { agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory() };
+        return { agentDir, credentials: authStorage, modelRuntime, settingsManager: SettingsManager.inMemory() };
       },
     },
   });
@@ -138,7 +138,7 @@ test("Assistant credentials require explicit removal before replacement", async 
     assert.equal(cleared?.authConfigured, false);
     assert.equal(cleared?.authSource, undefined);
     assert.equal(cleared?.authType, undefined);
-    assert.equal(authStorage.get("credential-test"), undefined);
+    assert.equal(await authStorage.read("credential-test"), undefined);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
@@ -423,7 +423,7 @@ test("capability catalog and package lifecycle preserve native Pi state and prov
       persisted: false,
       mutable: false,
       scope: "chat",
-      reason: "Pi has no persisted Personal or Space tool default; tool selection belongs to each Chat.",
+      reason: "Pi's defaultTools setting supplies startup tools; this view does not change them.",
     });
     assert.equal(tools.get("read")?.active, true);
     assert.equal(tools.get("read")?.label, "read");
@@ -1382,8 +1382,8 @@ test("Assistant setup failures are sanitized, persisted, and survive an API rest
 test("Assistant setup diagnostics are sanitized before reaching renderer event streams", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-assistant-setup-stream-test-"));
   const agentDir = join(sandbox, "agent");
-  const authStorage = AuthStorage.inMemory();
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
+  const authStorage = FileCredentialStore.inMemory();
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
@@ -1391,7 +1391,7 @@ test("Assistant setup diagnostics are sanitized before reaching renderer event s
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
-        return { agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory() };
+        return { agentDir, credentials: authStorage, modelRuntime, settingsManager: SettingsManager.inMemory() };
       },
     },
   });

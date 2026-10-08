@@ -4,7 +4,7 @@
  * the model except an optional result-submission tool that carries the app's
  * output schema, and nothing is persisted to any transcript.
  *
- * It runs on the Space's own Pi session through `session.agent.streamFn`, the
+ * It runs on the Space's own Pi session through `session.agent.streamFunction`, the
  * same configured path the Check reviewer and Chat naming use, so the saved
  * model, provider auth, custom base URLs, request headers, proxy settings, and
  * transport policy all apply without a second resolution. The session is only
@@ -15,7 +15,7 @@
  */
 import { Buffer } from "node:buffer";
 
-import type { ThinkingLevel, Tool } from "@earendil-works/pi-ai";
+import { normalizeContext, type TranscriptContext, type ThinkingLevel, type Tool } from "@earendil-works/pi-ai";
 
 import type {
   RestrictedAppInferenceErrorCode,
@@ -59,7 +59,7 @@ export type BoundedInferenceContentPart =
 
 /** The settled assistant message; Pi's `AssistantMessage` is assignable to it. */
 export interface BoundedInferenceStreamResult {
-  stopReason: "stop" | "length" | "toolUse" | "error" | "aborted";
+  stopReason: "stop" | "length" | "toolUse" | "error" | "aborted" | "pending" | "deferred";
   errorMessage?: string;
   content: readonly BoundedInferenceContentPart[];
   usage?: { input: number; output: number; cost?: { total: number } };
@@ -70,7 +70,7 @@ export interface BoundedInferenceStream {
 }
 
 /**
- * The subset of Pi's `AgentSession` the transport touches. `streamFn` is
+ * The subset of Pi's `AgentSession` the transport touches. `streamFunction` is
  * declared as a method on purpose: TypeScript relates method parameters in
  * both directions, so the real session's wider stream function satisfies this
  * shape without a cast while tests can fake exactly these members.
@@ -79,9 +79,9 @@ export interface BoundedInferenceSession {
   model?: BoundedInferenceModel | null | undefined;
   getAvailableThinkingLevels(): readonly (ThinkingLevel | "off")[];
   agent: {
-    streamFn(
+    streamFunction(
       model: BoundedInferenceModel,
-      context: BoundedInferenceContext,
+      context: TranscriptContext,
       options?: BoundedInferenceStreamOptions,
     ): BoundedInferenceStream | PromiseLike<BoundedInferenceStream>;
   };
@@ -186,7 +186,7 @@ export async function runBoundedInference(
   const context = buildBoundedInferenceContext(request);
   let result: BoundedInferenceStreamResult;
   try {
-    const stream = await session.agent.streamFn(model, context, {
+    const stream = await session.agent.streamFunction(model, normalizeContext(context), {
       maxTokens,
       maxRetries: 0,
       signal: request.signal,
@@ -198,7 +198,7 @@ export async function runBoundedInference(
     throw request.signal.aborted ? interrupted() : failed();
   }
   if (result.stopReason === "aborted") throw interrupted();
-  if (result.stopReason === "error") throw failed();
+  if (result.stopReason === "error" || result.stopReason === "pending" || result.stopReason === "deferred") throw failed();
   const modelRef = { provider: model.provider, id: model.id };
   const usage = usageOf(result);
   if (!request.outputSchema) {

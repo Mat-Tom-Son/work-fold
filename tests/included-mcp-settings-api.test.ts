@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore } from "@earendil-works/pi-coding-agent";
 import { startLocalApi } from "../src/local/server.js";
 
 // Real HTTP setup routing, disposable app/Pi state, no model or OS credentials.
@@ -15,7 +15,7 @@ test("MCP setup sessions bind to their Space, pin shown targets, and close witho
   await writeFile(join(agentDir, "extensions", "hold.ts"), "export default function(pi){pi.registerCommand('hold-setup-test',{description:'Hold a test turn',handler:async()=>await new Promise(resolve=>setTimeout(resolve,400))});}");
   await writeFile(join(included, "package.json"), JSON.stringify({ name: "fixture-included", pi: { extensions: [], skills: [] } }));
   const options = { port: 0, loadEnv: false, stateBase: join(root, "state"), spaceBase: join(root, "spaces"), piRuntimeProvider: {
-    resolveRuntime: async () => ({ agentDir, authStorage: AuthStorage.inMemory(), includedTools: { rootPath: included, stateRoot: join(root, "included-state") } }),
+    resolveRuntime: async () => ({ agentDir, credentials: FileCredentialStore.inMemory(), includedTools: { rootPath: included, stateRoot: join(root, "included-state") } }),
   } };
   let api = await startLocalApi(options);
   async function post(body: object) {
@@ -35,7 +35,7 @@ test("MCP setup sessions bind to their Space, pin shown targets, and close witho
     assert.equal(blocked.status, 409, "connection changes must not invalidate active Assistant work");
     for (let count = 0; count < 200 && (await api.actFacade.manageTurnStatus({ taskId: holding.taskId })).task.state === "running"; count++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal((await api.actFacade.manageTurnStatus({ taskId: holding.taskId })).task.state, "succeeded");
-    const saved = await post({ spaceId: first.id, sessionId, operation: "save", scope: "project", name: "demo", definition: { url: "https://example.invalid/mcp?private=fixture-query-secret", auth: false, headers: { "X-Private": "fixture-header-secret" } } });
+    const saved = await post({ spaceId: first.id, sessionId, operation: "save", scope: "project", name: "demo", definition: { url: "https://example.invalid/mcp?private=fixture-query-secret", headers: { "X-Private": "fixture-header-secret" } } });
     assert.equal(saved.status, 200, saved.text);
     assert.doesNotMatch(saved.text, /fixture-query-secret|fixture-header-secret/);
     const oldRevision: string = saved.body.servers[0].revision;
@@ -56,13 +56,13 @@ test("MCP setup sessions bind to their Space, pin shown targets, and close witho
     assert.equal(off.status, 200, off.text);
     assert.equal(off.body.servers[0].disabled, true);
     assert.notEqual(off.body.servers[0].revision, oldRevision);
-    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { ...beforeToggle, mcpServers: { ...beforeToggle.mcpServers, demo: { ...beforeToggle.mcpServers.demo, disabled: true } } }, "turning off preserves every unrelated native field");
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { ...beforeToggle, mcpServers: { ...beforeToggle.mcpServers, demo: { ...beforeToggle.mcpServers.demo, enabled: false } } }, "turning off preserves every unrelated native field");
     const staleToggle = await post({ spaceId: first.id, sessionId, operation: "enabled", scope: "project", name: "demo", expectedRevision: oldRevision, enabled: true });
     assert.ok(staleToggle.status >= 400, staleToggle.text);
-    assert.equal(JSON.parse(await readFile(path, "utf8")).mcpServers.demo.disabled, true, "an outdated view cannot re-enable the connection");
+    assert.equal(JSON.parse(await readFile(path, "utf8")).mcpServers.demo.enabled, false, "an outdated view cannot re-enable the connection");
     const on = await post({ spaceId: first.id, sessionId, operation: "enabled", scope: "project", name: "demo", expectedRevision: off.body.servers[0].revision, enabled: true });
     assert.equal(on.status, 200, on.text); assert.equal(on.body.servers[0].disabled, false);
-    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { ...beforeToggle, mcpServers: { ...beforeToggle.mcpServers, demo: { ...beforeToggle.mcpServers.demo, disabled: false } } }, "turning on only updates the disabled flag");
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { ...beforeToggle, mcpServers: { ...beforeToggle.mcpServers, demo: { ...beforeToggle.mcpServers.demo } } }, "turning on restores Pi native default enablement");
     assert.doesNotMatch(off.text + on.text, /fixture-query-secret|fixture-header-secret/);
     const raw = JSON.parse(await readFile(path, "utf8")); raw.mcpServers.demo.url = "https://changed.invalid/mcp"; await writeFile(path, JSON.stringify(raw));
     const stale = await post({ spaceId: first.id, sessionId, operation: "remove", scope: "project", name: "demo", expectedRevision: oldRevision });

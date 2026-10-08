@@ -8,7 +8,7 @@ const context = { systemPrompt: "Instructions", messages: [{ role: "user", conte
 const enable = (options: ConstructorParameters<typeof ModelContextInspector>[0] = {}) => {
   const inspector = new ModelContextInspector(options); inspector.setEnabled(true); return inspector;
 };
-const fakeSession = (streamFn: (...args: any[]) => any) => ({ agent: { streamFn } }) as any;
+const fakeSession = (streamFunction: (...args: any[]) => any) => ({ agent: { streamFunction } }) as any;
 
 test("inspector observes final native hook payload without mutating options, payload, return semantics, or stream", async () => {
   const inspector = enable();
@@ -20,7 +20,7 @@ test("inspector observes final native hook payload without mutating options, pay
   const cleanup = installModelContextInspection(session, inspector, () => owner);
   const options = { apiKey: "TRANSPORT-SECRET", headers: { authorization: "TRANSPORT-SECRET" }, env: { KEY: "TRANSPORT-SECRET" },
     onPayload: async (payload: unknown) => { assert.equal(payload, original); return replacement; } };
-  assert.equal(session.agent.streamFn(model, context, options), stream);
+  assert.equal(session.agent.streamFunction(model, context, options), stream);
   assert.equal(await optionsSeen.onPayload(original, model), replacement);
   let detail = inspector.get(inspector.list()[0]!.id)!;
   assert.deepEqual(detail.payloads[0]!.value, replacement);
@@ -35,7 +35,7 @@ test("inspector observes final native hook payload without mutating options, pay
 
   const noReplacement = fakeSession((_model, _context, options) => options);
   installModelContextInspection(noReplacement, inspector, () => owner);
-  const callback = noReplacement.agent.streamFn(model, context, { onPayload(payload: any) { payload.changed = true; } }).onPayload;
+  const callback = noReplacement.agent.streamFunction(model, context, { onPayload(payload: any) { payload.changed = true; } }).onPayload;
   const unchanged = {};
   assert.equal(await callback(unchanged, model), undefined);
   assert.deepEqual(unchanged, { changed: true });
@@ -50,9 +50,9 @@ test("auxiliary and custom providers are captured without requiring native exten
   const session = fakeSession(original);
   const cleanup = installModelContextInspection(session, inspector, () => ownerNow);
   installModelContextInspection(session, inspector, () => ownerNow);
-  assert.equal(session.agent.streamFn(model, context), stream);
+  assert.equal(session.agent.streamFunction(model, context), stream);
   ownerNow = { ...ownerNow, conversationId: "other", purpose: "check" };
-  session.agent.streamFn(model, context);
+  session.agent.streamFunction(model, context);
   assert.equal(inspector.list().length, 2);
   const first = inspector.list({ conversationId: "chat-a" })[0]!;
   assert.equal(first.owner.purpose, "title");
@@ -60,9 +60,9 @@ test("auxiliary and custom providers are captured without requiring native exten
   assert.equal(first.payloadSamples, 0);
   assert.equal(inspector.get(first.id, { conversationId: "other" }), undefined);
   const newerWrapper = () => stream;
-  session.agent.streamFn = newerWrapper;
+  session.agent.streamFunction = newerWrapper;
   cleanup();
-  assert.equal(session.agent.streamFn, newerWrapper, "cleanup must not overwrite another adapter");
+  assert.equal(session.agent.streamFunction, newerWrapper, "cleanup must not overwrite another adapter");
 });
 
 test("clear and disable invalidate pending payload hooks and never repopulate cleared records", async () => {
@@ -71,19 +71,19 @@ test("clear and disable invalidate pending payload hooks and never repopulate cl
   const nativeHook = new Promise((done) => { resolve = done; });
   const session = fakeSession((_model, _context, options) => options);
   installModelContextInspection(session, inspector, () => owner);
-  const options = session.agent.streamFn(model, context, { onPayload: () => nativeHook });
+  const options = session.agent.streamFunction(model, context, { onPayload: () => nativeHook });
   const pending = options.onPayload({ before: true }, model);
   inspector.clear();
   resolve({ after: true });
   assert.deepEqual(await pending, { after: true });
   await options.onResponse({ status: 200, headers: {} }, model);
   assert.equal(inspector.list().length, 0);
-  const again = session.agent.streamFn(model, context);
+  const again = session.agent.streamFunction(model, context);
   inspector.setEnabled(false); inspector.setEnabled(true);
   await again.onPayload({ late: true }, model);
   assert.equal(inspector.list().length, 0);
   inspector.setEnabled(false);
-  assert.equal(session.agent.streamFn(model, context, undefined), undefined);
+  assert.equal(session.agent.streamFunction(model, context, undefined), undefined);
   assert.equal(inspector.inspect().enabled, false);
 });
 
@@ -101,7 +101,7 @@ test("snapshot bounds redact credential fields and replace native/provider image
   nested.deep = { a: { b: { c: { d: { e: "hidden" } } } } };
   const session = fakeSession(() => ({}));
   installModelContextInspection(session, inspector, () => owner);
-  session.agent.streamFn(model, nested);
+  session.agent.streamFunction(model, nested);
   const detail = inspector.get(inspector.list()[0]!.id)!;
   const serialized = JSON.stringify(detail);
   assert.equal(getters, 0);
@@ -122,7 +122,7 @@ test("retention, record, sample and total memory bounds evict only diagnostic co
   const session = fakeSession((_model, _context, options) => options);
   installModelContextInspection(session, inspector, () => owner);
   for (let i = 0; i < 8; i += 1) {
-    const options = session.agent.streamFn(model, { text: "x".repeat(12_000) });
+    const options = session.agent.streamFunction(model, { text: "x".repeat(12_000) });
     await options.onPayload({ text: "y".repeat(12_000) }, model);
     await options.onPayload({ text: "later" }, model);
     now += 1;
@@ -141,7 +141,7 @@ test("long instruction strings remain exact while oversized escaped Unicode text
   const session = fakeSession(() => ({}));
   installModelContextInspection(session, inspector, () => owner);
   const systemPrompt = "Instructions: " + "ordinary context\n".repeat(6000) + "FINAL_HOST_INSTRUCTIONS";
-  session.agent.streamFn(model, { systemPrompt });
+  session.agent.streamFunction(model, { systemPrompt });
   const record = inspector.get(inspector.list()[0]!.id)!;
   assert.equal((record.assembled.value as any).systemPrompt, systemPrompt);
   assert.equal(record.truncated, false);
@@ -150,7 +150,7 @@ test("long instruction strings remain exact while oversized escaped Unicode text
   const smallSession = fakeSession(() => ({}));
   installModelContextInspection(smallSession, bounded, () => owner);
   const text = "🦊\"\\\n".repeat(10000);
-  smallSession.agent.streamFn(model, { text });
+  smallSession.agent.streamFunction(model, { text });
   const limited = bounded.get(bounded.list()[0]!.id)!;
   const captured = (limited.assembled.value as any).text as string;
   const marker = captured.indexOf("\n[Omitted:");
@@ -167,21 +167,21 @@ test("observation failures never fail native work; native hook/dispatch errors r
   const stream = {};
   const session = fakeSession(() => stream);
   installModelContextInspection(session, inspector, () => { throw new Error("diagnostic failure"); });
-  assert.equal(session.agent.streamFn(model, context), stream);
+  assert.equal(session.agent.streamFunction(model, context), stream);
   installModelContextInspection(session, inspector, () => owner);
   inspector.begin = () => { throw new Error("capture failure"); };
-  assert.equal(session.agent.streamFn(model, context), stream);
+  assert.equal(session.agent.streamFunction(model, context), stream);
 
   const working = enable();
   const hookError = new Error("native hook failure");
   const hooks = fakeSession((_model, _context, options) => options);
   installModelContextInspection(hooks, working, () => owner);
-  const options = hooks.agent.streamFn(model, context, { onPayload() { throw hookError; } });
+  const options = hooks.agent.streamFunction(model, context, { onPayload() { throw hookError; } });
   await assert.rejects(options.onPayload({}, model), (error: unknown) => error === hookError);
   const dispatchError = new Error("transport failed");
   const failing = fakeSession(async () => { throw dispatchError; });
   installModelContextInspection(failing, working, () => owner);
-  await assert.rejects(failing.agent.streamFn(model, context), (error: unknown) => error === dispatchError);
+  await assert.rejects(failing.agent.streamFunction(model, context), (error: unknown) => error === dispatchError);
   assert.equal(working.list()[0]!.status, "dispatch_error");
 });
 
@@ -191,7 +191,7 @@ test("long owner identities remain exact and cannot disclose child context throu
   const longOwner = { ...owner, spaceRoot: `${prefix}/child`, conversationId: "c".repeat(300), sessionId: "s".repeat(300) };
   const session = fakeSession(() => ({}));
   installModelContextInspection(session, inspector, () => longOwner);
-  session.agent.streamFn(model, context);
+  session.agent.streamFunction(model, context);
   assert.equal(inspector.list({ spaceRoot: prefix }).length, 0);
   const detail = inspector.get(inspector.list()[0]!.id, { spaceRoot: longOwner.spaceRoot, conversationId: longOwner.conversationId });
   assert.deepEqual(detail!.owner, longOwner);
@@ -203,7 +203,7 @@ test("node and aggregate image hashing bounds omit excess work and expired recor
   const inspector = enable({ limits: { nodes: 16, digestBytes: 4, retentionMs: 20 } });
   const session = fakeSession((_model, _context, options) => options);
   installModelContextInspection(session, inspector, () => owner);
-  const callbacks = session.agent.streamFn(model, {
+  const callbacks = session.agent.streamFunction(model, {
     images: [{ type: "image", data: "abc", mimeType: "image/png" }, { type: "image", data: "abc", mimeType: "image/png" }],
     many: Array.from({ length: 1000 }, (_, i) => i),
   });
@@ -223,7 +223,7 @@ test("snapshot omission never renames fields, overwrites a real omission key or 
   const session = fakeSession(() => ({}));
   installModelContextInspection(session, inspector, () => owner);
   const prefix = "x".repeat(256);
-  session.agent.streamFn(model, {
+  session.agent.streamFunction(model, {
     [prefix]: "original exact field",
     [`${prefix}a`]: "must not overwrite the original",
     [`${prefix}api_key`]: "LONG-NAME-CREDENTIAL-MUST-NOT-LEAK",
@@ -245,12 +245,12 @@ test("snapshot omission never renames fields, overwrites a real omission key or 
 
   const bounded = enable({ limits: { nodes: 2 } });
   installModelContextInspection(session, bounded, () => owner);
-  session.agent.streamFn(model, { "[omitted]": "a real field", another: "too many nodes" });
+  session.agent.streamFunction(model, { "[omitted]": "a real field", another: "too many nodes" });
   const originalField = bounded.get(bounded.list()[0]!.id)!;
   assert.deepEqual(originalField.assembled.value, { "[omitted]": "a real field" });
   assert.match(JSON.stringify(originalField.assembled.omissions), /node limit/);
 
-  session.agent.streamFn(model, { [`${prefix}one`]: "skipped", [`${prefix}two`]: "skipped", unreachable: "node cap must stop here" });
+  session.agent.streamFunction(model, { [`${prefix}one`]: "skipped", [`${prefix}two`]: "skipped", unreachable: "node cap must stop here" });
   const skipped = bounded.get(bounded.list()[0]!.id)!;
   assert.deepEqual(skipped.assembled.value, {});
   assert.match(JSON.stringify(skipped.assembled.omissions), /node limit/);
@@ -273,14 +273,14 @@ test("transport and hook receivers and native synchronous errors survive observa
     onPayload(this: unknown, payload: unknown) { assert.equal(this, nativeOptions); return payload; },
     onResponse(this: unknown) { assert.equal(this, nativeOptions); throw hookError; },
   };
-  assert.equal(session.agent.streamFn(model, context, nativeOptions), stream);
+  assert.equal(session.agent.streamFunction(model, context, nativeOptions), stream);
   const payload = { unchanged: true };
   assert.equal(await actualOptions.onPayload(payload, model), payload);
   await assert.rejects(actualOptions.onResponse({}, model), (error: unknown) => error === hookError);
 
   const failing = fakeSession(() => { throw transportError; });
   installModelContextInspection(failing, inspector, () => owner);
-  assert.throws(() => failing.agent.streamFn(model, context), (error: unknown) => error === transportError);
+  assert.throws(() => failing.agent.streamFunction(model, context), (error: unknown) => error === transportError);
   assert.equal(inspector.list()[0]!.status, "dispatch_error");
 });
 
@@ -291,10 +291,10 @@ test("runtime provenance is captured only while recording and remains bounded, d
   const provenance = { extensions: [{ path: "/tool.ts", digest: "old" }], large: "x".repeat(30000) };
   const session = fakeSession(() => undefined);
   installModelContextInspection(session, inspector, () => owner, () => { reads++; return provenance; });
-  session.agent.streamFn(model, context);
+  session.agent.streamFunction(model, context);
   assert.equal(reads, 0);
   inspector.setEnabled(true);
-  session.agent.streamFn(model, context);
+  session.agent.streamFunction(model, context);
   assert.equal(reads, 1);
   provenance.extensions[0]!.digest = "changed";
   const summary = inspector.list()[0]!;
@@ -347,7 +347,7 @@ test("dispatch provenance never evaluates accessors, proxies or custom array ite
   value.tools[Symbol.iterator] = () => { iterations++; throw new Error("iterator read"); };
   const session = fakeSession((_model, sent) => sent.systemPrompt);
   installModelContextInspection(session, inspector, () => owner, (sent) => ({ dispatch: describeModelContextDispatch(sent) }));
-  assert.equal(session.agent.streamFn(model, value), "prompt-1", "only the original transport reads the accessor");
+  assert.equal(session.agent.streamFunction(model, value), "prompt-1", "only the original transport reads the accessor");
   assert.equal(promptReads, 1);
   assert.equal(toolReads + proxyReads + iterations, 0);
   const dispatch = (inspector.get(inspector.list()[0]!.id)!.provenance!.value as any).dispatch;

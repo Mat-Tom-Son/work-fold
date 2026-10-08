@@ -42,17 +42,18 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
   let mcp: IncludedToolStatus;
   try {
     const config = await loadIncludedMcpConfig({ agentDir: runtime.agentDir, ...(runtime.projectTrust.trusted ? { cwd } : {}) });
-    const count = Object.values(config.mcpServers).filter((server) => !server.disabled).length;
+    const count = config.servers.filter((server) => server.config.enabled !== false).length;
     mcp = { id: "mcp", state: count ? "unknown" : "setup_required", checkedAt: new Date().toISOString(),
       detail: count ? "Service connections are configured. Each connection is verified when you use it or choose Check in its details." : "No service connections are configured. Add a connection to use its tools.", facts: { connections: String(count) } };
   } catch {
     mcp = { id: "mcp", state: "unavailable", checkedAt: new Date().toISOString(), detail: "Service connection configuration could not be read. Open its settings to check the configuration." };
   }
+  const braveCredential = await runtime.credentials.read("work-fold:web:brave");
   return includedToolDefinitions.map(({ id }) => {
     if (id === "mcp") return mcp;
     if (id === "chrome") return chromeStatus(runtime.config.includedTools?.chromeConnection?.status());
     const now = new Date().toISOString();
-    if (id === "web") return runtime.authStorage.get("work-fold:web:brave")?.type === "api_key"
+    if (id === "web") return braveCredential?.type === "api_key"
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
       : { id, state: "ready", detail: "DuckDuckGo search and public page reading are available without setup.", checkedAt: now };
     const checked = includedToolObservation(runtime, id);
@@ -93,11 +94,11 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
     if (action === "connect-brave") {
       const secret = input.secret?.trim();
       if (!secret || secret.length > 4096) throw new Error("Enter a valid Brave Search API key.");
-      runtime.authStorage.set("work-fold:web:brave", { type: "api_key", key: secret });
-      await runtime.flushAuthStorage();
+      await runtime.credentials.modify("work-fold:web:brave", async () => ({ type: "api_key", key: secret }));
+      await runtime.flushCredentials();
     } else if (action === "disconnect-brave") {
-      runtime.authStorage.logout("work-fold:web:brave");
-      await runtime.flushAuthStorage();
+      await runtime.credentials.delete("work-fold:web:brave");
+      await runtime.flushCredentials();
     } else if (action !== "check") throw new Error("Unknown web setup action.");
     status = (await listIncludedToolStatus(cwd, provider)).find((item) => item.id === id)!;
   } else if (id === "computer") {

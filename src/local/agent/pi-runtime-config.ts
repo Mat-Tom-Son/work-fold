@@ -2,15 +2,14 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
-  AuthStorage,
   DefaultPackageManager,
-  ModelRegistry,
+  ModelRuntime,
+  type McpOAuthCredentialStore,
   ProjectTrustStore,
   SettingsManager,
   VERSION as PI_SDK_VERSION,
   createAgentSessionServices,
   hasTrustRequiringProjectResources,
-  type AuthStatus,
   type ProviderConfig,
   type ProgressEvent,
 } from "@earendil-works/pi-coding-agent";
@@ -19,6 +18,11 @@ import {
   getSupportedThinkingLevels,
   type ModelThinkingLevel,
 } from "@earendil-works/pi-ai/compat";
+
+import type { CredentialStore, AuthInteraction } from "@earendil-works/pi-ai";
+import { createPersistentPiAuthStorage } from "./auth-storage.js";
+
+type AuthStatus = ReturnType<ModelRuntime["getProviderAuthStatus"]>;
 
 import { applyAzureOpenAIDeployments } from "./azure-openai-models.js";
 import { defaultAgentSdkDir, spaceSessionDir } from "./agent-data-dir.js";
@@ -59,17 +63,18 @@ export interface PiRuntimeMetadata {
 }
 
 /**
- * Cwd-specific runtime inputs. Hosts may inject secure AuthStorage and shared
+ * Cwd-specific runtime inputs. Hosts may inject secure credentials and shared
  * model/settings services; otherwise Pi's native persistent files are used.
  */
 export interface PiRuntimeConfig {
   includedTools?: IncludedToolsConfiguration;
   agentDir?: string;
   sessionDir?: string;
-  authStorage?: AuthStorage;
-  flushAuthStorage?: () => Promise<void>;
+  credentials?: CredentialStore;
+  mcpCredentialBackend?: NonNullable<ConstructorParameters<typeof McpOAuthCredentialStore>[0]>;
+  flushCredentials?: () => Promise<void>;
   settingsManager?: SettingsManager;
-  modelRegistry?: ModelRegistry;
+  modelRuntime?: ModelRuntime;
   /** Host-fetched catalogs applied to each fresh cwd-specific registry. */
   modelCatalogs?: PiModelCatalog[];
   preferredModel?: PiPreferredModel;
@@ -144,16 +149,16 @@ export interface ResolvedPiRuntime {
   config: PiRuntimeConfig;
   agentDir: string;
   sessionDir: string;
-  authStorage: AuthStorage;
+  credentials: CredentialStore;
   settingsManager: SettingsManager;
-  modelRegistry: ModelRegistry;
+  modelRuntime: ModelRuntime;
   preferredModel?: PiPreferredModel;
   projectTrust: {
     required: boolean;
     trusted: boolean;
     savedDecision: boolean | null;
   };
-  flushAuthStorage(): Promise<void>;
+  flushCredentials(): Promise<void>;
 }
 
 export interface PiProviderSetupStatus {
@@ -213,13 +218,14 @@ export interface PiOAuthHooks {
     intervalSeconds?: number;
     expiresInSeconds?: number;
   }): Promise<void> | void;
-  prompt(input: { message: string; placeholder?: string; allowEmpty?: boolean }): Promise<string>;
+  prompt(input: { message: string; placeholder?: string; allowEmpty?: boolean; secret?: boolean; signal?: AbortSignal }): Promise<string>;
   select(input: {
     message: string;
     options: Array<{ id: string; label: string }>;
+    signal?: AbortSignal;
   }): Promise<string | undefined>;
   progress?(message: string): void;
-  manualCodeInput?(): Promise<string>;
+  manualCodeInput?(signal?: AbortSignal): Promise<string>;
   signal?: AbortSignal;
 }
 
@@ -267,7 +273,7 @@ export async function resolvePiRuntime(
   const agentDir = config.agentDir ?? defaultAgentSdkDir();
   await mkdir(agentDir, { recursive: true });
 
-  const authStorage = config.authStorage ?? AuthStorage.create(join(agentDir, "auth.json"));
+  const credentials = config.credentials ?? (await createPersistentPiAuthStorage({ agentDir })).credentials;
   const initialSettings = config.settingsManager
     ?? SettingsManager.create(spaceRoot, agentDir, { projectTrusted: false });
   const trust = await resolveProjectTrust(
@@ -279,11 +285,12 @@ export async function resolvePiRuntime(
   );
   initialSettings.setProjectTrusted(trust.trusted);
   await initialSettings.reload();
+  applyPiRuntimeDefaults(initialSettings);
 
-  const modelRegistry = config.modelRegistry
-    ?? ModelRegistry.create(authStorage, join(agentDir, "models.json"));
-  applyModelCatalogs(modelRegistry, config.modelCatalogs ?? []);
-  applyAzureOpenAIDeployments(authStorage, modelRegistry);
+  const modelRuntime = config.modelRuntime
+    ?? await ModelRuntime.create({ credentials, authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json") });
+  applyModelCatalogs(modelRuntime, config.modelCatalogs ?? []);
+  await applyAzureOpenAIDeployments(credentials, modelRuntime);
   const settingsPreferred = preferredModelFromSettings(initialSettings);
   const metadataPreferred = config.metadata?.provider && config.metadata.model
     ? { provider: config.metadata.provider, id: config.metadata.model }
@@ -293,13 +300,26 @@ export async function resolvePiRuntime(
     config,
     agentDir,
     sessionDir: config.sessionDir ?? spaceSessionDir(spaceRoot, agentDir),
-    authStorage,
+    credentials,
     settingsManager: initialSettings,
-    modelRegistry,
+    modelRuntime,
     preferredModel: config.preferredModel ?? settingsPreferred ?? metadataPreferred,
     projectTrust: trust,
-    flushAuthStorage: config.flushAuthStorage ?? (async () => undefined),
+    flushCredentials: config.flushCredentials ?? (async () => undefined),
   };
+}
+
+/** Apply after resource loading too: Pi reloads SettingsManager while resolving resources. */
+const constrainedWarmingSettings = new WeakSet<SettingsManager>();
+export function applyPiRuntimeDefaults(settings: SettingsManager): void {
+  if (!constrainedWarmingSettings.has(settings)) {
+    const nativeMode = settings.getCacheWarmingMode.bind(settings);
+    // Pi intentionally reads this preference from global settings, bypassing
+    // applyOverrides. Keep the preference intact while bounding host execution.
+    settings.getCacheWarmingMode = () => nativeMode() === "idle" ? "streaming" : nativeMode();
+    constrainedWarmingSettings.add(settings);
+  }
+  if (settings.getDefaultTools() === undefined) settings.applyOverrides({ defaultTools: ["+codemode", "+tool_search"] });
 }
 
 export async function getPiSetupStatus(
@@ -308,15 +328,15 @@ export async function getPiSetupStatus(
 ): Promise<PiSetupStatus> {
   const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
   const providerDiagnostics = await loadRuntimeProviders(spaceRoot, runtime);
-  const models = runtime.modelRegistry.getAll();
-  const oauthProviders = new Set(runtime.authStorage.getOAuthProviders().map((item) => item.id));
-  const providerIds = new Set([...models.map((model) => model.provider), ...oauthProviders]);
+  const models = runtime.modelRuntime.getAllModels();
+  const oauthProviders = new Set(runtime.modelRuntime.getProviders().filter((item) => item.auth?.oauth).map((item) => item.id));
+  const providerIds = new Set(runtime.modelRuntime.getProviders().map((item) => item.id));
   const providers = [...providerIds].map((id) => {
     const providerModels = models.filter((model) => model.provider === id);
-    const auth = runtime.modelRegistry.getProviderAuthStatus(id);
+    const auth = runtime.modelRuntime.getProviderAuthStatus(id);
     return {
       id,
-      name: runtime.modelRegistry.getProviderDisplayName(id),
+      name: runtime.modelRuntime.getProvider(id)?.name ?? id,
       configured: auth.configured,
       ...(auth.source ? { authSource: auth.source } : {}),
       ...(auth.label ? { authLabel: auth.label } : {}),
@@ -326,16 +346,15 @@ export async function getPiSetupStatus(
   }).sort((left, right) => left.name.localeCompare(right.name));
 
   const errors = [
-    runtime.modelRegistry.getError(),
-    ...runtime.authStorage.drainErrors().map(errorMessage),
+    runtime.modelRuntime.getError(),
     ...providerDiagnostics.filter((item) => item.type === "error").map((item) => item.message),
   ]
     .filter((value): value is string => Boolean(value));
   const preferredModelAvailable = runtime.preferredModel
-    ? Boolean(runtime.modelRegistry.find(runtime.preferredModel.provider, runtime.preferredModel.id))
+    ? Boolean(runtime.modelRuntime.getModel(runtime.preferredModel.provider, runtime.preferredModel.id))
     : false;
 
-  const configured = runtime.modelRegistry.getAvailable().length > 0;
+  const configured = (await runtime.modelRuntime.getAvailable()).length > 0;
   return {
     ready: errors.length === 0,
     configured,
@@ -361,14 +380,15 @@ export async function listPiModels(
 ): Promise<PiModelSummary[]> {
   const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
   await loadRuntimeProviders(spaceRoot, runtime);
-  const oauthProviders = new Set(runtime.authStorage.getOAuthProviders().map((item) => item.id));
-  return runtime.modelRegistry.getAll().map((model) => {
-    const auth = runtime.modelRegistry.getProviderAuthStatus(model.provider);
-    const storedCredential = runtime.authStorage.get(model.provider);
-    const configured = runtime.modelRegistry.hasConfiguredAuth(model);
+  const oauthProviders = new Set(runtime.modelRuntime.getProviders().filter((item) => item.auth?.oauth).map((item) => item.id));
+  const stored = new Map((await runtime.credentials.list()).map((item) => [item.providerId, item]));
+  return runtime.modelRuntime.getModels().map((model) => {
+    const auth = runtime.modelRuntime.getProviderAuthStatus(model.provider);
+    const storedCredential = stored.get(model.provider);
+    const configured = runtime.modelRuntime.hasConfiguredAuth(model.provider);
     return {
       provider: model.provider,
-      providerName: runtime.modelRegistry.getProviderDisplayName(model.provider),
+      providerName: runtime.modelRuntime.getProvider(model.provider)?.name ?? model.provider,
       id: model.id,
       name: model.name,
       configured,
@@ -398,11 +418,11 @@ export async function getPiComposerState(
   const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
   await loadRuntimeProviders(spaceRoot, runtime);
   const preferred = runtime.preferredModel
-    ? runtime.modelRegistry.find(runtime.preferredModel.provider, runtime.preferredModel.id)
+    ? runtime.modelRuntime.getModel(runtime.preferredModel.provider, runtime.preferredModel.id)
     : undefined;
-  const model = preferred && runtime.modelRegistry.hasConfiguredAuth(preferred)
+  const model = preferred && runtime.modelRuntime.hasConfiguredAuth(preferred.provider)
     ? preferred
-    : runtime.modelRegistry.getAvailable()[0];
+    : (await runtime.modelRuntime.getAvailable())[0];
   if (!model) return { thinkingLevel: "off", thinkingLevels: [] };
   const thinkingLevels = [...getSupportedThinkingLevels(model)];
   const requested = runtime.settingsManager.getDefaultThinkingLevel() ?? "medium";
@@ -426,11 +446,11 @@ export async function setPiDefaultThinkingLevel(
   const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
   await loadRuntimeProviders(spaceRoot, runtime);
   const preferred = runtime.preferredModel
-    ? runtime.modelRegistry.find(runtime.preferredModel.provider, runtime.preferredModel.id)
+    ? runtime.modelRuntime.getModel(runtime.preferredModel.provider, runtime.preferredModel.id)
     : undefined;
-  const model = preferred && runtime.modelRegistry.hasConfiguredAuth(preferred)
+  const model = preferred && runtime.modelRuntime.hasConfiguredAuth(preferred.provider)
     ? preferred
-    : runtime.modelRegistry.getAvailable()[0];
+    : (await runtime.modelRuntime.getAvailable())[0];
   if (!model) throw new Error("Choose a model before setting a thinking level.");
   const available = [...getSupportedThinkingLevels(model)];
   const requested = level.trim().toLowerCase();
@@ -455,13 +475,13 @@ export async function savePiApiKey(
   const key = apiKey.trim();
   if (!key) throw new Error("API key is required.");
   const runtime = await resolvePiRuntime(spaceRoot, options.runtimeProvider, { requestProjectTrust: false });
-  runtime.authStorage.set(id, {
+  await runtime.credentials.modify(id, async () => ({
     type: "api_key",
     key,
     ...(options.env && Object.keys(options.env).length > 0 ? { env: cleanStringRecord(options.env) } : {}),
-  });
-  await runtime.flushAuthStorage();
-  runtime.modelRegistry.refresh();
+  }));
+  await runtime.flushCredentials();
+  await runtime.modelRuntime.refresh({ allowNetwork: false });
 }
 
 export async function removePiProviderAuth(
@@ -471,9 +491,9 @@ export async function removePiProviderAuth(
 ): Promise<void> {
   const id = cleanProviderId(providerId);
   const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
-  runtime.authStorage.logout(id);
-  await runtime.flushAuthStorage();
-  runtime.modelRegistry.refresh();
+  await runtime.modelRuntime.logout(id);
+  await runtime.flushCredentials();
+  await runtime.modelRuntime.refresh({ allowNetwork: false });
 }
 
 export async function loginPiOAuth(
@@ -485,25 +505,10 @@ export async function loginPiOAuth(
   const id = cleanProviderId(providerId);
   const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
   await loadRuntimeProviders(spaceRoot, runtime);
-  const oauthProvider = runtime.authStorage.getOAuthProviders().find((item) => item.id === id);
-  if (!oauthProvider) throw new Error(`Provider ${id} does not offer Pi OAuth login.`);
-
-  await runtime.authStorage.login(id, {
-    onAuth: (info) => {
-      void hooks.openUrl(info);
-    },
-    onDeviceCode: (info) => {
-      void hooks.showDeviceCode(info);
-      void hooks.openUrl({ url: info.verificationUri });
-    },
-    onPrompt: hooks.prompt,
-    onProgress: hooks.progress,
-    onManualCodeInput: hooks.manualCodeInput,
-    onSelect: hooks.select,
-    signal: hooks.signal,
-  });
-  await runtime.flushAuthStorage();
-  runtime.modelRegistry.refresh();
+  if (!runtime.modelRuntime.getProvider(id)?.auth?.oauth) throw new Error(`Provider ${id} does not offer Pi OAuth login.`);
+  await runtime.modelRuntime.login(id, "oauth", piAuthInteraction(hooks), { agentName: "work-fold" });
+  await runtime.flushCredentials();
+  await runtime.modelRuntime.refresh({ allowNetwork: false });
 }
 
 export async function setPiDefaultModel(
@@ -513,7 +518,7 @@ export async function setPiDefaultModel(
 ): Promise<void> {
   const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
   await loadRuntimeProviders(spaceRoot, runtime);
-  const selected = runtime.modelRegistry.find(model.provider.trim(), model.id.trim());
+  const selected = runtime.modelRuntime.getModel(model.provider.trim(), model.id.trim());
   if (!selected) throw new Error(`Model not found: ${model.provider}/${model.id}`);
   if (runtimeProvider?.setPreferredModel) {
     await runtimeProvider.setPreferredModel(spaceRoot, { provider: selected.provider, id: selected.id });
@@ -643,14 +648,14 @@ function preferredModelFromSettings(settings: SettingsManager): PiPreferredModel
   return provider && id ? { provider, id } : undefined;
 }
 
-function applyModelCatalogs(registry: ModelRegistry, catalogs: PiModelCatalog[]): void {
+function applyModelCatalogs(registry: ModelRuntime, catalogs: PiModelCatalog[]): void {
   for (const catalog of catalogs) {
     const provider = catalog.provider.trim();
     if (!provider || !catalog.config.models?.length) continue;
     const models = new Map(catalog.config.models.map((model) => [model.id, model]));
     // Keep Pi custom/static entries that are absent from the live response so
     // refreshing cannot silently remove a person's models.json additions.
-    for (const model of registry.getAll()) {
+    for (const model of registry.getModels()) {
       if (model.provider !== provider || models.has(model.id)) continue;
       models.set(model.id, {
         id: model.id,
@@ -674,13 +679,12 @@ async function loadRuntimeProviders(
   spaceRoot: string,
   runtime: ResolvedPiRuntime,
 ): Promise<Array<{ type: "info" | "warning" | "error"; message: string }>> {
-  runtime.modelRegistry.refresh();
+  await runtime.modelRuntime.refresh({ allowNetwork: false });
   const services = await createAgentSessionServices({
     cwd: spaceRoot,
     agentDir: runtime.agentDir,
-    authStorage: runtime.authStorage,
     settingsManager: runtime.settingsManager,
-    modelRegistry: runtime.modelRegistry,
+    modelRuntime: runtime.modelRuntime,
     resourceLoaderOptions: {
       additionalExtensionPaths: runtime.config.additionalExtensionPaths,
       additionalSkillPaths: runtime.config.additionalSkillPaths,
@@ -690,6 +694,7 @@ async function loadRuntimeProviders(
       ...await includedResourceOptions(spaceRoot, runtime, "catalog"),
     },
   });
+  applyPiRuntimeDefaults(runtime.settingsManager);
   return [
     ...services.diagnostics,
     ...services.resourceLoader.getExtensions().errors.map((item) => ({
@@ -768,4 +773,40 @@ function cleanProviderId(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Translate native Pi auth interactions onto the trusted setup bridge. */
+export function piAuthInteraction(hooks: PiOAuthHooks): AuthInteraction {
+  const notifications = new AbortController();
+  const signal = hooks.signal ? AbortSignal.any([hooks.signal, notifications.signal]) : notifications.signal;
+  const notify = (operation: () => void | Promise<void>) => {
+    try { void Promise.resolve(operation()).catch(() => notifications.abort(new Error("Provider sign-in could not open its setup surface."))); }
+    catch { notifications.abort(new Error("Provider sign-in could not open its setup surface.")); }
+  };
+  return {
+    signal,
+    async prompt(prompt) {
+      const owned = prompt.signal ? AbortSignal.any([signal, prompt.signal]) : signal;
+      owned.throwIfAborted();
+      const operation = prompt.type === "select"
+        ? hooks.select({ message: prompt.message, options: prompt.options.map(({ id, label }) => ({ id, label })), signal: owned })
+        : prompt.type === "manual_code" && hooks.manualCodeInput
+          ? hooks.manualCodeInput(owned)
+          : hooks.prompt({ message: prompt.message, placeholder: prompt.placeholder, secret: prompt.type === "secret", signal: owned });
+      const value = await new Promise<string | undefined>((resolve, reject) => {
+        const abort = () => reject(owned.reason);
+        owned.addEventListener("abort", abort, { once: true });
+        Promise.resolve(operation).then(resolve, reject).finally(() => owned.removeEventListener("abort", abort));
+        if (owned.aborted) abort();
+      });
+      owned.throwIfAborted();
+      if (value === undefined) throw new Error("Provider login cancelled.");
+      return value;
+    },
+    notify(event) {
+      if (event.type === "auth_url") notify(() => hooks.openUrl({ url: event.url, instructions: event.instructions }));
+      else if (event.type === "device_code") { notify(() => hooks.showDeviceCode(event)); notify(() => hooks.openUrl({ url: event.verificationUri })); }
+      else if (event.type === "progress" || event.type === "info") hooks.progress?.(event.message);
+    },
+  };
 }

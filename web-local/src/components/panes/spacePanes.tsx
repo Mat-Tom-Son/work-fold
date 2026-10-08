@@ -432,22 +432,39 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   const [previewError, setPreviewError] = useState("");
   const [comparisonPath, setComparisonPath] = useState("");
   const [pathInput, setPathInput] = useState("");
+  const inspectionQueue = useRef(Promise.resolve());
   useEffect(() => { setComparisonPath(""); setPathInput(""); }, [space.id, selectedCheckpointId]);
 
   useEffect(() => {
     let cancelled = false;
     setPreview(null); setPreviewError("");
     if (selectedCheckpointId && fixtureItems) setPreviewError("Restore previews are unavailable for demonstration data.");
-    if (selectedCheckpointId && !fixtureItems) {
-      api<{ preview: HistoryRestorePreview }>(`/api/spaces/${space.id}/history/checkpoints/${selectedCheckpointId}/preview`)
-        .then((result) => { if (!cancelled) setPreview(result.preview); })
-        .catch((error) => { if (!cancelled) setPreviewError(errorText(error)); });
+    if (!fixtureItems) {
+      // Both reads hold the host's History operation fence. Finish listing
+      // before opening the preview instead of racing our own initial reads.
+      const inspect = inspectionQueue.current.then(async () => {
+        if (cancelled) return;
+        const listed = await api<{ checkpoints: SpaceCheckpoint[] }>(`/api/spaces/${space.id}/history/checkpoints`);
+        if (cancelled) return;
+        setItems(listed.checkpoints);
+        if (selectedCheckpointId) {
+          const result = await api<{ preview: HistoryRestorePreview }>(`/api/spaces/${space.id}/history/checkpoints/${selectedCheckpointId}/preview`);
+          if (!cancelled) setPreview(result.preview);
+        }
+      });
+      // An obsolete read still drains before a newer effect starts, including
+      // development Strict Mode replay and a rapidly changed restore point.
+      inspectionQueue.current = inspect.catch(() => undefined);
+      void inspect.catch((error) => {
+        if (cancelled) return;
+        if (selectedCheckpointId) setPreviewError(errorText(error));
+        else onError(errorText(error));
+      });
     }
     return () => { cancelled = true; };
   }, [space.id, selectedCheckpointId, fixtureItems, refreshRequest, previewRevision]);
 
-  useEffect(() => { setNotice(""); if (!fixtureItems) void load(); }, [space.id, fixtureItems]);
-  useEffect(() => { if (!fixtureItems && refreshRequest > 0) void load(); }, [refreshRequest]);
+  useEffect(() => { setNotice(""); }, [space.id, fixtureItems]);
 
   async function load() {
     try { setItems((await api<{ checkpoints: SpaceCheckpoint[] }>(`/api/spaces/${space.id}/history/checkpoints`)).checkpoints); }

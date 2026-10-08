@@ -1,19 +1,19 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createMcpAdapter } from "pi-mcp-adapter";
+import { createMcpExtension, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hostContext } from "../host.ts";
 
-export default async function mcp(pi: ExtensionAPI) {
+/** Native Pi MCP. Trusted settings own setup, and catalog sessions never connect. */
+export default async function serviceConnections(pi: ExtensionAPI) {
   const host = hostContext(pi);
-  // The host supplies only its native global file and this registered Space's
-  // native project file. Never discover another application's connections.
-  const config = host ? await host.getMcpConfig() : { mcpServers: {} };
-  return createMcpAdapter({
-    config,
-    ...(host ? { agentDir: host.agentDir } : {}),
-    initializeAtLoad: false,
-    initializeOnSessionStart: host?.mode !== "catalog",
-    bootstrapLazyServers: false,
-    hostSetupOnly: true,
-    hostSetupMessage: "Open Skills & Extensions → Service connections to add, connect, or reconnect this service.",
-  })(pi);
+  const options = host?.getMcpOptions?.() ?? { loadConfig: () => ({ servers: [], errors: [] }) };
+  pi.on("session_shutdown", () => { host?.getMcpOptions?.().disposeCredentials?.(); });
+  const native = createMcpExtension(options);
+  return native({ ...pi, registerCommand(name, command) {
+    if (name !== "mcp") return pi.registerCommand(name, command);
+    pi.registerCommand(name, { ...command, description: "Show service connections; use Skills & Extensions for setup",
+      async handler(args, ctx) {
+        if (args.trim()) { ctx.ui.notify("Open Skills & Extensions → Service Connections to sign in or change a connection.", "info"); return; }
+        return command.handler("", ctx);
+      },
+    });
+  } });
 }
