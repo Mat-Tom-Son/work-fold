@@ -23,8 +23,8 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Use Fluent System Icons for shell navigation, commands, status, and empty states.
 - Use regular icons at rest and the matching filled icon for a selected navigation item.
 - Use 16px icons for inline actions, 24px for the icon-only rail navigation, 20px for section markers, and no more than 24px for empty states.
-- Material file-type icons are the one deliberate exception because file recognition benefits from familiar type colors.
-- Do not mix icon libraries within one control group. The Space glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and Space-bound tabs. The banner itself is name-first.
+- Material file-type icons retain their familiar type colors. The rail's Skills & Extensions control uses the Lucide **Blocks** icon at 24px (2026-10-08); other shell controls retain Fluent icons.
+- Keep icon-library exceptions limited to those named controls. The Space glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and Space-bound tabs. The banner itself is name-first.
 - Space color may appear as a small avatar accent or active indicator, never as a frame around the application.
 
 ## Typography and spacing

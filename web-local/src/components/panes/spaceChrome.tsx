@@ -1,13 +1,13 @@
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { restrictedAppRailMode, restrictedAppRailLabel } from "../../lib/restricted-app-navigation";
 import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Blocks } from "lucide-react";
 import {
   ArrowDownload20Regular,
   ArrowClockwise20Regular,
   ArrowReset20Regular,
   ArrowUndo20Regular,
   ArrowUpload20Regular,
-  Add24Regular,
   Apps24Filled,
   ChatAdd16Regular,
   Folder16Regular,
@@ -184,7 +184,7 @@ function SpaceModeRail({
             onClick={() => onOpenAssistantTools("installed")}
             aria-label="Skills & Extensions"
           >
-            <Add24Regular aria-hidden="true" />
+            <Blocks size={24} strokeWidth={1.5} aria-hidden="true" />
             <span>Add</span>
           </button>
           <button
