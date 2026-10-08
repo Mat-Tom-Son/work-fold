@@ -333,7 +333,18 @@ still open beneath it. Delivered child turns are recorded so a result is not
 delivered twice. There is no continuation-count quota. Continuations never
 follow a root Stop, an expired legacy request, a configured spending-cap
 failure, or a restart, and a person can turn them off in Settings → Automations
-→ Limits.
+→ Limits. Compaction cleanup reevaluates deliveries deferred by that Chat,
+including when compaction fails. Synthesis uses the latest child turn's
+selected report and files, or its failure/no-report status; older successes
+remain historical, and partial or failed graph outcomes take precedence.
+
+File deletion and Space removal use the same desktop/CLI reservation against
+active turns, compaction, Checks, app jobs with file access, and routing file
+work. Unfinished requests, waiting questions, and accepted continuations also refuse deletion;
+after Stop, accepted turns must drain first. Managed parent deletion requires
+removing nested registrations first. A refused delete changes no content and
+creates no safety checkpoint. See [the recovery amendment](receipts-not-gates.md#trash)
+for interrupted folder and History moves.
 
 Only the assignment text, the answer text, released report summaries, and
 copied files ever enter a Space Chat. The request graph itself, other Spaces'
@@ -444,8 +455,12 @@ role. App frames receive only request/status/cancel. The adapter strips
 absolute roots and attachment target paths, applies
 the ordinary ignore policy to tree views, rejects traversal and unknown fields,
 and rechecks the locally encrypted grant immediately before execution.
-Dispatch and desktop-local authority mutations share one serialization fence;
-revocation removes local authority before contacting the bridge and stops
+Dispatch admission and completion share a serialization fence with
+desktop-local authority mutations. A live `management.watch` waits outside
+that fence, so Stop and revocation can proceed immediately. Its progress and
+completion recheck authority; revocation and lifecycle changes cancel the
+subscription and clear its listeners and timers.
+Revocation removes local authority before contacting the bridge and stops
 locally tracked management requests and their recorded delegated children.
 Every local and bridge cleanup lane is attempted even if another fails, and
 address removal keeps the device credential until server deletion is confirmed

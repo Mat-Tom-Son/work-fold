@@ -15,7 +15,10 @@ import {
 } from "../src/local/state-paths.js";
 import {
   beginSpaceRemoval,
+  copyPathIntoSpace,
   createManagedSpace,
+  createSpaceFolder,
+  createSpaceTextFile,
   finalizeSpaceRemoval,
   listSpaces,
   listPendingSpaceRemovals,
@@ -713,6 +716,66 @@ test("the Space tree applies its budget to a stable visible ordering", async (t)
   const capped = await scanSpaceTree(sandbox, 0, "", { includeIgnored: false });
   assert.deepEqual(capped.entries.map((entry) => entry.name), ["alpha.txt", "zulu.txt"]);
   assert.equal(capped.truncated, false, "ignored entries do not consume the visible entry budget");
+});
+
+test("parent file mutations respect nested ownership while allowing siblings and child-owned changes", async () => {
+  const parent = await createManagedSpace("Nested write boundaries", contentRoot);
+  const childRoot = join(parent.spaceRoot, "Group", "Child");
+  await mkdir(childRoot, { recursive: true });
+  await writeFile(join(childRoot, "note.txt"), "child original");
+  await registerLinkedSpace(childRoot);
+  const childPath = "Group//./Child";
+
+  await assert.rejects(writeSpaceTextFile(parent.spaceRoot, `${childPath}/note.txt`, "parent overwrite"), /belongs to.*work-folder/);
+  await assert.rejects(createSpaceTextFile(parent.spaceRoot, childPath, "new.txt", "parent create"), /belongs to.*work-folder/);
+  await assert.rejects(createSpaceFolder(parent.spaceRoot, childPath, "new-folder"), /belongs to.*work-folder/);
+  await assert.rejects(writeUploadedFiles(parent.spaceRoot, childPath, [{ fileName: "upload.txt", data: Buffer.from("parent upload") }]), /belongs to.*work-folder/);
+  await assert.rejects(writeUploadedFiles(parent.spaceRoot, "", [
+    { fileName: "first.txt", relativePath: "Preflight/first.txt", data: Buffer.from("first") },
+    { fileName: "second.txt", relativePath: "Group/Child/new-directory/second.txt", data: Buffer.from("second") },
+  ]), /belongs to.*work-folder/);
+  assert.equal(existsSync(join(parent.spaceRoot, "Preflight")), false, "a refused batch has no earlier writes or created directories");
+  assert.equal(existsSync(join(childRoot, "new-directory")), false);
+
+  const source = join(sandbox, "nested-copy-source", "Child");
+  await mkdir(source, { recursive: true });
+  await writeFile(join(source, "copy.txt"), "copied sibling");
+  await assert.rejects(copyPathIntoSpace(source, parent.spaceRoot, childPath), /belongs to.*work-folder/);
+  assert.equal(await readFile(join(childRoot, "note.txt"), "utf8"), "child original");
+  assert.equal(existsSync(join(childRoot, "new.txt")), false);
+  assert.equal(existsSync(join(childRoot, "new-folder")), false);
+  assert.equal(existsSync(join(childRoot, "upload.txt")), false);
+  assert.equal(existsSync(join(childRoot, "Child")), false);
+
+  await createSpaceFolder(parent.spaceRoot, "Group", "Sibling");
+  await createSpaceTextFile(parent.spaceRoot, "Group/Sibling", "note.txt", "parent sibling");
+  await writeSpaceTextFile(parent.spaceRoot, "Group/Sibling/note.txt", "updated sibling");
+  assert.equal(await readFile(join(parent.spaceRoot, "Group", "Sibling", "note.txt"), "utf8"), "updated sibling");
+  assert.deepEqual(await writeUploadedFiles(parent.spaceRoot, "Group", [{ fileName: "Child", data: Buffer.from("collision sibling") }]), [
+    { path: "Group/Child (2)", sizeBytes: 17 },
+  ], "a colliding nested folder name can become an ordinary sibling file");
+  assert.equal(await copyPathIntoSpace(source, parent.spaceRoot, "Group"), "Group/Child-2");
+  assert.equal(await readFile(join(parent.spaceRoot, "Group", "Child-2", "copy.txt"), "utf8"), "copied sibling");
+
+  await writeSpaceTextFile(childRoot, "note.txt", "child update");
+  await createSpaceTextFile(childRoot, "", "own.txt", "child create");
+  await writeUploadedFiles(childRoot, "", [{ fileName: "own-upload.txt", data: Buffer.from("child upload") }]);
+  assert.equal(await readFile(join(childRoot, "note.txt"), "utf8"), "child update");
+  assert.equal(await readFile(join(childRoot, "own.txt"), "utf8"), "child create");
+  assert.equal(await readFile(join(childRoot, "own-upload.txt"), "utf8"), "child upload");
+});
+
+test("a pending managed deletion cannot gain a newly registered nested work-folder", async () => {
+  const parent = await createManagedSpace("Pending nested registration", contentRoot);
+  const childRoot = join(parent.spaceRoot, "Child");
+  await mkdir(childRoot);
+  await writeFile(join(childRoot, "note.txt"), "still present");
+  await beginSpaceRemoval(parent.id, contentRoot);
+  await assert.rejects(registerLinkedSpace(childRoot), /still being removed/);
+  assert.equal(existsSync(spaceManifestFile(childRoot)), false, "the refused registration creates no portable identity");
+  assert.equal(await readFile(join(childRoot, "note.txt"), "utf8"), "still present");
+  await markSpaceRemovalAppStateRemoved(parent.id);
+  assert.equal((await finalizeSpaceRemoval(parent.id)).cleanupPending, false);
 });
 
 function countTreeEntries(entries: Awaited<ReturnType<typeof scanSpaceTree>>["entries"]): number {

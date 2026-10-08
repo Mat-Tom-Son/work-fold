@@ -7,6 +7,7 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 
 import { appendMessage } from "../src/local/agent/chat-store.js";
+import { PiConversationClient } from "../src/local/agent/pi-client.js";
 import { WorkFoldTurnStore } from "../src/local/agent/turn-store.js";
 import { WorkFoldRequestStore } from "../src/local/requests/request-store.js";
 import { startLocalApi } from "../src/local/server.js";
@@ -175,6 +176,70 @@ test("a person's reply joins the request that was waiting on it and answers its 
   } finally {
     releaseFold();
     await api.close();
+  }
+});
+
+test("parent synthesis preserves a partial child graph despite its latest succeeded report", async (t) => {
+  const { open } = await sandboxApi(t);
+  const pending = new Map<string, () => void>();
+  let draining = false;
+  const api = await open(async ({ taskId }) => {
+    if (!draining) await new Promise<void>((resolve) => pending.set(taskId, resolve));
+  });
+  const originalPrompt = PiConversationClient.prototype.prompt;
+  // Generated follow-ups still use the real turn path, but the fixture's
+  // extension command lets them complete without a provider connection.
+  PiConversationClient.prototype.prompt = function (_message, context) {
+    return originalPrompt.call(this, "/hold", context);
+  };
+  const release = async (taskId: string) => {
+    await waitFor(async () => pending.has(taskId));
+    pending.get(taskId)!();
+    pending.delete(taskId);
+  };
+  const settleSpaceTurn = async (spaceId: string, taskId: string) => {
+    await waitFor(async () => (await api.actFacade.turnStatus({ space: spaceId, taskId })).task.state !== "running");
+  };
+  try {
+    const { space: coordinator } = await api.actFacade.createSpace({ name: "Coordinator" });
+    const { space: reviewer } = await api.actFacade.createSpace({ name: "Reviewer" });
+    const root = await api.actFacade.manageSend({ content: "/hold" });
+    const child = await api.actFacade.sendMessage({ space: coordinator.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    const grandchild = await api.actFacade.sendMessage({ space: reviewer.id, newConversation: true, content: "/hold", parentTaskId: child.taskId });
+    await api.actFacade.chatReport({ space: reviewer.id, taskId: grandchild.taskId, summary: "Some review items remain", outcome: "partial", files: [] });
+    await release(grandchild.taskId);
+    await settleSpaceTurn(reviewer.id, grandchild.taskId);
+    await release(child.taskId);
+    await settleSpaceTurn(coordinator.id, child.taskId);
+
+    const childRequestId = api.requests.byTaskId(child.taskId)!.requestId;
+    await waitFor(async () => api.requests.get(childRequestId)!.turns.length === 2);
+    const childFollowup = api.requests.get(childRequestId)!.turns.at(-1)!.taskId;
+    await api.actFacade.chatReport({ space: coordinator.id, taskId: childFollowup, summary: "Coordinator finished its own work", outcome: "succeeded", files: [] });
+    await release(childFollowup);
+    await settleSpaceTurn(coordinator.id, childFollowup);
+    const partialChild = api.requests.get(childRequestId)!;
+    assert.equal(partialChild.state, "partial", "the descendant's incomplete work remains part of the child result");
+    assert.equal(partialChild.results.at(-1)!.outcome, "succeeded");
+    assert.equal((await api.actFacade.turnResult({ space: coordinator.id, taskId: childFollowup })).result?.outcome, "partial");
+
+    await release(root.taskId);
+    await waitFor(async () => (await api.actFacade.manageTurnStatus({ taskId: root.taskId })).task.state !== "running");
+    const rootRequestId = api.requests.byTaskId(root.taskId)!.requestId;
+    await waitFor(async () => api.requests.get(rootRequestId)!.turns.length === 2);
+    const parentFollowup = api.requests.get(rootRequestId)!;
+    assert.match(parentFollowup.content, /partial: Coordinator finished its own work/);
+    assert.doesNotMatch(parentFollowup.content, /succeeded: Coordinator finished its own work/);
+    assert.deepEqual(parentFollowup.deliveredChildTaskIds, [childFollowup]);
+  } finally {
+    draining = true;
+    for (const resolve of pending.values()) resolve();
+    pending.clear();
+    try {
+      await api.close();
+    } finally {
+      PiConversationClient.prototype.prompt = originalPrompt;
+    }
   }
 });
 

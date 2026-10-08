@@ -21,7 +21,7 @@ import type {
   WorkFoldViewerAppServeResult,
   WorkFoldViewerPageServeResult,
 } from "../../src/local/publications.js";
-import type { WorkFoldRemoteFacade, WorkFoldRemoteOperation, WorkFoldRemotePrincipal } from "../../src/local/remote-management.js";
+import type { WorkFoldRemoteFacade, WorkFoldRemoteOperation, WorkFoldRemotePrincipal, WorkFoldRemoteWatchProgress } from "../../src/local/remote-management.js";
 import type { RemoteAccessSettings, RemoteBrowserGrantSettings, SecureSettingsStore } from "./settings.js";
 
 const reconnectDelaysMs = [500, 1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
@@ -180,6 +180,7 @@ export class RemoteAccessClient {
   #allGrantOperationFence = 0;
   #grantOperationFences = new Map<string, number>();
   #activeTasks = new Map<string, Map<string, TrackedRemoteTask>>();
+  #watches = new Map<string, { grantId: string; controller: AbortController }>();
 
   constructor(options: {
     settingsStore: SecureSettingsStore;
@@ -214,6 +215,7 @@ export class RemoteAccessClient {
   stop(): void {
     this.#stopped = true;
     this.#lifecycleGeneration += 1;
+    this.#abortWatches();
     const generation = this.#lifecycleGeneration;
     if (this.#reconnectTimer) this.#timers.clearTimeout(this.#reconnectTimer);
     if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
@@ -230,6 +232,7 @@ export class RemoteAccessClient {
   async recoverConnection(): Promise<void> {
     if (this.#stopped) return;
     this.#lifecycleGeneration += 1;
+    this.#abortWatches();
     const generation = this.#lifecycleGeneration;
     if (this.#reconnectTimer) this.#timers.clearTimeout(this.#reconnectTimer);
     if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
@@ -643,6 +646,9 @@ export class RemoteAccessClient {
     const input = parseRequestPayload(payload);
     const remoteOperation = operationName(envelope.header.operation);
     const principal: WorkFoldRemotePrincipal = { browserId: grant.browserId, grantId: grant.id, requestId: operation.requestId };
+    if (remoteOperation === "management.watch") {
+      return this.#executeWatch(grant, operation, input, principal, operationFence, cacheKey);
+    }
     const lifecycleGeneration = this.#lifecycleGeneration;
     const actionAuthority = { assertCurrent: () => {
       if (!this.#isCurrentGeneration(lifecycleGeneration) || !this.#operationFenceIsCurrent(grant.id, operationFence)) {
@@ -654,25 +660,10 @@ export class RemoteAccessClient {
       // Re-read immediately before execution so disabling or revoking cannot
       // leave a stale envelope authorized in a queued microtask.
       if (!await this.#currentOperationAuthority(grant, operationFence)) return;
-      // Live-watch progress ticks ride the operation's event envelopes with
-      // strictly increasing sequences. Each tick is serialized behind the
-      // previous one and re-checks grant authority before it leaves the
-      // desktop, so revocation silences an in-flight watch immediately.
-      let nextSequence = 2;
-      let emitChain: Promise<void> = Promise.resolve();
-      const emitProgress = (progress: unknown) => {
-        emitChain = emitChain.then(async () => {
-          const authority = await this.#currentOperationAuthority(grant, operationFence);
-          if (!authority) return;
-          this.sendEncrypted(authority.settings, authority.grant, operation, nextSequence++, true, { progress }, "operation.event");
-        }).catch(() => {});
-      };
       let ok = true;
       let responsePayload: unknown;
       try {
-        const value = remoteOperation === "management.watch" && this.#facade.watch
-          ? await this.#facade.watch(input, principal, emitProgress)
-          : await this.#facade.execute(remoteOperation, input, principal, actionAuthority);
+        const value = await this.#facade.execute(remoteOperation, input, principal, actionAuthority);
         if (remoteOperation === "management.glance"
           && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteGlanceProjectionBytes) {
           throw new Error("The glance digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");
@@ -692,22 +683,79 @@ export class RemoteAccessClient {
       // requested. Re-read settings and both fence scopes at the serialized
       // completion point so a same-grant/all-grants revoke wins, while an
       // unrelated browser mutation cannot discard this result.
-      // Drain in-flight progress ticks so the completion's sequence stays
-      // strictly above every event the bridge will relay.
-      await emitChain;
       const completion = await this.#currentOperationAuthority(grant, operationFence);
       if (!completion) return;
       const response = this.sendEncrypted(
         completion.settings,
         completion.grant,
         operation,
-        nextSequence,
+        2,
         ok,
         responsePayload,
         "operation.complete",
       );
       this.remember(cacheKey, response);
     });
+  }
+
+  async #executeWatch(
+    grant: RemoteBrowserGrantSettings,
+    operation: ReturnType<typeof parseOperation>,
+    input: unknown,
+    principal: WorkFoldRemotePrincipal,
+    operationFence: RemoteOperationFence,
+    cacheKey: string,
+  ): Promise<void> {
+    const lifecycleGeneration = this.#lifecycleGeneration;
+    const watch = { grantId: grant.id, controller: new AbortController() };
+    const current = () => !watch.controller.signal.aborted && this.#isCurrentGeneration(lifecycleGeneration);
+    const admitted = await this.#withAuthority(async () => {
+      const authority = await this.#currentOperationAuthority(grant, operationFence);
+      if (!authority || !current()) return false;
+      this.#watches.set(cacheKey, watch);
+      this.sendEncrypted(authority.settings, authority.grant, operation, 1, true, { status: "running" }, "operation.event");
+      return true;
+    });
+    if (!admitted) return;
+    let nextSequence = 2;
+    let acceptingProgress = true;
+    let emitChain: Promise<void> = Promise.resolve();
+    const emitProgress = (progress: WorkFoldRemoteWatchProgress) => {
+      if (!acceptingProgress || !current()) return;
+      emitChain = emitChain.then(async () => {
+        const authority = await this.#currentOperationAuthority(grant, operationFence);
+        if (!authority || !current()) return;
+        this.sendEncrypted(authority.settings, authority.grant, operation, nextSequence++, true, { progress }, "operation.event");
+      }).catch(() => {});
+    };
+    try {
+      if (!current()) return;
+      let ok = true;
+      let payload: unknown;
+      try {
+        // A watch owns a subscription, not the authority queue. Stop and
+        // revocation must remain able to settle the turn it is observing.
+        const pending = this.#facade.watch
+          ? this.#facade.watch(input, principal, emitProgress, watch.controller.signal)
+          : this.#facade.execute("management.watch", input, principal);
+        payload = { result: await waitForRemoteWatch(pending, watch.controller.signal) };
+      } catch (error) {
+        ok = false;
+        payload = { error: errorMessage(error) };
+      }
+      acceptingProgress = false;
+      await emitChain;
+      await this.#withAuthority(async () => {
+        const authority = await this.#currentOperationAuthority(grant, operationFence);
+        if (!authority || !current()) return;
+        const response = this.sendEncrypted(authority.settings, authority.grant, operation, nextSequence, ok, payload, "operation.complete");
+        this.remember(cacheKey, response);
+      });
+    } finally {
+      acceptingProgress = false;
+      if (this.#watches.get(cacheKey) === watch) this.#watches.delete(cacheKey);
+      watch.controller.abort();
+    }
   }
 
   sendEncrypted(
@@ -752,10 +800,18 @@ export class RemoteAccessClient {
 
   #fenceGrantOperations(grantId: string): void {
     this.#grantOperationFences.set(grantId, (this.#grantOperationFences.get(grantId) ?? 0) + 1);
+    this.#abortWatches(grantId);
   }
 
   #fenceAllGrantOperations(): void {
     this.#allGrantOperationFence += 1;
+    this.#abortWatches();
+  }
+
+  #abortWatches(grantId?: string): void {
+    for (const watch of this.#watches.values()) {
+      if (!grantId || watch.grantId === grantId) watch.controller.abort();
+    }
   }
 
   #operationFenceIsCurrent(grantId: string, fence: RemoteOperationFence): boolean {
@@ -1311,6 +1367,21 @@ function freshTimestamp(value: unknown): boolean {
   const time = typeof value === "string" ? Date.parse(value) : NaN;
   return Number.isFinite(time) && Math.abs(Date.now() - time) <= 5 * 60_000;
 }
+
+async function waitForRemoteWatch(pending: Promise<unknown>, signal: AbortSignal): Promise<unknown> {
+  let abort!: () => void;
+  const cancelled = new Promise<unknown>((resolve) => {
+    abort = () => resolve({ state: "cancelled", settled: false });
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  try {
+    return await Promise.race([pending, cancelled]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
+}
+
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error ?? "unknown error"); }
 
 function remoteRequestKey(grantId: string, requestId: string): string {

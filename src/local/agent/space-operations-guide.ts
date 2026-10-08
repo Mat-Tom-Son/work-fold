@@ -55,7 +55,7 @@ export function workFoldSpaceOperationsGuide(executable = "work-fold"): string {
     "",
     "### Work in this Space",
     "",
-    "- Files: `files add|move|rename|delete|mkdir|create --space <id> ...` take a History restore point first. `files delete` always goes through — History holds what it could copy, and anything it could not moves to Recently deleted; the receipt says which, so say which. Never move, rename, or delete a Space file with raw tools. `.work-fold/`, `.pi/`, and `.workspace/` are never endpoints.",
+    "- Files: `files add|move|rename|delete|mkdir|create --space <id> ...` take restore points. Deletion requires settled work, including your turn and questions; leave it for the person. Never bypass refusals or move, rename, or delete with raw tools. `files delete` keeps History coverage and moves anything uncovered to Recently deleted; name recovery. Parent changes stop at nested work-folders. `.work-fold/`, `.pi/`, and `.workspace/` are never endpoints.",
     "- History: `history list|save|restore|versions|restore-file --space <id> ...`. The host attempts History capture before and after Folder turns. Your context reports pre-turn coverage. Identical content reuses a checkpoint. Save explicitly for useful intermediate milestones. A restore is refused while work runs in this Space.",
     "- Review saved files with `history read --space <id> --path <path> --checkpoint <id> --json` or `history diff --space <id> --path <path> --from-checkpoint <id> [--to-checkpoint <id>] --json` (omitting the latter compares the current file). Reads never restore. Respect coverage and limits; never search private app storage for evidence. A current hash alone cannot prove changes.",
     `- Search: \`${cmd} search --space <id> --query "<text>" [--scope files|chats|all] --json\`. When it reports that a bound stopped the search, say so instead of implying completeness.`,
@@ -71,7 +71,7 @@ export function workFoldSpaceOperationsGuide(executable = "work-fold"): string {
     "",
     "### Finish",
     "",
-    "After all tools, including any chat report, give the complete answer as your final reply; repeat essential earlier findings. Include outcomes, file links, verification and limits. Keep routine ids in supporting details. Read receipts before claiming success; never retry failed acts yourself. For deletion, name its recovery location. Put necessary questions on their own final line.",
+    "After all tools, including any chat report, give the complete answer as your final reply; repeat essential earlier findings. Include outcomes, file links, verification and limits. Keep routine ids in details. Read receipts before claiming success; never retry failed acts. Put necessary questions on their own final line.",
   ].join("\n");
 }
 

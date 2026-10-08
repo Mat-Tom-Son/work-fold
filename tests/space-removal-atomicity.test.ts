@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { cp, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,9 @@ import {
 } from "../src/local/agent/restricted-app-service.js";
 import { WorkFoldCheckService } from "../src/local/checks/check-service.js";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
-import { configureWorkFoldStateRoot, spaceCheckStateFile, spaceRegistryFile } from "../src/local/state-paths.js";
+import { configureWorkFoldStateRoot, spaceCheckStateFile, spaceRegistryFile, spaceStateDir } from "../src/local/state-paths.js";
+import { createSpaceCheckpoint, listSpaceCheckpoints } from "../src/local/history.js";
+import { WorkFoldTrashStore } from "../src/local/trash-store.js";
 import { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
 import {
   beginSpaceRemoval,
@@ -367,6 +369,47 @@ test("final registry persistence failure keeps a retryable intent after App and 
     });
     assert.deepEqual(await listPendingSpaceRemovals(), []);
     assert.deepEqual((await request<{ spaces: unknown[] }>(api, "/api/bootstrap")).spaces, []);
+  } finally {
+    await api?.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("startup carries remaining History into a deletion whose folder already reached Recently deleted", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "space-removal-history-recovery-"));
+  const stateBase = join(sandbox, "state");
+  const trashRoot = join(stateBase, "trash");
+  let blockedStatePath: string | null = null;
+  let api: LocalApiHandle | null = null;
+  try {
+    const trash = await WorkFoldTrashStore.open({ rootPath: trashRoot, io: {
+      async rename(from, to) {
+        if (from === blockedStatePath) throw new Error("simulated History move interruption");
+        await rename(from, to);
+      },
+    } });
+    api = await startLocalApi({ port: 0, stateBase, spaceBase: join(sandbox, "spaces"), loadEnv: false, trashStore: trash });
+    const { space } = await api.actFacade.createSpace({ name: "History source" });
+    await writeFile(join(space.spaceRoot, "draft.txt"), "Original draft\n");
+    const checkpoint = await createSpaceCheckpoint(space.spaceRoot, { label: "Before interruption" });
+    blockedStatePath = spaceStateDir(space.spaceRoot);
+    const removal = await request<{ cleanupPending: boolean }>(api, `/api/spaces/${space.id}`, { method: "DELETE" });
+    assert.equal(removal.cleanupPending, true);
+    assert.equal(existsSync(space.spaceRoot), false);
+    assert.equal(existsSync(blockedStatePath), true, "History has not moved yet");
+    const [entry] = (await api.trash.list()).entries;
+    assert.ok(entry);
+    assert.equal(entry.stateDir, undefined);
+    await api.close();
+    api = null;
+    blockedStatePath = null;
+    api = await startLocalApi({ port: 0, stateBase, spaceBase: join(sandbox, "spaces"), loadEnv: false, trashStore: await WorkFoldTrashStore.open({ rootPath: trashRoot }) });
+    assert.deepEqual(await listPendingSpaceRemovals(), []);
+    assert.equal((await api.trash.get(entry.id))?.stateDir, true);
+    assert.equal(existsSync(spaceStateDir(space.spaceRoot)), false);
+    await api.trash.restoreTree(entry.id, { absolutePath: space.spaceRoot, stateDirFor: spaceStateDir });
+    assert.equal(await readFile(join(space.spaceRoot, "draft.txt"), "utf8"), "Original draft\n");
+    assert.ok((await listSpaceCheckpoints(space.spaceRoot)).some((item) => item.id === checkpoint.id), "the original checkpoint is restored");
   } finally {
     await api?.close();
     await rm(sandbox, { recursive: true, force: true });

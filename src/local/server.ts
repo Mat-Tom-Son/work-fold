@@ -3251,6 +3251,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     } finally {
       state.compactingConversations.delete(key);
       state.kernel.finishTask(task.id);
+      queueConversationRequestEvaluation(state, space.id, compactMatch[2]);
     }
     sendJson(res, { compacted: true });
     return;
@@ -4720,7 +4721,7 @@ function trashCliError(error: unknown): WorkFoldCliError {
 function managedSpaceRemovalIo(
   trash: WorkFoldTrashStore,
   overrides: Partial<SpaceRemovalIo>,
-  context: { spaceId: string; spaceRoot: string; spaceName?: string; receiptId: string | null },
+  context: { spaceId: string; spaceRoot: string; spaceName?: string; receiptId: string | null; managedDeletion: boolean },
 ): { io: Partial<SpaceRemovalIo>; entry: () => WorkFoldTrashEntry | null } {
   let entry: WorkFoldTrashEntry | null = null;
   const io: Partial<SpaceRemovalIo> = {
@@ -4742,6 +4743,22 @@ function managedSpaceRemovalIo(
       // The folder's move already carried the History state into the entry.
       if (entry) return;
       if (overrides.removeSpaceState) return overrides.removeSpaceState(spaceRoot);
+      // On restart the claimed folder may already have reached Recently
+      // deleted while its History directory is still at the old state path.
+      // Recover that second move before committing removal; never erase the
+      // remaining History when its destination cannot be proved.
+      if (context.managedDeletion && !overrides.removeClaimedManagedRoot && existsSync(spaceStateDir(spaceRoot))) {
+        const listing = await trash.list();
+        const matching = listing.entries.filter((item) => item.kind === "space"
+          && item.reason === "spaces.delete"
+          && item.spaceId === context.spaceId
+          && spaceRootKey(item.originalPath) === spaceRootKey(context.spaceRoot));
+        if (matching.length !== 1 || listing.damaged.length) {
+          throw new Error("The deleted work-folder's History could not be matched to one intact Recently deleted entry. It was kept at its original state path.");
+        }
+        entry = await trash.attachSpaceState(matching[0]!.id, spaceStateDir(spaceRoot));
+        return;
+      }
       await rm(spaceStateDir(spaceRoot), { recursive: true, force: true });
     },
   };
@@ -4777,6 +4794,7 @@ async function removeSpaceRegistrationInternal(
       spaceRoot: space.spaceRoot,
       spaceName: space.name,
       receiptId: options.receiptId ?? null,
+      managedDeletion: space.location.storage === "managed",
     });
   // Removing the Space removes every preview app installed in it, and that
   // takes each app's data with it. A copy of each reaches Recently deleted
@@ -4795,7 +4813,7 @@ async function removeSpaceRegistrationInternal(
       appTrash: appEntries.map((item) => ({ entryId: item.id, restoreBy: item.restoreBy })),
     };
   };
-  return runRestrictedAppMutations(state, affectedSpaceIds, async () => {
+  return runRestrictedAppMutations(state, affectedSpaceIds, () => runSettledSpaceDeletion(state, space.id, async () => {
     const releaseCheckRemoval = state.checks.tryReserveSpaceRemoval(space.id);
     if (!releaseCheckRemoval) throw httpError(409, "Wait for the current Check operation before removing this Space.");
     try {
@@ -4873,7 +4891,7 @@ async function removeSpaceRegistrationInternal(
       releaseCheckRemoval();
       publishControlHint(state, "spaces");
     }
-  }, { requiredSpaceIds: [space.id] });
+  }), { requiredSpaceIds: [space.id] });
 }
 
 const maxActAddSources = 25;
@@ -4897,6 +4915,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
     rawInput: unknown,
     principal: WorkFoldRemotePrincipal,
     emit: (progress: WorkFoldRemoteWatchProgress) => void,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     assertRemotePrincipal(principal);
     const input = remoteInput(rawInput);
@@ -4906,6 +4925,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
     const conversation = await readConversationSummary(workFoldManagementRoot(), conversationId);
     if (!conversation) throw notFound("Conversation not found.");
     const key = streamKey(workFoldManagementScopeId, conversationId);
+    if (signal?.aborted) return { state: "cancelled", settled: false };
     if (!state.runningTurns.has(key)) return { state: "idle", settled: false };
     return new Promise((resolveWatch) => {
       const watchWindowMs = 90_000;
@@ -4922,14 +4942,19 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
       let windowTimer: NodeJS.Timeout | null = null;
       const listeners = state.chatEventListeners.get(key) ?? new Set<(event: unknown) => void>();
       state.chatEventListeners.set(key, listeners);
-      const finish = (result: { state: "settled" | "running"; settled: boolean }) => {
+      let finished = false;
+      const finish = (result: { state: "settled" | "running" | "cancelled"; settled: boolean }) => {
+        if (finished) return;
+        finished = true;
         listeners.delete(listener);
         if (!listeners.size) state.chatEventListeners.delete(key);
+        signal?.removeEventListener("abort", onAbort);
         if (windowTimer) clearTimeout(windowTimer);
         if (activityTimer) clearTimeout(activityTimer);
         if (textTimer) clearTimeout(textTimer);
         resolveWatch(result);
       };
+      const onAbort = () => finish({ state: "cancelled", settled: false });
       const flushActivity = () => {
         activityTimer = null;
         if (pendingActivity === null || pendingActivity === lastActivity) { pendingActivity = null; return; }
@@ -4999,6 +5024,8 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
         }
       };
       listeners.add(listener);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) { onAbort(); return; }
       windowTimer = setTimeout(() => finish({ state: "running", settled: false }), watchWindowMs);
       const initialAssistantText = chatEventLog(state, key).assistantText;
       if (initialAssistantText) {
@@ -6508,6 +6535,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         } finally {
           state.compactingConversations.delete(key);
           state.kernel.finishTask(task.id);
+          queueConversationRequestEvaluation(state, space.id, input.conversationId);
         }
         await recordFacadeAction(state, input.parentTaskId, {
           command: "chat.compact",
@@ -8518,7 +8546,7 @@ async function deleteManagementConversation(
     if (state.requests.list().some((request) =>
       request.owner.spaceId === undefined
       && request.owner.conversationId === conversationId
-      && !isWorkFoldRequestTerminalState(request.state))) {
+      && requestHasUnsettledWork(state, request))) {
       throw httpError(409, "Finish or stop this Chat's outstanding work before deleting it.");
     }
     // An idle client can still hold the Pi session and extension callbacks.
@@ -8580,7 +8608,7 @@ async function deleteSpaceConversation(
     if (state.requests.list().some((request) =>
       request.owner.spaceId === space.id
       && request.owner.conversationId === conversationId
-      && !isWorkFoldRequestTerminalState(request.state))) {
+      && requestHasUnsettledWork(state, request))) {
       throw httpError(409, "Finish or stop this Chat's outstanding work before deleting it.");
     }
     await state.clients.get(key)?.stop();
@@ -9244,6 +9272,20 @@ export interface WorkFoldDeleteResult {
  * Space root still cannot be deleted: the path policy runs first, unchanged.
  */
 async function deleteSpaceEntryWithRecovery(
+  state: LocalApiState,
+  space: SpaceSummary,
+  target: string,
+  context: { receiptId: string | null },
+): Promise<WorkFoldDeleteResult> {
+  reserveCapabilityMutation(state, space.id, "project", space.id);
+  try {
+    return await runSettledSpaceDeletion(state, space.id, () => deleteSettledSpaceEntryWithRecovery(state, space, target, context));
+  } finally {
+    state.capabilityMutations.delete(space.id);
+  }
+}
+
+async function deleteSettledSpaceEntryWithRecovery(
   state: LocalApiState,
   space: SpaceSummary,
   target: string,
@@ -10841,6 +10883,22 @@ function queueRequestGraphSettle(state: LocalApiState, taskId: string): void {
     });
 }
 
+/** Releasing compaction makes pending deliveries eligible without inventing a new turn settlement. */
+function queueConversationRequestEvaluation(state: LocalApiState, spaceId: string, conversationId: string): void {
+  state.requestSettleChain = state.requestSettleChain
+    .then(async () => {
+      for (const request of state.requests.list({ spaceId })) {
+        if (request.owner.conversationId === conversationId) {
+          await evaluateRequestGraphSettle(state, request.turns.at(-1)!.taskId);
+        }
+      }
+    })
+    .then(() => state.appAssistantTasks.refresh())
+    .catch((error: unknown) => {
+      console.error(`A request continuation could not be evaluated after compaction: ${errorMessage(error)}`);
+    });
+}
+
 async function evaluateRequestGraphSettle(state: LocalApiState, taskId: string): Promise<void> {
   const record = state.requests.byTaskId(taskId);
   if (!record) return;
@@ -11068,17 +11126,20 @@ async function composeContinuationMessage(
   for (const child of batch) {
     const turn = child.turns.at(-1)!;
     const where = `${child.owner.spaceName ?? child.owner.spaceId ?? "a Space"} [${child.owner.spaceId ?? ""}]`;
-    const reads = await state.requests.results(child.requestId);
-    const newest = reads
-      .filter((read): read is Extract<typeof read, { state: "ok" }> => read.state === "ok")
-      .sort((left, right) => right.record.recordedAt.localeCompare(left.record.recordedAt))[0];
-    const outcome = newest
-      ? `${newest.record.envelope.outcome}: ${clampUtf8(newest.record.envelope.summary, maxContinuationSummaryBytes)}`
+    const ref = [...child.results].reverse().find((result) => result.taskId === turn.taskId);
+    const newest = ref ? await state.requests.result(ref.resultId) : null;
+    if (ref && newest?.state !== "ok") throw new Error("The selected child result is unavailable; its receipt remains on record.");
+    const unsuccessful = turn.state === "failed" || turn.state === "aborted"
+      || child.state === "failed" || child.state === "stopped" || child.state === "expired";
+    const outcome = unsuccessful
+      ? `${child.state === "waiting" ? turn.state : child.state}${turn.error ? `: ${clampUtf8(turn.error, maxContinuationSummaryBytes)}` : ""}`
+      : newest?.state === "ok"
+      ? `${child.state === "partial" ? "partial" : newest.record.envelope.outcome}: ${clampUtf8(newest.record.envelope.summary, maxContinuationSummaryBytes)}`
       : turn.state === "succeeded"
         ? "finished without a report"
         : `${turn.state}${turn.error ? `: ${clampUtf8(turn.error, maxContinuationSummaryBytes)}` : ""}`;
     lines.push(`- ${where} — Chat ${child.owner.conversationId}, task ${turn.taskId} — ${outcome}`);
-    const files = newest?.record.envelope.files ?? [];
+    const files = newest?.state === "ok" ? newest.record.envelope.files ?? [] : [];
     if (files.length) {
       const named = files.slice(0, maxContinuationFilesNamed).map((file) => file.path).join(", ");
       lines.push(`  files: ${named}${files.length > maxContinuationFilesNamed ? ` (+${files.length - maxContinuationFilesNamed} more)` : ""}`);
@@ -11756,6 +11817,31 @@ async function runHistoryRestore<T>(state: LocalApiState, spaceId: string, opera
   } finally { state.capabilityMutations.delete(spaceId); }
 }
 
+/** Stop is not settled until its accepted turns have actually drained. */
+function requestHasUnsettledWork(state: LocalApiState, request: WorkFoldRequestRecord): boolean {
+  return [request, ...state.requests.subtree(request.requestId)].some((record) =>
+    !isWorkFoldRequestTerminalState(record.state)
+    || record.continuationState === "pending"
+    || record.turns.some((turn) => turn.state === "accepted" || turn.state === "running"));
+}
+
+/** Called with the Space's mutation fence held; deletion refuses instead of interrupting work. */
+async function runSettledSpaceDeletion<T>(state: LocalApiState, spaceId: string, operation: () => Promise<T>): Promise<T> {
+  const assertSettled = () => {
+    if (state.requests.list({ spaceId }).some((request) => requestHasUnsettledWork(state, request))) {
+      throw httpError(409, "Finish or stop this work-folder's outstanding work before deleting.");
+    }
+  };
+  assertSettled();
+  return state.restrictedApps.withHistoryRestoreReservation(spaceId, async () => {
+    const blockers = await state.kernel.listExperimentalHistoryRestoreBlockers(spaceId);
+    if (blockers.length) throw httpError(409, blockers[0]!);
+    await getSpace(spaceId);
+    assertSettled();
+    return operation();
+  });
+}
+
 async function runCapabilityMutation<T>(
   state: LocalApiState,
   space: { id: string; spaceRoot: string },
@@ -11857,6 +11943,7 @@ async function recoverPendingSpaceRemovals(
         spaceId: intent.spaceId,
         spaceRoot: intent.spaceRoot,
         receiptId: null,
+        managedDeletion: intent.storage === "managed" && intent.folderDisposition !== "preserve",
       });
       if (intent.phase === "requested") {
         await restrictedApps.removeSpace(intent.spaceId);

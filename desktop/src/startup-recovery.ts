@@ -1,7 +1,7 @@
 import { isNewerRestrictedAppRegistryVersionError } from "../../src/local/agent/restricted-app-registry-error.js";
 import { productIdentity } from "../../src/shared/product-identity.js";
 
-export const latestWorkFoldReleaseUrl = `https://github.com/${productIdentity.sourceRepositoryOwner}/${productIdentity.sourceRepositoryName}/releases/latest`;
+export const latestWorkFoldReleaseUrl = `https://github.com/${productIdentity.sourceRepositoryOwner}/${productIdentity.macReleaseRepositoryName}/releases/latest`;
 
 export interface WorkFoldStartupRecoveryPlan {
   reason: "newer-local-state";

@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { getEventListeners } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import { appendMessage, createConversation, readConversationSummary } from "../src/local/agent/chat-store.js";
+import { RoutedPiExtensionUiBridge, type PiExtensionUiRequest } from "../src/local/agent/extension-ui.js";
 import { startLocalApi } from "../src/local/server.js";
-import type { WorkFoldRemotePrincipal } from "../src/local/remote-management.js";
+import type { WorkFoldRemotePrincipal, WorkFoldRemoteWatchProgress } from "../src/local/remote-management.js";
 import { workFoldManagementRoot } from "../src/local/state-paths.js";
 
 // The remote wave of the fold surfaces (docs/fold-glance.md §The remote
@@ -114,6 +116,79 @@ test("the summary advertises the live-watch capability and watch validates its c
     await rm(sandbox, { recursive: true, force: true });
   }
 });
+
+test("aborting a real remote watch removes its subscription while the held turn can still be stopped", { timeout: 20_000 }, async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-watch-cancel-test-"));
+  const agentDir = join(sandbox, "agent");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await writeFile(join(agentDir, "extensions", "watch-hold.ts"), `export default function (pi) {
+    pi.registerCommand("watch-hold", {
+      description: "Hold a model-free test turn across watch cancellation",
+      handler: async (_, ctx) => {
+        await ctx.ui.input("Continue after watch cancellation");
+        ctx.ui.setWorkingMessage("Private late progress");
+        await ctx.ui.input("Held until Stop");
+      },
+    });
+  }\n`, "utf8");
+  const bridge = new RoutedPiExtensionUiBridge();
+  let firstQuestion!: (request: PiExtensionUiRequest) => void;
+  let secondQuestion!: (request: PiExtensionUiRequest) => void;
+  const firstGate = new Promise<PiExtensionUiRequest>((resolve) => { firstQuestion = resolve; });
+  const secondGate = new Promise<PiExtensionUiRequest>((resolve) => { secondQuestion = resolve; });
+  bridge.on("request", (request) => {
+    if (request.title === "Continue after watch cancellation") firstQuestion(request);
+    if (request.title === "Held until Stop") secondQuestion(request);
+  });
+  const api = await startLocalApi({
+    port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false,
+    extensionUiBridge: bridge, piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
+  });
+  const cancelled = new AbortController();
+  const current = new AbortController();
+  t.after(async () => {
+    cancelled.abort();
+    current.abort();
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  });
+  const principal: WorkFoldRemotePrincipal = { browserId: "browser-watch-cancel", grantId: "grant-watch-cancel", requestId: "watch-cancel-send" };
+  const turn = await api.remoteFacade.execute("management.send", { content: "/watch-hold", newConversation: true }, principal) as {
+    conversationId: string; taskId: string;
+  };
+  const gate = await firstGate;
+  assert.equal(gate.taskId, turn.taskId);
+  assert.ok(api.remoteFacade.watch);
+  const progress: WorkFoldRemoteWatchProgress[] = [];
+  const watch = api.remoteFacade.watch({ conversationId: turn.conversationId }, principal, (tick) => progress.push(tick), cancelled.signal);
+  await waitForWatchSubscription(cancelled.signal);
+  cancelled.abort();
+  assert.deepEqual(await watch, { state: "cancelled", settled: false });
+  assert.equal(getEventListeners(cancelled.signal, "abort").length, 0, "cancellation releases the signal listener");
+  const emittedBeforeLateEvents = progress.length;
+  assert.equal(bridge.respond(gate.id, { value: "continue" }), true);
+  const stoppingGate = await secondGate;
+  assert.equal(stoppingGate.taskId, turn.taskId, "cancelling a watch must leave the accepted turn running");
+  assert.deepEqual(await api.remoteFacade.watch({ conversationId: turn.conversationId }, principal, (tick) => progress.push(tick), cancelled.signal),
+    { state: "cancelled", settled: false }, "an already cancelled signal never subscribes");
+  const activeWatch = api.remoteFacade.watch({ conversationId: turn.conversationId }, principal, () => {}, current.signal);
+  await waitForWatchSubscription(current.signal);
+  const stopped = await api.remoteFacade.execute("management.stop", { taskId: turn.taskId }, { ...principal, requestId: "watch-cancel-stop" }) as {
+    stopped: { managementAborted: boolean };
+  };
+  assert.equal(stopped.stopped.managementAborted, true);
+  assert.deepEqual(await activeWatch, { state: "settled", settled: true }, "normal Stop still settles an authorized watch");
+  assert.equal(getEventListeners(current.signal, "abort").length, 0, "normal settlement also releases the signal listener");
+  assert.equal(progress.length, emittedBeforeLateEvents, "the cancelled watch receives neither subsequent turn progress nor settlement");
+});
+
+async function waitForWatchSubscription(signal: AbortSignal): Promise<void> {
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    if (getEventListeners(signal, "abort").length) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.fail("The remote watch did not subscribe to cancellation.");
+}
 
 test("management Chats can be renamed locally and deleted only into recoverable trash", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-management-chat-delete-test-"));

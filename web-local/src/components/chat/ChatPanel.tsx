@@ -179,6 +179,7 @@ export function ChatPanel({
   const [queuedSend, setQueuedSend] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
+  const [settlementPending, setSettlementPending] = useState(false);
   const [streamingAssistant, setStreamingAssistant] = useState("");
   const [streamingPresentation, setStreamingPresentation] = useState<{ text: string; metadata?: AssistantPresentation }>({ text: "" });
   const [previewTruncated, setPreviewTruncated] = useState(false);
@@ -258,7 +259,11 @@ export function ChatPanel({
   const spaceIdRef = useRef(space.id);
   const messagesLoadGenerationRef = useRef(0);
   const settlingTurnRef = useRef(false);
-  useEffect(() => () => { messagesLoadGenerationRef.current++; }, [space.id]);
+  const settlementRetryTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    messagesLoadGenerationRef.current++;
+    cancelSettlementRetry();
+  }, [space.id]);
   const eventStreamReadyConversationIdRef = useRef<string | null>(null);
   const pendingSendRef = useRef<PendingChatSend | null>(null);
   const postingPendingSendRef = useRef(false);
@@ -321,6 +326,18 @@ export function ChatPanel({
     turnPreviousAssistantMessageIdRef.current = undefined;
   }
 
+  function cancelSettlementRetry(): void {
+    if (settlementRetryTimerRef.current !== null) window.clearTimeout(settlementRetryTimerRef.current);
+    settlementRetryTimerRef.current = null;
+  }
+
+  function clearTurnSettlement(): void {
+    messagesLoadGenerationRef.current++;
+    cancelSettlementRetry();
+    settlingTurnRef.current = false;
+    setSettlementPending(false);
+  }
+
   function commitConversations(next: ConversationSummary[] | ((current: ConversationSummary[]) => ConversationSummary[])): void {
     const nextConversations = typeof next === "function" ? next(conversationsRef.current) : next;
     conversationsRef.current = nextConversations;
@@ -340,7 +357,7 @@ export function ChatPanel({
 
   useEffect(() => {
     spaceIdRef.current = space.id;
-    settlingTurnRef.current = false;
+    clearTurnSettlement();
     clearRuntimePreviews();
     resetTurnArtifactTracking();
     pendingSendRef.current = null;
@@ -510,6 +527,7 @@ export function ChatPanel({
     if (fixtureMode) return;
     if (!targetConversationId) {
       if (!conversation) return;
+      clearTurnSettlement();
       pendingSendRef.current = null;
       postingPendingSendRef.current = false;
       eventStreamReadyConversationIdRef.current = null;
@@ -535,7 +553,7 @@ export function ChatPanel({
   }, [draft]);
 
   const shouldKeepEventStreamOpen = !fixtureMode && Boolean(conversation) && (
-    active || running || Boolean(pendingSendRef.current)
+    active || running || settlementPending || Boolean(pendingSendRef.current)
   );
 
   useEffect(() => {
@@ -597,8 +615,8 @@ export function ChatPanel({
         if (startingTurn) {
           // An answer or CLI message can start a turn without this composer's
           // send path. Retire the last reply and any older transcript request.
-          messagesLoadGenerationRef.current++;
-          settlingTurnRef.current = false;
+          clearTurnSettlement();
+          setError(null);
           flushStreamingText();
           setStreamingAssistant("");
           clearRuntimePreviews();
@@ -705,8 +723,7 @@ export function ChatPanel({
         runningRef.current = false;
         setRunning(false);
         void loadMessages(conversationId, false, { settleStreamingTurn: true })
-          .then(() => setError(null))
-          .catch((loadError) => setError(errorText(loadError)));
+          .catch(() => undefined);
         reportChatSettled(conversationId);
       }
       if (data.type === "done") {
@@ -998,8 +1015,7 @@ export function ChatPanel({
   }
 
   async function newConversation() {
-    messagesLoadGenerationRef.current++;
-    settlingTurnRef.current = false;
+    clearTurnSettlement();
     if (fixtureMode) {
       cancelScriptPlayback();
       setConversation(null);
@@ -1036,7 +1052,7 @@ export function ChatPanel({
 
   async function switchConversation(selected: ConversationSummary) {
     if (fixtureMode) return;
-    settlingTurnRef.current = false;
+    clearTurnSettlement();
     setConversation(selected);
     onConversationActivated?.(selected);
     setRunning(false);
@@ -1113,7 +1129,15 @@ export function ChatPanel({
     // Reconnection may replace a pending settlement read. Its newer read
     // must carry the same settlement until an actual new turn cancels it.
     const settleStreamingTurn = options.settleStreamingTurn === true || settlingTurnRef.current;
-    if (settleStreamingTurn) settlingTurnRef.current = true;
+    cancelSettlementRetry();
+    if (settleStreamingTurn) {
+      settlingTurnRef.current = true;
+      setSettlementPending(true);
+      // The host has settled the turn; a delayed transcript read must not
+      // keep the Worker running or its composer in steering mode.
+      runningRef.current = false;
+      setRunning(false);
+    }
     const generation = ++messagesLoadGenerationRef.current;
     let keepSettledTurnArtifacts = false;
     let transcript: ChatMessage[] = [];
@@ -1147,12 +1171,10 @@ export function ChatPanel({
         setUserPinnedToBottom(true);
         scrollMessagesToBottom("auto");
       }
-    } catch (error) {
-      if (generation === messagesLoadGenerationRef.current) setError(errorText(error));
-      throw error;
-    } finally {
-      if (settleStreamingTurn && generation === messagesLoadGenerationRef.current) {
+      if (settleStreamingTurn) {
         settlingTurnRef.current = false;
+        setSettlementPending(false);
+        setError(null);
         const hasPersistedWorkTrail = [...transcript].reverse()
           .find((message) => message.role === "assistant")
           ?.workTrail?.length;
@@ -1163,6 +1185,20 @@ export function ChatPanel({
         setStreamingAssistant("");
         setRunning(false);
       }
+    } catch (error) {
+      if (generation === messagesLoadGenerationRef.current) {
+        setError(errorText(error));
+        if (settleStreamingTurn && (isTransientNetworkError(rawErrorMessage(error)) || error instanceof ApiError && error.status >= 500)) {
+          // Retain the last visible reply and steps until an authoritative
+          // transcript replaces them. Only this read's owner may retry.
+          settlementRetryTimerRef.current = window.setTimeout(() => {
+            settlementRetryTimerRef.current = null;
+            if (generation !== messagesLoadGenerationRef.current || !settlingTurnRef.current) return;
+            void loadMessages(conversationId, false, { settleStreamingTurn: true }).catch(() => undefined);
+          }, 1_500);
+        }
+      }
+      throw error;
     }
     return transcript;
   }
@@ -1191,6 +1227,8 @@ export function ChatPanel({
     if (!content || running) return;
     // While a fixture script is replaying, the composer belongs to the playback — ignore manual sends.
     if (fixtureMode && scriptPlaybackStateRef.current === "playing") return;
+    clearTurnSettlement();
+    resetTurnArtifactTracking();
     beginTurnArtifactTracking();
     cancelStreamingFlush();
     setStreamingAssistant("");
@@ -1713,7 +1751,7 @@ export function ChatPanel({
       <div className="chat-scroll-shell">
         <div className="message-list" ref={messageListRef} onScroll={updateScrollPosition}>
           {messages.map((message) => {
-            const isLatestAssistantAtRest = message.role === "assistant" && message.id === latestAssistantMessageId && !running && !streamingAssistant;
+            const isLatestAssistantAtRest = message.role === "assistant" && message.id === latestAssistantMessageId && !running && !settlementPending && !streamingAssistant;
             const showRuntimePreview = isLatestAssistantAtRest && hasVisibleRuntimePreview;
             return (
               <ChatMessageRow
@@ -1732,11 +1770,11 @@ export function ChatPanel({
               />
             );
           })}
-          {running ? (
+          {running || settlementPending ? (
             <article className="message assistant streaming">
               <RuntimeContextPreview
                 entries={liveTurnView.steps}
-                running
+                running={running}
                 replyStarted={liveTurnView.hasFinal}
                 renderText={(content, links) => <MarkdownMessage content={content} spaceLinks={links} onOpenSpaceFile={onOpenSpaceFile} />}
                 spaceRoot={space.spaceRoot}

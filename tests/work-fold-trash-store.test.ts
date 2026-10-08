@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 import { parseDataNamespaceId, parseFeatureInstallationId, parseRuntimeInstanceId, parseTenantId } from "../src/local/agent/app-platform-contract.js";
@@ -662,6 +662,115 @@ test("a Space folder travels with its History state and both come back", async (
   }), "INPUT_INVALID", /Only a Space folder/);
 });
 
+for (const complete of [false, true]) {
+  test(`Space History survives a missed state marker in ${complete ? "a previously repaired" : "an incomplete"} manifest`, async (t) => {
+    const root = await sandbox(t);
+    const store = await openStore(root);
+    const source = join(root, "managed", "Space");
+    const stateDir = join(root, "state", "Space");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "note.txt"), "current bytes");
+    await mkdir(join(stateDir, "history"), { recursive: true });
+    await writeFile(join(stateDir, "history", "checkpoint.json"), "recoverable prior bytes");
+    const entry = await store.trashTree({
+      kind: "space", reason: "spaces.delete", sourcePath: source, spaceId: "space-history-recovery",
+      originalPath: source, receiptId: null, stateDirPath: stateDir,
+    });
+    const { stateDir: _stateDir, ...saved } = await readManifest(entry.entryPath);
+    // A crash or failed final write leaves the initial manifest; older
+    // readers could also have repaired complete without recovering stateDir.
+    await writeManifest(entry.entryPath, { ...saved, complete });
+
+    const reopened = await openStore(root);
+    const recovered = (await reopened.list()).entries[0]!;
+    assert.equal(recovered.complete, true);
+    assert.equal(recovered.stateDir, true);
+    assert.equal((await readManifest(entry.entryPath)).stateDir, true, "repair persists the discovered History identity");
+    await rejectsTrashError(reopened.restoreTree(entry.id, { absolutePath: source }), "INPUT_INVALID", /History state/);
+    const restored = await reopened.restoreTree(entry.id, { absolutePath: source, stateDirPath: stateDir });
+    assert.equal(restored.stateDirMovedTo, stateDir);
+    assert.equal(await readFile(join(source, "note.txt"), "utf8"), "current bytes");
+    assert.equal(await readFile(join(stateDir, "history", "checkpoint.json"), "utf8"), "recoverable prior bytes");
+    assert.equal(existsSync(entry.entryPath), false);
+  });
+}
+
+test("a failed final manifest write still leaves carried History discoverable and restorable", async (t) => {
+  if (process.platform === "win32") { t.skip("directory write permissions require POSIX"); return; }
+  const root = await sandbox(t);
+  const source = join(root, "managed", "Space");
+  const stateDir = join(root, "state", "Space");
+  let blockedEntry: string | null = null;
+  t.after(async () => { if (blockedEntry) await chmod(blockedEntry, 0o700).catch(() => undefined); });
+  await mkdir(source, { recursive: true });
+  await mkdir(join(stateDir, "history"), { recursive: true });
+  await writeFile(join(stateDir, "history", "checkpoint.json"), "prior bytes");
+  const store = await openStore(root, { io: { async rename(from, to) {
+    await rename(from, to);
+    if (from === stateDir) {
+      blockedEntry = dirname(to);
+      await chmod(blockedEntry, 0o500);
+    }
+  } } });
+  const entry = await store.trashTree({
+    kind: "space", reason: "spaces.delete", sourcePath: source, spaceId: "space-final-write",
+    originalPath: source, receiptId: null, stateDirPath: stateDir,
+  });
+  const saved = await readManifest(entry.entryPath);
+  if (saved.complete) { t.skip("filesystem does not enforce directory write permissions"); return; }
+  assert.equal(saved.stateDir, undefined, "the initial manifest remains after the final commit fails");
+  const reopened = await openStore(root);
+  assert.equal((await reopened.get(entry.id))?.stateDir, true, "disk inspection recovers History even while repair writes fail");
+  await chmod(entry.entryPath, 0o700);
+  await reopened.restoreTree(entry.id, { absolutePath: source, stateDirPath: stateDir });
+  assert.equal(await readFile(join(stateDir, "history", "checkpoint.json"), "utf8"), "prior bytes");
+});
+
+test("remaining Space History can join an interrupted deletion without merging competing copies", async (t) => {
+  const root = await sandbox(t);
+  const store = await openStore(root);
+  const source = join(root, "managed", "Space");
+  const stateDir = join(root, "state", "Space");
+  await mkdir(source, { recursive: true });
+  await mkdir(join(stateDir, "history"), { recursive: true });
+  await writeFile(join(stateDir, "history", "checkpoint.json"), "retained History");
+  const entry = await store.trashTree({
+    kind: "space", reason: "spaces.delete", sourcePath: source, spaceId: "space-state-attach",
+    originalPath: source, receiptId: null,
+  });
+  const attached = await store.attachSpaceState(entry.id, stateDir);
+  assert.equal(attached.stateDir, true);
+  assert.equal(existsSync(stateDir), false);
+  assert.equal((await store.attachSpaceState(entry.id, stateDir)).stateDir, true, "an already moved source is safe to retry");
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(join(stateDir, "competing.txt"), "other state");
+  await rejectsTrashError(store.attachSpaceState(entry.id, stateDir), "MOVE_FAILED", /both.*original path/);
+  assert.equal(await readFile(join(stateDir, "competing.txt"), "utf8"), "other state");
+  assert.equal(await readFile(join(entry.entryPath, "state", "history", "checkpoint.json"), "utf8"), "retained History");
+  const restoredState = join(root, "restored-state");
+  await store.restoreTree(entry.id, { absolutePath: source, stateDirPath: restoredState });
+  assert.equal(await readFile(join(restoredState, "history", "checkpoint.json"), "utf8"), "retained History");
+});
+
+test("malformed unrecorded History state stays damaged rather than disappearing on restore or retention", async (t) => {
+  const root = await sandbox(t);
+  const store = await openStore(root);
+  const source = join(root, "managed", "Space");
+  await mkdir(source, { recursive: true });
+  const entry = await store.trashTree({
+    kind: "space", reason: "spaces.delete", sourcePath: source, spaceId: "space-damaged-state",
+    originalPath: source, receiptId: null,
+  });
+  await writeFile(join(entry.entryPath, "state"), "unexpected state bytes");
+  const listing = await store.list();
+  assert.deepEqual(listing.entries, []);
+  assert.match(listing.damaged[0]?.error ?? "", /carried History state/);
+  await rejectsTrashError(store.restoreTree(entry.id, { absolutePath: source }), "STORE_DAMAGED");
+  assert.deepEqual((await store.purgeExpired(new Date(Date.parse(entry.restoreBy) + DAY_MS))).purged, []);
+  assert.equal(await readFile(join(entry.entryPath, "state"), "utf8"), "unexpected state bytes");
+  assert.equal(existsSync(entry.payloadPath), true);
+});
+
 test("entry ids are validated before any path is touched", async (t) => {
   const root = await sandbox(t);
   const store = await openStore(root);
@@ -669,6 +778,7 @@ test("entry ids are validated before any path is touched", async (t) => {
   for (const id of bad) {
     await rejectsTrashError(store.get(id), "INPUT_INVALID", /look like trash-/);
     await rejectsTrashError(store.restoreTree(id, { absolutePath: join(root, "x") }), "INPUT_INVALID");
+    await rejectsTrashError(store.attachSpaceState(id, join(root, "state")), "INPUT_INVALID");
     await rejectsTrashError(store.readAppData(id), "INPUT_INVALID");
     await rejectsTrashError(store.remove(id), "INPUT_INVALID");
   }

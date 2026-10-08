@@ -290,6 +290,9 @@ export async function beginSpaceRemoval(
         && (existing.folderDisposition === "preserve") !== (requestedDisposition === "preserve")) {
         throw new Error("A Space removal with a different folder disposition is already in progress.");
       }
+      if (existing.storage === "managed" && existing.folderDisposition !== "preserve") {
+        assertNoNestedSpaceDeletion(registry, existing.spaceId, existing.spaceRoot);
+      }
       return structuredClone(existing);
     }
     const space = registry.spaces.find((item) => item.id === spaceId);
@@ -300,6 +303,7 @@ export async function beginSpaceRemoval(
     // deletion machinery has nothing to act on.
     const preserveManagedFolder = space.location.storage === "managed" && requestedDisposition === "preserve";
     const base = space.location.storage === "managed" && !preserveManagedFolder ? resolve(managedBase) : null;
+    if (base) assertNoNestedSpaceDeletion(registry, space.id, spaceRoot);
     if (base && (samePath(spaceRoot, base) || !pathContains(base, spaceRoot))) {
       throw new Error("work-fold will only delete a managed Space inside its registered managed-content folder.");
     }
@@ -362,6 +366,9 @@ export async function finalizeSpaceRemoval(
       throw new Error("Space removal intent no longer matches the registered Space.");
     }
     validateSpaceRemovalIntent(intent);
+    if (intent.storage === "managed" && intent.folderDisposition !== "preserve") {
+      assertNoNestedSpaceDeletion(registry, intent.spaceId, intent.spaceRoot);
+    }
     const operations = removalIo(io);
     let deleted = false;
     // A preserve intent carries no deletion authority (null base, null root
@@ -556,7 +563,9 @@ export async function readSpaceTextFile(spaceRoot: string, relativePath: string)
 }
 
 export async function writeSpaceTextFile(spaceRoot: string, relativePath: string, text: string): Promise<{ path: string; text: string }> {
-  const path = resolveSpacePath(spaceRoot, relativePath);
+  const root = ensureSafeSpaceRoot(spaceRoot);
+  const path = resolveSpacePath(root, relativePath);
+  await assertOutsideNestedFolders(root, normalizeRelative(relative(root, path)));
   const info = await stat(path).catch(() => null);
   if (!info?.isFile()) throw notFound("File not found.");
   if (Buffer.byteLength(text, "utf8") > maxPreviewBytes) throw new Error("This file is too large to edit (2 MB maximum).");
@@ -748,6 +757,7 @@ export async function createSpaceFolder(
   if (!(await stat(parent)).isDirectory()) throw new Error("Create folders inside a Space folder.");
   const safeName = safeFileName(name);
   const destination = join(parent, safeName);
+  await assertOutsideNestedFolders(root, normalizeRelative(relative(root, destination)));
   if (existsSync(destination)) throw new Error(`A file or folder named ${safeName} already exists there.`);
   await mkdir(destination, { recursive: false });
   const info = await stat(destination);
@@ -771,6 +781,7 @@ export async function createSpaceTextFile(
   if (!(await stat(parent)).isDirectory()) throw new Error("Create files inside a Space folder.");
   const safeName = safeFileName(name);
   const destination = join(parent, safeName);
+  await assertOutsideNestedFolders(root, normalizeRelative(relative(root, destination)));
   if (Buffer.byteLength(text, "utf8") > maxPreviewBytes) throw new Error("The new file is too large (2 MB maximum).");
   await writeFile(destination, text, { encoding: "utf8", flag: "wx" });
   const info = await stat(destination);
@@ -818,22 +829,33 @@ export async function writeUploadedFiles(
   targetFolderPath: string,
   files: Array<{ fileName: string; relativePath?: string; data: Buffer }>,
 ): Promise<Array<{ path: string; sizeBytes: number }>> {
-  const targetFolder = resolveSpacePath(spaceRoot, targetFolderPath || ".");
+  const root = ensureSafeSpaceRoot(spaceRoot);
+  const targetFolder = resolveSpacePath(root, targetFolderPath || ".");
+  const uploads = files.map((file) => ({
+    desired: resolveSpacePath(targetFolder, safeUploadPath(file.relativePath || file.fileName)),
+    data: file.data,
+  }));
+  // Validate the whole batch before making directories or writing an earlier
+  // file. The collision name may be a sibling of a nested Folder, so check
+  // the actual available destination rather than refusing its occupied name.
+  for (const { desired } of uploads) {
+    const destination = await nextAvailableFile(desired);
+    await assertOutsideNestedFolders(root, normalizeRelative(relative(root, destination)));
+  }
   await mkdir(targetFolder, { recursive: true });
   const written: Array<{ path: string; sizeBytes: number }> = [];
   const destinations: string[] = [];
   let attempted: string | null = null;
   try {
-    for (const file of files) {
-      const uploadPath = safeUploadPath(file.relativePath || file.fileName);
-      const desired = resolveSpacePath(targetFolder, uploadPath);
+    for (const { desired, data } of uploads) {
       await mkdir(dirname(desired), { recursive: true });
       const destination = await nextAvailableFile(desired);
+      await assertOutsideNestedFolders(root, normalizeRelative(relative(root, destination)));
       attempted = destination;
-      await writeFile(destination, file.data, { flag: "wx" });
+      await writeFile(destination, data, { flag: "wx" });
       attempted = null;
       destinations.push(destination);
-      written.push({ path: normalizeRelative(relative(spaceRoot, destination)), sizeBytes: file.data.byteLength });
+      written.push({ path: normalizeRelative(relative(root, destination)), sizeBytes: data.byteLength });
     }
   } catch (error) {
     // The upload batch is one action: a mid-batch failure must not strand the
@@ -851,9 +873,11 @@ export async function copyPathIntoSpace(
   spaceRoot: string,
   targetFolderPath: string,
 ): Promise<string> {
-  const targetFolder = resolveSpacePath(spaceRoot, targetFolderPath || ".");
-  await mkdir(targetFolder, { recursive: true });
+  const root = ensureSafeSpaceRoot(spaceRoot);
+  const targetFolder = resolveSpacePath(root, targetFolderPath || ".");
   const destination = await nextAvailablePath(join(targetFolder, safeFileName(basename(sourcePath))));
+  await assertOutsideNestedFolders(root, normalizeRelative(relative(root, destination)));
+  await mkdir(targetFolder, { recursive: true });
   try {
     await copyVisiblePath(sourcePath, destination);
   } catch (error) {
@@ -907,6 +931,11 @@ async function registerSpace(input: Omit<SpaceSummary, "id" | "createdAt" | "upd
   return withRegistryOwnershipMutation(async () => {
     const registry = await readRegistry();
     const spaceRoot = resolve(input.spaceRoot);
+    if (registry.pendingRemovals.some((intent) => intent.storage === "managed"
+      && intent.folderDisposition !== "preserve" && !samePath(intent.spaceRoot, spaceRoot)
+      && pathContains(intent.spaceRoot, spaceRoot))) {
+      throw Object.assign(new Error("This folder belongs to a work-folder that is still being removed. Wait for its cleanup before registering it."), { status: 409, statusCode: 409 });
+    }
     const existing = registry.spaces.find((space) => samePath(space.spaceRoot, spaceRoot));
     if (existing) {
       if (registry.pendingRemovals.some((intent) => intent.spaceId === existing.id)) {
@@ -1166,6 +1195,12 @@ async function withRegistryOwnershipMutation<T>(operation: () => Promise<T>): Pr
   ownershipMutations += 1;
   try { return await withRegistryMutation(operation); }
   finally { ownershipMutations -= 1; }
+}
+
+function assertNoNestedSpaceDeletion(registry: SpaceRegistry, spaceId: string, spaceRoot: string): void {
+  if (registry.spaces.some((nested) => nested.id !== spaceId && pathContains(spaceRoot, nested.spaceRoot))) {
+    throw Object.assign(new Error("Remove the nested work-folder registrations before deleting this work-folder."), { status: 409, statusCode: 409 });
+  }
 }
 
 /**

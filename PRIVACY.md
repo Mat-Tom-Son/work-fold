@@ -41,6 +41,13 @@ work-fold uses a new application profile and does not inspect, import, migrate, 
 
 Registering an existing folder does not upload, move, duplicate, or rename the user's files. It does add the documented hidden `.work-fold/` identity and Chat storage. Removing a linked Space from work-fold leaves both the ordinary files and `.work-fold/` in place. Deleting a work-fold-managed Space unregisters it and moves its managed folder into Recently deleted, where it stays restorable for the retention window. If a Space is the source or target of an active release-backed App Instance, work-fold blocks either removal until that App is explicitly uninstalled. Retained App data continues to block its source Space until explicit purge, but does not block removal of the former target. Once those obligations are gone, source removal also deletes that Project's machine-local App Studio metadata and marks unreferenced Release objects for safe reconciliation; transient cleanup failure is retried before later App mutations and at startup. Target removal cancels prepared operations aimed at it. Uninstalling work-fold does not itself delete linked Space folders.
 
+File and Chat deletion and work-folder removal refuse while affected request
+work is unfinished, including waiting questions and stopped turns still
+draining. Managed parent deletion requires removing nested registrations
+first. Its machine-local History travels with the folder into Recently
+deleted; interrupted moves keep the remaining state until recovery can
+identify one intact destination. This recovery remains local.
+
 Nested work-folder relationships are derived from registered folder paths;
 the kernel and CLI expose the nearest container as `parentSpaceId` without
 adding a portable nesting record. A parent Worker's model context includes

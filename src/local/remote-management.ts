@@ -59,7 +59,7 @@ export interface WorkFoldRemoteFacade {
    * so older hosts without this method are never asked. Every emitted tick is
    * separately authority-checked by the caller before it leaves the desktop.
    */
-  watch?(input: unknown, principal: WorkFoldRemotePrincipal, emit: (progress: WorkFoldRemoteWatchProgress) => void): Promise<unknown>;
+  watch?(input: unknown, principal: WorkFoldRemotePrincipal, emit: (progress: WorkFoldRemoteWatchProgress) => void, signal?: AbortSignal): Promise<unknown>;
   purgeUploads(grantId?: string): Promise<void>;
   /**
    * Desktop-local revocation cascade for one grant (or every grant when
