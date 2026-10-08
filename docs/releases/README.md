@@ -4,6 +4,18 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## October 8, 2026
+
+[0.4.42](work-fold-0.4.42.md) improves Settings, provider-key entry, Skills &
+Extensions, and the work-folder context menu, and fixes deletion settlement,
+nested ownership, History recovery, request delivery, and remote cancellation.
+
+## October 2, 2026
+
+[0.4.41](work-fold-0.4.41.md) adds nested work-folders and direct Worker
+mentions, refreshes included-tool status, and improves browser and computer
+connection recovery.
+
 ## September 30, 2026
 
 [0.4.40](work-fold-0.4.40.md) brings the Customize Folder popup, four included
