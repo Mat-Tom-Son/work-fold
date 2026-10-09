@@ -17626,7 +17626,8 @@ button.capabilities-resource-card:focus-visible {
 }
 
 :root[data-platform="darwin"] {
-  --work-fold-window-inset-top: 38px;
+  --work-fold-window-inset-top: 32px;
+  --work-fold-window-gutter-top: 0px;
 }
 
 :root[data-window-material="vibrancy"] .app-shell .space-layout .space-mode-pane {
@@ -19722,7 +19723,7 @@ to {
 /* Shared desktop visual roles. Component selectors above own structure; these roles own their appearance. */
 
 :root[data-theme] .app-shell .space-layout {
-  padding: calc(var(--work-fold-window-inset-top, 0px) + 12px) 12px 12px 0;
+  padding: calc(var(--work-fold-window-inset-top, 0px) + var(--work-fold-window-gutter-top, 12px)) 0 12px 0;
   --space-resizer-width: 12px;
   --space-rail-width: 58px;
   --space-identity-header-height: 112px;
@@ -19732,7 +19733,7 @@ to {
 :root[data-theme] .app-shell .space-mode-pane {
   background: var(--ui-surface-subtle);
   border: 0;
-  border-radius: 0 0 0 8px;
+  border-radius: 0 11px 11px 0;
   box-shadow: none;
 }
 
@@ -19793,7 +19794,7 @@ to {
 
 :root[data-theme] .app-shell .right-rail {
   border: 0;
-  border-radius: 11px;
+  border-radius: 11px 0 0 11px;
   overflow: hidden;
   background: var(--ui-surface);
   box-shadow: 0 1px 3px rgb(0 0 0 / .035);
@@ -19803,7 +19804,7 @@ to {
   background: var(--ui-surface-subtle);
   border: 0;
   box-shadow: none;
-  padding: 8px;
+  padding: 8px 8px 0;
   min-height: 50px;
   align-items: center;
   gap: 6px;
@@ -19811,9 +19812,13 @@ to {
 
 :root[data-theme] .app-shell .surface-tabs {
   gap: 6px;
-  align-items: center;
+  align-items: flex-start;
+  margin-inline: -8px;
+  padding-inline: 8px;
+  scroll-padding-inline: 8px;
   padding-top: 0;
-  min-height: 34px;
+  padding-bottom: 8px;
+  min-height: 42px;
 }
 
 :root[data-theme] .app-shell .surface-tab {
@@ -19830,14 +19835,6 @@ to {
   background: var(--ui-surface-hover);
   color: var(--ui-text);
   box-shadow: inset 0 0 0 1px var(--ui-border-strong);
-}
-
-:root[data-theme] .app-shell .surface-tab.active {
-  border: 0;
-}
-
-:root[data-theme] .app-shell .surface-tab.active:hover {
-  background: color-mix(in srgb,var(--ui-tab-active) 88%,var(--ui-text));
 }
 
 :root[data-theme] .app-shell .surface-tab::before,
@@ -20889,7 +20886,6 @@ to {
 }
 
 :root[data-theme="dark"] {
-  --ui-tab-active: color-mix(in srgb, var(--ui-accent-soft) 40%, var(--ui-surface-hover));
   --ui-control-pressed: #515e60;
 }
 
@@ -21147,17 +21143,46 @@ to {
 :root[data-theme] .app-shell .message:is(:hover,:focus-within) .message-time {
   opacity: 1;
 }
-/* Tabs have a visible resting surface and an independent active treatment. */
+/* The active tab joins its work surface through the strip's bottom gap. */
 
 :root[data-theme] .app-shell .surface-tab {
   background: var(--ui-tab-rest);
   box-shadow: inset 0 0 0 1px var(--ui-border-strong);
 }
 
-:root[data-theme] .app-shell .surface-tab.active {
+:root[data-theme] .app-shell .surface-tab.active,
+:root[data-theme] .app-shell .surface-tab.active:hover {
   background: var(--ui-tab-active);
   color: var(--ui-text);
-  box-shadow: inset 0 0 0 1px var(--ui-tab-active-edge);
+  border: 1px solid var(--ui-tab-active-edge);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+:root[data-theme] .app-shell .surface-tab.active::before,
+:root[data-theme] .app-shell .surface-tab.active::after {
+  content: "";
+  display: block;
+  position: absolute;
+  bottom: -8px;
+  height: 8px;
+  pointer-events: none;
+}
+
+:root[data-theme] .app-shell .surface-tab.active::before {
+  left: -1px;
+  right: -1px;
+  background: var(--ui-tab-active);
+}
+
+:root[data-theme] .app-shell .surface-tab.active::after {
+  left: -9px;
+  right: -9px;
+  background:
+    radial-gradient(circle at 0 0, transparent 7px, var(--ui-tab-active-edge) 7px 8px, var(--ui-tab-active) 8px) 0 0 / 8px 8px no-repeat,
+    radial-gradient(circle at 100% 0, transparent 7px, var(--ui-tab-active-edge) 7px 8px, var(--ui-tab-active) 8px) 100% 0 / 8px 8px no-repeat;
 }
 
 :root[data-theme] .app-shell .surface-tab-close {

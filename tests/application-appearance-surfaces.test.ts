@@ -133,11 +133,19 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
             const rect = selector => doc.querySelector(selector).getBoundingClientRect();
             const drag = frame.contentWindow.getComputedStyle(doc.querySelector('.app-shell'), '::before');
             const header = rect('.space-pane-header-wrap'), banner = rect('.space-pane-current'), bar = rect('.surface-tabbar'), tab = rect('.surface-tab');
+            const activeTab = doc.querySelector('.surface-tab.active');
+            const bridge = frame.contentWindow.getComputedStyle(activeTab,'::before');
+            const shoulders = frame.contentWindow.getComputedStyle(activeTab,'::after');
             result.windowChrome.push({platform,material,iconDisplay:chrome('.surface-tab-icon').display,padding:chrome('.space-layout').paddingTop,
               bannerGaps:[banner.top-header.top,header.bottom-banner.bottom],tabGaps:[tab.top-bar.top,bar.bottom-tab.bottom],
               tops:['.professional-space-rail','.space-pane-current','.space-pane-switch-trigger','.surface-tabbar','.surface-tab-main','.space-rail-button'].map(selector=>rect(selector).top),
               bottoms:['.professional-space-rail','.space-mode-pane','.right-rail'].map(selector=>rect(selector).bottom),
               bottom:rect('.space-layout').bottom,height:frame.contentWindow.innerHeight,
+              rightEdges:[rect('.right-rail').right,bar.right],width:frame.contentWindow.innerWidth,
+              paneTopCorners:[chrome('.space-mode-pane').borderTopLeftRadius,chrome('.space-mode-pane').borderTopRightRadius,chrome('.right-rail').borderTopLeftRadius,chrome('.right-rail').borderTopRightRadius],
+              connection:{background:chrome('.surface-tab.active').backgroundColor,workBackground:chrome('.right-rail').backgroundColor,bottomBorder:chrome('.surface-tab.active').borderBottomWidth,
+                bridgeDisplay:bridge.display,bridgeHeight:bridge.height,bridgeBottom:bridge.bottom,bridgeBackground:bridge.backgroundColor,
+                shouldersDisplay:shoulders.display,shouldersBackground:shoulders.backgroundImage,scrollAreaBottom:rect('.surface-tabs').bottom,tabBarBottom:bar.bottom},
               dragHeight:drag.height,dragRegion:drag.getPropertyValue('-webkit-app-region')});
           }
         }
@@ -209,15 +217,23 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
       assert.deepEqual(item.design.historyField, item.design.settingsField, item.name + " History uses the shared field style");
       for (const chrome of item.windowChrome) {
         const label = item.name + '/' + chrome.platform + '/' + chrome.material;
-        assert.equal(chrome.padding, chrome.platform === 'darwin' ? '50px' : '12px', label + ' adds the native title-bar inset to the shared 12px outer gutter');
+        assert.equal(chrome.padding, chrome.platform === 'darwin' ? '32px' : '12px', label + ' uses one compact native title-bar strip without adding another outer gutter');
         assert.deepEqual(chrome.bannerGaps,[8,8],label + ' gives the folder banner equal top/bottom space');
         assert.equal(chrome.iconDisplay,'grid',label+' keeps the folder icon in narrow work panes');
         assert.deepEqual(chrome.tabGaps,[8,8],label + ' gives tabs equal top/bottom space without inherited top padding');
+        assert.deepEqual(chrome.rightEdges,[chrome.width,chrome.width],label + ' carries the work area and tab strip to the window edge');
+        assert.deepEqual(chrome.paneTopCorners,['0px','11px','11px','0px'],label + ' rounds exposed corners and squares edges that join the rail or window');
+        assert.equal(chrome.connection.background,chrome.connection.workBackground,label + ' active tab uses the work surface color');
+        assert.equal(chrome.connection.bottomBorder,'0px',label + ' active tab has no bottom separator');
+        assert.equal(chrome.connection.bridgeDisplay,'block'); assert.equal(chrome.connection.bridgeHeight,'8px'); assert.equal(chrome.connection.bridgeBottom,'-8px');
+        assert.equal(chrome.connection.bridgeBackground,chrome.connection.workBackground,label + ' extends the work background through the bottom gap');
+        assert.equal(chrome.connection.shouldersDisplay,'block'); assert.match(chrome.connection.shouldersBackground,/radial-gradient/,label + ' keeps curved shoulders');
+        assert.equal(chrome.connection.scrollAreaBottom,chrome.connection.tabBarBottom,label + ' leaves the connection inside the scroll area rather than clipping it');
         assert.ok(chrome.bottom <= chrome.height, label + ' stays within the window');
         assert.ok(chrome.bottoms.every((bottom: number) => bottom <= chrome.height), label + ' keeps every pane within the window');
         if (chrome.platform === 'darwin') {
-          assert.equal(chrome.dragHeight, '38px'); assert.equal(chrome.dragRegion, 'drag');
-          assert.ok(chrome.tops.every((top: number) => top >= 38), label + ' banner, tabs and Files target clear traffic lights and the drag strip');
+          assert.equal(chrome.dragHeight, '32px'); assert.equal(chrome.dragRegion, 'drag');
+          assert.ok(chrome.tops.every((top: number) => top >= 32), label + ' banner, tabs and Files target clear traffic lights and the drag strip');
         }
       }
       const neutralControls = new Set(['neutral','icon','rail','settings','newChat','commands','menu','chatMenu','chatBack','manual','nameSave','done','upload','modelTrigger','modelOption','composerOption','switcher','palette','model','copy']);
