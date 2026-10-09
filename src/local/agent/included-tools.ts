@@ -9,6 +9,7 @@ import type { NativeResource } from "./resource-lifecycle.js";
 import { includedToolDefinitions } from "../../shared/included-tools.js";
 import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
 import { beginIncludedToolObservation } from "./included-tool-observations.js";
+import { toolInputFeedbackExtension } from "./tool-input-feedback.js";
 export { includedToolDefinitions, type IncludedToolId } from "../../shared/included-tools.js";
 export interface IncludedToolsConfiguration {
   rootPath: string;
@@ -51,6 +52,7 @@ export async function resolveIncludedResources(cwd: string, runtime: ResolvedPiR
 export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session") {
   const config = runtime.config.includedTools;
   const extensionFactories = [
+    { name: "tool_input_feedback", builtin: true, factory: toolInputFeedbackExtension },
     { name: "codemode", builtin: true, replaceable: true, factory: createCodemodeExtension() },
     { name: "tool_search", builtin: true, replaceable: true, factory: createToolSearchExtension() },
   ];

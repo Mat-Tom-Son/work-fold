@@ -221,6 +221,7 @@ export function FileTree({
               className={[
                 "file-row",
                 entry.kind === "folder" ? "folder-row" : "file-row-entry",
+                entry.kind === "folder" && entry.path === ".worker" ? "worker-scratch" : "",
                 entry.kind === "folder" && dropTargetFolderPath === entry.path ? "drop-target" : "",
                 isInsideFolder(entry.path, dropTargetFolderPath) ? "drop-descendant" : "",
                 selectedPath === entry.path ? "selected" : "",

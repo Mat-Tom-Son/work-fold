@@ -76,23 +76,23 @@ PDF capture defaults to 64 MiB per source; set `maxSourceBytes` deliberately whe
 
 ## Installed rendering, calculation and OCR engines
 
-Call `document_engine` with `{operation:"status"}` to detect optional installed engines.
+Call `document_engine` with `{input:{operation:"status"}}` to detect optional installed engines.
 The tool does not install programs. With LibreOffice available, use
-`{operation:"render",source:"report.docx",output:"review/report.pdf"}` for Office-to-PDF,
-or `{operation:"recalculate",source:"budget.xlsx",output:"review/calculated.xlsx"}`
+`{input:{operation:"render",source:"report.docx",output:".worker/task/review.pdf"}}` for Office-to-PDF,
+or `{input:{operation:"recalculate",source:"budget.xlsx",output:".worker/task/calculated.xlsx"}}`
 for a recalculated copy. Then use `document_run` to render/inspect the PDF or reopen
 the calculated workbook with ExcelJS and verify important formula results. Calc
 compatibility is not identical to Excel; a file-save success does not establish
 correctness of every formula. The isolated Calc profile forces OOXML recalculation
 on load; the original file is never changed.
 
-With Tesseract installed, `{operation:"ocr",source:"page.png",output:"page.txt",language:"eng"}`
+With Tesseract installed, `{input:{operation:"ocr",source:"page.png",output:".worker/task/page.txt",language:"eng"}}`
 recognizes a selected page image. Render PDF pages first. The `language` option accepts
 installed Tesseract language identifiers, such as `eng+deu`. Compare important
 recognized text with the image. Missing engines or language data are explicit failures;
 use another available appropriate tool or explain the specific setup needed.
 
-All operations require a new output path, return source/output hashes and engine version,
+Rendering, recalculation and OCR require a new output path, return source/output hashes and engine version,
 retain a log, and support Stop. `enginePath` selects an explicit installed executable.
 There is no default deadline; optional `timeoutMs` must fit a Node timer. These
 parent-owned engine processes are cancelled on Stop/session shutdown, unlike arbitrary

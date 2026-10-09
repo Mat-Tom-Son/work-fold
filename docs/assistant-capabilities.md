@@ -89,6 +89,22 @@ Extensions are more powerful than passive files and should be presented with the
 
 Pi's built-in tools remain available alongside loaded Extensions. work-fold does not replace them with a private tool registry.
 
+Every tool family receives shared input-correction feedback on failed calls,
+including failures rejected by native validation before execution. Reviewed
+included schemas express operation-dependent inputs and target alternatives;
+third-party schemas remain native. See [tool feedback](tool-feedback.md).
+
+Workers are taught to create `.worker/<task-id>/` lazily for drafts, scripts,
+intermediate data and renders, then deliver requested files outside that folder.
+Existing project files are edited in place. `.worker/` is ordinary content:
+the Files tab mutes its top-level folder name and icon without disabling
+selection, expansion, menus or dragging. Search, History, attachments, Checks
+and file grants use their normal policies, including explicit ignore settings.
+It is neither hidden metadata nor a private or automatically cleaned area.
+Registration never creates it, and the work-fold agent has no work-folder
+scratch appendix. Existing contents and conflicting file/link/registered-folder
+paths must be respected.
+
 ### Feedback and context inspection (development)
 
 The fold and Space Assistants share concise guidance for inspecting the outcome

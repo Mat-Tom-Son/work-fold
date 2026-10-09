@@ -6,6 +6,22 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createChromeExtension, probeChromeConnection, startChromeConnection } from "pi-chrome/extensions/chrome-profile-bridge/index.ts";
 import type { ChromeHostFacilities } from "../../../src/shared/chrome-connection.js";
 import { hostContext } from "../host.ts";
+import { withToolContracts, type InputContract } from "../input-contracts.mjs";
+
+const elementTargets = [{ required: ["uid"] }, { required: ["selector"] }];
+const pointerTargets = [...elementTargets, { required: ["x", "y"] }];
+const pointerContract = { variants: pointerTargets, examples: [{ uid: "observed-element-id" }, { x: 100, y: 120 }] };
+const chromeInputContracts: Record<string, InputContract> = {
+  chrome_inspect: { variants: elementTargets, examples: [{ uid: "observed-element-id" }] },
+  chrome_click: pointerContract,
+  chrome_hover: pointerContract,
+  chrome_tap: pointerContract,
+  chrome_drag: {
+    variants: [["fromUid"], ["fromSelector"], ["fromX", "fromY"]].flatMap(from => [["toUid"], ["toSelector"], ["toX", "toY"]].map(to => ({ required: [...from, ...to] }))),
+    examples: [{ fromUid: "observed-source-id", toUid: "observed-destination-id" }, { fromX: 100, fromY: 120, toX: 200, toY: 240 }],
+  },
+  chrome_upload_file: { variants: elementTargets, examples: [{ uid: "observed-file-input-id", paths: ["/absolute/path/to/deliverable.pdf"] }] },
+};
 
 const require = createRequire(import.meta.url);
 export type IncludedChromeConfig = { companionPath: string };
@@ -85,12 +101,13 @@ export async function probeIncludedChromeConnection(host: ChromeHostFacilities) 
 
 export default function chrome(pi: ExtensionAPI) {
   const host = hostContext(pi);
+  const api = withToolContracts(pi, chromeInputContracts);
   if (host?.getChromeConnection && host.onChromeConnectionRevoked && host.reportChromeConnectionObservation && host.beginChromeWork) {
-    return createChromeExtension({ embedded: true, ...connectionOptions(host as ChromeHostFacilities), beginWork: host.beginChromeWork })(pi);
+    return createChromeExtension({ embedded: true, ...connectionOptions(host as ChromeHostFacilities), beginWork: host.beginChromeWork })(api);
   }
   return createChromeExtension(host ? {
     embedded: true, companionPath: host.companionPath,
     // Reading a credential happens only when a native tool acquires a connection.
     getCompanionToken: () => companionToken({ companionPath: host.companionPath }),
-  } : {})(pi);
+  } : {})(api);
 }

@@ -9,11 +9,12 @@ import test from "node:test";
 import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { PiConversationClient, type PiChatEvent } from "../src/local/agent/pi-client.js";
 import { ModelContextInspector } from "../src/local/agent/model-context-inspector.js";
+import { toolFailureGuidance } from "../src/local/agent/tool-input-feedback.js";
 
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 /** A real Pi serializer talks only to this local deterministic provider. */
-async function fixture(t: test.TestContext, options: { vision?: boolean; blockImages?: boolean; tool?: string; instructions?: string } = {}) {
+async function fixture(t: test.TestContext, options: { vision?: boolean; blockImages?: boolean; tool?: string; arguments?: Record<string, unknown>; fail?: boolean; instructions?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "work-fold-native-feedback-"));
   const agentDir = join(root, "pi");
   const spaceRoot = join(root, "space");
@@ -41,7 +42,7 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
         send({}, "tool_calls");
       } else if (!hasToolResult && !isTitle && !isInference) {
         send({ role: "assistant", tool_calls: [{ index: 0, id: "observe-1", type: "function", function: {
-          name: options.tool ?? "observe_fixture", arguments: JSON.stringify(options.tool === "read" ? { path: "preview.png" } : {}),
+          name: options.tool ?? "observe_fixture", arguments: JSON.stringify(options.arguments ?? (options.tool === "read" ? { path: "preview.png" } : {})),
         } }] });
         send({}, "tool_calls");
       } else {
@@ -62,7 +63,7 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
     export default function(pi) {
       pi.registerTool({ name: "observe_fixture", label: "Observe fixture", description: "Read explicit fixture evidence",
         parameters: { type: "object", properties: {}, additionalProperties: false },
-        async execute() { return {
+        async execute() { ${options.fail ? 'throw new Error("The fixture may have partially executed; inspect its receipt.");' : ""} return {
           content: [{type:"text",text:"Observed rows 1–3: total=6; other rows uninspected."},
             {type:"image",data:${JSON.stringify(png)},mimeType:"image/png"}],
           details: { privateMetadata: "DETAILS_ARE_NOT_MODEL_CONTENT" }
@@ -122,6 +123,33 @@ test("native extension text and images reach the next provider request without w
   const details = JSON.stringify(records.map((record) => inspector.get(record.id)));
   assert.match(details, /NATIVE_PAYLOAD_HOOK/);
   assert.doesNotMatch(details, /local-fixture-key/);
+});
+
+test("built-in input-validation failures reach the next request with corrective guidance once", async (t) => {
+  const { client, requests, events } = await fixture(t, { tool: "read", arguments: {} });
+  await client.prompt("Exercise a missing required input.");
+  const result = requests[1].messages.find((message: any) => message.role === "tool").content;
+  assert.match(result, /Validation failed.*read/s);
+  assert.match(result, /path/);
+  assert.equal(result.split(toolFailureGuidance).length - 1, 1);
+  assert.ok(events.some(event => event.type === "tool" && event.phase === "error"));
+});
+
+test("Extension execution failures retain the original uncertainty and corrective guidance once", async (t) => {
+  const { client, requests } = await fixture(t, { fail: true });
+  await client.prompt("Exercise an uncertain execution failure.");
+  const result = requests[1].messages.find((message: any) => message.role === "tool").content;
+  assert.match(result, /may have partially executed; inspect its receipt/);
+  assert.equal(result.split(toolFailureGuidance).length - 1, 1);
+  assert.match(result, /If execution may have had effects, inspect the outcome/);
+});
+
+test("codemode nested input failures use the same correction path", async (t) => {
+  const { client, requests } = await fixture(t, { tool: "codemode", arguments: { code: "return await tools.read({});" } });
+  await client.prompt("Exercise a nested missing input.");
+  const result = requests[1].messages.find((message: any) => message.role === "tool").content;
+  assert.match(result, /Validation failed.*read/s);
+  assert.equal(result.split(toolFailureGuidance).length - 1, 1);
 });
 
 test("Pi's built-in read composes image inspection through the same native provider path", async (t) => {
