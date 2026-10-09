@@ -188,7 +188,7 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 }
 
 /* Which moment the screen shows, in the window's own empty title bar. */
-.landing-status { display: none; }
+.landing-folder-bar .landing-status { display: none; }
 .motion-ok .landing-status { flex: none; display: grid; height: 34px; border-radius: 999px; font-size: 14px; font-weight: 600; letter-spacing: -.005em; pointer-events: none; }
 .landing-status span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 14px; border-radius: inherit; transition: opacity 300ms ease, scale 400ms var(--ease); }
 .landing-status-before { background: rgba(255, 255, 255, .7); color: #2a2d31; box-shadow: inset 0 0 0 1px rgba(29, 32, 36, .18); }
