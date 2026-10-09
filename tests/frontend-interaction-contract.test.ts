@@ -357,7 +357,7 @@ test("the Folder-owned Automations rail entry sits after History, shows only whe
 });
 
  test("Keyboard Shortcuts shares Settings navigation and the rail has no shortcuts button", () => {
-  assert.match(desktopDialogs[0] ?? "", /id: "shortcuts", label: "Shortcut keys"/);
+  assert.match(desktopDialogs[0] ?? "", /id: "shortcuts", label: "Shortcut Keys"/);
   assert.match(desktopDialogs[0] ?? "", /<KeyboardShortcutsPane \/>/);
   assert.match(app, /openKeyboardShortcuts = useCallback\(\(\) => openSettings\("shortcuts"\)/);
   assert.doesNotMatch(spaceChrome, /onOpenKeyboardShortcuts|<span>Shortcuts<\/span>/);

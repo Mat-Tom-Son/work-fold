@@ -147,7 +147,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
     { id: "apps", label: "Apps", icon: <LayoutPanelLeft size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
-    { id: "shortcuts", label: "Shortcut keys", icon: <Keyboard20Regular /> },
+    { id: "shortcuts", label: "Shortcut Keys", icon: <Keyboard20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
   const closeWindowControl = closeToTray?.supported ? (
