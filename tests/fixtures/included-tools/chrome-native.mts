@@ -85,13 +85,14 @@ try {
   const artifactB = fullText.match(/saved to: (.*?) —/)?.[1]; assert.ok(artifactB);
   assert.deepEqual(JSON.parse(await readFile(artifactB, "utf8")), fullSnapshot);
   const actionResult = { result: { clicked: true, actionEvidence: "ACTION_OUTCOME_MARKER" }, snapshot: fullSnapshot };
-  const actionCall = call(b.session, "chrome_click", { targetId: "4102", uid: "e1", includeSnapshot: true }); command = await next(); await reply(command, actionResult);
+  const actionCall = call(b.session, "chrome_click", { input: { targetId: "4102", uid: "e1", includeSnapshot: true } }); command = await next(); await reply(command, actionResult);
   const actionText = (await actionCall).content[0].text;
   assert.match(actionText, /Complete captured action result and snapshot JSON/);
   const actionArtifact = actionText.match(/saved to: (.*?) —/)?.[1]; assert.ok(actionArtifact);
   assert.deepEqual(JSON.parse(await readFile(actionArtifact, "utf8")), actionResult, "large action observations must retain their action outcome without replay");
   for (const name of ["chrome_click", "chrome_fill"]) {
-    const fallback = call(a.session, name, { targetId: "4101", selector: "#field", text: "hello" });
+    const args = { targetId: "4101", selector: "#field", text: "hello" };
+    const fallback = call(a.session, name, name === "chrome_click" ? { input: args } : args);
     command = await next();
     await reply(command, { input: "dom-fallback", valueMatches: false, submitted: false, reason: "hidden tab: trusted input was not dispatched" });
     const text = (await fallback).content[0].text;

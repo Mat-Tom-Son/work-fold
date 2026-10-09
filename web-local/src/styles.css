@@ -8390,6 +8390,15 @@ body:has(> #root > .desktop-chrome-shell) {
   opacity: 0.55;
 }
 
+/* Ordinary Worker scratch stays fully usable; only its resting identity recedes. */
+.folder-row.worker-scratch:not(.selected):not(.drop-target) .file-name {
+  color: var(--ui-text-muted);
+}
+
+.folder-row.worker-scratch:not(.selected):not(.drop-target) .file-icon {
+  filter: grayscale(0.65);
+}
+
 .file-row.has-local-change {
   box-shadow: inset 2px 0 0 #c96f16;
 }

@@ -132,9 +132,11 @@ test("the operations guide names the verbs and the rules, stays bounded, and fol
   assert.doesNotMatch(guide, bannedNames);
 
   const appended = appendSpaceOperationsGuide(appendAssistantInstructions([], "Prefer short answers."), guide);
-  assert.equal(appended.length, 2);
+  assert.equal(appended.length, 3);
   assert.match(appended[0]!, /^## Space instructions/);
   assert.equal(appended[1], guide);
+  assert.match(appended[2]!, /## Worker working files/);
+  assert.deepEqual(appendSpaceOperationsGuide([], undefined), [], "management receives no work-folder scratch appendix");
   assert.equal(spaceOperationsGuideForScope("space-1"), guide);
   assert.equal(spaceOperationsGuideForScope(workFoldManagementScopeId), undefined);
   assert.equal(workFoldSpaceOperationsGuide("wf").includes("`wf help collaborate`"), true, "the executable name substitutes");

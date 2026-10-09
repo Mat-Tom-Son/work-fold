@@ -76,6 +76,33 @@ revision as verification of the delivered file.
 
 ## Composition and stopping
 
+### Input contracts and failure correction
+
+Every work-fold Pi session carries the same correction guidance for failed
+tools: compare the submitted arguments with the current native schema and
+reported error, correct the inputs before another call, and inspect any
+possible effects before retrying. Native `tool_result` and finalized
+`message_end` hooks cover execution errors and validation failures respectively.
+They append guidance while preserving the original text, images, structured
+content, error state and usage. This covers built-ins, Extensions, MCP and
+codemode; it neither retries a call nor supplies missing arguments. Codemode
+uses the same validation and authority as direct calls.
+
+The included integrations add reviewed input alternatives to their ordinary
+Pi schemas, with descriptions and example inputs. These declarations place
+parameters in a required `input` object so alternatives remain nested; OpenAI
+rejects alternatives at the function-schema root. The adapter forwards exactly
+that declared object and all native cancellation/update/context arguments to
+the original executor. It fills in no inputs. Documents requires source
+and output for render, recalculate and OCR; status needs neither. Chrome
+inspection and uploads need an element target, click/hover/tap accept an
+element or both pointer coordinates, and drag needs both endpoints. Native
+defaults remain valid, including an empty new tab, viewport scrolling and
+typing into a focused field. Computer Control, Web, built-ins and the native
+codemode/search tools already declare their required inputs. Service
+Connections keeps the server's MCP declarations unchanged. There is no second
+tool registry or inferred contract for third-party tools.
+
 The Assistant can repeat action, observation, and correction in its normal Pi
 turn. It can compose unrelated tools without work-fold inferring a workflow
 from their names. It observes again where the result can change the next

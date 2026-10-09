@@ -163,6 +163,7 @@ if (existsSync(asarPath)) {
     "/node_modules/jszip/package.json",
     "/resources/included-tools/host.ts",
     "/resources/included-tools/readiness.ts",
+    "/resources/included-tools/input-contracts.mjs",
     ...["computer", "chrome", "web", "mcp", "documents"].map((id) => `/resources/included-tools/${id}/index.ts`),
     "/resources/included-tools/documents/runtime.mjs",
     "/resources/included-tools/documents/worker.mjs",

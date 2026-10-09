@@ -10,6 +10,14 @@ Many people already have the right raw material—folders, files, cloud-synchron
 
 work-fold is for general computer work. Coding is one valid use, not the organizing metaphor.
 
+Workers are taught to keep temporary working files in an ordinary `.worker/<task-id>/`
+folder, created only when needed, and deliver requested files outside it.
+The Files tab gives that top-level folder a muted name and icon while keeping
+it fully usable. It follows normal file, Search, History, attachment and Check
+policies, including the person's ignore choices. It is not hidden metadata,
+private storage or an automatic cleanup area, and existing project edits stay
+in their original locations. Folder registration creates no scratch files.
+
 ## The nouns
 
 | Concept | User promise | Boundary |

@@ -113,7 +113,7 @@ app.dock?.hide();
 
     try {
       const first = await client("document-space-a"), second = await client("document-space-b");
-      const engineStatus = await call(first, "document_engine", { operation: "status" });
+      const engineStatus = await call(first, "document_engine", { input: { operation: "status" } });
       assert.match(JSON.stringify(engineStatus.content), /libreoffice/);
       assert.match(JSON.stringify(engineStatus.content), /tesseract/);
       for (const owner of [first, second]) await fs.copyFile(documentFixture, join(owner.cwd, "create.mjs"));

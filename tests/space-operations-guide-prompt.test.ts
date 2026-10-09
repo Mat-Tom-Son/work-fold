@@ -11,6 +11,7 @@ import {
   workFoldSpaceOperationsGuide,
   workFoldSpaceOperationsGuideHeading,
   workFoldSpaceOperationsGuideMaxBytes,
+  workFoldWorkerWorkingFilesGuide,
 } from "../src/local/agent/space-operations-guide.js";
 
 /**
@@ -38,10 +39,11 @@ test("a Space Chat's system prompt carries Space instructions and then the opera
   t.after(() => guided.stop());
   await guided.getCatalog();
   const appended = sessionAppendix(guided);
-  assert.equal(appended.length, 3, "Space instructions, operations guide, and shared tool feedback guidance");
+  assert.equal(appended.length, 4, "Space instructions, operations, working files, and shared tool feedback guidance");
   assert.match(appended[0]!, /^## Space instructions\n\nPrefer short answers\.$/);
   assert.ok(appended[1]!.startsWith(workFoldSpaceOperationsGuideHeading));
-  assert.equal(appended[2], workFoldToolFeedbackGuide);
+  assert.equal(appended[2], workFoldWorkerWorkingFilesGuide);
+  assert.equal(appended[3], workFoldToolFeedbackGuide);
 
   const unguided = new PiConversationClient("plain", spaceRoot, provider);
   t.after(() => unguided.stop());
@@ -50,6 +52,7 @@ test("a Space Chat's system prompt carries Space instructions and then the opera
   assert.equal(plain.length, 2, "management also receives shared tool feedback guidance without Space operations");
   assert.match(plain[0]!, /^## Space instructions/);
   assert.equal(plain[1], workFoldToolFeedbackGuide);
+  assert.doesNotMatch(plain.join("\n"), /Worker working files/);
 
   // The guide is a session appendix; nothing new is written into the Space folder.
   const { readdir } = await import("node:fs/promises");

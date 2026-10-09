@@ -20,6 +20,12 @@ export const workFoldSpaceOperationsGuideHeading = "## Working with work-fold";
 /** The budget the guide has to stay under; it rides every Space turn's system prompt. Raised from 6 KiB on 2026-09-24 for the shareable-pages section. */
 export const workFoldSpaceOperationsGuideMaxBytes = 7 * 1024;
 
+export const workFoldWorkerWorkingFilesGuide = [
+  "## Worker working files",
+  "",
+  "Keep your working files in `.worker/` inside this work-folder: drafts, scripts, intermediate data, OCR text, page renders and other scratch. Create it only when needed; use a new task subfolder named with this turn's task id so concurrent Chats do not overwrite each other. Deliver requested files outside `.worker/`, in the person's chosen location or a clearly named ordinary location. Edit existing project files in place when that is the task. `.worker/` is ordinary visible content, available to Files, Search, History, attachments and Checks under their normal limits and ignore settings; it is not private, automatically cleaned, or executable configuration. Respect existing contents and the person's instructions. If `.worker` is a file, link, or another registered work-folder, ask for a suitable location. Never move, delete, or ignore their files just to organize your scratch.",
+].join("\n");
+
 export function workFoldSpaceOperationsGuide(executable = "work-fold"): string {
   const cmd = executable;
   return [
@@ -80,8 +86,8 @@ export function spaceOperationsGuideForScope(spaceId: string, executable = "work
   return spaceId === workFoldManagementScopeId ? undefined : workFoldSpaceOperationsGuide(executable);
 }
 
-/** Mirrors `appendAssistantInstructions`: trim, skip when empty, append one heading-led entry. */
+/** Space-only appendices; the fold does not own a work-folder scratch directory. */
 export function appendSpaceOperationsGuide(base: string[], guide: string | undefined): string[] {
   const value = guide?.trim();
-  return value ? [...base, value] : base;
+  return value ? [...base, value, workFoldWorkerWorkingFilesGuide] : base;
 }

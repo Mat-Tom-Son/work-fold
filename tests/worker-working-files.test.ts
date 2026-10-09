@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { scanSpaceTree } from "../src/local/space.js";
+import { searchSpace } from "../src/local/search.js";
+import { createSpaceCheckpoint, restoreSpaceCheckpoint } from "../src/local/history.js";
+import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
+import { containsReservedSpacePathSegment } from "../src/local/space-path-policy.js";
+
+test("Worker scratch remains ordinary visible, searchable and recoverable content", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-worker-files-"));
+  const folder = join(root, "folder");
+  configureWorkFoldStateRoot(join(root, "state"));
+  t.after(async () => { configureWorkFoldStateRoot(undefined); await rm(root, { recursive: true, force: true }); });
+  await mkdir(join(folder, ".worker", "task-a"), { recursive: true });
+  await mkdir(join(folder, ".worker", "task-b"));
+  const path = ".worker/task-a/ocr.txt";
+  await writeFile(join(folder, path), "Worker scratch search marker\n");
+  await writeFile(join(folder, ".worker/task-b/notes.txt"), "Independent task\n");
+  const tree = await scanSpaceTree(folder);
+  assert.ok(tree.entries.some(entry => entry.path === ".worker"));
+  assert.equal(containsReservedSpacePathSegment(path), false, "attachments, Checks and grants use ordinary content policy");
+  const result = await searchSpace(folder, "scratch search marker");
+  assert.ok(result.files.some(file => file.path === path));
+  const checkpoint = await createSpaceCheckpoint(folder, { reason: "manual" });
+  assert.ok(checkpoint.files.some(file => file.path === path));
+  await writeFile(join(folder, path), "Edited scratch\n");
+  await restoreSpaceCheckpoint(folder, checkpoint.checkpointId);
+  assert.equal(await readFile(join(folder, path), "utf8"), "Worker scratch search marker\n");
+  assert.equal(await readFile(join(folder, ".worker/task-b/notes.txt"), "utf8"), "Independent task\n");
+});
