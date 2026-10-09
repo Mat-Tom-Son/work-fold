@@ -324,3 +324,52 @@ test("with motion, web access lights one level of the hierarchy at a time", (t) 
   assert.equal(devices.length, levels.length, "one device per level, in the same order");
   assert.ok(devices[0].classList.contains("landing-phone"));
 });
+
+test("mobile filing pins only frames that fit and releases them after a short-screen resize", (t) => {
+  let viewportHeight = 844;
+  let nextFrame;
+  const { app, window } = render(t, {
+    media: (query) => ({ matches: query.includes("max-width") && viewportHeight >= 560 }),
+    setup(window) {
+      window.requestAnimationFrame = (callback) => { nextFrame = callback; return 1; };
+      Object.defineProperty(window, "innerHeight", { get: () => viewportHeight });
+      Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", { get() {
+        return this.classList.contains("landing-nav") ? 60 : this.classList.contains("landing-folder") ? 400 : 0;
+      } });
+      const computed = window.getComputedStyle.bind(window);
+      window.getComputedStyle = (element) => element.classList.contains("landing-folder") ? { top: "72px" } : computed(element);
+      window.Element.prototype.getBoundingClientRect = function () {
+        const index = Number(this.dataset.index || 0);
+        return { top: Math.max(72, 500 + index * 472 - window.scrollY), left: 24, width: 342, height: 400 };
+      };
+    },
+  });
+  const shell = app.querySelector(".landing-shell");
+  const folders = [...app.querySelectorAll(".landing-stack .landing-folder")];
+  assert.ok(shell.classList.contains("mobile-stack"));
+  assert.equal(folders[0].dataset.state, "front");
+  window.scrollY = 1100;
+  window.dispatchEvent(new window.Event("scroll"));
+  nextFrame();
+  assert.equal(folders[0].dataset.state, "filed");
+  assert.equal(folders[1].dataset.state, "front");
+  assert.equal(folders[0].querySelector(".landing-folder-inner").style.getPropertyValue("--tx"), "");
+  viewportHeight = 390;
+  window.dispatchEvent(new window.Event("resize"));
+  nextFrame();
+  assert.equal(shell.classList.contains("mobile-stack"), false);
+  assert.ok(folders.every((folder) => !folder.dataset.state));
+});
+
+test("a later mobile frame taller than the available viewport keeps ordinary flow", (t) => {
+  const { app } = render(t, {
+    media: (query) => ({ matches: query.includes("max-width") }),
+    setup(window) {
+      Object.defineProperty(window, "innerHeight", { value: 640 });
+      Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", { get() {
+        return this.classList.contains("landing-nav") ? 60 : this.dataset.index === "3" ? 600 : 400;
+      } });
+    },
+  });
+  assert.equal(app.querySelector(".landing-shell").classList.contains("mobile-stack"), false);
+});

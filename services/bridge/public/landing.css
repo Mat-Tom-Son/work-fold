@@ -101,7 +101,8 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .landing-shot { overflow: hidden; border-radius: 10px; box-shadow: 0 0 0 1px rgba(29, 32, 36, .1); background: #e8e9e4; }
 .landing-shot-media { position: relative; aspect-ratio: 1440 / 862; }
 .landing-shot-media img { width: 100%; height: 100%; cursor: zoom-in; }
-.landing-ring { position: absolute; left: 2.95%; top: 25%; width: 4.4%; aspect-ratio: 1; translate: -50% -50%; border-radius: 30%; box-shadow: 0 0 0 2px rgba(158, 58, 171, .9), 0 0 0 8px rgba(158, 58, 171, .16); pointer-events: none; }
+/* The release capture's Inbox control is 44 × 44 at (7, 198). */
+.landing-ring { position: absolute; left: calc(29 / 1440 * 100%); top: calc(220 / 862 * 100%); width: calc(52 / 1440 * 100%); aspect-ratio: 1; translate: -50% -50%; border-radius: 30%; box-shadow: 0 0 0 2px rgba(158, 58, 171, .9), 0 0 0 8px rgba(158, 58, 171, .16); pointer-events: none; }
 
 /* Chapters after the stack: a heading row, then the visual. */
 .landing-chapter { position: relative; z-index: 1; width: var(--width); margin: 0 auto; padding-top: clamp(88px, 12vh, 144px); }
@@ -278,12 +279,25 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
    timelines exist. Separate translate/scale keep any transform untouched. */
 @supports (animation-timeline: view()) {
   @media (max-width: 899px) {
-    .motion-ok :is(.landing-stack > .landing-folder:not(:first-of-type), .landing-app .landing-folder, .landing-window, .landing-devices > *) {
+    .motion-ok:not(.mobile-stack) .landing-stack > .landing-folder:not(:first-of-type),
+    .motion-ok :is(.landing-app .landing-folder, .landing-window, .landing-devices > *) {
       animation: landing-enter linear both;
       animation-timeline: view();
       animation-range: entry 0% cover 28%;
     }
   }
+}
+/* A fitting mobile frame uses the same filing motion, with four compact tabs.
+   The class is absent on short screens and when reduced motion is requested. */
+@media (max-width: 899px) {
+  .motion-ok.mobile-stack { --stick: calc(var(--nav) + 12px); }
+  .motion-ok.mobile-stack .landing-stack > .landing-folder { position: sticky; top: var(--stick); }
+  .motion-ok.mobile-stack.is-measuring .landing-stack > .landing-folder { position: relative; top: auto; }
+  .motion-ok.mobile-stack .landing-stack .landing-tab { width: 25%; min-width: 0; margin-left: calc(var(--tab-x, 0) * 25%); padding: 0 7px; gap: 5px; font-size: clamp(10px, 2.6vw, 13px); line-height: 1.1; }
+  .motion-ok.mobile-stack .landing-stack .landing-dot { width: 6px; height: 6px; }
+  .motion-ok.mobile-stack .landing-stack .landing-folder-bar { height: var(--mobile-bar, auto); min-height: var(--bar); }
+  .motion-ok.mobile-stack .landing-stack .landing-folder[data-state="filed"] .landing-tab { filter: brightness(.6) saturate(.7); }
+  .motion-ok.mobile-stack .landing-stack .landing-folder-body { box-shadow: 0 -18px 42px -22px rgba(0, 0, 0, .75), 0 30px 70px -30px rgba(0, 0, 0, .7); }
 }
 @keyframes landing-enter { from { opacity: .25; translate: 0 36px; scale: .965; } }
 @keyframes landing-fade { from { opacity: 0; } }
@@ -335,9 +349,9 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
      size; the full window is one tap away. The inbox crop keeps the sidebar
      where the Worker-built app lives. */
   .landing-shot-media { aspect-ratio: 830 / 640; overflow: hidden; }
-  .landing-shot-media img { position: absolute; left: calc(-590 / 830 * 100%); top: calc(-56 / 640 * 100%); width: calc(1440 / 830 * 100%); max-width: none; height: auto; }
-  .landing-folder-inbox .landing-shot-media img { left: calc(-10 / 830 * 100%); top: calc(-30 / 640 * 100%); }
-  .landing-folder-inbox .landing-ring { left: calc(32.5 / 830 * 100%); top: calc(185.5 / 640 * 100%); width: calc(63.4 / 830 * 100%); }
+  .landing-shot-media img { position: absolute; left: calc(-560 / 830 * 100%); top: calc(-56 / 640 * 100%); width: calc(1440 / 830 * 100%); max-width: none; height: auto; }
+  .landing-folder-inbox .landing-shot-media img { left: 0; top: calc(-30 / 640 * 100%); }
+  .landing-folder-inbox .landing-ring { left: calc(29 / 830 * 100%); top: calc(190 / 640 * 100%); width: calc(52 / 830 * 100%); }
   .motion-ok .landing-app .landing-shot-media { transform: none; }
   .landing-route { padding: 10px 12px !important; gap: 6px; }
   .landing-route-node { font-size: 12.5px; }

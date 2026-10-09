@@ -1,6 +1,6 @@
-// Public product introduction. Every screen is a real Worker run in a
-// demonstration work-folder (or the paired web client), shown at one window
-// size. Keep claims to what the screens show.
+// Public product introduction. Saved Worker results are shown in the current
+// desktop release; the bridge renders the saved demonstration conversation.
+// Keep claims to what the screens show.
 const source = "https://github.com/Mat-Tom-Son/work-fold";
 const chromeExtension = "https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk";
 const macDownload = "/download/macos";
@@ -15,7 +15,7 @@ const folders = [
     alt: "The Research — repair café work-folder: a sources folder beside research-brief.md, open to a table of the public sources the Worker consulted.",
   },
   {
-    id: "orders", tab: "Purchase orders", screen: "orders", retina: false,
+    id: "orders", tab: "Purchase Orders", screen: "orders", retina: false,
     text: "Checks every price, prepares two purchase orders, and drafts the vendor emails. Nothing is sent.",
     alt: "The Purchasing — autumn workshop work-folder: two purchase orders and two email drafts in the sidebar, and order-register.md showing a $1,102.00 goods subtotal with both orders marked Draft — not sent.",
   },
@@ -37,7 +37,7 @@ const inbox = {
   alt: "A Studio inbox app built by a Worker, open in the work-fold sidebar: categories such as Needs reply and Purchasing, a message list, and one message open in its own tab with category and Mark not done controls.",
 };
 
-// Real paired web client captures: the work-fold agent planning a repair café.
+// Saved repair-café conversation rendered in the current bridge client.
 const web = {
   chat: { src: "/screens/web-chat-desktop.webp", width: 876, height: 794, alt: "The work-fold web client in a desktop browser: a request to make the repair café a 9–12 morning event, and the work-fold agent's reply with the updated Saturday schedule." },
   plan: { src: "/screens/web-plan-desktop.webp", width: 876, height: 794, alt: "The work-fold web client showing workshop-plan.md, the plan the work-fold agent saved in the Community workshop work-folder." },
@@ -164,7 +164,6 @@ export function renderLanding(app) {
             <h1 id="landing-title"><span>An AI Worker</span> <span>for every folder.</span></h1>
             <p class="landing-lede">work-fold is an AI agent harness for everyone. Workers use tools, work in your ordinary folders, and build the apps you need.</p>
             ${downloads}
-            <p class="landing-note"><span>Open source</span><span>Use your own model provider</span></p>
           </div>
         </div>
         <h2 class="landing-sr">Work done by Workers</h2>
@@ -271,6 +270,8 @@ function followScroll(shell) {
   const webSection = devices?.closest(".landing-web");
   const hands = shell.querySelector(".landing-handoff");
   const stacking = matchMedia("(min-width: 900px) and (min-height: 640px)");
+  const mobileStacking = matchMedia("(max-width: 899px) and (min-height: 560px)");
+  let mobileStack = false;
   const clamp = (value) => Math.min(1, Math.max(0, value));
   const nativeScroll = win.CSS?.supports("animation-timeline", "scroll(root block)")
     && win.CSS.supports("animation-range", "0px 1px");
@@ -320,26 +321,45 @@ function followScroll(shell) {
   function update() {
     frame = 0;
     const height = win.innerHeight;
-    if (stacking.matches && stack.length && needsMeasure) measure(stack[0]);
+    if (needsMeasure) {
+      shell.style.removeProperty("--mobile-bar");
+      const mobileCandidate = !stacking.matches && mobileStacking.matches && stack.length > 0;
+      if (mobileCandidate) {
+        // Equal caption heights keep every filed tab on the same baseline.
+        const barHeight = Math.max(...stack.map((item) => item.querySelector(".landing-folder-bar").offsetHeight));
+        shell.style.setProperty("--mobile-bar", `${barHeight}px`);
+      }
+      // Only pin a phone/tablet frame when its entire caption and image fit.
+      // Short landscape screens keep the ordinary, readable flow.
+      mobileStack = mobileCandidate
+        && Math.max(...stack.map((item) => item.offsetHeight)) <= height - shell.querySelector(".landing-nav").offsetHeight - 44;
+      shell.classList.toggle("mobile-stack", mobileStack);
+      if (stacking.matches && stack.length) measure(stack[0]);
+      else needsMeasure = false;
+    }
+    const stackActive = stacking.matches || mobileStack;
     // Read untransformed frames first. The inbox's own scaled bounds would
     // feed its last transform back into the next frame and make it oscillate.
-    const boxes = stacking.matches ? stack.map((item) => item.getBoundingClientRect()) : [];
+    const boxes = stackActive ? stack.map((item) => item.getBoundingClientRect()) : [];
     const appBox = appFrame?.getBoundingClientRect();
     const devicesBox = devices?.getBoundingClientRect();
     const handsBox = hands?.getBoundingClientRect();
     if (stacking.matches && stack.length) {
       if (!nativeScroll) reveal(stack[0], boxes[0]);
-      const { stickTop } = geometry;
+    }
+    if (stackActive && stack.length) {
+      const stickTop = mobileStack ? parseFloat(win.getComputedStyle(stack[0]).top) || 0 : geometry.stickTop;
       let front = 0;
       boxes.forEach((box, index) => { if (box.top <= stickTop + 1) front = index; });
       stack.forEach((item, index) => {
         const state = index < front ? "filed" : index === front ? "front" : "ahead";
         if (item.dataset.state !== state) item.dataset.state = state;
       });
-    } else if (stack.length) {
+    }
+    if (!stacking.matches && stack.length) {
       for (const name of ["--tx", "--ty", "--sc"]) stack[0].querySelector(".landing-folder-inner").style.removeProperty(name);
       copy.style.removeProperty("--fade");
-      stack.forEach((item) => { delete item.dataset.state; });
+      if (!mobileStack) stack.forEach((item) => { delete item.dataset.state; });
     }
     if (appBox) {
       // Starts close on the sidebar app, pulls back to the whole window.
@@ -373,7 +393,7 @@ function followScroll(shell) {
     return top;
   }
   function align(target) {
-    if (!stacking.matches || !shell.contains(target)) return;
+    if ((!stacking.matches && !mobileStack) || !shell.contains(target)) return;
     if (copy.contains(target)) {
       if (win.scrollY > 0) win.scrollTo({ top: 0, behavior: "instant" });
       return;
@@ -394,6 +414,7 @@ function followScroll(shell) {
   const remeasure = () => { needsMeasure = true; deviceCenters = null; request(); };
   win.addEventListener("resize", remeasure);
   stacking.addEventListener?.("change", remeasure);
+  mobileStacking.addEventListener?.("change", remeasure);
   shell.ownerDocument.fonts?.ready.then(remeasure);
   update();
 }
