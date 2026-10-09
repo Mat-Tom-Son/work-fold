@@ -22,6 +22,19 @@ function render(t, { reducedMotion = true, media, setup } = {}) {
   return { app, document: dom.window.document, window: dom.window };
 }
 
+test("landing markup respects the bridge's policy against inline style attributes", (t) => {
+  render(t, { setup(window) {
+    const descriptor = Object.getOwnPropertyDescriptor(window.Element.prototype, "innerHTML");
+    Object.defineProperty(window.Element.prototype, "innerHTML", {
+      ...descriptor,
+      set(value) {
+        if (this.id === "app") assert.doesNotMatch(value, /<[^>]+\bstyle\s*=/i, "HTML style attributes are blocked by the production CSP");
+        descriptor.set.call(this, value);
+      },
+    });
+  } });
+});
+
 test("landing landmarks, local anchors and product/source links work without pinning copy", (t) => {
   const { document } = render(t);
   assert.equal(document.querySelectorAll("main").length, 1);

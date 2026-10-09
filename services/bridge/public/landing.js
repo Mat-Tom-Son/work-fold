@@ -195,19 +195,19 @@ function beforeFiles(item) {
     const x = pages ? 36 + slot * 28 : 5 + ((slot % cols) + 0.5 + (scatter(seed + 1) - 0.5) * 0.4) * (90 / cols);
     const y = pages ? 54 : 15 + (Math.floor(slot / cols) + 0.5 + (scatter(seed + 2) - 0.5) * 0.45) * (80 / rows);
     const turn = pages ? (slot ? 4 : -5) : (scatter(seed + 3) - 0.5) * 14;
-    const style = `--x:${x.toFixed(1)}%;--y:${y.toFixed(1)}%;--r:${turn.toFixed(1)}deg;--i:${(x / 100).toFixed(2)}`;
+    const position = `${x.toFixed(1)},${y.toFixed(1)},${turn.toFixed(1)},${(x / 100).toFixed(2)}`;
     const kind = fileKind(name);
     const receipt = /^receipt-/.test(name) ? " landing-file-receipt" : "";
-    return `<li class="landing-file landing-file-${kind}${receipt}" style="${style}"><span class="landing-file-icon" data-ext="${kind.toUpperCase()}"><i></i></span><span class="landing-file-name">${name}</span></li>`;
+    return `<li class="landing-file landing-file-${kind}${receipt}" data-file-position="${position}"><span class="landing-file-icon" data-ext="${kind.toUpperCase()}"><i></i></span><span class="landing-file-name">${name}</span></li>`;
   });
-  return `<div class="landing-before${pages ? " landing-before-pages" : ""}" style="--cell:${(90 / cols).toFixed(2)}cqw" aria-hidden="true">
+  return `<div class="landing-before${pages ? " landing-before-pages" : ""}" data-file-cell="${(90 / cols).toFixed(2)}" aria-hidden="true">
     <ul>${placed.join("")}</ul>
   </div>`;
 }
 
 // New rows in the finished screen are outlined once the work has landed.
 const addedMarks = (item) => (item.added ?? []).map(([x, y, width, height]) =>
-  `<span class="landing-added" style="left:${(x / 14.4).toFixed(2)}%;top:${(y / 8.62).toFixed(2)}%;width:${(width / 14.4).toFixed(2)}%;height:${(height / 8.62).toFixed(2)}%" aria-hidden="true"></span>`).join("");
+  `<span class="landing-added" data-added-rect="${x},${y},${width},${height}" aria-hidden="true"></span>`).join("");
 // Before the request: which moment the screen below shows.
 const check = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
 const status = `<p class="landing-status" aria-hidden="true"><span class="landing-status-before">Before</span><span class="landing-status-after">${check}After</span></p>`;
@@ -340,6 +340,17 @@ export function renderLanding(app) {
   </div>`;
 
   const shell = app.querySelector(".landing-shell");
+  // The bridge forbids inline style attributes in HTML. Set individual CSSOM
+  // properties from our numeric geometry, as the scroll player does below.
+  for (const layer of shell.querySelectorAll("[data-file-cell]")) layer.style.setProperty("--cell", `${layer.dataset.fileCell}cqw`);
+  for (const file of shell.querySelectorAll("[data-file-position]")) {
+    const [x, y, turn, order] = file.dataset.filePosition.split(",");
+    for (const [name, value] of [["--x", `${x}%`], ["--y", `${y}%`], ["--r", `${turn}deg`], ["--i", order]]) file.style.setProperty(name, value);
+  }
+  for (const mark of shell.querySelectorAll("[data-added-rect]")) {
+    const [x, y, width, height] = mark.dataset.addedRect.split(",").map(Number);
+    for (const [name, value, scale] of [["left", x, 14.4], ["top", y, 8.62], ["width", width, 14.4], ["height", height, 8.62]]) mark.style.setProperty(name, `${(value / scale).toFixed(2)}%`);
+  }
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!reducedMotion) shell.classList.add("motion-ok");
 
