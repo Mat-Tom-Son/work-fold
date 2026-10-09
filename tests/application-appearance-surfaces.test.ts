@@ -145,7 +145,8 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
               paneTopCorners:[chrome('.space-mode-pane').borderTopLeftRadius,chrome('.space-mode-pane').borderTopRightRadius,chrome('.right-rail').borderTopLeftRadius,chrome('.right-rail').borderTopRightRadius],
               connection:{background:chrome('.surface-tab.active').backgroundColor,workBackground:chrome('.right-rail').backgroundColor,bottomBorder:chrome('.surface-tab.active').borderBottomWidth,
                 bridgeDisplay:bridge.display,bridgeHeight:bridge.height,bridgeBottom:bridge.bottom,bridgeBackground:bridge.backgroundColor,
-                shouldersDisplay:shoulders.display,shouldersBackground:shoulders.backgroundImage,scrollAreaBottom:rect('.surface-tabs').bottom,tabBarBottom:bar.bottom},
+                shouldersDisplay:shoulders.display,shouldersBackground:shoulders.backgroundImage,shouldersLeft:shoulders.left,shouldersRight:shoulders.right,stripBorder:chrome('.surface-tabbar').boxShadow,
+                scrollAreaBottom:rect('.surface-tabs').bottom,tabBarBottom:bar.bottom},
               dragHeight:drag.height,dragRegion:drag.getPropertyValue('-webkit-app-region')});
           }
         }
@@ -228,6 +229,8 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         assert.equal(chrome.connection.bridgeDisplay,'block'); assert.equal(chrome.connection.bridgeHeight,'8px'); assert.equal(chrome.connection.bridgeBottom,'-8px');
         assert.equal(chrome.connection.bridgeBackground,chrome.connection.workBackground,label + ' extends the work background through the bottom gap');
         assert.equal(chrome.connection.shouldersDisplay,'block'); assert.match(chrome.connection.shouldersBackground,/radial-gradient/,label + ' keeps curved shoulders');
+        assert.equal(chrome.connection.shouldersLeft,'-8px'); assert.equal(chrome.connection.shouldersRight,'-8px');
+        assert.match(chrome.connection.stripBorder,/inset/,label + ' continues the frame border across the work surface');
         assert.equal(chrome.connection.scrollAreaBottom,chrome.connection.tabBarBottom,label + ' leaves the connection inside the scroll area rather than clipping it');
         assert.ok(chrome.bottom <= chrome.height, label + ' stays within the window');
         assert.ok(chrome.bottoms.every((bottom: number) => bottom <= chrome.height), label + ' keeps every pane within the window');

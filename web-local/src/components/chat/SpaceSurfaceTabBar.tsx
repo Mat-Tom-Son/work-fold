@@ -1,5 +1,5 @@
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { Checkmark16Regular, ChevronDown16Regular, Dismiss12Regular } from "@fluentui/react-icons";
 
 import { chatDisplayTitle } from "../../lib/format";
@@ -7,6 +7,7 @@ import { chatActivityKey } from "../../lib/chat-lifecycle";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import { readStoredValue, writeStoredValue } from "../../lib/storage";
 import { groupSurfaceTabsBySpace } from "../../lib/surface-tab-groups";
+import { createSurfaceTabMotion } from "../../lib/surface-tab-motion";
 import { spaceIdentityStyle } from "../../lib/space-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/space-ui";
 import type { ChatActivityStatus, ConversationSummary, SpaceCustomizationMap, SpaceSummary, SpaceSurfaceTab } from "../../types";
@@ -70,6 +71,9 @@ export function SpaceSurfaceTabBar({
   const [groupBySpace, setGroupBySpace] = useState(() => readStoredValue(groupSurfaceTabsStorageKey) === "true");
   const [overflow, setOverflow] = useState<SurfaceTabOverflow>(null);
   const tabsRef = useRef<HTMLDivElement | null>(null);
+  const activeChromeRef = useRef<HTMLSpanElement | null>(null);
+  const tabMotionRef = useRef<ReturnType<typeof createSurfaceTabMotion> | null>(null);
+  const previousSelectionRef = useRef<{ id: string | null; layout: string } | null>(null);
   const menuAnchorRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -86,10 +90,25 @@ export function SpaceSurfaceTabBar({
     [groupingActive, tabs],
   );
   const countTier = surfaceTabCountTier(tabs.length);
+  const tabLayout = JSON.stringify([groupingActive, orderedTabs.map((tab) => tab.id)]);
   const menuSpaces = [
     ...spaces.filter((item) => item.id === newChatSpaceId),
     ...spaces.filter((item) => item.id !== newChatSpaceId),
   ];
+
+  useLayoutEffect(() => {
+    if (!tabsRef.current || !activeChromeRef.current) return;
+    const motion = createSurfaceTabMotion(tabsRef.current, activeChromeRef.current);
+    tabMotionRef.current = motion;
+    return () => { motion.dispose(); tabMotionRef.current = null; };
+  }, []);
+
+  useLayoutEffect(() => {
+    const previous = previousSelectionRef.current;
+    const active = activeTabId ? document.getElementById(surfaceTabDomId(activeTabId))?.closest<HTMLElement>(".surface-tab") ?? null : null;
+    tabMotionRef.current?.select(active, Boolean(previous?.id && previous.id !== activeTabId && previous.layout === tabLayout));
+    previousSelectionRef.current = { id: activeTabId, layout: tabLayout };
+  }, [activeTabId, tabLayout]);
 
   useEffect(() => {
     if (!spaceMenuOpen) return;
@@ -287,6 +306,7 @@ export function SpaceSurfaceTabBar({
         aria-label="Open Tabs"
         onKeyDown={handleTabListKeyDown}
       >
+        <span ref={activeChromeRef} className="surface-tab-active-chrome" aria-hidden="true" />
         {tabGroups.map((group) => {
           if (!group.spaceId) return group.tabs.map((tab) => renderSurfaceTab(tab, false));
           const tabSpace = spaces.find((item) => item.id === group.spaceId)

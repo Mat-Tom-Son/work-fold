@@ -19803,7 +19803,7 @@ to {
 :root[data-theme] .app-shell .surface-tabbar {
   background: var(--ui-surface-subtle);
   border: 0;
-  box-shadow: none;
+  box-shadow: inset 0 -1px 0 var(--ui-tab-active-edge);
   padding: 8px 8px 0;
   min-height: 50px;
   align-items: center;
@@ -19811,6 +19811,8 @@ to {
 }
 
 :root[data-theme] .app-shell .surface-tabs {
+  position: relative;
+  isolation: isolate;
   gap: 6px;
   align-items: flex-start;
   margin-inline: -8px;
@@ -19828,7 +19830,7 @@ to {
   height: 34px;
   min-height: 34px;
   margin: 0;
-  transition: background-color 110ms ease-out,box-shadow 110ms ease-out;
+  transition: background-color 110ms ease-out,box-shadow 110ms ease-out,color 150ms ease-out;
 }
 
 :root[data-theme] .app-shell .surface-tab:not(.active):is(:hover,:focus-within) {
@@ -19848,6 +19850,7 @@ to {
   font-weight: 500;
   color: inherit;
   background: transparent;
+  transition: color 150ms ease-out;
 }
 
 :root[data-theme] .app-shell .surface-tab-title {
@@ -21151,7 +21154,8 @@ to {
 }
 
 :root[data-theme] .app-shell .surface-tab.active,
-:root[data-theme] .app-shell .surface-tab.active:hover {
+:root[data-theme] .app-shell .surface-tab.active:hover,
+:root[data-theme] .app-shell .surface-tab-active-chrome {
   background: var(--ui-tab-active);
   color: var(--ui-text);
   border: 1px solid var(--ui-tab-active-edge);
@@ -21162,7 +21166,9 @@ to {
 }
 
 :root[data-theme] .app-shell .surface-tab.active::before,
-:root[data-theme] .app-shell .surface-tab.active::after {
+:root[data-theme] .app-shell .surface-tab.active::after,
+:root[data-theme] .app-shell .surface-tab-active-chrome::before,
+:root[data-theme] .app-shell .surface-tab-active-chrome::after {
   content: "";
   display: block;
   position: absolute;
@@ -21171,18 +21177,63 @@ to {
   pointer-events: none;
 }
 
-:root[data-theme] .app-shell .surface-tab.active::before {
+:root[data-theme] .app-shell .surface-tab.active::before,
+:root[data-theme] .app-shell .surface-tab-active-chrome::before {
   left: -1px;
   right: -1px;
   background: var(--ui-tab-active);
 }
 
-:root[data-theme] .app-shell .surface-tab.active::after {
-  left: -9px;
-  right: -9px;
+:root[data-theme] .app-shell .surface-tab.active::after,
+:root[data-theme] .app-shell .surface-tab-active-chrome::after {
+  left: -8px;
+  right: -8px;
   background:
     radial-gradient(circle at 0 0, transparent 7px, var(--ui-tab-active-edge) 7px 8px, var(--ui-tab-active) 8px) 0 0 / 8px 8px no-repeat,
     radial-gradient(circle at 100% 0, transparent 7px, var(--ui-tab-active-edge) 7px 8px, var(--ui-tab-active) 8px) 100% 0 / 8px 8px no-repeat;
+}
+
+:root[data-theme] .app-shell .surface-tab-active-chrome {
+  position: absolute;
+  z-index: 1;
+  visibility: hidden;
+  pointer-events: none;
+  transition-property: none;
+}
+
+:root[data-theme] .app-shell :is(.surface-tab-group,.surface-tab-group-tabs) {
+  align-items: flex-start;
+}
+
+:root[data-theme] .app-shell .surface-tab-group-tabs {
+  gap: 6px;
+}
+
+:root[data-theme] .app-shell .surface-tab-group-label {
+  height: 34px;
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-active-chrome] .surface-tab {
+  z-index: auto;
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-active-chrome] .surface-tab.active {
+  background: transparent;
+  border-color: transparent;
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-active-chrome] .surface-tab.active::before,
+:root[data-theme] .app-shell .surface-tabs[data-active-chrome] .surface-tab.active::after {
+  display: none;
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-active-chrome] :is(.surface-tab-main,.surface-tab-close) {
+  position: relative;
+  z-index: 2;
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-active-chrome] .surface-tab:has(.surface-tab-main:focus-visible) {
+  z-index: 3;
 }
 
 :root[data-theme] .app-shell .surface-tab-close {
