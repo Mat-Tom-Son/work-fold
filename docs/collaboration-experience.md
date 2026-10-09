@@ -98,19 +98,22 @@ without a success alert or confirmation. Text and attachment drafts remain with
 their conversation while this renderer lives. A compact return link keeps
 background work reachable, including its Stop action.
 
-The paired web client has Chats and Spaces, with no separate **Needs you**
-destination or activity-receipt feed. Questions and saved-answer recovery stay
-inside the owning Chat. Its sidebar marks browser-owned Chats needing an answer;
-this does not grant access to another browser’s request. The current web client
-neither reads nor acknowledges the glance; host operations remain compatible
-with older clients. Old `#needs` links return to Chat.
+The paired web client focuses on New chat and saved Chats, with no separate
+**Needs you** destination, activity-receipt feed, or Files/work-folder browser.
+Questions and saved-answer recovery stay inside the owning Chat. Its sidebar
+uses plain saved-chat titles, with questions and live progress shown only inside
+the selected Chat. Result files and apps remain available through a collapsed
+disclosure. This does not grant access to another browser’s request. The current
+web client neither reads nor acknowledges the glance; host operations remain
+compatible with older clients. Old Files/work-folder links return to New chat.
 
-Spaces opens a directory of registered Spaces. Each Space has a named workspace
-with Files and Apps views and a clear return to Chat. File selection opens a
-read-only preview alongside the file list (below it on phones), using the same
-bounded, inert preview broker as Chat result links. Switching Spaces or losing
-the desktop connection clears the preview. **Ask the fold** and **Ask about this
-file** append an explicit Space/file reference to an unsent new-chat draft;
-they do not read additional file bytes, send a message, or start an Assistant.
-Existing drafts survive that navigation. App opening retains the existing exact
-installation and connection fences.
+**Shared pages** sits beside Settings in the sidebar footer. It opens a compact
+popup of up to 32 active publications from the desktop, refreshed on each open.
+A click reveals that publication’s current key transiently through the existing
+encrypted paired-browser lane, validates its exact isolated viewer origin and
+path, and opens it in a new tab with no opener. Titles and health travel without
+keys; links are never saved in browser storage. Empty, offline, unsupported,
+blocked-popup, and failed-read states remain inside the popup. Closing or losing
+the connection discards late reads. This reads existing shares only; desktop
+Settings → Shared pages continues to own sharing controls. Chat result previews
+retain their bounded inert file broker and exact app installation fences.

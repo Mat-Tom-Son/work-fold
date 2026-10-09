@@ -490,7 +490,7 @@ test("an unrelated grant revocation cannot suppress a queued operation completio
   fixture.client.stop();
 });
 
-for (const operation of ["spaces.list", "spaces.filePreview", "apps.read", "apps.actions.request"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
+for (const operation of ["spaces.list", "spaces.filePreview", "pages.list", "pages.link", "apps.read", "apps.actions.request"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
   const browser = remoteTestBrowser("grant-revoked");
   const settings = remoteTestSettings([browser]);
   let releaseFirst!: () => void;
@@ -508,7 +508,7 @@ for (const operation of ["spaces.list", "spaces.filePreview", "apps.read", "apps
         markFirstStarted();
         await firstGate;
       }
-      return operation === "spaces.filePreview" ? { preview: { kind: "text", text: "private file content" } } : { spaces: [] };
+      return operation === "spaces.filePreview" ? { preview: { kind: "text", text: "private file content" } } : operation === "pages.link" ? { viewerPath: "/p/shared-report", key: "A".repeat(43) } : { spaces: [] };
     },
     async purgeUploads() {},
   });
@@ -661,6 +661,28 @@ function decryptTestResponse(
   decipher.setAuthTag(encrypted.subarray(-16));
   return JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(0, -16)), decipher.final()]).toString("utf8")) as Record<string, unknown>;
 }
+
+test("shared page links cross only the encrypted grant transport with the account's viewer origin", async () => {
+  const browser = remoteTestBrowser("grant-pages");
+  const settings = remoteTestSettings([browser]);
+  const key = "B".repeat(43);
+  const fixture = remoteOperationClient(settings, {
+    async execute(operation, input) {
+      assert.equal(operation, "pages.link"); assert.deepEqual(input, { publicationId: "report" });
+      return { viewerPath: "/p/report", key };
+    }, async purgeUploads() {},
+  });
+  await fixture.client.start(); fixture.socket.open();
+  try {
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-page", "pages.link", { publicationId: "report" })));
+    const completion = () => fixture.socket.sent.map((value) => JSON.parse(value)).find((message) => message.type === "operation.complete");
+    await waitForRemoteTest(() => Boolean(completion()), "the page link never completed");
+    assert.equal(completion().envelope.header.ok, true);
+    const status = await fixture.client.status();
+    assert.deepEqual(decryptTestResponse(browser, settings, completion().envelope), { result: { viewerPath: "/p/report", key, viewerOrigin: status.viewerOrigin } });
+    assert.equal(fixture.socket.sent.some((value) => value.includes(key) || value.includes("/p/report")), false);
+  } finally { fixture.client.stop(); }
+});
 
 test("a maximum-size file preview crosses the paired browser encrypted transport", async () => {
   const browser = remoteTestBrowser("grant-preview");

@@ -203,8 +203,11 @@ browser and desktop compute it independently. It may temporarily buffer signed
 encrypted envelopes and events in process memory. It stores identity, session,
 grant, and bounded operation
 metadata in PostgreSQL, but it does not durably store prompt text, conversation
-text, Assistant results, Space names, file names, file metadata, or file
-contents.
+text, Assistant results, Space names, file names, file metadata, shared-page
+titles or link keys, or file contents. The Shared pages popup reads existing
+active shares through the encrypted management lane. It retrieves a key only
+on click, keeps it out of browser storage, and opens the isolated viewer with
+that key in the fragment, which is not sent in an HTTP request.
 
 Content-bearing browser and desktop payloads use signed application-layer
 envelopes encrypted with keys held by the paired browser and desktop. The

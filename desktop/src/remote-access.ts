@@ -32,6 +32,7 @@ const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.delete", "management.send", "management.request",
   "management.stop", "management.watch", "management.glance", "management.glanceSeen",
   "management.work", "management.answer", "management.continue", "management.extensionAnswer",
+  "pages.list", "pages.link",
   "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",
   "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.cancel",
 ]);
@@ -663,7 +664,13 @@ export class RemoteAccessClient {
       let ok = true;
       let responsePayload: unknown;
       try {
-        const value = await this.#facade.execute(remoteOperation, input, principal, actionAuthority);
+        let value = await this.#facade.execute(remoteOperation, input, principal, actionAuthority);
+        if (remoteOperation === "pages.link") {
+          // Link material crosses only this signed encrypted response. The
+          // configured address owns the isolated viewer origin, never input
+          // from the browser or a publication's authored content.
+          value = { ...objectValue(value, "Page link"), viewerOrigin: statusView(settings, this.#connection, this.#lastError).viewerOrigin };
+        }
         if (remoteOperation === "management.glance"
           && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteGlanceProjectionBytes) {
           throw new Error("The glance digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");

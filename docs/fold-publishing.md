@@ -516,3 +516,24 @@ The plan items shipped as follows (numbering preserved for references):
 10. Verb rename (2026-09-10) — the two outward-exposure verbs became `pages share` and `pages share-app` across the act protocol, help, the fold's instructions, and these docs; the retired holding spellings are unknown commands — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`, `src/local/cli/commands.ts`, `src/local/management-instructions.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-direct-verbs.test.ts`.
 11. Share from the file tab and widen in place (2026-09-24) — `POST /api/settings/publications/share` and `pages share` run one domain path that refuses without an address; `POST /api/settings/publications/:id/widen` and `pages widen` raise budgets or turn the sleep copy on under a receipt; each Shared pages row shows its page state (Live, Asleep, Resting, Not available, Stopped) with the precise reason as a tooltip — `src/local/server.ts`, `src/local/publications.ts`, `src/shared/publications.ts`, `web-local/src/components/panes/FileSharePopover.tsx`; `tests/fold-publication-settings.test.ts`, `tests/work-fold-publications.test.ts`.
 12. Inert HTML pages and the shared mark (2026-09-24) — `.html`/`.htm` join the source set; the desktop strip in `src/local/publication-html.ts` runs before encryption, the viewer shell frames the stripped document in a script-less sandbox (`services/bridge/public/viewer/viewer.js`), and the page shell's CSP adds inline style and `data:` images only (`services/bridge/server.mjs`); Files rows and file tabs mark a shared file with a quiet glyph — `web-local/src/components/tree/FileTree.tsx`, `web-local/src/components/chat/SpaceSurfaceTabBar.tsx`; `tests/work-fold-publication-html.test.ts`, `tests/work-fold-publications.test.ts`, `services/bridge/server.test.mjs`, `tests/frontend-interaction-contract.test.ts`, `tests/web-ui-contract.test.ts`.
+
+
+### Paired-browser shared-page navigation (2026-10-09)
+
+The chat-focused web client replaces its Files/work-folder browser with a
+**Shared pages** popup in the sidebar footer. `pages.list` returns at most 32
+active publication identities, titles, kinds, health and snapshot state through
+the existing signed encrypted management operation lane. It exposes no key,
+source path or new public directory. `pages.link` reveals one active record's
+viewer path and current key transiently; the desktop transport supplies the
+address's isolated viewer origin inside the same encrypted response. Secure key
+reads share the publication service's serialization queue with revocation and
+recheck expiry after the read. Existing grant completion/replay fences apply.
+
+A click validates the exact enrolled `pages-<slug>` origin and publication path,
+opens a new tab with no opener and places the key only in its fragment. The
+client stores neither links nor keys, and discards late replies after closing or
+disconnection. This navigates existing shares only. Sharing, widening, narrowing,
+revocation and source authorization continue through their existing desktop and
+act paths. The isolated viewer shell keeps the web client's neutral typography
+and surfaces; authored HTML retains its own styles inside the inert sandbox.

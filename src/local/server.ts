@@ -3644,17 +3644,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     try {
       if (action === "reveal-link") {
         await readJsonBody<Record<string, never>>(state, req);
-        const view = await state.publications.get(publicationId);
-        if (!view || view.state !== "active") {
-          sendJson(res, { error: "This page is not shared right now." }, 404);
-          return;
-        }
-        const key = await state.publicationKeys.get(publicationId);
-        if (!key) {
-          sendJson(res, { error: "The page key is missing from secure settings; stop sharing and share the page again." }, 409);
-          return;
-        }
-        sendJson(res, { viewerPath: view.viewerPath, key });
+        sendJson(res, await state.publications.revealLink(publicationId));
         return;
       }
       // A per-request id keeps each Settings act its own journal entry;
@@ -5108,7 +5098,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             // Capability advertisement: the browser starts a live watch only
             // after seeing this, so an older desktop is never asked for an
             // operation it cannot answer.
-            capabilities: { watch: true, work: true, extensionUi: true, delete: true },
+            capabilities: { watch: true, work: true, extensionUi: true, delete: true, sharedPages: true, filePreview: true, appViews: true },
             extensionRequests: owned && latest ? remoteExtensionRequests(state, latest) : [],
           };
         }
@@ -5128,6 +5118,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
               };
             })),
             truncated: selected.length < conversations.length,
+            capabilities: { sharedPages: true, filePreview: true, appViews: true },
           };
         }
         case "management.transcript": {
@@ -5353,6 +5344,16 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             throw badRequest("A rendered glance cursor is required to mark seen.");
           }
           return await state.glanceSeen.advance(workFoldGlanceRemoteSurfaceId(principal.grantId), input.cursor);
+        }
+        case "pages.list": {
+          assertRemoteKeys(input, []);
+          const pages = (await state.publications.list()).filter((page) => page.state === "active").slice(0, 32);
+          return { pages: pages.map(({ publicationId, title, kind, health, snapshotEnabled }) => ({ publicationId, title, kind, health, snapshotEnabled })) };
+        }
+        case "pages.link": {
+          assertRemoteKeys(input, ["publicationId"]);
+          const publicationId = remoteStableId(input.publicationId, "Publication id", 128);
+          return state.publications.revealLink(publicationId);
         }
         case "spaces.list": {
           assertRemoteKeys(input, []);
@@ -12128,7 +12129,7 @@ function sendFoldPublicationError(res: ServerResponse, error: unknown): void {
       ? 400
       : error.code === "NOT_FOUND"
         ? 404
-        : error.code === "ALREADY_REVOKED" || error.code === "ALREADY_SHARED" || error.code === "PUBLICATION_CAP"
+        : error.code === "ALREADY_REVOKED" || error.code === "ALREADY_SHARED" || error.code === "PUBLICATION_CAP" || error.code === "KEY_MISSING"
           ? 409
           : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
             ? 503
