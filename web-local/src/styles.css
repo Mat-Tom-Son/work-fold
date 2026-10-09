@@ -3800,10 +3800,6 @@ to {
   padding-inline: 7px 3px;
 }
 
-.surface-tab-icon {
-  display: none;
-}
-
 .surface-tab-close {
   width: 20px;
   margin-right: 2px;
@@ -16052,10 +16048,6 @@ to {
   cursor: pointer;
 }
 
-.checks-manual-button:hover {
-  text-decoration: underline;
-}
-
 .restricted-app-task-actions {
   display: flex;
   flex-wrap: wrap;
@@ -19730,7 +19722,7 @@ to {
 /* Shared desktop visual roles. Component selectors above own structure; these roles own their appearance. */
 
 :root[data-theme] .app-shell .space-layout {
-  padding: var(--work-fold-window-inset-top, 0px) 12px 12px 0;
+  padding: calc(var(--work-fold-window-inset-top, 0px) + 12px) 12px 12px 0;
   --space-resizer-width: 12px;
   --space-rail-width: 58px;
   --space-identity-header-height: 112px;
@@ -19769,9 +19761,9 @@ to {
 }
 
 :root[data-theme] .app-shell .space-layout .space-pane-header-wrap {
-  height: calc(112px + 22px);
-  flex-basis: calc(112px + 22px);
-  padding: 4px 10px 18px;
+  height: calc(var(--space-identity-header-height) + 16px);
+  flex-basis: calc(var(--space-identity-header-height) + 16px);
+  padding: 8px 10px;
 }
 
 :root[data-theme] .app-shell .space-layout .space-mode-pane .professional-pane-header,
@@ -19811,13 +19803,17 @@ to {
   background: var(--ui-surface-subtle);
   border: 0;
   box-shadow: none;
-  padding: 7px 8px;
-  min-height: 48px;
+  padding: 8px;
+  min-height: 50px;
+  align-items: center;
   gap: 6px;
 }
 
 :root[data-theme] .app-shell .surface-tabs {
   gap: 6px;
+  align-items: center;
+  padding-top: 0;
+  min-height: 34px;
 }
 
 :root[data-theme] .app-shell .surface-tab {
@@ -19849,7 +19845,8 @@ to {
   display: none;
 }
 
-:root[data-theme] .app-shell .surface-tab-main {
+:root[data-theme] .app-shell .surface-tab-main,
+:root[data-theme] .app-shell .surface-tab-main:is(:hover,:focus-visible,:active) {
   font-size: .8rem;
   font-weight: 500;
   color: inherit;
@@ -19920,10 +19917,6 @@ to {
 
 :root[data-theme] .app-shell .file-row.selected {
   box-shadow: none;
-}
-
-:root[data-theme] .app-shell .file-row.selected:hover {
-  background: color-mix(in srgb,var(--space-accent-soft-fill,var(--ui-accent-soft)) 82%,var(--ui-text));
 }
 
 :root[data-theme] .app-shell .file-row:focus-visible {
@@ -20004,10 +19997,6 @@ to {
   background: var(--ui-surface-hover);
 }
 
-:root[data-theme] .app-shell :is(.space-rail-button.active,.chat-space-row-shell.active):hover {
-  background: color-mix(in srgb,var(--space-accent-soft-fill,var(--ui-accent-soft)) 82%,var(--ui-text));
-}
-
 :root[data-theme] .app-shell :is(.space-appearance-tabs,.capabilities-view-tabs,.capabilities-type-chips,.space-icon-categories) button:not([aria-selected="true"]):not([aria-pressed="true"]):not(.active):hover {
   background: var(--ui-surface-hover);
   color: var(--ui-text);
@@ -20078,10 +20067,11 @@ to {
   font-weight: 500;
 }
 
-:root[data-theme] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette) {
+:root[data-theme] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.file-share-popover,.surface-tab-space-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.space-header-switcher,.model-catalog-menu,.assistant-model-menu,.space-icon-picker) {
   border: 0;
   border-radius: 8px;
   background: var(--ui-surface);
+  color: var(--ui-text);
   box-shadow: 0 10px 35px rgb(0 0 0 / .16);
 }
 
@@ -20327,6 +20317,12 @@ to {
 :root[data-theme] .app-shell .settings-window .settings-section + .settings-section {
   border: 0;
   padding-top: 24px;
+}
+
+:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.assistant-settings-section,.assistant-connection-panel,.assistant-scope-control,.assistant-model-section,.remote-browser-list,.remote-browser-row,.fold-publication-list,.fold-publication-row,.settings-app-folder) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 :root[data-theme] .app-shell .settings-window .fold-publication-row {
@@ -20737,10 +20733,6 @@ to {
   color: var(--ui-danger);
 }
 
-.chat-actions-menu > button:hover {
-  background: var(--ui-surface-hover);
-}
-
 .chat-rename-popover input {
   background: var(--ui-surface-subtle);
   color: var(--ui-text);
@@ -20889,12 +20881,16 @@ to {
   --ui-tab-rest: color-mix(in srgb, var(--ui-surface-hover) 35%, var(--ui-surface-subtle));
   --ui-tab-active: var(--ui-surface);
   --ui-tab-active-edge: color-mix(in srgb, var(--ui-accent) 45%, var(--ui-border-strong));
+  --ui-control-pressed: #cbd5c7;
+  --ui-primary-hover: color-mix(in srgb, var(--ui-accent) 28%, var(--ui-surface));
+  --ui-primary-pressed: color-mix(in srgb, var(--ui-accent) 38%, var(--ui-surface));
   --work-fold-list-height: 30px;
   --work-fold-list-padding: 3px;
 }
 
 :root[data-theme="dark"] {
   --ui-tab-active: color-mix(in srgb, var(--ui-accent-soft) 40%, var(--ui-surface-hover));
+  --ui-control-pressed: #515e60;
 }
 
 :root[data-theme] .app-shell .ui-control {
@@ -20903,6 +20899,7 @@ to {
   justify-content: center;
   gap: 6px;
   min-height: 30px;
+  width: auto;
   padding: 5px 10px;
   border: 0;
   border-radius: var(--ui-radius-sm);
@@ -20932,32 +20929,40 @@ to {
   flex-shrink: 0;
 }
 
-:root[data-theme] .app-shell .ui-control--primary {
+:root[data-theme] .app-shell :is(.ui-control--primary,.chat-rename-actions button.primary) {
   background: var(--ui-accent-soft);
   color: var(--ui-accent);
 }
 
-:root[data-theme] .app-shell .ui-control:hover:not(:disabled) {
-  background: var(--ui-surface-hover);
+:root[data-theme] .app-shell :is(.ui-control:not(.ui-control--primary),.space-rail-button:not(.active):not([aria-current="page"]),.space-rail-account-button,.surface-tab-action,.composer-command-trigger,.chat-space-row-actions,.message-copy-button,
+  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.space-name-save,.spaces-pane-done,.space-banner-upload-button,.model-catalog-trigger,.model-catalog-option,
+  .space-header-menu button,.composer-menu button,.context-menu button,.space-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.model-catalog-menu button,.surface-tab-space-menu button:not([aria-checked="true"])):hover:not(:disabled) {
+  background: var(--ui-control-hover,var(--ui-surface-hover));
+  color: var(--ui-control-foreground,var(--ui-text));
+  box-shadow: none;
+  transform: none;
+}
+
+:root[data-theme] .app-shell :is(.ui-control--primary,.chat-rename-actions button.primary):hover:not(:disabled) {
+  background: var(--ui-primary-hover);
   color: var(--ui-text);
+  box-shadow: none;
 }
 
-:root[data-theme] .app-shell .ui-control--primary:hover:not(:disabled) {
-  background: var(--ui-accent-soft);
-  color: var(--ui-accent);
-  box-shadow: inset 0 0 0 1px var(--ui-accent);
+:root[data-theme] .app-shell :is(.ui-control:not(.ui-control--primary),.space-rail-button:not(.active):not([aria-current="page"]),.space-rail-account-button,.surface-tab-action,.composer-command-trigger,.chat-space-row-actions,.message-copy-button,
+  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.space-name-save,.spaces-pane-done,.space-banner-upload-button,.model-catalog-trigger,.model-catalog-option,
+  .space-header-menu button,.composer-menu button,.context-menu button,.space-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.model-catalog-menu button,.surface-tab-space-menu button:not([aria-checked="true"])):active:not(:disabled) {
+  background: var(--ui-control-pressed);
 }
 
-:root[data-theme] .app-shell .ui-control:active:not(:disabled) {
-  background: var(--ui-border-strong);
+:root[data-theme] .app-shell :is(.ui-control--primary,.chat-rename-actions button.primary):active:not(:disabled) {
+  background: var(--ui-primary-pressed);
+  color: var(--ui-text);
+  box-shadow: none;
 }
 
-:root[data-theme] .app-shell .ui-control--primary:active:not(:disabled) {
-  background: var(--ui-accent-soft);
-  box-shadow: inset 0 0 0 2px var(--ui-accent);
-}
-
-:root[data-theme] .app-shell .ui-control.danger {
+:root[data-theme] .app-shell :is(.ui-control.danger,.chat-actions-menu > button.danger,.context-menu button.danger) {
+  --ui-control-foreground: var(--ui-danger);
   color: var(--ui-danger);
 }
 
@@ -20976,7 +20981,7 @@ to {
 }
 /* Editable boundaries remain clear; menus and toolbars use the same neutral ground. */
 
-:root[data-theme] .app-shell :is(.professional-field,.settings-field,.appearance-settings,.checks-setup,.history-file-picker) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),select,textarea) {
+:root[data-theme] .app-shell :is(.professional-field,.settings-field,.appearance-settings,.checks-setup,.history-file-picker,.chat-rename-popover,.recently-deleted-retention) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),select,textarea) {
   background: var(--ui-surface-subtle);
   color: var(--ui-text);
   border: 1px solid var(--ui-border);
@@ -21070,8 +21075,8 @@ to {
 }
 
 :root[data-theme] .app-shell :is(.file-row.selected,.chat-space-row-shell.active):hover {
-  background: var(--space-accent-soft-fill,var(--ui-accent-soft));
-  box-shadow: inset 0 0 0 1px var(--space-accent-border-state,var(--ui-focus));
+  background: color-mix(in srgb,var(--space-accent-soft-fill,var(--ui-accent-soft)) 82%,var(--ui-text));
+  box-shadow: none;
 }
 /* The entire composer, including its footer, owns focus. */
 
@@ -21113,17 +21118,6 @@ to {
   color: var(--ui-on-accent);
   border: 0;
   box-shadow: none;
-}
-
-:root[data-theme] .app-shell .send-button:hover:not(:disabled) {
-  background: var(--ui-accent-solid);
-  color: var(--ui-on-accent);
-  box-shadow: 0 0 0 3px var(--ui-accent-soft);
-  filter: brightness(1.08);
-}
-
-:root[data-theme] .app-shell .send-button:active:not(:disabled) {
-  filter: brightness(.93);
 }
 
 :root[data-theme] .app-shell .message.user .message-footer {
@@ -21396,10 +21390,6 @@ to {
   opacity: .55;
 }
 
-:root[data-theme] .app-shell .ui-control {
-  width: auto;
-}
-
 :root[data-theme] .app-shell .history-pane-actions {
   display: flex;
   flex-wrap: wrap;
@@ -21418,6 +21408,8 @@ to {
 }
 
 :root[data-theme] .app-shell .chat-other-space-header .ui-control--icon {
+  --ui-control-hover: transparent;
+  --ui-control-pressed: transparent;
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -21432,18 +21424,20 @@ to {
   color: var(--space-accent-glyph,var(--ui-accent));
 }
 
+:root[data-theme] .app-shell .professional-space-rail .space-rail-button:is(.active,[aria-current="page"]):hover {
+  background: color-mix(in srgb,var(--space-accent-soft-fill,var(--ui-accent-soft)) 82%,var(--ui-text));
+}
+
+:root[data-theme] .app-shell .professional-space-rail .space-rail-button:is(.active,[aria-current="page"]):active {
+  background: color-mix(in srgb,var(--space-accent-soft-fill,var(--ui-accent-soft)) 65%,var(--ui-text));
+}
+
 :root[data-theme] .app-shell .professional-space-rail .space-rail-button.active::before {
   background: var(--space-accent-indicator,var(--ui-accent));
 }
 
 :root[data-theme] .app-shell .chat-space-row-shell:has(> .chat-space-row:active) {
-  background: var(--space-accent-soft-fill,var(--ui-accent-soft));
-  box-shadow: inset 0 0 0 1px var(--space-accent-border-state,var(--ui-focus));
-}
-
-:root[data-theme] .app-shell .chat-other-space-header .ui-control--icon:is(:hover,:focus-visible,:active) {
-  background: transparent;
-  border: 0;
+  background: color-mix(in srgb,var(--space-accent-soft-fill,var(--ui-accent-soft)) 65%,var(--ui-text));
   box-shadow: none;
 }
 

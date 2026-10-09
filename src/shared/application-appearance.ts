@@ -107,6 +107,7 @@ export function applicationAppearanceVariables(p: ApplicationAppearance, mode: "
   const font = { default: '"Inter Variable", Inter, system-ui, sans-serif', stable: '"Segoe UI", Tahoma, sans-serif', verdana: 'Verdana, sans-serif', aptos: 'Aptos, Arial, sans-serif' }[p.font];
   return {
     "--ui-canvas": g.canvas, "--ui-surface": g.surface, "--ui-surface-subtle": g.subtle, "--ui-surface-hover": g.hover,
+    "--ui-control-pressed": p.palette === "original" ? (mode === "dark" ? "#515e60" : "#cbd5c7") : `color-mix(in srgb, ${g.hover} 90%, ${g.text})`,
     "--ui-border": contrast ? g.muted : g.border, "--ui-border-strong": contrast ? g.text : g.strong,
     "--ui-text": g.text, "--ui-text-muted": contrast ? g.text : g.muted, "--ui-text-subtle": g.muted,
     "--ui-accent": a.textUi, "--ui-accent-hover": a.textBody, "--ui-accent-soft": a.softFill,

@@ -37,7 +37,7 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
     // Attribute selectors have the same specificity as these pseudo-classes;
     // this makes each hover/focus cascade deterministic in headless Chromium.
     // Native pointer and keyboard behavior is checked in the dev app too.
-    const chatStateCss = desktopCss.replaceAll(":hover", "[data-test-hover]").replaceAll(":focus-visible", "[data-test-focus-visible]").replaceAll(":focus-within", "[data-test-focus-within]") + "\n* { transition: none !important; animation: none !important; }";
+    const chatStateCss = desktopCss.replaceAll(":hover", "[data-test-hover]").replaceAll(":active", "[data-test-pressed]").replaceAll(":focus-visible", "[data-test-focus-visible]").replaceAll(":focus-within", "[data-test-focus-within]") + "\n* { transition: none !important; animation: none !important; }";
     const payload = { desktopCss, popoverCss, desktopBody, popoverBody, scenarios, chatStateCss };
     // A disposable, non-interactive browser evaluates the exact shipped CSS
     // cascade. It never loads app scripts, an account, or a personal profile.
@@ -125,20 +125,42 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
           }
         }
         result.windowChrome = [];
-        const shellBody = '<div class="app-shell"><main class="space-layout"><nav class="space-mode-rail professional-space-rail"><div class="space-rail-nav"><button class="space-rail-button">Files</button></div></nav><section class="space-mode-pane"><div class="space-pane-header-wrap space-identity-header-wrap"><div class="space-pane-current space-pane-header professional-pane-header space-identity-header"><button class="space-pane-switch-trigger">Folder banner</button></div></div></section><div class="space-resizer"></div><aside class="right-rail"><div class="surface-tabbar"><div class="surface-tabs"><div class="surface-tab active"><button class="surface-tab-main">Chat tab</button></div></div></div></aside></main></div>';
+        const shellBody = '<div class="app-shell"><main class="space-layout"><nav class="space-mode-rail professional-space-rail"><div class="space-rail-nav"><button class="space-rail-button">Files</button></div></nav><section class="space-mode-pane"><div class="space-pane-header-wrap space-identity-header-wrap"><div class="space-pane-current space-pane-header professional-pane-header space-identity-header"><button class="space-pane-switch-trigger">Folder banner</button></div></div></section><div class="space-resizer"></div><aside class="right-rail"><div class="surface-tabbar"><div class="surface-tabs"><div class="surface-tab active"><button class="surface-tab-main"><span class="surface-tab-icon">Icon</span>Chat tab</button></div></div></div></aside></main></div>';
         for (const platform of ['', 'darwin', 'win32']) {
           for (const material of ['none', 'vibrancy']) {
             const chrome = fixture(payload.desktopCss, shellBody, {...scenario,platform,material});
             const doc = frame.contentDocument;
             const rect = selector => doc.querySelector(selector).getBoundingClientRect();
             const drag = frame.contentWindow.getComputedStyle(doc.querySelector('.app-shell'), '::before');
-            result.windowChrome.push({platform,material,padding:chrome('.space-layout').paddingTop,
+            const header = rect('.space-pane-header-wrap'), banner = rect('.space-pane-current'), bar = rect('.surface-tabbar'), tab = rect('.surface-tab');
+            result.windowChrome.push({platform,material,iconDisplay:chrome('.surface-tab-icon').display,padding:chrome('.space-layout').paddingTop,
+              bannerGaps:[banner.top-header.top,header.bottom-banner.bottom],tabGaps:[tab.top-bar.top,bar.bottom-tab.bottom],
               tops:['.professional-space-rail','.space-pane-current','.space-pane-switch-trigger','.surface-tabbar','.surface-tab-main','.space-rail-button'].map(selector=>rect(selector).top),
               bottoms:['.professional-space-rail','.space-mode-pane','.right-rail'].map(selector=>rect(selector).bottom),
               bottom:rect('.space-layout').bottom,height:frame.contentWindow.innerHeight,
               dragHeight:drag.height,dragRegion:drag.getPropertyValue('-webkit-app-region')});
           }
         }
+        const feedbackBody = '<div class="app-shell"><button id="neutral" class="ui-control">Open</button><button id="primary" class="ui-control ui-control--primary">Save</button><button id="icon" class="ui-control ui-control--icon">Icon</button><button id="disabled" class="ui-control" disabled>Disabled</button><button id="danger" class="ui-control danger">Delete</button><nav class="professional-space-rail"><button id="rail" class="space-rail-button">Files</button><button id="selectedRail" class="space-rail-button active">Chats</button><div class="space-rail-settings-control"><button id="settings" class="space-rail-account-button">Settings</button></div></nav><div class="surface-tab-new-chat"><button id="newChat" class="surface-tab-action surface-tab-new-chat-main">New</button></div><button id="commands" class="composer-command-trigger">Commands</button><div class="context-menu"><button id="menu">Rename</button></div><div class="chat-actions-menu"><button id="chatMenu">Rename</button><button id="chatDanger" class="danger">Delete</button></div><button id="chatBack" class="chat-actions-back">Back</button><div class="chat-rename-actions"><button id="renameSave" class="primary">Save</button></div><button id="manual" class="checks-manual-button">Set up manually</button><button id="nameSave" class="space-name-save">Save</button><button id="done" class="spaces-pane-done">Done</button><button id="upload" class="space-banner-upload-button">Upload</button><button id="modelTrigger" class="model-catalog-trigger">Model</button><button id="modelOption" class="model-catalog-option">Model option</button><div class="composer-menu"><button id="composerOption">Reasoning</button></div><button id="send" class="send-button">Send</button><div class="space-header-switcher"><button id="switcher" class="space-header-switcher-row">Folder</button></div><button id="palette" class="command-palette-option">Open file</button><div class="composer-command-menu"><button id="model">Model</button></div><button id="copy" class="message-copy-button">Copy</button><button id="file" class="file-row">File</button><button id="selectedFile" class="file-row selected">Selected file</button><div id="chat" class="chat-space-row-shell"><button class="chat-space-row">Chat</button></div><button id="history" class="history-entry">History</button><button id="included" class="capabilities-included-tile">Tool</button><button id="resource" class="capabilities-resource-row">Skill</button><button id="routing" class="fold-routing-list-row">Automation</button><section class="settings-window"><button id="settingsTab" class="settings-tab">Appearance</button></section><div id="search" class="file-tree-search"><input></div><div class="surface-tabbar"><div id="tab" class="surface-tab"><button id="tabMain" class="surface-tab-main">Tab</button><button class="surface-tab-close">Close</button></div></div></div>';
+        const feedback = fixture(payload.chatStateCss,feedbackBody,scenario);
+        const feedbackDoc = frame.contentDocument;
+        const targets = ['neutral','primary','icon','disabled','danger','rail','selectedRail','settings','newChat','commands','menu','chatMenu','chatDanger','chatBack','renameSave','manual','nameSave','done','upload','modelTrigger','modelOption','composerOption','send','switcher','palette','model','copy','file','selectedFile','chat','history','included','resource','routing','settingsTab','search','tab'];
+        result.feedback = targets.map(id=>{
+          const el=feedbackDoc.getElementById(id), selector='#'+id;
+          const sample=()=>{const c=feedback(selector),r=el.getBoundingClientRect();return {background:c.backgroundColor,color:c.color,outline:c.outlineStyle,shadow:c.boxShadow,transform:c.transform,width:r.width,height:r.height};};
+          const rest=sample(); el.setAttribute('data-test-hover',''); const hover=sample();
+          el.setAttribute('data-test-pressed',''); const pressed=sample(); el.removeAttribute('data-test-pressed'); el.removeAttribute('data-test-hover');
+          const focusTarget=el.matches('button') ? el : el.querySelector('button,input') ?? el;
+          focusTarget.setAttribute('data-test-focus-visible',''); el.setAttribute('data-test-focus-within','');
+          const focus=sample(); if(focus.outline==='none') focus.outline=frame.contentWindow.getComputedStyle(focusTarget).outlineStyle;
+          focusTarget.removeAttribute('data-test-focus-visible'); el.removeAttribute('data-test-focus-within');
+          return {id,rest,hover,pressed,focus};
+        });
+        feedbackDoc.getElementById('tabMain').setAttribute('data-test-hover','');
+        result.tabMainHover = feedback('#tabMain').backgroundColor;
+        result.floating = ['.chat-rename-popover','.file-share-popover','.surface-tab-space-menu','.composer-mention-menu','.composer-menu','.space-header-switcher','.model-catalog-menu'].map(selector=>{ const el=feedbackDoc.createElement('div');el.className=selector.slice(1); feedbackDoc.querySelector('.app-shell').append(el);const c=feedback(selector);return {selector,background:c.backgroundColor,shadow:c.boxShadow}; });
+        result.settingsFrames = ['assistant-scope-control','assistant-connection-panel','fold-publication-list','fold-publication-row'].map(name=>{ const window=feedbackDoc.createElement('section');window.className='settings-window';const el=feedbackDoc.createElement(name==='assistant-scope-control'?'fieldset':'div');el.className=name;window.append(el);feedbackDoc.querySelector('.app-shell').append(window);return feedback('.'+name).borderTopWidth; });
+        result.feedbackExpected = {hover:color('var(--ui-surface-hover)'),pressed:color('var(--ui-control-pressed)'),primaryHover:color('var(--ui-primary-hover)'),primaryPressed:color('var(--ui-primary-pressed)'),danger:color('var(--ui-danger)'),sendHover:color('color-mix(in srgb,'+scenario.identity.solid+' 28%,var(--ui-surface))'),sendPressed:color('color-mix(in srgb,'+scenario.identity.solid+' 38%,var(--ui-surface))')};
         results.push(result);
       }
       document.body.innerHTML = '<pre id="result"></pre>'; document.getElementById('result').textContent = JSON.stringify(results);
@@ -187,7 +209,10 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
       assert.deepEqual(item.design.historyField, item.design.settingsField, item.name + " History uses the shared field style");
       for (const chrome of item.windowChrome) {
         const label = item.name + '/' + chrome.platform + '/' + chrome.material;
-        assert.equal(chrome.padding, chrome.platform === 'darwin' ? '38px' : '0px', label + ' reserves native title-bar space only on Mac');
+        assert.equal(chrome.padding, chrome.platform === 'darwin' ? '50px' : '12px', label + ' adds the native title-bar inset to the shared 12px outer gutter');
+        assert.deepEqual(chrome.bannerGaps,[8,8],label + ' gives the folder banner equal top/bottom space');
+        assert.equal(chrome.iconDisplay,'grid',label+' keeps the folder icon in narrow work panes');
+        assert.deepEqual(chrome.tabGaps,[8,8],label + ' gives tabs equal top/bottom space without inherited top padding');
         assert.ok(chrome.bottom <= chrome.height, label + ' stays within the window');
         assert.ok(chrome.bottoms.every((bottom: number) => bottom <= chrome.height), label + ' keeps every pane within the window');
         if (chrome.platform === 'darwin') {
@@ -195,6 +220,29 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
           assert.ok(chrome.tops.every((top: number) => top >= 38), label + ' banner, tabs and Files target clear traffic lights and the drag strip');
         }
       }
+      const neutralControls = new Set(['neutral','icon','rail','settings','newChat','commands','menu','chatMenu','chatBack','manual','nameSave','done','upload','modelTrigger','modelOption','composerOption','switcher','palette','model','copy']);
+      const neutralRows = new Set(['file','chat','history','included','resource','routing','settingsTab','search']);
+      for(const target of item.feedback) {
+        const label=item.name+'/'+target.id;
+        if(neutralControls.has(target.id)||neutralRows.has(target.id)) assert.equal(target.hover.background,item.feedbackExpected.hover,label+' receives the full demo hover fill');
+        if(neutralControls.has(target.id)) assert.equal(target.pressed.background,item.feedbackExpected.pressed,label+' has a distinct pressed fill');
+        if(target.id==='primary'||target.id==='renameSave') {
+          assert.equal(target.hover.background,item.feedbackExpected.primaryHover); assert.equal(target.pressed.background,item.feedbackExpected.primaryPressed);
+          assert.notEqual(target.rest.background,target.hover.background,label+' changes its fill instead of drawing a hover border');
+          assert.equal(target.hover.shadow,'none');
+        }
+        if(target.id==='send') { assert.equal(target.hover.background,item.feedbackExpected.sendHover); assert.equal(target.pressed.background,item.feedbackExpected.sendPressed); assert.equal(target.hover.shadow,'none'); }
+        if(target.id==='selectedRail'||target.id==='selectedFile') assert.notEqual(target.rest.background,target.hover.background,label+' strengthens the selected fill on hover');
+        if(target.id==='disabled') assert.equal(target.rest.background,target.hover.background,label+' never reacts while disabled');
+        if(target.id==='danger'||target.id==='chatDanger') assert.equal(target.hover.color,item.feedbackExpected.danger,label+' retains its destructive intent');
+        assert.deepEqual([target.hover.width,target.hover.height],[target.rest.width,target.rest.height],label+' keeps its hit area stable');
+        if(target.id==='icon') assert.deepEqual([target.rest.width,target.rest.height],[30,30],label+' retains a square hit area');
+        if(neutralControls.has(target.id)) assert.equal(target.hover.transform,'none',label+' never lifts or scales');
+        if(target.id!=='disabled') assert.equal(target.focus.outline,'solid',label+' keeps keyboard focus distinct from hover');
+      }
+      assert.deepEqual(item.settingsFrames,Array(4).fill('0px'),item.name+' Settings uses spacing rather than retained frames');
+      for(const floating of item.floating) { assert.equal(floating.background,expected['--ui-surface'],item.name+'/'+floating.selector+' is an opaque menu above content'); assert.notEqual(floating.shadow,'none'); }
+      assert.equal(item.tabMainHover,'rgba(0, 0, 0, 0)',item.name+' the whole tab owns hover, including dark mode');
       assert.match(item.design.documentFont, /Georgia/); assert.equal(item.design.documentSize, "22px"); assert.equal(item.design.documentParagraph, "22px");
       const hex = (rgb: string) => "#" + (rgb.match(/\d+/g) ?? []).slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
       assert.ok(wcagContrast(hex(item.primary[0]), hex(item.primary[1])) >= 4.5, item.name + " actual button contrast");

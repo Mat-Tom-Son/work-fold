@@ -6,6 +6,8 @@ release-note file alone does not mean a version was published.
 
 ## October 9, 2026
 
+[0.4.47](work-fold-0.4.47.md) balances banner and tab spacing and restores the approved demo's filled hover states, opaque menus, and restrained Settings layout while preserving personalization.
+
 [0.4.46](work-fold-0.4.46.md) fixes the macOS title-bar overlap introduced by 0.4.45, restoring space for traffic lights and window dragging above the rail, work-folder banner and tabs.
 
 [0.4.45](work-fold-0.4.45.md) is the desktop design candidate: consolidated controls and styling, clearer tabs, matching Files/Chats navigation, a tighter file preview, a full composer focus boundary, History journal and Keyboard Shortcuts in Settings. Saved personalization remains authoritative.

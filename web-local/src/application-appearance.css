@@ -173,9 +173,7 @@
   padding-block: var(--work-fold-list-padding);
 }
 :root[data-appearance-palette] .app-shell .file-row { color: var(--ui-text); font-size: .8667rem; }
-:root[data-appearance-palette] .app-shell .file-row:hover { background: var(--ui-surface-hover); }
-:root[data-appearance-palette] .app-shell .file-row.selected,
-:root[data-appearance-palette] .app-shell .file-row.selected:hover { color: var(--ui-text); background: var(--space-accent-soft-fill, var(--ui-accent-soft)); }
+:root[data-appearance-palette] .app-shell .file-row.selected { color: var(--ui-text); background: var(--space-accent-soft-fill, var(--ui-accent-soft)); }
 :root[data-appearance-palette] .app-shell .file-row:is(.draft-area, .is-ignored):not(.selected) { color: var(--ui-text-muted); }
 :root[data-appearance-palette] .app-shell .chat-space-row-title { color: var(--ui-text); }
 :root[data-appearance-palette] .app-shell .chat-space-row-time { color: var(--ui-text-muted); }
@@ -186,6 +184,18 @@
 :root[data-appearance-palette] .app-shell .send-button:not(.stop-send-button):not(:disabled) {
   background: var(--space-accent-solid, var(--ui-accent-solid));
   color: var(--space-on-accent-solid, var(--ui-on-accent));
+}
+:root[data-appearance-palette] .app-shell .send-button:not(.stop-send-button):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--space-accent-solid, var(--ui-accent-solid)) 28%, var(--ui-surface));
+  color: var(--ui-text);
+  box-shadow: none;
+  filter: none;
+}
+:root[data-appearance-palette] .app-shell .send-button:not(.stop-send-button):active:not(:disabled) {
+  background: color-mix(in srgb, var(--space-accent-solid, var(--ui-accent-solid)) 38%, var(--ui-surface));
+  color: var(--ui-text);
+  box-shadow: none;
+  filter: none;
 }
 :root[data-appearance-palette] .app-shell :is(button, input, select, textarea, [tabindex]):focus-visible,
 :root[data-appearance-palette] .app-shell .settings-window :is(button, input, select, textarea):focus-visible,
