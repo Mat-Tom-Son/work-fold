@@ -335,10 +335,6 @@ export function ChatsPane({
         </section>
         {otherSpaceGroups.length ? (
           <section className="chat-other-spaces" aria-label="Chats in other work-folders">
-            <div className="chat-other-spaces-heading">
-              <span>Other work-folders</span>
-              <small>{otherSpaceGroups.length}</small>
-            </div>
             {otherSpaceGroups.map(({ item, list, status }) => {
               const identity = spaceIdentityFor(item, customizations);
               const expanded = Boolean(normalized) || expandedOtherSpaceIds.has(item.id);
@@ -357,9 +353,8 @@ export function ChatsPane({
                     >
                       <span className="space-identity-icon chat-other-space-icon" aria-hidden="true"><SpaceIconGlyph icon={identity.Icon} size={14} /></span>
                       <span>{item.name}</span>
-                      {status ? <ActivityDot status={status} /> : null}
-                      <small>{list.length}</small>
                       <ChevronRight16Regular aria-hidden="true" />
+                      {status ? <ActivityDot status={status} /> : null}
                     </button>
                     <button className="minimal-icon-button" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
                   </div>
