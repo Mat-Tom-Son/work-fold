@@ -726,7 +726,10 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
         openExternal,
         readClipboard: () => clipboard.readText(),
         writeClipboard: (value) => clipboard.writeText(value),
-        showMessageBox: (options) => dialog.showMessageBox(options),
+        showMessageBox: (options) => {
+          const parent = BrowserWindow.getFocusedWindow() ?? mainWindow;
+          return parent && !parent.isDestroyed() ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
+        },
         onError: (error) => console.warn(`${productName} provider sign-in UI failed: ${errorMessage(error)}`),
       }),
       spaceTrustAuthority: host.spaceTrustAuthority,

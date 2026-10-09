@@ -30,6 +30,21 @@ compaction guard; it does not implement another model or protocol layer.
 | Service Connections | Native MCP namespaces/exposure/config/OAuth; catalog cold, session connections background; setup source/revision fenced | HTTP/stdio/PKCE fixtures, scopes, overrides, cancellation and late-write rejection |
 | Packaging | Reviewed native runtime/exports hash verified, prepared Electron uses ordinary included Extensions | Desktop preparation, ASAR fixture and tamper checks |
 
+### Provider setup correction, 2026-10-09
+
+Provider setup now passes `LoginOptions.getDeviceId` from Pi's global
+`SettingsManager.getOrCreateDeviceId`, matching native Pi. The earlier host
+omitted it, so OpenAI's ChatGPT login rejected setup before opening the browser.
+Settings reads the complete provider list and native auth labels, rather than
+inferring connections from chat models or hard-coding account-only providers.
+Guided API-key setup delegates all prompts and returned provider configuration
+to `ModelRuntime.login`; connection-only setup leaves model defaults untouched.
+Native callback prompt cancellation closes parented desktop dialogs and browser
+failures propagate to the login interaction. Synthetic coverage exercises native
+OpenAI authorization/token exchange, stable identity across folders/restart,
+Cloudflare settings, full credential persistence, and providers without chat
+models. This is protocol coverage, not real-account eligibility verification.
+
 The first complete distribution assembly exposed a verifier mismatch that the
 staged-ASAR fixture had not represented: Electron Builder excludes dependency
 `.d.ts` declarations. The install lane still verifies the entire patch manifest,

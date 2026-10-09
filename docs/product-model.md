@@ -92,6 +92,14 @@ re-entering the key. Pasted Responses URLs normalize to the v1 endpoint.
 Saving configures existing deployments at one endpoint; it does not test
 inference, sign in to Azure, or discover deployments.
 
+AI Models lists Pi's complete provider catalog and uses its advertised sign-in
+methods and labels. Providers with no chat models can connect without changing
+the Worker's model. Guided setup runs Pi's native credential prompts, including
+provider-specific configuration and cloud credential choices. ChatGPT sign-in
+uses the installation UUID Pi saves in global settings, never a project identity.
+Connections retain the complete credential in encrypted machine-local storage;
+only non-secret connection status and model metadata reach Settings.
+
 Each open tab belongs to one Folder. Selecting a tab takes the user back to
 that Folder; selecting a Folder restores its most recent tab. With four or more
 tabs open, tabs narrow but keep their Folder icon and a normal close button.
@@ -197,8 +205,12 @@ settings separate model defaults, shared provider
 connections, and Space instructions; the scope is chosen with two large buttons —
 **This worker**, naming the Folder, and **work-fold agent** — and the model is a
 dropdown: closed, it shows the chosen model; open, it starts with a search box
-and groups models under vendor headings (for OpenRouter, the vendor prefix of
-the model name), and choosing a model closes it. Unsaved model/instruction drafts survive
+and groups every connected provider's chat models by provider and vendor (for
+OpenRouter, the vendor prefix of the model name), and choosing a model closes
+it. **Provider connections** is separate, with saved connections grouped above
+available providers. Connection setup preserves the model choice and draft;
+this includes Azure endpoint and deployment setup (2026-10-09).
+Unsaved model/instruction drafts survive
 page and scope changes while that window stays open; credentials are not cached
 across scope changes. Accepted saves retain their completion ownership if the
 window closes, so reopening waits for their result. External settings changes

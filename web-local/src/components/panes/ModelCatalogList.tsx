@@ -31,12 +31,13 @@ function humanizeVendor(value: string): string {
 }
 
 /** The models that match the search, grouped by vendor in name order. */
-export function modelCatalogGroups<T extends VendorModel>(models: T[], query: string): Array<{ vendor: string; models: T[] }> {
+export function modelCatalogGroups<T extends VendorModel>(models: T[], query: string, groupByProvider = false): Array<{ vendor: string; models: T[] }> {
   const needle = query.trim().toLowerCase();
   const groups = new Map<string, T[]>();
   const keyFor = (model: T) => {
     const slash = model.id.indexOf("/");
-    return (slash > 0 ? model.id.slice(0, slash).replace(/^[^a-z0-9]+/i, "") : modelVendor(model)).toLowerCase();
+    const vendor = (slash > 0 ? model.id.slice(0, slash).replace(/^[^a-z0-9]+/i, "") : modelVendor(model)).toLowerCase();
+    return groupByProvider ? JSON.stringify([model.provider, vendor]) : vendor;
   };
   // Alias ids and ordinary ids name the same vendor. Prefer the catalog's
   // explicit spelling to a humanized fallback, even when search hides it.
@@ -46,8 +47,10 @@ export function modelCatalogGroups<T extends VendorModel>(models: T[], query: st
     if (!labels.has(key) || (colon > 0 && colon <= 40)) labels.set(key, modelVendor(model));
   }
   for (const model of models) {
-    const vendor = labels.get(keyFor(model))!;
-    if (needle && ![model.name ?? "", model.id, vendor].some((value) => value.toLowerCase().includes(needle))) continue;
+    const modelVendorName = labels.get(keyFor(model))!;
+    const provider = model.providerName || model.provider;
+    const vendor = groupByProvider ? (provider === modelVendorName ? provider : `${provider} · ${modelVendorName}`) : modelVendorName;
+    if (needle && ![model.name ?? "", model.id, vendor, model.provider, provider].some((value) => value.toLowerCase().includes(needle))) continue;
     const list = groups.get(vendor) ?? [];
     list.push(model);
     groups.set(vendor, list);
@@ -60,6 +63,11 @@ export function modelCatalogGroups<T extends VendorModel>(models: T[], query: st
 /** Past this many models the list gets a search box. */
 export const modelCatalogSearchThreshold = 8;
 
+/** Model ids are unique within a provider, not across connected providers. */
+export function modelCatalogKey(model: Pick<AgentModel, "provider" | "id">): string {
+  return JSON.stringify([model.provider, model.id]);
+}
+
 type FocusTarget = "search" | "selected" | "start" | "end";
 
 /**
@@ -67,27 +75,29 @@ type FocusTarget = "search" | "selected" | "start" | "end";
  * model; open, it starts with a search box (past the threshold) and lists the
  * models under vendor headings; choosing one closes it again (2026-09-27).
  */
-export function ModelCatalogList({ id, labelledBy, models, value, disabled = false, onChange, controlRef }: {
+export function ModelCatalogList({ id, labelledBy, models, value, disabled = false, groupByProvider = false, onChange, controlRef }: {
   id: string;
   labelledBy: string;
   models: AgentModel[];
   value: string;
   disabled?: boolean;
+  groupByProvider?: boolean;
   onChange: (id: string) => void;
   /** The element to focus when the settings open onto the model: the closed control. */
   controlRef?: MutableRefObject<HTMLElement | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const groups = useMemo(() => modelCatalogGroups(models, query), [models, query]);
-  const vendorCount = useMemo(() => modelCatalogGroups(models, "").length, [models]);
-  const selected = useMemo(() => models.find((model) => model.id === value) ?? null, [models, value]);
+  const keyFor = (model: AgentModel) => groupByProvider ? modelCatalogKey(model) : model.id;
+  const groups = useMemo(() => modelCatalogGroups(models, query, groupByProvider), [models, query, groupByProvider]);
+  const vendorCount = useMemo(() => modelCatalogGroups(models, "", groupByProvider).length, [models, groupByProvider]);
+  const selected = models.find((model) => keyFor(model) === value) ?? null;
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingFocus = useRef<FocusTarget | null>(null);
-  const showSearch = models.length > modelCatalogSearchThreshold;
+  const showSearch = groupByProvider || models.length > modelCatalogSearchThreshold;
   const listId = `${id}-options`;
 
   useEffect(() => {
@@ -174,7 +184,7 @@ export function ModelCatalogList({ id, labelledBy, models, value, disabled = fal
       // The list sits inside the Save Model form; Enter here picks, never saves.
       event.preventDefault();
       const first = query.trim() ? groups[0]?.models[0] : undefined;
-      if (first) choose(first.id);
+      if (first) choose(keyFor(first));
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -212,14 +222,16 @@ export function ModelCatalogList({ id, labelledBy, models, value, disabled = fal
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         aria-labelledby={`${labelledBy} ${id}`}
-        data-model-id={value}
+        data-model-id={selected?.id}
+        data-provider={selected?.provider}
+        title={selected?.id}
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : show("search"))}
         onKeyDown={triggerKeys}
       >
         <span className="model-catalog-trigger-text">
           <span className="model-catalog-name">{label}</span>
-          {selected && selected.id !== (selected.name?.trim() || selected.id) ? <span className="model-catalog-id">{selected.id}</span> : null}
+          {groupByProvider && selected ? <span className="model-catalog-id">{selected.providerName || selected.provider}</span> : null}
         </span>
         <svg className="model-catalog-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </button>
@@ -234,11 +246,12 @@ export function ModelCatalogList({ id, labelledBy, models, value, disabled = fal
           <div className="model-catalog-list" role="listbox" id={listId} aria-labelledby={labelledBy} ref={listRef} tabIndex={-1} onKeyDown={listKeys}>
             {groups.map((group) => (
               <div className="model-catalog-group" role="group" aria-label={group.vendor} key={group.vendor}>
-                {vendorCount > 1 ? <div className="model-catalog-vendor" aria-hidden="true">{group.vendor}</div> : null}
+                {groupByProvider || vendorCount > 1 ? <div className="model-catalog-vendor" aria-hidden="true">{group.vendor}</div> : null}
                 {group.models.map((model) => {
-                  const isSelected = model.id === value;
+                  const key = keyFor(model);
+                  const isSelected = key === value;
                   return (
-                    <button key={model.id} type="button" role="option" aria-selected={isSelected} data-model-id={model.id} className={isSelected ? "model-catalog-option selected" : "model-catalog-option"} onClick={() => choose(model.id)}>
+                    <button key={key} type="button" role="option" aria-selected={isSelected} data-model-id={model.id} data-provider={model.provider} className={isSelected ? "model-catalog-option selected" : "model-catalog-option"} onClick={() => choose(key)}>
                       <span className="model-catalog-name">{modelDisplayName(model)}</span>
                       {model.id !== (model.name?.trim() || model.id) ? <span className="model-catalog-id">{model.id}</span> : null}
                     </button>

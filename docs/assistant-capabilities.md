@@ -247,23 +247,42 @@ Results expose their source and link back to it. Search, type filters, and sorti
 
 ## Authentication and external connections
 
-**Settings → AI Models** groups provider authentication in one connection
-panel, showing the credential's actual source and its machine-wide scope.
+**Settings → AI Models** separates **Model** from **Provider connections**.
+The model picker searches every connected provider's chat models, grouped by
+provider and vendor. Its closed control shows the model and connection name;
+selection uses the provider/model pair so identical model IDs remain distinct.
+Provider connections groups saved connections above available providers and
+shows the credential's actual source and its machine-wide scope.
 API-key entry is masked with an explicit Show/Hide control. A saved API key
 can be replaced through **Change API Key** without removing it first; Cancel
-clears the entered replacement and keeps the saved key. Saving a connection
-also saves the selected model for the displayed Worker or work-fold agent,
-as stated beside the action. Failed saves keep the entered key for correction;
+clears the entered replacement and keeps the saved key. Provider connections
+are shared; **Save Model** separately saves the displayed Worker's or work-fold
+agent's model. Connecting or replacing a credential preserves model drafts and
+does not save a new model default. Azure's **Save Azure settings** saves its
+endpoint and deployment names; selecting a deployment uses **Save Model**.
+Failed saves keep the entered key for correction;
 successful saves clear it. Keys are never read back into the form or carried
 across provider or scope changes. Account sign-in and Azure deployment setup
 continue through their existing provider-specific paths.
+
+The provider list and account buttons use Pi's complete native provider catalog
+and authentication metadata, including providers with no chat models. **Guided
+setup** runs Pi's API-key interaction, preserving all returned provider settings
+(for example Cloudflare account/gateway IDs, AWS profiles and Vertex credentials).
+Account sign-in passes Pi's lazily created installation UUID from global settings;
+project settings cannot supply it. Pi owns token exchange, refresh and request auth,
+and the desktop persists the full credential through the encrypted host store.
+Setup refreshes only that provider's catalog with a bounded network request.
+Neither a saved credential nor a successful catalog refresh proves inference or
+account eligibility. Provider information and callback prompts remain on trusted
+desktop surfaces; credentials never enter the renderer's status response.
 
 In **Settings → AI Models**, Azure OpenAI accepts an endpoint, an API key,
 and **Deployment names**, separated by commas or new lines. Copy the Name
 under Deployment info in Azure. These names become the Azure model choices;
 there is no prerequisite catalog-model selection or user-written mapping.
-With multiple names, choose which deployment this Worker or the work-fold
-agent uses. All names use the same endpoint. Resource endpoints and pasted
+Choose the deployment this Worker or the work-fold agent uses in the model
+picker after saving the connection. All names use the same endpoint. Resource endpoints and pasted
 Responses URLs (including the portal's `api-version` query) normalize to
 `/openai/v1`; the saved API version is `v1`.
 

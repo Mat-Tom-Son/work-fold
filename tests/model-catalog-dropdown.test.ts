@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement, useState } from "react";
 
 import { createDomHarness } from "./support/dom.js";
-import { ModelCatalogList, modelCatalogGroups, modelVendor } from "../web-local/src/components/panes/ModelCatalogList.js";
+import { ModelCatalogList, modelCatalogGroups, modelCatalogKey, modelVendor } from "../web-local/src/components/panes/ModelCatalogList.js";
 import type { AgentModel } from "../web-local/src/types.js";
 
 const model = (id: string, name: string, provider = "openrouter"): AgentModel => ({ provider, providerName: provider === "openrouter" ? "OpenRouter" : "Anthropic", id, name, authConfigured: true, authSource: "stored", authType: "api_key", oauthSupported: false });
@@ -39,16 +39,16 @@ test("catalog aliases share their vendor heading and keep its spelling during se
   assert.deepEqual(modelCatalogGroups(aliases, "latest").map(group => [group.vendor, group.models.length]), [["MoonshotAI", 1], ["OpenAI", 1]]);
 });
 
-async function mount(t: Parameters<Parameters<typeof test>[1]>[0], models = catalog) {
+async function mount(t: Parameters<Parameters<typeof test>[1]>[0], models = catalog, groupByProvider = false) {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   const chosen: string[] = [];
   let submits = 0;
   function Screen() {
-    const [value, setValue] = useState(models[0]!.id);
+    const [value, setValue] = useState(groupByProvider ? modelCatalogKey(models[0]!) : models[0]!.id);
     return createElement("form", { onSubmit: (event: { preventDefault: () => void }) => { event.preventDefault(); submits += 1; } },
       createElement("span", { id: "model-label" }, "Model"),
-      createElement(ModelCatalogList, { id: "assistant-model", labelledBy: "model-label", models, value, onChange: (next: string) => { chosen.push(next); setValue(next); } }),
+      createElement(ModelCatalogList, { id: "assistant-model", labelledBy: "model-label", models, value, groupByProvider, onChange: (next: string) => { chosen.push(next); setValue(next); } }),
       createElement("button", { type: "submit" }, "Save"));
   }
   await dom.render(createElement(Screen));
@@ -118,4 +118,21 @@ test("a short list opens without a search box and a click outside closes it", as
   assert.equal(document.activeElement?.getAttribute("data-model-id"), "deepseek/deepseek-v4.1-flash", "without a search box the chosen option takes focus");
   await ui.dom.act(() => { document.body.dispatchEvent(new (window as unknown as { PointerEvent: typeof Event }).PointerEvent("pointerdown", { bubbles: true })); });
   assert.equal(ui.trigger().getAttribute("aria-expanded"), "false");
+});
+
+test("connected-provider search and selection distinguish identical model ids", async t => {
+  const providers = [
+    { ...model("gpt-5", "GPT-5"), provider: "openai", providerName: "OpenAI" },
+    { ...model("gpt-5", "GPT-5"), provider: "openai-chatgpt", providerName: "ChatGPT" },
+    catalog[3]!,
+  ];
+  assert.deepEqual(modelCatalogGroups(providers, "chatgpt", true).map(group => group.models.map(item => item.provider)), [["openai-chatgpt"]]);
+  const ui = await mount(t, providers, true);
+  await ui.dom.act(() => ui.trigger().click());
+  assert.ok(document.querySelector('[aria-label="Search models"]'), "all-provider mode always starts with search");
+  assert.equal(ui.options().filter(option => option.getAttribute("aria-selected") === "true").length, 1);
+  await ui.dom.act(() => ui.options().find(option => option.dataset.provider === "openai-chatgpt")!.click());
+  assert.deepEqual(ui.chosen, [modelCatalogKey(providers[1]!)]);
+  assert.equal(ui.trigger().dataset.provider, "openai-chatgpt");
+  assert.match(ui.trigger().textContent!, /GPT-5ChatGPT/);
 });

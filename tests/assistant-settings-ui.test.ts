@@ -150,7 +150,7 @@ test("refresh is provider-owned and preserves edits made while the same provider
   await ui.type("#assistant-api-key", "synthetic-secret-for-anthropic");
   await ui.finish(refresh, { ...modelResponse(), refresh: { modelCount: 2 } });
   assert.equal(ui.dom.container.querySelector<HTMLSelectElement>('select[aria-label="Provider"]')?.value, "anthropic");
-  assert.equal(selectedModel(ui.dom), "claude");
+  assert.equal(selectedModel(ui.dom), "model-a", "changing the connection provider leaves model selection alone");
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "synthetic-secret-for-anthropic");
   assert.doesNotMatch(ui.dom.container.textContent!, /models refreshed/);
   await ui.select('select[aria-label="Provider"]', "openrouter");
@@ -201,12 +201,94 @@ test("saved credentials are readable status, with separate explicit connection a
   assert.equal(ui.button("Save Model").disabled, true, "model action cannot silently submit a connection key");
   await ui.submit("connection", true);
   const write = ui.requests.at(-1)!;
-  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "anthropic", model: "claude", apiKey: "synthetic-new-provider-key" });
+  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "anthropic", apiKey: "synthetic-new-provider-key" });
   assert.equal(ui.requests.filter((item) => item.path === "/api/agent/configure").length, 1);
   await ui.finish(write, { status: { ...status, provider: "anthropic", model: "claude" } });
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
-  assert.match(ui.dom.container.textContent!, /Connected and model saved/);
-  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Anthropic connection", "Worker Instructions"]);
+  assert.match(ui.dom.container.textContent!, /Connection saved/);
+  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Provider connections", "Worker Instructions"]);
+});
+
+test("Settings uses Pi's account labels and connects providers before they have chat models", async t => {
+  const ui = await setup(t);
+  await ui.render(space("a"));
+  const providers = [
+    { id: "openrouter", name: "OpenRouter", configured: true, authSource: "stored", authType: "api_key", apiKey: true, oauth: false, oauthAvailable: false, guidedSetup: true, modelCount: 2 },
+    { id: "account-only", name: "Account provider", configured: false, apiKey: false, oauth: true, oauthLabel: "Sign in with Example", oauthAvailable: true, guidedSetup: false, modelCount: 0 },
+    { id: "images-only", name: "Image provider", configured: false, apiKey: true, oauth: false, oauthAvailable: false, guidedSetup: true, modelCount: 3 },
+  ];
+  await ui.finish(ui.requests[0]!, modelResponse({ providers }));
+  await ui.select('select[aria-label="Provider"]', "account-only");
+  assert.equal(ui.dom.container.querySelector("#assistant-api-key"), null);
+  assert.equal(ui.button("Sign in with Example").disabled, false);
+  await ui.dom.act(() => ui.button("Sign in with Example").click());
+  const account = ui.requests.at(-1)!;
+  assert.equal(account.path, "/api/agent/oauth");
+  assert.deepEqual(account.body, { scope: "space", spaceId: "a", provider: "account-only" });
+  await ui.finish(account, { status, models, providers: providers.map(item => item.id === "account-only" ? { ...item, configured: true, authSource: "stored", authType: "oauth" } : item) });
+  assert.match(ui.dom.container.textContent!, /Connection saved/);
+  assert.equal(ui.button("Reconnect account").disabled, false);
+  await ui.select('select[aria-label="Provider"]', "images-only");
+  await ui.type("#assistant-api-key", "synthetic-image-key");
+  await ui.submit("connection", true);
+  const key = ui.requests.at(-1)!;
+  assert.deepEqual(key.body, { scope: "space", spaceId: "a", provider: "images-only", apiKey: "synthetic-image-key" });
+  await ui.finish(key, { status, providers: providers.map(item => item.id === "images-only" ? { ...item, configured: true, authSource: "stored", authType: "api_key" } : item) });
+  assert.match(ui.dom.container.textContent!, /API key saved on this computer/);
+  assert.equal(ui.button("Save Model").disabled, true);
+  await ui.dom.act(() => ui.button("Guided setup").click());
+  const guidedRequest = ui.requests.at(-1)!;
+  assert.equal(guidedRequest.path, "/api/agent/login");
+  assert.deepEqual(guidedRequest.body, { scope: "space", spaceId: "a", provider: "images-only", method: "api_key" });
+  await ui.finish(guidedRequest, { status, models, providers });
+});
+
+test("Settings allows an API key for Copilot when Pi advertises it and reports desktop-only account setup", async t => {
+  const ui = await setup(t);
+  await ui.render(space("a"));
+  const providers = [{ id: "github-copilot", name: "GitHub Copilot", configured: false, apiKey: true,
+    oauth: true, oauthLabel: "Sign in with GitHub", oauthAvailable: false, guidedSetup: false, modelCount: 1 }];
+  await ui.finish(ui.requests[0]!, modelResponse({ providers, models: [{ ...models[0]!, provider: "github-copilot", authConfigured: false }], status: { ...status, provider: "github-copilot" } }));
+  assert.ok(ui.dom.container.querySelector("#assistant-api-key"));
+  assert.equal(ui.button("Sign in with GitHub"), undefined);
+  await ui.type("#assistant-api-key", "synthetic-copilot-key");
+  await ui.submit("connection");
+  await ui.finish(ui.requests.at(-1)!, { status });
+});
+
+test("all connected providers share one model picker and connection writes preserve its independent draft", async t => {
+  const ui = await setup(t);
+  const connected = [
+    ...models,
+    { ...models[0]!, provider: "openai", providerName: "OpenAI", id: "model-a", name: "Account model", authType: "oauth" as const },
+  ];
+  await ui.render(space("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ models: connected }));
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLButtonElement>("#assistant-model")!.click());
+  assert.equal(ui.dom.container.querySelector('[role="option"][data-provider="anthropic"]'), null, "disconnected catalogs stay in connection setup");
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLButtonElement>('[role="option"][data-provider="openai"]')!.click());
+  assert.equal(ui.dom.container.querySelector("#assistant-model")?.getAttribute("data-provider"), "openai");
+  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>('select[aria-label="Provider"]')?.value, "openrouter", "choosing a model never retargets the credential editor");
+  await ui.dom.act(() => ui.button("Change API Key").click());
+  await ui.type("#assistant-api-key", "synthetic-router-replacement");
+  await ui.submit("connection");
+  assert.equal(ui.requests.at(-1)!.body.model, undefined);
+  await ui.finish(ui.requests.at(-1)!, modelResponse({ models: connected }));
+  assert.equal(ui.dom.container.querySelector("#assistant-model")?.getAttribute("data-provider"), "openai", "fresh connection catalog preserves the selected model draft");
+  await ui.submit("model");
+  assert.deepEqual(ui.requests.at(-1)!.body, { scope: "space", spaceId: "a", provider: "openai", model: "model-a" });
+  const saved = { ...status, provider: "openai" };
+  await ui.finish(ui.requests.at(-1)!, { status: saved });
+  await ui.dom.render(null);
+  await ui.render(space("a"));
+  await ui.finish(ui.requests.at(-1)!, modelResponse({ models: connected, status: saved }));
+  assert.equal(ui.dom.container.querySelector("#assistant-model")?.getAttribute("data-provider"), "openai");
+  assert.equal(ui.dom.container.querySelectorAll('optgroup[label="Connected"] option').length, 2);
+  await ui.select("#assistant-model", "model-b");
+  await ui.submit("model");
+  assert.deepEqual(ui.requests.at(-1)!.body, { scope: "space", spaceId: "a", provider: "openrouter", model: "model-b" });
+  await ui.finish(ui.requests.at(-1)!, { status: { ...status, model: "model-b" } });
+  assert.equal(ui.dom.container.querySelector("#assistant-api-key"), null, "switching between saved connections needs no repeated key entry");
 });
 
 test("changing a saved API key keeps the old connection until an explicit save, and Cancel discards the replacement", async (t) => {
@@ -229,7 +311,7 @@ test("changing a saved API key keeps the old connection until an explicit save, 
   await ui.type("#assistant-api-key", "synthetic-replacement");
   await ui.submit("connection", true);
   const write = ui.requests.at(-1)!;
-  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "openrouter", model: "model-a", apiKey: "synthetic-replacement" });
+  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "openrouter", apiKey: "synthetic-replacement" });
   assert.equal(ui.requests.filter((request) => request.path === "/api/agent/configure").length, 1);
   assert.equal(ui.requests.some((request) => request.init.method === "DELETE"), false);
   await ui.finish(write, { error: "Synthetic save failure" }, 409);
@@ -238,7 +320,7 @@ test("changing a saved API key keeps the old connection until an explicit save, 
   await ui.submit("connection");
   await ui.finish(ui.requests.at(-1)!, { status });
   assert.equal(ui.dom.container.querySelector("#assistant-api-key"), null);
-  assert.match(ui.dom.container.textContent!, /Connected and model saved/);
+  assert.match(ui.dom.container.textContent!, /Connection saved/);
 });
 
 test("a model-only save preserves an unsaved key replacement and never submits it", async (t) => {
@@ -265,7 +347,7 @@ test("Azure setup starts with user-entered deployments, accepts multiple names, 
   const azureModels = [{ ...models[0]!, provider: "azure", providerName: "Azure OpenAI", id: "catalog-model", name: "Catalog model", authConfigured: false }];
   await ui.render(space("a"));
   await ui.finish(ui.requests[0]!, modelResponse({ status: azureStatus, models: azureModels, azure: { baseUrl: "", deployments: [] } }));
-  assert.equal(ui.dom.container.querySelector("#assistant-model"), null, "no catalog model is required");
+  assert.equal(ui.dom.container.querySelector<HTMLButtonElement>("#assistant-model")?.disabled, true, "connection setup needs no catalog model");
   assert.equal(ui.button("Save Azure settings").disabled, true);
   await ui.type("#assistant-azure-endpoint", "https://example.cognitiveservices.azure.com/openai/responses?api-version=2025-04-01-preview");
   await ui.type("#assistant-api-key", "synthetic-key");
@@ -274,21 +356,23 @@ test("Azure setup starts with user-entered deployments, accepts multiple names, 
   assert.match(ui.dom.container.querySelector('[role="alert"]')!.textContent!, /Use deployment names/);
   assert.equal(ui.requests.filter((request) => request.path === "/api/agent/configure").length, 0);
   await ui.type("#assistant-azure-deployments", "my-deployment, fast\nthird");
-  await ui.select("#assistant-azure-selected", "fast");
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "synthetic-key");
   await ui.submit("connection", true);
   const write = ui.requests.at(-1)!;
   const azure = { baseUrl: "https://example.cognitiveservices.azure.com/openai/v1", deployments: ["my-deployment", "fast", "third"] };
-  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "azure", model: "fast", apiKey: "synthetic-key", azure });
+  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "azure", apiKey: "synthetic-key", azure });
   assert.equal(ui.requests.filter((request) => request.path === "/api/agent/configure").length, 1);
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-azure-endpoint")?.disabled, true);
-  const savedStatus = { ...azureStatus, configured: true, model: "fast" };
+  const savedStatus = azureStatus;
   const savedModels = azure.deployments.map((id) => ({ ...azureModels[0]!, id, name: id, authConfigured: true, authSource: "stored", authType: "api_key" }));
   await ui.finish(write, { status: savedStatus, azure, models: savedModels });
   assert.match(ui.dom.container.textContent!, /Azure settings saved/);
-  assert.match(ui.dom.container.textContent!, /connection has not been tested/);
   assert.equal(ui.button("Save Azure settings").disabled, true);
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-api-key")?.value, "");
+  await ui.select("#assistant-model", "fast");
+  await ui.submit("model");
+  assert.deepEqual(ui.requests.at(-1)!.body, { scope: "space", spaceId: "a", provider: "azure", model: "fast" });
+  await ui.finish(ui.requests.at(-1)!, { status: { ...azureStatus, configured: true, model: "fast" } });
   await ui.type("#assistant-azure-endpoint", "https://new.openai.azure.com");
   await ui.hint();
   await ui.finish(ui.requests.at(-1)!, modelResponse({ status: savedStatus, models: savedModels, azure: { ...azure, baseUrl: "https://external.openai.azure.com" } }));
@@ -302,8 +386,8 @@ test("Azure setup starts with user-entered deployments, accepts multiple names, 
   await ui.type("#assistant-azure-deployments", "my-deployment");
   assert.equal(ui.dom.container.querySelector("#assistant-azure-selected"), null);
   await ui.submit("connection");
-  assert.equal(ui.requests.at(-1)!.body.model, "my-deployment", "removing the selected name selects the remaining deployment");
-  await ui.finish(ui.requests.at(-1)!, { status: { ...savedStatus, model: "my-deployment" }, azure: { ...azure, baseUrl: "https://new.openai.azure.com/openai/v1", deployments: ["my-deployment"] }, models: [savedModels[0]] });
+  assert.equal(ui.requests.at(-1)!.body.model, undefined, "connection changes never choose a Worker model");
+  await ui.finish(ui.requests.at(-1)!, { status: { ...savedStatus, model: "fast" }, azure: { ...azure, baseUrl: "https://new.openai.azure.com/openai/v1", deployments: ["my-deployment"] }, models: [savedModels[0]] });
 });
 
 test("outside settings changes refresh clean forms without replacing unsaved drafts", async (t) => {

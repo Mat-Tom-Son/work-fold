@@ -124,7 +124,7 @@ import {
   listPiModelCatalogs,
   listPiModels,
   listPiPackages,
-  loginPiOAuth,
+  loginPiProvider,
   removePiProviderAuth,
   removePiPackage,
   refreshPiModelCatalog,
@@ -2682,12 +2682,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const spaceId = url.searchParams.get("spaceId");
     const scope = await assistantModelScope(url.searchParams.get("scope"), spaceId);
     const models = await listPiModels(scope.spaceRoot, state.runtimeProvider);
+    const status = await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider);
     sendJson(res, {
       models: models.map((model) => ({
         ...model,
         oauthSupported: model.oauthSupported && Boolean(state.piOAuthHooks),
       })),
-      status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
+      status: normalizeStatus(status),
+      providers: providerSetupResponse(status, Boolean(state.piOAuthHooks)),
       catalogs: await listPiModelCatalogs(state.runtimeProvider),
       azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider),
       instructions: scope.id === workFoldManagementScopeId
@@ -2755,7 +2757,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   }
   if (method === "POST" && url.pathname === "/api/agent/configure") {
     const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string; apiKey?: string; azure?: unknown }>(state, req);
-    const scope = await configuredAssistantModelScope(body.scope, body.spaceId, body.provider, body.model);
+    const scope = await assistantModelScope(body.scope, body.spaceId);
+    if (!body.provider?.trim()) throw badRequest("A provider is required.");
+    if (!body.model?.trim() && !body.apiKey?.trim() && body.azure === undefined) throw badRequest("A model or API key is required.");
     let azure: AzureOpenAIConnection | undefined;
     if (body.azure !== undefined) {
       if (body.provider !== AZURE_OPENAI_PROVIDER) throw badRequest("Azure settings require the Azure OpenAI provider.");
@@ -2764,8 +2768,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const available = await listPiModels(scope.spaceRoot, state.runtimeProvider);
     const selected = available.find((model) => model.provider === body.provider && model.id === body.model);
     if (azure) {
-      if (!azure.deployments.includes(body.model!)) throw badRequest("Choose one of the Azure deployment names you entered.");
-    } else if (!selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
+      if (body.model && !azure.deployments.includes(body.model)) throw badRequest("Choose one of the Azure deployment names you entered.");
+    } else if (body.model && !selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
     const providerAuth = azure
       ? available.some((model) => model.provider === body.provider && model.authConfigured)
       : selected?.authConfigured;
@@ -2778,16 +2782,16 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       } else if (body.apiKey?.trim()) {
         await savePiApiKey(scope.spaceRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
       }
-      await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
+      if (body.model) await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model }, state.runtimeProvider);
     }, { requireProjectTrust: false });
+    const status = await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider);
     sendJson(res, {
-      status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
-      ...(azure ? {
-        azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider),
-        models: (await listPiModels(scope.spaceRoot, state.runtimeProvider)).map((model) => ({
-          ...model, oauthSupported: model.oauthSupported && Boolean(state.piOAuthHooks),
-        })),
-      } : {}),
+      status: normalizeStatus(status),
+      providers: providerSetupResponse(status, Boolean(state.piOAuthHooks)),
+      models: (await listPiModels(scope.spaceRoot, state.runtimeProvider)).map((model) => ({
+        ...model, oauthSupported: model.oauthSupported && Boolean(state.piOAuthHooks),
+      })),
+      ...(azure ? { azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider) } : {}),
     });
     return;
   }
@@ -2798,22 +2802,34 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     await runCapabilityMutation(state, scope, "global", async () => {
       await removePiProviderAuth(scope.spaceRoot, body.provider!, state.runtimeProvider);
     }, { requireProjectTrust: false });
+    const status = await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider);
     sendJson(res, {
       models: await listPiModels(scope.spaceRoot, state.runtimeProvider),
-      status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
+      status: normalizeStatus(status),
+      providers: providerSetupResponse(status, Boolean(state.piOAuthHooks)),
       ...(body.provider === AZURE_OPENAI_PROVIDER ? { azure: await getAzureOpenAIConnection(scope.spaceRoot, state.runtimeProvider) } : {}),
     });
     return;
   }
-  if (method === "POST" && url.pathname === "/api/agent/oauth") {
-    if (!state.piOAuthHooks) throw unavailable("Provider account sign-in requires the work-fold desktop app. You can use an API key for this provider instead.");
-    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string }>(state, req);
-    const scope = await configuredAssistantModelScope(body.scope, body.spaceId, body.provider, body.model);
+  if (method === "POST" && ["/api/agent/oauth", "/api/agent/login"].includes(url.pathname)) {
+    if (!state.piOAuthHooks) throw unavailable("Guided provider setup requires the work-fold desktop app.");
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string; method?: string }>(state, req);
+    const scope = await assistantModelScope(body.scope, body.spaceId);
+    if (!body.provider?.trim()) throw badRequest("A provider is required.");
+    const authMethod = url.pathname === "/api/agent/oauth" ? "oauth" : body.method;
+    if (authMethod !== "oauth" && authMethod !== "api_key") throw badRequest("Choose account sign-in or API-key setup.");
+    if (body.model && !(await listPiModels(scope.spaceRoot, state.runtimeProvider)).some((item) => item.provider === body.provider && item.id === body.model)) {
+      throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
+    }
     await runCapabilityMutation(state, scope, "global", async () => {
-      await loginPiOAuth(scope.spaceRoot, body.provider!, state.piOAuthHooks!, state.runtimeProvider);
-      await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
+      await loginPiProvider(scope.spaceRoot, body.provider!, authMethod, state.piOAuthHooks!, state.runtimeProvider);
+      if (body.model) await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model }, state.runtimeProvider);
     }, { requireProjectTrust: false });
-    sendJson(res, { status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)) });
+    const status = await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider);
+    sendJson(res, {
+      status: normalizeStatus(status), providers: providerSetupResponse(status, true),
+      models: await listPiModels(scope.spaceRoot, state.runtimeProvider),
+    });
     return;
   }
   if (method === "GET" && url.pathname === "/api/agent/capabilities/discover") {
@@ -13969,6 +13985,14 @@ function normalizeStatus(status: PiSetupStatus): Record<string, unknown> {
   };
 }
 
+function providerSetupResponse(status: PiSetupStatus, desktopSetup: boolean) {
+  return status.providers.map((provider) => ({
+    ...provider,
+    oauthAvailable: provider.oauth && desktopSetup,
+    guidedSetup: provider.apiKey && desktopSetup,
+  }));
+}
+
 function emptyAgentStatus(): Record<string, unknown> {
   return { ready: true, configured: false, provider: null, model: null, piVersion: null, projectTrusted: false, error: null };
 }
@@ -13995,16 +14019,6 @@ async function assistantModelScope(scope: string | null | undefined, spaceId?: s
   if (!spaceId) throw badRequest("Space id is required.");
   const space = await getSpace(spaceId);
   return { id: space.id, spaceRoot: space.spaceRoot, label: "this Space" };
-}
-
-async function configuredAssistantModelScope(
-  scope: string | null | undefined,
-  spaceId?: string,
-  provider?: string,
-  model?: string,
-): Promise<AssistantModelScope> {
-  if (!provider?.trim() || !model?.trim()) throw badRequest("A provider and model are required.");
-  return assistantModelScope(scope, spaceId);
 }
 
 function openControlEventStream(state: LocalApiState, sink: LocalEventSink): void {

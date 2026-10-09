@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
-import { ModelCatalogList } from "./ModelCatalogList";
+import { ModelCatalogList, modelCatalogKey } from "./ModelCatalogList";
 import { RefreshCw } from "lucide-react";
 import { Eye20Regular, EyeOff20Regular } from "@fluentui/react-icons";
 import { api, errorText } from "../../lib/api";
 import { subscribeControlEvents } from "../../lib/control-events";
 import { resolveAssistantModelSelection } from "../../lib/assistant-model-selection";
-import type { AgentModel, AgentModelCatalog, AgentStatus, SpaceSummary } from "../../types";
+import type { AgentModel, AgentModelCatalog, AgentProvider, AgentStatus, SpaceSummary } from "../../types";
 import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, parseAzureDeploymentNames, type AzureOpenAIConnection } from "../../../../src/shared/azure-openai";
 
 const emptyAzureConnection: AzureOpenAIConnection = { baseUrl: "", deployments: [] };
@@ -47,7 +47,7 @@ function beginAssistantMutation(): (() => void) | null {
 }
 
 type AzureConnectionDraft = { baseUrl: string; deployments: string };
-type AssistantDraft = { model?: { provider: string; model: string }; instructions?: string; azure?: AzureConnectionDraft };
+type AssistantDraft = { model?: { provider: string; model: string }; connectionProvider?: string; instructions?: string; azure?: AzureConnectionDraft };
 export function AssistantSetupPane(props: AssistantSetupProps) {
   const { space, embedded = false, initialScope, active = true, focusModelOnOpen = false, focusInstructionsOnOpen = false } = props;
   const identity = JSON.stringify([space?.id ?? null, initialScope ?? null]);
@@ -119,10 +119,10 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
   return (
     <div className={embedded ? "assistant-settings-panel professional-assistant" : "space-pane-content assistant-pane professional-surface professional-assistant"}>
       {space ? <fieldset className="assistant-scope-control">
-        <legend>Model Defaults For</legend>
+        <legend>Model defaults</legend>
         <label className={scope === "space" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="space" checked={scope === "space"} onChange={() => changeScope("space")} />
-          <span>This work-folder's Worker<small>{space.name}</small></span>
+          <span>This worker<small>{space.name}</small></span>
         </label>
         <label className={scope === "management" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="management" checked={scope === "management"} onChange={() => changeScope("management")} />
@@ -166,8 +166,10 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
 }) {
   const [scopeStatus, setScopeStatus] = useState(status);
   const [models, setModels] = useState<AgentModel[]>([]);
+  const [providerCatalog, setProviderCatalog] = useState<AgentProvider[]>([]);
   const [catalogs, setCatalogs] = useState<AgentModelCatalog[]>([]);
   const [provider, setProvider] = useState("");
+  const [modelProvider, setModelProvider] = useState("");
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [editingApiKey, setEditingApiKey] = useState(false);
@@ -240,6 +242,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
             ["mistralai/mistral-medium-3.1", "Mistral: Mistral Medium 3.1"],
           ].map(([id, name]) => ({ provider: "openrouter", providerName: "OpenRouter", id, name, authConfigured: true, authSource: "stored" as const, authType: "api_key" as const, oauthSupported: false })),
           { provider: "anthropic", providerName: "Anthropic", id: "claude-sonnet-4", name: "Claude Sonnet", authConfigured: false, oauthSupported: false },
+          { provider: "openai-chatgpt", providerName: "ChatGPT", id: "gpt-5", name: "GPT-5", authConfigured: true, authSource: "stored" as const, authType: "oauth" as const, oauthSupported: true },
         ],
         catalogs: [{ provider: "openrouter", refreshable: true, source: "live" as const, refreshedAt: new Date().toISOString(), modelCount: 11 }],
         status: { ...status, configured: true, provider: "openrouter", model: "deepseek/deepseek-v4.1-flash" },
@@ -263,31 +266,32 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
     // not reload and overwrite a person's unsaved model or instructions.
   }, [fixtureMode, loadAttempt]);
 
-  const providers = unique(models.map((item) => item.provider)).sort((left, right) => providerDisplayName(models, left).localeCompare(providerDisplayName(models, right)));
+  const providers = providerCatalog.map((item) => item.id);
+  const selectedProvider = providerCatalog.find((item) => item.id === provider);
   const providerModels = models.filter((item) => item.provider === provider);
-  const providerAuth = providerModels.find((item) => item.authConfigured);
-  const authConfigured = Boolean(providerAuth);
+  const connectedModels = models.filter((item) => item.authConfigured);
+  const selectedModel = models.find((item) => item.provider === modelProvider && item.id === model);
+  const providerAuth = selectedProvider ? { ...selectedProvider, authConfigured: selectedProvider.configured } : providerModels.find((item) => item.authConfigured);
+  const authConfigured = Boolean(providerAuth?.authConfigured);
   const removableAuth = providerAuth?.authSource === "stored";
-  const replaceableApiKey = removableAuth && providerAuth?.authType === "api_key";
-  const oauthSupported = providerModels.some((item) => item.oauthSupported);
-  const accountOnly = providerAccountOnly(provider);
+  const apiKeySupported = Boolean(selectedProvider?.apiKey);
+  const replaceableApiKey = apiKeySupported && removableAuth;
+  const oauthSupported = Boolean(selectedProvider?.oauthAvailable);
+  const accountOnly = !apiKeySupported && Boolean(selectedProvider?.oauth);
   const isAzure = provider === AZURE_OPENAI_PROVIDER;
-  const azureNames = parseAzureDeploymentNames(azure.deployments);
   const azureChanged = JSON.stringify(azure) !== JSON.stringify(azureConnectionDraft(savedAzure));
-  const subscriptionNote = oauthSupported ? providerSubscriptionNote(provider) : null;
   const catalog = catalogs.find((item) => item.provider === provider);
-  const providerName = providerDisplayName(models, provider);
-  const scopeLabel = scope === "management" ? "work-fold agent" : space?.name ?? "This worker";
-  const modelChanged = !scopeStatus.configured || provider !== scopeStatus.provider || model !== scopeStatus.model;
+  const providerName = selectedProvider?.name ?? provider;
+  const modelChanged = modelProvider !== scopeStatus.provider || model !== scopeStatus.model;
   const instructionsChanged = instructions.trim() !== savedInstructions;
   const operationBusy = mutationBusy || refreshing;
-  currentForm.current = { dirty: provider !== scopeStatus.provider || model !== scopeStatus.model || instructionsChanged || editingApiKey || Boolean(apiKey) || azureChanged, loading: loading || Boolean(loadError),
-    snapshot: settingsSnapshot({ models, catalogs, status: scopeStatus, instructions: savedInstructions, azure: savedAzure }) };
+  currentForm.current = { dirty: modelChanged || instructionsChanged || editingApiKey || Boolean(apiKey) || azureChanged, loading: loading || Boolean(loadError),
+    snapshot: settingsSnapshot({ models, providers: providerCatalog, catalogs, status: scopeStatus, instructions: savedInstructions, azure: savedAzure }) };
 
   useEffect(() => {
     if (loading || loadError) return;
-    onSnapshotRef.current?.({ models, catalogs, status: scopeStatus, instructions: savedInstructions, azure: savedAzure });
-  }, [loading, loadError, models, catalogs, scopeStatus, savedInstructions, savedAzure]);
+    onSnapshotRef.current?.({ models, providers: providerCatalog, catalogs, status: scopeStatus, instructions: savedInstructions, azure: savedAzure });
+  }, [loading, loadError, models, providerCatalog, catalogs, scopeStatus, savedInstructions, savedAzure]);
 
   useEffect(() => {
     if (editingApiKey && active) apiKeyField.current?.focus();
@@ -296,21 +300,23 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   function applyLoadedSettings(result: AssistantSettingsResponse, restoreDraft = false) {
     const draft = restoreDraft ? readDraft() : {};
     setModels(result.models);
+    const connections = connectionProviders(result);
+    setProviderCatalog(connections);
     setCatalogs(result.catalogs);
     setScopeStatus(result.status);
     setInstructions(draft.instructions ?? result.instructions ?? "");
     setSavedInstructions(result.instructions ?? "");
     setAzure(draft.azure ?? azureConnectionDraft(result.azure ?? emptyAzureConnection));
     setSavedAzure(result.azure ?? emptyAzureConnection);
-    const first = result.models.find((item) => item.provider === result.status.provider)
-      ?? result.models.find((item) => item.provider === "openrouter") ?? result.models[0];
+    const first = result.models.find((item) => item.provider === result.status.provider && item.id === result.status.model)
+      ?? result.models.find((item) => item.authConfigured);
     const nextProvider = draft.model?.provider ?? first?.provider ?? "";
-    setProvider(nextProvider);
+    const nextConnection = draft.connectionProvider ?? provider;
+    setProvider(connections.some(item => item.id === nextConnection) ? nextConnection
+      : connections.find(item => item.id === result.status.provider)?.id ?? connections.find(item => item.configured)?.id ?? connections[0]?.id ?? "");
+    setModelProvider(nextProvider);
     const requestedModel = draft.model?.model ?? result.status.model ?? "";
-    const names = parseAzureDeploymentNames((draft.azure ?? azureConnectionDraft(result.azure ?? emptyAzureConnection)).deployments);
-    setModel(nextProvider === AZURE_OPENAI_PROVIDER
-      ? names.includes(requestedModel) ? requestedModel : names[0] ?? ""
-      : resolveAssistantModelSelection(result.models, nextProvider, requestedModel));
+    setModel(resolveAssistantModelSelection(result.models, nextProvider, requestedModel));
     editDraft((current) => ({
       ...current,
       ...(current.model?.provider === result.status.provider && current.model?.model === result.status.model ? { model: undefined } : {}),
@@ -373,18 +379,15 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
     providerRevision.current += 1;
     refresh.current?.abort();
     setProvider(next);
-    const nextModel = next === AZURE_OPENAI_PROVIDER ? azureNames[0] ?? "" : resolveAssistantModelSelection(models, next, "");
-    setModel(nextModel);
-    updateModelDraft(next, nextModel);
+    editDraft(draft => ({ ...draft, connectionProvider: next }));
     setApiKey("");
     setEditingApiKey(false);
     setShowApiKey(false);
-    setModelFeedback(null);
     setConnectionFeedback(null);
   }
 
-  async function configure(kind: "model" | "key" | "oauth") {
-    if (loading || !model || refresh.current || (kind === "model" && (!authConfigured || !modelChanged))
+  async function configure(kind: "model" | "key" | "oauth" | "setup") {
+    if (loading || refresh.current || (kind === "model" ? !modelProvider || !model || !selectedModel?.authConfigured || !modelChanged : !provider)
       || (kind === "key" && (isAzure ? !authConfigured && !apiKey.trim() : (authConfigured && !(replaceableApiKey && editingApiKey)) || !apiKey.trim()))) return;
     let submittedAzure: AzureOpenAIConnection | undefined;
     if (kind === "key" && isAzure) {
@@ -400,12 +403,12 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
     feedback(null);
     const submittedApiKey = kind === "key" ? apiKey.trim() : "";
     try {
-      const result = fixtureMode ? { status: { ...scopeStatus, configured: true, provider, model }, azure: submittedAzure, models: undefined }
-        : await api<{ status: AgentStatus; azure?: AzureOpenAIConnection; models?: AgentModel[] }>(kind === "oauth" ? "/api/agent/oauth" : "/api/agent/configure", {
+      const result = fixtureMode ? { status: kind === "model" ? { ...scopeStatus, configured: true, provider: modelProvider, model } : scopeStatus, azure: submittedAzure, models: undefined }
+        : await api<{ status: AgentStatus; azure?: AzureOpenAIConnection; models?: AgentModel[]; providers?: AgentProvider[] }>(kind === "setup" ? "/api/agent/login" : kind === "oauth" ? "/api/agent/oauth" : "/api/agent/configure", {
           method: "POST",
-          body: { ...assistantScopeBody(scope, space), provider, model, ...(submittedApiKey ? { apiKey: submittedApiKey } : {}), ...(submittedAzure ? { azure: submittedAzure } : {}) },
+          body: { ...assistantScopeBody(scope, space), provider: kind === "model" ? modelProvider : provider, ...(kind === "model" ? { model } : {}), ...(kind === "setup" ? { method: "api_key" } : {}), ...(submittedApiKey ? { apiKey: submittedApiKey } : {}), ...(submittedAzure ? { azure: submittedAzure } : {}) },
         });
-      editDraft((draft) => ({ ...draft, model: draft.model?.provider === provider && draft.model?.model === model ? undefined : draft.model,
+      editDraft((draft) => ({ ...draft, model: kind === "model" && draft.model?.provider === modelProvider && draft.model?.model === model ? undefined : draft.model,
         ...(submittedAzure ? { azure: undefined } : {}) }));
       if (!live.current) return;
       if (result.azure) { setAzure(azureConnectionDraft(result.azure)); setSavedAzure(result.azure); }
@@ -413,9 +416,13 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       else if (connection) setModels((current) => current.map((item) => item.provider === provider ? {
         ...item, authConfigured: true, authSource: "stored", authType: kind === "oauth" ? "oauth" : "api_key",
       } : item));
+      if ("providers" in result && result.providers) setProviderCatalog(result.providers);
+      else if (connection) setProviderCatalog((current) => current.map((item) => item.id === provider ? {
+        ...item, configured: true, authSource: "stored", authType: kind === "oauth" ? "oauth" : "api_key",
+      } : item));
       if (connection) { setApiKey(""); setEditingApiKey(false); setShowApiKey(false); }
       reportConfigured(result.status);
-      feedback({ text: submittedAzure ? `Azure settings saved. New Chats will use ${model}. The connection has not been tested.` : connection ? "Connected and model saved" : "Model saved" });
+      feedback({ text: submittedAzure ? "Azure settings saved" : connection ? "Connection saved" : "Model saved" });
     } catch (caught) { if (live.current) feedback({ error: true, text: errorText(caught) }); }
     finally { if (live.current) setSaving(null); release(); }
   }
@@ -432,11 +439,12 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         models: models.map((item) => item.provider === provider ? { ...item, authConfigured: false } : item),
         status: { ...scopeStatus, configured: false },
         azure: isAzure ? emptyAzureConnection : undefined,
-      } : await api<{ models: AgentModel[]; status: AgentStatus; azure?: AzureOpenAIConnection }>("/api/agent/auth", {
+      } : await api<{ models: AgentModel[]; status: AgentStatus; azure?: AzureOpenAIConnection; providers?: AgentProvider[] }>("/api/agent/auth", {
         method: "DELETE", body: { ...assistantScopeBody(scope, space), provider },
       });
       if (!live.current) return;
       setModels(result.models);
+      setProviderCatalog(connectionProviders(result));
       if (result.azure) {
         setSavedAzure(result.azure);
         if (!azureChanged) { setAzure(azureConnectionDraft(result.azure)); editDraft((draft) => ({ ...draft, azure: undefined })); }
@@ -458,7 +466,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
     const revision = providerRevision.current;
     refresh.current = controller;
     setRefreshing(true);
-    setModelFeedback(null);
+    setConnectionFeedback(null);
     try {
       const result = fixtureMode ? { models, catalogs, refresh: { modelCount: models.length } }
         : await api<{ models: AgentModel[]; catalogs: AgentModelCatalog[]; refresh: { modelCount: number } }>("/api/agent/models/refresh", {
@@ -467,12 +475,11 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       if (!live.current || controller.signal.aborted || revision !== providerRevision.current) return;
       setModels(result.models);
       setCatalogs(result.catalogs);
-      setModel((current) => resolveAssistantModelSelection(result.models, provider, current));
       // Refresh updates catalog metadata; it must not overwrite saved defaults
       // or report an Assistant configuration change that never happened.
-      setModelFeedback({ text: `${result.refresh.modelCount} models refreshed from ${providerName}` });
+      setConnectionFeedback({ text: `${result.refresh.modelCount} models refreshed from ${providerName}` });
     } catch (caught) {
-      if (live.current && !controller.signal.aborted && revision === providerRevision.current) setModelFeedback({ error: true, text: errorText(caught) });
+      if (live.current && !controller.signal.aborted && revision === providerRevision.current) setConnectionFeedback({ error: true, text: errorText(caught) });
     } finally {
       if (refresh.current === controller) refresh.current = null;
       if (live.current) setRefreshing(false);
@@ -508,71 +515,76 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   return <>
     {externalChange ? <div className="assistant-external-change"><span>Saved settings have changed.</span><button className="assistant-refresh-models" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
     <section className="assistant-settings-section" aria-labelledby="assistant-model-heading"><span className="sr-only" id="assistant-model-heading">Model</span>
-      <form onSubmit={(event) => { event.preventDefault(); if (!isAzure) void configure("model"); }}>
-        <div className="assistant-form-fields">
-          <label className="professional-field"><span className="professional-field-label">Provider</span>
-            <select aria-label="Provider" value={provider} disabled={mutationBusy || !providers.length} onChange={(event) => changeProvider(event.target.value)}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
-          </label>
-          {!isAzure ? <div className="professional-field">
-            <div className="assistant-model-field-heading"><span className="professional-field-label" id="assistant-model-label">Model</span>
-              {catalog?.refreshable ? <button className="assistant-refresh-models" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} models` : `Connect ${providerName} below to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
-            </div>
-            <ModelCatalogList id="assistant-model" labelledBy="assistant-model-label" models={providerModels} value={model} disabled={mutationBusy || !providerModels.length} onChange={(next) => { if (isMutating()) return; setModel(next); updateModelDraft(provider, next); setModelFeedback(null); setConnectionFeedback(null); }} controlRef={modelSelect} />
-            {catalog?.source === "live" && catalog.refreshedAt ? <span className="professional-field-hint">List updated {formatCatalogDate(catalog.refreshedAt)}</span> : null}
-          </div> : null}
+      <form onSubmit={(event) => { event.preventDefault(); void configure("model"); }}>
+        <div className="professional-field">
+          <span className="professional-field-label" id="assistant-model-label">Model</span>
+          <ModelCatalogList id="assistant-model" labelledBy="assistant-model-label" models={connectedModels} value={modelCatalogKey({ provider: modelProvider, id: model })} groupByProvider disabled={mutationBusy || !connectedModels.length} onChange={(next) => {
+            if (isMutating()) return;
+            const selected = connectedModels.find(item => modelCatalogKey(item) === next);
+            if (!selected) return;
+            setModelProvider(selected.provider); setModel(selected.id); updateModelDraft(selected.provider, selected.id); setModelFeedback(null);
+          }} controlRef={modelSelect} />
+          {!connectedModels.length ? <span className="professional-field-hint">Connect a provider below to choose a model.</span> : null}
         </div>
-        {!isAzure ? <div className="assistant-form-actions assistant-model-actions">
-          <AssistantOperationStatus feedback={modelFeedback} hint={!models.length ? "No models available." : !authConfigured ? "Connect this provider first." : undefined} />
-          <button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || !model || !modelChanged || !authConfigured}>{saving === "model" ? "Saving…" : "Save Model"}</button>
-        </div> : null}
+        <div className="assistant-form-actions assistant-model-actions">
+          <AssistantOperationStatus feedback={modelFeedback} />
+          <button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || !model || !modelChanged || !selectedModel?.authConfigured}>{saving === "model" ? "Saving…" : "Save Model"}</button>
+        </div>
       </form>
     </section>
     <section className="assistant-settings-section" aria-labelledby="assistant-connection-heading">
       <div className="assistant-connection-panel">
+        <div className="assistant-section-heading"><h3 id="assistant-connection-heading">Provider connections</h3></div>
+        <label className="professional-field"><span className="sr-only">Provider</span>
+          <select aria-label="Provider" value={provider} disabled={mutationBusy || !providers.length} onChange={(event) => changeProvider(event.target.value)}>
+            {[true, false].map(connected => {
+              const options = providerCatalog.filter(item => item.configured === connected);
+              return options.length ? <optgroup key={String(connected)} label={connected ? "Connected" : "Available"}>{options.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</optgroup> : null;
+            })}
+          </select>
+        </label>
         <div className="assistant-connection-row">
-          <div><h3 id="assistant-connection-heading">{providerName || "Provider"} connection</h3><p>{isAzure ? authConfigured ? "API key configured" : "Setup needed" : assistantCredentialStatus(providerAuth) ?? "Add a connection to use this provider."}</p></div>
+          <div><p>{assistantCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
           <div className="assistant-connection-controls">
+            {catalog?.refreshable ? <button className="assistant-refresh-models" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} models${catalog.refreshedAt ? ` · Updated ${formatCatalogDate(catalog.refreshedAt)}` : ""}` : `Connect ${providerName} to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
             {replaceableApiKey && !isAzure ? <button className="ui-control" type="button" disabled={operationBusy} aria-expanded={editingApiKey} aria-controls="assistant-key-form" onClick={() => { setEditingApiKey((current) => !current); setApiKey(""); setShowApiKey(false); setConnectionFeedback(null); }}>{editingApiKey ? "Cancel" : "Change API Key"}</button> : null}
             {removableAuth ? <button className="assistant-remove-credential" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
           </div>
         </div>
-        <p className="assistant-connection-shared">Shared across all work-folders and the work-fold agent.</p>
-        {(!authConfigured || isAzure || editingApiKey) && !accountOnly && provider ? <form id="assistant-key-form" className={`assistant-key-connection${isAzure ? " assistant-azure-connection" : ""}`} onSubmit={(event) => { event.preventDefault(); void configure("key"); }}>
+        {(!authConfigured || isAzure || editingApiKey) && apiKeySupported && provider ? <form id="assistant-key-form" className={`assistant-key-connection${isAzure ? " assistant-azure-connection" : ""}`} onSubmit={(event) => { event.preventDefault(); void configure("key"); }}>
           {isAzure ? <>
             <label className="professional-field"><span className="professional-field-label">Azure endpoint</span><input id="assistant-azure-endpoint" type="url" value={azure.baseUrl} maxLength={2048} placeholder="https://your-resource.openai.azure.com" spellCheck={false} autoComplete="off" disabled={mutationBusy} onChange={(event) => {
               const next = { ...azure, baseUrl: event.target.value }; setAzure(next); editDraft((draft) => ({ ...draft, azure: next })); setConnectionFeedback(null);
-            }} /><span className="professional-field-hint">Paste the resource endpoint or full Responses URL shown in Azure.</span></label>
+            }} /></label>
             <label className="professional-field"><span className="professional-field-label">Deployment names</span><textarea id="assistant-azure-deployments" value={azure.deployments} maxLength={25800} rows={2} placeholder="my-deployment, another-deployment" spellCheck={false} autoComplete="off" disabled={mutationBusy} aria-describedby="assistant-azure-deployment-help" onChange={(event) => {
               const next = { ...azure, deployments: event.target.value };
-              const names = parseAzureDeploymentNames(next.deployments);
-              const nextModel = names.includes(model) ? model : names[0] ?? "";
-              setAzure(next); setModel(nextModel);
-              editDraft((draft) => ({ ...draft, azure: next, model: { provider, model: nextModel } }));
+              setAzure(next);
+              editDraft((draft) => ({ ...draft, azure: next }));
               setConnectionFeedback(null);
-            }} /><span className="professional-field-hint" id="assistant-azure-deployment-help">Copy the Name under Deployment info in Azure. Separate multiple names with commas or new lines.</span></label>
-            {azureNames.length > 1 ? <label className="professional-field"><span className="professional-field-label">Deployment for {scopeLabel}</span><select id="assistant-azure-selected" value={model} disabled={mutationBusy} onChange={(event) => {
-              setModel(event.target.value); updateModelDraft(provider, event.target.value); setConnectionFeedback(null);
-            }}>{azureNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-              : azureNames.length === 1 ? <p className="professional-field-hint">Use <strong>{azureNames[0]}</strong> for {scopeLabel}.</p> : null}
+            }} /><span className="professional-field-hint" id="assistant-azure-deployment-help">Deployment names, separated by commas or new lines.</span></label>
           </> : null}
           <label className="professional-field"><span className="professional-field-label">{isAzure && authConfigured ? "Replace API key (optional)" : editingApiKey ? "New API Key" : "API Key"}</span>
             <span className="assistant-key-input"><input ref={apiKeyField} id="assistant-api-key" type={showApiKey ? "text" : "password"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnectionFeedback(null); }} placeholder={isAzure && authConfigured ? "Leave blank to keep the current key" : `Paste your ${providerName} API key`} autoComplete="off" spellCheck={false} disabled={mutationBusy} />
               <button className="assistant-key-visibility" type="button" aria-label={showApiKey ? "Hide API key" : "Show API key"} aria-pressed={showApiKey} disabled={mutationBusy} onClick={() => setShowApiKey((current) => !current)}>{showApiKey ? <EyeOff20Regular aria-hidden="true" /> : <Eye20Regular aria-hidden="true" />}</button>
             </span>
           </label>
-          <div className="assistant-form-actions assistant-connection-actions"><span className="professional-field-hint">Also saves the selected model for {scopeLabel}.</span><button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || !model || (isAzure ? !azure.baseUrl.trim() || (!authConfigured && !apiKey.trim()) || (authConfigured && !azureChanged && !apiKey.trim() && !modelChanged) : !apiKey.trim())}>{saving === "connection" ? "Saving…" : isAzure ? "Save Azure settings" : editingApiKey ? "Save API Key" : "Connect Provider"}</button></div>
+          <div className="assistant-form-actions assistant-connection-actions"><button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || (isAzure ? !parseAzureDeploymentNames(azure.deployments).length || !azure.baseUrl.trim() || (!authConfigured && !apiKey.trim()) || (authConfigured && !azureChanged && !apiKey.trim()) : !apiKey.trim())}>{saving === "connection" ? "Saving…" : isAzure ? "Save Azure settings" : editingApiKey ? "Save API Key" : "Connect Provider"}</button></div>
         </form> : null}
-        {oauthSupported ? <div className="assistant-form-actions"><button className="ui-control" type="button" disabled={operationBusy || !model} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : assistantAccountAction(provider, providerAuth?.authType === "oauth")}</button><span className="professional-field-hint">Also saves the selected model for {scopeLabel}.</span></div> : null}
+        {oauthSupported || selectedProvider?.guidedSetup ? <div className="assistant-provider-actions">
+          {oauthSupported ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : providerAuth?.authType === "oauth" ? "Reconnect account" : selectedProvider?.oauthLabel ?? "Connect account"}</button> : null}
+          {selectedProvider?.guidedSetup ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("setup")}>Guided setup</button> : null}
+        </div> : null}
         {accountOnly && !oauthSupported ? <p className="professional-field-hint">Account sign-in is available in the desktop app.</p> : null}
+        {!apiKeySupported && !selectedProvider?.oauth ? <p className="professional-field-hint">Uses credentials configured outside work-fold.</p> : null}
         {connectionFeedback ? <AssistantOperationStatus feedback={connectionFeedback} /> : null}
-        {subscriptionNote ? <p className="assistant-provider-note">{subscriptionNote}</p> : null}
+        <p className="assistant-connection-shared">Connections are shared by all Workers.</p>
       </div>
     </section>
     {scope === "space" ? <section className="assistant-settings-section" aria-labelledby="assistant-instructions-heading">
       <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Worker Instructions</h3></div>
       <form onSubmit={(event) => void saveInstructions(event)}>
         <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker Instructions</span><textarea ref={instructionsField} value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
-        <div className="assistant-form-actions"><button className="ui-control" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save Instructions"}</button><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /></div>
+        <div className="assistant-form-actions assistant-instructions-actions"><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /><button className="ui-control" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save Instructions"}</button></div>
       </form>
     </section> : null}
   </>;
@@ -586,9 +598,9 @@ function serializeAzureConnection(draft: AzureConnectionDraft): AzureOpenAIConne
   return normalizeAzureOpenAIConnection({ baseUrl: draft.baseUrl, deployments: parseAzureDeploymentNames(draft.deployments) });
 }
 
-type AssistantSettingsResponse = { models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null; azure?: AzureOpenAIConnection };
+type AssistantSettingsResponse = { models: AgentModel[]; providers?: AgentProvider[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null; azure?: AzureOpenAIConnection };
 function settingsSnapshot(result: AssistantSettingsResponse): string {
-  return JSON.stringify([result.status.provider, result.status.model, result.status.configured, result.models, result.catalogs, result.instructions ?? "", result.azure ?? emptyAzureConnection]);
+  return JSON.stringify([result.status.provider, result.status.model, result.status.configured, result.models, connectionProviders(result), result.catalogs, result.instructions ?? "", result.azure ?? emptyAzureConnection]);
 }
 
 type AssistantFeedback = { text: string; error?: boolean };
@@ -597,29 +609,21 @@ function AssistantOperationStatus({ feedback, hint }: { feedback: AssistantFeedb
 }
 
 function unique<T>(items: T[]) { return [...new Set(items)]; }
-function providerDisplayName(models: AgentModel[], provider: string) { return models.find((item) => item.provider === provider)?.providerName || provider; }
-function assistantCredentialStatus(model: AgentModel | undefined) {
-  if (!model?.authConfigured) return null;
+function connectionProviders(result: { models: AgentModel[]; providers?: AgentProvider[] }): AgentProvider[] {
+  return result.providers ?? unique(result.models.map((model) => model.provider)).map((id) => {
+    const models = result.models.filter((model) => model.provider === id);
+    const auth = models.find((model) => model.authConfigured);
+    return { id, name: models[0]?.providerName ?? id, configured: Boolean(auth), authSource: auth?.authSource,
+      authLabel: auth?.authLabel, authType: auth?.authType, apiKey: true, oauth: models.some((model) => model.oauthSupported),
+      oauthAvailable: models.some((model) => model.oauthSupported), guidedSetup: false, modelCount: models.length };
+  }).sort((left, right) => left.name.localeCompare(right.name));
+}
+function assistantCredentialStatus(model: Pick<AgentModel, "authConfigured" | "authSource" | "authType" | "authLabel"> | undefined) {
+  if (!model?.authConfigured) return model?.authSource === "stored" ? "Saved · setup needed" : null;
   if (model.authSource === "stored") return model.authType === "oauth" ? "Provider account connected on this computer" : "API key saved on this computer";
   if (model.authSource === "environment") return `API key supplied by ${model.authLabel || "the app environment"}`;
   if (model.authSource === "models_json_key" || model.authSource === "models_json_command") return "Credential configured in Pi models settings";
   return "Credential supplied outside work-fold";
-}
-function providerAccountOnly(provider: string) {
-  return provider === "openai-codex" || provider === "github-copilot";
-}
-function assistantAccountAction(provider: string, configured: boolean) {
-  if (configured) return "Reconnect account";
-  if (provider === "openai-codex") return "Sign in with ChatGPT";
-  if (provider === "github-copilot") return "Sign in with GitHub";
-  if (provider === "anthropic") return "Connect Anthropic account";
-  return "Connect account";
-}
-function providerSubscriptionNote(provider: string) {
-  if (provider === "openai-codex") return "Connects to OpenAI’s Codex subscription service. Eligibility and limits follow your ChatGPT plan; OpenAI API usage is a separate connection under the OpenAI provider.";
-  if (provider === "github-copilot") return "Connects through GitHub OAuth. GitHub controls account eligibility, available models, and billing.";
-  if (provider === "anthropic") return "Anthropic recommends API-key authentication for third-party tools. A Claude subscription may not cover work-fold; usage credits and current account terms can apply.";
-  return "Availability and limits follow the provider’s current account terms.";
 }
 function assistantScopeParams(scope: AssistantModelScope, space: SpaceSummary | null) {
   const params = new URLSearchParams({ scope });

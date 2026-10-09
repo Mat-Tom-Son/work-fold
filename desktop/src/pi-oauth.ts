@@ -9,6 +9,7 @@ export interface DesktopOAuthMessageBoxOptions {
   message: string;
   detail?: string;
   noLink?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface DesktopPiOAuthHost {
@@ -30,8 +31,8 @@ export interface DesktopPiOAuthHost {
  */
 export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHooks {
   return {
-    openUrl(info) {
-      void Promise.resolve(host.openExternal(info.url)).catch((error) => host.onError?.(error));
+    async openUrl(info) {
+      await host.openExternal(info.url);
     },
     showDeviceCode(info) {
       host.writeClipboard(info.userCode);
@@ -49,10 +50,10 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
     prompt(input) {
       return promptFromClipboard(host, input);
     },
-    manualCodeInput(signal) {
+    manualCodeInput(signal, input) {
       return promptFromClipboard(host, {
-        message: "Paste the OAuth redirect URL or authorization code",
-        placeholder: "Redirect URL or authorization code", signal,
+        message: input?.message ?? "Paste the OAuth redirect URL or authorization code",
+        placeholder: input?.placeholder ?? "Redirect URL or authorization code", signal,
       });
     },
     async select(input) {
@@ -63,16 +64,25 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
         type: "question",
         title: "Choose sign-in method",
         message: input.message,
+        detail: input.options.filter((option) => option.description).map((option) => `${option.label}: ${option.description}`).join("\n") || undefined,
         buttons: [...input.options.map((option) => option.label), "Cancel"],
         defaultId: 0,
         cancelId,
         noLink: true,
+        signal: input.signal,
       });
       input.signal?.throwIfAborted();
       return result.response === cancelId ? undefined : input.options[result.response]?.id;
     },
     progress(message) {
       host.onProgress?.(message);
+    },
+    async info(input) {
+      await host.showMessageBox({
+        type: "info", title: "Provider setup", message: input.message,
+        detail: input.links?.map((link) => `${link.label ?? "Learn more"}: ${link.url}`).join("\n"),
+        buttons: ["Continue"], defaultId: 0, cancelId: 0, noLink: true,
+      });
     },
   };
 }
@@ -91,7 +101,7 @@ async function promptFromClipboard(
       message: input.message,
       detail: input.placeholder
         ? `Copy the requested value from your browser, then choose Paste from clipboard.\n\nExpected: ${input.placeholder}`
-        : "Copy the requested value from your browser, then choose Paste from clipboard.",
+        : "Copy the requested value, then choose Paste from clipboard.",
       buttons: [
         "Paste from clipboard",
         ...(input.allowEmpty ? ["Use default"] : []),
@@ -100,6 +110,7 @@ async function promptFromClipboard(
       defaultId: 0,
       cancelId,
       noLink: true,
+      signal: input.signal,
     });
 
     input.signal?.throwIfAborted();

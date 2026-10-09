@@ -254,6 +254,23 @@ export interface AgentModel {
   contextWindow?: number;
 }
 
+/** Non-secret connection metadata from Pi's complete provider catalog. */
+export interface AgentProvider {
+  id: string;
+  name: string;
+  configured: boolean;
+  authSource?: AgentModel["authSource"];
+  authLabel?: string;
+  authType?: "api_key" | "oauth";
+  apiKey: boolean;
+  apiKeyLabel?: string;
+  oauth: boolean;
+  oauthLabel?: string;
+  oauthAvailable: boolean;
+  guidedSetup: boolean;
+  modelCount: number;
+}
+
 export interface AgentModelCatalog {
   provider: string;
   refreshable: boolean;

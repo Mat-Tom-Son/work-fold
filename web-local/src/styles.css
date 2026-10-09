@@ -11212,7 +11212,7 @@ textarea:focus-visible,
 .professional-assistant .assistant-scope-control {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
   margin: 0;
   padding: 0 0 22px;
@@ -11234,12 +11234,13 @@ textarea:focus-visible,
   align-items: center;
   gap: 10px;
   min-width: 0;
-  min-height: 56px;
+  min-height: 70px;
   padding: 12px 16px;
   border: 1.5px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-lg);
   background: var(--ui-surface);
   cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 
 .professional-assistant .assistant-scope-control label:hover {
@@ -11358,7 +11359,8 @@ textarea:focus-visible,
   flex-shrink: 0;
 }
 
-.professional-assistant .assistant-model-actions .ui-control {
+.professional-assistant .assistant-model-actions .ui-control,
+.professional-assistant .assistant-instructions-actions .ui-control {
   margin-left: auto;
 }
 
@@ -11386,12 +11388,12 @@ textarea:focus-visible,
 
 .professional-assistant .assistant-connection-panel {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   min-width: 0;
-  padding: 18px;
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
-  background: var(--ui-canvas);
+}
+
+.professional-assistant .assistant-connection-panel .assistant-section-heading {
+  margin: 0;
 }
 
 .professional-assistant .assistant-connection-row h3 {
@@ -11485,6 +11487,17 @@ textarea:focus-visible,
   margin-left: auto;
 }
 
+.professional-assistant .assistant-provider-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.professional-assistant .assistant-provider-actions .ui-control,
+.professional-assistant .assistant-form-actions .ui-control {
+  min-height: 38px;
+}
+
 .professional-assistant .assistant-connection-panel .assistant-azure-connection {
   margin-top: 0;
 }
@@ -11526,8 +11539,8 @@ textarea:focus-visible,
   grid-template-columns: minmax(0, 1fr);
 }
 
-.professional-assistant .assistant-connection-panel {
-  padding: 14px;
+.professional-assistant .assistant-provider-actions {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .professional-assistant .assistant-connection-row {
@@ -21301,8 +21314,10 @@ to {
   color: var(--ui-text);
 }
 
-:root[data-theme] .app-shell .settings-window .settings-tabs {
-  flex-basis: 194px;
+@media (min-width: 701px) {
+  :root[data-theme] .app-shell .settings-window .settings-tabs {
+    flex-basis: 194px;
+  }
 }
 
 :root[data-theme] .app-shell .send-button.stop-send-button {

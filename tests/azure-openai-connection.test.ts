@@ -72,8 +72,12 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   assert.deepEqual(JSON.parse(loadedText).azure, normalizeAzureOpenAIConnection(azure));
 
   const changed = { ...azure, baseUrl: "https://other.services.ai.azure.com/openai/v1/responses" };
-  const updated = await configure(changed);
+  const updated = await fetch(`${api.origin}/api/agent/configure`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ scope: "management", provider: AZURE_OPENAI_PROVIDER, azure: changed }),
+  });
   assert.equal(updated.status, 200, await updated.clone().text());
+  assert.equal((await updated.json()).status.model, "team", "connection updates preserve the saved model without submitting it");
   assert.equal((await modelRuntime.getAuth(AZURE_OPENAI_PROVIDER))?.auth.apiKey, "synthetic-azure-secret");
   assert.equal(((await authStorage.read(AZURE_OPENAI_PROVIDER)) as any)?.env?.UNRELATED_SECRET, "private-environment-value");
   const beforeInvalid = await authStorage.read(AZURE_OPENAI_PROVIDER);

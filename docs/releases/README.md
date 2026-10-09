@@ -6,6 +6,8 @@ release-note file alone does not mean a version was published.
 
 ## October 9, 2026
 
+[0.4.50](work-fold-0.4.50.md) fixes ChatGPT account sign-in and separates saved provider connections from a model picker spanning every connected provider, with guided Pi setup and cleaner Settings controls.
+
 [0.4.49](work-fold-0.4.49.md) adds animated tab reordering and makes composer focus and empty-chat identity follow their owning work-folder colors.
 
 [0.4.48](work-fold-0.4.48.md) trims the Mac title bar, joins the active tab to its work surface, and connects the pane edges to the navigation rail and window.

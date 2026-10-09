@@ -19,7 +19,7 @@ import {
   type ModelThinkingLevel,
 } from "@earendil-works/pi-ai/compat";
 
-import type { CredentialStore, AuthInteraction } from "@earendil-works/pi-ai";
+import type { CredentialStore, AuthInteraction, AuthType } from "@earendil-works/pi-ai";
 import { createPersistentPiAuthStorage } from "./auth-storage.js";
 
 type AuthStatus = ReturnType<ModelRuntime["getProviderAuthStatus"]>;
@@ -167,7 +167,11 @@ export interface PiProviderSetupStatus {
   configured: boolean;
   authSource?: AuthStatus["source"];
   authLabel?: string;
+  authType?: AuthType;
+  apiKey: boolean;
+  apiKeyLabel?: string;
   oauth: boolean;
+  oauthLabel?: string;
   modelCount: number;
 }
 
@@ -221,11 +225,12 @@ export interface PiOAuthHooks {
   prompt(input: { message: string; placeholder?: string; allowEmpty?: boolean; secret?: boolean; signal?: AbortSignal }): Promise<string>;
   select(input: {
     message: string;
-    options: Array<{ id: string; label: string }>;
+    options: Array<{ id: string; label: string; description?: string }>;
     signal?: AbortSignal;
   }): Promise<string | undefined>;
   progress?(message: string): void;
-  manualCodeInput?(signal?: AbortSignal): Promise<string>;
+  info?(input: { message: string; links?: readonly { url: string; label?: string }[] }): Promise<void> | void;
+  manualCodeInput?(signal?: AbortSignal, input?: { message: string; placeholder?: string }): Promise<string>;
   signal?: AbortSignal;
 }
 
@@ -329,18 +334,23 @@ export async function getPiSetupStatus(
   const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
   const providerDiagnostics = await loadRuntimeProviders(spaceRoot, runtime);
   const models = runtime.modelRuntime.getAllModels();
-  const oauthProviders = new Set(runtime.modelRuntime.getProviders().filter((item) => item.auth?.oauth).map((item) => item.id));
+  const stored = new Map((await runtime.credentials.list()).map((item) => [item.providerId, item]));
   const providerIds = new Set(runtime.modelRuntime.getProviders().map((item) => item.id));
   const providers = [...providerIds].map((id) => {
     const providerModels = models.filter((model) => model.provider === id);
     const auth = runtime.modelRuntime.getProviderAuthStatus(id);
+    const provider = runtime.modelRuntime.getProvider(id)!;
     return {
       id,
       name: runtime.modelRuntime.getProvider(id)?.name ?? id,
       configured: auth.configured,
       ...(auth.source ? { authSource: auth.source } : {}),
       ...(auth.label ? { authLabel: auth.label } : {}),
-      oauth: oauthProviders.has(id),
+      ...(stored.get(id) ? { authType: stored.get(id)!.type } : {}),
+      apiKey: Boolean(provider.auth?.apiKey?.login),
+      ...(provider.auth?.apiKey ? { apiKeyLabel: provider.auth.apiKey.name } : {}),
+      oauth: Boolean(provider.auth?.oauth),
+      ...(provider.auth?.oauth ? { oauthLabel: provider.auth.oauth.loginLabel ?? provider.auth.oauth.name } : {}),
       modelCount: providerModels.length,
     } satisfies PiProviderSetupStatus;
   }).sort((left, right) => left.name.localeCompare(right.name));
@@ -475,13 +485,16 @@ export async function savePiApiKey(
   const key = apiKey.trim();
   if (!key) throw new Error("API key is required.");
   const runtime = await resolvePiRuntime(spaceRoot, options.runtimeProvider, { requestProjectTrust: false });
-  await runtime.credentials.modify(id, async () => ({
+  await loadRuntimeProviders(spaceRoot, runtime);
+  if (!runtime.modelRuntime.getProvider(id)?.auth?.apiKey?.login) throw new Error(`Provider ${id} does not offer API-key setup.`);
+  await runtime.credentials.modify(id, async (current) => ({
     type: "api_key",
     key,
-    ...(options.env && Object.keys(options.env).length > 0 ? { env: cleanStringRecord(options.env) } : {}),
+    ...(options.env !== undefined ? { env: cleanStringRecord(options.env) }
+      : current?.type === "api_key" && current.env ? { env: current.env } : {}),
   }));
   await runtime.flushCredentials();
-  await runtime.modelRuntime.refresh({ allowNetwork: false });
+  await runtime.modelRuntime.refresh({ allowNetwork: true, providers: [id], signal: AbortSignal.timeout(15_000) });
 }
 
 export async function removePiProviderAuth(
@@ -493,7 +506,7 @@ export async function removePiProviderAuth(
   const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
   await runtime.modelRuntime.logout(id);
   await runtime.flushCredentials();
-  await runtime.modelRuntime.refresh({ allowNetwork: false });
+  await runtime.modelRuntime.refresh({ allowNetwork: false, providers: [id] });
 }
 
 export async function loginPiOAuth(
@@ -502,13 +515,33 @@ export async function loginPiOAuth(
   hooks: PiOAuthHooks,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<void> {
+  return loginPiProvider(spaceRoot, providerId, "oauth", hooks, runtimeProvider);
+}
+
+/** Pi owns the prompts and the complete credential, including provider-scoped configuration. */
+export async function loginPiProvider(
+  spaceRoot: string,
+  providerId: string,
+  method: AuthType,
+  hooks: PiOAuthHooks,
+  runtimeProvider?: PiRuntimeProvider,
+): Promise<void> {
   const id = cleanProviderId(providerId);
   const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
   await loadRuntimeProviders(spaceRoot, runtime);
-  if (!runtime.modelRuntime.getProvider(id)?.auth?.oauth) throw new Error(`Provider ${id} does not offer Pi OAuth login.`);
-  await runtime.modelRuntime.login(id, "oauth", piAuthInteraction(hooks), { agentName: "work-fold" });
+  const auth = runtime.modelRuntime.getProvider(id)?.auth;
+  if (method === "oauth" ? !auth?.oauth : !auth?.apiKey?.login) throw new Error(`Provider ${id} does not offer ${method} login.`);
+  try {
+    await runtime.modelRuntime.login(id, method, piAuthInteraction(hooks), {
+      agentName: "work-fold",
+      getDeviceId: () => runtime.settingsManager.getOrCreateDeviceId(),
+    });
+  } finally {
+    // Pi creates the installation identity lazily. Keep it across failed logins too.
+    await runtime.settingsManager.flush();
+  }
   await runtime.flushCredentials();
-  await runtime.modelRuntime.refresh({ allowNetwork: false });
+  await runtime.modelRuntime.refresh({ allowNetwork: true, providers: [id], signal: AbortSignal.timeout(15_000) });
 }
 
 export async function setPiDefaultModel(
@@ -789,10 +822,10 @@ export function piAuthInteraction(hooks: PiOAuthHooks): AuthInteraction {
       const owned = prompt.signal ? AbortSignal.any([signal, prompt.signal]) : signal;
       owned.throwIfAborted();
       const operation = prompt.type === "select"
-        ? hooks.select({ message: prompt.message, options: prompt.options.map(({ id, label }) => ({ id, label })), signal: owned })
+        ? hooks.select({ message: prompt.message, options: prompt.options.map(({ id, label, description }) => ({ id, label, description })), signal: owned })
         : prompt.type === "manual_code" && hooks.manualCodeInput
-          ? hooks.manualCodeInput(owned)
-          : hooks.prompt({ message: prompt.message, placeholder: prompt.placeholder, secret: prompt.type === "secret", signal: owned });
+          ? hooks.manualCodeInput(owned, prompt)
+          : hooks.prompt({ message: prompt.message, placeholder: prompt.placeholder, allowEmpty: prompt.type === "text", secret: prompt.type === "secret", signal: owned });
       const value = await new Promise<string | undefined>((resolve, reject) => {
         const abort = () => reject(owned.reason);
         owned.addEventListener("abort", abort, { once: true });
@@ -806,6 +839,7 @@ export function piAuthInteraction(hooks: PiOAuthHooks): AuthInteraction {
     notify(event) {
       if (event.type === "auth_url") notify(() => hooks.openUrl({ url: event.url, instructions: event.instructions }));
       else if (event.type === "device_code") { notify(() => hooks.showDeviceCode(event)); notify(() => hooks.openUrl({ url: event.verificationUri })); }
+      else if (event.type === "info" && hooks.info) notify(() => hooks.info!(event));
       else if (event.type === "progress" || event.type === "info") hooks.progress?.(event.message);
     },
   };
