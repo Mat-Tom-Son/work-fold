@@ -16,7 +16,6 @@ import {
   Add16Regular,
   ArrowSync16Regular,
   ArrowUpload16Regular,
-  Bookmark16Regular,
   BookToolbox20Regular,
   ChevronRight16Regular,
   Box16Regular,
@@ -32,7 +31,7 @@ import {
 
 import { api, apiForm, errorText, safeExternalHref } from "../../lib/api";
 import { useModalDialog } from "../../hooks/useModalDialog";
-import { externalLinkHost, monogramHue, monogramInitials } from "../../lib/capability-identity";
+import { externalLinkHost } from "../../lib/capability-identity";
 import { createSpaceOperationGate, type SpaceOperationToken } from "../../lib/space-operation-gate";
 import { includedToolReadiness } from "../../lib/included-tool-readiness";
 import type {
@@ -507,9 +506,12 @@ export function CapabilitiesPane({
         </div>
       </header>
 
-      <div className="capabilities-view-tabs" role="tablist" aria-label="Skills and Extensions view">
-        <button id="capabilities-installed-tab" type="button" role="tab" tabIndex={view === "installed" ? 0 : -1} aria-controls="capabilities-installed-panel" aria-selected={view === "installed"} className={view === "installed" ? "active" : ""} onKeyDown={handleViewTabKeyDown} onClick={() => selectView("installed")}>Installed</button>
-        <button id="capabilities-discover-tab" type="button" role="tab" tabIndex={view === "discover" ? 0 : -1} aria-controls="capabilities-discover-panel" aria-selected={view === "discover"} className={view === "discover" ? "active" : ""} onKeyDown={handleViewTabKeyDown} onClick={() => selectView("discover")}>Discover</button>
+      <div className="capabilities-navigation">
+        <div className="capabilities-view-tabs" role="tablist" aria-label="Skills and Extensions view">
+          <button id="capabilities-installed-tab" type="button" role="tab" tabIndex={view === "installed" ? 0 : -1} aria-controls="capabilities-installed-panel" aria-selected={view === "installed"} className={view === "installed" ? "active" : ""} onKeyDown={handleViewTabKeyDown} onClick={() => selectView("installed")}>Installed</button>
+          <button id="capabilities-discover-tab" type="button" role="tab" tabIndex={view === "discover" ? 0 : -1} aria-controls="capabilities-discover-panel" aria-selected={view === "discover"} className={view === "discover" ? "active" : ""} onKeyDown={handleViewTabKeyDown} onClick={() => selectView("discover")}>Discover</button>
+        </div>
+        <button className="ui-control capabilities-add-trigger" type="button" onClick={() => openAddDialog()}><Add16Regular aria-hidden="true" />Add Custom</button>
       </div>
 
       {view === "installed" ? (
@@ -522,7 +524,6 @@ export function CapabilitiesPane({
             onQueryChange={changeQuery}
             onTypeChange={changeTypeFilter}
             onDiscoverSortChange={setDiscoverSort}
-            onAddCustom={openAddDialog}
           />
           {!catalog ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading Skills and Extensions</div> : null}
           {readiness?.spaceId === space.id && readiness.error ? <div className="inline-error" role="alert">Setup status could not be loaded: {readiness.error}</div> : null}
@@ -574,7 +575,6 @@ export function CapabilitiesPane({
             onQueryChange={changeQuery}
             onTypeChange={changeTypeFilter}
             onDiscoverSortChange={setDiscoverSort}
-            onAddCustom={openAddDialog}
           />
           <section className="capabilities-panel capabilities-discover-panel" aria-label="Catalog results">
           <DiscoverCapabilities
@@ -639,7 +639,6 @@ function CapabilityToolbar({
   onQueryChange,
   onTypeChange,
   onDiscoverSortChange,
-  onAddCustom,
 }: {
   view: AssistantToolsView;
   query: string;
@@ -648,7 +647,6 @@ function CapabilityToolbar({
   onQueryChange: (value: string) => void;
   onTypeChange: (value: CapabilityTypeFilter) => void;
   onDiscoverSortChange: (value: DiscoverSort) => void;
-  onAddCustom: () => void;
 }) {
   const types: Array<{ value: CapabilityTypeFilter; label: string }> = [
     { value: "all", label: "All" },
@@ -657,7 +655,7 @@ function CapabilityToolbar({
   ];
   return (
     <section className="capabilities-toolbar" aria-label={`${view === "installed" ? "Installed" : "Discover"} tool filters`}>
-      <label className="capabilities-search"><Search20Regular aria-hidden="true" /><input type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={view === "installed" ? "Search installed tools" : "Search the catalog"} /></label>
+      <label className="capabilities-search"><Search20Regular aria-hidden="true" /><input type="search" aria-label={view === "installed" ? "Search installed tools" : "Search the catalog"} value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={view === "installed" ? "Search installed tools" : "Search the catalog"} /></label>
       <div className="capabilities-filter-row">
         <div className="capabilities-type-chips" role="group" aria-label="Tool type">
           {types.map((type) => (
@@ -668,7 +666,6 @@ function CapabilityToolbar({
           <label className="capabilities-sort"><span>Sort</span><select aria-label="Catalog sort" value={discoverSort} onChange={(event) => onDiscoverSortChange(event.target.value as DiscoverSort)}><option value="official">First-Party First</option><option value="downloads">Most Downloads</option><option value="recent">Recently Updated</option><option value="name">Name</option></select></label>
         ) : null}
       </div>
-      <button className="ui-control capabilities-add-trigger" type="button" onClick={() => onAddCustom()}><Add16Regular aria-hidden="true" />Add Custom</button>
     </section>
   );
 }
@@ -855,7 +852,7 @@ function InstalledCapabilityRow({ item, onSelect }: { item: InstalledCapability;
   const detail = item.description || (item.kind === "extension" ? `${item.tools.length} tools · ${item.commands.length} commands` : "");
   return (
     <button className="capabilities-resource-card" type="button" onClick={onSelect}>
-      <CapabilityMonogram name={item.name} kind={item.kind} />
+      <span className="capabilities-kind-icon" aria-hidden="true">{item.kind === "skill" ? <BookToolbox20Regular /> : <PlugConnected20Regular />}</span>
       <span className="capabilities-resource-copy">
         <span className="capabilities-resource-title"><strong>{item.name}</strong><span>{item.kind === "skill" ? "Skill" : "Extension"}</span>{!item.enabled ? <span className="capabilities-resource-state">Turned Off</span> : trouble ? <span className="capabilities-resource-state error">{statusLabel(item.status)}</span> : null}</span>
         {detail ? <span className="capabilities-resource-detail">{detail}</span> : null}
@@ -893,9 +890,17 @@ function DiscoverCapabilityCard({ item, busy, disabled, onInstall }: { item: Cap
   const installable = canInstallDiscoverItem(item);
   return (
     <article className="capabilities-discover-card">
-      <CapabilityMonogram name={item.name} kind={item.types.includes("extension") ? "extension" : "skill"} />
-      <div className="capabilities-resource-copy"><div className="capabilities-resource-title"><strong>{item.name}</strong>{item.types.map((type) => <span key={type}>{type === "skill" ? "Skill" : "Extension"}</span>)}{item.official ? <span className="capabilities-official-mark" title="On Pi's first-party / reference list. That says where it comes from, not that it was safety-reviewed."><Bookmark16Regular aria-hidden="true" /><span className="sr-only">First-party / reference</span></span> : null}</div><p>{item.description}</p><div className="capabilities-resource-meta">{item.author ? <span>{item.author}</span> : null}{typeof item.downloads === "number" ? <span>{item.downloads.toLocaleString()} downloads</span> : null}{repositoryHref ? <ExternalSourceLink href={repositoryHref} label="View Source" /> : null}</div></div>
-      {installable ? <button className="ui-control" type="button" disabled={disabled} onClick={onInstall}>{busy ? <ArrowSync16Regular className="spin" /> : null}Details</button> : <span className="professional-status-badge">Reference Only</span>}
+      <div className="capabilities-resource-copy">
+        <div className="capabilities-resource-title"><strong>{item.name}</strong>{item.types.map((type) => <span className="capabilities-resource-kind" key={type}>{type === "skill" ? "Skill" : "Extension"}</span>)}</div>
+        <p>{item.description}</p>
+        <div className="capabilities-resource-meta">
+          {item.author ? <span>{item.author}</span> : null}
+          {item.official ? <span title="On Pi's first-party / reference list. That says where it comes from, not that it was safety-reviewed.">First-party / reference</span> : null}
+          {typeof item.downloads === "number" ? <span>{item.downloads.toLocaleString()} downloads</span> : null}
+          {repositoryHref ? <ExternalSourceLink href={repositoryHref} label="View Source" icon={false} /> : null}
+        </div>
+      </div>
+      {installable ? <button className="ui-control" type="button" disabled={disabled} onClick={onInstall}>{busy ? "Loading…" : "Details"}</button> : <span className="professional-status-badge">Reference Only</span>}
     </article>
   );
 }
@@ -1078,28 +1083,13 @@ function CapabilityStringList({ title, items }: { title: string; items: string[]
   return items.length ? <section className="capability-string-list"><h3>{title}</h3><div>{items.map((item) => <code key={item}>{item}</code>)}</div></section> : null;
 }
 
-/**
- * A stable, network-free identity tile: initials from the name, a hue from its
- * hash. Catalog entries carry no artwork, and the renderer's CSP keeps remote
- * images out, so this is what makes a list of tools scannable.
- */
-function CapabilityMonogram({ name, kind }: { name: string; kind: "skill" | "extension" }) {
-  const initials = monogramInitials(name);
-  return (
-    <span className={`capabilities-monogram kind-${kind}`} style={{ "--monogram-hue": String(monogramHue(name)) } as React.CSSProperties} aria-hidden="true">
-      <span className="capabilities-monogram-initials">{initials}</span>
-      <span className="capabilities-monogram-kind">{kind === "skill" ? <BookToolbox20Regular /> : <PlugConnected20Regular />}</span>
-    </span>
-  );
-}
-
 /** Names the destination of an outbound link — a GitHub mark for GitHub, the host otherwise. */
-function ExternalSourceLink({ href, label }: { href: string; label: string }) {
+function ExternalSourceLink({ href, label, icon = true }: { href: string; label: string; icon?: boolean }) {
   const host = externalLinkHost(href);
   const github = host === "github.com";
   return (
     <a className="capabilities-external-link" href={href} target="_blank" rel="noreferrer" title={`${label} on ${host}`}>
-      {github ? <GitHubMark /> : <Open16Regular aria-hidden="true" />}
+      {icon ? (github ? <GitHubMark /> : <Open16Regular aria-hidden="true" />) : null}
       <span>{label}</span>
     </a>
   );

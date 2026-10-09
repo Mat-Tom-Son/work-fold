@@ -7,5 +7,6 @@ October 9, 2026
 - Escape and interrupted drags cancel without changing the saved order. Overflowing tabs scroll near the edge. Group by work-folder keeps dragged tabs within their folder.
 - Alt+Shift+Left/Right moves the focused tab with a spoken position update. Both application and system Reduce Motion disable the sliding animation.
 - Included tools have clearer tile borders, including in light mode. Settings uses the shorter **Shortcut Keys** navigation label.
+- Skills & Extensions has compact view tabs, an aligned search and filter toolbar, and consistent catalog gutters. Discover listings are text-only, with readable provenance and source links; installed tools use neutral type glyphs instead of colored initials.
 
 The [Mac release feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest) records publication; source notes alone do not establish availability.

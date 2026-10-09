@@ -10,10 +10,12 @@ work-fold uses Pi's native capability system for full-trust Skills and Extension
 The rail's **Add** button opens the **Skills & Extensions** popup directly (2026-09-25): a dialog like Settings and Keyboard shortcuts, pinned to the Space it was opened from. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. It starts with an **Included with work-fold** strip holding exactly the five included tools — Chrome, Computer Control, Web, Documents, and Service Connections — each with one concise status (Ready, Setup needed, Unavailable, Not checked, or Turned off; older Computer Control evidence says Last Check Passed, Service Connections says No Connections or Configured, and Chrome shows Connected, Connecting, or Not connected) and a **Set up** button only when a person can act. Below the strip, **Everywhere** (the fold and every Space) and **This folder only** (stored in the Space folder) sit side by side and stack on narrow widths; a row opens its details on click, and the groups have no Add buttons. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. There is no Add menu and no Library tab: the desktop Library was retired on 2026-09-25, and only the CLI act-lane `library` family and its server routes remain, unchanged for now as a compatibility contract.
 
 The rail's Add control uses a blocks icon. Installed and Discover use a
-prominent segmented tab control. Both views offer a compact **+ Add Custom**
-button below their search and filters, opening the existing scope-first import
-and package-source dialog. These controls inherit the active appearance's
-surface, text, border, and accent variables.
+compact segmented tab control beside **+ Add Custom**, which opens the existing
+scope-first import and package-source dialog. Search, type filters, and sorting
+share an aligned toolbar that wraps at narrow widths. Discover uses text-only
+rows with names, types, descriptions, authors, provenance, and source links;
+installed rows use neutral type glyphs. These controls inherit the active
+appearance's surface, text, border, and accent variables.
 
 ## Management visibility
 

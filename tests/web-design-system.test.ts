@@ -123,8 +123,10 @@ test("Skills & Extensions opens as a popup from the Add button, and apps are man
   assert.match(capabilitiesSource, /"work-fold agent"[\s\S]*"Here"/);
   assert.match(capabilitiesSource, /"Everywhere"[\s\S]*This work-folder only/);
   assert.doesNotMatch(capabilitiesSource, /Personal · everywhere|"Personal"/);
-  // Catalog rows get a network-free identity tile and name where links go.
-  assert.match(capabilitiesSource, /function CapabilityMonogram/);
+  // Discover is text-only; installed rows use a neutral type glyph.
+  assert.doesNotMatch(capabilitiesSource, /CapabilityMonogram|monogramHue|Bookmark16Regular/);
+  assert.match(capabilitiesSource, /capabilities-kind-icon/);
+  assert.match(capabilitiesSource, /label="View Source" icon=\{false\}/);
   assert.match(capabilitiesSource, /function GitHubMark/);
   assert.doesNotMatch(capabilitiesSource, />Review<\/button>|Install…/);
   assert.doesNotMatch(capabilitiesSource, /Installation location|Install to</);
@@ -157,11 +159,9 @@ test("Skills & Extensions opens as a popup from the Add button, and apps are man
   // live in the Space-owned Apps tab, never inside Skills & Extensions.
   assert.doesNotMatch(capabilitiesSource, /RestrictedAppsSection|restrictedApps|"Apps"/);
   assert.match(appSource, /id: "go:space-apps"/);
-  // Catalog and source links show an icon for their destination, never a
-  // host name; provenance is a glyph with a tooltip, not a pill on every row.
+  // Catalog listings keep provenance readable in text, including its limit.
   assert.doesNotMatch(capabilitiesSource, /capabilities-external-host|"GitHub"|capabilities-official-badge/);
-  assert.match(capabilitiesSource, /className="sr-only">First-party \/ reference</);
-  assert.match(capabilitiesSource, /capabilities-official-mark/);
+  assert.match(capabilitiesSource, /safety-reviewed\."\>First-party \/ reference</);
   assert.match(capabilitiesSource, /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/);
   assert.doesNotMatch(capabilitiesSource, /from\s+["']lucide-react["']/);
 
@@ -188,8 +188,8 @@ test("Skills & Extensions opens as a popup from the Add button, and apps are man
   for (const className of [...staticClassTokens(capabilitiesSource)].filter((name) => /^capabilit(?:y|ies)-/.test(name))) {
     assert.equal(hasClassSelector(surfacesCss, className), true, `Static Capabilities class .${className} must be styled`);
   }
-  assert.match(surfacesCss, /\.space-surface-body:has\(> \.assistant-tools-pane\)[\s\S]*?container-type:\s*inline-size/);
-  assert.match(surfacesCss, /@container space-pane \(max-width: 520px\)[\s\S]*?\.capabilities-resource-card/);
+  assert.match(surfacesCss, /\.assistant-tools-modal\s*\{[^}]*container-name: skills-and-extensions;[^}]*container-type: inline-size/);
+  assert.match(surfacesCss, /@container skills-and-extensions \(max-width: 540px\)[\s\S]*?\.capabilities-discover-card/);
   assert.match(surfacesCss, /@media \(max-width: 600px\)[\s\S]*?\.capability-dialog/);
 });
 

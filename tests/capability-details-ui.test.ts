@@ -399,3 +399,46 @@ test("real detail CSS keeps long paths above tool lists and preserves scrolling 
     }
   } finally { await rm(scratch, { recursive: true, force: true }); }
 });
+
+test("actual catalog markup keeps text-only rows and aligned controls at desktop and narrow sizes", { timeout: 60_000 }, async (t) => {
+  const candidates = [process.env.WORKFOLD_CSS_BROWSER, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/chromium"].filter(Boolean) as string[];
+  let browser: string | undefined;
+  for (const candidate of candidates) { try { await access(candidate); browser = candidate; break; } catch {} }
+  if (!browser) { t.skip("Chromium is needed for actual catalog layout verification."); return; }
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  await dom.render(createElement(CapabilitiesPane, { space: { id: "catalog", name: "Workshop" } as never, status: { configured: true } as never, view: "discover", fixtureMode: true, onError() {}, onViewChange() {} }));
+  await dom.waitFor(() => dom.container.querySelectorAll(".capabilities-discover-card").length === 3);
+  assert.equal(dom.container.querySelectorAll(".capabilities-discover-card :is(svg,img,.capabilities-kind-icon,.capabilities-monogram)").length, 0);
+  assert.equal(dom.container.querySelector('input[type="search"]')?.getAttribute("aria-label"), "Search the catalog");
+  const scratch = await mkdtemp(join(tmpdir(), "work-fold-catalog-css-"));
+  try {
+    const css = (await Promise.all(["brand.css", "styles.css", "application-appearance.css"].map((name) => readFile(resolve("web-local/src", name), "utf8")))).join("\n");
+    const scenarios = (["light", "dark"] as const).map(mode => ({ mode, variables: applicationAppearanceVariables({ ...defaultApplicationAppearance, palette: "paper", textSize: "large", accent: "#397451" }, mode) }));
+    const payload = JSON.stringify({ markup: dom.container.innerHTML, css, scenarios }).replace(/</g, "\\u003c");
+    const html = `<!doctype html><pre id="result">pending</pre><script>
+      const p=${payload}, results=[];
+      for(const scenario of p.scenarios) for(const width of [360,800,1200]) {
+        const f=document.createElement('iframe');f.style.cssText='width:'+width+'px;height:640px';document.body.append(f);
+        const d=f.contentDocument;d.open();d.write('<!doctype html><html data-theme="'+scenario.mode+'"><head><style>'+p.css+'</style></head><body><div class="app-shell"><div class="modal-backdrop"><section class="assistant-tools-modal">'+p.markup+'</section></div></div></body></html>');d.close();
+        for(const [key,value] of Object.entries(scenario.variables))d.documentElement.style.setProperty(key,value);
+        const rect=s=>{const r=d.querySelector(s).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,height:r.height}};
+        const pane=d.querySelector('.capabilities-pane');
+        results.push({width,mode:scenario.mode,header:rect('.assistant-tools-header'),search:rect('.capabilities-search'),filters:rect('.capabilities-type-chips'),sort:rect('.capabilities-sort select'),row:rect('.capabilities-discover-card .capabilities-resource-copy'),nav:rect('.capabilities-navigation'),tabs:rect('.capabilities-view-tabs'),add:rect('.capabilities-add-trigger'),pageWidth:d.documentElement.scrollWidth,paneWidth:pane.clientWidth,paneScrollWidth:pane.scrollWidth});f.remove();
+      }
+      document.getElementById('result').textContent=JSON.stringify(results);
+    </script>`;
+    const path = join(scratch,"fixture.html"); await writeFile(path,html);
+    const {stdout} = await promisify(execFile)(browser,["--headless=new","--disable-gpu","--no-first-run","--no-default-browser-check","--disable-background-networking","--disable-extensions","--use-mock-keychain","--password-store=basic","--virtual-time-budget=1000","--disable-features=HangWatcher",`--user-data-dir=${join(scratch,"profile")}`,"--dump-dom",pathToFileURL(path).href],{timeout:35_000,maxBuffer:2_000_000});
+    const serialized=/<pre id="result">([^<]*)<\/pre>/.exec(stdout)?.[1]; assert.ok(serialized && serialized!=="pending");
+    const results=JSON.parse(serialized.replaceAll("&quot;",'"').replaceAll("&amp;","&")); assert.equal(results.length,6);
+    for(const item of results) {
+      assert.ok(Math.abs(item.header.left-item.search.left)<1,"title and search use the same gutter");
+      assert.ok(Math.abs(item.header.left-item.row.left)<1,"catalog text aligns with the title and search");
+      assert.equal(item.search.height,36); assert.equal(item.filters.height,36); assert.equal(item.sort.height,36);
+      assert.ok(item.pageWidth<=item.width && item.paneScrollWidth<=item.paneWidth,"no horizontal overflow");
+      assert.ok(item.tabs.left>=item.nav.left && item.add.right<=item.nav.right+1,"navigation controls stay inside their row");
+      if(item.width===1200) assert.ok(Math.abs(item.search.top-item.filters.top)<1 && Math.abs(item.search.top-item.sort.top)<1,"desktop controls share a baseline");
+      else assert.ok(item.filters.top>=item.search.top+item.search.height,"narrow toolbar wraps cleanly below search");
+    }
+  } finally { await rm(scratch,{recursive:true,force:true}); }
+});
