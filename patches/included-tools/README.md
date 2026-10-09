@@ -2,22 +2,25 @@
 
 The manifest pins the upstream package version, source, license, every input/output file digest, and patch digest. `scripts/prepare-included-tools.mjs` refuses mixed or unknown source states and verifies the result. Integrations remain ordinary native Pi Extensions; `resources/included-tools` supplies the explicit host context through Pi's event bus. Narrow runtime/dependency corrections use the same reviewed patch lane. No separate Pi package format or tool registry is introduced.
 
-## Pi coding agent 0.80.6
+## Pi coding agent 1.1.0
 
-Native overflow recovery removes the failed assistant before compaction, but
-rebuilding context from the session can restore it. The retry cleanup previously
-removed only `error`, leaving an empty `length` overflow response as the last
-message; native continuation then failed before contacting the provider. The
-patch also removes `length` within the existing `willRetry` path and prevents
-another length response from resetting the recovery counter. Compaction freshness
-uses recorded session order for known messages, so a retry in the same millisecond
-is not mistaken for retained context; unknown messages retain the upstream timestamp
-fallback. Pi still decides
-whether an overflow occurred and permits only its existing one
-compact-and-retry attempt. Ordinary output exhaustion does not gain automatic
-continuation or effect replay. Actual native provider fixtures cover both overflow
-forms, repeated overflow with matching timestamps and ordinary partial output, and packaged verification pins the corrected
-runtime file. Remove the patch when a reviewed upstream release passes these cases.
+Pi owns canonical context, recovery omission entries, native model/auth runtime,
+MCP, codemode, tool discovery and cache warming. The remaining recovery patch
+uses recorded session order for known messages, so a fresh retry at the same
+millisecond as a compaction is not mistaken for retained context. Unknown
+messages retain the upstream timestamp fallback. Pi still permits one native
+compact-and-retry attempt; ordinary output exhaustion never replays effects.
+
+The reviewed root exports expose Pi's file CredentialStore and the native MCP
+configuration, transport, OAuth and credential backend APIs to the trusted host.
+They add no protocol, legacy AuthStorage API or independent OAuth implementation.
+All three changed files are hash verified in preparation and built archives.
+The host's async CredentialStore durably serializes Electron encrypted saves.
+MCP OAuth uses Pi's file/refresh locks around an Electron-encrypted backend;
+browser/CLI development falls back to Pi's ordinary private profile files.
+
+See [the integration trace](../../docs/pi-1.1-integration.md) and the pinned
+[SDK example](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
 
 ## Chrome 0.15.51
 
@@ -84,23 +87,24 @@ invalid seals, cancellation and inspection failures without a helper restart.
 Packaged checks pin the verifier and caller
 bytes to this manifest.
 
-## MCP 2.33.0
+## Native MCP 1.1.0
 
-The optional embedded-host factory settings suppress factory-time and catalog-session startup, preserve lazy connections on a cold cache, bind caches to the supplied native Pi agent directory, and keep OAuth/token setup on a trusted host surface. Default upstream Pi behavior remains intact.
+Service Connections uses `createMcpExtension` from Pi. The old adapter and its
+patch are removed. Catalog loaders supply an empty native server list and remain
+cold. Real sessions connect enabled servers in the background, register native
+`mcp__server__tool` names, and preserve codemode/deferred/direct/hidden exposure.
+Pi owns schemas, structured results, resources, spill files and cancellation.
+Native MCP currently has no elicitation or sampling path.
 
-An inspection-only host sets `initializeOnSessionStart:false` as well as `initializeAtLoad:false`: native catalog sessions emit `session_start`, so guarding only the factory still starts explicitly eager servers. Real sessions retain configured eager lifecycles; the default lazy baseline connects on use.
-
-The public setup helpers reuse upstream configuration merging, credential storage, PKCE/loopback OAuth, and the MCP server manager. Only the exact native global file and registered Space's `.pi/mcp.json` are loaded; ambient other-app imports are not discovered. A nonsecret credential identity keeps identically named connections in different scopes separate. Configuration revisions are checked inside the host mutation fence at bearer writes and at the actual OAuth token commit. HTTP/stdio transports, schemas, cancellation, discovery, and result bounds remain upstream-owned.
-
-Pi 0.80.6 does not supply the `ModelRegistry.complete` method used by this adapter's sampling implementation, so the included configuration disables MCP sampling. The upstream package pins its MCP client/core SDK to commit `3b205e7dd2f997b6a87e479e36421f7eaa2058e0`; the root lockfile pins those downloads. Re-test this seam before changing either native runtime or adapter versions.
-
-Legacy stdio elicitation does not carry a reliable originating `tools/call` id. A question arriving on a reused transport remains owned by its Chat when its original turn has settled; it must not borrow the currently running task's identity. Explicit Stop still cancels the Chat's callbacks. Manual non-loopback OAuth callback entry is not exposed by the included desktop setup.
-
-Structured MCP results accompany text summaries in model-visible content, unless
-an existing JSON block already contains the same value. The native output guard
-spills large combined results without replaying the call. Searches distinguish
-undiscovered lazy servers from empty catalogs and provide the existing `connect`
-operation; discovery itself remains cold until explicitly requested.
+Trusted setup reuses Pi's config parser, transport and PKCE loopback flow. It
+pins the defining file, name, URL and config revision; bearer credentials use
+the host CredentialStore. OAuth commits only after a source recheck inside the
+capability fence. Project overrides narrow Everywhere exposure/enablement and
+cannot replace or revoke its credentials. Existing runtimes drain before auth
+changes; their credential stores refuse late refresh writes after shutdown.
+OAuth starts are serialized and cancelled setup never resumes after restart.
+Only the configured agent root and authorized work-folder's `.pi` are loaded.
+Chat `/mcp` is status only; setup commands direct the person to the trusted UI.
 
 ## Web 0.29.0
 
@@ -108,7 +112,7 @@ The additive `createWebAccessExtension` factory uses upstream DuckDuckGo/Brave s
 
 ## Verification
 
-`tests/included-toolkit-native.test.ts` starts isolated child fixtures with real native Pi loaders and local HTTP/stdio servers. It covers cold loading, credential and session isolation, schema validation, source-bearing web extraction, challenge/rate-limit/error handling, cancellation, OAuth PKCE and stale-configuration rejection, and readiness probes. Setup fixtures stub only the OS keyring boundary; they never touch personal credentials. `tests/included-mcp-settings-api.test.ts` exercises real local HTTP setup-session binding and restart behavior. `tests/included-mcp-callbacks.test.ts` exercises reused native MCP elicitation through work-fold's real Chat UI bridge.
+`tests/included-toolkit-native.test.ts` starts isolated child fixtures with real native Pi loaders and local HTTP/stdio servers. It covers cold loading, credential and session isolation, schema validation, source-bearing web extraction, challenge/rate-limit/error handling, cancellation, OAuth PKCE and stale-configuration rejection, and readiness probes. Setup fixtures use isolated synthetic credentials; they never touch personal credentials. `tests/included-mcp-settings-api.test.ts` exercises real local HTTP setup-session binding and restart behavior. Native Extension UI callback coverage remains in the shared bridge suites.
 
 The optional `WORKFOLD_LIVE_WEB_TEST=1` fixture runs an actual DuckDuckGo search. It is excluded from the normal network-free test lane. Packaged Electron, live model use, OS permission setup, and the Chrome companion in a real profile still need the release acceptance lane; passing local fixtures does not certify those user paths.
 
@@ -150,16 +154,15 @@ installed copies. Do not suppress the advisories or apply npm audit's obsolete
 PptxGenJS 1.1.5 downgrade. Remove the patch only after a reviewed upstream fix
 passes the same compatibility and packaged checks.
 
-Pi 0.80.6 carries a shrinkwrap. The checked normalizer replaces only the
-reviewed nested brace-expansion 5.0.12, protobufjs 7.6.5 and undici 8.10.2 entries;
-`package-lock.json` records those resulting versions. Re-run normalization and
-restore those exact lock entries after npm dependency resolution, then audit
-the prepared tree. Changes to these exceptions require new source review and
-consumer tests.
+Pi 1.1.0 hoists brace-expansion 5.0.12 and protobufjs 7.6.5 through the
+reviewed root overrides and resolves undici 8.10.2 from its own declared nested
+dependency. The normalizer verifies actual resolution and only replaces known
+nested exceptions; it does not invent copies absent from the lockfile. A fresh
+`npm ci` and the dependency consumer tests verify the reproducible graph.
 
 The September 30, 2026 release review advances brace-expansion to 5.0.12 for
 bounded expansion and undici to 8.10.2 for its upstream transport security fixes.
-Pi remains at 0.80.6; the normalizer still rejects unreviewed nested versions.
+That review pinned Pi 0.80.6; the current integration above advances it to 1.1.0.
 Electron advances within major 42 to 42.11.10, which includes the sandboxed
 preload-cache fix and upstream Chromium fixes. The reviewed image-size source
 patch remains in place with its malformed-input and packaged-byte tests.

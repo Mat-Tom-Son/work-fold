@@ -94,7 +94,10 @@ Closing setup cancels OAuth and probes; restart does not resume them. Saved
 secrets are not returned in status, native config errors omit source snippets,
 and neither the CLI nor paired browser can enter these secrets. Native HTTP
 and stdio transports remain upstream-owned; only the configured Pi files are
-loaded, automatic other-app imports are disabled, and MCP sampling is disabled.
+loaded, automatic other-app imports are disabled, and native MCP currently has
+no elicitation or sampling path. Desktop OAuth state is encrypted around Pi's
+native file and refresh locks. Auth mutations drain old sessions first, and
+closed runtime credential stores reject late refresh writes.
 A Chat-owned question from a reused connection must not adopt a newer task's
 identity or become available to an unrelated paired browser.
 

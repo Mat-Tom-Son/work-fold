@@ -1,5 +1,6 @@
 import {
   VERSION as PI_SDK_VERSION,
+  ModelRuntime,
   type ProgressEvent,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
@@ -45,6 +46,7 @@ export interface PackagedPiRuntimeOptions {
   agentDir: string;
   /** Optional Electron-safeStorage implementation; native auth.json is the fallback. */
   authStorageHost?: PiAuthStorageHost;
+  mcpCredentialBackend?: PiRuntimeConfig["mcpCredentialBackend"];
   /** Machine-local, non-secret Assistant preferences keyed by Space identity. */
   assistantPreferencesPath?: string;
   /** Machine-local cache of OpenRouter's live model catalog. */
@@ -70,7 +72,7 @@ export interface PackagedPiRuntimeHealth {
 
 /** Native, provider-neutral Pi host used by the Electron main process. */
 export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
-  private authStoragePromise: Promise<PersistentPiAuthStorage> | null = null;
+  private credentialsPromise: Promise<PersistentPiAuthStorage> | null = null;
   private readonly preferences: AssistantModelPreferenceStore;
   private readonly openRouterCatalog: OpenRouterModelCatalog;
 
@@ -85,7 +87,7 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
   }
 
   async resolveRuntime(spaceRoot: string): Promise<PiRuntimeConfig> {
-    const auth = await this.authStorage();
+    const auth = await this.credentials();
     const scopedPreferredModel = await this.preferences.get(spaceRoot).catch(() => undefined);
     const assistantInstructions = await this.preferences.getInstructions(spaceRoot).catch(() => "");
     const openRouterCatalog = await this.openRouterCatalog.load().catch(() => undefined);
@@ -93,8 +95,9 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
     return {
       ...(this.options.includedTools ? { includedTools: this.options.includedTools } : {}),
       agentDir: this.options.agentDir,
-      authStorage: auth.authStorage,
-      flushAuthStorage: () => auth.flush(),
+      credentials: auth.credentials,
+      mcpCredentialBackend: this.options.mcpCredentialBackend,
+      flushCredentials: () => auth.flush(),
       ...(openRouterCatalog ? { modelCatalogs: [openRouterCatalog] } : {}),
       ...(this.options.extensionUi ? { extensionUi: this.options.extensionUi } : {}),
       ...(preferredModel ? { preferredModel } : {}),
@@ -177,8 +180,9 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
 
   async refreshModelCatalog(providerId: string): Promise<PiModelCatalogRefreshResult> {
     if (providerId !== "openrouter") throw new Error(`${providerId} does not offer live model refresh.`);
-    const auth = await this.authStorage();
-    const apiKey = await auth.authStorage.getApiKey("openrouter");
+    const auth = await this.credentials();
+    const modelRuntime = await ModelRuntime.create({ credentials: auth.credentials, modelsPath: join(this.options.agentDir, "models.json") });
+    const apiKey = (await modelRuntime.getAuth("openrouter"))?.auth.apiKey;
     if (!apiKey) throw new Error("Connect OpenRouter before refreshing its models.");
     return this.openRouterCatalog.refresh(apiKey);
   }
@@ -227,19 +231,19 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
   }
 
   async flush(): Promise<void> {
-    if (this.authStoragePromise) await (await this.authStoragePromise).flush();
+    if (this.credentialsPromise) await (await this.credentialsPromise).flush();
   }
 
   getExtensionUiBridge(): PiExtensionUiBridge | undefined {
     return this.options.extensionUi;
   }
 
-  private authStorage(): Promise<PersistentPiAuthStorage> {
-    this.authStoragePromise ??= createPersistentPiAuthStorage({
+  private credentials(): Promise<PersistentPiAuthStorage> {
+    this.credentialsPromise ??= createPersistentPiAuthStorage({
       agentDir: this.options.agentDir,
       ...(this.options.authStorageHost ? { host: this.options.authStorageHost } : {}),
     });
-    return this.authStoragePromise;
+    return this.credentialsPromise;
   }
 }
 

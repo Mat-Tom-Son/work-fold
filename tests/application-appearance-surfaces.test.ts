@@ -34,7 +34,11 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
     }));
     const desktopBody = `<div class="app-shell"><div class="space-layout"><nav class="professional-space-rail"></nav><section class="space-mode-pane"><button class="file-row selected"><span class="file-name">Workshop plan.docx</span></button><button class="file-row">Budget.xlsx</button></section></div><aside class="right-rail"><section class="chat-panel"><div class="message-list"><article class="message assistant"><div class="message-body"><h2>Workshop plan</h2><p>Readable paragraphs wrap naturally.</p><p>A second paragraph.</p><div class="message-code-block"><pre><code>const budget = 1200;</code></pre></div></div></article><article class="message user"><div class="message-surface"><div class="message-body"><p>Please update the plan.</p></div></div><span class="message-time">Today</span></article></div><form class="composer"><div class="composer-input-shell"><textarea>Plan a workshop</textarea><button class="send-button">Send</button></div></form><section class="work-steps running open"><div class="work-steps-rows"><div class="work-steps-list"><div class="work-step tool complete">Read</div><div class="work-step tool running active">Reading</div></div></div></section></section></aside><section class="settings-modal settings-window"><button class="settings-tab active">Appearance</button><button class="primary-button">Save</button><button class="professional-button professional-button-primary">Install</button><div class="settings-field"><input value="Example"></div></section><span class="space-identity-icon" style="color:var(--space-accent-glyph)">Identity</span></div>`;
     const popoverBody = `<div class="popover"><header><button class="popover-new-chat">New Chat</button></header><div class="popover-transcript"><article class="popover-message assistant"><div class="popover-message-body"><p>Workshop ready.</p><pre><code>const budget = 1200;</code></pre></div></article><article class="popover-message user"><div class="popover-message-body">Plan a workshop</div></article></div><form class="composer"><textarea>My draft</textarea><button class="primary">Send</button></form><p class="error-line">Example error</p></div>`;
-    const payload = { desktopCss, popoverCss, desktopBody, popoverBody, scenarios };
+    // Attribute selectors have the same specificity as these pseudo-classes;
+    // this makes each hover/focus cascade deterministic in headless Chromium.
+    // Native pointer and keyboard behavior is checked in the dev app too.
+    const chatStateCss = desktopCss.replaceAll(":hover", "[data-test-hover]").replaceAll(":focus-visible", "[data-test-focus-visible]").replaceAll(":focus-within", "[data-test-focus-within]") + "\n* { transition: none !important; animation: none !important; }";
+    const payload = { desktopCss, popoverCss, desktopBody, popoverBody, scenarios, chatStateCss };
     // A disposable, non-interactive browser evaluates the exact shipped CSS
     // cascade. It never loads app scripts, an account, or a personal profile.
     const html = `<!doctype html><meta charset="utf-8"><pre id="result">pending</pre><script>
@@ -76,6 +80,34 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         const popoverQuiet = fixture(payload.popoverCss, payload.popoverBody, spaciousScenario);
         result.quiet.push(popoverQuiet('.popover-message.user').backgroundColor,popoverQuiet('.popover-message.user').color);
         result.spacious.push(popoverQuiet('.popover-new-chat').minHeight);
+        result.otherFolder = [];
+        const chatBody = '<div class="app-shell"><section class="professional-chats"><div class="chat-other-space"><div class="chat-other-space-header"><button class="chat-other-space-toggle"><span class="space-identity-icon chat-other-space-icon"></span><span>Other folder</span><svg width="16" height="16"></svg><span class="chat-activity-indicator running"><span class="chat-activity-dot"></span></span></button><button class="minimal-icon-button" aria-label="New Chat"></button></div></div></section></div>';
+        const c = fixture(payload.chatStateCss, chatBody, scenario);
+        const doc = frame.contentDocument;
+        const folder = doc.querySelector('.chat-other-space');
+        const header = doc.querySelector('.chat-other-space-header');
+        const toggle = doc.querySelector('.chat-other-space-toggle');
+        const newChat = doc.querySelector('.minimal-icon-button');
+        const folderName = toggle.children[1];
+        for (const width of [160, 320]) {
+          folder.style.width = width + 'px';
+          folderName.textContent = width === 160 ? 'A very long other work-folder name' : 'Other folder';
+          for (const state of ['idle', 'row-hover', 'button-hover', 'row-focus', 'button-focus']) {
+            folder.toggleAttribute('data-test-hover', state.endsWith('hover'));
+            header.toggleAttribute('data-test-focus-within', state.endsWith('focus'));
+            toggle.toggleAttribute('data-test-hover', state === 'row-hover');
+            toggle.toggleAttribute('data-test-focus-visible', state === 'row-focus');
+            newChat.toggleAttribute('data-test-hover', state === 'button-hover');
+            newChat.toggleAttribute('data-test-focus-visible', state === 'button-focus');
+            const name = folderName.getBoundingClientRect();
+            const text = doc.createRange(); text.selectNodeContents(folderName);
+            const visibleNameEnd = Math.min(name.right, text.getBoundingClientRect().right);
+            const caret = toggle.querySelector('svg').getBoundingClientRect();
+            const row = toggle.getBoundingClientRect();
+            const background = ['.chat-other-space', '.chat-other-space-header', '.chat-other-space-toggle', '.minimal-icon-button'].map(selector => c(selector).backgroundColor);
+            result.otherFolder.push({ width, state, background, border:c('.minimal-icon-button').borderTopColor, shadow:c('.minimal-icon-button').boxShadow, opacity:c('.minimal-icon-button').opacity, pointer:c('.minimal-icon-button').pointerEvents, gap:caret.left-visibleNameEnd, contained:caret.right <= row.right, outline:c(state === 'row-focus' ? '.chat-other-space-toggle' : '.minimal-icon-button').outlineStyle, touch:frame.contentWindow.matchMedia('(hover: none)').matches });
+          }
+        }
         results.push(result);
       }
       document.body.innerHTML = '<pre id="result"></pre>'; document.getElementById('result').textContent = JSON.stringify(results);
@@ -103,6 +135,16 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
       assert.deepEqual(item.quiet, [expected["--ui-surface-subtle"], expected["--ui-text"], expected["--ui-surface-subtle"], expected["--ui-text"]], item.name + " quiet messages");
       assert.deepEqual(item.spacious, ["46px", "46px", "46px"]); assert.equal(item.motion, "1e-05s"); assert.equal(item.timeOpacity, "1");
       assert.deepEqual(item.steps, ["grid", "grid", "none", "grid"], item.name + " current-step view hides finished rows while running");
+      for (const row of item.otherFolder) {
+        const label = item.name + '/' + row.width + '/' + row.state;
+        assert.deepEqual(row.background, Array(4).fill("rgba(0, 0, 0, 0)"), label + " keeps the row and New Chat unfilled");
+        assert.equal(row.border, "rgba(0, 0, 0, 0)", label + " keeps New Chat borderless");
+        assert.equal(row.shadow, "none");
+        assert.equal(Number(row.opacity), row.state === "idle" ? row.touch ? 0.72 : 0 : 1, label + " reveals New Chat on hover/focus");
+        assert.equal(row.pointer, row.state === "idle" && !row.touch ? "none" : "auto");
+        assert.ok(Math.abs(row.gap - 7) < 1 && row.contained, label + " keeps the caret beside the name within the row");
+        if (row.state.endsWith("focus")) assert.equal(row.outline, "solid", label + " retains a keyboard focus indicator");
+      }
       const hex = (rgb: string) => "#" + (rgb.match(/\d+/g) ?? []).slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
       assert.ok(wcagContrast(hex(item.primary[0]), hex(item.primary[1])) >= 4.5, item.name + " actual button contrast");
     }

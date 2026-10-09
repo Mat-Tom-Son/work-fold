@@ -8,7 +8,7 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   const originalFetch = globalThis.fetch;
   t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; });
   const { IncludedMcpSetup } = await import("../web-local/src/components/panes/IncludedMcpSetup.js");
-  let server = { scope: "project", name: "Fixture service", revision: "a".repeat(64), disabled: false, transport: "http", endpoint: "https://example.invalid/mcp", auth: "automatic", credential: "missing", environmentKeys: [], headerKeys: [] };
+  let server = { scope: "project", name: "Fixture service", revision: "a".repeat(64), disabled: false, transport: "http", endpoint: "https://example.invalid/mcp", exposure: "codemode", auth: "automatic", credential: "missing", environmentKeys: [], headerKeys: [] };
   const calls: any[] = [];
   globalThis.fetch = async (_input, init) => {
     const body = JSON.parse(String(init?.body)); calls.push(body);
@@ -26,7 +26,7 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   const button = (text: string) => { const found = [...dom.container.querySelectorAll("button")].find(item => item.textContent === text); assert.ok(found, `Missing ${text}`); return found; };
   await dom.render(createElement(IncludedMcpSetup, { spaceId: "space-fixture", enabled: true }));
   await dom.waitFor(() => dom.container.textContent?.includes("Turn Off") === true);
-  assert.match(dom.container.textContent!, /Not signed in/);
+  assert.match(dom.container.textContent!, /No saved sign-in/);
   assert.doesNotMatch(dom.container.textContent!, /Sign-in required|Sign in required/);
   await dom.act(() => button("Turn Off").click());
   await dom.waitFor(() => dom.container.textContent?.includes("Turned Off") === true);
@@ -45,7 +45,7 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   await dom.waitFor(() => dom.container.textContent?.includes("Turn Off") === true);
   assert.equal(calls.at(-1).expectedRevision, "c".repeat(64)); assert.equal(calls.at(-1).enabled, true);
   assert.equal(button("Check").disabled, false);
-  assert.match(dom.container.textContent!, /Not signed in/);
+  assert.match(dom.container.textContent!, /No saved sign-in/);
   await dom.render(createElement(IncludedMcpSetup, { spaceId: "space-fixture", enabled: false }));
   assert.equal(button("Turn Off").disabled, true, "a disabled Extension cannot change its native connection");
 });

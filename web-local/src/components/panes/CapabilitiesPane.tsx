@@ -1119,7 +1119,11 @@ function CapabilityEmpty({ title }: { title: string }) {
 
 function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
   const fromSkills = catalog.skills.map((item) => normalizeSkill(item, catalog.diagnostics));
-  const fromExtensions = catalog.extensions.map((item) => normalizeExtension(item, catalog.diagnostics));
+  // Pi's named built-in factories already appear in Core Tools. They have no
+  // installable resource or lifecycle controls to present as another Extension.
+  const fromExtensions = catalog.extensions
+    .filter((item) => item.path !== "builtin:codemode" && item.path !== "builtin:tool_search")
+    .map((item) => normalizeExtension(item, catalog.diagnostics));
   const items = [...fromSkills, ...fromExtensions];
   for (const resource of catalog.resources ?? []) {
     if (resource.kind !== "skills" && resource.kind !== "extensions") continue;

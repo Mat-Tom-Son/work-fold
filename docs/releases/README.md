@@ -6,6 +6,10 @@ release-note file alone does not mean a version was published.
 
 ## October 8, 2026
 
+[0.4.43](work-fold-0.4.43.md) upgrades Pi to 1.1, integrates native codemode
+and MCP Service Connections, strengthens credential and model-call ownership,
+and fixes History preview sequencing and the other-folder Chats rows.
+
 [0.4.42](work-fold-0.4.42.md) improves Settings, provider-key entry, Skills &
 Extensions, and the work-folder context menu, and fixes deletion settlement,
 nested ownership, History recovery, request delivery, and remote cancellation.

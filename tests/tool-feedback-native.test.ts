@@ -1,3 +1,4 @@
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -5,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { PiConversationClient, type PiChatEvent } from "../src/local/agent/pi-client.js";
 import { ModelContextInspector } from "../src/local/agent/model-context-inspector.js";
 
@@ -72,9 +73,9 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
       pi.on("before_provider_request", (event) => ({ ...event.payload, user: "NATIVE_PAYLOAD_HOOK" }));
     }
   `);
-  const authStorage = AuthStorage.inMemory({ "feedback-test": { type: "api_key", key: "local-fixture-key" } });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("feedback-test", {
+  const authStorage = FileCredentialStore.inMemory({ "feedback-test": { type: "api_key", key: "local-fixture-key" } });
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("feedback-test", {
     api: "openai-completions", baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, apiKey: "local-fixture-key",
     models: [{ id: "fixture", name: "Feedback fixture", reasoning: false, input: options.vision === false ? ["text"] : ["text", "image"],
       contextWindow: 128000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
@@ -83,7 +84,7 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
   inspector.setEnabled(true);
   const client = new PiConversationClient("feedback-chat", spaceRoot, {
     async resolveRuntime() {
-      return { agentDir, authStorage, modelRegistry, modelContextInspector: inspector,
+      return { agentDir, credentials: authStorage, modelRuntime, modelContextInspector: inspector,
         assistantInstructions: options.instructions ?? "PERSONAL_INSTRUCTIONS_SURVIVE",
         preferredModel: { provider: "feedback-test", id: "fixture" },
         settingsManager: SettingsManager.inMemory({ images: { blockImages: options.blockImages ?? false }, retry: { enabled: false }, defaultThinkingLevel: "off" }),
@@ -137,7 +138,7 @@ test("the inspector retains the full native system prompt beyond 32 KiB without 
   await client.prompt("Inspect the fixture with a long project guide.");
   const first = inspector.list().at(-1)!;
   const detail = inspector.get(first.id)!;
-  const prompt = (detail.assembled.value as any).systemPrompt;
+  const prompt = getCurrentSystemPrompt((detail.assembled.value as any).messages);
   assert.ok(Buffer.byteLength(prompt) > 32 * 1024);
   assert.ok(prompt.includes(instructions));
   assert.equal(requests[0].messages.find((message: any) => message.role === "system").content, prompt);

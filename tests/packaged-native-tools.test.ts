@@ -52,10 +52,10 @@ test("packaged Pi recovery refuses an unpatched runtime with the same package ve
     if (!corrected) {
       const path = join(source, "node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js");
       const current = await readFile(path, "utf8");
-      await writeFile(path, current.replace('(lastMsg.stopReason === "error" || lastMsg.stopReason === "length")', 'lastMsg.stopReason === "error"'));
+      await writeFile(path, current.replace("isBeforeCompaction(assistantMessage)", "false"));
     }
     await createPackage(source, archive);
-    if (corrected) assert.match(await verifyPackagedPiRecovery(archive), /PASS packaged Pi 0\.80\.6/);
+    if (corrected) assert.match(await verifyPackagedPiRecovery(archive), /PASS packaged Pi 1\.1\.0/);
     else await assert.rejects(() => verifyPackagedPiRecovery(archive), /does not match the reviewed patch/);
   }
 });

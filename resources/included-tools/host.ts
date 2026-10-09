@@ -1,4 +1,4 @@
-import type { McpConfig } from "pi-mcp-adapter/types";
+import type { McpExtensionOptions } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ChromeHostFacilities } from "../../src/shared/chrome-connection.js";
 import type { IncludedToolStatus } from "../../src/shared/included-tools.js";
@@ -10,7 +10,7 @@ export function hostContext(pi: ExtensionAPI) {
     companionPath: string; helperAppPath?: string;
     prepareComputerHelper?: () => Promise<void>;
     beginIncludedToolObservation?: (id: "computer" | "documents") => (status: IncludedToolStatus) => IncludedToolStatus;
-    getMcpConfig(): Promise<McpConfig>;
+    getMcpOptions(): McpExtensionOptions & { disposeCredentials?: () => void };
     getSearchConfig(): Promise<{ provider: "duckduckgo" } | { provider: "brave"; apiKey: string }>;
   } } = { version: 1 };
   pi.events.emit("work-fold:extension-host:v1", query);

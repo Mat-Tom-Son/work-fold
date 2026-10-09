@@ -1,3 +1,4 @@
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -121,7 +122,7 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
   assert.ok(!JSON.stringify(detail).includes(secret), "auth and response headers never enter diagnostics");
   assert.ok(providerRequests.some((payload) => JSON.stringify(payload).includes(marker)), "observation does not replace the actual provider request");
   assert.deepEqual((detail.provenance!.value as any).dispatch.tools,
-    (detail.assembled.value as any).tools.map((tool: any) => tool.name));
+    getCurrentTools((detail.assembled.value as any).messages).map((tool: any) => tool.name));
 
   const inferenceInspector = new ModelContextInspector();
   inferenceInspector.setEnabled(true);
@@ -142,8 +143,8 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
     const assembled = inference.assembled.value as any;
     const provenance = inference.provenance!.value as any;
     assert.deepEqual(provenance.dispatch.tools, []);
-    assert.equal(provenance.dispatch.messageCount, 1);
-    assert.equal(provenance.dispatch.systemPrompt.sha256, createHash("sha256").update(assembled.systemPrompt).digest("hex"));
+    assert.equal(provenance.dispatch.messageCount, 2);
+    assert.equal(provenance.dispatch.systemPrompt.sha256, createHash("sha256").update(getCurrentSystemPrompt(assembled.messages)).digest("hex"));
     assert.ok(provenance.loadedSessionResources.tools.length > 0, "loaded tools remain discoverable as session metadata");
     assert.ok(provenance.loadedSessionResources.appendedInstructions.some((item: any) =>
       item.sha256 === createHash("sha256").update(`## Space instructions\n\n${sessionOnlyInstructions}`).digest("hex")));

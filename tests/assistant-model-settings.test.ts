@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 import { AssistantModelPreferenceStore } from "../src/local/agent/model-preferences.js";
 import { OpenRouterModelCatalog, parseOpenRouterModels } from "../src/local/agent/openrouter-model-catalog.js";
@@ -130,9 +130,9 @@ test("Assistant API saves independent Space and fold models", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-scoped-model-api-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const authStorage = AuthStorage.inMemory({ scoped: { type: "api_key", key: "test-key" } });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("scoped", {
+  const authStorage = FileCredentialStore.inMemory({ scoped: { type: "api_key", key: "test-key" } });
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("scoped", {
     name: "Scoped Provider",
     api: "openai-completions",
     baseUrl: "http://127.0.0.1:1/v1",
@@ -153,8 +153,8 @@ test("Assistant API saves independent Space and fold models", async (t) => {
     async resolveRuntime(spaceRoot) {
       return {
         agentDir,
-        authStorage,
-        modelRegistry,
+        credentials: authStorage,
+        modelRuntime,
         settingsManager: SettingsManager.inMemory(),
         ...(preferences.get(spaceRoot) ? { preferredModel: preferences.get(spaceRoot) } : {}),
         ...(instructions.get(spaceRoot) ? { assistantInstructions: instructions.get(spaceRoot) } : {}),

@@ -261,8 +261,8 @@ test("a model-only save preserves an unsaved key replacement and never submits i
 
 test("Azure setup starts with user-entered deployments, accepts multiple names, and preserves failed edits", async (t) => {
   const ui = await setup(t);
-  const azureStatus = { ...status, configured: false, provider: "azure-openai-responses", model: null };
-  const azureModels = [{ ...models[0]!, provider: "azure-openai-responses", providerName: "Azure OpenAI", id: "catalog-model", name: "Catalog model", authConfigured: false }];
+  const azureStatus = { ...status, configured: false, provider: "azure", model: null };
+  const azureModels = [{ ...models[0]!, provider: "azure", providerName: "Azure OpenAI", id: "catalog-model", name: "Catalog model", authConfigured: false }];
   await ui.render(space("a"));
   await ui.finish(ui.requests[0]!, modelResponse({ status: azureStatus, models: azureModels, azure: { baseUrl: "", deployments: [] } }));
   assert.equal(ui.dom.container.querySelector("#assistant-model"), null, "no catalog model is required");
@@ -279,7 +279,7 @@ test("Azure setup starts with user-entered deployments, accepts multiple names, 
   await ui.submit("connection", true);
   const write = ui.requests.at(-1)!;
   const azure = { baseUrl: "https://example.cognitiveservices.azure.com/openai/v1", deployments: ["my-deployment", "fast", "third"] };
-  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "azure-openai-responses", model: "fast", apiKey: "synthetic-key", azure });
+  assert.deepEqual(write.body, { scope: "space", spaceId: "a", provider: "azure", model: "fast", apiKey: "synthetic-key", azure });
   assert.equal(ui.requests.filter((request) => request.path === "/api/agent/configure").length, 1);
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#assistant-azure-endpoint")?.disabled, true);
   const savedStatus = { ...azureStatus, configured: true, model: "fast" };

@@ -7192,24 +7192,6 @@ body:has(> #root > .desktop-chrome-shell) {
   border-top: 1px solid #e3e8ef;
 }
 
-.chat-other-spaces-heading {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 5px 4px;
-  color: #7a8697;
-  font-size: 0.66rem;
-  font-weight: 720;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.chat-other-spaces-heading small {
-  font-size: 0.62rem;
-  font-variant-numeric: tabular-nums;
-}
-
 .chat-other-space {
   min-width: 0;
   display: grid;
@@ -7226,8 +7208,7 @@ body:has(> #root > .desktop-chrome-shell) {
 .chat-other-space-toggle {
   min-width: 0;
   min-height: 30px;
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto auto auto;
+  display: flex;
   align-items: center;
   gap: 7px;
   padding: 3px 5px;
@@ -7261,12 +7242,8 @@ body:has(> #root > .desktop-chrome-shell) {
   white-space: nowrap;
 }
 
-.chat-other-space-toggle > small {
-  min-width: 18px;
-  color: #8994a3;
-  font-size: 0.64rem;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
+.chat-other-space-toggle > :not(:nth-child(2)) {
+  flex: 0 0 auto;
 }
 
 .chat-other-space-toggle > svg {
@@ -7280,8 +7257,13 @@ body:has(> #root > .desktop-chrome-shell) {
 .chat-other-space-toggle:hover,
 .chat-other-space-toggle:focus-visible {
   color: #354154;
-  background: #f1f4f8;
+  background: transparent;
   outline: 0;
+}
+
+.chat-other-space-toggle:focus-visible {
+  outline: 2px solid var(--ui-focus, var(--work-fold-accent));
+  outline-offset: -2px;
 }
 
 .chat-other-space-toggle:disabled {
@@ -7295,6 +7277,7 @@ body:has(> #root > .desktop-chrome-shell) {
   color: #788496;
   background: transparent;
   border-color: transparent;
+  box-shadow: none;
   opacity: 0;
   pointer-events: none;
 }
@@ -14365,17 +14348,18 @@ body:has(> #root > .desktop-chrome-shell) {
   border-top-color: rgba(148, 163, 184, 0.18);
 }
 
-.app-shell[data-theme="dark"] .chat-other-spaces-heading,
 .app-shell[data-theme="dark"] .chat-other-space-toggle,
-.app-shell[data-theme="dark"] .chat-other-space-toggle > small,
 .app-shell[data-theme="dark"] .chat-other-space-header > .minimal-icon-button {
   color: #94a3b8;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .app-shell[data-theme="dark"] .chat-other-space-toggle:hover,
 .app-shell[data-theme="dark"] .chat-other-space-toggle:focus-visible {
   color: #dbe3ee;
-  background: rgba(148, 163, 184, 0.1);
+  background: transparent;
 }
 
 .app-shell[data-theme="dark"] .chat-other-space-icon {

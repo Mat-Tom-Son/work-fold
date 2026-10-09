@@ -34,11 +34,11 @@ app.setPath('userData', join(output, 'electron-profile'));
     const loaded = await jiti.import(join(root, name, 'index.ts'));
     assert.equal(typeof loaded.default, 'function', `${name} factory imports from ASAR`);
   }
-  const { AuthStorage, ModelRegistry, SettingsManager } = await jiti.import('@earendil-works/pi-coding-agent');
+  const { FileCredentialStore, ModelRuntime, SettingsManager } = await jiti.import('@earendil-works/pi-coding-agent');
   const { loadAgentSkillCatalog } = await jiti.import(join(repository, 'src/local/agent/skill-catalog.ts'));
   const agentDir = join(output, 'agent'), stateRoot = join(output, 'catalog-state');
-  const authStorage = AuthStorage.inMemory(), modelRegistry = ModelRegistry.inMemory(authStorage);
-  const provider = { resolveRuntime: async () => ({ agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory(), projectTrust: { override: true }, includedTools: { rootPath: root, stateRoot, helperAppPath: join(output, 'Missing Computer.app') } }) };
+  const authStorage = FileCredentialStore.inMemory(), modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  const provider = { resolveRuntime: async () => ({ agentDir, credentials: authStorage, modelRuntime, settingsManager: SettingsManager.inMemory(), projectTrust: { override: true }, includedTools: { rootPath: root, stateRoot, helperAppPath: join(output, 'Missing Computer.app') } }) };
   for (const name of ['space-a', 'space-b']) {
     const cwd = join(output, name); await fs.mkdir(cwd, { recursive: true });
     const catalog = await loadAgentSkillCatalog(cwd, provider);

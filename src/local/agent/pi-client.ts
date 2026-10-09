@@ -2,7 +2,7 @@ import { modelReviewSubmissionSchema, modelReviewSystemPrompt, type WorkFoldMode
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { describeModelContextDispatch, installModelContextInspection } from "./model-context-inspector.js";
+import { describeModelContextDispatch, installModelContextInspection, installModelRuntimeInspection } from "./model-context-inspector.js";
 import { includedResourceOptions } from "./included-tools.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -23,6 +23,8 @@ import {
 /** Pi's inline image content shape, as accepted by `AgentSession.prompt`. */
 type ImageContent = NonNullable<NonNullable<Parameters<AgentSession["prompt"]>[1]>["images"]>[number];
 
+import { normalizeContext } from "@earendil-works/pi-ai";
+
 import type { LoadedConversationContextAttachment } from "../conversation-context.js";
 import { prepareAttachmentContext, availableAttachmentTokens, type AttachmentReferenceManifest } from "./attachment-budget.js";
 import {
@@ -38,8 +40,10 @@ import {
 } from "./skill-catalog.js";
 import { configurePiHttpTransport } from "./pi-http.js";
 import {
+  applyPiRuntimeDefaults,
   appendAssistantInstructions,
   resolvePiRuntime,
+  piAuthInteraction,
   type PiRuntimeProvider,
   type ResolvedPiRuntime,
 } from "./pi-runtime-config.js";
@@ -196,6 +200,7 @@ export class PiTurnDrainingError extends Error {
 export class PiConversationClient extends EventEmitter {
   private runtimeHost: AgentSessionRuntime | null = null;
   private resolvedRuntime: ResolvedPiRuntime | null = null;
+  private uninstallRuntimeInspection: (() => void) | null = null;
   private unsubscribeSession: (() => void) | null = null;
   /**
    * Every assistant text segment of the running turn, in order: one entry per
@@ -211,6 +216,7 @@ export class PiConversationClient extends EventEmitter {
   private finalAssistantSegment: number | null = null;
   private turnPresentationSucceeded = false;
   private commandPresentation = false;
+  private authController: AbortController | null = null;
   private promptInFlight = false;
   private readonly extensionTurn = new AsyncLocalStorage<PiTurnOwner>();
   private readonly modelCall = new AsyncLocalStorage<{ purpose: string; taskId?: string }>();
@@ -391,6 +397,7 @@ export class PiConversationClient extends EventEmitter {
     const error = new Error(reason);
     error.name = "PiTurnCancelledError";
     this.cancellationRequested = error;
+    this.authController?.abort(error);
     this.turnError = error;
     if (this.activeExtensionTurn) this.activeExtensionTurn.cancelled = true;
     this.resolvedRuntime?.config.extensionUi?.cancelScope?.(this.extensionUiScope());
@@ -459,7 +466,7 @@ export class PiConversationClient extends EventEmitter {
 
   async setModel(provider: string, modelId: string): Promise<void> {
     const session = await this.ensureSession();
-    const model = session.modelRegistry.find(provider, modelId);
+    const model = session.modelRuntime.getModel(provider, modelId);
     if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
     await session.setModel(model);
   }
@@ -508,14 +515,14 @@ export class PiConversationClient extends EventEmitter {
     // registration, auth, custom provider base URL, request headers, and
     // transport policy that just produced the Chat response. Calling pi-ai's
     // compatibility helper directly bypasses that path for live catalog models.
-    const stream = await session.agent.streamFn(model, {
+    const stream = await session.agent.streamFunction(model, normalizeContext({
       systemPrompt: "Write a specific 3 to 7 word title for this conversation. Return only the title: no quotes, label, markdown, or trailing punctuation.",
       messages: [{
         role: "user",
         content: `First request:\n${request}\n\nFirst response:\n${response}`,
         timestamp: Date.now(),
       }],
-    }, {
+    }), {
       // Reasoning models can spend a small token cap entirely on hidden
       // reasoning and return no title. Keep this bounded, but leave enough
       // room for that preamble plus the requested 3–7 words.
@@ -568,11 +575,11 @@ export class PiConversationClient extends EventEmitter {
     const reviewReasoning = session.getAvailableThinkingLevels().find((level) => level !== "off");
     const payload = JSON.stringify({ criteria: input.criteria, files: input.files.map(({ path, text, roles }) => ({ path, text, roles })) });
     if (payload.length / 2 + 6144 > model.contextWindow) throw new Error("These Check inputs exceed the selected model's bounded context allowance. Narrow the targets or select a larger-context fold model.");
-    const stream = await session.agent.streamFn(model, {
+    const stream = await session.agent.streamFunction(model, normalizeContext({
       systemPrompt: modelReviewSystemPrompt,
       messages: [{ role: "user", content: payload, timestamp: Date.now() }],
       tools: [{ name: "submit_review", description: "Submit the completed review once. Quotes must exactly and uniquely match primary text.", parameters: modelReviewSubmissionSchema }],
-    }, { maxTokens: Math.min(model.maxTokens > 0 ? model.maxTokens : 6144, 6144), maxRetries: 0, timeoutMs: 120_000, signal: input.signal, ...(reviewReasoning ? { reasoning: reviewReasoning } : {}) });
+    }), { maxTokens: Math.min(model.maxTokens > 0 ? model.maxTokens : 6144, 6144), maxRetries: 0, timeoutMs: 120_000, signal: input.signal, ...(reviewReasoning ? { reasoning: reviewReasoning } : {}) });
     const result = await stream.result();
     if (result.stopReason === "length") throw new Error("The model review exceeded its output limit. Narrow the Check criteria or selected files, then run again. No findings were admitted.");
     if (result.stopReason === "aborted") throw new Error("The model review was interrupted. No findings were admitted.");
@@ -626,6 +633,7 @@ export class PiConversationClient extends EventEmitter {
 
   async stop(): Promise<void> {
     const preserveActiveTurnTrail = this.promptInFlight;
+    this.authController?.abort();
     this.runtimeGeneration += 1;
     if (this.activeExtensionTurn) this.activeExtensionTurn.cancelled = true;
     this.resolvedRuntime?.config.extensionUi?.forgetScope?.(this.extensionUiScope());
@@ -642,6 +650,8 @@ export class PiConversationClient extends EventEmitter {
     }
     this.unsubscribeSession?.();
     this.unsubscribeSession = null;
+    this.uninstallRuntimeInspection?.();
+    this.uninstallRuntimeInspection = null;
     const runtime = this.runtimeHost;
     this.runtimeHost = null;
     this.resolvedRuntime = null;
@@ -691,9 +701,8 @@ export class PiConversationClient extends EventEmitter {
       const services = await createAgentSessionServices({
         cwd: options.cwd,
         agentDir: runtime.agentDir,
-        authStorage: runtime.authStorage,
         settingsManager: runtime.settingsManager,
-        modelRegistry: runtime.modelRegistry,
+        modelRuntime: runtime.modelRuntime,
         resourceLoaderOptions: {
           additionalExtensionPaths: runtime.config.additionalExtensionPaths,
           additionalSkillPaths: runtime.config.additionalSkillPaths,
@@ -708,6 +717,7 @@ export class PiConversationClient extends EventEmitter {
           )),
         },
       });
+      applyPiRuntimeDefaults(runtime.settingsManager);
       const preferred = options.sessionManager.buildSessionContext().messages.length === 0
         ? findPreferredModel(runtime)
         : undefined;
@@ -763,6 +773,8 @@ export class PiConversationClient extends EventEmitter {
     runtimeHost.setBeforeSessionInvalidate(() => {
       this.unsubscribeSession?.();
       this.unsubscribeSession = null;
+      this.uninstallRuntimeInspection?.();
+      this.uninstallRuntimeInspection = null;
     });
     try {
       await this.bindSession(runtimeHost.session);
@@ -785,6 +797,15 @@ export class PiConversationClient extends EventEmitter {
     this.unsubscribeSession?.();
     installRetryableProviderErrorNormalization(session);
     const inspector = this.resolvedRuntime?.config.modelContextInspector;
+    this.uninstallRuntimeInspection?.();
+    this.uninstallRuntimeInspection = inspector ? installModelRuntimeInspection(session.modelRuntime, inspector, (kind, options) => {
+      const call = this.modelCall.getStore();
+      if (!call || (call.purpose === "assistant" && !this.promptInFlight)) return undefined;
+      if (kind === "cache_warm" && (session.cacheWarmingStatus?.state !== "refreshing"
+        || (options as { sessionId?: string } | undefined)?.sessionId !== session.sessionId)) return undefined;
+      return { spaceRoot: this.spaceRoot, conversationId: this.conversationId, sessionId: session.sessionId,
+        taskId: call.taskId, purpose: kind };
+    }) : null;
     if (inspector) installModelContextInspection(session, inspector, () => {
       const call = this.modelCall.getStore();
       return {
@@ -927,7 +948,6 @@ export class PiConversationClient extends EventEmitter {
 
   private handleSessionEvent(event: AgentSessionEvent): void {
     const raw = event as any;
-    normalizeRetryableProviderError(raw.message);
     if (raw.type === "message_start" && raw.message?.role === "assistant") {
       this.finalAssistantSegment = null;
       this.assistantAttemptStartSegment = this.assistantSegments.length;
@@ -1030,7 +1050,7 @@ export class PiConversationClient extends EventEmitter {
       return;
     }
     if (raw.type === "compaction_end" && raw.errorMessage) {
-      if (this.pendingAssistantError && raw.reason === "overflow") this.pendingAssistantError = String(raw.errorMessage);
+      if (raw.reason === "overflow") this.pendingAssistantError = String(raw.errorMessage);
       this.emitEvent({ type: "status", message: `Compaction warning: ${compactText(String(raw.errorMessage))}`, raw });
       return;
     }
@@ -1087,6 +1107,7 @@ export class PiConversationClient extends EventEmitter {
       ...(event.edit ? { edit: { ...event.edit } } : {}),
       ...(event.toolName ? { toolName: event.toolName } : {}),
       ...(event.phase ? { phase: event.phase } : {}),
+      ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
     });
     this.emitEvent({ ...event, workTrailId, order, raw });
   }
@@ -1233,10 +1254,10 @@ export class PiConversationClient extends EventEmitter {
   }
 
   private async runModelCommand(args: string): Promise<string> {
-    const models = this.session.modelRegistry.getAll();
+    const models = this.session.modelRuntime.getModels();
     let selected = resolveModelArgument(models, args);
     if (!selected) {
-      const configured = models.filter((model) => this.session.modelRegistry.hasConfiguredAuth(model));
+      const configured = models.filter((model) => this.session.modelRuntime.hasConfiguredAuth(model.provider));
       if (!configured.length) return "No provider is configured. Use /login or work-fold settings first.";
       const choices = configured.map((model) => `${model.provider}/${model.id} — ${model.name}`);
       const choice = await createExtensionUiContext(this.uiBridge(), this.extensionUiScope())
@@ -1270,58 +1291,80 @@ export class PiConversationClient extends EventEmitter {
   }
 
   private async runLoginCommand(args: string): Promise<string> {
-    const registry = this.session.modelRegistry;
-    const oauthById = new Map(this.resolvedRuntime!.authStorage.getOAuthProviders().map((provider) => [provider.id, provider]));
-    const providerIds = [...new Set(registry.getAll().map((model) => model.provider))];
-    let providerId = args.trim();
-    if (!providerId) {
-      const labels = providerIds.map((id) => `${registry.getProviderDisplayName(id)} (${id})`);
-      const selected = await createExtensionUiContext(this.uiBridge(), this.extensionUiScope())
-        .select("Choose an AI provider", labels);
-      providerId = selected ? providerIds[labels.indexOf(selected)] ?? "" : "";
-    }
-    if (!providerId) return "Provider login cancelled.";
+    const controller = new AbortController();
+    this.authController = controller;
+    try {
+      const registry = this.session.modelRuntime;
+      const oauthById = new Map(registry.getProviders().filter((provider) => provider.auth?.oauth).map((provider) => [provider.id, provider]));
+      const providerIds = registry.getProviders().map((provider) => provider.id);
+      let providerId = args.trim();
+      if (!providerId) {
+        const labels = providerIds.map((id) => `${(registry.getProvider(id)?.name ?? id)} (${id})`);
+        const selected = await createExtensionUiContext(this.uiBridge(), this.extensionUiScope())
+          .select("Choose an AI provider", labels);
+        providerId = selected ? providerIds[labels.indexOf(selected)] ?? "" : "";
+      }
+      if (!providerId) return "Provider login cancelled.";
 
-    const oauth = oauthById.get(providerId);
-    const ui = createExtensionUiContext(this.uiBridge(), this.extensionUiScope());
-    if (oauth) {
-      await this.resolvedRuntime!.authStorage.login(providerId, {
-        onAuth: (info) => publishExtensionUiEvent(this.uiBridge(), this.extensionUiScope(), { method: "openExternal", ...info }),
-        onDeviceCode: (info) => publishExtensionUiEvent(this.uiBridge(), this.extensionUiScope(), {
-          method: "oauthDeviceCode",
-          userCode: info.userCode,
-          verificationUri: info.verificationUri,
-          ...(info.expiresInSeconds ? { expiresInSeconds: info.expiresInSeconds } : {}),
-        }),
-        onPrompt: async (prompt) => await ui.input(prompt.message, prompt.placeholder) ?? "",
-        onProgress: (message) => ui.notify(message, "info"),
-        onManualCodeInput: async () => await ui.input("Paste the OAuth redirect URL or authorization code") ?? "",
-        onSelect: async (prompt) => {
-          const labels = prompt.options.map((option) => option.label);
-          const selected = await ui.select(prompt.message, labels);
-          return selected ? prompt.options[labels.indexOf(selected)]?.id : undefined;
-        },
-      });
-    } else {
-      const response = await this.uiBridge().request({
-        ...this.extensionUiScope(),
-        id: randomUUID(),
-        method: "input",
-        title: `API key for ${registry.getProviderDisplayName(providerId)}`,
-        placeholder: "Paste API key",
-        secret: true,
-      });
-      const key = "value" in response ? response.value.trim() : "";
-      if (!key) return "Provider login cancelled.";
-      this.resolvedRuntime!.authStorage.set(providerId, { type: "api_key", key });
-    }
-    await this.resolvedRuntime!.flushAuthStorage();
-    registry.refresh();
-    return `Configured ${registry.getProviderDisplayName(providerId)}.`;
+      const oauth = oauthById.get(providerId);
+      const ui = createExtensionUiContext(this.uiBridge(), this.extensionUiScope());
+      if (oauth) {
+        await registry.login(providerId, "oauth", piAuthInteraction({
+          signal: controller.signal,
+          openUrl: (info) => publishExtensionUiEvent(this.uiBridge(), this.extensionUiScope(), { method: "openExternal", ...info }),
+          showDeviceCode: (info) => publishExtensionUiEvent(this.uiBridge(), this.extensionUiScope(), {
+            method: "oauthDeviceCode",
+            userCode: info.userCode,
+            verificationUri: info.verificationUri,
+            ...(info.expiresInSeconds ? { expiresInSeconds: info.expiresInSeconds } : {}),
+          }),
+          prompt: async (prompt) => {
+            const id = randomUUID();
+            const bridge = this.uiBridge();
+            const abort = () => { bridge.cancel?.(id); };
+            prompt.signal?.throwIfAborted();
+            prompt.signal?.addEventListener("abort", abort, { once: true });
+            try {
+              const response = await bridge.request({ ...this.extensionUiScope(), id,
+                method: "input", title: prompt.message, placeholder: prompt.placeholder, secret: prompt.secret });
+              if (!("value" in response)) throw new Error("Provider login cancelled.");
+              return response.value;
+            } finally { prompt.signal?.removeEventListener("abort", abort); }
+          },
+          progress: (message) => ui.notify(message, "info"),
+          manualCodeInput: async (signal) => {
+            const value = await ui.input("Paste the OAuth redirect URL or authorization code", undefined, { signal });
+            if (value === undefined) throw new Error("Provider login cancelled.");
+            return value;
+          },
+          select: async (prompt) => {
+            const labels = prompt.options.map((option) => option.label);
+            const selected = await ui.select(prompt.message, labels, { signal: prompt.signal });
+            return selected ? prompt.options[labels.indexOf(selected)]?.id : undefined;
+          },
+        }), { agentName: "work-fold" });
+      } else {
+        const response = await this.uiBridge().request({
+          ...this.extensionUiScope(),
+          id: randomUUID(),
+          method: "input",
+          title: `API key for ${(registry.getProvider(providerId)?.name ?? providerId)}`,
+          placeholder: "Paste API key",
+          secret: true,
+        });
+        const key = "value" in response ? response.value.trim() : "";
+        if (!key) return "Provider login cancelled.";
+        await this.resolvedRuntime!.credentials.modify(providerId, async () => ({ type: "api_key", key }), { signal: controller.signal });
+      }
+      controller.signal.throwIfAborted();
+      await this.resolvedRuntime!.flushCredentials();
+      await registry.refresh({ allowNetwork: false });
+      return `Configured ${(registry.getProvider(providerId)?.name ?? providerId)}.`;
+    } finally { if (this.authController === controller) this.authController = null; }
   }
 
   private async runLogoutCommand(args: string): Promise<string> {
-    const configured = this.resolvedRuntime!.authStorage.list();
+    const configured = (await this.resolvedRuntime!.credentials.list()).map((item) => item.providerId);
     let providerId = args.trim();
     if (!providerId) {
       const selected = await createExtensionUiContext(this.uiBridge(), this.extensionUiScope())
@@ -1329,9 +1372,9 @@ export class PiConversationClient extends EventEmitter {
       providerId = selected ?? "";
     }
     if (!providerId) return "Provider logout cancelled.";
-    this.resolvedRuntime!.authStorage.logout(providerId);
-    await this.resolvedRuntime!.flushAuthStorage();
-    this.session.modelRegistry.refresh();
+    await this.session.modelRuntime.logout(providerId);
+    await this.resolvedRuntime!.flushCredentials();
+    await this.session.modelRuntime.refresh({ allowNetwork: false });
     return `Removed authentication for ${providerId}.`;
   }
 
@@ -1573,8 +1616,8 @@ export function isPiTurnNotRunningError(error: unknown): boolean {
 
 function findPreferredModel(runtime: ResolvedPiRuntime) {
   if (!runtime.preferredModel) return undefined;
-  const model = runtime.modelRegistry.find(runtime.preferredModel.provider, runtime.preferredModel.id);
-  return model && runtime.modelRegistry.hasConfiguredAuth(model) ? model : undefined;
+  const model = runtime.modelRuntime.getModel(runtime.preferredModel.provider, runtime.preferredModel.id);
+  return model && runtime.modelRuntime.hasConfiguredAuth(model.provider) ? model : undefined;
 }
 
 export function buildTurnContextMessage(context: PiTurnContext): string {
@@ -1732,7 +1775,7 @@ const builtInCommandNames = new Set([
   "new", "compact", "resume", "reload", "quit",
 ]);
 
-function resolveModelArgument(models: any[], argument: string): any | undefined {
+function resolveModelArgument(models: readonly any[], argument: string): any | undefined {
   const value = argument.trim();
   if (!value) return undefined;
   const slash = value.indexOf("/");
@@ -1847,23 +1890,6 @@ function assistantError(message: any): string | null {
   return String(message.errorMessage ?? "Provider request failed.");
 }
 
-/**
- * OpenRouter can terminate an already-started stream with
- * `finish_reason: "error"` and a structured top-level error object. Pi 0.80.x
- * currently drops that object and leaves only this generic fallback. Reword it
- * before AgentSession persists/classifies the message so Pi's existing bounded
- * retry path resumes from the last tool result instead of failing the whole
- * user turn or replaying completed tool calls.
- */
-function normalizeRetryableProviderError(message: any): void {
-  if (!message || message.role !== "assistant" || message.stopReason !== "error") return;
-  if (message.errorMessage === "Provider finish_reason: error") {
-    // Keep "returned error" contiguous: that is the wording recognized by
-    // Pi's transient-provider classifier in the pinned runtime.
-    message.errorMessage = "Provider returned error while streaming.";
-  }
-}
-
 /** Joins a turn's assistant text segments as paragraphs, dropping empty (tool-call-only) ones. */
 export function joinAssistantSegments(segments: readonly string[]): string {
   return segments.map((segment) => segment.trim()).filter(Boolean).join("\n\n");
@@ -1904,6 +1930,7 @@ function toolEvent(raw: any): Omit<PiChatEvent, "conversationId" | "raw"> | null
       toolCallId,
       toolName,
       phase: failed ? "error" : "complete",
+      ...(typeof raw.durationMs === "number" && Number.isFinite(raw.durationMs) && raw.durationMs >= 0 && raw.durationMs <= 86_400_000 ? { durationMs: raw.durationMs } : {}),
       message: `${label} ${failed ? "failed" : "finished"}`,
       detail,
     };
@@ -1992,35 +2019,39 @@ function asError(error: unknown): Error {
 
 export const piSdkVersion = PI_SDK_VERSION;
 
+
 const normalizedProviderStreams = new WeakSet<object>();
 
-/**
- * Pi 0.80.6 converts an unknown OpenAI-compatible finish_reason into the
- * generic "Provider finish_reason: error" text. That loses OpenRouter's
- * structured upstream error before Pi's otherwise-safe retry classifier runs.
- * Normalize the terminal stream object itself so AgentSession can remove only
- * the failed assistant attempt and continue from completed tool results.
- */
+/** Native Pi still classifies an unknown OpenAI finish_reason as a generic error. */
 function installRetryableProviderErrorNormalization(session: AgentSession): void {
   if (normalizedProviderStreams.has(session.agent)) return;
   normalizedProviderStreams.add(session.agent);
-  const upstreamStream = session.agent.streamFn;
-  session.agent.streamFn = async (model, context, options) => {
+  const upstreamStream = session.agent.streamFunction;
+  session.agent.streamFunction = async (model, context, options) => {
     const upstream = await upstreamStream(model, context, options);
-    const wrapped = {
-      async *[Symbol.asyncIterator]() {
-        for await (const event of upstream) {
-          if (event.type === "error") normalizeRetryableProviderError(event.error);
-          if (event.type === "done") normalizeRetryableProviderError(event.message);
-          yield event;
-        }
+    // Keep a genuine native EventStream, including its class and cancellation behavior.
+    return new Proxy(upstream, {
+      get(target, key) {
+        if (key === Symbol.asyncIterator) return async function* () {
+          for await (const event of target) {
+            if (event.type === "error") normalizeRetryableProviderError(event.error);
+            if (event.type === "done") normalizeRetryableProviderError(event.message);
+            yield event;
+          }
+        };
+        if (key === "result") return async () => {
+          const result = await target.result();
+          normalizeRetryableProviderError(result);
+          return result;
+        };
+        const value = Reflect.get(target, key, target);
+        return typeof value === "function" ? value.bind(target) : value;
       },
-      async result() {
-        const result = await upstream.result();
-        normalizeRetryableProviderError(result);
-        return result;
-      },
-    };
-    return wrapped as unknown as typeof upstream;
+    });
   };
+}
+function normalizeRetryableProviderError(message: { role: string; stopReason?: string; errorMessage?: string }): void {
+  if (message.role === "assistant" && message.stopReason === "error" && message.errorMessage === "Provider finish_reason: error") {
+    message.errorMessage = "Provider returned error while streaming.";
+  }
 }

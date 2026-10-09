@@ -11,7 +11,7 @@ const port = (reservation.address() as { port: number }).port;
 await new Promise<void>(resolve => reservation.close(() => resolve()));
 process.env.PI_CHROME_BRIDGE_PORT = String(port);
 process.env.PI_CODING_AGENT_DIR = join(root, "agent");
-const { AuthStorage, createAgentSession, createEventBus, DefaultResourceLoader, ModelRegistry, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+const { FileCredentialStore, createAgentSession, createEventBus, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
 const chrome = await jiti.import<any>(new URL("../../../resources/included-tools/chrome/index.ts", import.meta.url).pathname);
 const config = { companionPath: join(root, "companion") }, url = `http://127.0.0.1:${port}`;
@@ -37,8 +37,8 @@ async function makeSession(name: string) {
   const resourceLoader = new DefaultResourceLoader({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, settingsManager, eventBus, noContextFiles: true, noSkills: true, noThemes: true, noPromptTemplates: true,
     extensionFactories: [{ path: join(root, `${name}.ts`), factory: chrome.default }] });
   await resourceLoader.reload(); assert.deepEqual(resourceLoader.getExtensions().errors, []);
-  const authStorage = AuthStorage.inMemory();
-  const { session } = await createAgentSession({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, resourceLoader, settingsManager, authStorage, modelRegistry: ModelRegistry.inMemory(authStorage), sessionManager: SessionManager.inMemory(), noTools: "builtin" });
+  const authStorage = FileCredentialStore.inMemory();
+  const { session } = await createAgentSession({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, resourceLoader, settingsManager, modelRuntime: await ModelRuntime.create({ credentials: authStorage, modelsPath: null }), sessionManager: SessionManager.inMemory(), noTools: "builtin" });
   await session.bindExtensions({ mode: "rpc" }); sessions.push(session); return { session, cwd };
 }
 function call(session: any, name: string, args: any) { const tool = session.agent.state.tools.find((item: any) => item.name === name); assert.ok(tool); return tool.execute("fixture", args); }

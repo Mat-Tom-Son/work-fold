@@ -79,11 +79,10 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
   }
   const label = !enabled ? "Turned Off" : includedToolReadiness(status ?? undefined).label;
   const needsSetup = enabled && status?.state === "setup_required";
-  const requirement = enabled && status && ["setup_required", "unavailable"].includes(status.state) ? status.detail : null;
+  const requirement = tool.id !== "mcp" && enabled && status && ["setup_required", "unavailable"].includes(status.state) ? status.detail : null;
   return <section className="included-tool-setup" aria-label={`${tool.title} setup`} aria-busy={busy}>
     {tool.id !== "mcp" || !enabled ? <div className="included-tool-status"><strong role="status">{label}</strong>{tool.id !== "mcp" ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act("check")}>{busy ? "Checking…" : "Check"}</button> : null}</div> : null}
     {requirement ? <p>{requirement}</p> : null}
-    {enabled && tool.id === "mcp" && status?.facts?.connections !== undefined && status.facts.connections !== "0" ? <p>Configured connections are checked when used. Open each connection below to verify it now.</p> : null}
     {enabled && tool.id === "computer" && status?.state === "unknown" ? <p>The helper starts when you use Computer Control. Being idle does not mean its permissions were lost.</p> : null}
     {enabled && status?.stale && status.state === "ready" ? <p>Last verified {new Date(status.checkedAt).toLocaleString()}. This is an earlier successful check, not a live connection. Readiness refreshes when you use this tool.</p> : null}
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}

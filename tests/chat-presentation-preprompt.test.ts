@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 import { markConversationTitleAttempted, readConversation } from "../src/local/agent/chat-store.js";
 import { startLocalApi } from "../src/local/server.js";
@@ -40,9 +40,9 @@ test("a reused Chat stopped before prompting cannot inherit the prior turn's fin
   await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
   const agentDir = join(root, "agent");
   await mkdir(agentDir);
-  const authStorage = AuthStorage.inMemory({ fixture: { type: "api_key", key: "synthetic" } });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("fixture", {
+  const authStorage = FileCredentialStore.inMemory({ fixture: { type: "api_key", key: "synthetic" } });
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("fixture", {
     api: "openai-completions", baseUrl: `http://127.0.0.1:${(provider.address() as AddressInfo).port}/v1`, apiKey: "synthetic",
     models: [{ id: "fixture", name: "Fixture", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }],
   });
@@ -50,7 +50,7 @@ test("a reused Chat stopped before prompting cannot inherit the prior turn's fin
   let prompted = 0;
   const api = await startLocalApi({
     port: 0, stateBase: join(root, "state"), spaceBase: join(root, "content"), loadEnv: false,
-    piRuntimeProvider: { async resolveRuntime() { return { agentDir, authStorage, modelRegistry, settingsManager }; } },
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir, credentials: authStorage, modelRuntime, settingsManager }; } },
     beforeAgentPrompt() {
       if (++prompted === 2) throw Object.assign(new Error("Stopped before prompt"), { name: "PiTurnCancelledError" });
     },

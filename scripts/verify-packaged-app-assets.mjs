@@ -167,7 +167,7 @@ if (existsSync(asarPath)) {
     "/resources/included-tools/documents/runtime.mjs",
     "/resources/included-tools/documents/worker.mjs",
     "/resources/included-tools/documents/skills/documents/SKILL.md",
-    ...["@injaneity/pi-computer-use", "pi-chrome", "pi-web-access", "pi-mcp-adapter", "jiti", "typebox", "docx", "exceljs", "pptxgenjs", "pdf-lib", "pdfjs-dist", "@napi-rs/canvas"].map((name) => `/node_modules/${name}/package.json`),
+    ...["@injaneity/pi-computer-use", "pi-chrome", "pi-web-access", "@earendil-works/pi-mcp", "jiti", "typebox", "docx", "exceljs", "pptxgenjs", "pdf-lib", "pdfjs-dist", "@napi-rs/canvas"].map((name) => `/node_modules/${name}/package.json`),
     "/node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/service_worker.js",
     "/node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/host-config.json",
     "/node_modules/@injaneity/pi-computer-use/src/platform/macos/helper-identity.mjs",

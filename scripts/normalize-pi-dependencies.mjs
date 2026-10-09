@@ -53,7 +53,11 @@ async function normalizeDependency({
   const nestedDir = join(piDir, "node_modules", name);
   const nestedPackagePath = join(nestedDir, "package.json");
   const nestedPackage = await readJsonIfPresent(nestedPackagePath);
-  if (nestedPackage?.version !== fixedVersion) {
+  // Pi 1.1 hoists reviewed dependencies. Do not invent nested packages absent
+  // from the lockfile; normalize only a published, reviewed nested exception.
+  const piRequire = createRequire(join(piDir, "package.json"));
+  const currentPackage = await readJson(piRequire.resolve(`${name}/package.json`));
+  if (currentPackage.version !== fixedVersion) {
     if (nestedPackage && !replaceVersions.has(nestedPackage.version)) {
       throw new Error(
         `Refusing to replace unexpected Pi-nested ${name} ${nestedPackage.version}; review the upstream dependency first.`,
@@ -67,7 +71,6 @@ async function normalizeDependency({
     await cp(sourceDir, nestedDir, { recursive: true });
   }
 
-  const piRequire = createRequire(join(piDir, "package.json"));
   const resolvedPackagePath = piRequire.resolve(`${name}/package.json`);
   const resolvedPackage = await readJson(resolvedPackagePath);
   if (resolvedPackage.version !== fixedVersion) {

@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { appendMessage, readConversation, type ChatMessage } from "../src/local/agent/chat-store.js";
 import { PiConversationClient, PiTurnFailure, type PiChatEvent } from "../src/local/agent/pi-client.js";
 import { localEditPath, parseAssistantPresentation, projectNativeEdit, turnPresentation } from "../src/local/agent/turn-presentation.js";
@@ -166,9 +166,9 @@ test("native overflow compaction recovery discards the failed attempt's error an
       firstKeptEntryId: event.preparation.firstKeptEntryId,
       tokensBefore: event.preparation.tokensBefore,
     } }));
-  }`);
-  await h.client.prompt("Earlier context. ".repeat(8_000));
-  await h.client.prompt("More earlier context. ".repeat(8_000));
+  }`, { enabled: true, reserveTokens: 1024, keepRecentTokens: 64 });
+  await h.client.prompt("Earlier context. ".repeat(1_000));
+  await h.client.prompt("More earlier context. ".repeat(1_000));
   const reply = await h.client.prompt("Now recover from the overflow.");
   assert.equal(reply, "Recovered after compaction.");
   assert.equal(requests, 4);
@@ -194,9 +194,9 @@ test("native empty length-stop overflow compacts and retries once without retain
       firstKeptEntryId: event.preparation.firstKeptEntryId,
       tokensBefore: event.preparation.tokensBefore,
     } }));
-  }`);
-  await h.client.prompt("Earlier context. ".repeat(8_000));
-  await h.client.prompt("More earlier context. ".repeat(8_000));
+  }`, { enabled: true, reserveTokens: 1024, keepRecentTokens: 64 });
+  await h.client.prompt("Earlier context. ".repeat(1_000));
+  await h.client.prompt("More earlier context. ".repeat(1_000));
   assert.equal(await h.client.prompt("Now recover from the overflow."), "Recovered from a full input window.");
   assert.equal(requests, 4, "the existing native recovery makes exactly one retry");
   assert.ok(h.events.some((event) => (event.raw as any)?.type === "compaction_end" && (event.raw as any)?.willRetry));
@@ -227,8 +227,8 @@ test("native repeated input overflow stops after one compact-and-retry even at t
         tokensBefore: event.preparation.tokensBefore,
       } }));
     }`, { enabled: true, reserveTokens: 1024, keepRecentTokens: 64 });
-    await h.client.prompt("Earlier context. ".repeat(8_000));
-    await h.client.prompt("More earlier context. ".repeat(8_000));
+    await h.client.prompt("Earlier context. ".repeat(1_000));
+    await h.client.prompt("More earlier context. ".repeat(1_000));
     await assert.rejects(h.client.prompt("Recover once, then report if the input still cannot fit."), /recovery failed after one compact-and-retry/);
     assert.equal(requests, 4, "two seed turns plus the original attempt and one native retry");
     assert.equal(new Set(h.events.filter(event => (event.raw as any)?.type === "compaction_end" && (event.raw as any)?.willRetry).map(event => event.raw)).size, 1);
@@ -389,12 +389,12 @@ async function harness(t: TestContext, respond: (payload: any, send: Send, respo
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const authStorage = AuthStorage.inMemory({ presentation: { type: "api_key", key: "synthetic" } });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("presentation", { api: "openai-completions", baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, apiKey: "synthetic",
+  const authStorage = FileCredentialStore.inMemory({ presentation: { type: "api_key", key: "synthetic" } });
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("presentation", { api: "openai-completions", baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, apiKey: "synthetic",
     models: [{ id: "presentation", name: "Presentation", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }] });
   const settingsManager = SettingsManager.inMemory({ defaultProvider: "presentation", defaultModel: "presentation", defaultThinkingLevel: "off", ...(compaction ? { compaction } : {}) });
-  const provider = { async resolveRuntime() { return { agentDir, authStorage, modelRegistry, settingsManager }; } };
+  const provider = { async resolveRuntime() { return { agentDir, credentials: authStorage, modelRuntime, settingsManager }; } };
   const client = new PiConversationClient("native-presentation", spaceRoot, provider);
   const events: PiChatEvent[] = [];
   client.on("event", (event: PiChatEvent) => events.push(event));

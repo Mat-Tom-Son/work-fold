@@ -25,13 +25,14 @@ app.dock?.hide();
     assert.equal(pptxRequire.resolve("image-size/package.json"), join(archive, "node_modules/image-size/package.json"), "PptxGenJS must resolve the hash-verified archived image parser, with no nested or ancestor replacement");
     const sdkPath = join(archive, "node_modules/@earendil-works/pi-coding-agent/dist/index.js");
     await fs.access(sdkPath);
-    const { AuthStorage, ModelRegistry, SettingsManager } = await import(pathToFileURL(sdkPath).href);
+    const { FileCredentialStore, ModelRuntime, SettingsManager } = await import(pathToFileURL(sdkPath).href);
+    const { fauxProvider, fauxAssistantMessage, fauxToolCall } = await import(pathToFileURL(join(archive, "node_modules/@earendil-works/pi-ai/dist/index.js")).href);
     const { PiConversationClient } = await import(pathToFileURL(join(archive, "dist/desktop/src/local/agent/pi-client.js")).href);
     const { loadIncludedMcpConfig } = await import(pathToFileURL(join(archive, "dist/desktop/src/local/agent/included-mcp-setup.js")).href);
     await fs.mkdir(agentDir, { recursive: true });
-    const authStorage = AuthStorage.inMemory(), modelRegistry = ModelRegistry.inMemory(authStorage);
+    const authStorage = FileCredentialStore.inMemory(), modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
     const provider = { resolveRuntime: async () => ({
-      agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory({ retry: { enabled: false } }), projectTrust: { override: true },
+      agentDir, credentials: authStorage, modelRuntime, settingsManager: SettingsManager.inMemory({ retry: { enabled: false } }), projectTrust: { override: true },
       includedTools: { rootPath: join(archive, "resources/included-tools"), stateRoot, helperAppPath: join(root, "Unused Computer.app") },
     }) };
     async function client(name) {
@@ -40,7 +41,7 @@ app.dock?.hide();
       const catalog = await value.getCatalog();
       assert.deepEqual(catalog.diagnostics.filter(item => item.type === "error" || item.type === "collision"), [], "Native session must have no loader errors");
       const state = await value.getState();
-      for (const name of ["find_roots", "chrome_tab", "web_search", "mcp", "mcpScript", "document_run", "document_engine"]) assert.ok(state.activeTools.includes(name), `Missing active packaged tool ${name}`);
+      for (const name of ["find_roots", "chrome_tab", "web_search", "codemode", "tool_search", "document_run", "document_engine"]) assert.ok(state.activeTools.includes(name), `Missing active packaged tool ${name}`);
       return { value, cwd };
     }
     async function call(owner, name, args) {
@@ -67,23 +68,45 @@ app.dock?.hide();
     });
     await new Promise(resolve => peer.listen(0, "127.0.0.1", resolve));
     const configPath = join(agentDir, "mcp.json");
-    await fs.writeFile(configPath, JSON.stringify({ mcpServers: { fixture: { url: `http://127.0.0.1:${peer.address().port}/mcp`, auth: false, lifecycle: "lazy" } }, settings: { directTools: true, notifyOnStartupConnect: false } }));
+    await fs.writeFile(configPath, JSON.stringify({ mcpServers: { fixture: { url: `http://127.0.0.1:${peer.address().port}/mcp`, exposure: "direct" } } }));
     try {
       // Cold product path: do not warm up Jiti with a differently configured loader.
       const first = await client("mcp-space-a"), second = await client("mcp-space-b");
-      assert.equal(requests.length, 0, "Lazy MCP must not connect during native session startup");
-      await call(first, "mcp", { connect: "fixture" });
-      const result = await call(first, "mcp", { server: "fixture", tool: "echo", args: { note: "packaged-mcp-ok" } });
+      const until = async (owner) => {
+        for (let attempt = 0; attempt < 200; attempt++) {
+          if ((await owner.value.ensureSession()).agent.state.tools.some(tool => tool.name === "mcp__fixture__echo")) return;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        throw new Error("Native MCP did not connect");
+      };
+      await until(first); await until(second);
+      const result = await call(first, "mcp__fixture__echo", { note: "packaged-mcp-ok" });
       assert.match(JSON.stringify(result), /packaged-mcp-ok/);
-      assert.match(JSON.stringify(result.content), /structured-record/);
-      assert.match(JSON.stringify(result.content), /packaged-next-page/, "pagination survives in model-visible content");
+      // Native Pi exposes the complete CallToolResult to scripts. Direct
+      // model calls receive the server's text/images rather than injected JSON.
+      assert.deepEqual(result.structuredContent.structuredContent, { records: ["structured-record"], nextCursor: "packaged-next-page" });
+      const faux = fauxProvider();
+      modelRuntime.registerNativeProvider(faux.provider);
+      const nativeSession = await first.value.ensureSession();
+      await nativeSession.setModel(faux.getModel());
+      faux.setResponses([
+        fauxAssistantMessage(fauxToolCall("codemode", { code: "text((await tools.mcp__fixture__echo({note:'scripted-mcp-ok'})).structuredContent);" }, { id: "packaged-script" })),
+        fauxAssistantMessage("Packaged MCP script completed."),
+      ]);
+      await first.value.prompt("Run the packaged MCP script.");
+      const scripted = nativeSession.messages.find(message => message.role === "toolResult" && message.toolCallId === "packaged-script");
+      assert.ok(scripted, "the native Assistant loop persisted the scripted result");
+      assert.match(JSON.stringify(scripted.content), /structured-record/);
+      assert.match(JSON.stringify(scripted.content), /packaged-next-page/, "scripts can release pagination to model-visible content");
+      assert.equal(requests.filter(method => method === "tools/call").length, 2, "one execution per explicit direct/scripted call");
       assert.ok(requests.includes("initialize") && requests.includes("tools/list") && requests.includes("tools/call"));
       await first.value.stop();
-      await call(second, "mcp", { connect: "fixture" });
-      assert.match(JSON.stringify(await call(second, "mcp", { server: "fixture", tool: "echo", args: { note: "sibling-still-active" } })), /sibling-still-active/);
+      assert.match(JSON.stringify(await call(second, "mcp__fixture__echo", { note: "sibling-still-active" })), /sibling-still-active/);
       await second.value.stop();
       await fs.writeFile(configPath, "{packaged-malformed-private-fixture");
-      await assert.rejects(() => loadIncludedMcpConfig({ agentDir }), error => !String(error).includes("packaged-malformed-private-fixture") && /could not be read/.test(String(error)));
+      const malformed = await loadIncludedMcpConfig({ agentDir });
+      assert.ok(malformed.errors.length > 0);
+      assert.ok(!JSON.stringify(malformed).includes("packaged-malformed-private-fixture"));
       console.log("PASS packaged MCP: cold native loaders, two sessions, discovery/invocation and malformed-config redaction");
     } catch (error) { errors.push(`Packaged MCP: ${error.stack || error}`); }
     finally { await fs.rm(configPath, { force: true }); }

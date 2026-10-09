@@ -49,13 +49,14 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
     prompt(input) {
       return promptFromClipboard(host, input);
     },
-    manualCodeInput() {
+    manualCodeInput(signal) {
       return promptFromClipboard(host, {
         message: "Paste the OAuth redirect URL or authorization code",
-        placeholder: "Redirect URL or authorization code",
+        placeholder: "Redirect URL or authorization code", signal,
       });
     },
     async select(input) {
+      input.signal?.throwIfAborted();
       if (input.options.length === 0) return undefined;
       const cancelId = input.options.length;
       const result = await host.showMessageBox({
@@ -67,6 +68,7 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
         cancelId,
         noLink: true,
       });
+      input.signal?.throwIfAborted();
       return result.response === cancelId ? undefined : input.options[result.response]?.id;
     },
     progress(message) {
@@ -77,9 +79,10 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
 
 async function promptFromClipboard(
   host: DesktopPiOAuthHost,
-  input: { message: string; placeholder?: string; allowEmpty?: boolean },
+  input: { message: string; placeholder?: string; allowEmpty?: boolean; signal?: AbortSignal },
 ): Promise<string> {
   while (true) {
+    input.signal?.throwIfAborted();
     const useDefaultId = input.allowEmpty ? 1 : -1;
     const cancelId = input.allowEmpty ? 2 : 1;
     const result = await host.showMessageBox({
@@ -99,6 +102,7 @@ async function promptFromClipboard(
       noLink: true,
     });
 
+    input.signal?.throwIfAborted();
     if (result.response === cancelId) throw new Error("Provider sign-in cancelled.");
     if (result.response === useDefaultId) return "";
 

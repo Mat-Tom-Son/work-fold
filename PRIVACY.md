@@ -130,17 +130,17 @@ Chrome's Debugger API, not as extension service-worker or popup code. Chrome's
 own debugger and extension permission controls continue to apply.
 
 Optional Brave credentials use the existing
-machine-local Pi AuthStorage. Native MCP definitions use the configured Pi
+machine-local Pi CredentialStore. Native MCP definitions use the configured Pi
 agent directory's `mcp.json` and a registered Space's `.pi/mcp.json`; project
 configuration can travel with its folder. Host-entered bearer and OAuth
-credentials use the upstream OS keyring with identities bound to scope and
-endpoint, and are not returned by setup status. Manually authored native
+credentials use encrypted desktop storage with identities bound to scope and
+endpoint (native Pi profile files in browser/CLI development), and are not returned by setup status. Manually authored native
 configuration may itself contain environment or header values: it remains
 executable, full-trust configuration, not a secret-free portable data format.
-MCP contacts configured servers according to their native lifecycle; the
-default lazy connections start on use. HTTP sends their protocol
+Native MCP connects enabled configured servers in the background when a Chat
+session starts; catalog reads do not connect. HTTP sends their protocol
 messages and stdio launches the configured local command. Other applications'
-MCP settings are not automatically imported. MCP sampling is disabled.
+MCP settings are not automatically imported. Native MCP currently has no elicitation or sampling path.
 
 ## When data leaves this computer
 

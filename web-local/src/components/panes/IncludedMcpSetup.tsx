@@ -16,7 +16,7 @@ export function IncludedMcpSetup({ spaceId, enabled }: { spaceId: string; enable
   const [extra, setExtra] = useState("{}");
   const [tokenFor, setTokenFor] = useState<IncludedMcpServer | null>(null);
   const [token, setToken] = useState("");
-  const [probe, setProbe] = useState<{ state: string; detail: string } | null>(null);
+  const [probe, setProbe] = useState<{ state: string; detail: string; name?: string } | null>(null);
   const [job, setJob] = useState<IncludedMcpOAuthJob | null>(null);
   const session = useRef<string | null>(null);
   const alive = useRef(true);
@@ -46,7 +46,7 @@ export function IncludedMcpSetup({ spaceId, enabled }: { spaceId: string; enable
       if (!alive.current) return;
       if (result.servers) setServers(result.servers);
       if (result.job) setJob(result.job);
-      if (result.probe) setProbe(result.probe);
+      setProbe(result.probe ? { ...result.probe, ...(typeof fields.name === "string" ? { name: fields.name } : {}) } : null);
       if (action === "save") { setAdding(false); setName(""); setEndpoint(""); setExtra("{}"); }
       if (action === "bearer") { setTokenFor(null); setToken(""); }
       if (action === "oauth-cancel") setJob(null);
@@ -75,24 +75,25 @@ export function IncludedMcpSetup({ spaceId, enabled }: { spaceId: string; enable
   return <div className="included-mcp-setup">
     <div className="included-tool-actions"><button type="button" className="professional-button professional-button-primary" disabled={!enabled || busy || !opened} onClick={() => setAdding(true)}>Add Connection</button><button type="button" className="professional-button professional-button-secondary" disabled={busy || !opened} onClick={() => void act("list")}>Refresh</button></div>
     {error ? <p className="included-tool-error" role="alert">{error}</p> : null}
-    {probe ? <p role="status">{probe.state === "ready" ? "Connected" : probe.detail}</p> : null}
+    {probe ? <p role="status">{probe.name ? `${probe.name}: ` : ""}{probe.state === "ready" ? "Connected" : probe.detail}</p> : null}
     {job ? <div className="included-mcp-auth" role="status"><p>{job.state === "running" ? "Complete sign-in in your browser." : job.state === "connected" ? "Signed in." : job.message ?? `Sign-in ${job.state}.`}</p>{job.state === "running" ? <button type="button" className="professional-button professional-button-secondary" onClick={() => void act("oauth-cancel", { jobId: job.id })}>Cancel sign-in</button> : null}</div> : null}
     {!opened && !error ? <p role="status">Loading connections…</p> : opened && !servers.length && !adding ? <p>No Connections</p> : null}
-    <ul className="included-mcp-list">{servers.map((server) => <li key={`${server.scope}:${server.name}`}><div><strong>{server.name}</strong><small>{server.scope === "global" ? "Everywhere" : "This Space only"} · {server.disabled ? "Turned Off" : server.auth === "none" ? "No sign-in required" : server.credential === "present" ? "Signed in" : server.credential === "not_checked" ? "Sign-in not checked" : server.credential === "unavailable" ? "Secure storage unavailable" : "Not signed in"}</small></div><div className="included-tool-actions">
+    {opened && servers.length ? <p>Connections are checked when used. Check a connection below to verify it now.</p> : null}
+    <ul className="included-mcp-list">{servers.map((server) => <li key={`${server.scope}:${server.name}`}><div><strong>{server.name}</strong><small>{server.scope === "global" ? "Everywhere" : "This folder only"} · {server.disabled ? "Turned Off" : server.auth === "provider" ? "Uses AI Models connection" : server.inherited ? "Uses Everywhere connection" : server.auth === "none" ? "No sign-in required" : server.credential === "present" ? "Signed in" : server.credential === "not_checked" ? "Sign-in not checked" : server.credential === "unavailable" ? "Secure storage unavailable" : server.auth === "automatic" ? "No saved sign-in" : "Not signed in"}</small></div><div className="included-tool-actions">
       <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled || server.disabled} onClick={() => void act("check", selection(server))}>Check</button>
       <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act("enabled", { ...selection(server), enabled: server.disabled })}>{server.disabled ? "Turn On" : "Turn Off"}</button>
-      {server.transport === "http" && server.auth !== "none" ? <><button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled || server.disabled || job?.state === "running"} onClick={() => void act("oauth", selection(server))}>Sign in</button></> : null}
-      </div><details className="included-tool-optional"><summary>Connection Settings</summary><code>{server.endpoint}</code><div className="included-tool-actions">{server.transport === "http" ? <><button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => { setTokenFor(server); setToken(""); }}>Use token</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("disconnect", selection(server))}>Disconnect</button></> : null}
+      {server.transport === "http" && server.auth !== "none" && server.auth !== "provider" && !server.inherited ? <><button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled || server.disabled || job?.state === "running"} onClick={() => void act("oauth", selection(server))}>Sign in</button></> : null}
+      </div><details className="included-tool-optional"><summary>Connection Settings</summary><code>{server.endpoint}</code><small>Tool access: {server.exposure}</small><div className="included-tool-actions">{server.transport === "http" && server.auth !== "provider" && !server.inherited ? <><button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => { setTokenFor(server); setToken(""); }}>Use token</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("disconnect", selection(server))}>Disconnect</button></> : null}
       <button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("remove", selection(server))}>Remove</button>
     </div></details></li>)}</ul>
     {tokenFor ? <form className="included-mcp-form" onSubmit={(event) => { event.preventDefault(); void act("bearer", { ...selection(tokenFor), token }); }}><label>Token for {tokenFor.name}<input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} /></label><div className="included-tool-actions"><button type="submit" className="professional-button professional-button-primary" disabled={busy || !token.trim()}>Connect</button><button type="button" className="professional-button professional-button-secondary" onClick={() => { setTokenFor(null); setToken(""); }}>Cancel</button></div></form> : null}
     {adding ? <form className="included-mcp-form" onSubmit={(event) => { event.preventDefault(); save(); }}>
       <h3>Add Connection</h3><label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="my-service" /></label>
-      <label>Available in<select value={scope} onChange={(event) => setScope(event.target.value as "global" | "project")}><option value="global">Everywhere</option><option value="project">This Space only</option></select></label>
+      <label>Available in<select value={scope} onChange={(event) => setScope(event.target.value as "global" | "project")}><option value="global">Everywhere</option><option value="project">This folder only</option></select></label>
       <label>Connection<select value={transport} onChange={(event) => setTransport(event.target.value as "url" | "command")}><option value="url">Service URL</option><option value="command">Local server command</option></select></label>
       <label>{transport === "url" ? "MCP service URL" : "Executable"}<input required type={transport === "url" ? "url" : "text"} value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder={transport === "url" ? "https://example.com/mcp" : "/path/to/server"} /></label>
       {transport === "command" ? <><p>Install the command and its runtime first.</p><label>Arguments (JSON array)<input value={args} onChange={(event) => setArgs(event.target.value)} /></label></> : null}
-      <details><summary>Advanced Settings</summary><textarea aria-label="Advanced MCP settings" value={extra} onChange={(event) => setExtra(event.target.value)} rows={5} spellCheck={false} /></details>
+      <details><summary>Advanced Settings</summary><p>Native Pi MCP options include exposure: codemode, deferred, direct, or hidden; toolExposure sets individual tools.</p><textarea aria-label="Advanced MCP settings" value={extra} onChange={(event) => setExtra(event.target.value)} rows={5} spellCheck={false} /></details>
       <div className="included-tool-actions"><button type="submit" className="professional-button professional-button-primary" disabled={busy}>Add Connection</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => setAdding(false)}>Cancel</button></div>
     </form> : null}
   </div>;

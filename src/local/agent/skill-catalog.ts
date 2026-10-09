@@ -16,7 +16,7 @@ import {
   createHeadlessExtensionUiBridge,
 } from "./extension-ui.js";
 import {
-  resolvePiRuntime,
+  applyPiRuntimeDefaults, resolvePiRuntime,
   type PiRuntimeProvider,
   type ResolvedPiRuntime,
 } from "./pi-runtime-config.js";
@@ -138,11 +138,11 @@ export async function loadAgentSkillCatalog(
   const services = await createAgentSessionServices({
     cwd: spaceRoot,
     agentDir: runtime.agentDir,
-    authStorage: runtime.authStorage,
     settingsManager: runtime.settingsManager,
-    modelRegistry: runtime.modelRegistry,
+    modelRuntime: runtime.modelRuntime,
     resourceLoaderOptions: await additionalResourceOptions(spaceRoot, runtime),
   });
+  applyPiRuntimeDefaults(runtime.settingsManager);
   const result = await createAgentSessionFromServices({
     services,
     sessionManager: SessionManager.inMemory(spaceRoot),
@@ -263,7 +263,7 @@ export async function buildPiResourceCatalog(
       persisted: false,
       mutable: false,
       scope: "chat",
-      reason: "Pi has no persisted Personal or Space tool default; tool selection belongs to each Chat.",
+      reason: "Pi's defaultTools setting supplies startup tools; this view does not change them.",
     },
     tools,
     skills: skills.sort((left, right) => left.name.localeCompare(right.name)),

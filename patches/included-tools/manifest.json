@@ -180,96 +180,6 @@
     ]
   },
   {
-    "package": "pi-mcp-adapter",
-    "version": "2.33.0",
-    "source": "https://github.com/nicobailon/pi-mcp-adapter/tree/32b67f916745b31a30a80371a86f00f70ba0a561",
-    "license": "MIT",
-    "patch": "pi-mcp-adapter-2.33.0.patch",
-    "sha256": "05ab9c41189593c4dff8df8869aebde6157ca2e41d39eccc736321ba1f718c5c",
-    "files": [
-      {
-        "path": "index.ts",
-        "before": "67b83a87a5e61e502a484fb465f82af4e7720decf8049eb3b431ee0d8b32cb9f",
-        "after": "56e9a223cf00baa4fcb7b5ef7c86e05c51361d66d4e43629b198cf94675754d5"
-      },
-      {
-        "path": "types.ts",
-        "before": "78275c7139c17963ac7895ea1bb6c0a2309ce1e0152b67581c37a9ac35b00d21",
-        "after": "dcbd37d9542c65921beac3d67bec1eab9816bc871c91e581e83530c95eb50a77"
-      },
-      {
-        "path": "init.ts",
-        "before": "bec3e033607461a57a3eb62a287c387655e7cb61b0bfb7e39cfca588a40f6d86",
-        "after": "359eeca3af4798b285224aab6191fc75bc2f75b82d7736fefc9d152e27efd104"
-      },
-      {
-        "path": "direct-tools.ts",
-        "before": "315dbe7557ae044194dcc939dcbc969a812394d55813d71c4fc1a2939ca1947a",
-        "after": "ad45baee9b75abfdd74bd48ee5e51512b47a927a20eb409d5aaa5a7103ddfd47"
-      },
-      {
-        "path": "config.ts",
-        "before": "de8a57dda4f80fcbaa2d0dfca8c37bddf6e1b2f97ecfae5fb53f848856617845",
-        "after": "ce1e7098bdc2a62fe3c3658854bb8b3d6e2576469f5d0a8fd743a2008fb56b28"
-      },
-      {
-        "path": "setup.ts",
-        "before": null,
-        "after": "54c7c58d9e199fd0ca74b936e98ec4a885069960324bfabd4418090a64102594"
-      },
-      {
-        "path": "package.json",
-        "before": "271f7a11108f4cc7067f0c24572057aa1fdfb0664aae8ecb5aeeb8a76a5a2b21",
-        "after": "38e5fadebac3d43270a6416dfceede2f517c77401a8c163ff382acb8cc6e8c2d"
-      },
-      {
-        "path": "agent-dir.ts",
-        "before": "72af0c49eb6acc34282d97975bd358501b46b598a0b153d32c21ef5929461614",
-        "after": "fb20f891c9ca7c51de6a4a04b46c79e9dd0fe3336982e2a869f4b1fb8714bd33"
-      },
-      {
-        "path": "server-manager.ts",
-        "before": "30372c3452d329378987edac18beb7508c8cf17fd40b987f6a0d45d055ce507d",
-        "after": "2d6c7e20c38ac83c1e1f8f40e87aef207f4ab01a81f8e84eacb7d725bc585124"
-      },
-      {
-        "path": "metadata-cache.ts",
-        "before": "0193223df5431268374015f60d5c3b732eac2adb3e26a6d096590832ade2bbd2",
-        "after": "34a713b76837ef1cba3635b7e0f475f22364cac85ee95ef64d30e6bc49a1dadc"
-      },
-      {
-        "path": "mcp-auth-flow.ts",
-        "before": "5b2eb08aa297e054469692eb70d5fb7348db65a4be370143359b054ebd297dc9",
-        "after": "1bda0c6e38bc1518f84b8dba398e1b804e13d572f61bb9bbb8917af575947c49"
-      },
-      {
-        "path": "mcp-oauth-provider.ts",
-        "before": "d3fa197bc3d2a6a6ede65d3baf23babf8fb963b76fa0249f825f5322007d4338",
-        "after": "813bac4ddf41abe486eb7fc04afc171c101603e2d41eeff9c540ec0177d32aa8"
-      },
-      {
-        "path": "mcp-auth.ts",
-        "before": "3509e617f8c500a7af57d67cd893612139fff910729a34cdcbc75bd6b2273fac",
-        "after": "c3be34a14670d869b64655fe7faf3781ec7486c510172aa3f6971259e82bda7d"
-      },
-      {
-        "path": "tool-registrar.ts",
-        "before": "4bc8f3c25743d6be3a7bbed5ec2425f80a66cbbbeda3d5922302c1961b67a170",
-        "after": "5bc3b8b15e76acbfa6ce24b5d60fd7a2eb05fc928275d2cf62f7428b4713ef47"
-      },
-      {
-        "path": "proxy-modes.ts",
-        "before": "ba56835ab431494504733307138d940edefe04b886689642c5ab6b997cc123be",
-        "after": "fc283c55cebcafbfeac2fe824b01422da5d2d8f11ea2148971af82dbb31924c4"
-      },
-      {
-        "path": "mcp-code.ts",
-        "before": "fecfde07f4c12b754fce355b6595455c9ce46dd52473dfc82f9dd5161a2b6040",
-        "after": "90b6c52839a80e20f746c79850dc9a9267f97a0c159c69cf7f6980b5f9ea46d4"
-      }
-    ]
-  },
-  {
     "package": "pi-web-access",
     "version": "0.29.0",
     "source": "https://www.npmjs.com/package/pi-web-access/v/0.29.0",
@@ -326,16 +236,26 @@
   },
   {
     "package": "@earendil-works/pi-coding-agent",
-    "version": "0.80.6",
-    "source": "https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/0.80.6",
+    "version": "1.1.0",
+    "source": "https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.1.0",
     "license": "MIT",
-    "patch": "pi-coding-agent-0.80.6.patch",
-    "sha256": "c5f1919f2f5fd129e6b8dc26627e5b2c72fc879ae2c1b11189b8bb1e29ed1870",
+    "patch": "pi-coding-agent-1.1.0.patch",
+    "sha256": "c825ec93fb0f6567460748d838c368f459315cdcc8aad3a89392705d5ab9fed0",
     "files": [
       {
+        "path": "dist/index.js",
+        "before": "5482298b995db935f7b96f5d6056fa1c36ac6fc80456be594ef65b83c62b0d30",
+        "after": "cd228e7d74c66d54b40801ad0c81bf2cb7ec20386f9339875a985445949aae5c"
+      },
+      {
+        "path": "dist/index.d.ts",
+        "before": "b254e36846b1dcc64ce1a8ba72e23fb410df4aa4408ba8c23e69e5b3f934e3cc",
+        "after": "59961f33ffa61aa88cddd5e3856ed3d804de098db7b65462d5345cbd39cfe166"
+      },
+      {
         "path": "dist/core/agent-session.js",
-        "before": "b2b3b0e2b95ff88290232da4117920a6fd0cceb06bb5d66bb8f120fc934644e7",
-        "after": "1c5d551b28b679a8a3142702113f472a7a89116c1fabdb092f8310f74991ef7c"
+        "before": "0ba5c847b4fd2fd838f71ea84885b9f3a4f15d9bf4b5493e2e88a41d1507e20b",
+        "after": "2256b06d3ec6835d9afcadf6a1ad7279efa809115ceaf784c94e7448283e14a6"
       }
     ]
   }

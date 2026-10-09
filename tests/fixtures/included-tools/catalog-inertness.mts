@@ -20,10 +20,10 @@ function forbid(target: any, key: string, label: string) {
   target[key] = (..._args: unknown[]) => { events.push(label); throw new Error(`Catalog attempted ${label}`); };
 }
 try {
-  const { AuthStorage, ModelRegistry, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+  const { FileCredentialStore, ModelRuntime, SettingsManager } = await import("@earendil-works/pi-coding-agent");
   const { loadAgentSkillCatalog } = await import("../../../src/local/agent/skill-catalog.ts");
-  const authStorage = AuthStorage.inMemory(), modelRegistry = ModelRegistry.inMemory(authStorage);
-  const provider = { resolveRuntime: async () => ({ agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory(), projectTrust: { override: true }, includedTools: { rootPath: resolve("resources/included-tools"), stateRoot, helperAppPath: join(root, "Missing Computer.app") } }) };
+  const authStorage = FileCredentialStore.inMemory(), modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  const provider = { resolveRuntime: async () => ({ agentDir, credentials: authStorage, modelRuntime, settingsManager: SettingsManager.inMemory(), projectTrust: { override: true }, includedTools: { rootPath: resolve("resources/included-tools"), stateRoot, helperAppPath: join(root, "Missing Computer.app") } }) };
   const before = await snapshot(root);
   for (const key of ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"]) forbid(childProcess, key, `child_process.${key}`);
   forbid(workerThreads, "Worker", "worker thread");
@@ -34,7 +34,7 @@ try {
     assert.deepEqual(catalog.diagnostics.filter(item => item.type === "error" || item.type === "collision"), []);
     const included = catalog.extensions.filter(item => item.source.source === "Included with work-fold");
     assert.equal(included.length, 5, JSON.stringify(catalog.extensions));
-    for (const name of ["find_roots", "chrome_tab", "web_search", "mcp", "document_run"]) assert.ok(catalog.tools.some(tool => tool.name === name), `Missing native tool ${name}`);
+    for (const name of ["find_roots", "chrome_tab", "web_search", "codemode", "tool_search", "document_run"]) assert.ok(catalog.tools.some(tool => tool.name === name), `Missing native tool ${name}`);
     assert.ok(catalog.skills.some(skill => skill.name === "document-work"), "Ordinary document Skill is present");
   }
   assert.deepEqual(events, [], "Catalog/session_start never starts a helper, bridge, MCP process, or network request");

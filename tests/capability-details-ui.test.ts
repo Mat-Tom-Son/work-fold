@@ -104,9 +104,14 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   const writes: unknown[] = [];
   let failingCheck = false;
   const tools = [included("chrome"), included("computer"), { ...included("documents"), enabled: false, status: "disabled" as const }];
+  const nativeBuiltins = ["codemode", "tool_search"];
   const catalog = {
-    diagnostics: [], packages: [], skills: [], tools: [],
-    extensions: tools.map((item) => ({ ...item, included: undefined, source: { scope: "user", origin: "top-level", source: "builtin" } })),
+    diagnostics: [], packages: [], skills: [],
+    tools: nativeBuiltins.map((name) => ({ name, label: name, description: "Native Pi tool", core: true, active: true, source: "builtin" })),
+    extensions: [
+      ...tools.map((item) => ({ ...item, included: undefined, source: { scope: "user", origin: "top-level", source: "builtin" } })),
+      ...nativeBuiltins.map((name) => ({ name: `builtin:${name}`, path: `builtin:${name}`, tools: [name], commands: [], flags: [], source: { scope: "user", origin: "top-level", source: "builtin" } })),
+    ],
     resources: tools.map((item) => ({ kind: "extensions", path: item.path, enabled: item.enabled, included: item.included, metadata: { scope: "user", origin: "top-level", source: "builtin" } })),
   };
   globalThis.fetch = (async (input, init) => {
@@ -134,6 +139,8 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   assert.equal(dom.container.querySelector(".capabilities-health"), null, "no tool-count or attention line");
   assert.equal(dom.container.querySelector(".capabilities-scope-heading .capabilities-hierarchy-glyph"), null);
   assert.equal(dom.container.querySelector(".scope-global .capabilities-resource-card"), null, "included tools are not repeated under Everywhere");
+  assert.doesNotMatch(dom.container.querySelector(".capabilities-scope-groups")?.textContent ?? "", /builtin:codemode|builtin:tool_search/);
+  assert.equal(dom.container.querySelectorAll(".capabilities-core-tool-row").length, 2, "native built-ins remain discoverable once in Core Tools");
   for (const name of ["Chrome", "Computer Control", "Documents"]) {
     assert.equal(setup(name), null, `${name} is unchecked or off, so it never asks for setup`);
   }
