@@ -2,14 +2,14 @@
 export function createSurfaceTabMotion(strip: HTMLElement, chrome: HTMLElement) {
   const view = strip.ownerDocument.defaultView!;
   const root = strip.ownerDocument.documentElement;
-  const systemMotion = view.matchMedia("(prefers-reduced-motion: reduce)");
+  const systemMotion = typeof view.matchMedia === "function" ? view.matchMedia("(prefers-reduced-motion: reduce)") : null;
   let selected: HTMLElement | null = null;
   let geometry: { left: number; top: number; width: number; height: number } | null = null;
   let animation: Animation | null = null;
 
   function reduceMotion(): boolean {
     const preference = root.dataset.appearanceMotion;
-    return preference === "reduce" || systemMotion.matches;
+    return preference === "reduce" || Boolean(systemMotion?.matches);
   }
 
   function settle(): void {
@@ -51,12 +51,12 @@ export function createSurfaceTabMotion(strip: HTMLElement, chrome: HTMLElement) 
     ], { duration: 180, easing: "cubic-bezier(.2,.8,.2,1)" });
   }
 
-  const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => position(false));
+  const resize = typeof view.ResizeObserver === "function" ? new view.ResizeObserver(() => position(false)) : null;
   resize?.observe(strip);
-  const preferenceObserver = new MutationObserver(() => { if (reduceMotion()) settle(); });
+  const preferenceObserver = new view.MutationObserver(() => { if (reduceMotion()) settle(); });
   preferenceObserver.observe(root, { attributes: true, attributeFilter: ["data-appearance-motion"] });
   const onSystemMotionChange = () => { if (reduceMotion()) settle(); };
-  systemMotion.addEventListener("change", onSystemMotionChange);
+  systemMotion?.addEventListener("change", onSystemMotionChange);
 
   return {
     select(tab: HTMLElement | null, animate = false): void {
@@ -72,7 +72,7 @@ export function createSurfaceTabMotion(strip: HTMLElement, chrome: HTMLElement) 
       settle();
       resize?.disconnect();
       preferenceObserver.disconnect();
-      systemMotion.removeEventListener("change", onSystemMotionChange);
+      systemMotion?.removeEventListener("change", onSystemMotionChange);
     },
   };
 }
