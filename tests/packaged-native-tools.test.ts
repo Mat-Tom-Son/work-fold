@@ -43,19 +43,24 @@ test("full built-ASAR smoke rejects missing packaged dependencies without borrow
   await assert.rejects(() => verifyPackagedNativeTools(archive), error => error instanceof Error && /Packaged native tool smoke failed/.test(error.message) && /Cannot find module 'jiti'|Jiti must come from the built archive/.test(error.message));
 });
 
-test("packaged Pi recovery refuses an unpatched runtime with the same package version", async t => {
+test("packaged Pi recovery accepts pruned declarations and refuses unpatched or missing runtime bytes", async t => {
   const root = await mkdtemp(join(tmpdir(), "workfold-packaged-pi-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  for (const corrected of [true, false]) {
-    const source = join(root, String(corrected)), archive = join(root, `${corrected}.asar`);
+  for (const state of ["reviewed", "unpatched", "missing-session", "missing-exports", "replaced-exports"]) {
+    const source = join(root, state), archive = join(root, `${state}.asar`);
     await mkdir(source); await copyReviewedParser(source, "@earendil-works/pi-coding-agent");
-    if (!corrected) {
+    // Match the real Electron Builder dependency payload, which excludes .d.ts.
+    await rm(join(source, "node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"));
+    if (state === "unpatched") {
       const path = join(source, "node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js");
       const current = await readFile(path, "utf8");
       await writeFile(path, current.replace("isBeforeCompaction(assistantMessage)", "false"));
     }
+    if (state === "missing-session") await rm(join(source, "node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js"));
+    if (state === "missing-exports") await rm(join(source, "node_modules/@earendil-works/pi-coding-agent/dist/index.js"));
+    if (state === "replaced-exports") await writeFile(join(source, "node_modules/@earendil-works/pi-coding-agent/dist/index.js"), "export {};\n");
     await createPackage(source, archive);
-    if (corrected) assert.match(await verifyPackagedPiRecovery(archive), /PASS packaged Pi 1\.1\.0/);
-    else await assert.rejects(() => verifyPackagedPiRecovery(archive), /does not match the reviewed patch/);
+    if (state === "reviewed") assert.match(await verifyPackagedPiRecovery(archive), /PASS packaged Pi 1\.1\.0/);
+    else await assert.rejects(() => verifyPackagedPiRecovery(archive), /Packaged Pi recovery verification failed/);
   }
 });

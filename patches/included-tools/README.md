@@ -154,6 +154,12 @@ installed copies. Do not suppress the advisories or apply npm audit's obsolete
 PptxGenJS 1.1.5 downgrade. Remove the patch only after a reviewed upstream fix
 passes the same compatibility and packaged checks.
 
+The install lane verifies every manifest file, including Pi's patched public
+TypeScript declarations. Electron Builder removes dependency `.d.ts` files
+from the shipped payload, so packaged verification requires the reviewed
+runtime files and their exact hashes. Missing or replaced Pi runtime exports
+and recovery code still reject the archive before signing or loading tools.
+
 Pi 1.1.0 hoists brace-expansion 5.0.12 and protobufjs 7.6.5 through the
 reviewed root overrides and resolves undici 8.10.2 from its own declared nested
 dependency. The normalizer verifies actual resolution and only replaces known
