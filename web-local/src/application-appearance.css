@@ -50,7 +50,6 @@
 
 /* A text accent is not a button fill: its companion foreground was solved
    specifically against the solid role, including arbitrary custom accents. */
-:root[data-appearance-palette] .app-shell :is(.primary-button, .professional-button-primary),
 :root[data-appearance-palette] .popover button.primary,
 :root[data-appearance-palette] :is(.app-shell, .popover) :is(.work-primary-button, .extension-answer) {
   color: var(--ui-on-accent);
@@ -66,7 +65,6 @@
   --border: var(--ui-border);
 }
 
-:root[data-appearance-palette] .app-shell :is(.primary-button, .professional-button-primary):is(:hover, :focus-visible):not(:disabled),
 :root[data-appearance-palette] .popover button.primary:is(:hover, :focus-visible):not(:disabled) {
   color: var(--ui-on-accent);
   background: var(--ui-accent-solid);
@@ -86,7 +84,7 @@
   background: var(--ui-surface);
 }
 :root[data-appearance-palette] .app-shell .chat-panel .composer { background: var(--ui-surface); }
-:root[data-appearance-palette] .app-shell :is(.composer-input-shell, .file-tree-search, .search-box, .context-menu, .composer-command-menu) {
+:root[data-appearance-palette] .app-shell :is(.search-box, .context-menu, .composer-command-menu) {
   color: var(--ui-text);
   background: var(--ui-surface);
   border-color: var(--ui-border);
@@ -168,13 +166,13 @@
 :root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .message.user :is(.message-image-external, .message-image-unavailable) { color: var(--ui-text); }
 
 /* Density changes row padding, not glyph scale or content hierarchy. */
-:root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row),
+:root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row-shell),
 :root[data-appearance-palette] .app-shell .settings-window .settings-tab,
 :root[data-appearance-palette] .popover :is(.popover-new-chat, .fold-chat-row) {
-  min-height: max(32px, var(--work-fold-list-height));
+  min-height: var(--work-fold-list-height);
   padding-block: var(--work-fold-list-padding);
 }
-:root[data-appearance-palette] .app-shell .file-row { color: var(--ui-text); font-size: 0.9rem; }
+:root[data-appearance-palette] .app-shell .file-row { color: var(--ui-text); font-size: .8667rem; }
 :root[data-appearance-palette] .app-shell .file-row:hover { background: var(--ui-surface-hover); }
 :root[data-appearance-palette] .app-shell .file-row.selected,
 :root[data-appearance-palette] .app-shell .file-row.selected:hover { color: var(--ui-text); background: var(--space-accent-soft-fill, var(--ui-accent-soft)); }
@@ -238,7 +236,7 @@
 }
 
 @media (pointer: coarse) {
-  :root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row),
+  :root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row-shell),
   :root[data-appearance-palette] .app-shell .settings-window .settings-tab,
   :root[data-appearance-palette] .popover :is(.popover-new-chat, .fold-chat-row) { min-height: max(44px, var(--work-fold-list-height)); }
 }

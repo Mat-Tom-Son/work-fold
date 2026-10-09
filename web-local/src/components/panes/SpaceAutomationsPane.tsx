@@ -103,13 +103,13 @@ export function SpaceAutomationsPane({
               <small className="folder-automation-last-run">{lastRunText(automation)}</small>
               <div className="folder-automation-actions">
                 {automation.state === "on" ? (
-                  <button className="professional-button professional-button-primary" type="button" disabled={pending !== null} onClick={() => void act(automation, "run")}>{copy.runNow}</button>
+                  <button className="ui-control ui-control--primary" type="button" disabled={pending !== null} onClick={() => void act(automation, "run")}>{copy.runNow}</button>
                 ) : null}
                 {automation.state === "on" || automation.state === "running" ? (
-                  <button className="professional-button professional-button-secondary" type="button" disabled={pending !== null} onClick={() => void act(automation, "disable")}>{copy.turnOff}</button>
+                  <button className="ui-control" type="button" disabled={pending !== null} onClick={() => void act(automation, "disable")}>{copy.turnOff}</button>
                 ) : null}
                 {automation.state === "off" || automation.state === "suspended" ? (
-                  <button className="professional-button professional-button-primary" type="button" disabled={pending !== null} onClick={() => void act(automation, "enable")}>{copy.turnOn}</button>
+                  <button className="ui-control ui-control--primary" type="button" disabled={pending !== null} onClick={() => void act(automation, "enable")}>{copy.turnOn}</button>
                 ) : null}
               </div>
             </li>
@@ -117,7 +117,7 @@ export function SpaceAutomationsPane({
         </ul>
       ) : null}
       <footer className="folder-automations-footer">
-        <button className="professional-button professional-button-quiet" type="button" onClick={onOpenAllAutomations}>{copy.allAutomations}</button>
+        <button className="ui-control ui-control--quiet" type="button" onClick={onOpenAllAutomations}>{copy.allAutomations}</button>
       </footer>
     </div>
   );

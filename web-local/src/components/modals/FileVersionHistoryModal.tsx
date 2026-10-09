@@ -137,7 +137,7 @@ function FileVersionHistoryModal({
             <strong id="file-history-title">Version History</strong>
             <small>{filePath}</small>
           </span>
-          <button ref={closeButtonRef} className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close version history">
+          <button ref={closeButtonRef} className="ui-control ui-control--icon" type="button" disabled={busy} onClick={onClose} aria-label="Close version history">
             <X size={15} />
           </button>
         </div>
@@ -166,7 +166,7 @@ function FileVersionHistoryModal({
                     {index === 0 ? " · newest saved version" : ""}
                   </small>
                 </span>
-                <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => { setComparisonVersion(version); setComparisonTarget(""); }}>Compare</button>
+                <button className="ui-control" type="button" disabled={busy} onClick={() => { setComparisonVersion(version); setComparisonTarget(""); }}>Compare</button>
                 <button
                   className="readiness-run-button history-restore-button"
                   type="button"

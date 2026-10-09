@@ -1,8 +1,8 @@
 .included-tool-setup { min-width: 0; padding: 0; margin: 0; color: var(--ui-text); }
 .included-tool-setup p { line-height: 1.5; margin: 10px 0; }
-.included-tool-setup > .professional-button { margin-top: 12px; }
+.included-tool-setup > .ui-control { margin-top: 12px; }
 .included-tool-status, .included-tool-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.included-tool-setup .professional-button { height: auto; max-width: 100%; min-height: 36px; padding-block: 8px; white-space: normal; line-height: 1.35; }
+.included-tool-setup .ui-control { height: auto; max-width: 100%; min-height: 36px; padding-block: 8px; white-space: normal; line-height: 1.35; }
 .included-tool-status { justify-content: space-between; }
 .included-tool-status strong { font-size: 15px; }
 .included-chrome-actions { margin-top: 12px; }

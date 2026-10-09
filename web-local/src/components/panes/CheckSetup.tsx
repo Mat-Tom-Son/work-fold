@@ -40,6 +40,6 @@ export function CheckSetup({ spaceId, onSaved, onCancel }: { spaceId: string; on
     <p>Space-relative paths only.</p>
     {kind === "text-review" ? <p>Sends the listed files and criteria to the fold’s model. Provider charges may apply. Up to 16 files, 128 KiB each, 256 KiB total.</p> : null}
     {error ? <p role="alert" className="settings-inline-error">{error}</p> : null}
-    <div className="checks-header-actions"><button className="professional-button professional-button-primary" disabled={busy} type="submit">{busy ? "Saving…" : "Save proposal"}</button><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onCancel}>Cancel</button></div>
+    <div className="checks-header-actions"><button className="ui-control ui-control--primary" disabled={busy} type="submit">{busy ? "Saving…" : "Save proposal"}</button><button className="ui-control" type="button" disabled={busy} onClick={onCancel}>Cancel</button></div>
   </form>;
 }

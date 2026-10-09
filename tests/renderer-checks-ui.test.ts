@@ -315,7 +315,7 @@ test("a failed overview suppresses cached health claims and decisions", async (t
   assert.doesNotMatch(text, /More current findings exist/);
   assert.match(text, /Refresh to review current findings/);
   assert.equal(dom.container.querySelector(".checks-section-heading > span"), null);
-  assert.equal(dom.container.querySelector<HTMLButtonElement>("button.professional-button-primary")?.disabled, true);
+  assert.equal(dom.container.querySelector<HTMLButtonElement>("button.ui-control--primary")?.disabled, true);
 });
 
 test("a transient task poll failure retries until the accepted run settles", async (t) => {
@@ -347,8 +347,8 @@ test("a transient task poll failure retries until the accepted run settles", asy
   const { ChecksPane } = await import("../web-local/src/components/panes/ChecksPane.js");
   const space = { id: "space-checks-ui", name: "Weekend Launch", spaceRoot: "/tmp/weekend-launch" } as SpaceSummary;
   await dom.render(createElement(ChecksPane, { space, active: true, onOpenFile: () => undefined, onChecksChanged: () => undefined }));
-  await dom.waitFor(() => Boolean(dom.container.querySelector("button.professional-button-primary")));
-  await dom.act(() => dom.container.querySelector<HTMLButtonElement>("button.professional-button-primary")?.click());
+  await dom.waitFor(() => Boolean(dom.container.querySelector("button.ui-control--primary")));
+  await dom.act(() => dom.container.querySelector<HTMLButtonElement>("button.ui-control--primary")?.click());
   await dom.waitFor(() => taskRequests >= 7, 5_000);
   await dom.waitFor(() => (dom.container.textContent ?? "").includes("Run Checks"));
   assert.equal(taskRequests, 7);
@@ -377,9 +377,9 @@ test("the Run action admits only one submission before its response", async (t) 
   const { ChecksPane } = await import("../web-local/src/components/panes/ChecksPane.js");
   const space = { id: "space-checks-ui", name: "Weekend Launch", spaceRoot: "/tmp/weekend-launch" } as SpaceSummary;
   await dom.render(createElement(ChecksPane, { space, active: true, onOpenFile: () => undefined, onChecksChanged: () => undefined }));
-  await dom.waitFor(() => Boolean(dom.container.querySelector("button.professional-button-primary")));
+  await dom.waitFor(() => Boolean(dom.container.querySelector("button.ui-control--primary")));
   await dom.act(() => {
-    const button = dom.container.querySelector<HTMLButtonElement>("button.professional-button-primary");
+    const button = dom.container.querySelector<HTMLButtonElement>("button.ui-control--primary");
     button?.click();
     button?.click();
   });

@@ -11,7 +11,7 @@ Read [the historical role inventory](customization-role-inventory.md) for the or
 ## Person-facing experience
 
 **Customize Folder** opens a popup dialog from the Folder header, **Manage Folders**, or
-**Settings → Appearance**. Like Settings, Skills & Extensions, and Keyboard Shortcuts, it contains
+**Settings → Appearance**. Like Settings and Skills & Extensions, it contains
 keyboard focus and closes with Escape, its close button, or a click outside. It stays pinned to the
 Folder it was opened for and leaves the active Chat or file tab in place; running Chats stay mounted.
 Previously saved Customize tabs are discarded on restore, preserving the remaining tabs.

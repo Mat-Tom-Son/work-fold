@@ -266,7 +266,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
     <span className="file-share-anchor" ref={anchorRef}>
       <button
         ref={buttonRef}
-        className={shared ? "secondary-button compact no-margin file-share-button shared" : "secondary-button compact no-margin file-share-button"}
+        className={shared ? "ui-control compact no-margin file-share-button shared" : "ui-control compact no-margin file-share-button"}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={Boolean(open)}
@@ -283,16 +283,16 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
           <p className="file-share-meaning">{foldPublicationsSettings.linkMeaning}</p>
           <div className="file-share-actions">
             {link ? (
-              <button className="secondary-button compact no-margin" type="button" onClick={() => void copyLink(link)}>
+              <button className="ui-control compact no-margin" type="button" onClick={() => void copyLink(link)}>
                 <Copy size={14} />{foldPublicationsSettings.copyLink}
               </button>
             ) : null}
             {linkUnavailable && onOpenSettings ? (
-              <button className="secondary-button compact no-margin" type="button" onClick={() => { close(); onOpenSettings("shared-pages"); }}>
+              <button className="ui-control compact no-margin" type="button" onClick={() => { close(); onOpenSettings("shared-pages"); }}>
                 {fileSharing.openSharedPages}
               </button>
             ) : null}
-            <button className="secondary-button compact no-margin danger" type="button" onClick={() => void stopSharing(open)}>
+            <button className="ui-control compact no-margin danger" type="button" onClick={() => void stopSharing(open)}>
               {foldPublicationsSettings.stopSharing}
             </button>
           </div>

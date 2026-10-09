@@ -115,7 +115,7 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
   const cancelObservation = () => { setWatching(false); readRequest.current?.abort(); };
   return <section className="included-tool-setup" aria-label="Chrome setup" aria-busy={Boolean(action)}>
     <div className="included-tool-status"><strong role="status">{!enabled ? "Turned Off" : pendingLabel ?? presentation.label}</strong>
-      <button type="button" className="professional-button professional-button-secondary" disabled={!enabled || Boolean(action)} onClick={() => void act("check")}>Check</button>
+      <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("check")}>Check</button>
     </div>
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
     {state === "busy" ? <p>Stop Chrome work before changing the connection.</p> : null}
@@ -124,12 +124,12 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
     {enabled && hasSelection && state === "not_connected" ? <p>Open Chrome. Your selected profile reconnects automatically.</p> : null}
     {enabled && state === "connection_error" ? <p>{status?.detail}</p> : null}
     <div className="included-tool-actions included-chrome-actions">
-      {canConnect ? <button type="button" className="professional-button professional-button-primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : state === "update_extension" ? "Update extension" : connection?.problem === "native_host_unavailable" ? "Repair Connection" : "Connect Chrome"}</button> : null}
+      {canConnect ? <button type="button" className="ui-control ui-control--primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : state === "update_extension" ? "Update extension" : connection?.problem === "native_host_unavailable" ? "Repair Connection" : "Connect Chrome"}</button> : null}
       {hasSelection ? <>
-        <button type="button" className="professional-button professional-button-secondary" disabled={!enabled || Boolean(action)} onClick={() => void act("change-chrome-profile")}>Change profile</button>
-        <button type="button" className="professional-button professional-button-secondary" disabled={!enabled || Boolean(action)} onClick={() => void act("disconnect-chrome")}>Disconnect</button>
+        <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("change-chrome-profile")}>Change profile</button>
+        <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("disconnect-chrome")}>Disconnect</button>
       </> : null}
-      {watching ? <button type="button" className="professional-button professional-button-secondary" disabled={Boolean(action)} onClick={cancelObservation}>Cancel</button> : null}
+      {watching ? <button type="button" className="ui-control" disabled={Boolean(action)} onClick={cancelObservation}>Cancel</button> : null}
     </div>
   </section>;
 }

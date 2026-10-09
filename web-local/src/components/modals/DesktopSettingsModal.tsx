@@ -10,6 +10,7 @@ import {
   Delete20Regular,
   Flash20Regular,
   Info20Regular,
+  Keyboard20Regular,
   PaintBrush20Regular,
   Power20Regular,
   Sparkle20Regular,
@@ -38,14 +39,15 @@ import type { ApplicationAppearanceController } from "../../hooks/useApplication
 import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
 import { FoldLimitsPane } from "./FoldLimitsPane";
 import { SettingsAppsPane, type RestrictedAppsState } from "./SettingsAppsPane";
+import { KeyboardShortcutsPane } from "./KeyboardShortcutsPane";
 import { IconCredits } from "./IconCredits";
 import type { RestrictedAppInstalled } from "../../types";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "about";
+export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
 export type FoldSettingsSection = "routings" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "about";
+type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
 
 /**
  * The tab a Settings page id opens. "remote", "general" and "desktop" are
@@ -145,6 +147,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
     { id: "apps", label: "Apps", icon: <LayoutPanelLeft size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
+    { id: "shortcuts", label: "Keyboard Shortcuts", icon: <Keyboard20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
   const closeWindowControl = closeToTray?.supported ? (
@@ -171,10 +174,10 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
       <section ref={dialogRef} tabIndex={-1} className="settings-modal settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title settings-title">
           <div className="settings-title-copy">
-            {onBackToCustomization ? <button className="minimal-icon-button settings-customization-back" type="button" onClick={onBackToCustomization} aria-label="Back to Customize work-folder" title="Back to Customize work-folder"><ArrowLeft20Regular /></button> : null}
+            {onBackToCustomization ? <button className="ui-control ui-control--icon settings-customization-back" type="button" onClick={onBackToCustomization} aria-label="Back to Customize work-folder" title="Back to Customize work-folder"><ArrowLeft20Regular /></button> : null}
             <div><h2 id="settings-title">Settings</h2></div>
           </div>
-          <button ref={closeRef} className="minimal-icon-button settings-close-button" type="button" onClick={onClose} aria-label="Close settings"><Dismiss20Regular /></button>
+          <button ref={closeRef} className="ui-control ui-control--icon settings-close-button" type="button" onClick={onClose} aria-label="Close settings"><Dismiss20Regular /></button>
         </div>
         <div className="settings-form" onKeyDown={settingsRovingKeyDown}>
           <div className="settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation={narrowNavigation ? "horizontal" : "vertical"}>
@@ -232,6 +235,11 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
                 <FoldRecentlyDeletedPane />
               </div>
             ) : null}
+            {page === "shortcuts" ? (
+              <div className="settings-tab-panel" id="settings-panel-shortcuts" role="tabpanel" aria-labelledby="settings-tab-shortcuts">
+                <KeyboardShortcutsPane />
+              </div>
+            ) : null}
             {page === "about" ? (
               <div className="settings-tab-panel" id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about">
                 <section className="settings-section">
@@ -241,7 +249,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
                 </section>
                 <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
                   <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
-                  {onUpdateAction && updateStatus?.supported ? <button className="secondary-button" type="button" disabled={updateStatus.phase === "checking" || updateStatus.phase === "downloading" || updateStatus.phase === "installing"} onClick={onUpdateAction}><ArrowClockwise20Regular className={updateStatus.phase === "checking" || updateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(updateStatus)}</button> : null}
+                  {onUpdateAction && updateStatus?.supported ? <button className="ui-control" type="button" disabled={updateStatus.phase === "checking" || updateStatus.phase === "downloading" || updateStatus.phase === "installing"} onClick={onUpdateAction}><ArrowClockwise20Regular className={updateStatus.phase === "checking" || updateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(updateStatus)}</button> : null}
                 </section>
               </div>
             ) : null}
@@ -363,8 +371,8 @@ function RemoteAccessPane() {
         </div>
         {status?.url ? <code className="remote-access-url">{status.url}</code> : null}
         <div className="remote-access-actions">
-          {status?.configured ? <button className="secondary-button" type="button" disabled={Boolean(busy) || !status.enabled} onClick={() => void run("open", async () => remote.open())}>Open address</button> : null}
-          {status?.configured ? <button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run("toggle", () => remote.setEnabled(!status.enabled))}>{status.enabled ? "Disable" : "Enable"} web access</button> : null}
+          {status?.configured ? <button className="ui-control" type="button" disabled={Boolean(busy) || !status.enabled} onClick={() => void run("open", async () => remote.open())}>Open address</button> : null}
+          {status?.configured ? <button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void run("toggle", () => remote.setEnabled(!status.enabled))}>{status.enabled ? "Disable" : "Enable"} web access</button> : null}
         </div>
         {status?.lastError ? <span className="settings-inline-error" role="alert">{status.lastError}</span> : null}
       </section>
@@ -376,7 +384,7 @@ function RemoteAccessPane() {
           <label className="settings-field"><span>{status?.configured ? "New password" : "Password"}</span><input type="password" value={password} autoComplete="new-password" minLength={8} maxLength={256} placeholder="At least 8 characters" disabled={Boolean(busy)} onChange={(event) => { setPassword(event.target.value); setError(null); setNotice(null); }} /></label>
           <label className="settings-field"><span>Confirm password</span><input type="password" value={confirmation} autoComplete="new-password" minLength={8} maxLength={256} disabled={Boolean(busy)} onChange={(event) => { setConfirmation(event.target.value); setError(null); setNotice(null); }} /></label>
         </div>
-        <div className="settings-actions">{notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}<button className="primary-button" type="button" disabled={Boolean(busy) || !remoteSettingsChanged} onClick={() => void save()}>{busy === "save" ? "Saving…" : status?.configured ? "Save changes" : "Create private address"}</button></div>
+        <div className="settings-actions">{notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}<button className="ui-control ui-control--primary" type="button" disabled={Boolean(busy) || !remoteSettingsChanged} onClick={() => void save()}>{busy === "save" ? "Saving…" : status?.configured ? "Save changes" : "Create private address"}</button></div>
         {error ? <span className="settings-inline-error" role="alert">{error}</span> : null}
       </section>
 
@@ -385,11 +393,11 @@ function RemoteAccessPane() {
           <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired Browsers</h3><span>{status.approvedBrowsers.length}</span></div>
           <p>{remoteAccessSettings.pairedBrowserTrust}</p>
           {status.approvedBrowsers.length ? <div className="remote-browser-list">{status.approvedBrowsers.map((browser) => (
-            <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
+            <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
           ))}</div> : <div className="remote-browser-empty">No browser is paired yet.</div>}
           <div className="remote-access-danger-actions">
-            <button className="secondary-button danger" type="button" disabled={Boolean(busy) || !status.approvedBrowsers.length} onClick={() => { if (window.confirm("Remove every paired browser? Each one has to be paired again from this desktop.")) void run("revoke-all", () => remote.revokeAll()); }}>Remove all browsers</button>
-            <button className="secondary-button danger" type="button" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Remove this private address and all web access? This cannot be undone.")) void run("remove", () => remote.remove()); }}>Remove web access</button>
+            <button className="ui-control danger" type="button" disabled={Boolean(busy) || !status.approvedBrowsers.length} onClick={() => { if (window.confirm("Remove every paired browser? Each one has to be paired again from this desktop.")) void run("revoke-all", () => remote.revokeAll()); }}>Remove all browsers</button>
+            <button className="ui-control danger" type="button" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Remove this private address and all web access? This cannot be undone.")) void run("remove", () => remote.remove()); }}>Remove web access</button>
           </div>
         </section>
       ) : null}
@@ -568,7 +576,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
       {data && !shown.length && !hasAddress ? (
         <div className="remote-browser-empty fold-publication-empty">
           <span>{foldPublicationsSettings.emptyNoAddress}</span>
-          <button className="secondary-button" type="button" onClick={onOpenWebAccess}>{foldPublicationsSettings.webAccess}</button>
+          <button className="ui-control" type="button" onClick={onOpenWebAccess}>{foldPublicationsSettings.webAccess}</button>
         </div>
       ) : null}
       {data && !shown.length && hasAddress ? <div className="remote-browser-empty">{foldPublicationsSettings.empty}</div> : null}
@@ -616,7 +624,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                     ) : null}
                     <div className="settings-actions fold-publication-actions">
                       <button
-                        className="secondary-button"
+                        className="ui-control"
                         type="button"
                         disabled={Boolean(busy) || !viewerOrigin}
                         title={viewerOrigin ? undefined : foldPublicationsSettings.noAddress}
@@ -628,7 +636,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                         {revealed?.publicationId === publication.publicationId ? foldPublicationsSettings.hideLink : foldPublicationsSettings.revealLink}
                       </button>
                       <button
-                        className="secondary-button"
+                        className="ui-control"
                         type="button"
                         aria-expanded={Boolean(editing)}
                         disabled={Boolean(busy)}
@@ -645,7 +653,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                         {foldPublicationsSettings.budgets}
                       </button>
                       <button
-                        className="secondary-button danger"
+                        className="ui-control danger"
                         type="button"
                         disabled={Boolean(busy)}
                         onClick={() => {
@@ -668,7 +676,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                     <code className="remote-access-url">{revealed.link}</code>
                     <div className="settings-actions">
                       <button
-                        className="secondary-button"
+                        className="ui-control"
                         type="button"
                         onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link Copied"); }}
                       >
@@ -705,7 +713,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                       />
                     </label>
                     <div className="settings-actions">
-                      <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void saveBudgets(publication)}>
+                      <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busy)} onClick={() => void saveBudgets(publication)}>
                         {busy === `budgets-${publication.publicationId}` ? "Saving…" : foldPublicationsSettings.saveBudgets}
                       </button>
                     </div>

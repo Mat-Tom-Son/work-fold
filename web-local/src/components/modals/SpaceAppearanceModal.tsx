@@ -43,7 +43,7 @@ export function SpaceAppearanceModal({ onRenameSpace, onClose, onOpenWorkerSetti
           }}>
             {sections.map((section) => <button type="button" role="tab" key={section} id={`folder-appearance-tab-${section}`} aria-selected={activeSection === section} aria-controls={`folder-appearance-panel-${section}`} tabIndex={activeSection === section ? 0 : -1} onClick={() => setActiveSection(section)}>{section[0]!.toUpperCase() + section.slice(1)}</button>)}
           </div>
-          <button ref={closeRef} className="minimal-icon-button" type="button" onClick={onClose} aria-label="Close Customize work-folder"><Dismiss20Regular /></button>
+          <button ref={closeRef} className="ui-control ui-control--icon" type="button" onClick={onClose} aria-label="Close Customize work-folder"><Dismiss20Regular /></button>
         </header>
         <div className="space-appearance-modal-body">
           <div className="space-appearance-surface-heading">

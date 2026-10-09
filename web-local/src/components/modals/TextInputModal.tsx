@@ -62,7 +62,7 @@ export function TextInputModal({
         <form className="text-input-modal-form" onSubmit={(event) => void submit(event)}>
           <div className="modal-title">
             <div><h2 id={titleId}>{title}</h2>{description ? <p>{description}</p> : null}</div>
-            <button className="minimal-icon-button" type="button" onClick={onClose} disabled={saving} aria-label={`Close ${title}`}><X size={16} /></button>
+            <button className="ui-control ui-control--icon" type="button" onClick={onClose} disabled={saving} aria-label={`Close ${title}`}><X size={16} /></button>
           </div>
           <div className="text-input-modal-content">
             <label className="settings-field" htmlFor={inputId}>{label}
@@ -83,8 +83,8 @@ export function TextInputModal({
             {error ? <Banner tone="error" text={error} /> : null}
           </div>
           <div className="text-input-modal-footer">
-            <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>Cancel</button>
-            <button className="primary-button" type="submit" disabled={saving || !value.trim()} aria-busy={saving ? "true" : undefined}>
+            <button className="ui-control" type="button" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="ui-control ui-control--primary" type="submit" disabled={saving || !value.trim()} aria-busy={saving ? "true" : undefined}>
               {saving ? <Loader2 className="spin" size={16} /> : <Check size={16} />}{confirmLabel}
             </button>
           </div>

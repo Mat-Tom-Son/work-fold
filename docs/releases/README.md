@@ -4,6 +4,10 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## October 9, 2026
+
+[0.4.45](work-fold-0.4.45.md) is the desktop design candidate: consolidated controls and styling, clearer tabs, matching Files/Chats navigation, a tighter file preview, a full composer focus boundary, History journal and Keyboard Shortcuts in Settings. Saved personalization remains authoritative.
+
 ## October 8, 2026
 
 [0.4.43](work-fold-0.4.43.md) upgrades Pi to 1.1, integrates native codemode

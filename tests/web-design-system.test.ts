@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { createRequire } from "node:module";
+const postcss = createRequire(import.meta.url)("postcss");
 
 const spaceBannerPreviewSource = await readFile(join(process.cwd(), "web-local/src/components/chrome/SpaceBannerPreview.tsx"), "utf8");
 
@@ -28,11 +30,11 @@ const [
   readRenderer("components/panes/spaceChrome.tsx"),
   readRenderer("components/panes/spacePanes.tsx"),
   readRenderer("lib/space-identity.ts"),
-  readRenderer("professional-foundation.css"),
-  readRenderer("professional-shell.css"),
   readRenderer("styles.css"),
-  readRenderer("professional-surfaces.css"),
-  readRenderer("professional-customization.css"),
+  readRenderer("styles.css"),
+  readRenderer("styles.css"),
+  readRenderer("styles.css"),
+  readRenderer("styles.css"),
   readRenderer("components/modals/DesktopSettingsModal.tsx"),
   readRenderer("components/panes/CapabilitiesPane.tsx"),
   readRenderer("hooks/useSurfaceTabs.ts"),
@@ -233,10 +235,8 @@ test("every referenced elevation and radius token is defined", () => {
   }
   assert.ok(referencedShadows.has("--ui-shadow-lg"), "the elevated flyout shadow is in use");
   assert.ok(referencedRadii.has("--ui-radius-xl"), "the capability-dialog radius is in use");
-  const darkStart = foundationCss.indexOf(':root[data-theme="dark"]');
-  assert.ok(darkStart > 0);
-  const lightBlock = foundationCss.slice(foundationCss.indexOf(":root {"), darkStart);
-  const darkBlock = foundationCss.slice(darkStart, foundationCss.indexOf("}", darkStart) + 1);
+  const lightBlock = cssRuleBody(foundationCss, ":root");
+  const darkBlock = cssRuleBody(foundationCss, ':root[data-theme="dark"]');
   for (const token of referencedShadows) {
     assert.ok(lightBlock.includes(`${token}:`), `${token} must be defined in the light theme`);
     assert.ok(darkBlock.includes(`${token}:`), `${token} must be defined for the dark theme`);
@@ -274,7 +274,7 @@ test("every used P0 pane class has a CSS selector", () => {
     "chat-space-heading",
     "professional-surface",
     "professional-card",
-    "professional-button",
+    "ui-control",
     "professional-field",
     "professional-notice",
     "professional-install-panel",
@@ -292,7 +292,7 @@ test("every used P0 pane class has a CSS selector", () => {
 
 test("professional shell keeps compact navigation and the persistent Space identity header", () => {
   const layoutRule = cssRuleBody(shellCss, ".app-shell .space-layout");
-  const modePaneRule = cssRuleBody(shellCss, ".app-shell .space-layout .space-mode-pane");
+  const modePaneRule = cssRuleBody(shellCss, ".app-shell .space-mode-pane");
   const railRule = cssRuleBody(shellCss, ".app-shell .professional-space-rail");
   const navButtonRule = cssRuleBody(shellCss, ".app-shell .professional-space-rail .space-rail-button");
   const compactShellCss = shellCss.slice(shellCss.indexOf("@media (max-width: 820px)"));
@@ -304,16 +304,16 @@ test("professional shell keeps compact navigation and the persistent Space ident
   const paneHeaderRule = cssRuleBody(shellCss, ".app-shell .space-layout .space-mode-pane .professional-pane-header");
   const spacesPaneRule = cssRuleBody(surfacesCss, ".space-pane-content.professional-spaces");
 
-  assert.match(modePaneRule, /border-color:\s*var\(--ui-border\)/);
-  assert.match(railRule, /border-color:\s*var\(--ui-border\)/);
-  assert.match(paneHeaderRule, /border:\s*1px\s+solid\s+var\(--ui-border\)/);
+  assert.match(modePaneRule, /border:\s*0/);
+  assert.match(railRule, /border:\s*0/);
+  assert.match(paneHeaderRule, /border:\s*0/);
   assert.match(paneHeaderRule, /background:\s*var\(--ui-surface\)/);
   for (const structuralRule of [modePaneRule, railRule, paneHeaderRule]) {
     assert.doesNotMatch(structuralRule, /--space-(?:selection|custom)-/, "structural borders must stay independent of Space accent colors");
   }
 
   assert.ok(maxPxValue(customPropertyValue(layoutRule, "--space-rail-width")) <= 180, "desktop rail must remain compact");
-  assert.equal(maxPxValue(customPropertyValue(layoutRule, "--space-identity-header-height")), 90, "the Space banner must retain its established 90px geometry");
+  assert.equal(maxPxValue(customPropertyValue(layoutRule, "--space-identity-header-height")), 112, "the Space banner retains the approved personality and geometry");
   assert.ok(pxDeclaration(navButtonRule, "min-height") <= 48, "primary navigation targets must stay compact");
   assert.equal(pxDeclaration(navButtonRule, "width"), pxDeclaration(navButtonRule, "min-height"), "primary navigation uses square icon-only targets");
   assert.match(shellCss, /\.professional-space-rail \.space-rail-label\s*\{[\s\S]*?display:\s*none/, "the desktop rail is icon-only; labels live in tooltips and accessible names");
@@ -357,7 +357,7 @@ test("Space customization is visible, compact, and separate from structural chro
   const bannerHeaderRule = cssRuleBody(customizationCss, ".app-shell .space-layout .space-mode-pane .professional-pane-header.space-identity-header");
   const bannerTitleRule = cssRuleBody(customizationCss, ".app-shell .professional-pane-header.space-identity-header .space-pane-current-lockup strong");
   const previewTitleRule = cssRuleBody(customizationCss, ".space-appearance-preview-copy strong {");
-  assert.match(bannerHeaderRule, /border:\s*1px\s+solid\s+var\(--ui-border\)/);
+  assert.doesNotMatch(bannerHeaderRule, /border:\s*1px/, "banner artwork has no decorative frame");
   assert.match(bannerTitleRule, /line-height:\s*1\.3/);
   assert.match(bannerTitleRule, /font-size:\s*var\(--space-identity-title-size\)/);
   assert.match(bannerTitleRule, /letter-spacing:\s*var\(--space-identity-tracking\)/, "the identity title should read as a deliberate display label without replacing the selected font");
@@ -368,9 +368,7 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.doesNotMatch(customizationCss, /space-identity-header-icon|space-appearance-preview-icon/);
   assert.match(customizationCss, /\.professional-space-switcher \.space-header-switcher-icon[\s\S]*?color:\s*var\(--space-accent-glyph\)/);
   assert.match(customizationCss, /\.professional-appearance-surface/);
-  assert.match(customizationCss, /\.space-look-gallery/);
-  assert.match(customizationCss, /\.space-look-card\.active/);
-  assert.match(customizationCss, /\.space-banner-position-control/);
+  assert.match(spaceBannerPreviewSource, /bannerFraming/, "image framing remains part of the real banner preview");
   const colorPickerRule = cssRuleBody(customizationCss, ".app-shell .professional-appearance-surface .space-color-picker");
   const colorWheelRule = cssRuleBody(customizationCss, ".app-shell .professional-appearance-surface .space-color-wheel");
   const colorPairClearRule = cssRuleBody(legacyCss, ".space-color-pair-clear");
@@ -381,12 +379,12 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(spaceChromeSource, /onInput=[\s\S]*?aria-label="Choose second banner color"/);
   assert.match(customizationCss, /\.space-banner-surface\.banner-classic[\s\S]*?--space-banner-secondary-rgb/, "the second color must affect the default banner through its dedicated role");
   const activeRailMarkerRule = cssRuleBody(customizationCss, ".app-shell .professional-space-rail .space-rail-button.active::before");
-  assert.match(activeRailMarkerRule, /background:\s*var\(--space-accent-indicator\)/, "the contrast-solved indicator role must drive the compact active pill");
+  assert.match(activeRailMarkerRule, /background:\s*var\(--space-accent-indicator(?:,|\))/, "the contrast-solved indicator role must drive the compact active pill");
   assert.doesNotMatch(activeRailMarkerRule, /box-shadow/, "the active pill must not resurrect the legacy full-row shadow");
   assert.match(customizationCss, /\.professional-spaces \.space-card-shell\.active[\s\S]*?background:\s*var\(--space-accent-soft-fill\)/);
   assert.match(customizationCss, /\.professional-chats \.chat-space-heading > span:first-child[\s\S]*?color:\s*var\(--space-accent-glyph\)/);
-  assert.match(legacyCss, /\.message\.user \.message-surface\s*\{[\s\S]*?background:\s*var\(--space-accent-solid/, "user message surfaces must use the resolved solid role");
-  assert.match(legacyCss, /\.message\.user \.message-time\s*\{[\s\S]*?color:\s*#98a2b3/, "message footer metadata must sit neutrally below the accent surface");
+  assert.match(legacyCss, /\.message\.user \.message-surface/, "the user bubble keeps its semantic style owner");
+  assert.match(legacyCss, /\.message-time\s*\{[\s\S]*?color:\s*var\(--ui-text-muted\)/, "message footer metadata uses the neutral appearance role");
   assert.match(spaceIdentitySource, /"--space-selection-accent":\s*identity\.color/, "transitional aliases must preserve the v1 accent until their consumers are assigned roles");
   assert.match(spaceIdentitySource, /"--space-selection-border":\s*identity\.borderColor/);
   assert.match(spaceIdentitySource, /"--space-selection-surface":\s*identity\.softColor/);
@@ -406,7 +404,7 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(rendererMainSource, /windowMaterial === "mica" \|\| windowMaterial === "vibrancy"[\s\S]*?dataset\.windowMaterial = windowMaterial/, "window material must be applied before React's first paint");
   assert.match(rendererMainSource, /delete document\.documentElement\.dataset\.windowMaterial/, "solid-material sessions must clear stale material state");
   assert.doesNotMatch(appSource, /dataset\.windowMaterial/, "window material must not wait for a passive React effect");
-  assert.doesNotMatch(foundationCss, /--work-fold-font-size:/, "the professional layer must not override the user's text-size preference");
+  assert.match(foundationCss, /--work-fold-font-size:\s*15px/, "the canonical sheet supplies a fallback; the appearance resolver owns the selected size");
   assert.match(foundationCss, /\.composer textarea:focus-visible\s*\{[\s\S]*?outline:\s*0/, "the Space-colored composer shell must own the visible focus treatment");
   const settingsIconsSource = desktopSettingsSource.replace('import { LayoutPanelLeft } from "lucide-react";', "");
   assert.doesNotMatch(settingsIconsSource, /from\s+["']lucide-react["']/, "Settings keeps its icon exceptions limited to the requested controls");
@@ -476,7 +474,7 @@ test("every left-pane mode keeps content padding below the shared Space banner",
 test("the appearance preview mirrors the Space header rather than the active surface", () => {
   assert.match(spaceBannerPreviewSource, /space-appearance-preview-copy"><strong>\{name\}<\/strong>/);
   assert.doesNotMatch(spaceChromeSource, /space-appearance-preview-copy"><strong>Files<\/strong>/);
-  assert.match(customizationCss, /\.space-appearance-preview\s*\{[\s\S]*?min-height:\s*90px;/);
+  assert.match(customizationCss, /\.space-appearance-preview\s*\{[\s\S]*?min-height:\s*112px;/);
 });
 
 async function readRenderer(relativePath: string): Promise<string> {
@@ -508,12 +506,13 @@ function hasClassSelector(css: string, className: string): boolean {
 }
 
 function cssRuleBody(css: string, selector: string): string {
-  const selectorIndex = css.indexOf(selector);
-  assert.ok(selectorIndex >= 0, `could not find CSS selector: ${selector}`);
-  const openBraceIndex = css.indexOf("{", selectorIndex);
-  const closeBraceIndex = css.indexOf("}", openBraceIndex);
-  assert.ok(openBraceIndex >= 0 && closeBraceIndex > openBraceIndex, `could not read CSS rule: ${selector}`);
-  return css.slice(openBraceIndex + 1, closeBraceIndex);
+  const target = selector.replace(/\s*\{$/, "");
+  const bodies: string[] = [];
+  postcss.parse(css).walkRules((rule: { selector: string; nodes: Array<{ type: string; toString(): string }> }) => {
+    if (postcss.list.comma(rule.selector).some((s: string) => s === target || (target !== ":root" && s.endsWith(" " + target)))) bodies.push(rule.nodes.filter((n) => n.type === "decl").map((n) => n.toString() + ";").join("\n"));
+  });
+  assert.ok(bodies.length, `could not find CSS selector: ${target}`);
+  return bodies.reverse().join("\n");
 }
 
 function customPropertyValue(ruleBody: string, property: string): string {

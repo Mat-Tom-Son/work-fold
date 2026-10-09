@@ -181,7 +181,7 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
     read("web-local/src/popover/PopoverApp.tsx"),
     read("web-local/index.html"),
     read("web-local/popover.html"),
-    read("web-local/src/professional-foundation.css"),
+    read("web-local/src/styles.css"),
     read("web-local/src/popover/popover.css"),
     read("web-local/src/main.tsx"),
     read("web-local/src/constants.ts"),
@@ -202,12 +202,12 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
   assert.match(brandCss, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?animation:\s*none/);
   assert.match(foundation, /--ui-accent:\s*#0b6fd6/i);
   assert.match(foundation, /:root\[data-theme="dark"\][\s\S]*?--ui-accent:\s*#1ea0ff/i);
-  assert.match(foundation, /--work-fold-font-display:\s*"Poppins"/);
+  assert.match(foundation, /--work-fold-font-display:\s*var\(--work-fold-ui-font\)/);
   assert.match(popoverCss, /--pop-accent:\s*#0b6fd6/i);
   assert.match(popoverCss, /--pop-accent:\s*#1ea0ff/i);
 
   // The old terracotta-and-paper palette must not resurface in token files.
-  for (const [name, css] of [["brand.css", brandCss], ["professional-foundation.css", foundation], ["popover.css", popoverCss]] as const) {
+  for (const [name, css] of [["brand.css", brandCss], ["styles.css", foundation], ["popover.css", popoverCss]] as const) {
     assert.doesNotMatch(css, /#(c84f30|d95735|f08363|f3f0e9|252321|1b1a18)/i, `${name} still carries the pre-rebrand palette`);
   }
 

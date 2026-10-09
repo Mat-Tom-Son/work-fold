@@ -2052,8 +2052,8 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
           <strong>Couldn’t add {title}</strong>
           <p>{proposal.error ?? "The app package could not be added."}</p>
           <div className="restricted-app-task-actions">
-            <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onRetry}>Try Again</button>
-            <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onDismiss}>Dismiss</button>
+            <button className="ui-control ui-control--primary" type="button" disabled={busy} onClick={onRetry}>Try Again</button>
+            <button className="ui-control" type="button" disabled={busy} onClick={onDismiss}>Dismiss</button>
           </div>
         </div>
       </aside>
@@ -2072,8 +2072,8 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
         <strong>Added {title} to this folder.</strong>
         {still.length ? <p>Still needs you: {still.join(" · ")}.</p> : <p>Every declared destination, folder, notification, and automation is on. Turn any of them off in Apps.</p>}
         <div className="restricted-app-task-actions">
-          {onOpen ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onOpen}>Open App</button> : null}
-          <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onDismiss}>Close</button>
+          {onOpen ? <button className="ui-control ui-control--primary" type="button" disabled={busy} onClick={onOpen}>Open App</button> : null}
+          <button className="ui-control" type="button" disabled={busy} onClick={onDismiss}>Close</button>
         </div>
       </div>
     </aside>

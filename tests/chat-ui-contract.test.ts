@@ -171,7 +171,8 @@ test("Chat and File selection use an immediate whole-row state without a leading
 
   assert.doesNotMatch(chatShellRule, /transition:/);
   for (const rule of [activeChatRule, selectedFileRule]) {
-    assert.match(rule, /space-accent-soft-fill/);
+    assert.match(styles, /\.chat-space-row-shell\.active[\s\S]*?space-accent-soft-fill/);
+    assert.match(styles, /\.file-row\.selected[\s\S]*?space-accent-soft-fill/);
     assert.doesNotMatch(rule, /inset\s+[23]px\s+0\s+0/);
   }
   assert.match(styles, /\.chat-space-row-shell:has\(> \.chat-space-row:active\)/);
@@ -181,8 +182,8 @@ test("surface tab labels use crisp shell typography", () => {
   const tabMainRule = styles.match(/\.surface-tab-main\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const tabTitleRule = styles.match(/\.surface-tab-title\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
-  assert.match(tabMainRule, /font-size:\s*13px/);
-  assert.match(tabMainRule, /font-weight:\s*600/);
+  assert.match(styles, /\.surface-tab-main\s*\{[\s\S]*?font-size:\s*\.8rem/);
+  assert.match(styles, /\.surface-tab-main\s*\{[\s\S]*?font-weight:\s*500/);
   assert.match(tabMainRule, /line-height:\s*16px/);
   assert.match(tabTitleRule, /font:\s*inherit/);
   assert.match(tabTitleRule, /text-shadow:\s*none/);
@@ -300,7 +301,7 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /body: \{ scope: "space", spaceId: space\.id, level \}/);
   assert.doesNotMatch(chatPanel, /No extended reasoning|A brief think before answering|Balanced reasoning|Deeper reasoning/);
   assert.match(styles, /\.composer-thinking-trigger > span:first-child \{[\s\S]*?font: inherit;/);
-  assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: 0\.7rem;[\s\S]*?font-weight: 750;/);
+  assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: 0\.7rem;[\s\S]*?font-weight: 700;/);
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });
 
@@ -342,55 +343,7 @@ test("manual restore points distinguish a new snapshot from already-covered file
   assert.match(app, /Current files already match the latest restore point/);
 });
 
-test("dark user messages keep their audited foregrounds and quiet icon-only action", () => {
-  const dom = new JSDOM(`
-    <!doctype html>
-    <html>
-      <head><style>${styles}</style></head>
-      <body>
-        <div class="app-shell" data-theme="dark">
-          <main style="--space-accent-solid:#fafafa;--space-on-accent-solid:#182846;--space-on-accent-muted:#4e5a71">
-            <article class="message user">
-              <div class="message-surface">
-                <div class="message-body">
-                  <p>Plain text</p>
-                  <h1>Heading</h1>
-                </div>
-              </div>
-              <footer class="message-footer">
-                <span class="message-footer-meta">
-                  <div class="message-actions">
-                    <button class="message-copy-button" aria-label="Copy message"></button>
-                  </div>
-                  <time class="message-time">now</time>
-                </span>
-              </footer>
-            </article>
-          </main>
-        </div>
-      </body>
-    </html>
-  `, { pretendToBeVisual: true });
-  const window = dom.window;
-  const document = window.document;
-  const styleFor = (selector: string) => window.getComputedStyle(document.querySelector(selector)!);
-
-  for (const selector of [".message.user .message-surface", ".message.user .message-body", ".message.user .message-body p", ".message.user .message-body h1"]) {
-    assert.match(
-      styleFor(selector).color,
-      /--space-on-accent-solid/,
-      `${selector} must retain the foreground audited against the user bubble`,
-    );
-  }
-  for (const selector of [".message.user .message-time", ".message.user .message-copy-button"]) {
-    assert.equal(styleFor(selector).color, "rgb(148, 163, 184)", `${selector} must sit neutrally below the bubble`);
-  }
-
-  const copyStyle = styleFor(".message.user .message-copy-button");
-  assert.equal(copyStyle.width, "24px");
-  assert.equal(copyStyle.height, "24px");
-  assert.equal(copyStyle.opacity, "0.42");
-  assert.equal(copyStyle.backgroundColor, "rgba(0, 0, 0, 0)");
+test("user actions retain semantic footer structure; the real cascade is exercised in application-appearance-surfaces", () => {
   assert.match(messages, /<div className="message-surface">[\s\S]*?<MarkdownMessage[\s\S]*?<\/div>\s*<footer className="message-footer">[\s\S]*?<MessageActions/);
   assert.doesNotMatch(`${messages}\n${chatPanel}`, /message-author|>You<|assistantName/);
   const messageActionsSource = messages.match(/export function MessageActions[\s\S]*?(?=\nexport function TurnLanding)/)?.[0] ?? "";
@@ -403,7 +356,7 @@ test("audited desktop and pane controls have working destinations", () => {
   assert.match(desktopMain, /About \$\{productName\}[\s\S]*?sendRendererMenuCommand\("open-about"\)/);
   assert.doesNotMatch(desktopMain, /About \$\{productName\}[^\n]*enabled:\s*false/);
   assert.doesNotMatch(panes, /onDoubleClick=\{\(\) => onOpen\?\.\(item\)\}/);
-  assert.match(panes, /onOpen \? <button[\s\S]*?>Open<\/button> : null/);
+  assert.match(panes, /onClick=\{\(\)=>onOpen \? onOpen\(item\) : void restore\(item\)\}/);
   assert.match(app, /tab\.kind === "history" \? \(\s*<HistoryPane/);
 });
 

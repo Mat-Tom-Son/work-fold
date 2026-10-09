@@ -80,9 +80,9 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
         </ul> : null}
       </div> : null}
       <div className="restricted-app-task-actions">
-        <button className="professional-button professional-button-secondary" disabled={unavailable} onClick={() => void inspect(task)}>Details</button>
-        {onOpenChat ? <button className="professional-button professional-button-secondary" disabled={unavailable} onClick={() => void inspect(task, true)}>Open Chat</button> : null}
-        {restrictedAppAssistantTaskCanStop(task) ? <button className="professional-button professional-button-secondary" disabled={unavailable} onClick={() => void stop(task)}>Stop</button> : null}
+        <button className="ui-control" disabled={unavailable} onClick={() => void inspect(task)}>Details</button>
+        {onOpenChat ? <button className="ui-control" disabled={unavailable} onClick={() => void inspect(task, true)}>Open Chat</button> : null}
+        {restrictedAppAssistantTaskCanStop(task) ? <button className="ui-control" disabled={unavailable} onClick={() => void stop(task)}>Stop</button> : null}
       </div>
       {task.status === "waiting" ? <AppTaskQuestion app={app} task={task} onOpenFile={onOpenFile} /> : null}
       {detail?.task.id === task.id ? <div className="restricted-app-task-review">
@@ -92,7 +92,7 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
         </details>
         {task.status !== "waiting" && detail.taskId ? <ConnectedWorkRequest path={`/api/tasks/${encodeURIComponent(detail.taskId)}/work`} showResultSummary={false} showResultFiles={false} showStop={false} onOpenFile={onOpenFile} /> : null}
         {detail.task.result?.data === undefined ? null : <details><summary>Result Details</summary><pre tabIndex={0} aria-label="Assistant result details">{JSON.stringify(detail.task.result.data, null, 2)}</pre></details>}
-        <button className="professional-button professional-button-secondary" disabled={busy} onClick={() => setDetail(null)}>Close</button>
+        <button className="ui-control" disabled={busy} onClick={() => setDetail(null)}>Close</button>
       </div> : null}
     </article>)}
   </section>;

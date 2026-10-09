@@ -11,14 +11,7 @@ import "./styles.css";
 import "../../services/bridge/public/work-request.css";
 import "../../services/bridge/public/extension-questions.css";
 import "./components/chat/model-context-inspector.css";
-import "./professional-foundation.css";
-import "./professional-shell.css";
-import "./professional-surfaces.css";
-import "./professional-customization.css";
-import "./settings-window.css";
 import "./application-appearance.css";
-import "./appearance-settings.css";
-import "./history-review.css";
 import { App } from "./App";
 import { ModelContextInspector } from "./components/chat/ModelContextInspector";
 

@@ -24,7 +24,7 @@ export function AssistantToolsModal({ space, status, initialView, fixtureMode = 
   return (
     <div className="modal-backdrop assistant-tools-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="assistant-tools-modal" role="dialog" aria-modal="true" aria-label="Skills & Extensions" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="minimal-icon-button assistant-tools-close" type="button" onClick={onClose} aria-label="Close Skills & Extensions"><Dismiss20Regular /></button>
+        <button className="ui-control ui-control--icon assistant-tools-close" type="button" onClick={onClose} aria-label="Close Skills & Extensions"><Dismiss20Regular /></button>
         <CapabilitiesPane
           space={space}
           status={status}

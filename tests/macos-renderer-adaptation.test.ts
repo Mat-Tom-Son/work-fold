@@ -13,9 +13,9 @@ const [app, rendererMain, styles, customization, settings, shortcuts, restricted
   read("web-local/src/App.tsx"),
   read("web-local/src/main.tsx"),
   read("web-local/src/styles.css"),
-  read("web-local/src/professional-customization.css"),
+  read("web-local/src/styles.css"),
   read("web-local/src/components/modals/AppearanceSettingsPane.tsx"),
-  read("web-local/src/components/modals/KeyboardShortcutsModal.tsx"),
+  read("web-local/src/components/modals/KeyboardShortcutsPane.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
 ]);
 

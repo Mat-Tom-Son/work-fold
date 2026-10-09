@@ -368,7 +368,7 @@ test("real detail CSS keeps long paths above tool lists and preserves scrolling 
   try {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const markup = renderToStaticMarkup(createElement(CapabilityDetailsDialog, { item: included("chrome"), spaceId: "workshop", busy: false, onClose() {}, onToggle() {} })).replace('<details class="capability-technical-details"', '<details open class="capability-technical-details"');
-    const css = (await Promise.all(["brand.css", "styles.css", "professional-foundation.css", "professional-shell.css", "professional-surfaces.css", "professional-customization.css", "application-appearance.css", "components/panes/included-tool-setup.css"].map((name) => readFile(resolve("web-local/src", name), "utf8")))).join("\n");
+    const css = (await Promise.all(["brand.css", "styles.css", "application-appearance.css", "components/panes/included-tool-setup.css"].map((name) => readFile(resolve("web-local/src", name), "utf8")))).join("\n");
     const variables = applicationAppearanceVariables({ ...defaultApplicationAppearance, textSize: "large" }, "dark");
     const payload = JSON.stringify({ markup, css, variables }).replace(/</g, "\\u003c");
     const html = `<!doctype html><pre id="result">pending</pre><script>

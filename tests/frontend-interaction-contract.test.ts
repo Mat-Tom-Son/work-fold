@@ -21,7 +21,6 @@ const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, a
   Promise.resolve(""),
   read("web-local/src/components/panes/spacePanes.tsx"),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
-  read("web-local/src/components/modals/KeyboardShortcutsModal.tsx"),
   read("web-local/src/components/modals/CreateSpaceModal.tsx"),
   read("web-local/src/components/modals/FileVersionHistoryModal.tsx"),
   read("web-local/src/components/modals/CommandPaletteHost.tsx"),
@@ -85,7 +84,7 @@ test("Settings keeps older page ids landing on the tab that now holds their cont
   assert.equal(settingsTabForPage("desktop", "deleted"), "recently-deleted");
   assert.equal(settingsTabForPage("general", "deleted"), "recently-deleted");
   assert.equal(settingsTabForPage("remote"), "web-access");
-  for (const page of ["appearance", "assistant", "web-access", "shared-pages", "automations", "recently-deleted", "about"] as const) {
+  for (const page of ["appearance", "assistant", "web-access", "shared-pages", "automations", "recently-deleted", "shortcuts", "about"] as const) {
     assert.equal(settingsTabForPage(page), page);
   }
   const settings = desktopDialogs[0] ?? "";
@@ -356,3 +355,10 @@ test("the Folder-owned Automations rail entry sits after History, shows only whe
   // The mode opens a tab and is never persisted as the navigator mode.
   assert.match(app, /return \(\["files", "chats", "history"\] as SpaceRailMode\[\]\)\.includes/);
 });
+
+ test("Keyboard Shortcuts shares Settings navigation and the rail has no shortcuts button", () => {
+  assert.match(desktopDialogs[0] ?? "", /id: "shortcuts", label: "Keyboard Shortcuts"/);
+  assert.match(desktopDialogs[0] ?? "", /<KeyboardShortcutsPane \/>/);
+  assert.match(app, /openKeyboardShortcuts = useCallback\(\(\) => openSettings\("shortcuts"\)/);
+  assert.doesNotMatch(spaceChrome, /onOpenKeyboardShortcuts|<span>Shortcuts<\/span>/);
+ });

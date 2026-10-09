@@ -1,12 +1,8 @@
-import { useRef } from "react";
 import { desktopShortcutKeyLabel, desktopShortcutKeySpokenName, desktopShortcutModifierKey } from "../../lib/keyboard";
 import { isMacOS } from "../../lib/platform";
-import { useModalDialog } from "../../hooks/useModalDialog";
 import type { ShortcutGroup } from "../../types";
 
-function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
-  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
-  const dialogRef = useModalDialog({ onClose, initialFocusRef: closeButtonRef });
+export function KeyboardShortcutsPane() {
   const modifier = desktopShortcutModifierKey();
   const macOS = isMacOS();
   const shortcutGroups: ShortcutGroup[] = [
@@ -73,24 +69,8 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="modal-backdrop keyboard-shortcuts-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        ref={dialogRef}
-        tabIndex={-1}
-        className="keyboard-shortcuts-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="keyboard-shortcuts-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="modal-title keyboard-shortcuts-title">
-          <div>
-            <h2 id="keyboard-shortcuts-title">Keyboard Shortcuts</h2>
-          </div>
-          <button ref={closeButtonRef} className="ghost-button" type="button" onClick={onClose}>
-            Close
-          </button>
-        </div>
+    <section className="keyboard-shortcuts-pane">
+      <h2>Keyboard Shortcuts</h2>
         <div className="keyboard-shortcuts-grid">
           {shortcutGroups.map((group) => (
             <section className="keyboard-shortcuts-group" key={group.title}>
@@ -108,9 +88,7 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
             </section>
           ))}
         </div>
-      </section>
-    </div>
+    </section>
   );
 }
 
-export { KeyboardShortcutsModal };

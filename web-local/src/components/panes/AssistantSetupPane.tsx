@@ -503,7 +503,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   }
 
   if (loading) return <div className="professional-loading-row" role="status"><RefreshCw className="spin" />Loading Assistant settings…</div>;
-  if (loadError) return <div className="assistant-settings-section"><AssistantOperationStatus feedback={{ error: true, text: loadError }} /><button className="professional-button professional-button-secondary" type="button" onClick={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }}>Try Again</button></div>;
+  if (loadError) return <div className="assistant-settings-section"><AssistantOperationStatus feedback={{ error: true, text: loadError }} /><button className="ui-control" type="button" onClick={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }}>Try Again</button></div>;
 
   return <>
     {externalChange ? <div className="assistant-external-change"><span>Saved settings have changed.</span><button className="assistant-refresh-models" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
@@ -523,7 +523,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         </div>
         {!isAzure ? <div className="assistant-form-actions assistant-model-actions">
           <AssistantOperationStatus feedback={modelFeedback} hint={!models.length ? "No models available." : !authConfigured ? "Connect this provider first." : undefined} />
-          <button className="professional-button professional-button-primary" type="submit" disabled={operationBusy || !model || !modelChanged || !authConfigured}>{saving === "model" ? "Saving…" : "Save Model"}</button>
+          <button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || !model || !modelChanged || !authConfigured}>{saving === "model" ? "Saving…" : "Save Model"}</button>
         </div> : null}
       </form>
     </section>
@@ -532,7 +532,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         <div className="assistant-connection-row">
           <div><h3 id="assistant-connection-heading">{providerName || "Provider"} connection</h3><p>{isAzure ? authConfigured ? "API key configured" : "Setup needed" : assistantCredentialStatus(providerAuth) ?? "Add a connection to use this provider."}</p></div>
           <div className="assistant-connection-controls">
-            {replaceableApiKey && !isAzure ? <button className="professional-button professional-button-secondary" type="button" disabled={operationBusy} aria-expanded={editingApiKey} aria-controls="assistant-key-form" onClick={() => { setEditingApiKey((current) => !current); setApiKey(""); setShowApiKey(false); setConnectionFeedback(null); }}>{editingApiKey ? "Cancel" : "Change API Key"}</button> : null}
+            {replaceableApiKey && !isAzure ? <button className="ui-control" type="button" disabled={operationBusy} aria-expanded={editingApiKey} aria-controls="assistant-key-form" onClick={() => { setEditingApiKey((current) => !current); setApiKey(""); setShowApiKey(false); setConnectionFeedback(null); }}>{editingApiKey ? "Cancel" : "Change API Key"}</button> : null}
             {removableAuth ? <button className="assistant-remove-credential" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
           </div>
         </div>
@@ -560,9 +560,9 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
               <button className="assistant-key-visibility" type="button" aria-label={showApiKey ? "Hide API key" : "Show API key"} aria-pressed={showApiKey} disabled={mutationBusy} onClick={() => setShowApiKey((current) => !current)}>{showApiKey ? <EyeOff20Regular aria-hidden="true" /> : <Eye20Regular aria-hidden="true" />}</button>
             </span>
           </label>
-          <div className="assistant-form-actions assistant-connection-actions"><span className="professional-field-hint">Also saves the selected model for {scopeLabel}.</span><button className="professional-button professional-button-primary" type="submit" disabled={operationBusy || !model || (isAzure ? !azure.baseUrl.trim() || (!authConfigured && !apiKey.trim()) || (authConfigured && !azureChanged && !apiKey.trim() && !modelChanged) : !apiKey.trim())}>{saving === "connection" ? "Saving…" : isAzure ? "Save Azure settings" : editingApiKey ? "Save API Key" : "Connect Provider"}</button></div>
+          <div className="assistant-form-actions assistant-connection-actions"><span className="professional-field-hint">Also saves the selected model for {scopeLabel}.</span><button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || !model || (isAzure ? !azure.baseUrl.trim() || (!authConfigured && !apiKey.trim()) || (authConfigured && !azureChanged && !apiKey.trim() && !modelChanged) : !apiKey.trim())}>{saving === "connection" ? "Saving…" : isAzure ? "Save Azure settings" : editingApiKey ? "Save API Key" : "Connect Provider"}</button></div>
         </form> : null}
-        {oauthSupported ? <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="button" disabled={operationBusy || !model} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : assistantAccountAction(provider, providerAuth?.authType === "oauth")}</button><span className="professional-field-hint">Also saves the selected model for {scopeLabel}.</span></div> : null}
+        {oauthSupported ? <div className="assistant-form-actions"><button className="ui-control" type="button" disabled={operationBusy || !model} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : assistantAccountAction(provider, providerAuth?.authType === "oauth")}</button><span className="professional-field-hint">Also saves the selected model for {scopeLabel}.</span></div> : null}
         {accountOnly && !oauthSupported ? <p className="professional-field-hint">Account sign-in is available in the desktop app.</p> : null}
         {connectionFeedback ? <AssistantOperationStatus feedback={connectionFeedback} /> : null}
         {subscriptionNote ? <p className="assistant-provider-note">{subscriptionNote}</p> : null}
@@ -572,7 +572,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Worker Instructions</h3></div>
       <form onSubmit={(event) => void saveInstructions(event)}>
         <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker Instructions</span><textarea ref={instructionsField} value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
-        <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save Instructions"}</button><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /></div>
+        <div className="assistant-form-actions"><button className="ui-control" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save Instructions"}</button><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /></div>
       </form>
     </section> : null}
   </>;

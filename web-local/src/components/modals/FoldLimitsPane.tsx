@@ -181,7 +181,7 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       <LimitRows rows={[["Kept for", `${workFoldTrashDefaultRetentionDays} days unless you change it`]]} />
       {onOpenRecentlyDeleted ? (
         <div className="settings-actions">
-          <button className="secondary-button" type="button" onClick={onOpenRecentlyDeleted}>
+          <button className="ui-control" type="button" onClick={onOpenRecentlyDeleted}>
             {foldLimitsSettings.deletedLink}
           </button>
         </div>

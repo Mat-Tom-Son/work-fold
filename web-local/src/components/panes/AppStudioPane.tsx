@@ -509,7 +509,7 @@ export function AppStudioPane({
           </div>
           {project ? (
             <div className="app-studio-header-actions">
-              <button className="professional-button professional-button-secondary" type="button" onClick={() => setEditingProject((current) => !current)} disabled={Boolean(busyKey)}>
+              <button className="ui-control" type="button" onClick={() => setEditingProject((current) => !current)} disabled={Boolean(busyKey)}>
                 {editingProject ? <Dismiss16Regular /> : <Edit16Regular />}{editingProject ? "Close" : "Edit details"}
               </button>
             </div>
@@ -582,7 +582,7 @@ export function AppStudioPane({
                       disabled={Boolean(busyKey)}
                     />
                   </label>
-                  <button className="professional-button professional-button-primary" type="submit" disabled={Boolean(busyKey) || !releaseVersion.trim() || !studio?.previews.length}>
+                  <button className="ui-control ui-control--primary" type="submit" disabled={Boolean(busyKey) || !releaseVersion.trim() || !studio?.previews.length}>
                     {busyKey === "release:prepare" ? <ArrowSync16Regular className="spin" /> : null}Prepare Release
                   </button>
                 </form>
@@ -650,11 +650,11 @@ export function AppStudioPane({
                               active ? (
                                 <span className="app-studio-quiet-state">Current Release</span>
                               ) : pending || blockedByOtherPending ? (
-                                <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey)} onClick={() => focusOperation((pending ?? blockedByOtherPending)!.operationId)}>
+                                <button className="ui-control" type="button" disabled={Boolean(busyKey)} onClick={() => focusOperation((pending ?? blockedByOtherPending)!.operationId)}>
                                   Open review
                                 </button>
                               ) : (
-                                <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey) || !hasInstallTarget} onClick={() => void prepareActivation(release)}>
+                                <button className="ui-control" type="button" disabled={Boolean(busyKey) || !hasInstallTarget} onClick={() => void prepareActivation(release)}>
                                   {busyKey === `operation:prepare:${release.releaseDigest}` ? <ArrowSync16Regular className="spin" /> : null}
                                   {selectedInstance ? `Review ${rollback ? "rollback" : "update"}` : "Review install"}
                                 </button>
@@ -685,7 +685,7 @@ export function AppStudioPane({
                                   <div><dt>Release digest</dt><dd><code>{release.releaseDigest}</code></dd></div>
                                 </dl>
                                 <p><ShieldCheckmark16Regular aria-hidden="true" />Available for local installation only.</p>
-                                <button className="professional-button professional-button-primary" type="button" disabled={Boolean(busyKey)} onClick={() => void publishRelease(release)}>
+                                <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busyKey)} onClick={() => void publishRelease(release)}>
                                   {busyKey === `release:publish:${release.releaseDigest}` ? <ArrowSync16Regular className="spin" /> : null}Publish locally
                                 </button>
                               </div>
@@ -752,14 +752,14 @@ export function AppStudioPane({
                               <button className="app-studio-text-button" type="button" disabled={Boolean(busyKey)} onClick={() => setTargetSpaceId(instance.spaceId)}>Choose Space</button>
                             ) : null}
                             {updateAvailable && !pending ? (
-                              <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey)} onClick={() => {
+                              <button className="ui-control" type="button" disabled={Boolean(busyKey)} onClick={() => {
                                 setTargetSpaceId(instance.spaceId);
                                 window.requestAnimationFrame(() => document.getElementById(`${ids}-releases-title`)?.scrollIntoView({ block: "start" }));
                               }}>
                                 Review in Releases
                               </button>
                             ) : null}
-                            <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "retain")}>Uninstall · retain data</button>
+                            <button className="ui-control" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "retain")}>Uninstall · retain data</button>
                             <button className="app-studio-icon-button danger" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "purge")} aria-label={`Uninstall ${instance.presentation.title} from ${instanceSpaceName} and purge its data`} title="Uninstall and Purge Data">
                               {busyKey === `uninstall:${instance.runtimeInstanceId}` ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}
                             </button>
@@ -785,8 +785,8 @@ export function AppStudioPane({
                           <p>Stored on This Device</p>
                           <small>Retained {formatTimestamp(item.removedAt)} · Release {shortDigest(item.releaseDigest)}</small>
                         </div>
-                        <div className="app-studio-retained-actions"><button className="professional-button professional-button-secondary" type="button" disabled={fixtureMode || Boolean(busyKey)} onClick={() => void exportRetainedData(item)}>Export data</button>
-                        <button className="professional-button professional-button-danger" type="button" disabled={Boolean(busyKey)} onClick={() => void purgeRetainedData(item)}>
+                        <div className="app-studio-retained-actions"><button className="ui-control" type="button" disabled={fixtureMode || Boolean(busyKey)} onClick={() => void exportRetainedData(item)}>Export data</button>
+                        <button className="ui-control professional-button-danger" type="button" disabled={Boolean(busyKey)} onClick={() => void purgeRetainedData(item)}>
                           {busyKey === `retained:${item.retainedDataId}` ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}Purge data
                         </button></div>
                       </article>
@@ -844,8 +844,8 @@ function ProjectEditor({
           <AppIconPicker value={icon} disabled={busy} onChange={onIconChange} />
         </div>
         <div className="app-studio-project-form-actions">
-          {onCancel ? <button className="professional-button professional-button-secondary" type="button" onClick={onCancel} disabled={busy}>Cancel</button> : null}
-          <button className="professional-button professional-button-primary" type="submit" disabled={busy || !title.trim()}>
+          {onCancel ? <button className="ui-control" type="button" onClick={onCancel} disabled={busy}>Cancel</button> : null}
+          <button className="ui-control ui-control--primary" type="submit" disabled={busy || !title.trim()}>
             {busy ? <ArrowSync16Regular className="spin" /> : null}{creating ? "Create app" : "Save"}
           </button>
         </div>
@@ -949,10 +949,10 @@ function OperationReview({
         <UpdatePlan operation={operation} />
       )}
       <footer>
-        <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey)} onClick={onCancel}>
+        <button className="ui-control" type="button" disabled={Boolean(busyKey)} onClick={onCancel}>
           {busyKey === `operation:cancel:${operation.operationId}` ? <ArrowSync16Regular className="spin" /> : null}Cancel review
         </button>
-        <button className="professional-button professional-button-primary" type="button" disabled={Boolean(busyKey) || !canActivate} onClick={onActivate}>
+        <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busyKey) || !canActivate} onClick={onActivate}>
           {busyKey === `operation:activate:${operation.operationId}` ? <ArrowSync16Regular className="spin" /> : null}Activate {label.toLocaleLowerCase()}
         </button>
       </footer>

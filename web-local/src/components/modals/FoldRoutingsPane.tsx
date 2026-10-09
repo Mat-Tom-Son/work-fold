@@ -438,7 +438,7 @@ export function FoldRoutingsPane() {
                   <small>{triggerSummary(proposal.trigger)}</small>
                 </div>
                 <button
-                  className="primary-button"
+                  className="ui-control ui-control--primary"
                   type="button"
                   disabled={wideningUnavailable || pending.includes(`enable-proposal:${proposal.path}`)}
                   onClick={() => void runAction(`enable-proposal:${proposal.path}`, async () => {
@@ -532,7 +532,7 @@ export function FoldRoutingsPane() {
                       running={Boolean(selectedSummary.activeRun)}
                       starting={Boolean(runWatches[selectedSummary.routingId]) && !selectedSummary.activeRun}
                     />
-                    <button className="secondary-button" type="button" onClick={() => void openAutomationDraft(detail)} disabled={drafting}>Edit with agent</button>
+                    <button className="ui-control" type="button" onClick={() => void openAutomationDraft(detail)} disabled={drafting}>Edit with agent</button>
                   </div>
                 </header>
 
@@ -618,7 +618,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
       <div className="settings-actions">
         {routing.health === "enabled" ? (
           <button
-            className="primary-button"
+            className="ui-control ui-control--primary"
             type="button"
             disabled={wideningUnavailable || anyPending || isRunning || runQueued}
             onClick={() => onRun(`run:${routing.routingId}`, async () => {
@@ -632,7 +632,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
         ) : null}
         {isRunning ? (
           <button
-            className="secondary-button danger"
+            className="ui-control danger"
             type="button"
             disabled={pending.includes(`stop:${routing.routingId}`)}
             onClick={() => onRun(`stop:${routing.routingId}`, async () => {
@@ -645,7 +645,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
         ) : null}
         {routing.health === "enabled" ? (
           <button
-            className="secondary-button"
+            className="ui-control"
             type="button"
             disabled={storeUnavailable || anyPending}
             onClick={() => onRun(`disable:${routing.routingId}`, async () => {
@@ -658,7 +658,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
         ) : null}
         {routing.health === "disabled" || routing.health === "suspended" ? (
           <button
-            className="primary-button"
+            className="ui-control ui-control--primary"
             type="button"
             disabled={wideningUnavailable || anyPending}
             onClick={() => onRun(`enable:${routing.routingId}`, async () => {
@@ -671,7 +671,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
         ) : null}
         {canDelete ? (
           <button
-            className="secondary-button danger"
+            className="ui-control danger"
             type="button"
             disabled={storeUnavailable || anyPending}
             onClick={() => {

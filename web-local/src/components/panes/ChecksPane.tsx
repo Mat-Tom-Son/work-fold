@@ -363,23 +363,23 @@ export function ChecksPane({
           <h1>Checks</h1>
         </div>
         <div className="checks-header-actions">
-          <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => void askFold()}>Tell the work-fold agent what to check</button>
+          <button type="button" className="ui-control" disabled={running} onClick={() => void askFold()}>Tell the work-fold agent what to check</button>
           <button type="button" className="checks-manual-button" disabled={running} onClick={() => setConfiguring(!configuring)}>Set up manually</button>
           {status?.lastRunAt ? <span className="checks-last-run">Last run {formatTimeAgo(status.lastRunAt)}</span> : null}
           {runSubmitting ? (
-            <button className="professional-button professional-button-secondary" type="button" disabled>
+            <button className="ui-control" type="button" disabled>
               <Loader2 className="spin" size={14} />Starting
             </button>
           ) : taskPending ? (
-            <button className="professional-button professional-button-secondary" type="button" disabled={abortSubmitting} onClick={() => void abortChecks()}>
+            <button className="ui-control" type="button" disabled={abortSubmitting} onClick={() => void abortChecks()}>
               {abortSubmitting ? <Loader2 className="spin" size={14} /> : <X size={14} />}{abortSubmitting ? "Stopping" : "Stop"}
             </button>
           ) : status?.running ? (
-            <button className="professional-button professional-button-secondary" type="button" disabled>
+            <button className="ui-control" type="button" disabled>
               <Loader2 className="spin" size={14} />Checking
             </button>
           ) : (
-            <button className="professional-button professional-button-primary" type="button" disabled={!status?.enabled || refreshing || Boolean(mutationRef.current)} onClick={() => void runChecks()}>
+            <button className="ui-control ui-control--primary" type="button" disabled={!status?.enabled || refreshing || Boolean(mutationRef.current)} onClick={() => void runChecks()}>
               <RefreshCw className={refreshing ? "spin" : undefined} size={14} />Run Checks
             </button>
           )}
@@ -402,7 +402,7 @@ export function ChecksPane({
         {correctionReview ? <div className="checks-correction-review" aria-label="Review correction">
           <h3>{correctionReview.correction.proposal.path}</h3><p>Apply saves the original in History and rechecks with the fold’s model. Provider charges may apply.</p>
           <CorrectionDiff before={correctionReview.before} after={correctionReview.correction.proposal.replacement} />
-          <button type="button" className="professional-button professional-button-primary" disabled={correctionBusy || running} onClick={() => void correctionAction(correctionReview.correction.id, "apply")}>Apply and recheck</button>
+          <button type="button" className="ui-control ui-control--primary" disabled={correctionBusy || running} onClick={() => void correctionAction(correctionReview.correction.id, "apply")}>Apply and recheck</button>
           <button type="button" disabled={correctionBusy} onClick={() => setCorrectionReview(null)}>Close review</button>
         </div> : null}
       </section> : null}
@@ -440,7 +440,7 @@ export function ChecksPane({
                     {finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}><p>{evidence.quote}</p></blockquote> : null)}
                     {finding.detail ? <p>{finding.detail}</p> : null}
                     {finding.remediation ? <p className="checks-remediation">{finding.remediation}</p> : null}
-                    {onAskAssistant ? <button type="button" className="professional-button professional-button-secondary" disabled={findingBusy !== null || running} onClick={() => void askAssistant(finding)}>Ask Space Assistant to help</button> : null}
+                    {onAskAssistant ? <button type="button" className="ui-control" disabled={findingBusy !== null || running} onClick={() => void askAssistant(finding)}>Ask Space Assistant to help</button> : null}
                     <div className="checks-finding-actions" role="group" aria-label={`Decisions for ${finding.title}`}>
                       <button type="button" aria-label={`Mark ${finding.title} resolved`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "resolve")}><Check size={13} />Mark resolved</button>
                       <button type="button" aria-label={`Defer ${finding.title} until tomorrow`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "defer")}><Clock3 size={13} />Tomorrow</button>
@@ -473,9 +473,9 @@ export function ChecksPane({
                 <details open={check.authority !== "enabled"}><summary className="checks-definition-main"><strong>{check.title}</strong><span className={`checks-authority ${check.authority}`}>{authorityLabel(check.authority)}</span></summary>
                 {check.criteria ? <p>{check.criteria}</p> : null}
                 {check.execution === "model" ? <p>Text review · fold model · suggestions only</p> : null}
-                <button type="button" className="professional-button professional-button-secondary" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Turn Off" : "Turn On"}</button>
-                <button type="button" className="professional-button professional-button-secondary" disabled={running || !check.digest} onClick={() => void tryCheck(check)}>Try it</button>
-                <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => void askFold(check)}>Change with fold</button>
+                <button type="button" className="ui-control" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Turn Off" : "Turn On"}</button>
+                <button type="button" className="ui-control" disabled={running || !check.digest} onClick={() => void tryCheck(check)}>Try it</button>
+                <button type="button" className="ui-control" disabled={running} onClick={() => void askFold(check)}>Change with fold</button>
                 <div className="checks-target-list">
                   {check.targets.map((target, index) => (
                     <span key={`${target.role}:${target.path}:${index}`}>

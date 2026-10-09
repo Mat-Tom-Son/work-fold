@@ -32,7 +32,6 @@ import {
   History24Filled,
   History24Regular,
   ImageAdd20Regular,
-  Keyboard24Regular,
   Search20Regular,
   Warning20Regular,
 } from "@fluentui/react-icons";
@@ -66,7 +65,6 @@ function SpaceModeRail({
   onModeChange,
   onOpenAssistantTools,
   accountControl,
-  onOpenKeyboardShortcuts,
   updateControl,
   automations = null,
 }: {
@@ -84,7 +82,6 @@ function SpaceModeRail({
   /** The rail's Add button opens the Skills & Extensions popup (2026-09-25: no Add menu, no Library, no Apps tab). */
   onOpenAssistantTools: (view: AssistantToolsView) => void;
   accountControl: ReactNode;
-  onOpenKeyboardShortcuts: () => void;
   updateControl?: ReactNode;
 }) {
   const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
@@ -187,15 +184,6 @@ function SpaceModeRail({
           >
             <Blocks size={24} strokeWidth={1.5} aria-hidden="true" />
             <span>Add</span>
-          </button>
-          <button
-            className="space-rail-quiet-button"
-            type="button"
-            onClick={onOpenKeyboardShortcuts}
-            aria-label="Keyboard Shortcuts"
-          >
-            <Keyboard24Regular aria-hidden="true" />
-            <span>Shortcuts</span>
           </button>
         </div>
         <div className="space-rail-settings-control">

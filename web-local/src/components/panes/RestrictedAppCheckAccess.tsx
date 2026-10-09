@@ -51,12 +51,12 @@ export function RestrictedAppCheckAccess({ app, busy, onAppChanged, onError }: {
           </select></label>
           {!choices?.length ? <p>No Checks in this Space yet.</p> : null}
           <div className="restricted-app-destination-actions">
-            <button className="professional-button professional-button-primary" disabled={busy || loading || !selection} onClick={() => void change(permission.id)}>Allow results</button>
-            <button className="professional-button professional-button-secondary" disabled={loading} onClick={() => setEditing(null)}>Cancel</button>
+            <button className="ui-control ui-control--primary" disabled={busy || loading || !selection} onClick={() => void change(permission.id)}>Allow results</button>
+            <button className="ui-control" disabled={loading} onClick={() => setEditing(null)}>Cancel</button>
           </div>
         </> : <div className="restricted-app-destination-actions">
-          <button className="professional-button professional-button-secondary" disabled={busy || loading} onClick={() => void choose(permission.id)}>{grant ? "Change Check" : "Choose Check"}</button>
-          {grant ? <button className="professional-button professional-button-secondary" disabled={busy || loading} onClick={() => void change(permission.id, true)}>Revoke</button> : null}
+          <button className="ui-control" disabled={busy || loading} onClick={() => void choose(permission.id)}>{grant ? "Change Check" : "Choose Check"}</button>
+          {grant ? <button className="ui-control" disabled={busy || loading} onClick={() => void change(permission.id, true)}>Revoke</button> : null}
         </div>}
       </article>;
     })}

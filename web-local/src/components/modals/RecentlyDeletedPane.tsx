@@ -184,7 +184,7 @@ export function FoldRecentlyDeletedPane() {
         />
         <span>days</span>
         <button
-          className="secondary-button"
+          className="ui-control"
           type="button"
           disabled={!data || Boolean(busy) || retentionDraft === null || retentionDraft === String(data?.retentionDays)}
           onClick={() => { void saveRetention(); }}
@@ -222,7 +222,7 @@ export function FoldRecentlyDeletedPane() {
                 <div className="settings-actions recently-deleted-row-actions">
                   {entry.restorable === "in-place" ? (
                     <button
-                      className="secondary-button"
+                      className="ui-control"
                       type="button"
                       disabled={Boolean(busy)}
                       onClick={() => { void restore(entry); }}
@@ -231,7 +231,7 @@ export function FoldRecentlyDeletedPane() {
                     </button>
                   ) : entry.restorable === "save-only" ? (
                     <button
-                      className="secondary-button"
+                      className="ui-control"
                       type="button"
                       disabled={Boolean(busy)}
                       onClick={() => { void saveCopy(entry); }}
@@ -240,7 +240,7 @@ export function FoldRecentlyDeletedPane() {
                     </button>
                   ) : null}
                   <button
-                    className="secondary-button"
+                    className="ui-control"
                     type="button"
                     disabled={Boolean(busy) || Boolean(entry.held)}
                     title={entry.held ? recentlyDeletedSettings.heldNote : undefined}

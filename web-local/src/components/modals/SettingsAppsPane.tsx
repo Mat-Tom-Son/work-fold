@@ -53,7 +53,7 @@ export function SettingsAppsPane({ spaces, apps, fixtureMode = false, onChangeAp
       ) : null}
       {failedSpaces.length ? <p className="settings-section-note" role="status">
         Could not load apps in {failedSpaces.map((space) => space.name).join(", ")}.{" "}
-        <button className="professional-button professional-button-secondary" type="button" onClick={() => {
+        <button className="ui-control" type="button" onClick={() => {
           for (const space of failedSpaces) void refresh?.(space.id);
         }}>Retry Loading Apps</button>
       </p> : null}

@@ -312,7 +312,7 @@ export function ChatsPane({
           <div className="chat-space-heading">
             <span className="space-identity-icon" aria-hidden="true"><SpaceIconGlyph icon={currentIdentity.Icon} size={15} /></span>
             <strong>{space.name}</strong>
-            <button className="minimal-icon-button" type="button" onClick={() => onNew(space)} aria-label={`New Chat in ${space.name}`} title="New Chat"><Chat16Regular /></button>
+            <button className="ui-control ui-control--icon" type="button" onClick={() => onNew(space)} aria-label={`New Chat in ${space.name}`} title="New Chat"><Chat16Regular /></button>
           </div>
           {renderChatList(space, currentList, "chat-space-list-current", normalized ? null : nestedRows.length ? null : "No Chats yet")}
           {nestedRows.map(({ space: item, depth }) => {
@@ -326,7 +326,7 @@ export function ChatsPane({
                   <span className="space-identity-icon chat-other-space-icon" aria-hidden="true"><SpaceIconGlyph icon={identity.Icon} size={13} /></span>
                   <span className="chat-nested-space-name">{item.name}</span>
                   {status ? <ActivityDot status={status} /> : null}
-                  <button className="minimal-icon-button" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
+                  <button className="ui-control ui-control--icon" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
                 </div>
                 {list.length ? renderChatList(item, list, "chat-space-list-nested", null) : null}
               </div>
@@ -356,7 +356,7 @@ export function ChatsPane({
                       <ChevronRight16Regular aria-hidden="true" />
                       {status ? <ActivityDot status={status} /> : null}
                     </button>
-                    <button className="minimal-icon-button" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
+                    <button className="ui-control ui-control--icon" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
                   </div>
                   {expanded ? <div id={`chat-other-space-${item.id}`}>{renderChatList(item, list, "chat-space-list-other", "No Chats yet")}</div> : null}
                 </div>
@@ -507,14 +507,15 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
 
   if (selectedCheckpointId) {
     const selected = items.find((item) => item.checkpointId === selectedCheckpointId);
-    return <div className="space-pane-content history-pane professional-surface professional-history">
+    return <div className="space-pane-content history-pane professional-surface professional-history history-review">
       <h1>{selected?.label || "Review restore point"}</h1>
+      {selected ? <p className="history-detail-meta">{formatDate(selected.createdAt)} · {selected.fileCount} captured {selected.fileCount === 1 ? "file" : "files"}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
       {previewError ? <p role="alert">{previewError}</p> : null}
       {!preview && !previewError ? <p role="status">Inspecting current files…</p> : null}
       {!fixtureItems ? <form className="history-file-picker" onSubmit={(event) => { event.preventDefault(); setComparisonPath(pathInput.trim()); }}>
         <label>Compare a file <input aria-label="File path to compare" placeholder="notes.txt" value={pathInput} onChange={(event) => setPathInput(event.target.value)} /></label>
-        <button className="professional-button professional-button-secondary" type="submit" disabled={!pathInput.trim()}>Compare with current file</button>
+        <button className="ui-control" type="submit" disabled={!pathInput.trim()}>Compare with current file</button>
       </form> : null}
       {comparisonPath && !fixtureItems ? <HistoryFileComparison spaceId={space.id} path={comparisonPath} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} /> : null}
       {preview ? <>
@@ -523,11 +524,12 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
           ["Move entries", preview.moves.map((move) => `${move.fromPath} → ${move.toPath}`)],
           ["Excluded from this restore point", preview.excludedPaths],
           ["Current content outside History coverage", preview.uncoveredPaths],
-        ] as Array<[string, string[]]>).map(([title, paths]) => <section key={title}>
+        ] as Array<[string, string[]]>).map(([title, paths]) => <section className={paths.length ? "history-restore-section" : "history-restore-section empty"} key={title}>
           <h2>{title} · {paths.length}</h2>
-          {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code>{(title === "Restore files" || title === "Remove paths") && !fixtureItems ? <button className="professional-button professional-button-secondary" type="button" onClick={() => { setPathInput(path); setComparisonPath(path); }}>Compare</button> : null}</li>)}</ul> : <p>None</p>}
+          {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code>{(title === "Restore files" || title === "Remove paths") && !fixtureItems ? <button className="ui-control" type="button" onClick={() => { setPathInput(path); setComparisonPath(path); }}>Compare</button> : null}</li>)}</ul> : <p>None</p>}
         </section>)}
-        <button className="professional-button professional-button-primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0 || (preview.restoreFiles.length + preview.removePaths.length + preview.moves.length === 0)} onClick={() => selected && void restore(selected)}>
+        <p className="history-coverage">A safety restore point preserves the current files before this change.{!preview.removePaths.length ? " No paths will be removed." : ""}{!preview.moves.length ? " No entries will be moved." : ""}{!preview.excludedPaths.length && !preview.uncoveredPaths.length ? " No content is excluded or outside History coverage." : ""}</p>
+        <button className="ui-control ui-control--primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0 || (preview.restoreFiles.length + preview.removePaths.length + preview.moves.length === 0)} onClick={() => selected && void restore(selected)}>
           {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo these changes" : "Restore these files"}
         </button>
       </> : null}
@@ -537,26 +539,39 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   return (
     <div className="space-pane-content history-pane professional-surface professional-history">
       <div className="history-pane-actions">
+        <div className="history-title"><h2>History</h2><span>{items.length} restore {items.length === 1 ? "point" : "points"}</span></div>
         {notice ? <p className="history-save-status" role="status"><Checkmark16Regular />{notice}</p> : null}
-        <button className="professional-button professional-button-primary" type="button" onClick={() => void savePoint()} disabled={busy || Boolean(fixtureItems)}>
+        <button className="ui-control ui-control--primary" type="button" onClick={() => void savePoint()} disabled={busy || Boolean(fixtureItems)}>
           {busy ? <ArrowSync16Regular className="spin" /> : <Clock16Regular />}Save restore point
         </button>
       </div>
-      <div className="history-list professional-history-list">
-        {items.map((item) => (
-          <article className={item.checkpointId === selectedCheckpointId ? "professional-history-card selected" : "professional-history-card"} key={item.checkpointId} aria-current={item.checkpointId === selectedCheckpointId ? "true" : undefined}>
-            <span className="professional-icon-tile" aria-hidden="true"><History16Regular /></span>
-            <div className="professional-history-copy"><strong>{item.label || item.reason}</strong><span>{formatDate(item.createdAt)} · {item.fileCount} captured {item.fileCount === 1 ? "file" : "files"}</span></div>
-            <div className="professional-history-actions">
-              {onOpen ? <button className="professional-button professional-button-secondary" type="button" onClick={() => onOpen(item)}>Open</button> : null}
-              <button className="professional-button professional-button-secondary" type="button" disabled={busy || Boolean(fixtureItems)} onClick={() => void restore(item)}>Review restore</button>
-            </div>
-          </article>
-        ))}
-        {!items.length ? <EmptyState icon={<History20Regular />} title="No restore points yet" detail="work-fold creates restore points before important file changes. You can make one manually too." /> : null}
+      <div className="history-journal">
+        {!items.length ? <EmptyState icon={<History20Regular />} title="No restore points yet" detail="Save a restore point to keep a version of this work-folder." /> : null}
+        {historyDateGroups(items).map(({label,points}) => <section key={label} className="history-day"><h3>{label}</h3><div>{points.map(item => <button className={item.checkpointId===selectedCheckpointId ? "history-entry selected" : "history-entry"} aria-current={item.checkpointId===selectedCheckpointId ? "true" : undefined} type="button" key={item.checkpointId} disabled={!onOpen && (busy || Boolean(fixtureItems))} onClick={()=>onOpen ? onOpen(item) : void restore(item)} aria-label={`Review ${item.label || item.reason}`}>
+          <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}</time>
+          <span><strong>{item.label || item.reason}</strong><small>{item.fileCount} captured {item.fileCount === 1 ? 'file' : 'files'}</small></span>
+          <ChevronRight16Regular aria-hidden="true"/>
+        </button>)}</div></section>)}
       </div>
     </div>
   );
+}
+
+function historyDateGroups(items: SpaceCheckpoint[]): Array<{ label: string; points: SpaceCheckpoint[] }> {
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const groups = new Map<string, { label: string; points: SpaceCheckpoint[] }>();
+  for (const point of items) {
+    const date = new Date(point.createdAt);
+    const key = date.toDateString();
+    const label = key === now.toDateString() ? "Today" : key === yesterday.toDateString() ? "Yesterday"
+      : date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: date.getFullYear() === now.getFullYear() ? undefined : "numeric" });
+    const group = groups.get(key) ?? { label, points: [] };
+    group.points.push(point);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }
 
 export { AssistantSetupPane, type AssistantModelScope } from "./AssistantSetupPane";

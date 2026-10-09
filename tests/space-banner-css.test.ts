@@ -16,7 +16,7 @@ test("the actual banner cascade repaints every pattern after an accent edit", { 
   if (!browser) { t.skip("Chromium is required for the banner cascade test."); return; }
   const scratch = await mkdtemp(join(tmpdir(), "work-fold-banner-css-"));
   try {
-    const sheets = ["brand.css", "styles.css", "professional-foundation.css", "professional-shell.css", "professional-surfaces.css", "professional-customization.css", "settings-window.css", "application-appearance.css"];
+    const sheets = ["brand.css", "styles.css", "application-appearance.css"];
     const css = (await Promise.all(sheets.map((name) => readFile(resolve("web-local/src", name), "utf8")))).join("\n");
     const html = `<!doctype html><style>${css}</style><main class="app-shell"><div class="space-appearance-preview space-banner-surface"></div></main><pre id="result">pending</pre><script>
       const app = document.querySelector('.app-shell');

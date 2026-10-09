@@ -1,3 +1,5 @@
+> Historical inventory: the 2026-10-09 desktop consolidation moved live style ownership into `web-local/src/styles.css` and retired the named override files below. These original counts and locations remain audit history; current consumer and cascade tests use the canonical sheet.
+
 # Space identity role inventory
 
 This document preserves the pre-implementation audit for replacing the two raw hex values in
