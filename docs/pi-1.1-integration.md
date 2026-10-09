@@ -85,6 +85,32 @@ its own native codemode turn, followed the exact task to a persisted succeeded
 result and reported no remaining active tasks. Final command results are
 recorded in the PR.
 
+## Real OpenRouter acceptance, 2026-10-08
+
+The same disposable Electron profile also ran real OpenRouter calls using
+`openai/gpt-4.1-mini` and `openai/gpt-5-mini`. The supplied key was loaded into
+the host environment for the test process, without saving provider credentials.
+The installed macOS CLI and the renderer exercised the normal host paths:
+
+| Exercise | Observed result |
+|---|---|
+| Worker, streaming and native MCP | A CLI-started turn wrote/read a disposable JSON file, discovered and called the local MCP echo tool, and persisted the expected sum and marker |
+| Codemode from the desktop | Nested read/write calls updated the file once, returned the expected sum, and persisted a native `store` value |
+| Restart and manual compaction | A real compaction produced a native summary; a follow-up loaded the stored value, read the changed file and recalled the earlier MCP marker without another MCP call |
+| work-fold agent | The management CLI completed its own real call and persisted a succeeded task and done request |
+| Reasoning and background continuity | GPT-5 Mini at Low reasoning computed the independently checked answer `1002301`, digit sum `7`, remainder `0`; the turn continued during a switch to another Folder's History tab, and the thought and codemode details were inspectable |
+| Stop and recovery | Stop interrupted a live response, retained its partial text in the native session and portable Chat, and settled the request as stopped; the next turn completed with the exact requested marker |
+| Bounded text Check | GPT-4.1 Mini reviewed only two designated test files, returned one finding with a uniquely matching quote and both file digests, and passed evidence admission; Files showed Needs Attention, the Checks tab displayed the finding, and its file link opened the correct preview |
+
+Six accepted turns succeeded and one deliberately stopped; manual compaction
+and the bounded Check also succeeded. The Check was disabled after testing,
+the original disposable Pi settings and new-Chat model were restored, and the
+key-bearing host exited normally. An exact-key audit of 1,493 repository,
+profile and test-evidence files found no stored copy of the key. The person's
+key document and normal application profile were unchanged. These calls
+verified external provider transport, rather than relying only on the local
+model fixture; they did not exercise saved provider credentials or OAuth.
+
 ## Deliberate boundaries
 
 Native MCP 1.1 currently provides tools and resources, with no elicitation or
@@ -96,6 +122,8 @@ codemode scripts receive the complete structured result and can release selected
 records and pagination cursors to the model.
 Chat `/mcp` displays status and routes setup to Skills & Extensions. Desktop
 bearer and OAuth credentials are encrypted; browser/CLI development uses native
-private Pi profile files. OS permissions, real provider billing/account policy,
-external OAuth accounts and signed release installation require their own live
-acceptance evidence. Local synthetic providers and peers do not certify them.
+private Pi profile files. Real OpenRouter transport was exercised as described
+above. OS permissions, provider billing/account policy, external OAuth accounts,
+real image/classifier services and signed release installation require their
+own live acceptance evidence. Local synthetic providers and peers do not
+certify those paths.
