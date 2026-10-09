@@ -20976,7 +20976,7 @@ to {
 }
 /* Editable boundaries remain clear; menus and toolbars use the same neutral ground. */
 
-:root[data-theme] .app-shell :is(.professional-field,.settings-field,.appearance-settings,.checks-setup) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),select,textarea) {
+:root[data-theme] .app-shell :is(.professional-field,.settings-field,.appearance-settings,.checks-setup,.history-file-picker) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),select,textarea) {
   background: var(--ui-surface-subtle);
   color: var(--ui-text);
   border: 1px solid var(--ui-border);

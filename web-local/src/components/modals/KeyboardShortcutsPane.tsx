@@ -24,7 +24,7 @@ export function KeyboardShortcutsPane() {
     {
       title: "Chat",
       rows: [
-        { keys: [modifier, "."], action: "Stop the running Assistant turn in the active Chat." },
+        { keys: [modifier, "."], action: "Stop the running Worker turn in the active Chat." },
       ],
     },
     {
