@@ -242,6 +242,10 @@ export function useSurfaceTabs({
     });
   }
 
+  const reorderSurfaceTabs = useCallback((ids: string[]): void => {
+    setSurfaceTabs((current) => reorderSurfaceTabList(current, ids));
+  }, []);
+
   function handleTabConversationActivated(tabId: string, tabSpace: SpaceSummary, conversation: ConversationSummary | null): void {
     if (!conversation) return;
     const duplicate = surfaceTabs.find((tab) => tab.kind === "chat" && tab.id !== tabId && tab.spaceId === tabSpace.id && tab.conversationId === conversation.id);
@@ -299,12 +303,23 @@ export function useSurfaceTabs({
     closeRestrictedAppSurfaceTab,
     reconcileRestrictedAppSurfaceTabs,
     closeSurfaceTab,
+    reorderSurfaceTabs,
     handleTabConversationActivated,
     removeSpaceSurfaceTabs,
     retargetFileSurfaceTabsForMove,
     closeFileSurfaceTabsForDeletedPaths,
     updateSurfaceTabConversationTitle,
   };
+}
+
+/** Reorder known slots without dropping tabs opened during the gesture. */
+export function reorderSurfaceTabList(tabs: SpaceSurfaceTab[], ids: string[]): SpaceSurfaceTab[] {
+  const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+  const ordered = [...new Set(ids)].flatMap((id) => byId.has(id) ? [byId.get(id)!] : []);
+  const selected = new Set(ordered.map((tab) => tab.id));
+  let index = 0;
+  const next = tabs.map((tab) => selected.has(tab.id) ? ordered[index++]! : tab);
+  return next.every((tab, position) => tab === tabs[position]) ? tabs : next;
 }
 
 function newChatSurfaceTab(space: SpaceSummary, options: { fresh?: boolean } = {}): SpaceSurfaceTab {

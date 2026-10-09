@@ -38,7 +38,8 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
     // this makes each hover/focus cascade deterministic in headless Chromium.
     // Native pointer and keyboard behavior is checked in the dev app too.
     const chatStateCss = desktopCss.replaceAll(":hover", "[data-test-hover]").replaceAll(":active", "[data-test-pressed]").replaceAll(":focus-visible", "[data-test-focus-visible]").replaceAll(":focus-within", "[data-test-focus-within]") + "\n* { transition: none !important; animation: none !important; }";
-    const payload = { desktopCss, popoverCss, desktopBody, popoverBody, scenarios, chatStateCss };
+    const emptyChat = '<div class="chat-empty-state"><strong>Ready when you are.</strong><span class="chat-empty-space"><svg></svg><span>Workshop</span></span></div>';
+    const payload = { desktopCss, popoverCss, desktopBody: desktopBody.replace('<section class="chat-panel">','<section class="chat-panel">'+emptyChat), popoverBody, scenarios, chatStateCss };
     // A disposable, non-interactive browser evaluates the exact shipped CSS
     // cascade. It never loads app scripts, an account, or a personal profile.
     const html = `<!doctype html><meta charset="utf-8"><pre id="result">pending</pre><script>
@@ -51,7 +52,7 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         const doc = frame.contentDocument;
         const variables = Object.entries(scenario.variables).map(([key,value]) => key+':'+value).join(';');
         const attributes = 'data-platform="'+(scenario.platform ?? '')+'" data-theme="'+scenario.mode+'" data-appearance-palette="'+scenario.palette+'" data-appearance-messages="'+(scenario.messages ?? 'tinted')+'" data-appearance-chat-steps="'+(scenario.chatSteps ?? 'every')+'" data-appearance-contrast="more" data-appearance-motion="reduce" data-appearance-transparency="opaque" data-window-material="'+(scenario.material ?? 'vibrancy')+'" style="'+variables.replaceAll('"','&quot;')+';color-scheme:'+scenario.mode+'"';
-        const names = {solid:'solid', 'on-accent-solid':'onSolid', 'soft-fill':'softFill', 'text-body':'textBody', glyph:'glyph'};
+        const names = {solid:'solid', 'on-accent-solid':'onSolid', 'soft-fill':'softFill', 'text-body':'textBody', 'text-ui':'textUi', 'border-state':'borderState', glyph:'glyph'};
         const identity = Object.entries(names).map(([key,role]) => (key === 'on-accent-solid' ? '--space-on-accent-solid' : '--space-accent-'+key)+':'+scenario.identity[role]).join(';');
         body = body.replace('class="app-shell"','class="app-shell" data-theme="'+scenario.mode+'" style="'+identity+'"');
         doc.open(); doc.write('<!doctype html><html '+attributes+'><head><style>'+css+'</style></head><body>'+body+'</body></html>'); doc.close();
@@ -74,7 +75,8 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         const shell = qa.querySelector('.composer-input-shell');
         shell.setAttribute('data-test-focus-within','');
         qa.querySelector('.composer textarea').setAttribute('data-test-focus-visible','');
-        result.design = { shellOutline:q('.composer-input-shell').outlineStyle, shellOutlineWidth:q('.composer-input-shell').outlineWidth, textareaOutline:q('.composer textarea').outlineWidth,
+        result.design = { shellOutline:q('.composer-input-shell').outlineStyle, shellOutlineWidth:q('.composer-input-shell').outlineWidth, shellColor:q('.composer-input-shell').outlineColor, expectedShellColor:color(scenario.identity.borderState), textareaOutline:q('.composer textarea').outlineWidth,
+          emptyColors:[q('.chat-empty-state strong').color,q('.chat-empty-space').color,q('.chat-empty-space svg').color], expectedEmptyColors:[color(scenario.variables['--ui-text']),color(scenario.identity.textUi),color(scenario.identity.glyph)],
           copyRight:box('.message.user .message-copy-button').right, bubbleRight:box('.message.user .message-surface').right,
           timeRight:box('.message.user .message-time').right, copyLeft:box('.message.user .message-copy-button').left,
           restTime:q('.message.user .message-time').opacity, tabs:[q('.surface-tab').backgroundColor,q('.surface-tab.active').backgroundColor], close:[q('.surface-tab-close').width,q('.surface-tab-close').opacity],
@@ -152,6 +154,7 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         }
         const feedbackBody = '<div class="app-shell"><button id="neutral" class="ui-control">Open</button><button id="primary" class="ui-control ui-control--primary">Save</button><button id="icon" class="ui-control ui-control--icon">Icon</button><button id="disabled" class="ui-control" disabled>Disabled</button><button id="danger" class="ui-control danger">Delete</button><nav class="professional-space-rail"><button id="rail" class="space-rail-button">Files</button><button id="selectedRail" class="space-rail-button active">Chats</button><div class="space-rail-settings-control"><button id="settings" class="space-rail-account-button">Settings</button></div></nav><div class="surface-tab-new-chat"><button id="newChat" class="surface-tab-action surface-tab-new-chat-main">New</button></div><button id="commands" class="composer-command-trigger">Commands</button><div class="context-menu"><button id="menu">Rename</button></div><div class="chat-actions-menu"><button id="chatMenu">Rename</button><button id="chatDanger" class="danger">Delete</button></div><button id="chatBack" class="chat-actions-back">Back</button><div class="chat-rename-actions"><button id="renameSave" class="primary">Save</button></div><button id="manual" class="checks-manual-button">Set up manually</button><button id="nameSave" class="space-name-save">Save</button><button id="done" class="spaces-pane-done">Done</button><button id="upload" class="space-banner-upload-button">Upload</button><button id="modelTrigger" class="model-catalog-trigger">Model</button><button id="modelOption" class="model-catalog-option">Model option</button><div class="composer-menu"><button id="composerOption">Reasoning</button></div><button id="send" class="send-button">Send</button><div class="space-header-switcher"><button id="switcher" class="space-header-switcher-row">Folder</button></div><button id="palette" class="command-palette-option">Open file</button><div class="composer-command-menu"><button id="model">Model</button></div><button id="copy" class="message-copy-button">Copy</button><button id="file" class="file-row">File</button><button id="selectedFile" class="file-row selected">Selected file</button><div id="chat" class="chat-space-row-shell"><button class="chat-space-row">Chat</button></div><button id="history" class="history-entry">History</button><button id="included" class="capabilities-included-tile">Tool</button><button id="resource" class="capabilities-resource-row">Skill</button><button id="routing" class="fold-routing-list-row">Automation</button><section class="settings-window"><button id="settingsTab" class="settings-tab">Appearance</button></section><div id="search" class="file-tree-search"><input></div><div class="surface-tabbar"><div id="tab" class="surface-tab"><button id="tabMain" class="surface-tab-main">Tab</button><button class="surface-tab-close">Close</button></div></div></div>';
         const feedback = fixture(payload.chatStateCss,feedbackBody,scenario);
+        result.includedBoundary=[feedback('.capabilities-included-tile').borderTopWidth,feedback('.capabilities-included-tile').borderTopColor,color('var(--ui-border-strong)')];
         const feedbackDoc = frame.contentDocument;
         const targets = ['neutral','primary','icon','disabled','danger','rail','selectedRail','settings','newChat','commands','menu','chatMenu','chatDanger','chatBack','renameSave','manual','nameSave','done','upload','modelTrigger','modelOption','composerOption','send','switcher','palette','model','copy','file','selectedFile','chat','history','included','resource','routing','settingsTab','search','tab'];
         result.feedback = targets.map(id=>{
@@ -209,6 +212,9 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         if (row.state.endsWith("focus")) assert.equal(row.outline, "solid", label + " retains a keyboard focus indicator");
       }
       assert.equal(item.design.shellOutline, "solid", item.name + " whole composer owns focus");
+      assert.equal(item.design.shellColor, item.design.expectedShellColor, item.name + " composer focus uses its owning folder, independently of the application accent");
+      assert.deepEqual(item.design.emptyColors, item.design.expectedEmptyColors, item.name + " empty chat keeps palette text and owning folder identity");
+      assert.equal(item.includedBoundary[0], "1px"); assert.equal(item.includedBoundary[1], item.includedBoundary[2], item.name + " included tools keep a visible palette border");
       assert.equal(item.design.shellOutlineWidth, "2px"); assert.equal(item.design.textareaOutline, "0px");
       assert.ok(Math.abs(item.design.copyRight - item.design.bubbleRight) <= 1, item.name + " copy aligns with the user bubble right edge");
       assert.ok(item.design.timeRight <= item.design.copyLeft - 7, item.name + " timestamp appears left of copy");

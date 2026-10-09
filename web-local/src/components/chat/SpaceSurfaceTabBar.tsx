@@ -8,6 +8,7 @@ import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-naviga
 import { readStoredValue, writeStoredValue } from "../../lib/storage";
 import { groupSurfaceTabsBySpace } from "../../lib/surface-tab-groups";
 import { createSurfaceTabMotion } from "../../lib/surface-tab-motion";
+import { createSurfaceTabReorder } from "../../lib/surface-tab-reorder";
 import { spaceIdentityStyle } from "../../lib/space-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/space-ui";
 import type { ChatActivityStatus, ConversationSummary, SpaceCustomizationMap, SpaceSummary, SpaceSurfaceTab } from "../../types";
@@ -48,6 +49,7 @@ export function SpaceSurfaceTabBar({
   newChatSpaceId,
   onActivate,
   onClose,
+  onReorder,
   onNewChatInSpace,
   onChatActions,
   isSharedFile,
@@ -61,6 +63,7 @@ export function SpaceSurfaceTabBar({
   newChatSpaceId: string;
   onActivate: (tabId: string) => void;
   onClose: (tabId: string) => void;
+  onReorder: (ids: string[]) => void;
   onNewChatInSpace: (space: SpaceSummary) => void;
   onChatActions: (space: SpaceSummary, conversation: ConversationSummary, event: ReactMouseEvent<HTMLElement>) => void;
   /** True when this Folder file is shared as a page; file tabs carry the mark. */
@@ -70,15 +73,19 @@ export function SpaceSurfaceTabBar({
   const [spaceMenuOpen, setSpaceMenuOpen] = useState(false);
   const [groupBySpace, setGroupBySpace] = useState(() => readStoredValue(groupSurfaceTabsStorageKey) === "true");
   const [overflow, setOverflow] = useState<SurfaceTabOverflow>(null);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const activeChromeRef = useRef<HTMLSpanElement | null>(null);
   const tabMotionRef = useRef<ReturnType<typeof createSurfaceTabMotion> | null>(null);
+  const reorderRef = useRef<ReturnType<typeof createSurfaceTabReorder> | null>(null);
   const previousSelectionRef = useRef<{ id: string | null; layout: string } | null>(null);
   const menuAnchorRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const openSpaceCount = new Set(tabs.map((tab) => tab.spaceId)).size;
   const groupingActive = groupBySpace && openSpaceCount > 1;
+  const reorderOptionsRef = useRef({ groupingActive, onReorder });
+  reorderOptionsRef.current = { groupingActive, onReorder };
   const orderedTabs = useMemo(
     () => groupingActive ? groupSurfaceTabsBySpace(tabs).flatMap((group) => group.tabs) : tabs,
     [groupingActive, tabs],
@@ -104,11 +111,28 @@ export function SpaceSurfaceTabBar({
   }, []);
 
   useLayoutEffect(() => {
+    const strip = tabsRef.current;
+    if (!strip) return;
+    const reorder = createSurfaceTabReorder(strip, {
+      grouped: () => reorderOptionsRef.current.groupingActive,
+      commit: (ids) => reorderOptionsRef.current.onReorder(ids),
+      announce: (id, position, count) => {
+        const title = strip.ownerDocument.getElementById(surfaceTabDomId(id))?.textContent ?? "Tab";
+        setReorderAnnouncement(`${title} moved to position ${position} of ${count}.`);
+      },
+    });
+    reorderRef.current = reorder;
+    return () => { reorder.dispose(); reorderRef.current = null; };
+  }, []);
+
+  useLayoutEffect(() => {
     const previous = previousSelectionRef.current;
     const active = activeTabId ? document.getElementById(surfaceTabDomId(activeTabId))?.closest<HTMLElement>(".surface-tab") ?? null : null;
     tabMotionRef.current?.select(active, Boolean(previous?.id && previous.id !== activeTabId && previous.layout === tabLayout));
     previousSelectionRef.current = { id: activeTabId, layout: tabLayout };
   }, [activeTabId, tabLayout]);
+
+  useLayoutEffect(() => { reorderRef.current?.layout(); }, [tabLayout]);
 
   useEffect(() => {
     if (!spaceMenuOpen) return;
@@ -180,6 +204,24 @@ export function SpaceSurfaceTabBar({
     if (!orderedTabs.length) return;
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
 
+    if (event.altKey && event.shiftKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      const focused = (event.target as HTMLElement).closest<HTMLElement>(".surface-tab")?.dataset.tabId;
+      const tab = orderedTabs.find((item) => item.id === focused);
+      if (!tab) return;
+      event.preventDefault(); event.stopPropagation();
+      const peers = groupingActive ? orderedTabs.filter((item) => item.spaceId === tab.spaceId) : orderedTabs;
+      const index = peers.indexOf(tab);
+      const target = peers[index + (event.key === "ArrowRight" ? 1 : -1)];
+      if (!target) return;
+      const ids = orderedTabs.map((item) => item.id);
+      const from = ids.indexOf(tab.id); const to = ids.indexOf(target.id);
+      [ids[from], ids[to]] = [ids[to]!, ids[from]!];
+      reorderRef.current?.reorder(ids);
+      setReorderAnnouncement(`${tab.title} moved to position ${peers.indexOf(target) + 1} of ${peers.length}.`);
+      return;
+    }
+    if (event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return;
+
     const activeIndex = orderedTabs.findIndex((tab) => tab.id === activeTabId);
     const currentIndex = activeIndex >= 0 ? activeIndex : 0;
     const lastIndex = orderedTabs.length - 1;
@@ -249,6 +291,8 @@ export function SpaceSurfaceTabBar({
       <span
         className={["surface-tab", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
         key={tab.id}
+        data-tab-id={tab.id}
+        data-space-id={tab.spaceId}
         style={style}
         title={`${tab.title} - ${spaceName}${activityLabel ? ` · ${activityLabel}` : ""}`}
         onContextMenu={(event) => {
@@ -274,7 +318,9 @@ export function SpaceSurfaceTabBar({
           aria-controls={surfacePanelDomId(tab.id)}
           aria-label={`${tab.title} in ${spaceName}${activityLabel ? `, ${activityLabel}` : ""}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`}
           tabIndex={tab.id === activeTabId ? 0 : -1}
-          onClick={() => onActivate(tab.id)}
+          aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
+          onPointerDown={(event) => reorderRef.current?.begin(event.nativeEvent, tab.id, event.currentTarget)}
+          onClick={() => { if (!reorderRef.current?.consumeClick()) onActivate(tab.id); }}
         >
           {grouped ? null : <span className="surface-tab-icon" aria-hidden="true"><SpaceIconGlyph icon={Icon} size={15} /></span>}
           <span className="surface-tab-copy">
@@ -298,6 +344,7 @@ export function SpaceSurfaceTabBar({
 
   return (
     <div className={tabs.length ? "surface-tabbar" : "surface-tabbar empty"}>
+      <span className="sr-only" role="status" aria-live="polite">{reorderAnnouncement}</span>
       <div
         ref={tabsRef}
         className={["surface-tabs", groupingActive ? "surface-tabs-grouped" : "", countTier].filter(Boolean).join(" ")}

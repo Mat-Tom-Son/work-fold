@@ -4498,8 +4498,6 @@ to {
 }
 
 .chat-empty-state {
-  --space-custom-color: var(--work-fold-blue-700);
-  --space-custom-color-soft: rgba(53, 111, 163, 0.12);
   flex: 0 0 auto;
   display: grid;
   place-items: center;
@@ -4507,13 +4505,13 @@ to {
   gap: 14px;
   margin: auto 0;
   padding: 24px;
-  color: #667085;
+  color: var(--ui-text-muted);
   text-align: center;
 }
 
 .chat-empty-state strong {
   max-width: min(420px, 100%);
-  color: #182846;
+  color: var(--ui-text);
   font-size: 1.54rem;
   font-weight: 700;
   line-height: 1.2;
@@ -4527,7 +4525,7 @@ to {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #59677a;
+  color: var(--space-accent-text-ui,var(--ui-text-muted));
   font-size: 0.9rem;
   font-weight: 650;
   line-height: 1.35;
@@ -4535,8 +4533,7 @@ to {
 
 .chat-empty-space svg {
   flex: 0 0 auto;
-  color: var(--space-custom-color);
-  opacity: 0.78;
+  color: var(--space-accent-glyph,var(--ui-accent));
 }
 
 .chat-empty-space span {
@@ -7743,14 +7740,6 @@ to {
 :root:not([data-platform="darwin"]) body.scrollbars-active .app-shell[data-theme="dark"] .message-list::-webkit-scrollbar-thumb {
   background-color: var(--work-fold-scrollbar-thumb);
   border-color: #0f172a;
-}
-
-.app-shell[data-theme="dark"] .chat-empty-state strong {
-  color: #e5edf7;
-}
-
-.app-shell[data-theme="dark"] .chat-empty-space {
-  color: #94a3b8;
 }
 
 .app-shell[data-theme="dark"] .chat-lifecycle-gate {
@@ -20399,7 +20388,7 @@ to {
 }
 
 :root[data-theme] .app-shell .capabilities-included-tile {
-  border: 0;
+  border: 1px solid var(--ui-border-strong);
   box-shadow: none;
   background: var(--ui-surface-subtle);
   border-radius: 6px;
@@ -21093,7 +21082,7 @@ to {
 
 :root[data-theme] .app-shell .composer-input-shell:focus-within {
   border-color: transparent;
-  outline: 2px solid var(--ui-focus,var(--ui-accent));
+  outline: 2px solid var(--space-accent-border-state,var(--ui-focus,var(--ui-accent)));
   outline-offset: 0;
   box-shadow: none;
 }
@@ -21250,6 +21239,42 @@ to {
 
 :root[data-theme] .app-shell .surface-tab-main:focus-visible {
   outline: 0;
+}
+
+:root[data-theme] .app-shell .surface-tab-main {
+  touch-action: none;
+  user-select: none;
+}
+
+/* During a reorder, the connected frame travels with its whole tab. */
+:root[data-theme] .app-shell .surface-tabs[data-reordering] .surface-tab-active-chrome {
+  visibility: hidden !important;
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-reordering] .surface-tab.active {
+  background: var(--ui-tab-active);
+  border-color: var(--ui-tab-active-edge);
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-reordering] .surface-tab.active::before,
+:root[data-theme] .app-shell .surface-tabs[data-reordering] .surface-tab.active::after {
+  display: block;
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-reordering] .surface-tab[data-dragging] {
+  z-index: 5;
+  background: var(--ui-tab-active);
+  box-shadow: 0 2px 5px color-mix(in srgb,var(--ui-text) 20%,transparent), inset 0 0 0 1px var(--ui-tab-active-edge);
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-reordering] .surface-tab.active[data-dragging] {
+  box-shadow: none;
+  outline: 0;
+}
+
+:root[data-theme] .app-shell .surface-tabs[data-reordering="dragging"],
+:root[data-theme] .app-shell .surface-tabs[data-reordering="dragging"] * {
+  cursor: grabbing;
 }
 /* File metadata, actions and document share one gutter. Reading preferences apply here too. */
 

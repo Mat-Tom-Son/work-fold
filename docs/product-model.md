@@ -94,7 +94,10 @@ inference, sign in to Azure, or discover deployments.
 
 Each open tab belongs to one Folder. Selecting a tab takes the user back to
 that Folder; selecting a Folder restores its most recent tab. With four or more
-tabs open, tabs narrow but keep their Folder icon and a normal close button. A
+tabs open, tabs narrow but keep their Folder icon and a normal close button.
+Tabs can be dragged to reorder, or moved with Alt+Shift+Left/Right while focused.
+The order is saved on this computer; grouping by work-folder confines moves to
+the owning Folder, and reordering preserves the active tab and mounted work. A
 working Chat remains alive when another tab is selected, work-fold is minimized, the Windows
 window is hidden to the tray, or the last macOS window closes and is recreated.
 Every accepted Worker turn has one stable request id through the transcript,

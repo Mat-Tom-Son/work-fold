@@ -16,11 +16,13 @@ const {
   readStoredSurfaceTabsState,
   restoreStoredSurfaceTabsForSpaces,
   retargetFileSurfaceTabs,
+  reorderSurfaceTabList,
   restrictedAppSurfaceTabId,
   spaceAutomationsSurfaceTab,
   surfaceTabActivationForSpace,
   surfaceTabSpaceSwitchTarget,
   upsertSurfaceTab,
+  useSurfaceTabs,
 } = await import(surfaceTabsModuleUrl) as SurfaceTabsExports;
 
 interface SpaceSummary {
@@ -71,6 +73,7 @@ interface SurfaceTabsExports {
     spaces: SpaceSummary[],
   ) => { tabs: SurfaceTab[]; activeTabId: string | null };
   retargetFileSurfaceTabs: (tabs: SurfaceTab[], spaceId: string, sourcePath: string, movedPath: string) => SurfaceTab[];
+  reorderSurfaceTabList: (tabs: SurfaceTab[], ids: string[]) => SurfaceTab[];
   restrictedAppSurfaceTabId: (spaceId: string, appId: string, digest: string, appTabId: string) => string;
   surfaceTabActivationForSpace: (input: {
     activeTabId: string | null;
@@ -85,6 +88,7 @@ interface SurfaceTabsExports {
     spaces: SpaceSummary[];
   }) => SpaceSummary | null;
   upsertSurfaceTab: (tabs: SurfaceTab[], tab: SurfaceTab) => SurfaceTab[];
+  useSurfaceTabs: (input: { space: SpaceSummary; spaces: SpaceSummary[] }) => { surfaceTabs: SurfaceTab[]; activeSurfaceTabId: string | null; reorderSurfaceTabs: (ids: string[]) => void; setActiveSurfaceTabId: (id: string) => void };
 }
 
 const space: SpaceSummary = {
@@ -102,6 +106,15 @@ const otherSpace: SpaceSummary = {
   name: "Other Space",
   spaceRoot: "C:/Spaces/Other",
 };
+
+test("reordering preserves tab identities, active restoration, and tabs added during the gesture", () => {
+  const tabs = [fileSurfaceTab(space, "draft.md"), fileSurfaceTab(otherSpace, "budget.csv"), checksSurfaceTab(space)];
+  const next = reorderSurfaceTabList(tabs, [tabs[2]!.id, "closed-tab", tabs[0]!.id, tabs[2]!.id]);
+  assert.deepEqual(next, [tabs[2], tabs[1], tabs[0]]);
+  assert.equal(next[0], tabs[2]); assert.equal(next[1], tabs[1]);
+  assert.deepEqual(normalizeStoredSurfaceTabsValue({ tabs: next, activeTabId: tabs[0]!.id }), { tabs: next, activeTabId: tabs[0]!.id });
+  assert.equal(reorderSurfaceTabList(next, next.map((tab) => tab.id)), next);
+});
 
 test("file tabs upsert as one retargeting tab per Space", () => {
   const first = fileSurfaceTab(space, "Notes/Draft.md");
@@ -436,7 +449,7 @@ test("the tab strip tightens early, fades its overflowing edges, and lists every
   const activated: string[] = [];
   await dom.render(createElement(SpaceSurfaceTabBar, {
     tabs, spaces: [space], spaceCustomizations: {}, conversations: {}, chatActivityStatuses: {}, activeTabId: tabs[0]!.id, newChatSpaceId: "space-1",
-    onActivate: (id: string) => { activated.push(id); }, onClose() {}, onNewChatInSpace() {}, onChatActions() {},
+    onActivate: (id: string) => { activated.push(id); }, onClose() {}, onReorder() {}, onNewChatInSpace() {}, onChatActions() {},
   }));
   const strip = document.querySelector<HTMLElement>(".surface-tabs")!;
   assert.match(strip.className, /tab-count-compact/);
@@ -454,4 +467,38 @@ test("the tab strip tightens early, fades its overflowing edges, and lists every
   await dom.act(() => items[3]!.click());
   assert.deepEqual(activated, [tabs[3]!.id]);
   assert.equal(document.querySelector("#new-chat-space-menu"), null, "choosing a tab closes the menu");
+
+  const storedValues = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", { configurable: true, value: {
+    getItem: (key: string) => storedValues.get(key) ?? null,
+    setItem: (key: string, value: string) => storedValues.set(key, value),
+    removeItem: (key: string) => storedValues.delete(key),
+  } });
+  window.localStorage.setItem("work-fold.space.surface-tabs.v1", JSON.stringify({ tabs, activeTabId: tabs[0]!.id }));
+  const registeredSpaces = [space];
+  function Host() {
+    const state = useSurfaceTabs({ space, spaces: registeredSpaces });
+    return createElement("div", null,
+      createElement(SpaceSurfaceTabBar, {
+        tabs: state.surfaceTabs, spaces: [space], spaceCustomizations: {}, conversations: {}, chatActivityStatuses: {}, activeTabId: state.activeSurfaceTabId, newChatSpaceId: space.id,
+        onActivate: state.setActiveSurfaceTabId, onReorder: state.reorderSurfaceTabs, onClose() {}, onNewChatInSpace() {}, onChatActions() {},
+      }),
+      state.surfaceTabs.map(tab => createElement("input", { key: tab.id, "data-panel": tab.id, defaultValue: `Draft ${tab.id}` })),
+    );
+  }
+  await dom.render(createElement(Host));
+  const firstButton = document.querySelector<HTMLButtonElement>('[role="tab"]')!;
+  const draft = document.querySelector<HTMLInputElement>("input")!;
+  draft.value = "Unsent message";
+  firstButton.focus();
+  await dom.press("ArrowRight", { altKey: true, shiftKey: true });
+  assert.deepEqual([...document.querySelectorAll("[role=tab]")].map(el => el.textContent), [tabs[1]!.title, tabs[0]!.title, ...tabs.slice(2).map(tab => tab.title)]);
+  assert.equal(document.activeElement, firstButton, "keyboard reordering retains focus on the moved tab");
+  assert.equal(firstButton.getAttribute("aria-selected"), "true", "reordering preserves selection");
+  assert.equal(document.querySelector(`[data-panel="${tabs[0]!.id}"]`), draft, "work surfaces stay mounted");
+  assert.equal(draft.value, "Unsent message");
+  assert.match(document.querySelector('[role="status"]')!.textContent!, /position 2 of 6/);
+  const stored = JSON.parse(window.localStorage.getItem("work-fold.space.surface-tabs.v1")!);
+  assert.deepEqual(stored.tabs.map((tab: SurfaceTab) => tab.id), [tabs[1]!.id, tabs[0]!.id, ...tabs.slice(2).map(tab => tab.id)]);
+  assert.equal(stored.activeTabId, tabs[0]!.id);
 });

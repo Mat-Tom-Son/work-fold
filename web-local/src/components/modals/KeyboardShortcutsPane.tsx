@@ -17,6 +17,8 @@ export function KeyboardShortcutsPane() {
         ...(macOS ? [{ keys: [modifier, "Shift", "W"], action: "Close the window." }] : []),
         { keys: ["Arrow left"], action: "Move to the previous surface tab when focus is on the tab list." },
         { keys: ["Arrow right"], action: "Move to the next surface tab when focus is on the tab list." },
+        { keys: ["Alt", "Shift", "Arrow left"], action: "Move the focused tab one position left; grouped tabs stay in their work-folder." },
+        { keys: ["Alt", "Shift", "Arrow right"], action: "Move the focused tab one position right; grouped tabs stay in their work-folder." },
         { keys: ["Home"], action: "Move to the first surface tab." },
         { keys: ["End"], action: "Move to the last surface tab." },
       ],
@@ -91,4 +93,3 @@ export function KeyboardShortcutsPane() {
     </section>
   );
 }
-
