@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { renderLanding } from "./public/landing.js";
@@ -177,28 +177,41 @@ test("motion is opt-in: reduced motion leaves the page static", (t) => {
   }
 });
 
-test("scrolling replays the request while preserving its complete accessible text", async (t) => {
-  const { app, window } = render(t, { reducedMotion: false });
+test("a request plays on its own clock once its folder rises into view, and replays after it leaves", (t) => {
+  let now = 0;
+  let pending = [];
+  const { app, window } = render(t, {
+    reducedMotion: false,
+    setup(window) {
+      window.performance.now = () => now;
+      window.requestAnimationFrame = (callback) => { pending.push(callback); return pending.length; };
+    },
+  });
+  const frames = (count = 2) => { for (let i = 0; i < count; i++) { const run = pending; pending = []; run.forEach((callback) => callback()); } };
+  const scrollTo = (top) => { folder.getBoundingClientRect = () => ({ top }); window.dispatchEvent(new window.Event("scroll")); frames(); };
   const folder = app.querySelector("#folder-orders");
   const request = folder.querySelector(".landing-request-type");
+  const full = folder.querySelector(".landing-request-measure").textContent;
   const accessible = folder.querySelector(".landing-sr").textContent;
-  folder.getBoundingClientRect = () => ({ top: window.innerHeight * 0.7 });
-  window.dispatchEvent(new window.Event("scroll"));
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  assert.equal(folder.dataset.workStage, "asking");
-  assert.ok(request.textContent.length > 0 && request.textContent.length < folder.querySelector(".landing-request-measure").textContent.length);
-  assert.equal(folder.querySelector(".landing-sr").textContent, accessible);
-  folder.getBoundingClientRect = () => ({ top: 0 });
-  window.dispatchEvent(new window.Event("scroll"));
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  assert.equal(folder.dataset.workStage, "done");
-  assert.equal(request.textContent, folder.querySelector(".landing-request-measure").textContent);
-  folder.getBoundingClientRect = () => ({ top: window.innerHeight * 2 });
-  window.dispatchEvent(new window.Event("scroll"));
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  assert.equal(folder.dataset.workStage, "ahead");
+
+  scrollTo(window.innerHeight * 2);
+  assert.equal(folder.dataset.workStage, "ahead", "nothing starts below the screen");
   assert.equal(request.textContent, "");
-  assert.equal(folder.querySelector(".landing-sr").textContent, accessible);
+  scrollTo(window.innerHeight * 0.4);
+  assert.equal(folder.dataset.workStage, "asking");
+  now += 400; frames();
+  assert.ok(request.textContent.length > 0 && request.textContent.length < full.length);
+  scrollTo(0);
+  assert.ok(request.textContent.length < full.length, "scrolling further does not skip ahead");
+  now += 800; frames();
+  assert.equal(request.textContent, full);
+  assert.equal(folder.dataset.workStage, "working");
+  now += 1000; frames();
+  assert.equal(folder.dataset.workStage, "done");
+  assert.equal(folder.querySelector(".landing-sr").textContent, accessible, "the accessible request is always whole");
+  scrollTo(window.innerHeight * 2);
+  assert.equal(folder.dataset.workStage, "ahead", "leaving below the screen resets it to play again");
+  assert.equal(request.textContent, "");
 });
 
 test("with motion, scrolling drives the app reveal and device drift through custom properties", async (t) => {
@@ -307,39 +320,66 @@ test("the hero fallback reaches the same settled frame and retraces its start wi
   assert.equal(heroReads, 1);
 });
 
-test("the apps chapter shows each slot as a real capture or a clearly labelled placeholder", async (t) => {
+test("without motion, the application scene shows its finished moment, stopped before Submit", (t) => {
   const { document } = render(t);
-  const chapter = document.querySelector(".landing-hands");
-  assert.ok(chapter.querySelector('a[href="https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk"] use[href="#landing-icon-chrome"]'));
-  const slots = [...chapter.querySelectorAll(".landing-handoff > figure")];
-  assert.equal(slots.length, 3);
-  for (const slot of slots) {
-    const img = slot.querySelector("img");
-    if (img) {
-      assert.ok(img.alt.trim());
-      const size = webpSize(await readFile(new URL(`./public${img.getAttribute("src")}`, import.meta.url)));
-      assert.deepEqual(size, { width: Number(img.getAttribute("width")), height: Number(img.getAttribute("height")) });
-    } else {
-      // Never a stand-in image: an empty slot says plainly what real capture belongs there.
-      assert.ok(slot.classList.contains("is-pending") && slot.dataset.captureNeeded);
-      assert.ok(slot.textContent.trim());
-    }
-  }
+  const scene = document.querySelector(".landing-hands .landing-scene");
+  assert.ok(scene.querySelector('a, button') === null, "the scene is an illustration, not a control");
+  assert.ok(document.querySelector('.landing-hands a[href="https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk"] use[href="#landing-icon-chrome"]'));
+  assert.ok(scene.querySelector(".landing-sr").textContent.includes("leaves Submit for you"));
+  const stage = scene.querySelector(".scene-stage");
+  assert.equal(stage.getAttribute("aria-hidden"), "true");
+  assert.deepEqual([stage.dataset.page, stage.dataset.held, stage.dataset.event, stage.dataset.mail], ["loaded", "yes", "yes", "no"]);
+  // The interview matches the tracker's Fieldwork Studio row: October 14.
+  assert.match(scene.querySelector(".scene-cal-event").textContent, /Interview · Fieldwork Studio/);
+  assert.match(scene.querySelector(".scene-notice").textContent, /October 14 at 10:00/);
+  for (const value of scene.querySelectorAll(".scene-value")) assert.equal(value.textContent, value.dataset.value);
+  assert.ok([...scene.querySelectorAll(".scene-step-list li")].every((step) => step.dataset.state === "done"));
+  // The form lives at a reserved documentation domain, never a real employer.
+  assert.match(scene.querySelector(".scene-url-text").textContent, /\.example\//);
+  // Steps are worded the way the app's step list words a tool call.
+  const steps = [...scene.querySelectorAll(".scene-step-list li:not(.scene-reply) .scene-was")].map((step) => step.textContent);
+  assert.ok(steps.includes("Used Chrome Fill") && steps.includes("Used Chrome Upload File") && steps.includes("Used Act Ui"));
+  assert.ok(steps.every((step) => /^(Read|Used [A-Z][a-z]+( [A-Z][a-z]+)*)( \S+)?$/.test(step)), steps.join(", "));
 });
 
-test("each app capture opens full size from a labelled button, with its own description", (t) => {
-  const { document } = render(t);
-  const dialog = document.querySelector("dialog.landing-zoom");
-  const buttons = [...document.querySelectorAll(".landing-handoff button[data-zoom]")];
-  assert.equal(buttons.length, 3);
-  for (const button of buttons) {
-    assert.ok(button.getAttribute("aria-label"));
-    button.click();
-    assert.ok(dialog.open);
-    assert.match(dialog.querySelector("img").getAttribute("src"), /^\/screens\/apps-.+\.webp$/);
-    assert.ok(dialog.querySelector("img").alt.trim());
-    dialog.querySelector(".landing-zoom-close").click();
-  }
+test("the application scene replays on its own clock: request, fields, Submit held, interview added", (t) => {
+  let now = 0;
+  let pending = [];
+  const { app, window } = render(t, {
+    reducedMotion: false,
+    setup(window) {
+      window.performance.now = () => now;
+      window.requestAnimationFrame = (callback) => { pending.push(callback); return pending.length; };
+    },
+  });
+  const frames = (count = 2) => { for (let i = 0; i < count; i++) { const run = pending; pending = []; run.forEach((callback) => callback()); } };
+  const scene = app.querySelector(".landing-scene");
+  const stage = scene.querySelector(".scene-stage");
+  const name = scene.querySelector('[data-field="name"] .scene-value');
+  const scrollTo = (top) => { scene.getBoundingClientRect = () => ({ top }); window.dispatchEvent(new window.Event("scroll")); frames(); };
+
+  scrollTo(window.innerHeight * 2);
+  assert.equal(scene.dataset.workStage, "ahead");
+  assert.equal(name.textContent, "");
+  assert.deepEqual([stage.dataset.page, stage.dataset.held, stage.dataset.event], ["blank", "no", "no"]);
+  scrollTo(window.innerHeight * 0.4);
+  assert.equal(scene.dataset.workStage, "asking");
+  now += 4000; frames();
+  assert.equal(scene.dataset.workStage, "working");
+  assert.equal(stage.dataset.focus, "chrome");
+  assert.equal(stage.dataset.page, "loaded");
+  now += 4000; frames();
+  assert.equal(stage.dataset.mail, "yes", "a new email arrives after the application is held");
+  assert.equal(stage.dataset.held, "yes");
+  now += 30000; frames();
+  assert.equal(scene.dataset.workStage, "done");
+  assert.equal(stage.dataset.mail, "no");
+  assert.equal(name.textContent, "Avery Stone");
+  assert.deepEqual([stage.dataset.held, stage.dataset.event, stage.dataset.focus], ["yes", "yes", "all"]);
+  assert.equal(scene.querySelector('[data-field="resume"]').dataset.upload, "attached");
+  scrollTo(window.innerHeight * 2);
+  assert.equal(scene.dataset.workStage, "ahead", "leaving below the screen resets it to play again");
+  assert.equal(name.textContent, "");
 });
 
 test("with motion, web access lights one level of the hierarchy at a time", (t) => {
@@ -401,4 +441,31 @@ test("a later mobile frame taller than the available viewport keeps ordinary flo
     },
   });
   assert.equal(app.querySelector(".landing-shell").classList.contains("mobile-stack"), false);
+});
+
+test("each folder's before state names exactly the files its Worker started from", async (t) => {
+  const { document } = render(t);
+  const layers = [...document.querySelectorAll(".landing-stack .landing-before")];
+  assert.equal(layers.length, document.querySelectorAll(".landing-stack .landing-folder").length);
+  for (const layer of layers) {
+    const id = layer.closest(".landing-folder").id.replace(/^folder-/, "");
+    assert.equal(layer.getAttribute("aria-hidden"), "true", "the finished screen's description covers both moments");
+    const shot = layer.querySelector("img");
+    if (shot) {
+      // A real capture of the same window before the request, at the same frame size.
+      assert.equal(shot.getAttribute("alt"), "");
+      for (const src of await sources(shot)) {
+        assert.match(src, new RegExp(`^/screens/work-${id}-before-\\d+\\.webp$`));
+        const scale = Number(src.match(/-(\d+)\.webp$/)[1]) / 1440;
+        assert.deepEqual(webpSize(await readFile(new URL(`./public${src}`, import.meta.url))), { width: 1440 * scale, height: 862 * scale });
+      }
+      continue;
+    }
+    // Otherwise the starting files are drawn, named exactly as the Worker found them.
+    const inputs = new URL(`./landing-assets/fixtures/${id}/inputs/`, import.meta.url);
+    const started = (await readdir(inputs, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
+    const shown = [...layer.querySelectorAll(".landing-file-name")].map((name) => name.textContent).sort();
+    assert.deepEqual(shown, started, `${id} before state matches its fixture inputs`);
+  }
 });
