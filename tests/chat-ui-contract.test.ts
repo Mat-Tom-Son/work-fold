@@ -134,7 +134,7 @@ test("Chats show the Folders inside this one under its own Chats", () => {
 
 test("Chats foreground the active Space and collapse other Spaces until requested", () => {
   assert.match(panes, /const \[expandedOtherSpaceIds, setExpandedOtherSpaceIds\]/);
-  assert.match(panes, /aria-label="Chats in other work-folders"/);
+  assert.match(panes, /<span>Other work-folders<\/span>/);
   assert.doesNotMatch(panes, /\.filter\(\(\{ list \}\) => list\.length > 0\)/);
   assert.match(panes, /<small>\{list\.length\}<\/small>/);
   assert.match(panes, /aggregateChatActivityStatus\(item\.id, conversations\[item\.id\] \?\? \[\], activityStatuses\)/);

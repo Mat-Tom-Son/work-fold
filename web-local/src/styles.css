@@ -7192,6 +7192,24 @@ body:has(> #root > .desktop-chrome-shell) {
   border-top: 1px solid #e3e8ef;
 }
 
+.chat-other-spaces-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 5px 4px;
+  color: #7a8697;
+  font-size: 0.66rem;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chat-other-spaces-heading small {
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .chat-other-space {
   min-width: 0;
   display: grid;
@@ -14347,6 +14365,7 @@ body:has(> #root > .desktop-chrome-shell) {
   border-top-color: rgba(148, 163, 184, 0.18);
 }
 
+.app-shell[data-theme="dark"] .chat-other-spaces-heading,
 .app-shell[data-theme="dark"] .chat-other-space-toggle,
 .app-shell[data-theme="dark"] .chat-other-space-toggle > small,
 .app-shell[data-theme="dark"] .chat-other-space-header > .minimal-icon-button {
