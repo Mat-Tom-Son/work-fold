@@ -17,7 +17,7 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   /* Folder geometry: one screen size for every workflow. */
   --pad: 12px;
   --tab: 36px;
-  --bar: 54px;
+  --bar: 78px;
   --shot-w: min(1176px, calc(100vw - 2 * var(--gutter) - 2 * var(--pad)));
   color-scheme: dark;
   position: relative;
@@ -67,14 +67,20 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   radial-gradient(40% 34% at 56% 100%, rgba(32, 196, 160, .16), transparent 70%),
   radial-gradient(36% 30% at 86% 90%, rgba(255, 172, 30, .13), transparent 70%); }
 .landing-hero-copy { position: relative; z-index: 1; width: var(--width); margin: 0 auto; opacity: calc(1 - var(--fade, 0)); }
-.landing-shell h1 { font-family: "Poppins", "Inter Variable", system-ui, sans-serif; font-size: clamp(42px, 4.5vw, 64px); font-weight: 600; line-height: 1.04; letter-spacing: -.045em; }
-.landing-shell h1 span { display: inline-block; }
+.landing-shell h1 { font-family: "Poppins", "Inter Variable", system-ui, sans-serif; font-size: clamp(52px, 5.5vw, 80px); font-weight: 600; line-height: 1.04; letter-spacing: -.045em; }
+.landing-shell h1 span { display: block; }
+.landing-shell[data-headline="worker"] h1 { font-size: clamp(34px, 3.75vw, 54px); }
+.landing-eyebrow { margin-bottom: 18px !important; color: var(--text-2); font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
 .landing-lede { max-width: 30em; margin-top: 22px !important; color: var(--text-2); font-size: clamp(17px, 1.45vw, 20px); line-height: 1.5; letter-spacing: -.008em; text-wrap: pretty; }
 .landing-download-group { max-width: 440px; margin-top: 28px; }
 .landing-download-label { color: var(--text-2); font-size: 14px; font-weight: 500; }
 .landing-downloads { margin-top: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.landing-download { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: 50px; padding: 0 8px; border-radius: 12px; background: var(--text); color: var(--ink) !important; font-size: 15px; font-weight: 600; letter-spacing: -.005em; text-decoration: none; white-space: nowrap; transition: background-color 160ms; }
+.landing-download { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: 60px; padding: 0 8px; border-radius: 12px; background: var(--text); color: var(--ink) !important; font-size: 15px; font-weight: 600; letter-spacing: -.005em; text-decoration: none; white-space: nowrap; transition: background-color 160ms; }
 .landing-download:hover { background: #fff; }
+.landing-download small { display: block; font-size: 10px; font-weight: 500; line-height: 1.4; opacity: .72; }
+.landing-download-preview { color: var(--text) !important; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .18); }
+.landing-download-preview:hover { background: rgba(255, 255, 255, .12); }
+.landing-platform-note { max-width: 36em; margin-top: 16px !important; color: var(--text-2); font-size: 13px; line-height: 1.5; }
 .landing-note { margin-top: 16px !important; display: flex; flex-wrap: wrap; gap: 2px 0; color: var(--muted); font-size: 13px; }
 .landing-note span + span::before { content: "·"; margin: 0 10px; opacity: .7; }
 
@@ -83,17 +89,27 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .landing-stack > .landing-folder { position: relative; z-index: 1; }
 .landing-folder { --body: #e4e9da; --dot: #5c7c2e; width: calc(var(--shot-w) + 2 * var(--pad)); margin: 0 auto; }
 .landing-folder + .landing-folder { margin-top: clamp(40px, 7vh, 72px); }
-.landing-folder-research { --body: #e1e8d6; --dot: #5c7c2e; }
+.landing-folder-receipts { --body: #e1e8d6; --dot: #5c7c2e; }
 .landing-folder-orders { --body: #ecdcee; --dot: #953ea3; --tab-x: 1; }
-.landing-folder-writing { --body: #f6dcdd; --dot: #d11e2a; --tab-x: 2; }
-.landing-folder-files { --body: #f0e2d2; --dot: #af6400; --tab-x: 3; }
-.landing-folder-inbox { --body: #ecdcee; --dot: #9e3aab; }
+.landing-folder-job-search { --body: #dfe5ef; --dot: #41618f; --tab-x: 2; }
+.landing-folder-downloads { --body: #f0e2d2; --dot: #af6400; --tab-x: 3; }
+.landing-folder-tracker { --body: #d9e9e5; --dot: #287868; }
 .landing-folder-inner { position: relative; }
 .landing-tab { position: relative; width: fit-content; min-width: 168px; height: var(--tab); padding: 0 18px; display: flex; align-items: center; gap: 9px; border-radius: 12px 12px 0 0; background: var(--body); color: #1d2024; font-size: 14px; font-weight: 600; letter-spacing: -.005em; transition: filter 240ms; }
 .landing-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); }
 .landing-folder-body { position: relative; padding: 0 var(--pad) var(--pad); border-radius: 0 16px 16px 16px; background: var(--body); box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .7); }
 .landing-folder-bar { height: var(--bar); display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 4px 0 6px; color: #23262b; }
 .landing-folder-bar p { min-width: 0; font-size: 15px; font-weight: 500; line-height: 1.35; letter-spacing: -.008em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.landing-caption { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.landing-folder-bar .landing-request { position: relative; display: grid; overflow: visible; font-weight: 600; }
+.landing-request-measure, .landing-request-type { grid-area: 1 / 1; }
+.landing-request-measure { visibility: hidden; }
+.landing-folder-bar .landing-result { display: block; overflow: visible; color: #46494b; font-size: 13px; font-weight: 400; }
+.motion-ok .landing-stack .landing-result { opacity: calc(.8 + var(--work-progress, 1) * .2); }
+.landing-stack .landing-dot { background: #2b8750; }
+.motion-ok .landing-folder[data-work-stage="asking"] .landing-dot { background: var(--dot); animation: landing-working 1.5s ease-in-out infinite; }
+.motion-ok .landing-folder[data-work-stage="ahead"] .landing-dot { background: var(--dot); }
+@keyframes landing-working { 50% { opacity: .4; box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot) 15%, transparent); } }
 .landing-zoom-button { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid rgba(29, 32, 36, .16); border-radius: 50%; background: rgba(255, 255, 255, .55); color: #2a2d31; cursor: pointer; transition: background-color 160ms, border-color 160ms; }
 .landing-zoom-button:hover { background: #fff; border-color: rgba(29, 32, 36, .3); }
 .landing-zoom-button .landing-icon { width: 16px; height: 16px; }
@@ -101,8 +117,8 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .landing-shot { overflow: hidden; border-radius: 10px; box-shadow: 0 0 0 1px rgba(29, 32, 36, .1); background: #e8e9e4; }
 .landing-shot-media { position: relative; aspect-ratio: 1440 / 862; }
 .landing-shot-media img { width: 100%; height: 100%; cursor: zoom-in; }
-/* The release capture's Inbox control is 44 × 44 at (7, 198). */
-.landing-ring { position: absolute; left: calc(29 / 1440 * 100%); top: calc(220 / 862 * 100%); width: calc(52 / 1440 * 100%); aspect-ratio: 1; translate: -50% -50%; border-radius: 30%; box-shadow: 0 0 0 2px rgba(158, 58, 171, .9), 0 0 0 8px rgba(158, 58, 171, .16); pointer-events: none; }
+/* The release capture's app control is 44 × 44 at (7, 198). */
+.landing-ring { position: absolute; left: calc(29 / 1440 * 100%); top: calc(220 / 862 * 100%); width: calc(52 / 1440 * 100%); aspect-ratio: 1; translate: -50% -50%; border-radius: 30%; box-shadow: 0 0 0 2px rgba(40, 120, 104, .9), 0 0 0 8px rgba(40, 120, 104, .16); pointer-events: none; }
 
 /* Chapters after the stack: a heading row, then the visual. */
 .landing-chapter { position: relative; z-index: 1; width: var(--width); margin: 0 auto; padding-top: clamp(88px, 12vh, 144px); }
@@ -146,6 +162,7 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
    web client steps down the same order, from your phone to the work-folder. */
 .landing-web { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 40px 56px; align-items: start; }
 .landing-web-copy p { max-width: 30em; margin-top: 20px !important; color: var(--text-2); font-size: clamp(16px, 1.35vw, 19px); line-height: 1.5; text-wrap: pretty; }
+.landing-web-copy p.landing-alpha { margin-top: 12px !important; color: var(--muted); font-size: 13px; }
 .landing-devices { position: relative; padding-bottom: 8px; }
 .landing-browser { overflow: hidden; border-radius: 14px; background: #1a1c20; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 40px 90px -40px rgba(0, 0, 0, .9); }
 .landing-browser-bar { height: 40px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid rgba(255, 255, 255, .07); }
@@ -205,11 +222,11 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .motion-ok .landing-hero { min-height: 100svh; display: flex; align-items: center; padding: var(--nav) 0 0; }
   .motion-ok .landing-hero-copy { width: min(500px, 37vw); margin-left: max(var(--gutter), calc((100% - 1200px) / 2)); }
   .motion-ok .landing-hero .landing-lede { font-size: clamp(16px, 1.3vw, 19px); }
-  .motion-ok .landing-stack .landing-folder-research .landing-folder-inner { transform-origin: 0 0; transform: translate3d(var(--tx, 0), var(--ty, 0), 0) scale(var(--sc, 1)); }
+  .motion-ok .landing-stack .landing-folder-receipts .landing-folder-inner { transform-origin: 0 0; transform: translate3d(var(--tx, 0), var(--ty, 0), 0) scale(var(--sc, 1)); }
   /* Native timelines keep the scroll compensation and reveal on the same
      compositor frame. A linear translate cancels the folder's natural scroll
      until it sticks; the separate eased transform opens it into the stack. */
-  .motion-ok.css-scroll .landing-folder-research .landing-folder-inner {
+  .motion-ok.css-scroll .landing-folder-receipts .landing-folder-inner {
     animation-name: landing-folder-reveal, landing-folder-track;
     animation-duration: auto;
     animation-timing-function: cubic-bezier(.42, 0, .58, 1), linear;
@@ -236,10 +253,10 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .landing-shell:not(.motion-ok) .landing-stack > * { grid-column: 1 / -1; }
   .landing-shell:not(.motion-ok) .landing-stack > .landing-hero { grid-column: 1; }
   .landing-shell:not(.motion-ok) .landing-hero-copy { width: auto; }
-  .landing-shell:not(.motion-ok) .landing-stack > .landing-folder-research { grid-column: 2; width: auto; margin-top: var(--nav); }
+  .landing-shell:not(.motion-ok) .landing-stack > .landing-folder-receipts { grid-column: 2; width: auto; margin-top: var(--nav); }
 }
 
-/* The inbox starts on the sidebar where the app lives and pulls back to the window. */
+/* The tracker starts on the sidebar where the app lives and pulls back to the window. */
 .motion-ok .landing-app .landing-shot-media { transform-origin: 0 18%; transform: scale(calc(1 + (1 - var(--reveal, 1)) * .8)); }
 @media (min-width: 900px) {
   .motion-ok .landing-window-chrome { transform: translate3d(calc((1 - var(--hand, 1)) * -5%), calc((1 - var(--hand, 1)) * 36px), 0); }
@@ -346,12 +363,12 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .landing-folder-bar p { font-size: 14px; display: block; overflow: visible; }
   .landing-shot { border-radius: 7px; }
   /* Phones: each screen is cropped to the work itself, at nearly twice the
-     size; the full window is one tap away. The inbox crop keeps the sidebar
+     size; the full window is one tap away. The tracker crop keeps the sidebar
      where the Worker-built app lives. */
   .landing-shot-media { aspect-ratio: 830 / 640; overflow: hidden; }
   .landing-shot-media img { position: absolute; left: calc(-560 / 830 * 100%); top: calc(-56 / 640 * 100%); width: calc(1440 / 830 * 100%); max-width: none; height: auto; }
-  .landing-folder-inbox .landing-shot-media img { left: 0; top: calc(-30 / 640 * 100%); }
-  .landing-folder-inbox .landing-ring { left: calc(29 / 830 * 100%); top: calc(190 / 640 * 100%); width: calc(52 / 830 * 100%); }
+  .landing-folder-tracker .landing-shot-media img { left: 0; top: calc(-30 / 640 * 100%); }
+  .landing-folder-tracker .landing-ring { left: calc(29 / 830 * 100%); top: calc(190 / 640 * 100%); width: calc(52 / 830 * 100%); }
   .motion-ok .landing-app .landing-shot-media { transform: none; }
   .landing-route { padding: 10px 12px !important; gap: 6px; }
   .landing-route-node { font-size: 12.5px; }

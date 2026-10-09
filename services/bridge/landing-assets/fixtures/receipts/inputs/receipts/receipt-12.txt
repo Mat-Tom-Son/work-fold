@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-012
+Merchant: Linden Print
+Date: 2026-09-25
+Description: posters
+Currency: USD
+Total paid: $142.00
+Payment: paid

@@ -49,12 +49,12 @@ test("one brand treatment: the horizontal lockup appears once and is never rebui
   assert.equal(document.querySelectorAll("h1").length, 1);
 });
 
-test("both download groups offer Mac, Windows and Linux with the supplied platform icons", (t) => {
+test("download groups label the Mac architecture and distinguish test previews", (t) => {
   const { document } = render(t);
   const platforms = [
-    { name: "Mac", icon: "apple", href: "/download/macos" },
-    { name: "Windows", icon: "windows", href: "https://github.com/Mat-Tom-Son/work-fold/releases/download/windows-test-0.4.50/work-fold-Setup-0.4.50.exe" },
-    { name: "Linux", icon: "linux", href: "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.4.52" },
+    { name: "MacApple silicon", label: "Download for Mac — Apple silicon", icon: "apple", href: "/download/macos" },
+    { name: "WindowsTest preview", label: "Windows test preview — release notes and download", icon: "windows", href: "https://github.com/Mat-Tom-Son/work-fold/releases/tag/windows-test-0.4.50" },
+    { name: "LinuxTest preview", label: "Linux test preview — release notes and downloads", icon: "linux", href: "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.4.52" },
   ];
   const groups = [...document.querySelectorAll(".landing-download-group")];
   assert.equal(groups.length, 2);
@@ -68,7 +68,7 @@ test("both download groups offer Mac, Windows and Linux with the supplied platfo
       assert.equal(link.getAttribute("aria-disabled"), null);
       assert.equal(link.querySelector("use").getAttribute("href"), `#landing-icon-${platform.icon}`);
       assert.equal(link.textContent.trim(), platform.name);
-      assert.equal(link.getAttribute("aria-label"), `Download for ${platform.name}`);
+      assert.equal(link.getAttribute("aria-label"), platform.label);
     });
   }
   assert.equal(/coming soon|waitlist|waiting list/i.test(document.body.textContent), false);
@@ -155,21 +155,50 @@ test("the full-size viewer opens the chosen screen at its largest size and close
   const { document } = render(t);
   const dialog = document.querySelector("dialog.landing-zoom");
   const image = dialog.querySelector("img");
-  document.querySelector("#folder-writing .landing-zoom-button").click();
+  document.querySelector("#folder-job-search .landing-zoom-button").click();
   assert.ok(dialog.open);
-  assert.equal(image.getAttribute("src"), "/screens/work-writing-2880.webp");
-  assert.equal(image.alt, document.querySelector("#folder-writing .landing-shot-media img").alt);
+  assert.equal(image.getAttribute("src"), "/screens/work-job-search-2880.webp");
+  assert.equal(image.alt, document.querySelector("#folder-job-search .landing-shot-media img").alt);
   dialog.querySelector(".landing-zoom-close").click();
   assert.equal(dialog.open, false);
-  document.querySelector("#folder-research .landing-shot-media img").click();
+  document.querySelector("#folder-receipts .landing-shot-media img").click();
   assert.ok(dialog.open);
-  assert.equal(image.getAttribute("src"), "/screens/work-research-1440.webp");
+  assert.equal(image.getAttribute("src"), "/screens/work-receipts-2880.webp");
 });
 
 test("motion is opt-in: reduced motion leaves the page static", (t) => {
   const still = render(t).app;
   assert.equal(still.querySelector(".landing-shell").classList.contains("motion-ok"), false);
   assert.equal(still.querySelector(".landing-app .landing-shot-media").style.getPropertyValue("--reveal"), "");
+  for (const folder of still.querySelectorAll(".landing-stack .landing-folder")) {
+    assert.equal(folder.querySelector(".landing-request-type").textContent, folder.querySelector(".landing-request-measure").textContent);
+    assert.equal(folder.dataset.workStage, undefined);
+    assert.ok(folder.querySelector(".landing-result").textContent.trim());
+  }
+});
+
+test("scrolling replays the request while preserving its complete accessible text", async (t) => {
+  const { app, window } = render(t, { reducedMotion: false });
+  const folder = app.querySelector("#folder-orders");
+  const request = folder.querySelector(".landing-request-type");
+  const accessible = folder.querySelector(".landing-sr").textContent;
+  folder.getBoundingClientRect = () => ({ top: window.innerHeight * 0.7 });
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(folder.dataset.workStage, "asking");
+  assert.ok(request.textContent.length > 0 && request.textContent.length < folder.querySelector(".landing-request-measure").textContent.length);
+  assert.equal(folder.querySelector(".landing-sr").textContent, accessible);
+  folder.getBoundingClientRect = () => ({ top: 0 });
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(folder.dataset.workStage, "done");
+  assert.equal(request.textContent, folder.querySelector(".landing-request-measure").textContent);
+  folder.getBoundingClientRect = () => ({ top: window.innerHeight * 2 });
+  window.dispatchEvent(new window.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(folder.dataset.workStage, "ahead");
+  assert.equal(request.textContent, "");
+  assert.equal(folder.querySelector(".landing-sr").textContent, accessible);
 });
 
 test("with motion, scrolling drives the app reveal and device drift through custom properties", async (t) => {
@@ -198,7 +227,7 @@ test("keyboard focus on the hero copy returns a stacked page to its readable sta
   assert.deepEqual(calls.at(-1), { top: 0, behavior: "instant" });
 });
 
-test("the inbox reveal follows its frame rather than feeding the scaled image back into itself", async (t) => {
+test("the tracker reveal follows its frame rather than feeding the scaled image back into itself", async (t) => {
   const { app, window } = render(t, { reducedMotion: false });
   const media = app.querySelector(".landing-app .landing-shot-media");
   const frame = media.closest(".landing-shot");

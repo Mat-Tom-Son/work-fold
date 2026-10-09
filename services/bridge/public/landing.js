@@ -4,37 +4,41 @@
 const source = "https://github.com/Mat-Tom-Son/work-fold";
 const chromeExtension = "https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk";
 const macDownload = "/download/macos";
-const windowsDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/download/windows-test-0.4.50/work-fold-Setup-0.4.50.exe";
+const windowsDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/tag/windows-test-0.4.50";
 const linuxDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.4.52";
 
 // Each workflow is a work-folder; its colors are the folder's own colors in the app.
 const folders = [
   {
-    id: "research", tab: "Research", screen: "research", retina: false,
-    text: "Reads public sources and saves a cited brief beside them.",
-    alt: "The Research — repair café work-folder: a sources folder beside research-brief.md, open to a table of the public sources the Worker consulted.",
+    id: "receipts", tab: "Receipts", screen: "receipts", retina: true,
+    request: "Add up September’s receipts into one spreadsheet.",
+    text: "14 receipts. $1,063.79. Two dates to check.",
+    alt: "The Receipts — September work-folder: 14 sample receipts beside the spreadsheet and CSV the Worker saved, with receipts-summary.md open to the checked $1,063.79 total and two missing dates.",
   },
   {
-    id: "orders", tab: "Purchase Orders", screen: "orders", retina: false,
-    text: "Checks every price, prepares two purchase orders, and drafts the vendor emails. Nothing is sent.",
+    id: "orders", tab: "Purchase Orders", screen: "orders", retina: true,
+    request: "Check every quantity and price.",
+    text: "Two purchase orders. $1,102. Emails drafted. Nothing sent.",
     alt: "The Purchasing — autumn workshop work-folder: two purchase orders and two email drafts in the sidebar, and order-register.md showing a $1,102.00 goods subtotal with both orders marked Draft — not sent.",
   },
   {
-    id: "writing", tab: "Writing", screen: "writing", retina: true,
-    text: "Turns rough field notes into a 422-word newsletter draft.",
-    alt: "The Writing — neighborhood letter work-folder: field notes, a writing brief, and editorial notes in the sidebar, with newsletter-draft.md open.",
+    id: "job-search", tab: "Job search", screen: "job-search", retina: true,
+    request: "Tailor my résumé to this job. Add nothing that isn’t in my résumé.",
+    text: "A tailored résumé and cover letter. Original untouched.",
+    alt: "The Job search — next step work-folder: the original résumé and job description beside the tailored résumé, cover letter and application notes created by the Worker.",
   },
   {
-    id: "files", tab: "Files", screen: "files", retina: true,
-    text: "Sorts eight loose files into folders and logs every move. Nothing is deleted.",
-    alt: "The Files — studio cleanup work-folder: files sorted into archive, purchases, workshop planning, and writing folders, with organization-log.md open to a before-and-after table.",
+    id: "downloads", tab: "Downloads", screen: "downloads", retina: true,
+    request: "Sort my Downloads. Don’t delete anything. Log every move.",
+    text: "31 files. Six folders. Every move logged. Nothing deleted.",
+    alt: "The Downloads — a little order work-folder: 31 sample files sorted into six folders, with organization-log.md showing the before-and-after paths and unchanged file hashes.",
   },
 ];
 
-const inbox = {
-  id: "inbox", tab: "Inbox app", screen: "inbox", retina: true,
-  text: "Sorts mail into categories, opens each message in a tab, and remembers what you mark done.",
-  alt: "A Studio inbox app built by a Worker, open in the work-fold sidebar: categories such as Needs reply and Purchasing, a message list, and one message open in its own tab with category and Mark not done controls.",
+const tracker = {
+  id: "tracker", tab: "Job tracker", screen: "tracker", retina: true,
+  text: "Applications, next steps, and notes. Saved in your own app.",
+  alt: "A job-application tracker built by a Worker, running in the work-fold sidebar with six sample applications, status groups, and an application open in its own tab with editable status, next step and notes.",
 };
 
 // Saved repair-café conversation rendered in the current bridge client.
@@ -103,13 +107,13 @@ function folder(item, index, { eager = false } = {}) {
       <h3 class="landing-tab" id="folder-${item.id}-title"><span class="landing-dot" aria-hidden="true"></span>${item.tab}</h3>
       <div class="landing-folder-body">
         <div class="landing-folder-bar">
-          <p>${item.text}</p>
+          <div class="landing-caption">${item.request ? `<p class="landing-request"><span class="landing-request-measure" aria-hidden="true">“${item.request}”</span><span class="landing-request-type" aria-hidden="true">“${item.request}”</span><span class="landing-sr">Request: ${item.request}</span></p>` : ""}<p class="landing-result">${item.text}</p></div>
           <button class="landing-zoom-button" type="button" data-zoom="${item.id}" aria-label="View the ${item.tab.toLowerCase()} screen full size">${expandIcon}</button>
         </div>
         <div class="landing-shot">
           <div class="landing-shot-media">
             <img src="${screenSrc(item, 1440)}"${srcset} width="1440" height="862" alt="${item.alt}" decoding="async" ${eager ? 'fetchpriority="high"' : 'loading="lazy"'} data-zoom="${item.id}" />
-            ${item.id === "inbox" ? '<span class="landing-ring" aria-hidden="true"></span>' : ""}
+            ${item.id === "tracker" ? '<span class="landing-ring" aria-hidden="true"></span>' : ""}
           </div>
         </div>
       </div>
@@ -120,9 +124,9 @@ function folder(item, index, { eager = false } = {}) {
 const downloads = `<div class="landing-download-group" role="group" aria-label="Download work-fold">
   <p class="landing-download-label">Download</p>
   <div class="landing-downloads">
-    <a class="landing-download" href="${macDownload}" aria-label="Download for Mac">${icon("apple")}<span>Mac</span></a>
-    <a class="landing-download" href="${windowsDownload}" aria-label="Download for Windows">${icon("windows")}<span>Windows</span></a>
-    <a class="landing-download" href="${linuxDownload}" aria-label="Download for Linux">${icon("linux")}<span>Linux</span></a>
+    <a class="landing-download" href="${macDownload}" aria-label="Download for Mac — Apple silicon">${icon("apple")}<span>Mac<small>Apple silicon</small></span></a>
+    <a class="landing-download landing-download-preview" href="${windowsDownload}" aria-label="Windows test preview — release notes and download">${icon("windows")}<span>Windows<small>Test preview</small></span></a>
+    <a class="landing-download landing-download-preview" href="${linuxDownload}" aria-label="Linux test preview — release notes and downloads">${icon("linux")}<span>Linux<small>Test preview</small></span></a>
   </div>
 </div>`;
 
@@ -144,8 +148,8 @@ const route = `<ol class="landing-route" aria-label="How web access connects">
   <li><span class="landing-route-node">Workers</span><span class="landing-route-note">in your work-folders</span></li>
 </ol>`;
 
-export function renderLanding(app) {
-  app.innerHTML = `<div class="landing-shell">
+export function renderLanding(app, { headline = "folder" } = {}) {
+  app.innerHTML = `<div class="landing-shell" data-headline="${headline === "worker" ? "worker" : "folder"}">
     ${sprite}
     <a class="landing-skip" href="#landing-main">Skip to content</a>
     <header class="landing-nav">
@@ -161,18 +165,19 @@ export function renderLanding(app) {
       <section class="landing-stack" aria-labelledby="landing-title">
         <div class="landing-hero">
           <div class="landing-hero-copy">
-            <h1 id="landing-title"><span>An AI Worker</span> <span>for every folder.</span></h1>
-            <p class="landing-lede">work-fold is an AI agent harness for everyone. Workers use tools, work in your ordinary folders, and build the apps you need.</p>
+            <p class="landing-eyebrow">Chat tells you how. You still do it.</p>
+            <h1 id="landing-title">${headline === "worker" ? '<span>Chat tells you how.</span> <span>A Worker does it.</span>' : '<span>Ask the</span> <span>folder.</span>'}</h1>
+            <p class="landing-lede">Give any folder its own AI Worker. It reads your files, uses Chrome and apps on your computer, and saves the result right in the folder.</p>
             ${downloads}
           </div>
         </div>
-        <h2 class="landing-sr">Work done by Workers</h2>
+        <h2 class="landing-sr">Real Worker runs with sample files</h2>
         ${folders.map((item, index) => folder(item, index, { eager: index === 0 })).join("")}
       </section>
 
       <section class="landing-chapter landing-hands" aria-labelledby="hands-title">
         <div class="landing-chapter-head">
-          <h2 id="hands-title">Works with the apps you already use.</h2>
+          <h2 id="hands-title">Your own Chrome.<br />Your own apps.</h2>
           <div>
             <p>Workers can check pages in Chrome and use apps on your Mac. Here, one priced repair-café supplies in Chrome, saved a sheet with your files, and reviewed it in Numbers.</p>
             <a class="landing-text-link" href="${chromeExtension}">${icon("chrome")}<span>Add work-fold to Chrome</span></a>
@@ -183,16 +188,17 @@ export function renderLanding(app) {
 
       <section class="landing-chapter landing-app" aria-labelledby="app-title">
         <div class="landing-chapter-head">
-          <h2 id="app-title">Need an app? Ask for one.</h2>
-          <p>A Worker built this inbox organizer from one request. It runs inside work-fold, right in the sidebar.</p>
+          <h2 id="app-title">Need an app?<br />Ask the folder.</h2>
+          <p>A Worker built this job-application tracker. It runs inside work-fold, right in the sidebar.</p>
         </div>
-        ${folder(inbox, folders.length)}
+        ${folder(tracker, folders.length)}
       </section>
 
       <section class="landing-chapter landing-web" aria-labelledby="web-title">
         <div class="landing-web-copy">
-          <h2 id="web-title">Check in from anywhere.</h2>
-          <p>Reach the work-fold agent from any browser while your desktop stays on and online. It can update your files and hand work to the Workers in your folders.</p>
+          <h2 id="web-title">Your computer works.<br />Your phone checks in.</h2>
+          <p>Reach the work-fold agent from a browser while your computer stays on and online. It can update files and hand work to the Workers in your work-folders.</p>
+          <p class="landing-alpha">Web access is in private alpha.</p>
           ${route}
         </div>
         ${devices}
@@ -202,12 +208,13 @@ export function renderLanding(app) {
         <div class="landing-end-main">
           <h2 id="end-title">Start with a folder you already have.</h2>
           ${downloads}
+          <p class="landing-platform-note">Windows and Linux are test previews without automatic updates or publicly trusted signatures. Their links include installation notes.</p>
         </div>
         <ul class="landing-facts">
-          <li><h3>Ordinary folders</h3><p>Your files stay where they are and open in any app.</p></li>
-          <li><h3>Your model provider</h3><p>Connect the AI provider you choose in Settings.</p></li>
+          <li><h3>Ordinary folders</h3><p>Your files stay where they are and open in any app. Undo file changes in History.</p></li>
+          <li><h3>Your AI service</h3><p>Connect the provider you choose. Your provider’s usage costs apply.</p></li>
           <li><h3>Chrome and computer tools</h3><p>Add the <a href="${chromeExtension}">Chrome extension</a> so Workers can use your browser.</p></li>
-          <li><h3>Open source</h3><p>MIT licensed. <a href="${source}">Read the code on GitHub</a>.</p></li>
+          <li><h3>Free and open source</h3><p>Use the desktop without a work-fold account. <a href="${source}">Read the code on GitHub</a>.</p></li>
         </ul>
       </section>
     </main>
@@ -236,7 +243,7 @@ export function renderLanding(app) {
   const dialog = app.querySelector(".landing-zoom");
   const zoomImage = dialog.querySelector("img");
   const scroller = dialog.querySelector(".landing-zoom-scroll");
-  const items = Object.fromEntries([...folders, inbox, ...handoff].map((item) => [item.id, item]));
+  const items = Object.fromEntries([...folders, tracker, ...handoff].map((item) => [item.id, item]));
   function openZoom(id) {
     const item = items[id];
     zoomImage.src = item.capture ? item.capture.full ?? item.capture.src : screenSrc(item, item.retina ? 2880 : 1440);
@@ -264,6 +271,10 @@ function followScroll(shell) {
   const hero = shell.querySelector(".landing-hero");
   const copy = shell.querySelector(".landing-hero-copy");
   const stack = [...shell.querySelectorAll(".landing-stack .landing-folder")];
+  const requests = stack.map((item) => {
+    const type = item.querySelector(".landing-request-type");
+    return { item, type, text: type?.textContent ?? "" };
+  });
   const app = shell.querySelector(".landing-app .landing-shot-media");
   const appFrame = app?.closest(".landing-shot");
   const devices = shell.querySelector(".landing-devices");
@@ -280,6 +291,8 @@ function followScroll(shell) {
   let geometry;
   let deviceCenters = null;
   let needsMeasure = true;
+  let captionStop = 0;
+  const startedAt = performance.now();
   function measure(first) {
     // Measure its place in document flow, even after the sticky stack has
     // settled. Only viewport/font changes require these layout reads.
@@ -321,6 +334,7 @@ function followScroll(shell) {
   function update() {
     frame = 0;
     const height = win.innerHeight;
+    const entrance = clamp((performance.now() - startedAt - 350) / 800);
     if (needsMeasure) {
       shell.style.removeProperty("--mobile-bar");
       const mobileCandidate = !stacking.matches && mobileStacking.matches && stack.length > 0;
@@ -336,11 +350,13 @@ function followScroll(shell) {
       shell.classList.toggle("mobile-stack", mobileStack);
       if (stacking.matches && stack.length) measure(stack[0]);
       else needsMeasure = false;
+      captionStop = stacking.matches ? geometry.stickTop : mobileStack
+        ? parseFloat(win.getComputedStyle(stack[0]).top) || 0 : height * 0.22;
     }
     const stackActive = stacking.matches || mobileStack;
     // Read untransformed frames first. The inbox's own scaled bounds would
     // feed its last transform back into the next frame and make it oscillate.
-    const boxes = stackActive ? stack.map((item) => item.getBoundingClientRect()) : [];
+    const boxes = stack.map((item) => item.getBoundingClientRect());
     const appBox = appFrame?.getBoundingClientRect();
     const devicesBox = devices?.getBoundingClientRect();
     const handsBox = hands?.getBoundingClientRect();
@@ -361,6 +377,21 @@ function followScroll(shell) {
       copy.style.removeProperty("--fade");
       if (!mobileStack) stack.forEach((item) => { delete item.dataset.state; });
     }
+    requests.forEach(({ item, type, text }, index) => {
+      // Replay the saved request as its folder arrives. Both caption lines
+      // keep their full measured height; the accessible request stays whole.
+      const progress = index === 0 && stacking.matches
+        ? clamp(0.35 + win.scrollY / geometry.travel * 0.65)
+        : clamp((height * 0.95 - boxes[index].top) / Math.max(1, height * 0.95 - captionStop));
+      const typing = index === 0 ? Math.max(clamp(progress / 0.8), entrance) : clamp(progress / 0.8);
+      const count = Math.round(text.length * typing);
+      const visible = text.slice(0, count);
+      if (type && type.textContent !== visible) type.textContent = visible;
+      const stage = progress >= 0.95 || index === 0 && entrance === 1 ? "done" : progress > 0 ? "asking" : "ahead";
+      if (item.dataset.workStage !== stage) item.dataset.workStage = stage;
+      item.style.setProperty("--work-progress", progress.toFixed(3));
+    });
+    if (entrance < 1) request();
     if (appBox) {
       // Starts close on the sidebar app, pulls back to the whole window.
       app.style.setProperty("--reveal", clamp((height - appBox.top) / (height * 0.9)).toFixed(3));
