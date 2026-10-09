@@ -50,7 +50,7 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         frame?.remove(); frame = document.createElement('iframe'); frame.style.cssText = 'width:1200px;height:900px'; document.body.append(frame);
         const doc = frame.contentDocument;
         const variables = Object.entries(scenario.variables).map(([key,value]) => key+':'+value).join(';');
-        const attributes = 'data-theme="'+scenario.mode+'" data-appearance-palette="'+scenario.palette+'" data-appearance-messages="'+(scenario.messages ?? 'tinted')+'" data-appearance-chat-steps="'+(scenario.chatSteps ?? 'every')+'" data-appearance-contrast="more" data-appearance-motion="reduce" data-appearance-transparency="opaque" data-window-material="vibrancy" style="'+variables.replaceAll('"','&quot;')+';color-scheme:'+scenario.mode+'"';
+        const attributes = 'data-platform="'+(scenario.platform ?? '')+'" data-theme="'+scenario.mode+'" data-appearance-palette="'+scenario.palette+'" data-appearance-messages="'+(scenario.messages ?? 'tinted')+'" data-appearance-chat-steps="'+(scenario.chatSteps ?? 'every')+'" data-appearance-contrast="more" data-appearance-motion="reduce" data-appearance-transparency="opaque" data-window-material="'+(scenario.material ?? 'vibrancy')+'" style="'+variables.replaceAll('"','&quot;')+';color-scheme:'+scenario.mode+'"';
         const names = {solid:'solid', 'on-accent-solid':'onSolid', 'soft-fill':'softFill', 'text-body':'textBody', glyph:'glyph'};
         const identity = Object.entries(names).map(([key,role]) => (key === 'on-accent-solid' ? '--space-on-accent-solid' : '--space-accent-'+key)+':'+scenario.identity[role]).join(';');
         body = body.replace('class="app-shell"','class="app-shell" data-theme="'+scenario.mode+'" style="'+identity+'"');
@@ -124,6 +124,21 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
             result.otherFolder.push({ width, state, background, border:c('.ui-control--icon').borderTopWidth, shadow:c('.ui-control--icon').boxShadow, opacity:c('.ui-control--icon').opacity, pointer:c('.ui-control--icon').pointerEvents, gap:caret.left-visibleNameEnd, contained:caret.right <= row.right, outline:c(state === 'row-focus' ? '.chat-other-space-toggle' : '.ui-control--icon').outlineStyle, touch:frame.contentWindow.matchMedia('(hover: none)').matches });
           }
         }
+        result.windowChrome = [];
+        const shellBody = '<div class="app-shell"><main class="space-layout"><nav class="space-mode-rail professional-space-rail"><div class="space-rail-nav"><button class="space-rail-button">Files</button></div></nav><section class="space-mode-pane"><div class="space-pane-header-wrap space-identity-header-wrap"><div class="space-pane-current space-pane-header professional-pane-header space-identity-header"><button class="space-pane-switch-trigger">Folder banner</button></div></div></section><div class="space-resizer"></div><aside class="right-rail"><div class="surface-tabbar"><div class="surface-tabs"><div class="surface-tab active"><button class="surface-tab-main">Chat tab</button></div></div></div></aside></main></div>';
+        for (const platform of ['', 'darwin', 'win32']) {
+          for (const material of ['none', 'vibrancy']) {
+            const chrome = fixture(payload.desktopCss, shellBody, {...scenario,platform,material});
+            const doc = frame.contentDocument;
+            const rect = selector => doc.querySelector(selector).getBoundingClientRect();
+            const drag = frame.contentWindow.getComputedStyle(doc.querySelector('.app-shell'), '::before');
+            result.windowChrome.push({platform,material,padding:chrome('.space-layout').paddingTop,
+              tops:['.professional-space-rail','.space-pane-current','.space-pane-switch-trigger','.surface-tabbar','.surface-tab-main','.space-rail-button'].map(selector=>rect(selector).top),
+              bottoms:['.professional-space-rail','.space-mode-pane','.right-rail'].map(selector=>rect(selector).bottom),
+              bottom:rect('.space-layout').bottom,height:frame.contentWindow.innerHeight,
+              dragHeight:drag.height,dragRegion:drag.getPropertyValue('-webkit-app-region')});
+          }
+        }
         results.push(result);
       }
       document.body.innerHTML = '<pre id="result"></pre>'; document.getElementById('result').textContent = JSON.stringify(results);
@@ -170,6 +185,16 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
       assert.notEqual(...item.design.tabs, item.name + " active and resting tabs have distinct surfaces");
       assert.deepEqual(item.design.close, ["24px", "0.7"]); assert.equal(item.design.fileHeight, item.design.chatHeight, item.name + " Files and Chats share density");
       assert.deepEqual(item.design.historyField, item.design.settingsField, item.name + " History uses the shared field style");
+      for (const chrome of item.windowChrome) {
+        const label = item.name + '/' + chrome.platform + '/' + chrome.material;
+        assert.equal(chrome.padding, chrome.platform === 'darwin' ? '38px' : '0px', label + ' reserves native title-bar space only on Mac');
+        assert.ok(chrome.bottom <= chrome.height, label + ' stays within the window');
+        assert.ok(chrome.bottoms.every((bottom: number) => bottom <= chrome.height), label + ' keeps every pane within the window');
+        if (chrome.platform === 'darwin') {
+          assert.equal(chrome.dragHeight, '38px'); assert.equal(chrome.dragRegion, 'drag');
+          assert.ok(chrome.tops.every((top: number) => top >= 38), label + ' banner, tabs and Files target clear traffic lights and the drag strip');
+        }
+      }
       assert.match(item.design.documentFont, /Georgia/); assert.equal(item.design.documentSize, "22px"); assert.equal(item.design.documentParagraph, "22px");
       const hex = (rgb: string) => "#" + (rgb.match(/\d+/g) ?? []).slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
       assert.ok(wcagContrast(hex(item.primary[0]), hex(item.primary[1])) >= 4.5, item.name + " actual button contrast");

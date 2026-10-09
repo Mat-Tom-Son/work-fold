@@ -17628,13 +17628,13 @@ button.capabilities-resource-card:focus-visible {
   position: fixed;
   z-index: 40;
   inset: 0 0 auto;
-  height: 38px;
+  height: var(--work-fold-window-inset-top);
   -webkit-app-region: drag;
   pointer-events: auto;
 }
 
-:root[data-platform="darwin"] .app-shell .space-layout {
-  padding-top: 38px;
+:root[data-platform="darwin"] {
+  --work-fold-window-inset-top: 38px;
 }
 
 :root[data-window-material="vibrancy"] .app-shell .space-layout .space-mode-pane {
@@ -19730,7 +19730,7 @@ to {
 /* Shared desktop visual roles. Component selectors above own structure; these roles own their appearance. */
 
 :root[data-theme] .app-shell .space-layout {
-  padding: 0 12px 12px 0;
+  padding: var(--work-fold-window-inset-top, 0px) 12px 12px 0;
   --space-resizer-width: 12px;
   --space-rail-width: 58px;
   --space-identity-header-height: 112px;

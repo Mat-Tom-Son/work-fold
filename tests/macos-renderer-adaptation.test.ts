@@ -81,7 +81,7 @@ test("macOS vibrancy is confined to navigation with an opaque work surface and s
   assert.match(customization, /data-window-material="vibrancy"[\s\S]*?professional-space-rail[\s\S]*?background:\s*transparent/);
   assert.match(customization, /data-window-material="vibrancy"[\s\S]*?\.right-rail[\s\S]*?background:\s*var\(--ui-surface\)/);
   assert.match(customization, /data-platform="darwin"[\s\S]*?-webkit-app-region:\s*drag/);
-  assert.match(customization, /data-platform="darwin"[\s\S]*?padding-top:\s*38px/);
+  assert.match(customization, /data-platform="darwin"[\s\S]*?--work-fold-window-inset-top:\s*38px/);
   assert.doesNotMatch(customization, /data-window-material="none"/);
 });
 
