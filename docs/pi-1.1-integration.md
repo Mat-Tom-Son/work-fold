@@ -30,6 +30,14 @@ compaction guard; it does not implement another model or protocol layer.
 | Service Connections | Native MCP namespaces/exposure/config/OAuth; catalog cold, session connections background; setup source/revision fenced | HTTP/stdio/PKCE fixtures, scopes, overrides, cancellation and late-write rejection |
 | Packaging | Reviewed native runtime/exports hash verified, prepared Electron uses ordinary included Extensions | Desktop preparation, ASAR fixture and tamper checks |
 
+The first complete distribution assembly exposed a verifier mismatch that the
+staged-ASAR fixture had not represented: Electron Builder excludes dependency
+`.d.ts` declarations. The install lane still verifies the entire patch manifest,
+while the packaged guard verifies every reviewed runtime file and rejects
+missing or replaced runtime exports/recovery code. Regression coverage now
+models the actual pruned declaration, and the complete built archive is
+exercised before signing.
+
 ## Adversarial runtime pass
 
 The pass examined persistence, async ownership, cancellation, replay, provider
