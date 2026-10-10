@@ -87,13 +87,13 @@ the same app's actions run on the desktop; the trusted parent lists requests,
 shows each status and result, and offers Stop while one is running. Nothing
 waits for a click.
 
-Requests select a declared worker action and at most 16 KiB of schema-checked
+Requests select a declared worker action and at most 4 MiB of schema-checked
 JSON. The host pins the Space, installation, revision, authority, browser and
 grant, and records the accepting Tenant, Runtime Instance, Data Namespace,
 canonical artifact and human Principal. App code cannot choose those owners.
 The machine-local `restricted-apps/browser-actions.json` journal separates
 bounded intent/result content from metadata-only receipt projections. Results
-are schema-checked and at most 128 KiB; lists contain summaries without results.
+are schema-checked and at most 4 MiB; lists contain summaries without results.
 Record contents are never sent through a shared viewer.
 
 A request UUID and timestamp identify a retry. Identical retries return the
@@ -103,11 +103,12 @@ Reconnecting or repeating a request cannot dispatch an accepted request again.
 Startup marks uncertain accepted work Interrupted, without replay or a guessed
 outcome; a queued record from an older build expires at startup.
 
-The lane runs at most four actions on this computer, two per installation and
-sixteen per browser, and refuses a request beyond those bounds with the bound
-named rather than parking it. Requests older than fifteen minutes are refused.
-It retains at most 1,000 records in a 64-MiB journal and prunes terminal
-records older than a day when admitting new work. An updated revision or
+The lane runs at most sixteen actions on this computer, eight per installation
+and sixteen per browser, and refuses a request beyond those bounds with the
+bound named rather than parking it. Requests older than fifteen minutes are
+refused. There is no request quota: the journal prunes terminal records older
+than a day when admitting new work, and keeps itself under 256 MiB by pruning
+the oldest settled records already outside the replay window. An updated revision or
 changed permission selection cancels obsolete records when the current app
 submits a request. Browser revocation terminalizes matching records in one
 journal update and settles matching active runs. Admission reserves room for

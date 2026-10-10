@@ -5,6 +5,7 @@ import test from "node:test";
 
 import {
   BoundedInferenceError,
+  boundedInferenceInputTokens,
   boundedInferenceMaxTokens,
   boundedInferenceResultToolName,
   boundedInferenceSystemPrompt,
@@ -15,8 +16,7 @@ import {
   type BoundedInferenceStreamOptions,
   type BoundedInferenceStreamResult,
 } from "../src/local/agent/bounded-inference.js";
-import { parseRestrictedAppJsonSchema } from "../src/local/agent/restricted-app-manifest.js";
-import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-inference.js";
+import { parseRestrictedAppJsonSchema, restrictedAppJsonSchemaLimits } from "../src/local/agent/restricted-app-manifest.js";
 
 const model = { provider: "test", id: "space-model", maxTokens: 8192, contextWindow: 128_000 };
 const schema = parseRestrictedAppJsonSchema({
@@ -28,10 +28,15 @@ const schema = parseRestrictedAppJsonSchema({
 const usage = { input: 20, output: 10, cost: { total: 0.01 } };
 
 type Reply = Partial<BoundedInferenceStreamResult> | ((options: BoundedInferenceStreamOptions | undefined) => Promise<BoundedInferenceStreamResult>);
-function fakeSession(reply: Reply, options: { levels?: readonly ("off" | "low" | "high")[]; model?: typeof model | null } = {}) {
+function fakeSession(reply: Reply, options: {
+  levels?: readonly ("off" | "minimal" | "low" | "medium" | "high")[];
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
+  model?: typeof model | null;
+} = {}) {
   const calls: Array<{ model: unknown; context: BoundedInferenceContext; options: BoundedInferenceStreamOptions | undefined }> = [];
   const session: BoundedInferenceSession & { prompt(): never; messages: unknown[] } = {
     model: options.model === undefined ? model : options.model,
+    ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
     messages: [{ role: "user", content: "PRIVATE SPACE CONVERSATION" }],
     getAvailableThinkingLevels: () => options.levels ?? ["off"],
     prompt: () => { throw new Error("Must not enter a turn"); },
@@ -79,17 +84,25 @@ test("text inference sends one untrusted user message on the configured stream p
   assert.ok(!JSON.stringify(context).includes("PRIVATE SPACE CONVERSATION"));
   const options = calls[0]!.options!;
   assert.equal(options.signal, input.signal);
-  assert.equal(options.maxRetries, 0);
+  assert.equal(options.maxRetries, 2, "transient provider failures retry as they do in a Chat turn");
   assert.equal("timeoutMs" in options, false);
-  assert.equal(options.maxTokens, boundedInferenceMaxTokens(model, 4096));
-  assert.equal(options.maxTokens, 2048);
+  assert.equal(options.maxTokens, model.maxTokens, "the model's own output limit, not one derived from maxOutputBytes");
   assert.equal("reasoning" in options, false);
 });
 
-test("reasoning is requested only when the model offers a level other than off", async () => {
-  const { session, calls } = fakeSession({ content: [{ type: "text", text: "ok" }] }, { levels: ["off", "low", "high"] });
-  await runBoundedInference(session, request());
-  assert.equal(calls[0]!.options!.reasoning, "low");
+test("reasoning follows the Space session's configured thinking level, never a forced lowest one", async () => {
+  const configured = fakeSession({ content: [{ type: "text", text: "ok" }] }, { levels: ["off", "low", "medium", "high"], thinkingLevel: "high" });
+  await runBoundedInference(configured.session, request());
+  assert.equal(configured.calls[0]!.options!.reasoning, "high");
+  const off = fakeSession({ content: [{ type: "text", text: "ok" }] }, { levels: ["off", "low", "high"], thinkingLevel: "off" });
+  await runBoundedInference(off.session, request());
+  assert.equal("reasoning" in off.calls[0]!.options!, false, "a Space with thinking off sends no reasoning option");
+  const stale = fakeSession({ content: [{ type: "text", text: "ok" }] }, { levels: ["off", "low", "high"], thinkingLevel: "medium" });
+  await runBoundedInference(stale.session, request());
+  assert.equal("reasoning" in stale.calls[0]!.options!, false, "a level the model no longer offers leaves the model's default");
+  const unset = fakeSession({ content: [{ type: "text", text: "ok" }] }, { levels: ["off", "low", "high"] });
+  await runBoundedInference(unset.session, request());
+  assert.equal("reasoning" in unset.calls[0]!.options!, false, "no configured level never becomes the lowest available one");
 });
 
 test("json inference carries the app schema as the single submit_result tool and returns plain validated data", async () => {
@@ -115,7 +128,7 @@ for (const [label, reply, code, pattern] of [
   ["a different tool name", { stopReason: "toolUse", content: [{ type: "toolCall", name: "submit_review", arguments: { total: 1 } }] }, "INFER_OUTPUT_INVALID", /requested shape/],
   ["plain text instead of a submission", { stopReason: "stop", content: [{ type: "text", text: "{\"total\": 1}" }] }, "INFER_OUTPUT_INVALID", /requested shape/],
   ["a submission without arguments", { stopReason: "toolUse", content: [{ type: "toolCall", name: "submit_result", arguments: undefined }] }, "INFER_OUTPUT_INVALID", /requested shape/],
-  ["an output-length stop", { stopReason: "length", content: [{ type: "toolCall", name: "submit_result", arguments: { total: 1 } }] }, "INFER_OUTPUT_TOO_LARGE", /exceeded the 4096-byte output limit/],
+  ["an output-length stop", { stopReason: "length", content: [{ type: "toolCall", name: "submit_result", arguments: { total: 1 } }] }, "INFER_OUTPUT_TOO_LARGE", /reached its 8192-token output limit/],
 ] as const) test(`json inference refuses ${label}`, async () => {
   const { session } = fakeSession(reply as Partial<BoundedInferenceStreamResult>);
   await rejectsWith(runBoundedInference(session, request({ outputSchema: schema })), code, pattern);
@@ -126,15 +139,17 @@ test("json inference refuses a valid result that serializes beyond maxOutputByte
   await rejectsWith(runBoundedInference(session, request({ outputSchema: schema, maxOutputBytes: 16 })), "INFER_OUTPUT_TOO_LARGE", /16-byte output limit/);
 });
 
-test("text inference marks a length stop as truncated and cuts oversize text on a UTF-8 boundary", async () => {
+test("text inference flags the model's own length stop and refuses, never cuts, an oversize reply", async () => {
   const short = fakeSession({ stopReason: "length", content: [{ type: "text", text: "North leads" }] });
   const shortOutcome = await runBoundedInference(short.session, request());
   assert.ok(shortOutcome.kind === "text");
-  assert.deepEqual([shortOutcome.text, shortOutcome.truncated], ["North leads", true]);
+  assert.deepEqual([shortOutcome.text, shortOutcome.truncated], ["North leads", true], "everything the model produced, flagged");
   const long = fakeSession({ stopReason: "stop", content: [{ type: "text", text: "aé" }] });
-  const longOutcome = await runBoundedInference(long.session, request({ maxOutputBytes: 2 }));
-  assert.ok(longOutcome.kind === "text");
-  assert.deepEqual([longOutcome.text, longOutcome.truncated], ["a", true]);
+  await rejectsWith(runBoundedInference(long.session, request({ maxOutputBytes: 2 })), "INFER_OUTPUT_TOO_LARGE", /2-byte output limit/);
+  const fits = fakeSession({ stopReason: "stop", content: [{ type: "text", text: "aé" }] });
+  const fitsOutcome = await runBoundedInference(fits.session, request({ maxOutputBytes: 3 }));
+  assert.ok(fitsOutcome.kind === "text");
+  assert.deepEqual([fitsOutcome.text, fitsOutcome.truncated], ["aé", false]);
   const empty = fakeSession({ stopReason: "stop", content: [{ type: "thinking" }, { type: "text", text: "   " }] });
   await rejectsWith(runBoundedInference(empty.session, request()), "INFER_OUTPUT_INVALID", /returned no text/);
 });
@@ -169,16 +184,33 @@ test("missing model and context overflow are refused before any provider call", 
   assert.equal(small.calls.length, 0);
 });
 
-test("usage is copied defensively and the output token budget follows the byte budget within model and fixed caps", async () => {
+test("the context window is the real input bound: a large request runs with the output budget it leaves", async () => {
+  // 70,000 characters is 20,000 tokens at Pi's 3.5 characters per token. The
+  // old precheck (two characters per token plus a fixed output reservation)
+  // refused this against a 32,000-token window; it fits with room to answer.
+  const windowed = { ...model, maxTokens: 16_384, contextWindow: 32_000 };
+  const large = fakeSession({ content: [{ type: "text", text: "ok" }] }, { model: windowed });
+  const largeRequest = request({ input: "x".repeat(70_000) });
+  await runBoundedInference(large.session, largeRequest);
+  assert.equal(large.calls.length, 1);
+  const inputTokens = boundedInferenceInputTokens(buildBoundedInferenceContext(largeRequest));
+  assert.equal(large.calls[0]!.options!.maxTokens, Math.min(windowed.maxTokens, windowed.contextWindow - inputTokens - 4_096));
+  assert.ok(large.calls[0]!.options!.maxTokens >= 1_024, "at least a short answer always fits");
+  const full = fakeSession({ content: [{ type: "text", text: "never" }] }, { model: windowed });
+  await rejectsWith(runBoundedInference(full.session, request({ input: "x".repeat(100_000) })), "INFER_INPUT_TOO_LARGE", /context allowance of 32000 tokens/);
+  assert.equal(full.calls.length, 0);
+});
+
+test("usage is copied defensively and the output budget is the model's own, reduced only to fit the window", async () => {
   const { session } = fakeSession({ content: [{ type: "text", text: "ok" }], usage: undefined });
   const outcome = await runBoundedInference(session, request());
   assert.deepEqual(outcome.usage, { inputTokens: 0, outputTokens: 0 });
-  assert.equal(boundedInferenceMaxTokens(model, 4096), 2048);
-  assert.equal(boundedInferenceMaxTokens(model, 10), 256);
-  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 100 }, 4096), 100);
-  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 0 }, 200_000), 8192);
-  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 100_000 }, 200_000), 32_768);
-  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 100_000 }, restrictedAppInferenceLimits.defaultOutputBytes), 32_768);
+  assert.equal(boundedInferenceMaxTokens(model, 1_000), model.maxTokens);
+  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 100 }, 1_000), 100);
+  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 0 }, 1_000), 8192, "only a model that declares no limit uses the fallback");
+  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 100_000 }, 1_000), 100_000, "no fixed ceiling below the model's own");
+  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 100_000 }, 100_000), 128_000 - 100_000 - 4_096);
+  assert.equal(boundedInferenceMaxTokens({ ...model, maxTokens: 100_000, contextWindow: 0 }, 100_000), 100_000);
 });
 
 test("buildBoundedInferenceContext is the only shape the transport sends", () => {
@@ -194,7 +226,9 @@ test("buildBoundedInferenceContext is the only shape the transport sends", () =>
 test("parseRestrictedAppJsonSchema applies the tool-schema rules to a runtime schema", () => {
   assert.deepEqual(parseRestrictedAppJsonSchema({ type: "array", items: { type: "string", enum: ["a", "b"] }, maxItems: 5 }), { type: "array", items: { type: "string", enum: ["a", "b"] }, maxItems: 5 });
   let nested: unknown = { type: "string" };
-  for (let depth = 0; depth < 7; depth++) nested = { type: "array", items: nested };
+  for (let depth = 0; depth < restrictedAppJsonSchemaLimits.depth; depth++) nested = { type: "array", items: nested };
+  assert.doesNotThrow(() => parseRestrictedAppJsonSchema(nested), "the published depth is reachable");
+  nested = { type: "array", items: nested };
   assert.throws(() => parseRestrictedAppJsonSchema(nested), /exceeds the maximum nesting depth/);
   assert.throws(() => parseRestrictedAppJsonSchema({ type: "object", properties: {} }), /Restricted app schema must set additionalProperties to false/);
   assert.throws(() => parseRestrictedAppJsonSchema({ type: "string", pattern: "^a" }, "Inference output schema"), /Inference output schema/);

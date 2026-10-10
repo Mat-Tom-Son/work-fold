@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
-import { restrictedAppAssistantLimits as limits, type RestrictedAppAssistantModelRef, type RestrictedAppAssistantTask, type RestrictedAppAssistantUsage, type RestrictedAppResultFile, type RestrictedAppTaskDetail, type RestrictedAppTaskResult } from "../../shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits as limits, restrictedAppLimitSize, type RestrictedAppAssistantModelRef, type RestrictedAppAssistantTask, type RestrictedAppAssistantUsage, type RestrictedAppResultFile, type RestrictedAppTaskDetail, type RestrictedAppTaskResult } from "../../shared/restricted-app-tasks.js";
 import { parseRestrictedAppJsonSchema, validateRestrictedAppValue, type RestrictedAppAssistantAction, type RestrictedAppJsonSchema } from "./restricted-app-manifest.js";
 import type { WorkFoldDurableTurnRecord, WorkFoldDurableTurnUsage } from "./turn-store.js";
 import type { WorkFoldRequestState, WorkFoldRequestUsage } from "../requests/request-records.js";
@@ -97,7 +97,12 @@ const outcomes: RestrictedAppTaskResult["outcome"][] = ["succeeded", "partial", 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const statuses: RestrictedAppAssistantTask["status"][] = ["dispatching", "running", "waiting", "succeeded", "failed", "cancelled", "interrupted"];
 const live = new Set<RestrictedAppAssistantTask["status"]>(["dispatching", "running", "waiting"]);
-const maxFileBytes = 64 * 1024 * 1024;
+/**
+ * The journal is one JSON document rewritten whole, so it keeps a ceiling well
+ * under V8's maximum string length. Reaching it prunes old settled receipts;
+ * it refuses a request only when nothing prunable is left.
+ */
+const maxFileBytes = 256 * 1024 * 1024;
 const limitsSection = "Settings → Automations → Limits";
 
 /**
@@ -136,7 +141,7 @@ export class RestrictedAppTaskService extends EventEmitter {
       if (bytesRead !== stat.size) throw new Error("App Assistant request journal changed while reading.");
       const data = JSON.parse(bytes.subarray(0, bytesRead).toString("utf8"));
       exact(data, ["schema", "records"]);
-      if (!acceptedSchemas.includes(data.schema) || !Array.isArray(data.records) || data.records.length > limits.records) {
+      if (!acceptedSchemas.includes(data.schema) || !Array.isArray(data.records)) {
         throw new Error("App Assistant request journal is invalid.");
       }
       const loadedAt = service.#now().toISOString();
@@ -169,7 +174,7 @@ export class RestrictedAppTaskService extends EventEmitter {
       if (!action) throw new RestrictedAppTaskError("TASK_DENIED", "Choose a declared Assistant action.");
       const raw = JSON.stringify(value.input);
       if (raw === undefined || Buffer.byteLength(raw) > limits.inputBytes) {
-        invalid(`Assistant request input is larger than ${limits.inputBytes / 1024} KiB, the limit in ${limitsSection}.`);
+        invalid(`Assistant request input is larger than ${restrictedAppLimitSize(limits.inputBytes)}, the limit in ${limitsSection}.`);
       }
       let inputJson: string;
       try {
@@ -196,9 +201,9 @@ export class RestrictedAppTaskService extends EventEmitter {
         conflict(`This app already has ${limits.runningPerInstallation} Assistant requests running, the limit in ${limitsSection}. Wait for one to finish.`);
       }
       // Retired request timestamps cannot be submitted again, even after pruning.
+      // Retention is what bounds this list; there is no request quota.
       const records = this.#records.filter((item) => live.has(item.status)
         || now.getTime() - Date.parse(item.updatedAt) <= limits.receiptRetentionMs);
-      if (records.length >= limits.records) conflict("The Assistant request list is full. Try again later.");
       const id = randomUUID();
       const at = now.toISOString();
       let record: RestrictedAppTaskReceipt = { id, requestId: value.requestId, actionId: action.id, title: action.title,
@@ -398,9 +403,8 @@ export class RestrictedAppTaskService extends EventEmitter {
     await this.#save(this.#records.map((item) => item.id === record.id ? record : item));
   }
 
-  async #save(records: RestrictedAppTaskReceipt[]): Promise<void> {
-    const serialized = JSON.stringify({ schema, records });
-    if (Buffer.byteLength(serialized) > maxFileBytes) conflict("The Assistant request journal is full. Try again later.");
+  async #save(next: RestrictedAppTaskReceipt[]): Promise<void> {
+    const { records, serialized } = this.#fitJournal(next);
     const activity = taskActivity(this.#records, records);
     const temp = `${this.#path}.${randomUUID()}.tmp`;
     const handle = await open(temp, "wx", 0o600);
@@ -418,6 +422,35 @@ export class RestrictedAppTaskService extends EventEmitter {
     // turns this into a bounded hint, never into content. Listeners that take
     // no argument keep working unchanged.
     this.emit("changed", { tasks: activity });
+  }
+
+  /**
+   * Keeps the journal under its ceiling by dropping the oldest settled
+   * receipts whose request is already outside the replay window — a replay of
+   * one of those is refused as too old anyway, so nothing can run twice. Live
+   * requests and replayable receipts are always kept.
+   */
+  #fitJournal(records: RestrictedAppTaskReceipt[]): { records: RestrictedAppTaskReceipt[]; serialized: string } {
+    const whole = serializedWithin({ schema, records }, maxFileBytes);
+    if (whole !== null) return { records, serialized: whole };
+    const now = this.#now().getTime();
+    const sizes = records.map((record) => Buffer.byteLength(JSON.stringify(record), "utf8") + 1);
+    let total = Buffer.byteLength(JSON.stringify({ schema, records: [] }), "utf8") + sizes.reduce((sum, size) => sum + size, 0);
+    const dropped = new Set<number>();
+    const prunable = records.map((record, index) => ({ record, index }))
+      .filter(({ record }) => !live.has(record.status) && now - Date.parse(record.requestedAt) > limits.requestAgeMs)
+      .sort((left, right) => Date.parse(left.record.updatedAt) - Date.parse(right.record.updatedAt));
+    for (const { index } of prunable) {
+      if (total <= maxFileBytes) break;
+      dropped.add(index);
+      total -= sizes[index]!;
+    }
+    const kept = records.filter((_record, index) => !dropped.has(index));
+    const serialized = serializedWithin({ schema, records: kept }, maxFileBytes);
+    if (serialized === null) {
+      conflict(`The Assistant request journal reached ${restrictedAppLimitSize(maxFileBytes)} with nothing left to prune. Wait for a running request to finish, then try again.`);
+    }
+    return { records: kept, serialized };
   }
 
   #run<T>(operation: () => Promise<T>): Promise<T> {
@@ -519,33 +552,78 @@ function boundedSummary(text: string): { summary: string; truncated: boolean } {
 
 /**
  * The whole envelope has its own ceiling. Details go first because the app can
- * ask for them again, then deliverables, then the summary — the one field an
- * app always has. `truncated` says the app is holding the trimmed version; the
- * Apps tab names the bound and where to raise it.
+ * ask for them again, then deliverables from the end, then the summary — the
+ * one field an app always has. Nothing is trimmed silently: `truncated` is
+ * set, and the summary opens with a sentence naming what was left out and the
+ * bound that did it, so an app or a person reading only the summary knows.
+ *
+ * Exported for tests, which exercise the trim with a small ceiling.
  */
-function withinResultCeiling(envelope: RestrictedAppTaskResult): RestrictedAppTaskResult {
-  let summary = envelope.summary;
-  let truncated = envelope.truncated;
-  let data = envelope.data;
+export function restrictedAppResultWithinCeiling(
+  envelope: RestrictedAppTaskResult,
+  resultBytes: number = limits.resultBytes,
+  summaryBytes: number = limits.summaryBytes,
+): RestrictedAppTaskResult {
   const files = envelope.files ? [...envelope.files] : [];
-  const build = (): RestrictedAppTaskResult => ({
+  const build = (summary: string, data: unknown, kept: readonly RestrictedAppResultFile[], truncated: boolean): RestrictedAppTaskResult => ({
     summary,
     truncated,
     outcome: envelope.outcome,
     ...(data === undefined ? {} : { data }),
-    ...(files.length ? { files } : {}),
+    ...(kept.length ? { files: [...kept] } : {}),
   });
-  const size = () => Buffer.byteLength(JSON.stringify(build()) ?? "", "utf8");
-  if (size() <= limits.resultBytes) return build();
-  if (data !== undefined) { data = undefined; truncated = true; }
-  while (size() > limits.resultBytes && files.length) { files.pop(); truncated = true; }
-  for (let attempt = 0; attempt < 8 && size() > limits.resultBytes; attempt += 1) {
-    const overflow = size() - limits.resultBytes;
+  const size = (value: RestrictedAppTaskResult) => Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
+  const whole = build(envelope.summary, envelope.data, files, envelope.truncated);
+  if (size(whole) <= resultBytes) return whole;
+
+  const droppedData = envelope.data !== undefined;
+  const noted = (droppedFiles: number, shortened: boolean): string => {
+    const parts = [
+      ...(droppedData ? ["its details"] : []),
+      ...(droppedFiles ? [`${droppedFiles} of its ${files.length} files`] : []),
+    ];
+    const note = `[work-fold: this result was larger than ${restrictedAppLimitSize(resultBytes)}, the result limit in ${limitsSection}, so ${
+      parts.length ? `${parts.join(" and ")} ${parts.length === 1 && !droppedData && droppedFiles === 1 ? "was" : "were"} left out` : "its summary was shortened"
+    }${parts.length && shortened ? " and its summary was shortened" : ""}.]\n\n`;
+    const room = Math.max(0, summaryBytes - Buffer.byteLength(note, "utf8"));
+    return `${note}${boundedText(envelope.summary, room).text}`;
+  };
+  // Measure without files using the longest note this envelope could carry,
+  // then keep deliverables from the front while they fit. One pass, no
+  // re-serializing per dropped file.
+  const longest = noted(files.length, true);
+  const base = size(build(longest, undefined, [], true));
+  let budget = resultBytes - base - Buffer.byteLength(',"files":[]', "utf8");
+  let keep = 0;
+  for (const file of files) {
+    const entry = Buffer.byteLength(JSON.stringify(file), "utf8") + (keep ? 1 : 0);
+    if (entry > budget) break;
+    budget -= entry;
+    keep += 1;
+  }
+  const kept = files.slice(0, keep);
+  let result = build(noted(files.length - keep, false), undefined, kept, true);
+  if (size(result) <= resultBytes) return result;
+  // JSON escaping can move the measured size by a few bytes, and a summary
+  // bound larger than the envelope itself can overrun it outright. Either way
+  // the summary closes the gap, keeping the note at its front.
+  let summary = noted(files.length - keep, true);
+  for (let attempt = 0; attempt < 8 && size(result) > resultBytes; attempt += 1) {
+    const overflow = size(result) - resultBytes;
     const target = Math.max(0, Buffer.byteLength(summary, "utf8") - overflow - 16);
     summary = target ? boundedText(summary, target).text : "";
-    truncated = true;
+    result = build(summary, undefined, kept, true);
   }
-  return build();
+  return result;
+}
+
+const withinResultCeiling = (envelope: RestrictedAppTaskResult) => restrictedAppResultWithinCeiling(envelope);
+
+/** The serialized document when it fits `maximum` UTF-8 bytes, otherwise null (including past V8's string limit). */
+function serializedWithin(value: unknown, maximum: number): string | null {
+  let serialized: string;
+  try { serialized = JSON.stringify(value); } catch { return null; }
+  return Buffer.byteLength(serialized, "utf8") <= maximum ? serialized : null;
 }
 
 /**

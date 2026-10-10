@@ -7,6 +7,7 @@ import test from "node:test";
 import { RestrictedAppService, type RestrictedAppInstalled } from "../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage, type RestrictedAppStorageOwner } from "../src/local/agent/restricted-app-storage.js";
 import { restrictedAppTaskAuthorityDigest } from "../src/local/agent/restricted-app-tasks.js";
+import { RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES } from "../src/local/agent/restricted-app-viewer.js";
 import { startLocalApi } from "../src/local/server.js";
 import type { RestrictedAppActionExecution } from "../src/local/agent/restricted-app-service.js";
 
@@ -25,7 +26,8 @@ test("private browser views use reviewed bytes and selected data without creatin
     await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "web-view-qa", title: "Quote board", runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "web.html", readable: ["quotes/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><p>Desktop UI</p>");
     await writeFile(join(source, "web.html"), "<!doctype html><p>Reviewed web view</p>");
-    await writeFile(join(source, "too-large.txt"), "x".repeat(1024 * 1024 + 1));
+    // A browser view reads assets under the same per-asset bound as a published viewer.
+    await writeFile(join(source, "too-large.txt"), Buffer.alloc(RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES + 1, 0x78));
     const input = { spaceId: "space-one", spaceRoot: join(root, "space"), sourcePath: "app" };
     const review = await service.inspect(input);
     let app = await service.install({ ...input, expectedDigest: review.digest });

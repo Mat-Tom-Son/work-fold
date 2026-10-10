@@ -14,7 +14,6 @@ const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
 const assistantInferChannel = "work-fold:restricted-app:assistant-infer";
 const filesChannel = "work-fold:restricted-app:files";
 const notificationsChannel = "work-fold:restricted-app:notifications";
-const maximumFileEnvelopeBytes = 800 * 1024;
 const encoder = new TextEncoder();
 
 function argumentValue(name: string): string {
@@ -51,13 +50,18 @@ function deepFreeze<T>(value: T): T {
 }
 
 const limits = initialLimits();
-const networkRequestBytes = nestedPositiveInteger(limits, "network", "maxRequestBytes", 128 * 1024);
+// The fallbacks match the host defaults (src/local/agent/restricted-app-limits.ts
+// composes the published values); the host re-checks every envelope anyway.
+const networkRequestBytes = nestedPositiveInteger(limits, "network", "maxRequestBytes", 16 * 1024 * 1024);
 const maximumNetworkEnvelopeBytes = networkRequestBytes * 6 + 64 * 1024;
-const maximumStorageEnvelopeBytes = nestedPositiveInteger(limits, "storage", "maxTransactionBytes", 160 * 1024) + 64 * 1024;
-// JSON escaping can expand one byte into six, so both Assistant envelopes
-// leave that headroom over the published input bound.
-const maximumAssistantEnvelopeBytes = nestedPositiveInteger(limits, "assistant", "inputBytes", 64 * 1024) * 6 + 64 * 1024;
-const maximumInferEnvelopeBytes = nestedPositiveInteger(limits, "inference", "inputBytes", 256 * 1024) * 6 + 128 * 1024;
+const maximumStorageEnvelopeBytes = nestedPositiveInteger(limits, "storage", "maxTransactionBytes", 64 * 1024 * 1024) + 64 * 1024;
+// JSON escaping can expand one byte into six, so the file, Assistant, and
+// inference envelopes leave that headroom over every published input bound.
+const maximumFileEnvelopeBytes = nestedPositiveInteger(limits, "files", "maxWriteBytes", 64 * 1024 * 1024) * 6 + 64 * 1024;
+const maximumAssistantEnvelopeBytes = nestedPositiveInteger(limits, "assistant", "inputBytes", 4 * 1024 * 1024) * 6 + 64 * 1024;
+const maximumInferEnvelopeBytes = (nestedPositiveInteger(limits, "inference", "instructionsBytes", 1024 * 1024)
+  + nestedPositiveInteger(limits, "inference", "inputBytes", 16 * 1024 * 1024)
+  + nestedPositiveInteger(limits, "inference", "schemaBytes", 1024 * 1024)) * 6 + 64 * 1024;
 
 function nestedPositiveInteger(
   value: unknown,
@@ -195,7 +199,8 @@ ipcRenderer.on(checksChangedChannel, (_event, value: unknown) => {
   if (!value || typeof value !== "object") return;
   const candidate = value as { revision?: unknown; permissionIds?: unknown };
   if (!Number.isSafeInteger(candidate.revision)) return;
-  const permissionIds = boundedIdList(candidate.permissionIds, 8);
+  // A manifest may declare up to 256 Check-result slots (restrictedAppCheckLimits.permissions).
+  const permissionIds = boundedIdList(candidate.permissionIds, 256);
   if (!permissionIds) return;
   const event = Object.freeze({
     revision: candidate.revision as number,
@@ -230,7 +235,8 @@ ipcRenderer.on(filesChangedChannel, (_event, value: unknown) => {
   if (!value || typeof value !== "object") return;
   const candidate = value as { revision?: unknown; permissionIds?: unknown; truncated?: unknown };
   if (!Number.isSafeInteger(candidate.revision) || typeof candidate.truncated !== "boolean") return;
-  const permissionIds = boundedIdList(candidate.permissionIds, 16);
+  // A manifest may declare up to 256 file permissions (restrictedAppFilePermissionLimit).
+  const permissionIds = boundedIdList(candidate.permissionIds, 256);
   if (!permissionIds) return;
   const event = Object.freeze({
     revision: candidate.revision as number,

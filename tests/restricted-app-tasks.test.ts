@@ -7,6 +7,7 @@ import test from "node:test";
 import { RestrictedAppTaskService, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, restrictedAppTaskAuthorityDigest, type RestrictedAppTaskPorts, type RestrictedAppTaskReceipt, type RestrictedAppTaskScope } from "../src/local/agent/restricted-app-tasks.js";
 import type { RestrictedAppAssistantAction } from "../src/local/agent/restricted-app-manifest.js";
 import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js";
+import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks.js";
 
 const action: RestrictedAppAssistantAction = { id: "compare", title: "Compare quotes", instructions: "Compare the submitted quotes and write comparison.md.",
   inputSchema: { type: "object", properties: { quote: { type: "string", maxLength: 70_000 } }, required: ["quote"], additionalProperties: false } };
@@ -144,13 +145,16 @@ test("stopping a running task requests cancellation and settles only when the tu
   assert.deepEqual(await f.service.cancel(scope, running.requestId), await f.service.get(scope, running.requestId), "a settled task ignores a second stop");
 });
 
-test("four requests run per installation, the fifth names the limit, and old receipts prune with their timestamps", async (t) => {
+test("the published number of requests run per installation, the next names the limit, and old receipts prune with their timestamps", async (t) => {
+  const perApp = restrictedAppAssistantLimits.runningPerInstallation;
+  assert.equal(perApp, 32);
+  assert.equal(Object.hasOwn(restrictedAppAssistantLimits, "records"), false, "retention, not a rolling quota, bounds the list");
   const f = await fixture(t);
   const original = f.request();
   await f.service.request(scope, original);
   const others = [];
-  for (let index = 0; index < 3; index++) others.push(await f.service.request(scope, f.request()));
-  await assert.rejects(f.service.request(scope, f.request()), (error: any) => error.code === "TASK_CONFLICT" && /4 Assistant requests/.test(error.message) && /Limits/.test(error.message));
+  for (let index = 0; index < perApp - 1; index++) others.push(await f.service.request(scope, f.request()));
+  await assert.rejects(f.service.request(scope, f.request()), (error: any) => error.code === "TASK_CONFLICT" && new RegExp(`${perApp} Assistant requests`).test(error.message) && /Limits/.test(error.message));
   f.turns.get(others[0]!.id)!.status = "succeeded";
   f.turns.get(others[0]!.id)!.assistantText = "done";
   const admitted = await f.service.request(scope, f.request());

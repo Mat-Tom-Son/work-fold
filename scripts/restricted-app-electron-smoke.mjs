@@ -188,6 +188,9 @@ async function runSmoke() {
       preloadPath: join(rootDir, "dist", "desktop", "desktop", "src", "restricted-app-preload.cjs"),
       notifications: notificationBroker,
       onTabCommand: (command) => tabCommands.push(command),
+      // The production hang guard is ten minutes; the smoke shortens it so the
+      // `hang` probe exercises the same APP_TIMEOUT path in seconds.
+      invocationTimeoutMs: 5_000,
     });
     const descriptor = {
       spaceId: "ws-electron-smoke",
@@ -328,6 +331,15 @@ async function runSmoke() {
     assert.equal(recovered.echoed, "Recovered ✅");
     assert.equal(hits, 0);
     await mark("recovery-complete");
+
+    // A second action on the same worker queues for its single operation slot
+    // instead of being refused, and runs on the same worker afterwards.
+    const [queuedFirst, queuedSecond] = await Promise.all([
+      host.invoke(descriptor, "instance", {}),
+      host.invoke(descriptor, "instance", {}),
+    ]);
+    assert.deepEqual(queuedSecond, queuedFirst, "a queued action runs on the same worker once the slot frees");
+    await mark("queued-action-complete");
 
     await mark("automation-start");
     await host.runAutomation(descriptor, automationEvent("2026-07-13T00:00:00.000Z", "manual", {
@@ -984,7 +996,7 @@ export async function handleAction(action, input) {
     catch { actionNotificationDenied = true; }
     return { workerTopLevelNotificationDenied, actionNotificationDenied, workerInferText: workerInference.text, workerTopLevelInferDenied, workerChecksHints };
   }
-  if (action === "huge") return "x".repeat(300000);
+  if (action === "huge") return "x".repeat(16 * 1024 * 1024 + 1); // One byte over the 16 MiB tool-output bound.
   if (action === "cyclic") { const value = {}; value.self = value; return value; }
   if (action === "frame") {
     document.body.append(document.createElement("iframe"));

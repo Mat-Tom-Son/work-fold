@@ -19,6 +19,7 @@ import {
   normalizeRestrictedAppCredential,
   RestrictedAppError,
   RestrictedAppNetworkBroker,
+  restrictedAppNetworkDefaultLimits,
   type RestrictedAppConnectionBinding,
   type RestrictedAppConnectionStore,
   type RestrictedAppCredential,
@@ -403,7 +404,7 @@ test("network broker caps redirects, response bytes, and exposed response header
     oversized.request(owner, manifest(), { destinationId: "mail-api", method: "GET", path: "/messages" }),
     (error) => error instanceof RestrictedAppError && error.code === "NETWORK_RESPONSE_TOO_LARGE" && /4-byte/.test(error.message),
   );
-  assert.deepEqual(oversized.limits, { maxRequestBytes: 128 * 1024, maxResponseBytes: 4, timeoutMs: 15_000, maxRedirects: 3 });
+  assert.deepEqual(oversized.limits, { ...restrictedAppNetworkDefaultLimits, maxResponseBytes: 4 });
 
   const filtered = new RestrictedAppNetworkBroker({
     credentials: new MemoryConnections(),

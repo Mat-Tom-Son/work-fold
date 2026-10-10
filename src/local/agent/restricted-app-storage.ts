@@ -12,17 +12,28 @@ import {
   type RuntimeInstanceId,
   type TenantId,
 } from "./app-platform-contract.js";
+import { restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 
+/**
+ * App storage is one JSON document per installation, read and rewritten whole
+ * on every operation. The quota keeps that document comfortably under V8's
+ * maximum string length (about 512 MiB), which is the real ceiling for this
+ * design; bulk data still belongs in granted Space files.
+ */
 export const restrictedAppStorageLimits = {
-  appBytes: 5 * 1024 * 1024,
-  keys: 512,
+  appBytes: 256 * 1024 * 1024,
+  keys: 65_536,
   keyBytes: 256,
-  valueBytes: 128 * 1024,
-  transactionBytes: 160 * 1024,
-  transactionOperations: 128,
+  valueBytes: 16 * 1024 * 1024,
+  transactionBytes: 64 * 1024 * 1024,
+  transactionOperations: 4_096,
   jsonDepth: 32,
-  fileBytes: 6 * 1024 * 1024,
+  /** The quota plus per-entry framing for every key and the file's own metadata. */
+  fileBytes: 264 * 1024 * 1024,
 } as const;
+
+/** The limits one store enforces: the published defaults unless a host or test configures others. */
+export type RestrictedAppStorageLimitValues = { [K in keyof typeof restrictedAppStorageLimits]: number };
 
 export type RestrictedAppStorageJsonValue =
   | null
@@ -164,15 +175,20 @@ function dataHash(value: unknown): string {
  */
 export class FileRestrictedAppStorage {
   readonly #rootPath: string;
+  readonly #limits: RestrictedAppStorageLimitValues;
   readonly #queues = new Map<string, Promise<void>>();
 
-  constructor(rootPath: string) {
+  /** `limits` lets a host or test run smaller size and count bounds; key syntax and JSON depth are fixed. */
+  constructor(rootPath: string, options: {
+    limits?: Partial<Pick<RestrictedAppStorageLimitValues, "appBytes" | "keys" | "valueBytes" | "transactionBytes" | "transactionOperations" | "fileBytes">>;
+  } = {}) {
     this.#rootPath = resolve(rootPath);
+    this.#limits = { ...restrictedAppStorageLimits, ...options.limits };
   }
 
   async usage(owner: RestrictedAppStorageOwner): Promise<RestrictedAppStorageUsage> {
     const normalized = normalizeOwner(owner);
-    return await this.#enqueue(normalized, async () => usageFromFile(await this.#read(normalized)));
+    return await this.#enqueue(normalized, async () => usageFromFile(await this.#read(normalized), this.#limits));
   }
 
   async exportData(owner: RestrictedAppStorageOwner, appId: string, appDigest: string): Promise<RestrictedAppDataBackup> {
@@ -217,7 +233,7 @@ export class FileRestrictedAppStorage {
         entries = record.previous.entries;
       }
       if (!entries) throw new RestrictedAppStorageError("STORAGE_INVALID", "App data is required.");
-      const next = normalizeFile({ ...current, revision: current.revision + 1, entries, usageBytes: storageUsage(entries) }, normalized);
+      const next = normalizeFile({ ...current, revision: current.revision + 1, entries, usageBytes: storageUsage(entries) }, normalized, this.#limits);
       // The recovery receipt is durable before the atomic data replacement. A
       // crash before commit leaves it unavailable; no success is inferred.
       const recovery: RecoveryFile = { format: "work-fold.app-data-recovery", formatVersion: 1,
@@ -230,7 +246,7 @@ export class FileRestrictedAppStorage {
       await syncStorageDirectory(this.#rootPath);
       await this.#write(normalized, next, authorizeCommit);
       await syncStorageDirectory(paths.directory);
-      return usageFromFile(next);
+      return usageFromFile(next, this.#limits);
     });
   }
 
@@ -274,7 +290,8 @@ export class FileRestrictedAppStorage {
     authorizeCommit?: RestrictedAppStorageCommitAuthorizer,
   ): Promise<RestrictedAppStorageMutationResult> {
     const normalizedOwner = normalizeOwner(owner);
-    const normalizedTransaction = normalizeTransaction(transaction);
+    const limits = this.#limits;
+    const normalizedTransaction = normalizeTransaction(transaction, limits);
     return await this.#enqueue(normalizedOwner, async () => {
       const current = await this.#read(normalizedOwner);
       if (normalizedTransaction.expectedRevision !== undefined
@@ -291,19 +308,19 @@ export class FileRestrictedAppStorage {
       const nextEntries = [...entries]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, value]) => ({ key, value }));
-      if (nextEntries.length > restrictedAppStorageLimits.keys) {
-        throw new RestrictedAppStorageError("STORAGE_QUOTA", `Restricted app storage cannot contain more than ${restrictedAppStorageLimits.keys} keys.`);
+      if (nextEntries.length > limits.keys) {
+        throw new RestrictedAppStorageError("STORAGE_QUOTA", `Restricted app storage cannot contain more than ${limits.keys} keys.`);
       }
       const usageBytes = storageUsage(nextEntries);
-      if (usageBytes > restrictedAppStorageLimits.appBytes) {
-        throw new RestrictedAppStorageError("STORAGE_QUOTA", "Restricted app storage exceeds its 5 MiB quota.");
+      if (usageBytes > limits.appBytes) {
+        throw new RestrictedAppStorageError("STORAGE_QUOTA", `Restricted app storage exceeds its ${restrictedAppLimitSize(limits.appBytes)} quota.`);
       }
 
       const after = new Map(nextEntries.map((entry) => [entry.key, JSON.stringify(entry.value)]));
       const changedKeys = [...new Set([...before.keys(), ...after.keys()])]
         .filter((key) => before.get(key) !== after.get(key))
         .sort((left, right) => left.localeCompare(right));
-      if (!changedKeys.length) return mutationResult(current, false, []);
+      if (!changedKeys.length) return mutationResult(current, false, [], limits);
       if (current.revision >= Number.MAX_SAFE_INTEGER) {
         throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage revision is exhausted.");
       }
@@ -315,7 +332,7 @@ export class FileRestrictedAppStorage {
         entries: nextEntries,
       };
       await this.#write(normalizedOwner, next, authorizeCommit);
-      return mutationResult(next, true, changedKeys);
+      return mutationResult(next, true, changedKeys, limits);
     });
   }
 
@@ -354,15 +371,15 @@ export class FileRestrictedAppStorage {
     if (file.isSymbolicLink() || !file.isFile()) {
       throw new RestrictedAppStorageError("STORAGE_UNSAFE", "Restricted app storage is not a regular file.");
     }
-    if (file.size > restrictedAppStorageLimits.fileBytes) {
+    if (file.size > this.#limits.fileBytes) {
       throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file exceeds its safety limit.");
     }
     try {
       const bytes = await readFile(paths.file);
-      if (bytes.byteLength > restrictedAppStorageLimits.fileBytes) {
+      if (bytes.byteLength > this.#limits.fileBytes) {
         throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file exceeds its safety limit.");
       }
-      return normalizeFile(JSON.parse(bytes.toString("utf8")), owner);
+      return normalizeFile(JSON.parse(bytes.toString("utf8")), owner, this.#limits);
     } catch (error) {
       if (error instanceof RestrictedAppStorageError) throw error;
       throw new RestrictedAppStorageError("STORAGE_CORRUPT", `work-fold could not read restricted app storage: ${errorMessage(error)}`);
@@ -385,7 +402,7 @@ export class FileRestrictedAppStorage {
       throw new RestrictedAppStorageError("STORAGE_UNSAFE", "Restricted app storage is not a regular file.");
     }
     const source = JSON.stringify(data);
-    if (Buffer.byteLength(source, "utf8") > restrictedAppStorageLimits.fileBytes) {
+    if (Buffer.byteLength(source, "utf8") > this.#limits.fileBytes) {
       throw new RestrictedAppStorageError("STORAGE_QUOTA", "Restricted app storage file exceeds its safety limit.");
     }
     const temporary = join(paths.directory, `${filename}.${randomUUID()}.tmp`);
@@ -410,11 +427,11 @@ export class FileRestrictedAppStorage {
     const path = join(this.#paths(owner).directory, "recovery.json");
     const info = await safeInfo(path);
     if (!info) return null;
-    if (info.isSymbolicLink() || !info.isFile() || info.size > restrictedAppStorageLimits.fileBytes) {
+    if (info.isSymbolicLink() || !info.isFile() || info.size > this.#limits.fileBytes) {
       throw new RestrictedAppStorageError("STORAGE_UNSAFE", "App recovery is not a bounded regular file.");
     }
     const bytes = await readFile(path);
-    if (bytes.byteLength > restrictedAppStorageLimits.fileBytes) throw new RestrictedAppStorageError("STORAGE_CORRUPT", "App recovery exceeds its size limit.");
+    if (bytes.byteLength > this.#limits.fileBytes) throw new RestrictedAppStorageError("STORAGE_CORRUPT", "App recovery exceeds its size limit.");
     let record: RecoveryFile;
     try { record = JSON.parse(bytes.toString("utf8")) as RecoveryFile; }
     catch { throw new RestrictedAppStorageError("STORAGE_CORRUPT", "App recovery is unreadable."); }
@@ -426,7 +443,7 @@ export class FileRestrictedAppStorage {
       || typeof record.resultSha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.resultSha256)) {
       throw new RestrictedAppStorageError("STORAGE_CORRUPT", "App recovery metadata is invalid.");
     }
-    return { ...record, previous: normalizeFile(record.previous, owner) };
+    return { ...record, previous: normalizeFile(record.previous, owner, this.#limits) };
   }
 
   #paths(owner: RestrictedAppStorageOwner): { shard: string; directory: string; file: string } {
@@ -484,7 +501,7 @@ function ownerHash(owner: RestrictedAppStorageOwner): string {
     .digest("hex");
 }
 
-function normalizeTransaction(value: RestrictedAppStorageTransaction): NormalizedTransaction {
+function normalizeTransaction(value: RestrictedAppStorageTransaction, limits: RestrictedAppStorageLimitValues = restrictedAppStorageLimits): NormalizedTransaction {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new RestrictedAppStorageError("STORAGE_INVALID", "Restricted app storage transaction is invalid.");
   }
@@ -510,8 +527,8 @@ function normalizeTransaction(value: RestrictedAppStorageTransaction): Normalize
     }
     const key = storageKey(operation.key);
     const normalizedValue = cloneJson(operation.value);
-    if (jsonBytes(normalizedValue) > restrictedAppStorageLimits.valueBytes) {
-      throw new RestrictedAppStorageError("STORAGE_QUOTA", "Restricted app storage value exceeds the 128 KiB limit.");
+    if (jsonBytes(normalizedValue) > limits.valueBytes) {
+      throw new RestrictedAppStorageError("STORAGE_QUOTA", `Restricted app storage value exceeds the ${restrictedAppLimitSize(limits.valueBytes)} limit.`);
     }
     return { key, value: normalizedValue };
   });
@@ -521,8 +538,8 @@ function normalizeTransaction(value: RestrictedAppStorageTransaction): Normalize
     || setKeys.some((key) => deleted.includes(key))) {
     throw new RestrictedAppStorageError("STORAGE_INVALID", "Restricted app storage transaction contains duplicate or conflicting keys.");
   }
-  if (set.length + deleted.length > restrictedAppStorageLimits.transactionOperations) {
-    throw new RestrictedAppStorageError("STORAGE_INVALID", `Restricted app storage transaction cannot exceed ${restrictedAppStorageLimits.transactionOperations} operations.`);
+  if (set.length + deleted.length > limits.transactionOperations) {
+    throw new RestrictedAppStorageError("STORAGE_INVALID", `Restricted app storage transaction cannot exceed ${limits.transactionOperations} operations.`);
   }
   const normalized: NormalizedTransaction = {
     ...(expectedRevision !== undefined ? { expectedRevision } : {}),
@@ -530,13 +547,13 @@ function normalizeTransaction(value: RestrictedAppStorageTransaction): Normalize
     set,
     delete: deleted,
   };
-  if (jsonBytes(normalized) > restrictedAppStorageLimits.transactionBytes) {
-    throw new RestrictedAppStorageError("STORAGE_QUOTA", "Restricted app storage transaction exceeds the 160 KiB limit.");
+  if (jsonBytes(normalized) > limits.transactionBytes) {
+    throw new RestrictedAppStorageError("STORAGE_QUOTA", `Restricted app storage transaction exceeds the ${restrictedAppLimitSize(limits.transactionBytes)} limit.`);
   }
   return normalized;
 }
 
-function normalizeFile(value: unknown, owner: RestrictedAppStorageOwner): RestrictedAppStorageFile {
+function normalizeFile(value: unknown, owner: RestrictedAppStorageOwner, limits: RestrictedAppStorageLimitValues = restrictedAppStorageLimits): RestrictedAppStorageFile {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file is invalid.");
   }
@@ -554,7 +571,7 @@ function normalizeFile(value: unknown, owner: RestrictedAppStorageOwner): Restri
     || record.usageBytes! < 0 || !Array.isArray(record.entries)) {
     throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file identity or metadata is invalid.");
   }
-  if (record.entries.length > restrictedAppStorageLimits.keys) {
+  if (record.entries.length > limits.keys) {
     throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file contains too many keys.");
   }
   let entries: RestrictedAppStorageEntry[];
@@ -567,7 +584,7 @@ function normalizeFile(value: unknown, owner: RestrictedAppStorageOwner): Restri
       const candidate = entry as Partial<RestrictedAppStorageEntry>;
       const key = storageKey(candidate.key);
       const normalizedValue = cloneJson(candidate.value);
-      if (jsonBytes(normalizedValue) > restrictedAppStorageLimits.valueBytes) {
+      if (jsonBytes(normalizedValue) > limits.valueBytes) {
         throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file contains an oversized value.");
       }
       return { key, value: normalizedValue };
@@ -582,7 +599,7 @@ function normalizeFile(value: unknown, owner: RestrictedAppStorageOwner): Restri
     throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file contains duplicate or unsorted keys.");
   }
   const usageBytes = storageUsage(entries);
-  if (usageBytes !== record.usageBytes || usageBytes > restrictedAppStorageLimits.appBytes) {
+  if (usageBytes !== record.usageBytes || usageBytes > limits.appBytes) {
     throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file usage metadata is invalid.");
   }
   return {
@@ -598,18 +615,23 @@ function emptyFile(owner: RestrictedAppStorageOwner): RestrictedAppStorageFile {
   return { schemaVersion: 3, ...owner, revision: 0, usageBytes: 0, entries: [] };
 }
 
-function usageFromFile(file: RestrictedAppStorageFile): RestrictedAppStorageUsage {
+function usageFromFile(file: RestrictedAppStorageFile, limits: RestrictedAppStorageLimitValues = restrictedAppStorageLimits): RestrictedAppStorageUsage {
   return {
     revision: file.revision,
     usageBytes: file.usageBytes,
-    quotaBytes: restrictedAppStorageLimits.appBytes,
+    quotaBytes: limits.appBytes,
     keyCount: file.entries.length,
-    keyLimit: restrictedAppStorageLimits.keys,
+    keyLimit: limits.keys,
   };
 }
 
-function mutationResult(file: RestrictedAppStorageFile, changed: boolean, changedKeys: string[]): RestrictedAppStorageMutationResult {
-  return { ...usageFromFile(file), changed, changedKeys };
+function mutationResult(
+  file: RestrictedAppStorageFile,
+  changed: boolean,
+  changedKeys: string[],
+  limits: RestrictedAppStorageLimitValues = restrictedAppStorageLimits,
+): RestrictedAppStorageMutationResult {
+  return { ...usageFromFile(file, limits), changed, changedKeys };
 }
 
 function storageKey(value: unknown): string {

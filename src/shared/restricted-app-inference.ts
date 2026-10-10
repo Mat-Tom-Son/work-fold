@@ -10,16 +10,21 @@
  * Every bound an inference call can hit, in one place. Concurrency counts are
  * per installation unless named otherwise. Provider transport, cancellation,
  * and concurrency govern call duration; this lane has no host wall-clock cap.
+ *
+ * The byte bounds only keep one call's memory finite. The model's own context
+ * window is the real bound on input, and its own output-token limit is the
+ * real bound on output: the host never trims a reply to fit these numbers —
+ * a reply larger than `maxOutputBytes` is refused with INFER_OUTPUT_TOO_LARGE.
  */
 export const restrictedAppInferenceLimits = Object.freeze({
-  instructionsBytes: 16 * 1024,
-  inputBytes: 256 * 1024,
-  schemaBytes: 32 * 1024,
-  defaultOutputBytes: 64 * 1024,
-  maxOutputBytes: 256 * 1024,
-  runningPerInstallation: 4,
-  waitingPerInstallation: 12,
-  runningMachineWide: 8,
+  instructionsBytes: 1024 * 1024,
+  inputBytes: 16 * 1024 * 1024,
+  schemaBytes: 1024 * 1024,
+  defaultOutputBytes: 16 * 1024 * 1024,
+  maxOutputBytes: 16 * 1024 * 1024,
+  runningPerInstallation: 16,
+  waitingPerInstallation: 256,
+  runningMachineWide: 32,
   receipts: 2_000,
   listItems: 50,
 });
@@ -61,6 +66,10 @@ export interface RestrictedAppInferenceUsage {
  * value. `receiptId` is the id of the journal line this call produced, so the
  * id a `bridge.tasks.onChanged` hint carries can be matched to the call the app
  * made without reading anything back.
+ *
+ * `truncated` is true only when the model itself stopped at its output-token
+ * limit before finishing; the text is everything it produced. work-fold never
+ * cuts a reply: one over `maxOutputBytes` fails with INFER_OUTPUT_TOO_LARGE.
  */
 export type RestrictedAppInferenceResult =
   | { text: string; truncated: boolean; receiptId: string; model: RestrictedAppInferenceModelRef; usage: RestrictedAppInferenceUsage }

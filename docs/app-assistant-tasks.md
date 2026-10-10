@@ -10,17 +10,18 @@ input under **Details**, the reply once done, and **Open Chat** and **Stop**.
 Nothing there waits for a click.
 
 The Chat uses the Space's usual model, native Pi resources and full-trust
-tools. Bounds on the request and the returned text keep envelopes sane; they
-are not a filesystem or tool sandbox for the Assistant. No fold transcript,
+tools. Bounds on the request and the returned text only keep one request's
+memory and journal footprint finite; they are not a filesystem or tool sandbox
+for the Assistant and not a quota on how much an app may ask. No fold transcript,
 other Space context, arbitrary Chat id, credential, model selection or
 tool-policy override comes from the app request.
 
 ## Declaration and bridge
 
-The optional top-level `assistantActions` array in `agent-app.json` declares up
-to eight actions. Absent or empty declarations preserve existing normalized
+The optional top-level `assistantActions` array in `agent-app.json` declares
+any number of actions. Absent or empty declarations preserve existing normalized
 manifest bytes. Each action has an id, a single-line title (80 characters),
-static instructions (4,096 characters) and the same closed JSON Schema subset
+static instructions of any length, and the same closed JSON Schema subset
 used for app tools. An action may also declare `outputSchema` in that same
 subset: declaring it is what lets the finished task come back with structured
 `result.data`. A declaration names what the app may ask for; it starts nothing
@@ -68,7 +69,7 @@ await bridge.assistant.cancel(request.requestId);
 ```
 
 The request envelope has exactly those four fields. JSON input is at most
-64 KiB; a larger input is refused with a message naming the field. New
+4 MiB; a larger input is refused with a message naming the bound. New
 requests carry a canonical UTC timestamp as part of their idempotency record.
 A replayed envelope returns the same record; changing its input conflicts. The
 app cannot choose another Space or read arbitrary task or Chat ids. Shared
@@ -85,7 +86,7 @@ settled task also carries `model` (`provider`, `id`) and `usage`
 requested stop fences the request and its descendants immediately, with
 `cancellationRequested: true`; running tools then finish their abort cleanup. Failed, cancelled and
 interrupted tasks expose no result at all — no partial reply and no private
-provider error. `list` contains at most 50 summaries, active requests first,
+provider error. `list` contains at most 1,000 summaries, active requests first,
 with no result. Only what the task reported, or its final reply, is shared;
 other messages in its Chat are never app-readable.
 
@@ -121,7 +122,7 @@ report, a handoff outcome, and a routing chat hop produce:
 |---|---|
 | `summary` | text, at most 32 KiB, never split mid-character |
 | `outcome` | `succeeded`, `partial`, or `failed` — the Assistant's own account |
-| `truncated` | something was cut to fit a bound — the summary at 32 KiB, or the envelope at its 256 KiB ceiling — and what the app holds is the trimmed version |
+| `truncated` | something was cut to fit a bound — the summary at 32 KiB, or the envelope at its 16 MiB ceiling — and what the app holds is the trimmed version |
 | `data` | present only for an action that declared `outputSchema`, and only when the reported value matches it |
 | `files` | Space-relative deliverables the Assistant named, each with `path`, `sha256`, and `sizeBytes` |
 
@@ -142,8 +143,11 @@ projected to the app.
 
 The summary is bounded at 32 KiB on its own, before anything else is
 considered, and that is the bound an ordinary long reply reaches. The whole
-serialized envelope is then bounded at 256 KiB: over that, `data` is dropped
-first, then `files` are trimmed, then the summary. Either sets `truncated`.
+serialized envelope is then bounded at 16 MiB: over that, `data` is dropped
+first, then `files` are trimmed from the end, then the summary. Either sets
+`truncated`, and an envelope trim is never silent: the summary then opens with
+a bracketed sentence naming the 16 MiB bound and exactly what was left out (its
+details, how many of its files, or that the summary was shortened).
 **Settings → Apps → the app → Assistant requests** names both numbers and the Settings
 section showing these fixed bounds, and offers **Open Chat** for the full
 reply.
@@ -162,14 +166,16 @@ See [Invalidation hints](restricted-app-authoring.md#invalidation-hints).
 
 ## Bounds
 
-Up to four requests may be starting or running per installation. A fifth is
-refused with a message that names the limit and the Settings section. The
-15-minute replay window and the 24-hour receipt retention are fixed; terminal
-receipts older than a day prune on the next submission, and their original
-timestamps can no longer submit fresh work. The journal caps at 1,000 receipts
-and 64 MiB and refuses more work rather than dropping live receipts. A result
-summary is bounded at 32 KiB, reported details at 256 KiB, and the whole
-envelope at 256 KiB; `limits.get()` publishes these bounds under `assistant`.
+Up to 32 requests may be starting, running or waiting per installation. The
+33rd is refused with a message that names the limit and the Settings section.
+There is no request quota: the 15-minute replay window and the 24-hour receipt
+retention are fixed; terminal receipts older than a day prune on the next
+submission, and their original timestamps can no longer submit fresh work. The
+journal is one file kept under 256 MiB; reaching that prunes the oldest settled
+receipts already outside the replay window, and work is refused only when live
+and replayable receipts alone fill it. A result summary is bounded at 32 KiB,
+reported details at 256 KiB, and the whole envelope at 16 MiB; `limits.get()`
+publishes these bounds under `assistant`.
 
 While any of an app's request Chats runs, capability changes for that Space
 (grant, revoke, install, update) wait with "Wait for affected Assistant work to
@@ -229,7 +235,21 @@ indentation. Without `outputSchema` the result is `{ text, truncated }`; with
 one — the same closed JSON Schema subset tool declarations use — the result is
 `{ json }`, already validated against that schema, carried by one
 `submit_result` tool call. Both shapes carry `model` (`provider`, `id`) and
-`usage` (`inputTokens`, `outputTokens`).
+`usage` (`inputTokens`, `outputTokens`). work-fold never cuts a reply:
+`truncated` is true only when the model itself stopped at its output-token
+limit, and the text is everything it produced; a reply larger than
+`maxOutputBytes`, or a structured result the model could not finish, is
+refused with `INFER_OUTPUT_TOO_LARGE`.
+
+The call runs the way a Chat turn in the same Space would: on the Space's
+configured model at the Space's configured thinking level (no reasoning option
+when that level is off), with the model's own output-token limit, and with the
+provider SDK's usual two retries for transient failures. The one adjustment is
+the context window: once the request is in it, the output budget shrinks only
+as far as the window requires, using the same estimate Pi uses to fit a reply
+(3.5 characters per token and a 4,096-token safety margin). A request is
+refused with `INFER_INPUT_TOO_LARGE` only when that estimate leaves no room for
+at least a 1,024-token answer.
 
 An active app view or a worker holding a tool action or an automation run may
 call it. An inactive view, a worker between operations, a viewer page, and a
@@ -237,13 +257,14 @@ remote app view all get `INFER_UNAVAILABLE`. The installation, revision, and
 authority are pinned before the call and rechecked before the result is
 delivered.
 
-Bounds: input 256 KiB, schema 32 KiB, output 64 KiB by default and
-`maxOutputBytes` up to 256 KiB. Four calls run per installation
-and eight run machine-wide; later calls wait for a slot. There is no fixed
-120-second host timeout: provider transport, cancellation, and authority
-revocation govern a dispatched call. `limits.get().inference` publishes the
-effective values. Check runs still serialize their model requests machine-wide;
-inference deliberately does not share that queue.
+Bounds: instructions 1 MiB, input 16 MiB, schema 1 MiB, and output 16 MiB
+(`maxOutputBytes` may lower it); these only keep one call's memory finite, and
+the model's context window is the real bound on input. Sixteen calls run per
+installation with 256 more waiting, and 32 run machine-wide; later calls wait
+for a slot. There is no fixed host timeout: provider transport, cancellation,
+and authority revocation govern a dispatched call. `limits.get().inference`
+publishes the effective values. Check runs still serialize their model requests
+machine-wide; inference deliberately does not share that queue.
 
 Every refusal names what it hit: `INFER_INVALID`, `INFER_INPUT_TOO_LARGE`,
 `INFER_MODEL_UNAVAILABLE`, `INFER_BUSY`, `INFER_OUTPUT_TOO_LARGE`,
@@ -273,8 +294,9 @@ an installation's requests across code changes, so a task started before a
 change can be opened and stopped. Once dispatched, the Chat is ordinary Space
 work; closing the app view does not stop it.
 
-The machine-local `restricted-apps/assistant-tasks.json` journal (schema v2; a
-v1 journal loads with its never-dispatched requests marked stopped) is written
+The machine-local `restricted-apps/assistant-tasks.json` journal (schema v3; a
+v2 journal loads with each reply as its summary, and a v1 journal loads with its
+never-dispatched requests marked stopped) is written
 and synced before Chat dispatch. It pins one allocated Chat and turn request
 id. The existing turn journal owns actual acceptance, progress, results and
 restart recovery. A thrown or uncertain admission is reconciled with that

@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   RestrictedAppTaskService,
+  restrictedAppResultWithinCeiling,
   restrictedAppTaskAuthorityDigest,
   restrictedAppTaskPrompt,
   restrictedAppTaskTurnRequestId,
@@ -207,26 +208,62 @@ test("deliverables are bounded and each entry must name a safe Space-relative pa
   assert.ok(files.every((file) => file.path.startsWith("exports/")), "nothing outside the Space survives");
 });
 
-test("an envelope over the whole-result ceiling drops its details first and says it was trimmed", async (t) => {
-  // A full-size `data` plus a full-size summary is the one way a valid report
-  // can pass both field bounds and still overrun the envelope ceiling.
+test("full-size details and a full-size summary now fit the envelope untouched", async (t) => {
+  // This used to be the one way a valid report overran a 256 KiB ceiling. The
+  // envelope is now far above both field bounds, so nothing is trimmed.
+  assert.ok(restrictedAppAssistantLimits.resultBytes >= 16 * 1024 * 1024);
   const f = await fixture(t, { actions: [blobAction] });
   const task = await f.file(blobAction.id);
+  const data = { blob: "y".repeat(restrictedAppAssistantLimits.dataBytes - 64) };
   f.setReport({
     summary: "x".repeat(restrictedAppAssistantLimits.summaryBytes),
     truncated: false,
     outcome: "succeeded",
-    data: { blob: "y".repeat(restrictedAppAssistantLimits.dataBytes - 64) },
+    data,
     files: [{ path: "exports/comparison.md", sha256: sha256("comparison"), sizeBytes: 8 }],
   });
   f.settle(task.id, "ignored");
   const result = (await f.service.get(scope, task.requestId)).result!;
-  assert.equal(result.truncated, true);
-  assert.equal(result.data, undefined, "details go first: the app can ask for them again");
-  assert.deepEqual(result.files?.map((file) => file.path), ["exports/comparison.md"], "deliverables outlive details");
-  assert.equal(Buffer.byteLength(result.summary), restrictedAppAssistantLimits.summaryBytes,
-    "the summary is the one field an app always has");
-  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= restrictedAppAssistantLimits.resultBytes);
+  assert.equal(result.truncated, false);
+  assert.deepEqual(result.data, data, "details survive");
+  assert.deepEqual(result.files?.map((file) => file.path), ["exports/comparison.md"]);
+  assert.equal(result.summary, "x".repeat(restrictedAppAssistantLimits.summaryBytes));
+});
+
+test("an envelope over the whole-result ceiling drops details, then files, then summary — and says exactly what", () => {
+  const ceiling = 2 * 1024;
+  const file = (index: number) => ({ path: `exports/file-${index}.md`, sha256: sha256(`file-${index}`), sizeBytes: index });
+  const size = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+  const base = { summary: "The comparison is done.", truncated: false, outcome: "succeeded" as const };
+
+  const detailsOnly = restrictedAppResultWithinCeiling({ ...base, data: { blob: "y".repeat(4_000) }, files: [file(1), file(2)] }, ceiling);
+  assert.equal(detailsOnly.truncated, true);
+  assert.equal(detailsOnly.data, undefined, "details go first: the app can ask for them again");
+  assert.equal(detailsOnly.files?.length, 2, "deliverables outlive details");
+  assert.match(detailsOnly.summary, /^\[work-fold: this result was larger than 2 KB, the result limit in Settings → Automations → Limits, so its details were left out\.\]\n\nThe comparison is done\.$/);
+  assert.ok(size(detailsOnly) <= ceiling);
+
+  const files = Array.from({ length: 40 }, (_, index) => file(index));
+  const someFiles = restrictedAppResultWithinCeiling({ ...base, files }, ceiling);
+  assert.equal(someFiles.truncated, true);
+  assert.ok(someFiles.files && someFiles.files.length > 0 && someFiles.files.length < files.length);
+  assert.deepEqual(someFiles.files, files.slice(0, someFiles.files.length), "files are kept from the front");
+  const dropped = files.length - someFiles.files.length;
+  assert.match(someFiles.summary, new RegExp(`so ${dropped} of its ${files.length} files were left out\\.\\]`));
+  assert.ok(size(someFiles) <= ceiling);
+
+  const both = restrictedAppResultWithinCeiling({ ...base, data: { blob: "y" }, files }, ceiling);
+  assert.match(both.summary, /so its details and \d+ of its 40 files were left out\.\]/);
+  assert.ok(size(both) <= ceiling);
+
+  // A summary bound larger than the envelope: the summary itself is shortened, note first.
+  const longSummary = restrictedAppResultWithinCeiling({ ...base, summary: "z".repeat(10_000) }, ceiling, 32 * 1024);
+  assert.equal(longSummary.truncated, true);
+  assert.match(longSummary.summary, /^\[work-fold: this result was larger than 2 KB, the result limit in Settings → Automations → Limits, so its summary was shortened\.\]\n\nz+$/);
+  assert.ok(size(longSummary) <= ceiling);
+
+  const untouched = { ...base, data: { ok: true }, files: [file(1)] };
+  assert.deepEqual(restrictedAppResultWithinCeiling(untouched, ceiling), untouched, "a result within the ceiling is returned as it is");
 });
 
 test("a failed, stopped or interrupted task exposes no envelope at all", async (t) => {

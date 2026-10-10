@@ -233,8 +233,9 @@ destroyed on close, sign-out or detected disconnection; see
 [browser app views](docs/fold-browser-apps.md).
 The browser-action foundation keeps exact requests and bounded results in a
 private machine-local journal, separate from content-free receipt summaries.
-Requests are limited to 16 KiB and results to 128 KiB; the journal has record
-and byte limits and prunes terminal records older than a day on new admission.
+Requests are limited to 4 MiB and results to 4 MiB; the journal prunes terminal
+records older than a day on new admission and keeps itself under a byte ceiling
+by pruning the oldest settled records.
 Only the requesting paired browser and exact app authority can retrieve a
 result. A request runs the installed worker with its existing grants as soon as
 the desktop accepts it; it does not publish data or start a model. Only the

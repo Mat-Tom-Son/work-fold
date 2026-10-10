@@ -33,6 +33,7 @@ import type { RestrictedAppAssistantActivity } from "../../src/local/agent/restr
 import {
   buildRestrictedAppLimits,
   restrictedAppAssistantEnvelopeBytes,
+  restrictedAppFileEnvelopeBytes,
   restrictedAppInferenceEnvelopeBytes,
   restrictedAppNetworkEnvelopeBytes,
   restrictedAppStorageEnvelopeBytes,
@@ -100,17 +101,30 @@ const filesChannel = "work-fold:restricted-app:files";
 const notificationsChannel = "work-fold:restricted-app:notifications";
 const indexPath = "/__work-fold/index.html";
 const bootstrapPath = "/__work-fold/bootstrap.js";
-const maxInvocationBytes = 256 * 1024;
-const maxFileEnvelopeBytes = 800 * 1024;
+/** Tool input and output, and an automation event, as serialized JSON. */
+const maxInvocationBytes = 16 * 1024 * 1024;
 const maxNotificationEnvelopeBytes = 4 * 1024;
 /**
- * Request input is bounded at 64 KiB by the task service; the envelope adds the
+ * Request input is bounded by the task service; the envelope adds the
  * JSON-escaping allowance so that published bound stays reachable and the
  * service — not the transport — reports the limit that was hit.
  */
 const maxAssistantEnvelopeBytes = restrictedAppAssistantEnvelopeBytes;
-const defaultInvocationTimeoutMs = 5_000;
+/**
+ * A hang guard, not a compute budget: a worker that does ten minutes of its
+ * own work with no host call in flight is presumed stuck. Time spent waiting
+ * on a host lane never counts (see `withDeadline`).
+ */
+const defaultInvocationTimeoutMs = 10 * 60_000;
+/**
+ * A hang guard for loading an app document and evaluating its worker module.
+ * Generous for large packages, but short enough that a view stuck loading is
+ * reported instead of leaving the person looking at a blank surface.
+ */
+const defaultLoadTimeoutMs = 2 * 60_000;
 const workerIdleTimeoutMs = 30_000;
+/** Error text an app or worker reports, kept whole up to this many characters. */
+const maxErrorTextLength = 16 * 1024;
 
 export interface RestrictedAppHostOptions {
   assistantTasks?: () => Promise<Pick<RestrictedAppTaskService, "request" | "get" | "list" | "cancel">>;
@@ -120,6 +134,7 @@ export interface RestrictedAppHostOptions {
   connections: RestrictedAppConnectionStore;
   preloadPath: string;
   invocationTimeoutMs?: number;
+  loadTimeoutMs?: number;
   networkBroker?: RestrictedAppNetworkBroker;
   oauth?: RestrictedAppOAuthPkceClient;
   storage: FileRestrictedAppStorage;
@@ -178,11 +193,18 @@ interface RestrictedAppInstance {
    * Host-bridge calls this worker is waiting on right now, and when it last
    * stopped waiting. The invocation deadline measures *worker* time, so time
    * spent inside a host lane the product deliberately gives workers — a
-   * network request, an Assistant request, a bounded model call whose own
-   * budget is 120 s — must not count against it (docs/receipts-not-gates.md,
+   * network request, an Assistant request, a bounded model call with no host
+   * wall-clock cap — must not count against it (docs/receipts-not-gates.md,
    * F22; docs/app-assistant-tasks.md). Each lane keeps its own timeout.
    */
   hostCalls: { inFlight: number; idleSince: number };
+  /**
+   * Callers waiting for this worker's single operation slot. One operation
+   * holds the slot at a time — host effects are attributed to the operation
+   * that holds it — so a second action or automation queues here instead of
+   * being refused, and starts when the slot frees or the worker is replaced.
+   */
+  slotWaiters: Array<() => void>;
   idleTimer?: NodeJS.Timeout;
   crashed: boolean;
   abortController: AbortController;
@@ -280,11 +302,13 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   readonly #connections: RestrictedAppConnectionStore;
   readonly #preloadPath: string;
   readonly #invocationTimeoutMs: number;
+  readonly #loadTimeoutMs: number;
   readonly #network: RestrictedAppNetworkBroker;
   readonly #storage: FileRestrictedAppStorage;
   readonly #files: RestrictedAppFileBroker;
   readonly #limitsArgument: string;
   readonly #maxNetworkEnvelopeBytes: number;
+  readonly #maxFileEnvelopeBytes: number;
   readonly #notifications: RestrictedAppNotificationBroker;
   readonly #resolveSpaceRoot: RestrictedAppHostOptions["resolveSpaceRoot"];
   readonly #onTabCommand?: RestrictedAppHostOptions["onTabCommand"];
@@ -321,6 +345,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#connections = options.connections;
     this.#preloadPath = options.preloadPath;
     this.#invocationTimeoutMs = options.invocationTimeoutMs ?? defaultInvocationTimeoutMs;
+    this.#loadTimeoutMs = options.loadTimeoutMs ?? defaultLoadTimeoutMs;
     this.#network = options.networkBroker ?? new RestrictedAppNetworkBroker({ credentials: options.connections, oauth: options.oauth });
     this.#storage = options.storage;
     this.#files = options.fileBroker ?? new RestrictedAppFileBroker();
@@ -344,6 +369,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       },
     })));
     this.#maxNetworkEnvelopeBytes = restrictedAppNetworkEnvelopeBytes(this.#network.limits.maxRequestBytes);
+    this.#maxFileEnvelopeBytes = restrictedAppFileEnvelopeBytes(this.#files.limits.maxWriteBytes);
     ipcMain.handle(networkChannel, (event, value) => this.#handleNetwork(event, value));
     ipcMain.handle(storageChannel, (event, value) => this.#handleStorage(event, value));
     ipcMain.handle(checksChannel, (event, value) => this.#handleChecks(event, value));
@@ -422,24 +448,16 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       throw new RestrictedAppError("INPUT_INVALID", errorMessage(error));
     }
     const generation = this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId);
-    const instance = await this.#instance(app, generation);
-    try {
-      this.#assertLaunchCurrent(app, generation);
-    } catch (error) {
-      await this.#destroy(instance);
-      throw error;
-    }
-    if (instance.pendingOperation) throw new RestrictedAppError("APP_UNAVAILABLE", "This restricted app is already handling an action.");
-    // A cancelled caller does not own the shared worker until it claims an operation.
-    try { assertCurrent(); }
-    catch (error) { this.#scheduleWorkerIdle(instance); throw error; }
     const operation: RestrictedAppPendingOperation = {
       kind: "action",
       id: execution?.invocationId ?? randomUUID(),
       effectivePrincipal: { principalId: app.principalId, kind: "human", realm: "local" },
       assertCurrent,
     };
-    instance.pendingOperation = operation;
+    // A second action queues behind the one running; a cancelled caller does
+    // not own the shared worker until it claims the slot.
+    const instance = await this.#claimWorker(app, generation, operation, execution?.signal, assertCurrent,
+      () => new RestrictedAppError("AUTHORITY_STALE", "The app action was stopped."));
     this.#syncFileWatches();
     instance.hostCalls.inFlight = 0;
     instance.hostCalls.idleSince = Date.now();
@@ -473,7 +491,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       throw new RestrictedAppError("APP_ERROR", safeRendererError(error));
     } finally {
       execution?.signal.removeEventListener("abort", abort);
-      if (instance.pendingOperation === operation) instance.pendingOperation = null;
+      this.#releaseWorker(instance, operation);
       this.#scheduleWorkerIdle(instance);
     }
   }
@@ -500,19 +518,12 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     const { effectivePrincipal: _hostPrincipal, ...rendererEvent } = event;
     assertBoundedJson(rendererEvent, "Restricted app automation event", maxInvocationBytes);
     const generation = this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId);
-    const instance = await this.#instance(app, generation);
-    if (signal?.aborted) {
-      await this.#destroy(instance);
-      throw new RestrictedAppError("APP_UNAVAILABLE", "The automation was cancelled before it started.");
-    }
-    try {
-      this.#assertLaunchCurrent(app, generation);
-    } catch (error) {
-      await this.#destroy(instance);
-      throw error;
-    }
-    if (instance.pendingOperation) throw new RestrictedAppError("APP_UNAVAILABLE", "This restricted app is already handling work.");
-    instance.pendingOperation = { kind: "automation", id: event.runId, effectivePrincipal };
+    const operation: RestrictedAppPendingOperation = { kind: "automation", id: event.runId, effectivePrincipal };
+    const cancelled = () => new RestrictedAppError("APP_UNAVAILABLE", "The automation was cancelled before it started.");
+    // An automation queues behind an action or automation already running on this worker.
+    const instance = await this.#claimWorker(app, generation, operation, signal, () => {
+      if (signal?.aborted) throw cancelled();
+    }, cancelled);
     this.#syncFileWatches();
     instance.hostCalls.inFlight = 0;
     instance.hostCalls.idleSince = Date.now();
@@ -536,9 +547,71 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       throw new RestrictedAppError("APP_ERROR", safeRendererError(error));
     } finally {
       signal?.removeEventListener("abort", abort);
-      instance.pendingOperation = null;
+      this.#releaseWorker(instance, operation);
       this.#scheduleWorkerIdle(instance);
     }
+  }
+
+  /**
+   * Claims a worker's single operation slot, waiting behind whatever holds it.
+   * The worker is launched (or relaunched, if it was replaced while this
+   * caller waited) and its launch generation is checked before every claim.
+   * `assertClaimable` runs synchronously immediately before the claim so a
+   * caller cancelled while queued never owns the worker.
+   */
+  async #claimWorker(
+    app: RestrictedAppRuntimeDescriptor,
+    generation: number,
+    operation: RestrictedAppPendingOperation,
+    signal: AbortSignal | undefined,
+    assertClaimable: () => void,
+    stopped: () => RestrictedAppError,
+  ): Promise<RestrictedAppInstance> {
+    for (;;) {
+      this.#assertOpen();
+      if (signal?.aborted) throw stopped();
+      const instance = await this.#instance(app, generation);
+      try {
+        this.#assertLaunchCurrent(app, generation);
+      } catch (error) {
+        if (!instance.pendingOperation) await this.#destroy(instance);
+        throw error;
+      }
+      while (instance.pendingOperation && !instance.crashed) {
+        await this.#waitForWorkerSlot(instance, signal, stopped);
+      }
+      if (instance.crashed || this.#instances.get(instance.key) !== instance) continue;
+      try { assertClaimable(); }
+      catch (error) { this.#scheduleWorkerIdle(instance); throw error; }
+      instance.pendingOperation = operation;
+      return instance;
+    }
+  }
+
+  #waitForWorkerSlot(instance: RestrictedAppInstance, signal: AbortSignal | undefined, stopped: () => RestrictedAppError): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const wake = (): void => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      const onAbort = (): void => {
+        const index = instance.slotWaiters.indexOf(wake);
+        if (index >= 0) instance.slotWaiters.splice(index, 1);
+        reject(stopped());
+      };
+      if (signal?.aborted) {
+        reject(stopped());
+        return;
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+      instance.slotWaiters.push(wake);
+    });
+  }
+
+  /** Frees the slot and wakes every queued caller; the first to resume claims it, in arrival order. */
+  #releaseWorker(instance: RestrictedAppInstance, operation: RestrictedAppPendingOperation): void {
+    if (instance.pendingOperation === operation) instance.pendingOperation = null;
+    for (const wake of instance.slotWaiters.splice(0)) wake();
   }
 
   async mountUi(
@@ -661,7 +734,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       this.#applyUiLayout(instance, request.bounds);
       await withDeadline(
         view.webContents.loadURL(`${origin}${entryPath}`),
-        this.#invocationTimeoutMs,
+        this.#loadTimeoutMs,
         () => { throw new RestrictedAppError("APP_TIMEOUT", "Restricted app UI load timed out."); },
       );
       this.#assertLaunchCurrent(app, generation);
@@ -893,6 +966,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         session: isolatedSession,
         pendingOperation: null,
         hostCalls: { inFlight: 0, idleSince: Date.now() },
+        slotWaiters: [],
         crashed: false,
         abortController: new AbortController(),
       };
@@ -903,12 +977,12 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       this.#assertLaunchCurrent(app, generation);
       await withDeadline(
         window.loadURL(`${origin}${indexPath}`),
-        this.#invocationTimeoutMs,
+        this.#loadTimeoutMs,
         () => this.#crash(launchedInstance, "Restricted app document load timed out."),
       );
       const ready = await withDeadline(
         window.webContents.executeJavaScript("globalThis.__workFoldReady", false),
-        this.#invocationTimeoutMs,
+        this.#loadTimeoutMs,
         () => this.#crash(launchedInstance, "Restricted app startup timed out."),
       );
       if (ready !== true) throw new RestrictedAppError("APP_ERROR", "Restricted app startup did not complete.");
@@ -1024,7 +1098,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       ownerWebContentsId: instance.ownerWebContentsId,
       mountId: instance.mountId,
       state,
-      ...(message ? { message: message.slice(0, 300) } : {}),
+      ...(message ? { message: message.slice(0, maxErrorTextLength) } : {}),
     });
   }
 
@@ -1088,7 +1162,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       return { ok: true, value: response };
     } catch (error) {
       const code = error instanceof RestrictedAppError ? error.code : "NETWORK_FAILED";
-      return { ok: false, error: { code, message: errorMessage(error).slice(0, 500) } };
+      return { ok: false, error: { code, message: errorMessage(error).slice(0, maxErrorTextLength) } };
     }
   }
 
@@ -1239,7 +1313,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (!instance) return hostError("FILE_DENIED", "The file caller is not an active restricted app.");
     try {
       const lease = this.#captureEffectLease(instance);
-      const envelope = jsonEnvelope(value, maxFileEnvelopeBytes, "file");
+      const envelope = jsonEnvelope(value, this.#maxFileEnvelopeBytes, "file");
       assertRequestKeys(envelope, ["operation", "request"]);
       const spaceRoot = await this.#resolveSpaceRoot(instance.app.spaceId);
       if (!spaceRoot) throw new RestrictedAppFileError("FILE_DENIED", "The app's Space is no longer registered.");
@@ -1695,9 +1769,10 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         "return module;",
         "});",
         `const maximum=${maxInvocationBytes};`,
+        `const errorLength=${maxErrorTextLength};`,
         'Object.defineProperty(globalThis,"__workFoldReady",{value:ready.then(()=>true),writable:false,configurable:false});',
-        'Object.defineProperty(globalThis,"__workFoldInvoke",{value:async(action,input)=>{try{const module=await ready;const value=await module.handleAction(action,input);let json;try{json=stringify(value);}catch{return "E"+stringify({code:"OUTPUT_INVALID",message:"Restricted app output must be JSON-compatible."});}if(json===undefined||encode(json).byteLength>maximum)return "E"+stringify({code:"OUTPUT_INVALID",message:"Restricted app output exceeds the size limit."});return "S"+json;}catch(error){let message="Restricted app action failed.";try{message=String(error&&error.message||message).slice(0,500);}catch{}return "E"+stringify({code:"APP_ERROR",message});}},writable:false,configurable:false});',
-        'Object.defineProperty(globalThis,"__workFoldRunAutomation",{value:async(event)=>{try{const module=await ready;await module.handleAutomation(event);return "Snull";}catch(error){let message="Restricted app automation failed.";try{message=String(error&&error.message||message).slice(0,500);}catch{}return "E"+stringify({code:"APP_ERROR",message});}},writable:false,configurable:false});',
+        'Object.defineProperty(globalThis,"__workFoldInvoke",{value:async(action,input)=>{try{const module=await ready;const value=await module.handleAction(action,input);let json;try{json=stringify(value);}catch{return "E"+stringify({code:"OUTPUT_INVALID",message:"Restricted app output must be JSON-compatible."});}if(json===undefined||encode(json).byteLength>maximum)return "E"+stringify({code:"OUTPUT_INVALID",message:"Restricted app output exceeds the size limit."});return "S"+json;}catch(error){let message="Restricted app action failed.";try{message=String(error&&error.message||message).slice(0,errorLength);}catch{}return "E"+stringify({code:"APP_ERROR",message});}},writable:false,configurable:false});',
+        'Object.defineProperty(globalThis,"__workFoldRunAutomation",{value:async(event)=>{try{const module=await ready;await module.handleAutomation(event);return "Snull";}catch(error){let message="Restricted app automation failed.";try{message=String(error&&error.message||message).slice(0,errorLength);}catch{}return "E"+stringify({code:"APP_ERROR",message});}},writable:false,configurable:false});',
       ].join("\n");
       return response(request.method === "HEAD" ? null : source, 200, "text/javascript; charset=utf-8", true);
     }
@@ -1738,6 +1813,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       this.#detach(instance);
       if (instance.idleTimer) clearTimeout(instance.idleTimer);
       instance.crashed = true;
+      // Queued callers move to a fresh launch rather than waiting on a dead worker.
+      for (const wake of instance.slotWaiters.splice(0)) wake();
       instance.abortController.abort();
       if (!instance.window.isDestroyed()) instance.window.destroy();
       await this.#disposeSession(instance.session);
@@ -1930,7 +2007,7 @@ function stringField(value: unknown, label: string, maximum: number): string {
 }
 
 function hostError(code: string, message: string): { ok: false; error: { code: string; message: string } } {
-  return { ok: false, error: { code, message: message.slice(0, 500) } };
+  return { ok: false, error: { code, message: message.slice(0, maxErrorTextLength) } };
 }
 
 function fileCheckpointTarget(
@@ -2121,9 +2198,10 @@ function response(body: BodyInit | null, status: number, contentType: string, cs
  * Without a gate this is a plain timer. With one it measures *idle* worker
  * time: the clock stops while the worker holds an in-flight host-bridge call
  * and restarts when that call returns. A worker awaiting `assistant.infer`
- * (120 s budget), `assistant.request`, or a network request (15 s budget) is
- * therefore never crashed for being slower than the five-second invocation
- * deadline; a worker that simply hangs still is.
+ * (no host wall-clock cap), `assistant.request`, or a network request (its
+ * own timeout) is therefore never crashed while it waits; a worker that spends
+ * longer than the invocation deadline in its own code with no host call in
+ * flight is presumed hung and still is.
  */
 async function withDeadline<T>(
   operation: Promise<T>,
@@ -2187,7 +2265,7 @@ function parseInvocationEnvelope(value: unknown): unknown {
       throw new RestrictedAppError("OUTPUT_INVALID", "Restricted app output envelope is invalid.");
     }
     const code = record.code === "OUTPUT_INVALID" ? "OUTPUT_INVALID" : "APP_ERROR";
-    const message = typeof record.message === "string" ? record.message.slice(0, 500) : "Restricted app action failed.";
+    const message = typeof record.message === "string" ? record.message.slice(0, maxErrorTextLength) : "Restricted app action failed.";
     throw new RestrictedAppError(code, message);
   }
   if (!value.startsWith("S") || Buffer.byteLength(value.slice(1), "utf8") > maxInvocationBytes) {
@@ -2255,7 +2333,7 @@ function addBounded(target: Set<string>, values: readonly string[] | undefined, 
 
 function safeRendererError(error: unknown): string {
   const message = errorMessage(error).replace(/(?:[A-Za-z]:)?[\\/][^\s:]+/g, "app code");
-  return message.slice(0, 500) || "Restricted app action failed.";
+  return message.slice(0, maxErrorTextLength) || "Restricted app action failed.";
 }
 
 function errorMessage(error: unknown): string {

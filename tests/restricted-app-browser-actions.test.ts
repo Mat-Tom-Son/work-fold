@@ -19,7 +19,7 @@ const scope: RestrictedAppTaskScope = { spaceId: "space-one", appId: "quotes", f
 const owner = { browserId: "browser-one", grantId: "grant-one" };
 const action: RestrictedAppToolDeclaration = { name: "Save quote", description: "Save this quote in the app.", action: "save",
   inputSchema: { type: "object", properties: { quote: { type: "string", maxLength: 20_000 }, count: { type: "integer" } }, required: ["quote", "count"], additionalProperties: false },
-  resultSchema: { type: "object", properties: { saved: { type: "boolean" }, note: { type: "string", maxLength: 200_000 } }, required: ["saved"], additionalProperties: false } };
+  resultSchema: { type: "object", properties: { saved: { type: "boolean" }, note: { type: "string", maxLength: 2_000_000 } }, required: ["saved"], additionalProperties: false } };
 const current = () => {};
 const deferred = <T>() => { let resolve!: (value: T) => void; let reject!: (error: unknown) => void;
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
@@ -91,7 +91,7 @@ test("browser actions reject malformed inputs, wrong owners, stale requests and 
   const f = await fixture(t);
   for (const invalid of [null, {}, f.request({ requestId: "not-a-uuid" }), f.request({ requestedAt: "yesterday" }),
     f.request({ action: "arbitrary" }), f.request({ grantId: "injected" }), f.request({ input: { quote: "x", count: 1, secret: true } }),
-    f.request({ input: { quote: "界".repeat(6000), count: 1 } }), f.request({ requestedAt: "2026-09-07T13:00:00.000Z" })]) {
+    f.request({ input: { quote: "界".repeat(Math.ceil(limits.inputBytes / 3) + 1), count: 1 } }), f.request({ requestedAt: "2026-09-07T13:00:00.000Z" })]) {
     await assert.rejects(f.service.request(scope, owner, invalid, current));
   }
   assert.equal(f.calls.length, 0, "nothing invalid reaches a worker");
@@ -159,7 +159,8 @@ test("browser revocation stops only that grant and a live authority callback fen
 
 test("browser action failures and oversized results remain failures without leaking worker diagnostics", async (t) => {
   const f = await fixture(t);
-  for (const outcome of [{ arbitrary: "bad schema" }, { saved: true, note: "界".repeat(50_000) }, new Error("private provider secret")]) {
+  // The oversized note passes the declared schema and fails only the byte bound.
+  for (const outcome of [{ arbitrary: "bad schema" }, { saved: true, note: "界".repeat(Math.ceil(limits.resultBytes / 3) + 1) }, new Error("private provider secret")]) {
     const count = f.calls.length;
     const request = await f.accept(); await until(() => f.calls.length > count);
     if (outcome instanceof Error) f.calls[count]!.outcome.reject(outcome); else f.calls[count]!.outcome.resolve(outcome);
@@ -256,9 +257,11 @@ test("the machine-wide browser action limit spans installations and names itself
   t.after(async () => { await service.close(); await rm(root, { recursive: true, force: true }); });
   for (let index = 0; index <= limits.running; index++) {
     const appScope = { ...scope, featureInstallationId: `installation-${index}` };
+    // A browser of its own per installation, so only the machine-wide bound can refuse.
+    const browser = { browserId: `browser-${index}`, grantId: `grant-${index}` };
     const request = { requestId: randomUUID(), requestedAt: new Date().toISOString(), action: "save", input: { quote: "North", count: 1 } };
-    if (index < limits.running) assert.equal((await service.request(appScope, owner, request, current)).status, "running");
-    else await assert.rejects(service.request(appScope, owner, request, current), new RegExp(`${limits.running} running on this computer`));
+    if (index < limits.running) assert.equal((await service.request(appScope, browser, request, current)).status, "running");
+    else await assert.rejects(service.request(appScope, browser, request, current), new RegExp(`${limits.running} running on this computer`));
   }
   await until(() => invoked === limits.running);
   assert.equal(invoked, limits.running);

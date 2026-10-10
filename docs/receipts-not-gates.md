@@ -140,13 +140,18 @@ it; competing History copies are never merged or replaced.
   result, and Open Chat and Stop in the Apps tab (Settings → Apps since
   2026-09-25). Bounds raised to 64 KiB
   input and 256 KiB result; up to four running per installation. Available
-  to the worker bridge.
+  to the worker bridge. (2026-10-10: raised again to 4 MiB input, a 16 MiB
+  result envelope, and 32 running per installation, with no request quota;
+  see [App-requested Assistant work](app-assistant-tasks.md#bounds).)
 - `assistant.infer({ instructions, input, outputSchema?, maxOutputBytes? })`
   returns `{ text }` or `{ json }` validated against the closed schema
   subset already used for app tools. Input up to 256 KiB. Up to four
   concurrent per installation. Reuses the bounded transport that the Check
   reviewer and title generation already use. Receipts record the effective
-  model and usage.
+  model and usage. (2026-10-10: input up to 16 MiB with the context window as
+  the real bound, 16 concurrent per installation, the Space's configured
+  thinking level and the model's own output limit; see
+  [Bounded inference](app-assistant-tasks.md#bounded-inference).)
 - The fold gains `apps list --space <id> --json` (installed apps, their
   tools, actions, grants, connections, automations) and
   `apps invoke --space <id> --app <id> --tool <name> --input <json>`

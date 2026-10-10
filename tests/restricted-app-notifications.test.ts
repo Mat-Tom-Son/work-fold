@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   RestrictedAppNotificationBroker,
+  restrictedAppNotificationLimits,
   type RestrictedAppNotificationDisplay,
   type RestrictedAppNotificationHandle,
 } from "../src/local/agent/restricted-app-notifications.js";
@@ -101,34 +102,52 @@ test("notification broker rejects dynamic payloads, missing grants, and disabled
   broker.dispose();
 });
 
+const categories = ["new-mail", "sync-error", "export-ready"] as const;
+
+test("notification spam guards are generous: the hourly rate is reachable with one category's spacing", () => {
+  const { perHour, perInvocation, categoryIntervalMs, outstandingPerApp } = restrictedAppNotificationLimits;
+  assert.deepEqual([perHour, perInvocation, categoryIntervalMs, outstandingPerApp], [120, 20, 30_000, 3]);
+  assert.ok(categoryIntervalMs * perHour <= 60 * 60_000, "a single category can reach the hourly rate");
+});
+
 test("notification anti-spam quota survives close, permission churn, automation churn, and digest updates", () => {
+  const { perHour, categoryIntervalMs } = restrictedAppNotificationLimits;
+  // Rotate categories so per-category spacing never refuses; only the hourly volume can.
+  const step = Math.floor((60 * 60_000 - 1) / perHour);
+  assert.ok(step * categories.length > categoryIntervalMs);
   let now = 1_000;
   const sink = new Sink();
   const broker = new RestrictedAppNotificationBroker({ sink, now: () => now });
-  for (let index = 0; index < 8; index += 1) {
-    assert.deepEqual(broker.show(context({ invocationId: `invocation-${index}` }), { permissionId: "new-mail" }, () => undefined), { status: "shown" });
-    now += 5 * 60_000 + 1;
+  for (let index = 0; index < perHour; index += 1) {
+    assert.deepEqual(broker.show(context({ invocationId: `invocation-${index}` }), { permissionId: categories[index % categories.length]! }, () => undefined), { status: "shown" });
+    now += step;
   }
   broker.closeApp({ spaceId: "ws-1111111111111111", appId: "connected-inbox" }, digestOne);
+  const permissionId = categories[perHour % categories.length]!;
   const updated = context({ digest: digestTwo, invocationId: "after-update", grants: [], automationEnabled: false });
-  assert.throws(() => broker.show(updated, { permissionId: "new-mail" }, () => undefined), /Enable this automation/);
-  assert.deepEqual(broker.show({ ...updated, grants: ["new-mail"], automationEnabled: true }, { permissionId: "new-mail" }, () => undefined), { status: "rate-limited" });
-  assert.equal(sink.shown.length, 8);
+  assert.throws(() => broker.show(updated, { permissionId }, () => undefined), /Enable this automation/);
+  assert.deepEqual(broker.show({ ...updated, grants: [...categories], automationEnabled: true }, { permissionId }, () => undefined), { status: "rate-limited" });
+  assert.equal(sink.shown.length, perHour);
   broker.dispose();
 });
 
 test("notification broker enforces invocation and outstanding limits", () => {
+  const { perInvocation, categoryIntervalMs, outstandingPerApp } = restrictedAppNotificationLimits;
   let now = 1_000;
   const sink = new Sink();
   const broker = new RestrictedAppNotificationBroker({ sink, now: () => now });
-  assert.equal(broker.show(context(), { permissionId: "new-mail" }, () => undefined).status, "shown");
-  assert.equal(broker.show(context(), { permissionId: "sync-error" }, () => undefined).status, "shown");
-  assert.equal(broker.show(context(), { permissionId: "export-ready" }, () => undefined).status, "rate-limited");
-  now += 5 * 60_000 + 1;
-  assert.equal(broker.show(context({ invocationId: "two" }), { permissionId: "export-ready" }, () => undefined).status, "shown");
-  now += 5 * 60_000 + 1;
+  for (let index = 0; index < perInvocation; index += 1) {
+    assert.equal(broker.show(context(), { permissionId: categories[index % categories.length]! }, () => undefined).status, "shown");
+    now += categoryIntervalMs + 1;
+  }
+  const next = categories[perInvocation % categories.length]!;
+  assert.equal(broker.show(context(), { permissionId: next }, () => undefined).status, "rate-limited", "one invocation shows at most perInvocation");
+  assert.equal(broker.show(context({ invocationId: "two" }), { permissionId: next }, () => undefined).status, "shown");
+  now += categoryIntervalMs + 1;
+  const outstanding = sink.shown.filter((item) => !item.handle.closed);
+  assert.equal(outstanding.length, outstandingPerApp);
   assert.equal(broker.show(context({ invocationId: "three", declarations: [...context().declarations, { id: "digest-ready", title: "Digest ready", description: "Your digest is ready." }], grants: [...context().grants, "digest-ready"] }), { permissionId: "digest-ready" }, () => undefined).status, "shown");
-  assert.equal(sink.shown[0]?.handle.closed, true, "the oldest outstanding notification is closed at the per-app cap");
+  assert.equal(outstanding[0]?.handle.closed, true, "the oldest outstanding notification is closed at the per-app cap");
   broker.dispose();
 });
 

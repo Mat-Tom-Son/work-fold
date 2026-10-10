@@ -1,4 +1,4 @@
-import { restrictedAppAssistantLimits, type RestrictedAppAssistantTask } from "../../../src/shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits, restrictedAppLimitSize, type RestrictedAppAssistantTask } from "../../../src/shared/restricted-app-tasks.js";
 
 /** Person-facing status of one app-requested Assistant task. */
 export function restrictedAppAssistantTaskStatusLabel(
@@ -47,13 +47,13 @@ export function restrictedAppAssistantTaskCanStop(
  *
  * `truncated` covers two bounds, and the ordinary one is the summary: every
  * reply is cut at `summaryBytes` before the envelope ceiling is ever
- * consulted, so naming only the 256 KB ceiling sent the reader to the wrong
+ * consulted, so naming only the envelope ceiling sent the reader to the wrong
  * row. Both numbers are named, in the same spelling as the rows in Settings →
- * General → Limits ("A result summary", "Chat result returned to the app").
+ * Automations → Limits ("A result summary", "Chat result returned to the app").
  */
 export const restrictedAppAssistantResultTrimNote =
-  `\n… Trimmed to the ${restrictedAppAssistantLimits.summaryBytes / 1024} KB summary limit in Settings → Automations → Limits.`
-  + ` Details over the ${restrictedAppAssistantLimits.resultBytes / 1024} KB result limit are left out there too.`
+  `\n… Trimmed to the ${restrictedAppLimitSize(restrictedAppAssistantLimits.summaryBytes)} summary limit in Settings → Automations → Limits.`
+  + ` Details over the ${restrictedAppLimitSize(restrictedAppAssistantLimits.resultBytes)} result limit are left out there too.`
   + " Open Chat for the full reply.";
 
 /** Compact size for one deliverable a result named. */

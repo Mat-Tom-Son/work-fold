@@ -8,7 +8,7 @@ import {
   type WorkFoldRequestLimitName,
 } from "../src/local/requests/request-records.js";
 import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-inference.js";
-import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../src/shared/restricted-app-tasks.js";
 import {
   workFoldAutomationDefaultConcurrency,
   workFoldExtensionUiLimits,
@@ -86,13 +86,18 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   const text = dom.container.textContent ?? "";
 
   assert.doesNotMatch(text, /How long one request stays open|Steps in one automation|Follow-up turns after work settles|Worker turns running together/);
-  assert.ok(text.includes(`${sizeText(restrictedAppAssistantLimits.inputBytes)}`), "the Chat request input bound is shown");
-  assert.ok(text.includes(`${sizeText(restrictedAppAssistantLimits.resultBytes)}`), "the Chat result bound is shown");
+  assert.ok(text.includes(`Chat request input${restrictedAppLimitSize(restrictedAppAssistantLimits.inputBytes)}`), "the Chat request input bound is shown");
+  assert.ok(text.includes(`Chat result returned to the app${restrictedAppLimitSize(restrictedAppAssistantLimits.resultBytes)}`), "the Chat result bound is shown");
   assert.ok(
     text.includes(`Chat requests running per app${restrictedAppAssistantLimits.runningPerInstallation}`),
     "the running-per-app bound is shown",
   );
-  assert.ok(text.includes(`${sizeText(restrictedAppInferenceLimits.instructionsBytes)}`), "the short-answer instruction bound is shown");
+  assert.ok(text.includes(`Short answer instructions${restrictedAppLimitSize(restrictedAppInferenceLimits.instructionsBytes)}`), "the short-answer instruction bound is shown");
+  assert.ok(text.includes(`Short answer input${restrictedAppLimitSize(restrictedAppInferenceLimits.inputBytes)}`), "the short-answer input bound is shown");
+  assert.ok(
+    text.includes(`Short answers running per app${restrictedAppInferenceLimits.runningPerInstallation}, with ${restrictedAppInferenceLimits.waitingPerInstallation} more waiting`),
+    "the per-app inference bound is shown",
+  );
   assert.ok(
     text.includes(`Short answers running on this computer${restrictedAppInferenceLimits.runningMachineWide}`),
     "the machine-wide inference bound is shown",
