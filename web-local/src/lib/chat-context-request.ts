@@ -21,15 +21,6 @@ export function chatDraftRequestForTab(
     : null;
 }
 
-/**
- * Starter text for building a Space app with the Assistant, in plain words:
- * The native proposal tool installs a completed local preview immediately;
- * the person finishes the sentence with what the app should do.
- */
-export function appBuildDraft(spaceName: string): string {
-  return `Build a new app for this work-folder (${spaceName}). When it's ready, install a local preview for me to try.\n\nWhat it should do: `;
-}
-
 export function appChangeDraft(change: RestrictedAppChangeDraft): string {
   return `Change ${change.title} (${change.version}) using the prepared copy in ${JSON.stringify(change.sourcePath)}. Keep its app and package identity, and submit the changed package for review.\n\nWhat I'd like to change: `;
 }

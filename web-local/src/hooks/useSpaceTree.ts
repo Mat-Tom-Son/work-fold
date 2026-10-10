@@ -267,7 +267,3 @@ function readTreeState(spaceId: string): TreeState {
   }, { selectedPath: null, collapsedPaths: new Set<string>() });
 }
 function writeTreeState(spaceId: string, state: { selectedPath: string | null; collapsedPaths: string[] }) { writeStoredJsonValue(treeStateKey(spaceId), state); }
-export function writeSpaceTreeUiState(spaceId: string, update: Partial<{ collapsedPaths: string[]; selectedPath: string | null }>) {
-  const current = readTreeState(spaceId);
-  writeTreeState(spaceId, { selectedPath: update.selectedPath === undefined ? current.selectedPath : update.selectedPath, collapsedPaths: update.collapsedPaths ?? [...current.collapsedPaths] });
-}

@@ -222,7 +222,7 @@ test("a shared file carries a quiet mark in Files and on its tab", async () => {
 });
 
 test("the main window has no glance panel; the Space-identity header carries no action and Files keeps its actions in the right-click menu", () => {
-  // The menu-bar popover's GlanceSection and the server digest stay; the
+  // The server digest stays (the popover's GlanceSection is gone too); the
   // main-window "Since you last looked" panel is gone, so the renderer
   // neither fetches nor acknowledges the glance from the main window.
   assert.doesNotMatch(app, /GlanceHeaderControl|GlancePanel|useGlance/);

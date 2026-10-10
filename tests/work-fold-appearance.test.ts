@@ -21,7 +21,6 @@ import {
 } from "../web-local/src/lib/space-customization.js";
 import { writeStoredJsonValue } from "../web-local/src/lib/storage.js";
 import { readableTextColorOn } from "../web-local/src/lib/color-contrast.js";
-import { spaceLookOptions } from "../web-local/src/lib/space-looks.js";
 import type { SpaceSummary } from "../web-local/src/types.js";
 
 const space: SpaceSummary = {
@@ -141,23 +140,6 @@ test("guided palettes resolve extreme and arbitrary user colors in both modes", 
     assert.equal(resolved.passes, true, `${color} must produce a passing guided palette`);
     for (const palette of [resolved.light, resolved.dark]) {
       assert.equal(palette.audit.find((entry) => entry.role === "onSolidMuted")?.passes, true);
-    }
-  }
-});
-
-test("curated Looks are distinct one-click combinations that pass every audited role", () => {
-  assert.equal(spaceLookOptions.length, 8);
-  assert.equal(new Set(spaceLookOptions.map((look) => look.name)).size, spaceLookOptions.length);
-  assert.equal(new Set(spaceLookOptions.map((look) => `${look.primary}:${look.secondary}:${look.bannerName}`)).size, spaceLookOptions.length);
-  for (const look of spaceLookOptions) {
-    const resolved = resolveSpaceAppearance({
-      primary: accentIdentityFromHex(look.primary),
-      secondary: accentIdentityFromHex(look.secondary),
-      bannerName: look.bannerName,
-    });
-    assert.equal(resolved.passes, true, `${look.name} must pass both modes`);
-    for (const palette of [resolved.light, resolved.dark]) {
-      assert.deepEqual(palette.audit.filter((entry) => !entry.passes), []);
     }
   }
 });

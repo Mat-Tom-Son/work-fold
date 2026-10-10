@@ -4,11 +4,6 @@ export function spaceHeaderSourceBadgeLabel(space: SpaceSummary): string {
   if (space.location.providerHint === "google-drive") return "Google Drive";
   return space.location.storage === "linked" ? "Linked folder" : "On this computer";
 }
-
-export function slugId(value: string): string {
-  return surfaceDomIdSuffix(value.trim().toLowerCase().replace(/\s+/g, "-"));
-}
-
 export function surfaceDomIdSuffix(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, (character) => `-${character.charCodeAt(0).toString(16)}-`);
 }
@@ -52,11 +47,6 @@ export function removeSpaceConfirmText(
   }
   return consequences.length ? `${folderOutcome} ${consequences.join(" ")}` : folderOutcome;
 }
-
-export function removeWorkFoldActionLabel(space: SpaceSummary): string {
-  return space.location.storage === "linked" ? `Remove ${space.name}` : `Delete ${space.name}`;
-}
-
 function formatRemovalCount(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }

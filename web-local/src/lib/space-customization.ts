@@ -1,10 +1,9 @@
 import {
-  hasSpaceAppearanceCustomization,
   normalizeSpaceAppearanceBannerImage,
   normalizeSpaceAppearanceCustomizations,
 } from "../../../src/shared/space-appearance";
 import { defaultSpaceBannerName, spaceBannerOptions } from "../constants";
-import type { SpaceBannerImagePosition, SpaceBannerOption, SpaceCustomization, SpaceCustomizationMap } from "../types";
+import type { SpaceBannerImagePosition, SpaceBannerOption, SpaceCustomizationMap } from "../types";
 
 export function spaceBannerOptionFor(bannerName: string | null | undefined): SpaceBannerOption {
   const normalized = bannerName?.trim().toLowerCase();
@@ -31,8 +30,4 @@ export function normalizeSpaceCustomizations(
     allowedIconNames,
     allowedBannerNames: new Set(spaceBannerOptions.map((option) => option.name)),
   });
-}
-
-export function hasSpaceCustomization(customization: SpaceCustomization | null | undefined): boolean {
-  return hasSpaceAppearanceCustomization(customization);
 }

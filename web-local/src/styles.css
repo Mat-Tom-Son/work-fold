@@ -8667,8 +8667,6 @@ to {
 }
 }
 
-/* Kit capability discoverability: "What you can ask for" on library cards */
-
 /* Space product shell additions. These extend the transplanted desktop
    system without changing its established pane, tab, tree, and chat geometry. */
 
@@ -8687,14 +8685,6 @@ to {
 
 .about-work-fold-brand {
   margin-bottom: 18px;
-}
-
-.about-work-fold-brand .work-fold-mark-shell {
-  width: 62px;
-  height: 62px;
-  flex-basis: 62px;
-  padding: 9px;
-  border-radius: 17px;
 }
 
 .about-work-fold-brand {
@@ -11177,8 +11167,6 @@ textarea:focus-visible,
 .professional-chats .chat-space-heading .ui-control--icon:focus-visible {
   opacity: 1;
 }
-
-/* Library */
 
 /* History */
 

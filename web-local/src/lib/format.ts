@@ -1,5 +1,5 @@
 import { chatDraftKeyPrefix, chatDraftMaxStoredChars, chatDraftNewConversationId, untitledChatLabel } from "../constants";
-import type { ChangeEntry, ChangeKindCounts, ChatMessage } from "../types";
+import type { ChatMessage } from "../types";
 import { conversationTitleFromFirstUserMessage } from "../../../src/shared/chat-title";
 import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./storage";
 
@@ -95,17 +95,6 @@ function normalizePendingChatSend(value: unknown): StoredPendingChatSend | null 
       : {}),
   };
 }
-
-export function compactUrlLabel(value: string): string {
-  try {
-    const url = new URL(value);
-    const path = url.pathname === "/" ? "" : url.pathname;
-    return `${url.hostname}${path}`;
-  } catch {
-    return value;
-  }
-}
-
 export function formatTimeAgo(value: string): string {
   const relative = formatChatListTime(value);
   return relative === "now" ? "Just now" : `${relative} ago`;
@@ -147,41 +136,9 @@ export function latestTranscriptTime(messages: ChatMessage[]): string | null {
     if (message.role !== "system" && message.createdAt) return message.createdAt;
   }
   return null;
-}
-
-export function countChangeKinds(changes: ChangeEntry[]): ChangeKindCounts {
-  return changes.reduce<ChangeKindCounts>(
-    (counts, change) => {
-      counts[change.kind] += 1;
-      return counts;
-    },
-    { created: 0, modified: 0, deleted: 0, remote_deleted: 0 },
-  );
-}
-
-export function changeKindSummaryText(counts: ChangeKindCounts): string {
-  const parts = [
-    counts.created ? formatItemCount(counts.created, "new file", "new files") : null,
-    counts.modified ? formatItemCount(counts.modified, "modified file", "modified files") : null,
-    counts.deleted ? formatItemCount(counts.deleted, "local deletion") : null,
-    counts.remote_deleted ? formatItemCount(counts.remote_deleted, "deleted outside Space") : null,
-  ].filter((part): part is string => Boolean(part));
-  return parts.length ? parts.join(" / ") : "No pending updates";
-}
-
-export function formatItemCount(count: number, singular: string, plural = `${singular}s`): string {
+}export function formatItemCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
-
-export function formatActivityLogTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
 export function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -205,11 +162,6 @@ export function formatChatListTime(value: string): string {
   if (elapsedMs < 8 * 7 * dayMs) return `${Math.floor(elapsedMs / (7 * dayMs))}w`;
   return `${Math.max(1, Math.floor(elapsedMs / (30 * dayMs)))}mo`;
 }
-
-export function compactNumber(value: number): string {
-  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
-}
-
 export function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;

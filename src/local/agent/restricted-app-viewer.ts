@@ -36,9 +36,6 @@ export type RestrictedAppViewerCall =
   | { kind: "asset"; path: string }
   | { kind: "data.keys"; prefix?: string }
   | { kind: "data.get"; key: string };
-
-export const RESTRICTED_APP_VIEWER_CALL_KINDS = ["entry", "asset", "data.keys", "data.get"] as const;
-
 /**
  * Broker families that exist for the person's own use of an installed app and
  * are never viewer-reachable. Named so refusals can say what was asked for

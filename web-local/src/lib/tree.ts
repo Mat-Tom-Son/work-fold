@@ -200,11 +200,6 @@ export function retargetMovedPath(path: string | null, sourcePath: string, moved
   if (path.startsWith(`${sourcePath}/`)) return `${movedPath}${path.slice(sourcePath.length)}`;
   return path;
 }
-
-export function retargetMovedPathSet(paths: Set<string>, sourcePath: string, movedPath: string): Set<string> {
-  return new Set([...paths].map((path) => retargetMovedPath(path, sourcePath, movedPath) ?? path));
-}
-
 export function canMoveSpacePath(sourcePath: string, targetFolderPath: string): boolean {
   if (!sourcePath) return false;
   if (sourcePath === targetFolderPath || targetFolderPath.startsWith(`${sourcePath}/`)) return false;
@@ -227,16 +222,6 @@ export function isInsideFolder(path: string, folderPath: string | null): boolean
   if (folderPath === "") return true;
   return path !== folderPath && path.startsWith(`${folderPath}/`);
 }
-
-export function ancestorFolderPaths(path: string): string[] {
-  const parts = path.split("/").filter(Boolean);
-  const ancestors: string[] = [];
-  for (let index = 1; index < parts.length; index += 1) {
-    ancestors.push(parts.slice(0, index).join("/"));
-  }
-  return ancestors;
-}
-
 export function collectFolderPaths(entries: TreeEntry[]): string[] {
   const paths: string[] = [];
   for (const entry of entries) {

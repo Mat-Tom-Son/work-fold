@@ -28,15 +28,6 @@
   --work-fold-brand-shadow: 0 10px 28px rgba(0, 0, 0, 0.34), 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
-.work-fold-mark {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  -webkit-user-drag: none;
-  user-select: none;
-}
-
 /* Lockups are the provided horizontal artwork as one image; the knob sizes
    the cube (which spans the art's full height), so per-context overrides set
    a single custom property. Black carries light themes, white carries dark. */

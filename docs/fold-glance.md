@@ -196,8 +196,8 @@ per-grant marker isolation. Viewers never receive the glance.
 
 **Not the main window.** The compact "Since you last looked" panel that hung off
 the Folder header was removed (2026-09-23). The main window neither requests nor
-acknowledges the glance; the server routes, the seen-marker store, and the
-shared `GlanceSection` renderer remain.
+acknowledges the glance; the server routes and the seen-marker store remain.
+The unmounted popover `GlanceSection` renderer was deleted on 2026-10-10.
 
 ## Narration on demand
 
@@ -253,7 +253,7 @@ The plan items shipped as follows:
 4. Local API routes (`/api/management/glance`, `/glance/seen`, served without management readiness) — `src/local/server.ts`; `tests/work-fold-management-api.test.ts`, `tests/local-server.test.ts`.
 5. CLI act command (`manage glance`) — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-commands.test.ts` (read-lane guard).
 6. Management-instruction narration teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.
-7. Shared renderer — `web-local/src/popover/GlanceSection.tsx`; the popover no longer mounts it, while `tests/management-popover-refresh.test.ts` pins that boundary.
+7. Shared renderer — removed; `web-local/src/popover/GlanceSection.tsx` was unmounted on 2026-09-23 and deleted on 2026-10-10, and `tests/management-popover-refresh.test.ts` pins its absence.
 8. Remote surface — `src/local/remote-management.ts`, `desktop/src/remote-access.ts`, `services/bridge/`; `tests/desktop-remote-access.test.ts`, `tests/work-fold-remote-management.test.ts`, the bridge suite.
 9. Main-window panel — shipped, then removed on 2026-09-23; `tests/frontend-interaction-contract.test.ts` pins its absence.
 10. Documentation promotion — recorded in [Fold integration](fold-integration.md).

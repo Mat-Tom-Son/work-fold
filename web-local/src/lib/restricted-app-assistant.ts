@@ -1,4 +1,4 @@
-import { restrictedAppAssistantLimits, type RestrictedAppAssistantTask, type RestrictedAppResultOutcome } from "../../../src/shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits, type RestrictedAppAssistantTask } from "../../../src/shared/restricted-app-tasks.js";
 
 /** Person-facing status of one app-requested Assistant task. */
 export function restrictedAppAssistantTaskStatusLabel(
@@ -42,22 +42,6 @@ export function restrictedAppAssistantTaskCanStop(
 ): boolean {
   return (task.status === "running" || task.status === "dispatching" || task.status === "waiting") && !task.cancellationRequested;
 }
-
-/**
- * The badge beside the status when the Assistant said the work did not fully
- * land. A result that succeeded needs no extra word; the status already says
- * Done.
- */
-export function restrictedAppAssistantResultOutcomeLabel(
-  outcome: RestrictedAppResultOutcome,
-): string | null {
-  switch (outcome) {
-    case "succeeded": return null;
-    case "partial": return "Partial";
-    case "failed": return "Did not finish";
-  }
-}
-
 /**
  * A trimmed result names its fixed bound and the Settings row showing it.
  *

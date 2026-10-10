@@ -50,7 +50,6 @@ test("the canonical brand sources are the designer icon pack and lockups", async
   assert.match(generator, /WorkFoldTemplate-source\.png/);
   assert.match(bridgeGenerator, /favicon-32x32\.png/);
   assert.match(bridgeGenerator, /lockup-horizontal-black/);
-  assert.match(bridgeGenerator, /work-fold-icon-512\.png/);
 
   // Neither redrawn marks nor the pre-pack raster cuts may linger as second
   // sources of truth.
@@ -135,7 +134,6 @@ test("the web surfaces ship the same pack exports", async () => {
     const metadata = await sharp(bridgeAsset(`brand-lockup-${tone}.png`)).metadata();
     assert.equal(metadata.height, 192, `the ${tone} lockup ships at the shared 192px height`);
   }
-  await assertBytesEqual(rendererAsset("work-fold-mark.png"), packAsset("png/transparent/work-fold-icon-512.png"), "the renderer mark must be the pack export exactly");
 
   const og = await sharp(bridgeAsset("og-image.png")).metadata();
   assert.equal(og.width, 1200);
@@ -191,7 +189,6 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
   // stitched or redrawn.
   assert.match(brand, /work-fold-lockup-black\.png/);
   assert.match(brand, /work-fold-lockup-white\.png/);
-  assert.match(brand, /work-fold-mark\.png/);
   assert.match(brand, /data-animated=/);
   assert.doesNotMatch(brand, /wordmark|mark-shell|flat/i);
   assert.match(brandCss, /\.work-fold-lockup-art-white/);

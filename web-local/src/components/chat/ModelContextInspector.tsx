@@ -21,13 +21,6 @@ export function ModelContextInspector(props: InspectorProps) {
   }, [props.onClose]);
   return <ContextInspector key={JSON.stringify([props.spaceId ?? null, props.conversationId ?? null, props.fixtureMode ?? false])} {...props} onClose={onClose} />;
 }
-
-export function InspectContextButton({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
-  return <button className={`inspect-context-trigger${compact ? " compact" : ""}`} type="button" onClick={onClick} aria-label="Inspect context" title="Inspect model context">
-    <Braces size={14} aria-hidden="true" />{compact ? null : <span>Inspect context</span>}
-  </button>;
-}
-
 function ContextInspector({ spaceId, conversationId, scopeLabel = "All model requests on this desktop", fixtureMode = false, onClose }: InspectorProps) {
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);

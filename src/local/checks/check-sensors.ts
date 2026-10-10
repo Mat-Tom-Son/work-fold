@@ -99,7 +99,3 @@ export function resolveWorkFoldCheckSensor(id: string, revision: number): WorkFo
   const sensor = builtinSensors.get(id) ?? null;
   return sensor?.revision === revision ? sensor : null;
 }
-
-export function listWorkFoldCheckSensors(): Array<Pick<WorkFoldCheckSensor, "id" | "revision" | "execution" | "implementationDigest">> {
-  return [...builtinSensors.values()].map(({ id, revision, execution, implementationDigest }) => ({ id, revision, execution, implementationDigest }));
-}

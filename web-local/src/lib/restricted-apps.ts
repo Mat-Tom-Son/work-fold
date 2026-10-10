@@ -4,13 +4,11 @@ import type {
   RestrictedAppConnectionStatus,
   RestrictedAppCredential,
   RestrictedAppInstalled,
-  RestrictedAppProposal,
   RestrictedAppReview,
   RestrictedAppStorageUsage,
   RestrictedAppDataRecovery,
   LocalAppInstallOperation,
   LocalAppInstance,
-  LocalAppOperation,
   LocalAppPresentation,
   LocalAppProject,
   LocalAppRelease,
@@ -153,11 +151,6 @@ export async function uninstallLocalApp(
 export async function purgeLocalAppRetainedData(spaceId: string, retainedDataId: string): Promise<{ purged: boolean; cleanupPending: boolean }> {
   return api(`${studioPath(spaceId)}/retained-data/${encodeURIComponent(retainedDataId)}`, { method: "DELETE" });
 }
-
-export async function listRestrictedAppProposals(spaceId: string, conversationId: string): Promise<RestrictedAppProposal[]> {
-  return (await api<{ proposals: RestrictedAppProposal[] }>(proposalPath(spaceId, conversationId))).proposals;
-}
-
 export async function installRestrictedAppProposal(spaceId: string, conversationId: string, proposalId: string): Promise<RestrictedAppInstalled> {
   return (await api<{ app: RestrictedAppInstalled }>(`${proposalPath(spaceId, conversationId, proposalId)}/install`, { method: "POST" })).app;
 }

@@ -2016,10 +2016,6 @@ async function settleWithin(operation: Promise<unknown>, timeoutMs: number): Pro
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
-
-export const piSdkVersion = PI_SDK_VERSION;
-
-
 const normalizedProviderStreams = new WeakSet<object>();
 
 /** Native Pi still classifies an unknown OpenAI finish_reason as a generic error. */

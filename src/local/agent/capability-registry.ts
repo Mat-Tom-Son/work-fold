@@ -553,11 +553,6 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
   }
   return bytes;
 }
-
-export function createCapabilityRegistry(options: CapabilityRegistryOptions = {}): CapabilityRegistryService {
-  return new RemoteCapabilityRegistry(options);
-}
-
 class PromiseCache {
   readonly #entries = new Map<string, { expiresAt: number; value: Promise<unknown> }>();
 

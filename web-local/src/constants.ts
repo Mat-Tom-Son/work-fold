@@ -1,5 +1,5 @@
 import { maxSpaceAppearanceBannerImageDataUrlLength, spaceAppearanceBannerNames } from "../../src/shared/space-appearance";
-import type { AppTextSize, AppTypographyFont, AppTypographyPreference, CommandPaletteGroupId, SpaceBannerOption } from "./types";
+import type { AppTypographyFont, CommandPaletteGroupId, SpaceBannerOption } from "./types";
 
 export const productName = "work-fold";
 export const assistantName = "Assistant";
@@ -14,8 +14,6 @@ export const desktopTitleBarMenus = [
 export const spaceFileRefreshDelayMs = 160;
 export const loadedTreeRefreshConcurrency = 4;
 export const spacePathDragType = "application/x-work-fold-space-path";
-export const themePreferenceKey = "work-fold.theme";
-export const typographyPreferenceKey = "work-fold.typography.v1";
 export const spaceSidebarWidthPreferenceKey = "work-fold.space.sidebar-width";
 export const spaceSidebarPreferredMinWidth = 280;
 export const spaceSidebarPreferredMaxWidth = 640;
@@ -29,10 +27,6 @@ export const chatDraftDebounceMs = 300;
 export const chatDraftMaxStoredChars = 20_000;
 export const apiGetRetryDelaysMs = [500, 1_500, 3_500] as const;
 export const eventStreamReconnectDelaysMs = [250, 750, 1_500, 3_000, 5_000] as const;
-export const localDeleteUndoDurationMs = 6_000;
-export const defaultTypographyPreference: AppTypographyPreference = { font: "default", textSize: "standard" };
-export const typographyFontValues: AppTypographyFont[] = ["default", "stable", "verdana", "aptos"];
-export const textSizeValues: AppTextSize[] = ["compact", "standard", "comfortable"];
 export const typographyFontOptions: Array<{ value: AppTypographyFont; label: string; detail: string }> = [
   { value: "default", label: "Default", detail: "Inter" },
   { value: "stable", label: "Segoe UI", detail: "Non-variable" },
@@ -43,11 +37,6 @@ export function typographyFontOptionsForPlatform(platform: NodeJS.Platform | und
   if (platform !== "darwin") return typographyFontOptions;
   return typographyFontOptions.filter((option) => option.value !== "stable");
 }
-export const textSizeOptions: Array<{ value: AppTextSize; label: string; detail: string }> = [
-  { value: "compact", label: "Compact", detail: "14 px" },
-  { value: "standard", label: "Standard", detail: "15 px" },
-  { value: "comfortable", label: "Comfortable", detail: "16 px" },
-];
 export const untitledChatLabel = "Untitled chat";
 export const commandPaletteGroupOrder: CommandPaletteGroupId[] = ["go-to", "switch-space", "chats", "files", "actions"];
 export const commandPaletteGroupCap = 8;

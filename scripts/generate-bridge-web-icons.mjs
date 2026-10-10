@@ -51,9 +51,6 @@ for (const tone of ["black", "white"]) {
   await writeFile(join(rendererBrandDir, `work-fold-lockup-${tone}.png`), lockup);
 }
 
-// The desktop renderer bundles the bare cube for mark-only placements.
-await copyFile(join(packDir, "png/transparent/work-fold-icon-512.png"), join(rendererBrandDir, "work-fold-mark.png"));
-
 // Link previews: the black lockup centered on the paper field.
 const ogLockup = await sharp(join(brandDir, "lockup-horizontal-black.png")).resize({ width: 940 }).png().toBuffer();
 const ogLockupHeight = (await sharp(ogLockup).metadata()).height;

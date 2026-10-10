@@ -155,16 +155,6 @@ function sha256File(path: string): Promise<string> {
     stream.on("end", () => resolvePromise(hash.digest("hex")));
   });
 }
-
-export async function captureSpaceBlobSafe(spaceRoot: string, bytes: Buffer): Promise<StoredBlobRef | null> {
-  if (bytes.byteLength > maxVersionedFileBytes()) return null;
-  try {
-    return await storeSpaceBlob(spaceRoot, bytes);
-  } catch {
-    return null;
-  }
-}
-
 export async function readSpaceBlob(spaceRoot: string, hashSha256: string): Promise<Buffer | null> {
   const root = ensureHistoryRoot(spaceRoot);
   const normalized = normalizeHash(hashSha256);

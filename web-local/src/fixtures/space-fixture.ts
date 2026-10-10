@@ -10,7 +10,6 @@ export interface SpaceUiFixture {
   conversations: Record<string, SpaceFixtureConversation[]>;
   checkpoints: Record<string, SpaceCheckpoint[]>;
   surfaces: Record<string, AgentExtensionSurface[]>;
-  library: TreeEntry[];
   agent: AgentStatus;
 }
 
@@ -104,7 +103,6 @@ export function buildSpaceFixture(): SpaceUiFixture {
       }],
       [trip.id]: [],
     },
-    library: [{ name: "Templates", path: "Templates", kind: "folder", hasChildren: true, children: [{ name: "comparison-table.docx", path: "Templates/comparison-table.docx", kind: "file", sizeBytes: 18600, updatedAt: now }] }, { name: "packing-list.md", path: "packing-list.md", kind: "file", sizeBytes: 1240, updatedAt: now }],
   };
 }
 

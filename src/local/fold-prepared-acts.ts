@@ -199,10 +199,6 @@ const KIND_DESCRIPTORS = {
 export type FoldPreparedActKind = keyof typeof KIND_DESCRIPTORS;
 
 export const FOLD_PREPARED_ACT_KINDS = Object.keys(KIND_DESCRIPTORS) as readonly FoldPreparedActKind[];
-
-export const FOLD_PREPARED_ACT_KIND_DESCRIPTORS: Readonly<Record<FoldPreparedActKind, FoldPreparedActKindDescriptor>> =
-  KIND_DESCRIPTORS;
-
 /** One prepared act: validated, cloned, and frozen typed fields for a known kind. */
 export interface FoldPreparedAct {
   kind: FoldPreparedActKind;
