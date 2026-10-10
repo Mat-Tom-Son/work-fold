@@ -1167,7 +1167,7 @@ function addStagedValue(value: string, setStaged: React.Dispatch<React.SetStateA
     : trimmed.split(/[\\/]/).filter(Boolean).at(-1) ?? trimmed;
   setStaged((current) => {
     if (current.some((item) => item.value === trimmed)) return current;
-    if (current.length >= 16) return current;
+    if (current.length >= 1_000) return current;
     return [...current, { value: trimmed, label, isLink }];
   });
 }

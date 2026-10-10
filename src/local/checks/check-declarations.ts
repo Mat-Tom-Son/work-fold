@@ -13,8 +13,8 @@ import {
 import { spaceCheckDeclarationDir } from "../state-paths.js";
 import { workFoldCheckDigest } from "./check-integrity.js";
 
-const maximumDeclarationBytes = 256 * 1024;
-const maximumDeclarations = 256;
+const maximumDeclarationBytes = 4 * 1024 * 1024;
+const maximumDeclarations = 10_000;
 const maximumDirectoryEntries = 4_096;
 
 export interface WorkFoldCheckDeclarationRecord {

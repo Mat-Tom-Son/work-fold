@@ -4,8 +4,8 @@ import { dirname, join, resolve } from "node:path";
 
 import type { PiPreferredModel } from "./pi-runtime-config.js";
 
-// Keep one instructions value below the act broker's 8 KiB per-argument cap.
-export const maximumAssistantInstructionsLength = 8_000;
+/** Instructions ride every turn's system prompt; this only guards against a runaway value. */
+export const maximumAssistantInstructionsLength = 1024 * 1024;
 
 interface AssistantPreferencesEntry {
   model?: PiPreferredModel;

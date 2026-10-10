@@ -10,6 +10,7 @@ import {
 } from "../src/local/glance.js";
 import {
   normalizeWorkFoldRoutingDeclaration,
+  workFoldRoutingBounds,
   workFoldRoutingDigest,
 } from "../src/local/routings/routing-declarations.js";
 import {
@@ -277,7 +278,7 @@ test("the cadence anchor persists for enabled interval routings only", async (t)
   );
 });
 
-test("one-time enablement rechecks the 1-minute to 366-day horizon and a durable claim completes exactly one occurrence", async (t) => {
+test("one-time enablement rechecks its admission horizon and a durable claim completes exactly one occurrence", async (t) => {
   const { sandbox, receipts, store, statePath, journalPath } = await createSandbox("work-fold-routing-store-at-");
   t.after(() => rm(sandbox, { recursive: true, force: true }));
   const atDeclaration = (id: string, at: string) => declarationInput(id, {
@@ -286,12 +287,12 @@ test("one-time enablement rechecks the 1-minute to 366-day horizon and a durable
   });
 
   await assert.rejects(
-    () => store.enable(enableInput(atDeclaration("routing-at-too-soon", "2026-08-10T17:00:59.999Z"), "decision-too-soon")),
-    /between 1 minute and 366 days/,
+    () => store.enable(enableInput(atDeclaration("routing-at-too-soon", new Date(fixedNow.getTime() + workFoldRoutingBounds.minAtAdvanceMs - 1).toISOString()), "decision-too-soon")),
+    /in the future, and at most ten years ahead/,
   );
   await assert.rejects(
-    () => store.enable(enableInput(atDeclaration("routing-at-too-far", "2027-08-11T17:00:00.001Z"), "decision-too-far")),
-    /between 1 minute and 366 days/,
+    () => store.enable(enableInput(atDeclaration("routing-at-too-far", new Date(fixedNow.getTime() + workFoldRoutingBounds.maxAtAdvanceMs + 1).toISOString()), "decision-too-far")),
+    /in the future, and at most ten years ahead/,
   );
 
   const enabled = await store.enable(enableInput(

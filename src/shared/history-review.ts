@@ -7,12 +7,17 @@ export interface HistoryReviewLimits {
   maxDiffCells: number;
 }
 
+/**
+ * Reads page through larger files, so the file bound is a page size. The diff
+ * table costs four bytes per cell; the cell bound keeps one diff near 64 MB
+ * of memory, after the common prefix and suffix are trimmed away.
+ */
 export const HISTORY_REVIEW_LIMITS: Readonly<HistoryReviewLimits> = Object.freeze({
-  maxFileBytes: 128 * 1024,
-  maxDiffBytes: 64 * 1024,
-  maxDiffLines: 2_000,
-  maxLineCharacters: 4_096,
-  maxDiffCells: 1_000_000,
+  maxFileBytes: 4 * 1024 * 1024,
+  maxDiffBytes: 4 * 1024 * 1024,
+  maxDiffLines: 200_000,
+  maxLineCharacters: 64 * 1024,
+  maxDiffCells: 16_000_000,
 });
 
 export type HistoryFileStatus = "text" | "binary" | "too_large" | "absent" | "uncaptured" | "unavailable";

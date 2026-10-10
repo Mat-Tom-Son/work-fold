@@ -10,6 +10,7 @@ import {
   type WorkFoldAutomationJobKey,
   type WorkFoldAutomationRunContext,
 } from "../src/local/agent/work-fold-automation-service.js";
+import { workFoldAutomationDefaultConcurrency } from "../src/shared/fold-limits.js";
 
 const startTime = Date.parse("2026-07-14T12:00:00.000Z");
 const minute = 60_000;
@@ -22,12 +23,13 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve: resolvePromise };
 }
 
-test("WorkFoldAutomationService defaults to four machine-wide execution slots", async () => {
+test("WorkFoldAutomationService defaults to the published machine-wide execution slots", async () => {
   const clock = new FakeClock(startTime);
   const starts: string[] = [];
   const releases: Array<() => void> = [];
   const service = new WorkFoldAutomationService({ clock, createRunId: runIds().next });
-  const keys = ["a", "b", "c", "d", "e"].map((space) => key(`space-${space}/app`, "job"));
+  const slots = workFoldAutomationDefaultConcurrency;
+  const keys = Array.from({ length: slots + 1 }, (_, index) => key(`space-${index}/app`, "job"));
   for (const automation of keys) {
     service.register(job(automation, async () => {
       starts.push(automation.ownerId);
@@ -36,15 +38,15 @@ test("WorkFoldAutomationService defaults to four machine-wide execution slots", 
   }
 
   const runs = keys.map((automation) => service.runNow(automation));
-  assert.deepEqual(starts, ["space-a/app", "space-b/app", "space-c/app", "space-d/app"]);
-  assert.equal(service.activeCount, 4);
+  assert.deepEqual(starts, keys.slice(0, slots).map((automation) => automation.ownerId));
+  assert.equal(service.activeCount, slots);
   assert.equal(service.pendingCount, 1);
   releases.shift()?.();
   await flushTasks();
-  assert.deepEqual(starts, ["space-a/app", "space-b/app", "space-c/app", "space-d/app", "space-e/app"]);
+  assert.deepEqual(starts, keys.map((automation) => automation.ownerId));
   releases.splice(0).forEach((release) => release());
   await flushTasks();
-  assert.deepEqual((await Promise.all(runs)).map(({ outcome }) => outcome), ["success", "success", "success", "success", "success"]);
+  assert.deepEqual((await Promise.all(runs)).map(({ outcome }) => outcome), keys.map(() => "success"));
   service.close();
 });
 

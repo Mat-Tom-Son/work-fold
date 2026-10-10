@@ -34,6 +34,13 @@ const [settingsSource, paneSource, tasksSource, inferenceSource] = await Promise
   readFile(new URL("../src/local/agent/restricted-app-inference.ts", import.meta.url), "utf8"),
 ]);
 
+/** The pane's own rendering: KB below one MB, MB from there. */
+function sizeText(bytes: number): string {
+  const kibibytes = bytes / 1024;
+  const value = kibibytes >= 1024 ? kibibytes / 1024 : kibibytes;
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} ${kibibytes >= 1024 ? "MB" : "KB"}`;
+}
+
 test("the surface every limit message names is a real fold Settings section", () => {
   // The phrase the refusals interpolate.
   for (const [label, source] of [["tasks", tasksSource], ["inference", inferenceSource]] as const) {
@@ -79,13 +86,13 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   const text = dom.container.textContent ?? "";
 
   assert.doesNotMatch(text, /How long one request stays open|Steps in one automation|Follow-up turns after work settles|Worker turns running together/);
-  assert.ok(text.includes(`${restrictedAppAssistantLimits.inputBytes / 1024} KB`), "the 64 KB Chat request input bound is shown");
-  assert.ok(text.includes(`${restrictedAppAssistantLimits.resultBytes / 1024} KB`), "the 256 KB Chat result bound is shown");
+  assert.ok(text.includes(`${sizeText(restrictedAppAssistantLimits.inputBytes)}`), "the Chat request input bound is shown");
+  assert.ok(text.includes(`${sizeText(restrictedAppAssistantLimits.resultBytes)}`), "the Chat result bound is shown");
   assert.ok(
     text.includes(`Chat requests running per app${restrictedAppAssistantLimits.runningPerInstallation}`),
-    "the four-running-per-app bound is shown",
+    "the running-per-app bound is shown",
   );
-  assert.ok(text.includes(`${restrictedAppInferenceLimits.instructionsBytes / 1024} KB`), "the short-answer instruction bound is shown");
+  assert.ok(text.includes(`${sizeText(restrictedAppInferenceLimits.instructionsBytes)}`), "the short-answer instruction bound is shown");
   assert.ok(
     text.includes(`Short answers running on this computer${restrictedAppInferenceLimits.runningMachineWide}`),
     "the machine-wide inference bound is shown",
@@ -98,10 +105,10 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
 
   // The request bounds every collaboration refusal names (docs/collaboration-contract.md).
   assert.ok(text.includes("Model spending for one requestNo limit"), "no spending cap is shipped");
-  assert.ok(text.includes(`A result summary${workFoldRequestLimits.maxResultSummaryBytes / 1024} KB`), "the summary bound is shown");
-  assert.ok(text.includes(`Result Details${workFoldRequestLimits.maxResultDataBytes / 1024} KB`), "the data bound is shown");
+  assert.ok(text.includes(`A result summary${sizeText(workFoldRequestLimits.maxResultSummaryBytes)}`), "the summary bound is shown");
+  assert.ok(text.includes(`Result Details${sizeText(workFoldRequestLimits.maxResultDataBytes)}`), "the data bound is shown");
   assert.ok(text.includes(`Pending Extension questions per Chat${workFoldExtensionUiLimits.pendingPerChat}`));
-  assert.ok(text.includes(`An Extension answer or editor text${workFoldExtensionUiLimits.answerBytes / 1024} KB`));
+  assert.ok(text.includes(`An Extension answer or editor text${sizeText(workFoldExtensionUiLimits.answerBytes)}`));
 });
 
 /**
@@ -116,13 +123,12 @@ test("current request transport bounds and the optional budget have rows in Limi
   const text = dom.container.textContent ?? "";
 
   const limits = workFoldRequestLimits;
-  const kb = (bytes: number): string => `${bytes / 1024} KB`;
   const rows: Partial<Record<WorkFoldRequestLimitName, string>> = {
     providerBudget: "Model spending for one requestNo limit",
-    questionText: `A question an agent asks${kb(limits.maxQuestionTextBytes)}`,
-    answerText: `An answer you give${kb(limits.maxAnswerTextBytes)}`,
-    resultSummary: `A result summary${kb(limits.maxResultSummaryBytes)}`,
-    resultData: `Result Details${kb(limits.maxResultDataBytes)}`,
+    questionText: `A question an agent asks${sizeText(limits.maxQuestionTextBytes)}`,
+    answerText: `An answer you give${sizeText(limits.maxAnswerTextBytes)}`,
+    resultSummary: `A result summary${sizeText(limits.maxResultSummaryBytes)}`,
+    resultData: `Result Details${sizeText(limits.maxResultDataBytes)}`,
   };
 
   for (const [name, row] of Object.entries(rows) as Array<[WorkFoldRequestLimitName, string]>) {

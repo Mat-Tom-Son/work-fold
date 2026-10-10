@@ -31,12 +31,12 @@ import {
  */
 export const WORKFOLD_ROUTING_STORE_SCHEMA_VERSION = 3;
 
-export const WORKFOLD_ROUTING_RECEIPTS_MAX_BYTES = 1024 * 1024;
+export const WORKFOLD_ROUTING_RECEIPTS_MAX_BYTES = 16 * 1024 * 1024;
 
 /** Bounded per-routing enablement history; every re-enablement with a changed declaration is a fresh receipt. */
 export const WORKFOLD_ROUTING_GRANT_HISTORY_LIMIT = 16;
 
-const maximumStateBytes = 8 * 1024 * 1024;
+const maximumStateBytes = 512 * 1024 * 1024;
 const maximumTextLength = 2_000;
 const forbiddenTextPattern = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
 const scrubReplacePattern = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;

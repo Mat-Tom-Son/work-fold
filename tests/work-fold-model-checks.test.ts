@@ -7,8 +7,8 @@ import test, { type TestContext } from "node:test";
 import { WorkFoldCheckService } from "../src/local/checks/check-service.js";
 import { WorkFoldCheckStore } from "../src/local/checks/check-store.js";
 import { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
-import { readCheckTextSnapshot } from "../src/local/checks/check-text.js";
-import type { WorkFoldModelCheckReviewer } from "../src/local/checks/model-review-sensor.js";
+import { modelCheckLimits, readCheckTextSnapshot } from "../src/local/checks/check-text.js";
+import { modelReviewTextLimits, type WorkFoldModelCheckReviewer } from "../src/local/checks/model-review-sensor.js";
 
 const finding = { path: "draft.md", quote: "Always guaranteed.", title: "An absolute promise", detail: "This promise goes beyond the qualified reference.", remediation: "Qualify the claim." };
 async function fixture(t: TestContext, reviewer: WorkFoldModelCheckReviewer) {
@@ -96,7 +96,7 @@ for (const [label, invalid, diagnostic] of [
   ["missing path", { quote: finding.quote, title: finding.title, detail: finding.detail }, /path is missing/],
   ["extra field", { ...finding, "PRIVATE MODEL TEXT": "PRIVATE MODEL TEXT" }, /unexpected field/],
   ["blank title", { ...finding, title: "   " }, /title is empty/],
-  ["overlong title", { ...finding, title: "X".repeat(301) }, /title exceeds 300/],
+  ["overlong title", { ...finding, title: "X".repeat(modelReviewTextLimits.title + 1) }, new RegExp(`title exceeds ${modelReviewTextLimits.title}`)],
   ["multiline detail", { ...finding, detail: "PRIVATE MODEL TEXT\nAnother paragraph" }, /detail must be one plain-text paragraph/],
   ["non-object", "PRIVATE MODEL TEXT", /expected an object/],
 ] as const) test(`model Check explains ${label} without exposing model content or admitting partial findings`, async (t) => {
@@ -135,7 +135,7 @@ test("model Check rejects ambiguous quotes and files changed during an otherwise
 
 test("model text input fails closed for binary, oversize, linked and aborted reads", async (t) => {
   const f = await fixture(t, async () => ({ submission: { findings: [] } }));
-  for (const bytes of [Buffer.from([0xff]), Buffer.from([0]), Buffer.alloc(128 * 1024 + 1, 65)]) {
+  for (const bytes of [Buffer.from([0xff]), Buffer.from([0]), Buffer.alloc(modelCheckLimits.maximumFileBytes + 1, 65)]) {
     await writeFile(join(f.root, "draft.md"), bytes);
     await assert.rejects(readCheckTextSnapshot(f.root, "draft.md", ["primary"]));
   }
@@ -171,8 +171,9 @@ test("native model review transports only selected text and a submission tool, w
   assert.match(context.systemPrompt, /untrusted data/);
   const options = calls[0]?.[2] as Record<string, unknown>;
   assert.equal(options.signal, input.signal);
-  assert.equal(options.maxRetries, 0);
-  assert.equal(options.maxTokens, 6144);
+  assert.equal(options.maxRetries, 2, "a transient provider error gets retried");
+  assert.equal(options.maxTokens, model.maxTokens, "the review may use the model's whole output allowance");
+  assert.equal(options.timeoutMs, modelCheckLimits.timeoutMs);
   assert.equal("reasoning" in options, false);
 });
 

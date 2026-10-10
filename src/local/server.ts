@@ -906,18 +906,25 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const runtimeProvider = new RegisteredSpaceRuntimeProvider(extensionRuntimeProvider, spaceTrustAuthority);
   const kernel = options.kernel ?? new WorkFoldKernel({ runtimeProvider });
   const settleSignal = options.settleSignal ?? new WorkFoldSettleSignal();
-  let modelReviewQueue = Promise.resolve();
+  // Model reviews run side by side up to a provider-friendly ceiling; the rest wait their turn.
+  const maxConcurrentModelReviews = 8;
+  let activeModelReviews = 0;
+  const waitingModelReviews: Array<() => void> = [];
   const reviewCheck: LocalApiHandle["reviewCheck"] = async (request) => {
-    const previous = modelReviewQueue;
-    let release!: () => void;
-    modelReviewQueue = new Promise<void>((resolve) => { release = resolve; });
+    // A finishing review hands its slot straight to the next waiter, so the
+    // count never overshoots the ceiling.
+    if (activeModelReviews < maxConcurrentModelReviews) activeModelReviews += 1;
+    else await new Promise<void>((resolve) => { waitingModelReviews.push(resolve); });
     try {
-      await previous;
       request.signal.throwIfAborted();
       if (!state.acceptingTurns) throw new Error("The Check runtime is closing.");
       const client = await getClient(state, workFoldManagementScopeId, workFoldManagementRoot(), "check-review");
       return await client.reviewCheck(request);
-    } finally { release(); }
+    } finally {
+      const next = waitingModelReviews.shift();
+      if (next) next();
+      else activeModelReviews -= 1;
+    }
   };
   const checks = options.checkService ?? new WorkFoldCheckService({ kernel, settleSignal, reviewModel: reviewCheck });
   // The fold's one ledger: the same act-receipts journal the desktop CLI host
@@ -4906,8 +4913,6 @@ async function removeSpaceRegistrationInternal(
   }), { requiredSpaceIds: [space.id] });
 }
 
-const maxActAddSources = 25;
-
 /**
  * Dedicated remote semantic adapter. The desktop relay can invoke only these
  * bounded operations; it never receives the renderer session token or a
@@ -5665,8 +5670,8 @@ function remoteRequestMatches(
     && (candidate.remoteGrantId === undefined || candidate.remoteGrantId === principal.grantId);
 }
 
-const maxRemoteConversationSummaries = 100;
-const maxRemoteUploadFiles = 6;
+const maxRemoteConversationSummaries = 500;
+const maxRemoteUploadFiles = 64;
 const maxRemoteUploadFileBytes = 6 * 1024 * 1024;
 const maxRemoteUploadTotalBytes = 8 * 1024 * 1024;
 const maxRemoteManagementUploadStorageBytes = 64 * 1024 * 1024;
@@ -5847,8 +5852,9 @@ function remoteStableId(value: unknown, label: string, maximum: number): string 
 }
 
 function remoteContent(value: unknown): string {
-  if (typeof value !== "string" || !value.trim() || value.length > 12_000 || value.includes("\0")) {
-    throw badRequest("A message of at most 12,000 characters is required.");
+  // Sized to fit the relay's encrypted routine envelope; the context window is the practical bound.
+  if (typeof value !== "string" || !value.trim() || value.length > 256_000 || value.includes("\0")) {
+    throw badRequest("A message of at most 256,000 characters is required.");
   }
   return value.trim();
 }
@@ -6441,8 +6447,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         .filter((record) => record.requestId === record.rootId)
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
       return {
-        requests: roots.slice(0, maxActRequestListEntries).map((record) => requestSummaryView(state, record)),
-        truncated: roots.length > maxActRequestListEntries,
+        requests: roots.map((record) => requestSummaryView(state, record)),
+        truncated: false,
       };
     },
     async requestsShow(input) {
@@ -8818,15 +8824,15 @@ async function managementRequestView(
       files: [],
     };
   });
-  // At most 64 metadata checks and 12 file links for an entire request. No
+  // Every changed file the children recorded, checked for visibility. No
   // prose parsing or folder scan; every candidate comes from the child's journal.
   const candidates = children.flatMap((child) => {
     const durable = state.turnStore.get(child.taskId);
     if (child.state === "running" || !durable || durable.spaceId !== child.spaceId || durable.conversationId !== child.conversationId) return [];
     return (durable.fileChanges?.files ?? []).map((file) => ({ child, path: file.path }));
-  }).slice(0, 64);
+  });
   const visible = await Promise.all(candidates.map(async (item) => await isRemoteFileVisible(item.child.spaceId, item.path) ? item : null));
-  for (const item of visible.filter((item) => item !== null).slice(0, 12)) item.child.files.push(item.path);
+  for (const item of visible.filter((item) => item !== null)) item.child.files.push(item.path);
   const actions = record.actions;
   let reply: { messageId: string; content: string } | null = null;
   const replyMessageId = turn.state === "succeeded" || turn.state === "failed"
@@ -9139,7 +9145,7 @@ async function conversationResultForScope(
   const all = await runActOperation(() => readConversation(rootPath, conversationId));
   if (!all.length) throw new WorkFoldCliError("notFound", "Conversation not found.");
   const visible = all.filter((message) => message.role === "user" || message.role === "assistant");
-  const limit = Math.min(Math.max(Math.floor(messageLimit ?? 10), 1), 500);
+  const limit = Math.max(Math.floor(messageLimit ?? 10), 1);
   const lastAssistant = [...visible].reverse().find((message) => message.role === "assistant")?.content ?? null;
   return {
     conversationId,
@@ -9155,9 +9161,6 @@ async function addExternalFilesInternal(
   input: { fromPaths: string[]; toDir?: string; cwd: string },
 ): Promise<{ copied: string[]; checkpointId: string | null }> {
   if (!input.fromPaths.length) throw new WorkFoldCliError("usage", "Provide at least one --from <path> to add.");
-  if (input.fromPaths.length > maxActAddSources) {
-    throw new WorkFoldCliError("usage", `At most ${maxActAddSources} sources can be added at once.`);
-  }
   const toDir = normalizeSpaceRelativePath(input.toDir ?? "");
   const sources: string[] = [];
   for (const raw of input.fromPaths) {
@@ -9211,9 +9214,6 @@ async function collectLibraryUploadFiles(
   maxTotalBytes: number,
 ): Promise<Array<{ fileName: string; relativePath?: string; data: Buffer }>> {
   if (!fromPaths.length) throw new WorkFoldCliError("usage", "Provide at least one --from <path> to add.");
-  if (fromPaths.length > maxActAddSources) {
-    throw new WorkFoldCliError("usage", `At most ${maxActAddSources} sources can be added at once.`);
-  }
   const files: Array<{ fileName: string; relativePath?: string; data: Buffer }> = [];
   let totalBytes = 0;
   const readBounded = async (path: string, label: string): Promise<Buffer> => {
@@ -10635,15 +10635,23 @@ function turnStatusFor(state: LocalApiState, spaceId: string, taskId: string): W
       endedAt: settled.endedAt,
     };
   }
+  // Older than the in-memory window: the durable turn journal still knows it.
+  const durable = state.turnStore.get(taskId);
+  if (durable && durable.spaceId === spaceId && durable.status !== "accepted" && durable.status !== "running") {
+    return {
+      taskId,
+      state: durable.status === "interrupted" ? "failed" : durable.status,
+      conversationId: durable.conversationId,
+      messageId: durable.messageId ?? null,
+      error: durable.error ?? null,
+      endedAt: durable.updatedAt,
+    };
+  }
   return { taskId, state: "unknown", conversationId: null, messageId: null, error: null, endedAt: null };
 }
 
 // --- the collaboration verbs and the request graph (F27/F28) --------------
 
-const maxActRequestListEntries = 50;
-const maxContinuationSummaryBytes = 2 * 1024;
-const maxContinuationQuestionBytes = 1 * 1024;
-const maxContinuationFilesNamed = 8;
 const maxTurnsRememberedThisRun = 4_000;
 
 /**
@@ -11155,17 +11163,16 @@ async function composeContinuationMessage(
     const unsuccessful = turn.state === "failed" || turn.state === "aborted"
       || child.state === "failed" || child.state === "stopped" || child.state === "expired";
     const outcome = unsuccessful
-      ? `${child.state === "waiting" ? turn.state : child.state}${turn.error ? `: ${clampUtf8(turn.error, maxContinuationSummaryBytes)}` : ""}`
+      ? `${child.state === "waiting" ? turn.state : child.state}${turn.error ? `: ${turn.error}` : ""}`
       : newest?.state === "ok"
-      ? `${child.state === "partial" ? "partial" : newest.record.envelope.outcome}: ${clampUtf8(newest.record.envelope.summary, maxContinuationSummaryBytes)}`
+      ? `${child.state === "partial" ? "partial" : newest.record.envelope.outcome}: ${newest.record.envelope.summary}`
       : turn.state === "succeeded"
         ? "finished without a report"
-        : `${turn.state}${turn.error ? `: ${clampUtf8(turn.error, maxContinuationSummaryBytes)}` : ""}`;
+        : `${turn.state}${turn.error ? `: ${turn.error}` : ""}`;
     lines.push(`- ${where} — Chat ${child.owner.conversationId}, task ${turn.taskId} — ${outcome}`);
     const files = newest?.state === "ok" ? newest.record.envelope.files ?? [] : [];
     if (files.length) {
-      const named = files.slice(0, maxContinuationFilesNamed).map((file) => file.path).join(", ");
-      lines.push(`  files: ${named}${files.length > maxContinuationFilesNamed ? ` (+${files.length - maxContinuationFilesNamed} more)` : ""}`);
+      lines.push(`  files: ${files.map((file) => file.path).join(", ")}`);
     }
     for (const question of state.requests.questions(child.requestId).filter((candidate) => candidate.state === "open")) {
       const to = question.respondent === "person"
@@ -11173,7 +11180,7 @@ async function composeContinuationMessage(
         : child.parentRequestId === root.requestId
           ? "you"
           : "the request above it";
-      lines.push(`  waiting on ${to}: question ${question.questionId} — ${clampUtf8(question.text, maxContinuationQuestionBytes)}`);
+      lines.push(`  waiting on ${to}: question ${question.questionId} — ${question.text}`);
       if (to === "you" && child.owner.spaceId) {
         lines.push(`    answer it with: work-fold chat answer --space ${child.owner.spaceId} --question ${question.questionId} --answer "<text>" --parent-task <this-request-task-id> --json`);
       }
@@ -11541,7 +11548,7 @@ async function runAgentTurn(
   }
 }
 
-const maxSettledTurnRecords = 500;
+const maxSettledTurnRecords = 10_000;
 
 /**
  * The request id a Space turn names in its context: the durable request
@@ -13637,10 +13644,10 @@ function settleDelay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
-const maxGlanceConversationsPerSpace = 64;
-const maxGlanceCheckpointsPerSpace = 24;
-const maxGlanceActReceiptLines = 512;
-const maxGlanceAutomationReceipts = 200;
+const maxGlanceConversationsPerSpace = 2_048;
+const maxGlanceCheckpointsPerSpace = 256;
+const maxGlanceActReceiptLines = 8_192;
+const maxGlanceAutomationReceipts = 2_048;
 
 /**
  * The glance's live-registry source readers (docs/fold-glance.md): recorded
@@ -13782,7 +13789,7 @@ async function glanceManagementRequestRecords(state: LocalApiState): Promise<Wor
   return records;
 }
 
-const maxGlanceRequestRecords = 2_048;
+const maxGlanceRequestRecords = 16_384;
 
 /**
  * Tolerant bounded read of the act-receipts ledger for the glance: the same
@@ -14178,8 +14185,8 @@ function normalizeSelectedPath(spaceRoot: string, value: string | null | undefin
  */
 async function normalizeAddressedSpaceIds(value: unknown, ownScopeId: string): Promise<string[]> {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value) || value.length > 8 || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 512)) {
-    throw badRequest("addressedSpaceIds must list at most 8 Folder ids.");
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 512)) {
+    throw badRequest("addressedSpaceIds must be a list of work-folder ids.");
   }
   const ids = [...new Set((value as string[]).map((item) => item.trim()))].filter((id) => id !== ownScopeId);
   if (!ids.length) return [];

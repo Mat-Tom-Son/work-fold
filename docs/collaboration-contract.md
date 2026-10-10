@@ -36,7 +36,7 @@ uses the collaboration verbs below.
 | F26 | **Space turns get their own context.** Every Space turn's hidden context names its task id and request id and, when delegated, an opaque parent handle and the assignment text. A compact operations guide is appended to the system prompt the way Space instructions are, describing the verbs below and the rule that cross-Space work goes through them. The fold transcript, the Space registry, and unselected results from other Spaces never enter a Space turn. | Nothing is written into the Space folder. `.pi/` and `.work-fold/` are untouched. |
 | F27 | **Report, ask, answer, handoff.** Space-scoped collaboration verbs and management-scoped `manage ask|answer`, receipted and journal-first: `chat report` attaches a result envelope to the caller's task; `chat ask` records a question and puts the task in `waiting`; `chat answer` and `manage answer` durably reserve one answer delivery and start exactly one linked continuation turn; `chat handoff` asks the host to start a new Chat in another Space with a message and copies of named files. Delivery is host-side: no fold model turn is needed to move a report, an answer, or a handoff. | The person's free-text Chat reply stays a supported way to answer. Routings remain the only unattended cross-Space glue on a trigger. |
 | F28 | **Waiting is a host state.** `chat wait` and `manage wait` return when the followed task reaches a terminal state or `waiting`, and say which. A parent turn never blocks on a child that is waiting for input; it finishes and reports the request as `waiting`. When an owning Chat is idle and its children have settled or asked questions, the host can start one continuation carrying undelivered direct-child reports. This applies to the fold, Space, app, CLI and routing requests. Delivery is recorded by child turn identity, never inferred from relative settle times. | No arbitrary event-driven fold turns. A continuation belongs to an explicit request; declared routing fold steps remain the only trigger-driven entry. |
-| F29 | **One result shape.** A result envelope is `summary` (text, at most 32 KiB), optional `data` (JSON, at most 256 KiB, validated against a schema when the request declared one), optional `files` (Space-relative paths with digest and size), and `outcome` (`succeeded`, `partial`, or `failed`). Reports, app assistant tasks, handoff outcomes, and routing chat hops all produce it. | Existing `fileChanges` turn metadata stays as evidence; a report's `files` are the deliverables the Assistant chose. |
+| F29 | **One result shape.** A result envelope is `summary` (text, at most 4 MiB), optional `data` (JSON, at most 16 MiB, validated against a schema when the request declared one), optional `files` (Space-relative paths with digest and size), and `outcome` (`succeeded`, `partial`, or `failed`). Reports, app assistant tasks, handoff outcomes, and routing chat hops all produce it. | Existing `fileChanges` turn metadata stays as evidence; a report's `files` are the deliverables the Assistant chose. |
 | F30 | **Apps see their own work change.** `bridge.tasks.onChanged`, `bridge.checks.onChanged`, and `bridge.files.onChanged` deliver bounded hints for the app's own assistant tasks and inference receipts, its selected Checks, and its granted file roots. Active views subscribe; workers receive task/file hints during an operation, while Check access and hints remain view-only. Viewers do not subscribe. A hint carries ids and revisions, never content; the app re-reads. | Hints never start a model turn. The internal settle signal stays private. |
 
 ### 2026-10-01 amendment: Folders inside Folders
@@ -161,7 +161,7 @@ request but never replays subsequent routing effects.
   state (`working`, `waiting`, `handed_off`, `done`, `partial`, `failed`,
   `stopped`), children, questions, results, and usage.
 - **Question:** id, request id, task id, respondent (`person` or `parent`),
-  text (at most 16 KiB), asked at, state (`open`, `answered`,
+  text (at most 4 MiB), asked at, state (`open`, `answered`,
   `cancelled`), answer and answered at, continuation task id.
 - **Result:** the envelope above plus task id, recorded at, and receipt id.
 - Records are machine-local under the state root. Only the assignment text,
@@ -175,14 +175,15 @@ lifetime, delegation-depth, or count quota. They remain explicit, durable
 records until they settle, are stopped, or retention removes settled data.
 Each Chat runs one turn or compaction at a time. Different Chats and
 Folders, including management Chats, can run concurrently; delegated children
-have no separate slot limit or waiting queue. Transport fields remain bounded.
+have no separate slot limit or waiting queue. Transport fields keep resource
+guards sized so ordinary work never meets them (2026-10-10).
 
 | Bound | Value | On hit |
 |---|---|---|
-| Question text | 16 KiB | the write is refused before it is recorded |
-| Answer text | 16 KiB | the write is refused before it is recorded |
-| Result summary | 32 KiB | the write is refused before it is recorded |
-| Result data | 256 KiB | the write is refused before it is recorded |
+| Question text | 4 MiB | the write is refused before it is recorded |
+| Answer text | 4 MiB | the write is refused before it is recorded |
+| Result summary | 4 MiB | the write is refused before it is recorded |
+| Result data | 16 MiB | the write is refused before it is recorded |
 | Provider budget per root | no default cap; a host may set one | request fails when the configured cap is exceeded |
 
 ## Apps

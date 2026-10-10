@@ -312,13 +312,14 @@ test("Checks act execution bounds and terminal-scrubs structured and human outpu
       healthErrorsTruncated: boolean;
     };
   };
+  // Every finding and health error comes back; only the source's own flag says the store stopped early.
   assert.equal(json.data.findingCount, 105);
-  assert.equal(json.data.findingsReturned, 100);
+  assert.equal(json.data.findingsReturned, 105);
   assert.equal(json.data.findingsTruncated, true);
   assert.equal(json.data.sourceTruncated, true);
   assert.equal(json.data.healthErrorCount, 22);
-  assert.equal(json.data.healthErrors.length, 20);
-  assert.equal(json.data.healthErrorsTruncated, true);
+  assert.equal(json.data.healthErrors.length, 22);
+  assert.equal(json.data.healthErrorsTruncated, false);
   assert.equal(json.data.findings[0]?.title, "Missing� receipt 0");
   assert.equal(json.data.healthErrors[0], "Health� error 0");
   assert.deepEqual(calls[0], { space: "space-1", checkId: "check-tax" });
@@ -513,8 +514,8 @@ test("ledger tools and apps commands parse with strict shapes", () => {
     /--input must be valid JSON/,
   );
   assert.throws(
-    () => parseWorkFoldCliActArgv(["apps", "invoke", "--space", "space-1", "--app", "app-1", "--tool", "summarize", "--input", JSON.stringify({ text: "x".repeat(300_000) })]),
-    /--input must be at most 262144 bytes/,
+    () => parseWorkFoldCliActArgv(["apps", "invoke", "--space", "space-1", "--app", "app-1", "--tool", "summarize", "--input", JSON.stringify({ text: "x".repeat(16 * 1024 * 1024) })]),
+    /--input must be at most 16777216 bytes/,
   );
   assert.throws(() => parseWorkFoldCliActArgv(["apps", "list", "--space", "space-1", "--app", "app-1"]), /--app/);
   assert.deepEqual(
@@ -628,8 +629,8 @@ test("ledger command flag validation refuses malformed and misplaced shapes", ()
     /--scope must be files, chats, or all/,
   );
   assert.throws(
-    () => parseWorkFoldCliActArgv(["search", "--space", "s", "--query", "q".repeat(201)]),
-    /--query must be at most 200 characters/,
+    () => parseWorkFoldCliActArgv(["search", "--space", "s", "--query", "q".repeat(64 * 1024 + 1)]),
+    /--query must be at most 65536 characters/,
   );
   assert.throws(
     () => parseWorkFoldCliActArgv(["files", "move", "--space", "s", "--from", "a", "--from", "b", "--to", "dir"]),
@@ -2299,4 +2300,55 @@ test("resource enablement verbs require exact scope, kind and path", () => {
   assert.equal(parseWorkFoldCliActArgv(["tools", "disable", ...args]).name, "tools.disable");
   assert.throws(() => parseWorkFoldCliActArgv(["tools", "enable", "--scope", "space", "--kind", "extensions", "--path", "/tools/example.ts"]), /space/i);
   assert.throws(() => parseWorkFoldCliActArgv(["tools", "enable", "--scope", "personal", "--kind", "made-up", "--path", "/tools/example.ts"]), /kind/);
+});
+
+test("--summary-file, --question-file, --answer-file, and --instructions-file carry text longer than one argument", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const directory = await mkdtemp(join(tmpdir(), "work-fold-act-text-files-"));
+  try {
+    // Larger than the 8 KiB argument cap these flags replace, and multi-line.
+    const long = (label: string) => `${label}\n${"line of text\n".repeat(4_000)}`;
+    await writeFile(join(directory, "summary.md"), long("summary"));
+    await writeFile(join(directory, "question.md"), long("question"));
+    await writeFile(join(directory, "answer.md"), long("answer"));
+    await writeFile(join(directory, "instructions.md"), long("instructions"));
+    await writeFile(join(directory, "empty.md"), "   \n");
+    const calls: Array<{ method: string; input: Record<string, unknown> }> = [];
+    const record = (method: string) => async (input: Record<string, unknown>) => {
+      calls.push({ method, input });
+      return { ok: true };
+    };
+    const facade = {
+      chatReport: record("chatReport"),
+      chatAsk: record("chatAsk"),
+      chatAnswer: record("chatAnswer"),
+      assistantSetInstructions: record("assistantSetInstructions"),
+    } as unknown as WorkFoldActFacade;
+    const execute = (argv: string[]) => executeWorkFoldCliActRequest(
+      createWorkFoldCliActRequest({ id: randomUUID(), argv: [...argv, "--json"], cwd: directory, actToken: token }),
+      { version: "test", getActFacade: () => ({ facade, token }), receipts: { hasAccepted: async () => false, append: async () => true } },
+    );
+
+    for (const [argv, method, field, file] of [
+      [["chat", "report", "--space", "space-1", "--task", "task-1", "--summary-file", "summary.md"], "chatReport", "summary", "summary.md"],
+      [["chat", "ask", "--space", "space-1", "--task", "task-1", "--question-file", "question.md"], "chatAsk", "question", "question.md"],
+      [["chat", "answer", "--space", "space-1", "--question", "q-1", "--answer-file", join(directory, "answer.md")], "chatAnswer", "answer", "answer.md"],
+      [["spaces", "assistant", "instructions", "--space", "space-1", "--instructions-file", "instructions.md"], "assistantSetInstructions", "instructions", "instructions.md"],
+    ] as const) {
+      const response = await execute([...argv]);
+      assert.equal(response.exitCode, 0, response.stderr);
+      const call = calls.at(-1)!;
+      assert.equal(call.method, method);
+      assert.equal(call.input[field], long(file.replace(".md", "")), `${method} received the whole file`);
+    }
+
+    const both = await execute(["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "x", "--summary-file", "summary.md"]);
+    assert.match(both.stderr, /Use either --summary <text> or --summary-file <path>, not both\./);
+    const missing = await execute(["chat", "report", "--space", "space-1", "--task", "task-1", "--summary-file", "absent.md"]);
+    assert.match(missing.stderr, /--summary-file absent\.md: the file could not be read\./);
+    const empty = await execute(["chat", "ask", "--space", "space-1", "--task", "task-1", "--question-file", "empty.md"]);
+    assert.match(empty.stderr, /--question-file empty\.md is empty\./);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

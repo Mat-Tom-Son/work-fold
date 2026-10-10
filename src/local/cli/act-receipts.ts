@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { WORKFOLD_CLI_REQUEST_MAX_AGE_MS, workFoldCliBrokerPaths } from "./broker.js";
 import { WorkFoldCliError, type WorkFoldCliErrorCode } from "./protocol.js";
 
-export const WORKFOLD_CLI_ACT_RECEIPTS_MAX_BYTES = 1024 * 1024;
+/** Every act scans this journal for replays, so it stays a size one read handles quickly. */
+export const WORKFOLD_CLI_ACT_RECEIPTS_MAX_BYTES = 8 * 1024 * 1024;
 
 /**
  * Durable, append-only journal of act-lane commands. Every authorized command

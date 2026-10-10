@@ -176,9 +176,11 @@ test("History API requires the renderer session and preserves selected checkpoin
 test("human History diff reports a bounded prefix as incomplete instead of implying a complete comparison", async (t) => {
   const { space, request, execute } = await fixture(t);
   const path = join(space.spaceRoot, "large-diff.txt");
-  await writeFile(path, Array.from({ length: 700 }, (_, index) => `before ${index} ${"a".repeat(90)}\n`).join(""));
+  // Every line changes and the diff text outgrows its budget while staying inside the file and cell budgets.
+  const lines = 3_000;
+  await writeFile(path, Array.from({ length: lines }, (_, index) => `before ${index} ${"a".repeat(1_000)}\n`).join(""));
   const before = await createSpaceCheckpoint(space.spaceRoot);
-  await writeFile(path, Array.from({ length: 700 }, (_, index) => `after ${index} ${"b".repeat(90)}\n`).join(""));
+  await writeFile(path, Array.from({ length: lines }, (_, index) => `after ${index} ${"b".repeat(1_000)}\n`).join(""));
   const argv = ["history", "diff", "--space", space.id, "--path", "large-diff.txt", "--from-checkpoint", before.checkpointId];
   const json = await execute(request([...argv, "--json"]));
   assert.equal(json.exitCode, 0, json.stderr);

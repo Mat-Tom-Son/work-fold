@@ -180,12 +180,11 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
     assert.equal(refused.status, status, `${path}: ${JSON.stringify(refused.body)}`);
   }
 
-  // Addressed Workers: bounded, own id dropped, unknown ids dropped, never a refusal.
-  const conversation = (await call(`/api/spaces/${repo.id}/conversations`, { method: "POST", body: {} })).body!.conversation;
-  const tooMany = await call(`/api/spaces/${repo.id}/conversations/${conversation.id}/messages`, {
-    method: "POST", body: { content: "hello", addressedSpaceIds: Array.from({ length: 9 }, (_, index) => `space-${index}`) },
+  // Addressed Workers: any number, own id dropped, unknown ids dropped, never a refusal.
+  const many = await call(`/api/spaces/${repo.id}/conversations/missing-chat/messages`, {
+    method: "POST", body: { content: "hello", addressedSpaceIds: Array.from({ length: 64 }, (_, index) => `space-${index}`) },
   });
-  assert.equal(tooMany.status, 400);
+  assert.equal(many.status, 404, "any number of addressed Workers passes validation; the missing Chat is what refuses");
   const notArray = await call(`/api/spaces/${repo.id}/conversations/missing-chat/messages`, { method: "POST", body: { content: "hello", addressedSpaceIds: "api" } });
   assert.equal(notArray.status, 400);
   const unknownDropped = await call(`/api/spaces/${repo.id}/conversations/missing-chat/messages`, {

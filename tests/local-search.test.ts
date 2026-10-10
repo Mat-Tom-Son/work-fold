@@ -95,7 +95,7 @@ test("search rejects an empty or oversized query", async (t) => {
   const { root, dispose } = await space("invalid");
   t.after(dispose);
   await assert.rejects(() => searchSpace(root, "   "), /Enter something to search for/);
-  await assert.rejects(() => searchSpace(root, "x".repeat(201)), /Search text is too long/);
+  await assert.rejects(() => searchSpace(root, "x".repeat(64 * 1024 + 1)), /Search text is too long/);
 });
 
 test("search stops immediately when its caller is cancelled", async (t) => {

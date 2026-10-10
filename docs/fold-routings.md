@@ -87,7 +87,7 @@ on its own and runs only through run-now below.
 
 **Folder changes (version 3)** use `{"kind":"files-changed","space":"<Space id>","watch":{"kind":"tree","path":"Incoming","recursive":true,"extensions":[".md",".txt"]},"debounceSeconds":5,"cooldownMinutes":1}`. The exact named folder must exist at enablement. The host observes matching ordinary files every two seconds, within 512 files, 2,000 visited entries, depth 16, and the existing target byte bounds. Metadata identities include size, nanosecond modification/change times, and inode; file contents are not read or sent anywhere by the observer. Symlinks and overlap with separately registered Spaces fail closed. The extension list and recursion are explicit; reserved metadata stays excluded.
 
-A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → Automations.
+A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 1–3600 seconds, with 0–10080 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → Automations.
 
 All folder observers pause while any routing executes and establish fresh baselines afterward. This deliberately absorbs routing-generated edits and prevents cross-routing file loops. Changes made during that pause, while asleep, or while quit are **not replayed**. This is an awake-app convenience trigger, not a durable filesystem event bus. Keep a complete cross-Space sequence in one routing: wait for A's Chat, copy its created files, then run B's Chat or Check. There is no transcript relay or ambient context injection. Stop, disable, removal, shutdown, journaling, non-overlap, and FIFO limits use the existing executor paths.
 
@@ -129,7 +129,7 @@ deterministic jitter. Missed slots never queue.
 `{"kind":"at","at":"2026-09-01T21:00:00-04:00","ifMissed":"run"}`
 and requires declaration version 2. `at` must carry an explicit UTC offset;
 normalization stores one UTC instant. Enablement rechecks that the instant is
-at least 1 minute and no more than 366 days ahead. `ifMissed` is `run` or
+in the future and no more than ten years ahead. `ifMissed` is `run` or
 `skip`: after launch or wake,
 `run` admits one bounded catch-up for the exact slot while `skip` records that
 the occurrence did not run. Nothing runs while work-fold is quit.
@@ -176,7 +176,7 @@ Declarations are closed, typed data under the same discipline as Check
 declarations: no prompts beyond the literal Chat- and fold-step message plus
 the closed placeholder set below, no instructions, no source code, no shell
 commands, no model names, no credentials, no connection data, no expressions.
-The Chat- and fold-step `message` is bounded (16 KiB) and is data addressed to
+The Chat- and fold-step `message` is bounded (4 MiB) and is data addressed to
 one Space's Assistant or to the fold; in version 4 it may carry the closed
 placeholder set.
 
@@ -245,8 +245,8 @@ files changed. A resolution that cannot be proven — a Check run whose
 findings cannot be read, a created-files gap — fails the hop closed with a
 typed reason and skips the later hops; nothing is sent.
 
-Bounds, each named in the text it produces: 8 KiB per filled-in placeholder,
-100 items per filled-in list, and 64 KiB for the whole message after
+Bounds, each named in the text it produces: 1 MiB per filled-in placeholder,
+10,000 items per filled-in list, and 8 MiB for the whole message after
 substitution (exceeding it fails the hop). The hop's terminal receipt records
 `placeholders[]` — each name, the bounded text, its byte length, and whether
 it was cut — plus `messageBytes`. That is the one place the receipts journal
@@ -421,7 +421,7 @@ click that enables the routing and writes its receipt.
 
 Pending proposal files appear there too (2026-09-24). Settings scans the top
 level of the work-fold agent's management working folder — no subfolders, at
-most 64 `*.work-fold-routing.json` files of at most 256 KiB each — validates
+most 1,000 `*.work-fold-routing.json` files of at most 64 MiB each — validates
 each with the proposal schema, and lists the ones not already stored at the
 same digest under **Ready to turn on**, each with its title, trigger, and a
 **Turn on** button. A file that does not validate, names an unregistered
@@ -431,7 +431,7 @@ is invalid the section is titled **Automation files** so the repair reason
 remains visible. Turn on re-reads
 that exact file — the path must resolve directly inside the management
 working folder. Reads reject symbolic links and files that change while
-being read, and never admit more than 256 KiB. The action takes the same
+being read, and never admit more than 64 MiB. The action takes the same
 enable path as `routings enable
 --proposal` (content-derived id, digest pinned at that moment, journaled
 prepared act), with the receipt's surface recorded as `main-window`. The
@@ -496,16 +496,16 @@ machine-wide count, step-count, or exact-path-count quota.
 | Triggers per routing | 1 (plus always-available run-now) | This design |
 | Interval | 15–1440 minutes | `restrictedAppAutomationIntervalMinutes` |
 | Catch-up | `latest` only (one make-up run) | `WorkFoldAutomationService` |
-| One-time horizon | 1 minute–366 days ahead at enablement | Long enough for annual planning, bounded enough for intentional review |
+| One-time horizon | in the future, up to ten years ahead, at enablement | Any real schedule fits |
 | One-time missed policy | `run` or `skip` | One bounded catch-up or one recorded non-run |
 | One-time occurrence | One scheduled/resume claim ever; completed retained until Delete | Durable completed health and deterministic occurrence id |
 | Concurrent routing runs | 8, FIFO, machine-wide | A generous default, not a cap |
 | Tree selector resolution | The Check target resolver's hard limits; tighten-only | `src/local/checks/target-resolver.ts` |
 | Created-files handoff | `maxFiles` and `maxTotalBytes` mandatory in the declaration | This design |
-| Chat and fold step message | 16 KiB | A fixed dispatch message, not a document |
-| One filled-in placeholder | 8 KiB | Bounded context, not a document; the cut names the limit |
+| Chat and fold step message | 4 MiB | The model's context window is the practical bound |
+| One filled-in placeholder | 1 MiB | A resource guard; the cut names the limit |
 | Items in one filled-in list | 100 | Same |
-| Whole message after substitution | 64 KiB | Exceeding it fails the hop rather than sending a document |
+| Whole message after substitution | 8 MiB | Exceeding it fails the hop and names the limit |
 | Run history / journal | 500 recent results; journal rotation on the act-receipts pattern | Scheduler default; `src/local/cli/act-receipts.ts` |
 
 ## Implementation record

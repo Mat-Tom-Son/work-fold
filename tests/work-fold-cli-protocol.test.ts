@@ -494,14 +494,14 @@ test("the act parser refuses malformed collaboration arguments with stable usage
     [["chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which?", "--to", "someone"], /--to must be person or parent\./],
     [["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--outcome", "great"], /--outcome must be succeeded, partial, or failed\./],
     [["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--data", "not json"], /--data must be valid JSON, or @<path> naming a JSON file\./],
-    [["chat", "report", "--space", "space-1", "--task", "task-1"], /Provide --summary <text>\./],
+    [["chat", "report", "--space", "space-1", "--task", "task-1"], /Provide --summary <text> or --summary-file <path>\./],
     [["chat", "report", "--task", "task-1", "--summary", "Done."], /explicit --space/],
     [
       ["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--file", "q3.md", "--file", "q3.md"],
       /--file names the same path twice\./,
     ],
     [["chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2"], /Provide --message <text> or --message-file <path>\./],
-    [["chat", "answer", "--space", "space-1", "--question", "question-1"], /Provide --answer <text>\./],
+    [["chat", "answer", "--space", "space-1", "--question", "question-1"], /Provide --answer <text> or --answer-file <path>\./],
     [["chat", "answer", "--space", "space-1", "--question", "question-1", "--answer", "November.", "--task", "task-1"], /--task cannot be used with 'chat answer'\./],
   ];
   for (const [argv, message] of refusals) {

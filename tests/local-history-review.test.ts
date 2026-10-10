@@ -208,7 +208,8 @@ test("diff budgets distinguish long lines, many lines, and expensive comparisons
   const scenarios = [
     { before: "a".repeat(HISTORY_REVIEW_LIMITS.maxLineCharacters + 1), after: "different", reason: "long_line" },
     { before: "a\n".repeat(HISTORY_REVIEW_LIMITS.maxDiffLines + 1), after: "different", reason: "line_limit" },
-    { before: "a\n".repeat(1_000), after: "b\n".repeat(1_000), reason: "computation_limit" },
+    // Every line differs, so the table spans both files; one row past the cell budget.
+    { before: "a\n".repeat(Math.ceil(Math.sqrt(HISTORY_REVIEW_LIMITS.maxDiffCells)) + 10), after: "b\n".repeat(Math.ceil(Math.sqrt(HISTORY_REVIEW_LIMITS.maxDiffCells)) + 10), reason: "computation_limit" },
   ];
   for (const scenario of scenarios) {
     await writeFile(join(root, "note.txt"), scenario.before);
@@ -225,8 +226,10 @@ test("diff budgets distinguish long lines, many lines, and expensive comparisons
 
 test("diff output and JSON payload stay bounded and mark truncation explicitly", async (t) => {
   const { root } = await fixture(t);
-  const before = `${"\\".repeat(1_000)}\n`.repeat(100);
-  const after = `${'"'.repeat(1_000)}\n`.repeat(100);
+  // Within the file and cell budgets, but every line changes, so the diff text outgrows its own budget.
+  const lines = Math.floor(Math.min(HISTORY_REVIEW_LIMITS.maxFileBytes / 1_001, Math.sqrt(HISTORY_REVIEW_LIMITS.maxDiffCells) - 1));
+  const before = `${"\\".repeat(1_000)}\n`.repeat(lines);
+  const after = `${'"'.repeat(1_000)}\n`.repeat(lines);
   await writeFile(join(root, "note.txt"), before);
   const checkpoint = await createSpaceCheckpoint(root);
   await writeFile(join(root, "note.txt"), after);
@@ -235,7 +238,7 @@ test("diff output and JSON payload stay bounded and mark truncation explicitly",
   assert.equal(comparison.diff.reason, "output_limit");
   assert.equal(comparison.diff.truncated, true);
   assert.ok(Buffer.byteLength(comparison.diff.text!) <= HISTORY_REVIEW_LIMITS.maxDiffBytes);
-  assert.ok(Buffer.byteLength(JSON.stringify(comparison)) < 1024 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(comparison)) < 4 * (Buffer.byteLength(before) + Buffer.byteLength(after)) + 2 * HISTORY_REVIEW_LIMITS.maxDiffBytes);
   assert.equal(comparison.before.text, before, "saved text is still complete");
   assert.equal(comparison.after.text, after, "observed text is still complete");
 });
@@ -285,7 +288,7 @@ test("a detected outside write during current reading returns unavailable with n
 
 test("verified UTF-8 byte ranges retrieve an entire large snapshot without restoring it", async (t) => {
   const {root}=await fixture(t);
-  const original=`header\n${"abc😀é\n".repeat(24000)}tail`;
+  const original=`header\n${"abc😀é\n".repeat(Math.ceil(HISTORY_REVIEW_LIMITS.maxFileBytes / 10) + 1_000)}tail`;
   await writeFile(join(root,"large.txt"),original);
   const checkpoint=await createSpaceCheckpoint(root);
   await writeFile(join(root,"large.txt"),"current stays intact");

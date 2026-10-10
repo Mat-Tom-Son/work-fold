@@ -123,7 +123,7 @@ including the ones that install code, widen a power, or delete),
 here with the precise reason viewers never see). An answered question adds
 no kind of its own: it simply leaves **Needs you**, and the request's own
 settle carries the story. Bounded
-twice: at most 12 items per kind and 48 total. The `cursor` identifies the
+twice: at most 128 items per kind and 512 total. The `cursor` identifies the
 newest change item as `"<at>/<id>"`; surfaces render items newer than their
 own marker as new and older items quieter, and a **Show earlier**
 affordance reveals the bounded tail regardless of the marker, so marking
@@ -132,7 +132,7 @@ seen loses nothing.
 **Checks** — one row per registered Space with configured Checks, projected
 from the same aggregate snapshot as `checks status`: state, counts,
 `lastRunAt`. Ordered `needs-attention`, `check-error`, `blocked`, `stale`,
-`current-clear`, then by Space name; cap 32. The epistemic rules of the
+`current-clear`, then by Space name; cap 512. The epistemic rules of the
 [Checks register](checks.md) apply unchanged: unconfigured means unknown,
 `neverRun` and `stale` stay distinct, a blocked or erroring Check is
 health, never a content claim, and composing this section never runs a

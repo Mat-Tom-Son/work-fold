@@ -361,14 +361,15 @@ request transport bounds, optional spending budget, and retention:
 | Limit | Default | On hit |
 |---|---|---|
 | Provider budget per root | unlimited (a host may set a cap) | request `failed`, names the cap |
-| Question text | 16 KiB | the write is refused before it is recorded |
-| Answer text | 16 KiB | the write is refused before it is recorded |
-| Result summary | 32 KiB | the write is refused before it is recorded |
-| Result data | 256 KiB | the write is refused before it is recorded |
+| Question text | 4 MiB | the write is refused before it is recorded |
+| Answer text | 4 MiB | the write is refused before it is recorded |
+| Result summary | 4 MiB | the write is refused before it is recorded |
+| Result data | 16 MiB | the write is refused before it is recorded |
 
-Envelope bounds travel with the same machinery: a summary of at most 32 KiB,
-structured details of at most 256 KiB validated against the declared schema
-when there is one, and question and answer text of at most 16 KiB each. Named
+Envelope bounds travel with the same machinery: a summary of at most 4 MiB,
+structured details of at most 16 MiB validated against the declared schema
+when there is one, and question and answer text of at most 4 MiB each. Long
+text rides `--summary-file`, `--question-file`, and `--answer-file`. Named
 result files have no separate count quota; the containing transport envelope
 still has its byte bound. Settled request graphs are kept for 30 days.
 
@@ -746,9 +747,9 @@ reading; they are not transactional filesystem snapshots. Review never captures,
 restores, or edits files. Interval differences do not attribute edits to a Worker.
 
 The legacy complete-file observation and diff budgets remain explicit in every
-version-1 result: 128 KiB per complete text observation, 64 KiB of
-difference output, 2,000 lines, 4,096 characters per line, and one million diff
-work cells. Unsupported or incomplete comparison remains explicit in both JSON and
+version-1 result: 4 MiB per complete text observation (and per read page),
+4 MiB of difference output, 200,000 lines, 64 KiB per line, and sixteen million
+diff work cells (2026-10-10). Unsupported or incomplete comparison remains explicit in both JSON and
 human CLI output. Folder History and file Version History offer the same read-only
 comparison, including coverage explanations and available saved/current text.
 Existing restore previews and restoration paths keep their semantics.

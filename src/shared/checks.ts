@@ -164,8 +164,8 @@ function normalizeCheckDefinition(value: unknown): WorkFoldCheckDefinition {
     throw new Error("Check severity must be info, warning, or error.");
   }
   if (record.trigger !== "manual") throw new Error("Check trigger must be manual in contract version 1.");
-  if (!Array.isArray(record.targets) || record.targets.length < 1 || record.targets.length > 64) {
-    throw new Error("Check targets must contain between 1 and 64 explicit targets.");
+  if (!Array.isArray(record.targets) || record.targets.length < 1 || record.targets.length > 1_024) {
+    throw new Error("Check targets must contain between 1 and 1,024 explicit targets.");
   }
   const targets = record.targets.map((target, index) => normalizeTarget(target, index));
   if (!targets.some((target) => target.role === "primary")) throw new Error("A Check requires at least one primary target.");
@@ -209,8 +209,8 @@ function normalizeTarget(value: unknown, index: number): WorkFoldCheckTarget {
     assertKeys(record, ["kind", "role", "path", "recursive", "extensions"], [], label);
     const path = normalizeWorkFoldCheckTargetPath(record.path, `${label} path`);
     if (record.recursive !== true && record.recursive !== false) throw new Error(`${label} recursive must be a boolean.`);
-    if (!Array.isArray(record.extensions) || record.extensions.length < 1 || record.extensions.length > 24) {
-      throw new Error(`${label} extensions must contain between 1 and 24 file extensions.`);
+    if (!Array.isArray(record.extensions) || record.extensions.length < 1 || record.extensions.length > 256) {
+      throw new Error(`${label} extensions must contain between 1 and 256 file extensions.`);
     }
     const extensions = [...new Set(record.extensions.map((extension) => normalizeExtension(extension, label)))].sort();
     return { kind: "tree", role, path, recursive: record.recursive, extensions };

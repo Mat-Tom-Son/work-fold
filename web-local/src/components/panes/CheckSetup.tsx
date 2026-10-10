@@ -34,7 +34,7 @@ export function CheckSetup({ spaceId, onSaved, onCancel }: { spaceId: string; on
     <h2>New Check</h2>
     <label>Name<input required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Claims match the reference" /></label>
     <label>Review type<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="text-review">Text review with the fold’s model</option><option value="file-presence">Required files exist</option></select></label>
-    {kind === "text-review" ? <label>What should it look for?<textarea required maxLength={4096} rows={4} value={criteria} onChange={(event) => setCriteria(event.target.value)} placeholder="Flag unsupported claims, inconsistent terms, and unclear steps. Use the reference for terminology." /></label> : null}
+    {kind === "text-review" ? <label>What should it look for?<textarea required maxLength={65536} rows={4} value={criteria} onChange={(event) => setCriteria(event.target.value)} placeholder="Flag unsupported claims, inconsistent terms, and unclear steps. Use the reference for terminology." /></label> : null}
     <label>Files to check · one path per line<textarea required rows={3} value={paths} onChange={(event) => setPaths(event.target.value)} placeholder={"Drafts/proposal.md\nNotes/summary.txt"} /></label>
     {kind === "text-review" ? <label>Reference files · optional<textarea rows={2} value={references} onChange={(event) => setReferences(event.target.value)} placeholder="Reference/style-guide.md" /></label> : null}
     <p>Space-relative paths only.</p>

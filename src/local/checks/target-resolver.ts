@@ -5,13 +5,18 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { WorkFoldCheckTarget, WorkFoldCheckTargetRole } from "../../shared/checks.js";
 import { isReservedSpacePathSegment } from "../space-path-policy.js";
 
+/**
+ * Ceilings that only stop a runaway walk. Resolution reads metadata, never
+ * file contents, so it carries no byte ceiling of its own; every caller that
+ * goes on to read bytes passes the read budget it actually needs.
+ */
 export const workFoldCheckTargetHardLimits = Object.freeze({
-  maxSelectors: 64,
-  maxVisitedEntries: 10_000,
-  maxDepth: 32,
-  maxFiles: 512,
-  maxFileBytes: 64 * 1024 * 1024,
-  maxTotalBytes: 256 * 1024 * 1024,
+  maxSelectors: 1_024,
+  maxVisitedEntries: 10_000_000,
+  maxDepth: 1_024,
+  maxFiles: 1_000_000,
+  maxFileBytes: Number.MAX_SAFE_INTEGER,
+  maxTotalBytes: Number.MAX_SAFE_INTEGER,
 });
 
 export interface WorkFoldCheckTargetLimits {

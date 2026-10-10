@@ -133,11 +133,11 @@ export interface WorkFoldGlanceSnapshot {
 
 // Section bounds. Bounds are disclosure, not curation: overflow sets the
 // section's truncated flag instead of pretending completeness.
-export const workFoldGlanceRunningCap = 16;
-export const workFoldGlanceNeedsYouCap = 16;
-export const workFoldGlanceChangesPerKindCap = 12;
-export const workFoldGlanceChangesTotalCap = 48;
-export const workFoldGlanceChecksCap = 32;
+export const workFoldGlanceRunningCap = 256;
+export const workFoldGlanceNeedsYouCap = 256;
+export const workFoldGlanceChangesPerKindCap = 128;
+export const workFoldGlanceChangesTotalCap = 512;
+export const workFoldGlanceChecksCap = 512;
 
 const maxHeadlineLength = 200;
 const maxTitleInHeadline = 80;

@@ -12,6 +12,7 @@ import {
   readWorkFoldRoutingProposal,
   workFoldRoutingBounds,
   workFoldRoutingDigest,
+  workFoldRoutingDocumentMaxBytes,
   workFoldRoutingMessagePlaceholders,
   workFoldRoutingProposalFileSuffix,
   workFoldRoutingReferencedSpaceIds,
@@ -177,14 +178,15 @@ test("version 2 admits explicit-offset one-time triggers and keeps their time-se
     at: "2026-08-10T18:30:00.000Z",
     ifMissed: "run",
   });
+  const atMs = Date.parse("2026-08-10T18:30:00.000Z");
   assert.doesNotThrow(() => assertWorkFoldRoutingAtAdmissionHorizon(
     normalized.routing,
-    new Date("2026-08-10T18:29:00.000Z"),
+    new Date(atMs - workFoldRoutingBounds.minAtAdvanceMs),
   ));
   assert.throws(() => assertWorkFoldRoutingAtAdmissionHorizon(
     normalized.routing,
-    new Date("2026-08-10T18:29:00.001Z"),
-  ), /between 1 minute and 366 days/);
+    new Date(atMs - workFoldRoutingBounds.minAtAdvanceMs + 1),
+  ), /in the future, and at most ten years ahead/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.trigger = { kind: "at", at: "2026-08-10T18:30:00Z", ifMissed: "run" };
   })), /require contract version 2/);
@@ -199,18 +201,20 @@ test("version 2 admits explicit-offset one-time triggers and keeps their time-se
     value.routing.trigger = { kind: "at", at: "2026-08-10T18:30:00Z", ifMissed: "later" };
   })), /ifMissed/);
 
+  const farAt = "2036-08-11T00:00:00.000Z";
   const maximum = normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.version = 2;
-    value.routing.trigger = { kind: "at", at: "2027-08-11T00:00:00Z", ifMissed: "skip" };
+    value.routing.trigger = { kind: "at", at: farAt, ifMissed: "skip" };
   }));
+  const earliestNow = Date.parse(farAt) - workFoldRoutingBounds.maxAtAdvanceMs;
   assert.doesNotThrow(() => assertWorkFoldRoutingAtAdmissionHorizon(
     maximum.routing,
-    new Date("2026-08-10T00:00:00Z"),
+    new Date(earliestNow),
   ));
   assert.throws(() => assertWorkFoldRoutingAtAdmissionHorizon(
     maximum.routing,
-    new Date("2026-08-09T23:59:59.999Z"),
-  ), /between 1 minute and 366 days/);
+    new Date(earliestNow - 1),
+  ), /in the future, and at most ten years ahead/);
 });
 
 test("routing declarations retain safety bounds without artificial count caps", () => {
@@ -228,7 +232,7 @@ test("routing declarations retain safety bounds without artificial count caps", 
   for (const intervalMinutes of [workFoldRoutingBounds.minIntervalMinutes - 1, workFoldRoutingBounds.maxIntervalMinutes + 1, 60.5]) {
     assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
       value.routing.trigger = { kind: "interval", intervalMinutes };
-    })), /integer between 15 and 1440/);
+    })), new RegExp(`integer between ${workFoldRoutingBounds.minIntervalMinutes} and ${workFoldRoutingBounds.maxIntervalMinutes}`));
   }
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[0].message = "m".repeat(workFoldRoutingBounds.maxChatMessageBytes + 1);
@@ -247,19 +251,19 @@ test("routing declarations retain safety bounds without artificial count caps", 
   })), /repeat a path/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[1].from = { kind: "tree", path: "reports", recursive: false, extensions: [] };
-  })), /between 1 and 24 file extensions/);
+  })), /between 1 and 256 file extensions/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[1].from = {
       kind: "tree",
       path: "reports",
       recursive: false,
-      extensions: Array.from({ length: 25 }, (_, index) => `.e${index}`),
+      extensions: Array.from({ length: 257 }, (_, index) => `.e${index}`),
     };
-  })), /between 1 and 24 file extensions/);
+  })), /between 1 and 256 file extensions/);
   for (const maxFiles of [0, workFoldRoutingBounds.maxHandoffFiles + 1]) {
     assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
       value.routing.steps[1].from.maxFiles = maxFiles;
-    })), /maxFiles must be an integer between 1 and 512/);
+    })), new RegExp(`maxFiles must be an integer between 1 and ${workFoldRoutingBounds.maxHandoffFiles}`));
   }
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[1].from.maxTotalBytes = workFoldRoutingBounds.maxHandoffTotalBytes + 1;
@@ -357,7 +361,7 @@ test("proposal files read bounded and refuse damage", async () => {
   assert.deepEqual(await readWorkFoldRoutingProposal(path), normalizeWorkFoldRoutingProposal(proposalValue));
 
   const oversized = join(root, `oversized${workFoldRoutingProposalFileSuffix}`);
-  await writeFile(oversized, "x".repeat(256 * 1024 + 1));
+  await writeFile(oversized, Buffer.alloc(workFoldRoutingDocumentMaxBytes + 1, "x"));
   await assert.rejects(() => readWorkFoldRoutingProposal(oversized), /exceeds/);
 
   await assert.rejects(() => readWorkFoldRoutingProposal(root), /ordinary file/);

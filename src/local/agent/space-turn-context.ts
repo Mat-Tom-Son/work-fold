@@ -17,8 +17,10 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 
-/** The chat-message bound; an assignment longer than this is cut and says so. */
-export const spaceTurnAssignmentMaxBytes = 16 * 1024;
+import { workFoldRequestLimits } from "../../shared/fold-limits.js";
+
+/** The request record's own bound; an assignment longer than this is cut and says so. */
+export const spaceTurnAssignmentMaxBytes = workFoldRequestLimits.maxRequestContentBytes;
 
 export interface PiSpaceTurnDelegation {
   /** Opaque, machine-local handle for the request that delegated this work. */

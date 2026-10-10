@@ -24,7 +24,8 @@ export const spacePaneKeyboardLargeStep = 64;
 export const chatDraftKeyPrefix = "work-fold.space.chat-draft";
 export const chatDraftNewConversationId = "new-chat";
 export const chatDraftDebounceMs = 300;
-export const chatDraftMaxStoredChars = 20_000;
+/** Drafts live in browser storage, which has a few megabytes for everything. */
+export const chatDraftMaxStoredChars = 500_000;
 export const apiGetRetryDelaysMs = [500, 1_500, 3_500] as const;
 export const eventStreamReconnectDelaysMs = [250, 750, 1_500, 3_000, 5_000] as const;
 export const typographyFontOptions: Array<{ value: AppTypographyFont; label: string; detail: string }> = [

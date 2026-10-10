@@ -27,14 +27,14 @@ test("Pi UI isolates editors, validates answers without consuming questions, and
   assert.deepEqual(await pending, { value: "B" });
   assert.equal(bridge.respond("one", { value: "A" }), false);
   const live = Array.from({ length: extensionUiLimits.pendingPerChat }, (_, index) => bridge.request(question(`q-${index}`)));
-  await assert.rejects(bridge.request(question("too-many")), /8 per Chat/);
+  await assert.rejects(bridge.request(question("too-many")), new RegExp(`${extensionUiLimits.pendingPerChat} per Chat`));
   const otherPending = bridge.request({ ...question("other"), ...other });
   bridge.cancelScope(scope);
   assert.ok((await Promise.all(live)).every((item) => "cancelled" in item));
   assert.equal(bridge.respond("other", { value: "A" }), true, "Stop does not answer or cancel another Chat");
   await otherPending;
   bridge.forgetScope(scope); assert.equal(ui.getEditorText(), ""); assert.equal(second.getEditorText(), "second");
-  await assert.rejects(bridge.request({ ...question("large"), title: "x".repeat(65536) }), /limit/);
+  await assert.rejects(bridge.request({ ...question("large"), title: "x".repeat(extensionUiLimits.requestBytes + 1) }), /limit/);
   bridge.cancelAll();
 });
 

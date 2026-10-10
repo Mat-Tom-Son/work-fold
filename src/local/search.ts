@@ -38,7 +38,7 @@ interface SearchCursor { scope: string; stack: DirectoryPosition[]; current?: Fi
 export async function searchSpace(spaceRoot: string, rawQuery: string, options: SpaceSearchOptions = {}): Promise<SpaceSearchResult> {
   const query = rawQuery.trim();
   if (!query) throw retrievalError("Enter something to search for.");
-  if (query.length > 200) throw retrievalError("Search text is too long.");
+  if (query.length > 64 * 1024) throw retrievalError("Search text is too long.");
   const root = ensureSafeSpaceRoot(spaceRoot);
   assertSpaceDoesNotContainState(root);
   aborted(options.signal);

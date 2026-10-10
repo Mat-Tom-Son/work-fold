@@ -15,8 +15,9 @@ const rawWindowMaterial = argumentValue("window-material");
 const windowMaterial = rawWindowMaterial === "vibrancy" ? "vibrancy" : "none";
 const productName = argumentValue("product-name");
 const internalProtocol = argumentValue("internal-protocol");
-const maxStagedItems = 16;
-const maxStagedValueLength = 4_096;
+// Mirrors maxManagementAttachments; dropped text lands in the composer, so it may be long.
+const maxStagedItems = 1_000;
+const maxStagedValueLength = 4 * 1024 * 1024;
 
 // This window needs the local API session, fixed popover actions, and opening
 // a selected Space-relative result through the existing checked path handler. Keep

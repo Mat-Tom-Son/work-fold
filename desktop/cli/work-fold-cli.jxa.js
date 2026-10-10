@@ -2,7 +2,8 @@ ObjC.import("Foundation");
 ObjC.import("stdlib");
 
 var ACT_UNAVAILABLE_MESSAGE = "Open work-fold to run this command. Act commands need the work-fold app running.";
-var ACT_MAX_MESSAGE_FILE_BYTES = 262144;
+var ACT_MAX_MESSAGE_FILE_BYTES = 16777216;
+var MAX_WAIT_SECONDS = 2592000;
 
 function run(rawArguments) {
   const argumentsList = Array.from(rawArguments);
@@ -30,9 +31,9 @@ function run(rawArguments) {
     createDirectory(`${cliRoot}/responses`);
 
     const timeoutValue = environmentValue("WORKFOLD_CLI_TIMEOUT_MS");
-    const timeoutMs = timeoutValue ? Number(timeoutValue) : 120000;
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600000) {
-      throw new Error("WORKFOLD_CLI_TIMEOUT_MS must be an integer between 100 and 600000.");
+    const timeoutMs = timeoutValue ? Number(timeoutValue) : 1800000;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) {
+      throw new Error("WORKFOLD_CLI_TIMEOUT_MS must be an integer of at least 100.");
     }
 
     const context = { fileManager, appPath, cliRoot, timeoutMs };
@@ -85,7 +86,7 @@ function parseWaitCommand(argumentsList) {
   const json = argumentsList.includes("--json");
   let space = "";
   let task = "";
-  let timeoutSeconds = 600;
+  let timeoutSeconds = 3600;
   for (let index = 0; index < argumentsList.length; index += 1) {
     const token = argumentsList[index];
     if (token === "--space") { space = argumentsList[index + 1] || ""; index += 1; }
@@ -93,8 +94,8 @@ function parseWaitCommand(argumentsList) {
     else if (token === "--timeout") {
       timeoutSeconds = Number(argumentsList[index + 1]);
       index += 1;
-      if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 3600) {
-        throw usageFailure("--timeout must be an integer between 1 and 3600 seconds.");
+      if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_WAIT_SECONDS) {
+        throw usageFailure(`--timeout must be an integer between 1 and ${MAX_WAIT_SECONDS} seconds.`);
       }
     } else if (token === group || token === "wait" || token === "--json") {
       // command tokens

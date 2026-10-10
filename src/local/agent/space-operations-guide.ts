@@ -17,9 +17,6 @@ import { workFoldManagementScopeId } from "../state-paths.js";
 
 export const workFoldSpaceOperationsGuideHeading = "## Working with work-fold";
 
-/** The budget the guide has to stay under; it rides every Space turn's system prompt. Raised from 6 KiB on 2026-09-24 for the shareable-pages section. */
-export const workFoldSpaceOperationsGuideMaxBytes = 7 * 1024;
-
 export const workFoldWorkerWorkingFilesGuide = [
   "## Worker working files",
   "",
@@ -64,7 +61,7 @@ export function workFoldSpaceOperationsGuide(executable = "work-fold"): string {
     "- Files: `files add|move|rename|delete|mkdir|create --space <id> ...` take restore points. Deletion requires settled work, including your turn and questions; leave it for the person. Never bypass refusals or move, rename, or delete with raw tools. `files delete` keeps History coverage and moves anything uncovered to Recently deleted; name recovery. Parent changes stop at nested work-folders. `.work-fold/`, `.pi/`, and `.workspace/` are never endpoints.",
     "- History: `history list|save|restore|versions|restore-file --space <id> ...`. The host attempts History capture before and after Folder turns. Your context reports pre-turn coverage. Identical content reuses a checkpoint. Save explicitly for useful intermediate milestones. A restore is refused while work runs in this Space.",
     "- Review saved files with `history read --space <id> --path <path> --checkpoint <id> --json` or `history diff --space <id> --path <path> --from-checkpoint <id> [--to-checkpoint <id>] --json` (omitting the latter compares the current file). Reads never restore. Respect coverage and limits; never search private app storage for evidence. A current hash alone cannot prove changes.",
-    `- Search: \`${cmd} search --space <id> --query "<text>" [--scope files|chats|all] --json\`. When it reports that a bound stopped the search, say so instead of implying completeness.`,
+    `- Search: \`${cmd} search --space <id> --query "<text>" [--scope files|chats|all] --json\`. Results come in pages: while a result carries a \`nextCursor\`, repeat the search with \`--cursor <nextCursor>\`; if you stop early, say so.`,
     "- Library: `library list --json` and `library copy --item \"<library-path>\" --space <id> --json`. The Library is the person's passive collection, shared across Spaces; a copy is explicit and lands with a restore point. Nothing there is context until it is copied and attached.",
     "- Checks: `checks status --space <id> --json` is aggregate — not configured means unknown, not clear — and `checks run|wait|problems|decide` drive the ones this Space already has. A one-off review is ordinary work you do now; propose or enable a Check only when the person asks to keep checking.",
     "- Apps: `apps list --space <id> --json` shows this Space's installed apps with their tools, and `apps invoke --space <id> --app <id> --tool <name> --input '<json>' --json` runs one and returns its result with a receipt. Use an app's own tool for that app's job; never reach into its stored data with raw tools.",

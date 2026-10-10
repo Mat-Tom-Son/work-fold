@@ -1,4 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import type { HistoryFileComparison, HistoryFileRead } from "../../shared/history-review.js";
 
 import type {
@@ -269,6 +271,13 @@ export interface WorkFoldCliActParsedCommand {
   toSpace?: string;
   /** requests.show target. */
   request?: string;
+  /**
+   * `--summary-file`, `--question-file`, `--answer-file`, `--instructions-file`:
+   * UTF-8 text the host reads from the directory the command ran in, for text
+   * longer than a shell argument comfortably carries. Resolved into the
+   * matching inline field before the command runs.
+   */
+  textFiles?: Partial<Record<"summary" | "question" | "answer" | "instructions", string>>;
 }
 
 /** The running interactive app's act authority: the facade plus this run's token. */
@@ -295,19 +304,16 @@ export interface WorkFoldCliActExecutorOptions {
 export const workFoldCliActUnavailableMessage =
   "Open work-fold to run this command. Act commands need the work-fold app running.";
 
-const maxActResultMessages = 500;
-const maxActFromPaths = 25;
+const maxActResultMessages = 100_000;
 const maxActPathLength = 4_096;
 /** Mirrors `maxQueryLength` in src/local/search.ts so parse and service refuse together. */
-const maxActSearchQueryLength = 200;
+const maxActSearchQueryLength = 64 * 1024;
 const maxChecksCliIdLength = 256;
 /** Matches the app runtime's own invocation bound (desktop/src/restricted-app-host.ts). */
-const maxActToolInputBytes = 256 * 1024;
+const maxActToolInputBytes = 16 * 1024 * 1024;
 /** Terminal output stays readable; --json always carries the whole result. */
 const maxHumanToolResultLength = 4_096;
 const maxChecksProposalPathLength = 4_096;
-const maxChecksOutputFindings = 100;
-const maxChecksOutputHealthErrors = 20;
 
 const cliControlCharacters = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
 
@@ -396,6 +402,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--byte-budget",
     "--entry",
     "--summary",
+    "--summary-file",
+    "--question-file",
+    "--answer-file",
+    "--instructions-file",
     "--data",
     "--outcome",
     "--question",
@@ -563,14 +573,25 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
    * per-argument cap still bites first for very long text, which is what
    * `--message-file` and `--data @<path>` exist for.
    */
+  const textFiles: NonNullable<WorkFoldCliActParsedCommand["textFiles"]> = {};
+  /** `--<field>-file <path>` stands in for `--<field> <text>`; exactly one is allowed. */
+  const textFileFlag = (name: string, field: keyof typeof textFiles): string | undefined => {
+    const path = stringFlag(`${name}-file`);
+    if (path === undefined) return undefined;
+    if (stringFlag(name) !== undefined) throw usageError(`Use either ${name} <text> or ${name}-file <path>, not both.`);
+    textFiles[field] = boundedActPath(`${name}-file`, path, "path");
+    return "";
+  };
   const requireCollaborationText = (
     name: string,
     label: string,
     limit: "questionText" | "answerText" | "resultSummary",
     maximumBytes: number,
   ): string => {
+    const field = name === "--summary" ? "summary" : name === "--question" ? "question" : "answer";
+    if (textFileFlag(name, field) !== undefined) return "";
     const value = stringFlag(name);
-    if (value === undefined || !value.trim()) throw usageError(`Provide ${name} <${label}>.`);
+    if (value === undefined || !value.trim()) throw usageError(`Provide ${name} <${label}> or ${name}-file <path>.`);
     if (value.includes("\u0000")) throw usageError(`${name} contains unsupported control characters.`);
     if (Buffer.byteLength(value, "utf8") > maximumBytes) {
       throw usageError(workFoldRequestLimitMessage(limit, maximumBytes));
@@ -832,7 +853,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       // bounds only what argv can carry; the host resolves each --file inside
       // the Space, records its content hash and size, and applies the declared
       // schema to --data when the request declared one.
-      allowOnlyFlags("--space", "--task", "--summary", "--data", "--outcome", "--parent-task");
+      allowOnlyFlags("--space", "--task", "--summary", "--summary-file", "--data", "--outcome", "--parent-task");
       const rawOutcome = stringFlag("--outcome")?.trim();
       if (rawOutcome !== undefined && rawOutcome !== "succeeded" && rawOutcome !== "partial" && rawOutcome !== "failed") {
         throw usageError("--outcome must be succeeded, partial, or failed.");
@@ -843,6 +864,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         space: requireSpace(),
         task: requireBoundedFlag("--task", "task-id"),
         summary: requireCollaborationText("--summary", "text", "resultSummary", workFoldRequestLimits.maxResultSummaryBytes),
+        ...(Object.keys(textFiles).length ? { textFiles } : {}),
         files: collaborationFiles(),
         outcome: (rawOutcome ?? "succeeded") as WorkFoldResultOutcome,
         ...resultDataFlag(),
@@ -853,7 +875,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "chat ask": {
       // F27: recording a question never suspends the asking turn. The turn
       // ends; the task's request is what waits.
-      allowOnlyFlags(...(command === "manage ask" ? ["--task", "--question", "--parent-task"] : ["--space", "--task", "--question", "--to", "--parent-task"]));
+      allowOnlyFlags(...(command === "manage ask" ? ["--task", "--question", "--question-file", "--parent-task"] : ["--space", "--task", "--question", "--question-file", "--to", "--parent-task"]));
       const rawRespondent = stringFlag("--to")?.trim();
       if (rawRespondent !== undefined && rawRespondent !== "person" && rawRespondent !== "parent") {
         throw usageError("--to must be person or parent.");
@@ -866,6 +888,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         // Free text here; `chat answer --question` carries an id. That is the
         // contract's spelling, not an oversight.
         question: requireCollaborationText("--question", "text", "questionText", workFoldRequestLimits.maxQuestionTextBytes),
+        ...(Object.keys(textFiles).length ? { textFiles } : {}),
         // A root request has no parent, so the host delivers `parent` to the
         // person and says it did.
         respondent: (rawRespondent ?? "person") as "person" | "parent",
@@ -876,13 +899,14 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "chat answer":
       // --space names the Space that owns the question and in which the one
       // linked continuation runs; an answer from anywhere else is refused.
-      allowOnlyFlags(...(command === "manage answer" ? ["--question", "--answer", "--parent-task"] : ["--space", "--question", "--answer", "--parent-task"]));
+      allowOnlyFlags(...(command === "manage answer" ? ["--question", "--answer", "--answer-file", "--parent-task"] : ["--space", "--question", "--answer", "--answer-file", "--parent-task"]));
       return {
         name: command === "manage answer" ? "manage.answer" : "chat.answer",
         output,
         ...(command === "chat answer" ? { space: requireSpace() } : {}),
         questionId: requireBoundedFlag("--question", "question-id"),
         answer: requireCollaborationText("--answer", "text", "answerText", workFoldRequestLimits.maxAnswerTextBytes),
+        ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     case "chat handoff": {
@@ -1178,7 +1202,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       // The Library is personal and Space-free: no --space, no restore point.
       allowOnlyFlags("--to", "--parent-task");
       if (!fromPaths.length) throw usageError("Provide at least one --from <path>.");
-      if (fromPaths.length > maxActFromPaths) throw usageError(`At most ${maxActFromPaths} --from sources are allowed.`);
       const toDir = optionalBoundedFlag("--to", "library-folder", maxActPathLength);
       return {
         name: "library.add",
@@ -1284,11 +1307,11 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     case "spaces assistant instructions": {
-      allowOnlyFlags("--space", "--instructions", "--clear", "--parent-task");
+      allowOnlyFlags("--space", "--instructions", "--instructions-file", "--clear", "--parent-task");
       const clear = flags.get("--clear") === true;
-      const rawInstructions = stringFlag("--instructions");
+      const rawInstructions = textFileFlag("--instructions", "instructions") ?? stringFlag("--instructions");
       if (clear === (rawInstructions !== undefined)) {
-        throw usageError("Provide exactly one of --instructions <text> or --clear.");
+        throw usageError("Provide exactly one of --instructions <text>, --instructions-file <path>, or --clear.");
       }
       if (rawInstructions !== undefined && rawInstructions.length > maximumAssistantInstructionsLength) {
         throw usageError(`--instructions must be at most ${maximumAssistantInstructionsLength} characters.`);
@@ -1298,6 +1321,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         output,
         space: requireSpace(),
         instructions: clear ? "" : rawInstructions!,
+        ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(clear ? { clear: true } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
@@ -1305,7 +1329,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "files add": {
       allowOnlyFlags("--space", "--to", "--parent-task");
       if (!fromPaths.length) throw usageError("Provide at least one --from <path>.");
-      if (fromPaths.length > maxActFromPaths) throw usageError(`At most ${maxActFromPaths} --from sources are allowed.`);
       const toDir = stringFlag("--to");
       return {
         name: "files.add",
@@ -1826,6 +1849,7 @@ export async function executeWorkFoldCliActRequest(
       });
       throw new WorkFoldCliError("unavailable", workFoldCliActUnavailableMessage);
     }
+    command = await resolveActTextFiles(command, request.cwd);
     // The broker's response-file dedup only covers a pending request; the
     // journal's accepted records are the durable at-most-once ledger.
     if (await options.receipts.hasAccepted(request.id)) {
@@ -1921,6 +1945,45 @@ export async function executeWorkFoldCliActRequest(
       completedAt: completedAt(),
     });
   }
+}
+
+/**
+ * Reads each `--<field>-file` into its inline field, relative to the directory
+ * the command ran in, and applies the same bounds the inline flag would.
+ */
+async function resolveActTextFiles(
+  command: WorkFoldCliActParsedCommand,
+  cwd: string,
+): Promise<WorkFoldCliActParsedCommand> {
+  if (!command.textFiles) return command;
+  const resolved: WorkFoldCliActParsedCommand = { ...command };
+  delete resolved.textFiles;
+  for (const [field, path] of Object.entries(command.textFiles) as Array<[keyof NonNullable<WorkFoldCliActParsedCommand["textFiles"]>, string]>) {
+    const flag = `--${field}-file`;
+    let text: string;
+    try {
+      text = await readFile(isAbsolute(path) ? resolve(path) : resolve(cwd, path), "utf8");
+    } catch (error) {
+      throw new WorkFoldCliError("notFound", `${flag} ${path}: the file could not be read.`, { cause: error });
+    }
+    if (text.includes("\u0000")) throw new WorkFoldCliError("usage", `${flag} ${path} contains unsupported control characters.`);
+    if (field === "instructions") {
+      if (text.length > maximumAssistantInstructionsLength) {
+        throw new WorkFoldCliError("usage", `${flag} must be at most ${maximumAssistantInstructionsLength} characters.`);
+      }
+      resolved.instructions = text;
+      continue;
+    }
+    if (!text.trim()) throw new WorkFoldCliError("usage", `${flag} ${path} is empty.`);
+    const [limit, maximumBytes] = field === "summary"
+      ? ["resultSummary", workFoldRequestLimits.maxResultSummaryBytes] as const
+      : field === "question"
+        ? ["questionText", workFoldRequestLimits.maxQuestionTextBytes] as const
+        : ["answerText", workFoldRequestLimits.maxAnswerTextBytes] as const;
+    if (Buffer.byteLength(text, "utf8") > maximumBytes) throw new WorkFoldCliError("usage", workFoldRequestLimitMessage(limit, maximumBytes));
+    resolved[field] = text;
+  }
+  return resolved;
 }
 
 async function runActCommand(
@@ -2630,7 +2693,7 @@ function projectChecksResult(
   value: Awaited<ReturnType<WorkFoldActFacade["checksResult"]>>,
 ): WorkFoldCliJson {
   const { run } = value;
-  const findings = run.findings.slice(0, maxChecksOutputFindings).map(projectCheckFinding);
+  const findings = run.findings.map(projectCheckFinding);
   return toChecksJson({
     space: value.space,
     run: {
@@ -2659,8 +2722,8 @@ function projectChecksResult(
 function projectChecksProblems(
   value: Awaited<ReturnType<WorkFoldActFacade["checksProblems"]>>,
 ): WorkFoldCliJson {
-  const findings = value.findings.slice(0, maxChecksOutputFindings).map(projectCheckFinding);
-  const healthErrors = value.healthErrors.slice(0, maxChecksOutputHealthErrors);
+  const findings = value.findings.map(projectCheckFinding);
+  const healthErrors = value.healthErrors;
   return toChecksJson({
     space: value.space,
     ...(value.checkId ? { checkId: value.checkId } : {}),
@@ -2707,29 +2770,26 @@ function toChecksJson(value: unknown): WorkFoldCliJson {
 
 /**
  * The facade is trusted application code, but its values can contain file and
- * model content. Bound every collection/string and scrub terminal controls at
- * this final adapter boundary so both JSON and human projections are safe.
+ * model content. Scrub terminal controls at this final adapter boundary so
+ * both JSON and human projections are safe. Content is never shortened: the
+ * agent reading a result gets all of it. The depth guard only stops a cyclic
+ * or pathological structure from recursing without end.
  */
 function sanitizeChecksJson(value: unknown, depth = 0): WorkFoldCliJson {
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value === "string") return boundedTerminalText(value, 8_192);
-  if (depth >= 12) return "[nested output omitted]";
-  if (Array.isArray(value)) return value.slice(0, 512).map((item) => sanitizeChecksJson(item, depth + 1));
+  if (typeof value === "string") return terminalText(value);
+  if (depth >= 256) return "[nested output omitted]";
+  if (Array.isArray(value)) return value.map((item) => sanitizeChecksJson(item, depth + 1));
   if (typeof value === "object") {
     const output: Record<string, WorkFoldCliJson> = {};
-    for (const [key, item] of Object.entries(value).slice(0, 128)) {
+    for (const [key, item] of Object.entries(value)) {
       if (item === undefined || typeof item === "function" || typeof item === "symbol") continue;
       output[terminalText(key)] = sanitizeChecksJson(item, depth + 1);
     }
     return output;
   }
-  return boundedTerminalText(value, 8_192);
-}
-
-function boundedTerminalText(value: unknown, maximumLength: number): string {
-  const scrubbed = terminalText(value);
-  return scrubbed.length <= maximumLength ? scrubbed : `${scrubbed.slice(0, maximumLength - 1)}…`;
+  return terminalText(value);
 }
 
 const manageRenderAliases: Partial<Record<WorkFoldCliActCommandName, WorkFoldCliActCommandName>> = {

@@ -87,11 +87,11 @@ function normalizePendingChatSend(value: unknown): StoredPendingChatSend | null 
     content: record.content,
     createdAt: record.createdAt,
     selectedPath: record.selectedPath,
-    contextPaths: record.contextPaths.slice(0, 32),
+    contextPaths: record.contextPaths,
     transientConversation: record.transientConversation,
     draftStorageKey: record.draftStorageKey,
     ...(Array.isArray(record.addressedSpaceIds) && record.addressedSpaceIds.every((id) => typeof id === "string")
-      ? { addressedSpaceIds: record.addressedSpaceIds.slice(0, 8) }
+      ? { addressedSpaceIds: record.addressedSpaceIds }
       : {}),
   };
 }

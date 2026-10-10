@@ -74,7 +74,8 @@ if ($args.Count -gt 0 -and [string]$args[0] -ceq $pathManagementFlag) {
 }
 
 $script:ActUnavailableMessage = 'Open work-fold to run this command. Act commands need the work-fold app running.'
-$script:ActMaxMessageFileBytes = 262144
+$script:ActMaxMessageFileBytes = 16777216
+$script:MaxWaitSeconds = 2592000
 
 function Test-WorkFoldActCommand {
   param([string[]]$CommandArguments)
@@ -223,7 +224,7 @@ function Get-WorkFoldChatWaitPlan {
   if ($positional.Count -lt 2 -or $positional[1] -cne 'wait') { return $null }
   $group = [string]$positional[0]
   if (@('chat', 'manage', 'checks') -notcontains $group) { return $null }
-  $plan = [ordered]@{ Group = $group; Space = ''; Task = ''; TimeoutSeconds = 600; Json = $CommandArguments -ccontains '--json' }
+  $plan = [ordered]@{ Group = $group; Space = ''; Task = ''; TimeoutSeconds = 3600; Json = $CommandArguments -ccontains '--json' }
   for ($index = 0; $index -lt $CommandArguments.Count; $index += 1) {
     $token = [string]$CommandArguments[$index]
     switch ($token) {
@@ -231,8 +232,8 @@ function Get-WorkFoldChatWaitPlan {
       '--task' { $plan.Task = [string]$CommandArguments[$index + 1]; $index += 1 }
       '--timeout' {
         $timeoutSeconds = 0
-        if (-not [int]::TryParse([string]$CommandArguments[$index + 1], [ref]$timeoutSeconds) -or $timeoutSeconds -lt 1 -or $timeoutSeconds -gt 3600) {
-          throw New-WorkFoldUsageError '--timeout must be an integer between 1 and 3600 seconds.'
+        if (-not [int]::TryParse([string]$CommandArguments[$index + 1], [ref]$timeoutSeconds) -or $timeoutSeconds -lt 1 -or $timeoutSeconds -gt $script:MaxWaitSeconds) {
+          throw New-WorkFoldUsageError "--timeout must be an integer between 1 and $($script:MaxWaitSeconds) seconds."
         }
         $plan.TimeoutSeconds = $timeoutSeconds
         $index += 1
@@ -358,11 +359,11 @@ try {
   }
   $stateDirectory = [IO.Path]::GetFullPath($stateDirectory)
 
-  $timeoutMs = 120000
+  $timeoutMs = 1800000
   if (-not [string]::IsNullOrWhiteSpace($env:WORKFOLD_CLI_TIMEOUT_MS)) {
     $configuredTimeout = 0
-    if (-not [int]::TryParse($env:WORKFOLD_CLI_TIMEOUT_MS, [ref]$configuredTimeout) -or $configuredTimeout -lt 100 -or $configuredTimeout -gt 600000) {
-      throw 'WORKFOLD_CLI_TIMEOUT_MS must be an integer between 100 and 600000.'
+    if (-not [int]::TryParse($env:WORKFOLD_CLI_TIMEOUT_MS, [ref]$configuredTimeout) -or $configuredTimeout -lt 100) {
+      throw 'WORKFOLD_CLI_TIMEOUT_MS must be an integer of at least 100.'
     }
     $timeoutMs = $configuredTimeout
   }

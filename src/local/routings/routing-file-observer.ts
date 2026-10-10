@@ -28,7 +28,8 @@ export const observeWorkFoldRoutingFiles: WorkFoldRoutingFileObserver = async (t
   const folderBefore = await lstat(watched);
   if (!folderBefore.isDirectory() || folderBefore.isSymbolicLink()) throw new Error("The watched folder must be an ordinary directory.");
   const resolution = await resolveWorkFoldCheckTargets(space.spaceRoot, [{ ...trigger.watch, role: "primary" }], {
-    limits: { maxFiles: 512, maxVisitedEntries: 2000, maxDepth: 16 },
+    // Metadata only, polled every few seconds: generous counts, no byte ceiling.
+    limits: { maxFiles: 50_000, maxVisitedEntries: 200_000, maxDepth: 256 },
   });
   const entries: Record<string, string> = Object.create(null);
   for (const file of resolution.files) {

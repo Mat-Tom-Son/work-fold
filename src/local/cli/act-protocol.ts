@@ -34,10 +34,10 @@ import {
 export const WORKFOLD_CLI_ACT_PROTOCOL_VERSION = 3 as const;
 
 /** Bound for `payload.messageFile` text (UTF-8 bytes), kept out of argv. */
-export const WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES = 256 * 1024;
+export const WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
 
 /** File-level bound for a serialized act request (JSON-escape headroom). */
-export const WORKFOLD_CLI_MAX_ACT_REQUEST_BYTES = 2 * 1024 * 1024;
+export const WORKFOLD_CLI_MAX_ACT_REQUEST_BYTES = 128 * 1024 * 1024;
 
 export interface WorkFoldCliActRequestPayload {
   /** UTF-8 text supplied through `--message-file`, embedded by the shim. */

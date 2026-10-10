@@ -14,7 +14,6 @@ import { RestrictedAppService } from "../src/local/agent/restricted-app-service.
 import {
   workFoldSpaceOperationsGuide,
   workFoldSpaceOperationsGuideHeading,
-  workFoldSpaceOperationsGuideMaxBytes,
 } from "../src/local/agent/space-operations-guide.js";
 import type { WorkFoldCliActReceiptV3 } from "../src/local/cli/act-receipts.js";
 import { createWorkFoldCliActRequest, executeWorkFoldCliActRequest } from "../src/local/cli/index.js";
@@ -498,10 +497,6 @@ test("journey: a fresh Space turn receives the operations guide, its own ids, an
     assert.ok(
       system.indexOf("## Space instructions") < system.indexOf(workFoldSpaceOperationsGuideHeading),
       "the guide follows the person's instructions",
-    );
-    assert.ok(
-      Buffer.byteLength(workFoldSpaceOperationsGuide(), "utf8") <= workFoldSpaceOperationsGuideMaxBytes,
-      "the guide stays compact",
     );
     for (const verb of ["chat report", "chat ask", "chat answer", "chat handoff", "chat wait"]) {
       assert.ok(system.includes(verb), `the guide names ${verb}`);

@@ -110,5 +110,5 @@ export function addressedFolderIds(content: string, folders: readonly Mentionabl
       found.add(folder.id);
     }
   }
-  return folders.filter((folder) => found.has(folder.id)).map((folder) => folder.id).slice(0, 8);
+  return folders.filter((folder) => found.has(folder.id)).map((folder) => folder.id);
 }

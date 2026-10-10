@@ -17,10 +17,10 @@ import {
   type WorkFoldCheckRunRecord,
 } from "./check-types.js";
 
-const maximumRunRecords = 200;
+const maximumRunRecords = 2_000;
 const maximumDecisionRecords = 5_000;
-const maximumMachineStateBytes = 16 * 1024 * 1024;
-const maximumAuthorizationRecords = 256;
+const maximumMachineStateBytes = 256 * 1024 * 1024;
+const maximumAuthorizationRecords = 10_000;
 
 export interface WorkFoldCheckStoreOptions {
   path?: string;
@@ -129,11 +129,11 @@ export class WorkFoldCheckStore {
     now = new Date(),
     execution: WorkFoldCheckAuthorization["execution"] = "deterministic",
     limits: WorkFoldCheckRunLimits = {
-      maximumFiles: 512,
-      maximumFileBytes: 64 * 1024 * 1024,
-      maximumTotalBytes: 256 * 1024 * 1024,
-      maximumFindings: 256,
-      timeoutMs: 30_000,
+      maximumFiles: 100_000,
+      maximumFileBytes: 1024 * 1024 * 1024,
+      maximumTotalBytes: 16 * 1024 * 1024 * 1024,
+      maximumFindings: 100_000,
+      timeoutMs: 30 * 60_000,
     },
   ): Promise<WorkFoldCheckAuthorization> {
     const authorization: WorkFoldCheckAuthorization = {

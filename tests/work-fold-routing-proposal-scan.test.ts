@@ -65,8 +65,8 @@ test("the proposal scan reads only top-level proposal files and reports problems
   assert.deepEqual(broken, { valid: false, path: join(root, "b-broken.work-fold-routing.json"), fileName: "b-broken.work-fold-routing.json", problem: "Not valid JSON." });
   assert.equal(wrong?.valid, false);
   assert.match(wrong?.valid === false ? wrong.problem : "", /kind must be work-fold\.routing-proposal/);
-  assert.match(past?.valid === false ? past.problem : "", /between 1 minute and 366 days/);
-  assert.deepEqual(big?.valid === false ? big.problem : "", "Larger than 256 KiB.");
+  assert.match(past?.valid === false ? past.problem : "", /in the future, and at most ten years ahead/);
+  assert.deepEqual(big?.valid === false ? big.problem : "", `Larger than ${workFoldRoutingProposalScanBounds.maxFileBytes / (1024 * 1024)} MiB.`);
   assert.deepEqual(link?.valid === false ? link.problem : "", "Not a regular file.");
 });
 

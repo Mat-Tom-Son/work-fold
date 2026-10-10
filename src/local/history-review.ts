@@ -240,7 +240,7 @@ async function boundedRead(path: string, recheckPath?: () => void): Promise<Boun
     beganReading = true;
     const before = await handle.stat({ bigint: true });
     if (!before.isFile() || !sameFile(initial, before)) return { kind: "changed" };
-    const bytes = Buffer.alloc(HISTORY_REVIEW_LIMITS.maxFileBytes + 1);
+    const bytes = Buffer.alloc(Number(initial.size) + 1);
     let length = 0;
     while (length < bytes.length) {
       const read = await handle.read(bytes, length, bytes.length - length, length);

@@ -11,9 +11,9 @@ export const WORKFOLD_CLI_PROTOCOL_VERSION = 1 as const;
 
 /** Accepted shape for per-launch act tokens carried by act-lane requests. */
 export const WORKFOLD_CLI_ACT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
-export const WORKFOLD_CLI_MAX_ARG_COUNT = 128;
-export const WORKFOLD_CLI_MAX_ARG_LENGTH = 8 * 1024;
-export const WORKFOLD_CLI_MAX_ARGV_LENGTH = 64 * 1024;
+export const WORKFOLD_CLI_MAX_ARG_COUNT = 16_384;
+export const WORKFOLD_CLI_MAX_ARG_LENGTH = 4 * 1024 * 1024;
+export const WORKFOLD_CLI_MAX_ARGV_LENGTH = 16 * 1024 * 1024;
 
 export const WorkFoldCliExitCode = {
   success: 0,

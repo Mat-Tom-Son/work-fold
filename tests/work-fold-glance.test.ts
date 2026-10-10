@@ -135,12 +135,17 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
   assert.deepEqual(Object.keys(first.seen), ["popover", "remote:grant-1"]);
 });
 
+/** One second apart from the start of the fixture day, so any cap fits before composition time. */
+function overflowTime(index: number): string {
+  return new Date(Date.parse("2026-08-10T00:00:00.000Z") + index * 1_000).toISOString();
+}
+
 test("running overflow drops the newest items and discloses truncation", async () => {
   const tasks = Array.from({ length: workFoldGlanceRunningCap + 4 }, (_item, index) => ({
-    id: `task-${String(index).padStart(2, "0")}`,
+    id: `task-${String(index).padStart(4, "0")}`,
     kind: "assistant_turn" as const,
     spaceId: alpha.id,
-    startedAt: `2026-08-10T11:${String(index).padStart(2, "0")}:00.000Z`,
+    startedAt: overflowTime(index),
   }));
   const snapshot = await composeWorkFoldGlance({
     now: new Date(composedAtIso),
@@ -149,20 +154,20 @@ test("running overflow drops the newest items and discloses truncation", async (
   });
   assert.equal(snapshot.running.length, workFoldGlanceRunningCap);
   assert.equal(snapshot.truncated.running, true);
-  assert.equal(snapshot.running[0].id, "kernel-tasks:task-00", "the longest-running task must stay visible");
+  assert.equal(snapshot.running[0].id, "kernel-tasks:task-0000", "the longest-running task must stay visible");
   assert.ok(
-    !snapshot.running.some((item) => item.id === "kernel-tasks:task-19"),
+    !snapshot.running.some((item) => item.id === `kernel-tasks:task-${String(workFoldGlanceRunningCap + 3).padStart(4, "0")}`),
     "overflow must drop the newest, never the oldest",
   );
 });
 
 test("needs-you overflow keeps the newest questions and states truncation", async () => {
   const chats: WorkFoldGlanceChatRecord[] = Array.from({ length: workFoldGlanceNeedsYouCap + 2 }, (_item, index) => ({
-    conversationId: `chat-${String(index).padStart(2, "0")}`,
+    conversationId: `chat-${String(index).padStart(4, "0")}`,
     title: `Question ${index}`,
     archivedAt: null,
     snoozedUntil: null,
-    newestMessage: { role: "assistant", createdAt: `2026-08-10T11:${String(index).padStart(2, "0")}:00.000Z`, followUpPrompt: "Ready?" },
+    newestMessage: { role: "assistant", createdAt: overflowTime(index), followUpPrompt: "Ready?" },
     lifecycleEvents: [],
     titleEvents: [],
   }));
@@ -174,7 +179,7 @@ test("needs-you overflow keeps the newest questions and states truncation", asyn
   assert.equal(snapshot.needsYou.length, workFoldGlanceNeedsYouCap);
   assert.equal(snapshot.truncated.needsYou, true);
   assert.ok(snapshot.needsYou.every((item) => item.kind === "chat-question"));
-  assert.equal(snapshot.needsYou[0].id, `chats:chat-${workFoldGlanceNeedsYouCap + 1}:question`, "the newest question comes first; overflow drops the oldest");
+  assert.equal(snapshot.needsYou[0].id, `chats:chat-${String(workFoldGlanceNeedsYouCap + 1).padStart(4, "0")}:question`, "the newest question comes first; overflow drops the oldest");
 });
 
 test("needs-you carries questions, request questions, and due snoozes only", async () => {

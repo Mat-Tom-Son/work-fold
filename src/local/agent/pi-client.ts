@@ -1,4 +1,5 @@
 import { modelReviewSubmissionSchema, modelReviewSystemPrompt, type WorkFoldModelCheckRequest, type WorkFoldModelCheckResponse } from "../checks/model-review-sensor.js";
+import { modelCheckLimits } from "../checks/check-text.js";
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -50,7 +51,7 @@ import {
 import { runBoundedInference, type BoundedInferenceOutcome, type BoundedInferenceRequest } from "./bounded-inference.js";
 import { appendSpaceOperationsGuide } from "./space-operations-guide.js";
 import { appendToolFeedbackGuide } from "./tool-feedback-guide.js";
-import type { PiSpaceTurnContext } from "./space-turn-context.js";
+import { spaceTurnAssignmentMaxBytes, type PiSpaceTurnContext } from "./space-turn-context.js";
 import type { WorkFoldDurableTurnUsage } from "./turn-store.js";
 import { localEditPath, projectNativeEdit, turnPresentation } from "./turn-presentation.js";
 import { boundedLiveTurnPresentation } from "./turn-live-presentation.js";
@@ -574,12 +575,14 @@ export class PiConversationClient extends EventEmitter {
     if (!model) throw new Error("Choose a model for the work-fold agent in Settings → AI Models before running model-backed Checks.");
     const reviewReasoning = session.getAvailableThinkingLevels().find((level) => level !== "off");
     const payload = JSON.stringify({ criteria: input.criteria, files: input.files.map(({ path, text, roles }) => ({ path, text, roles })) });
-    if (payload.length / 2 + 6144 > model.contextWindow) throw new Error("These Check inputs exceed the selected model's bounded context allowance. Narrow the targets or select a larger-context fold model.");
+    const reviewOutputTokens = model.maxTokens > 0 ? model.maxTokens : 32_768;
+    // About four characters per token for prose; the provider remains the authority.
+    if (payload.length / 4 + Math.min(reviewOutputTokens, model.contextWindow / 4) > model.contextWindow) throw new Error("These Check inputs exceed the selected model's context window. Narrow the targets or select a larger-context model for the work-fold agent.");
     const stream = await session.agent.streamFunction(model, normalizeContext({
       systemPrompt: modelReviewSystemPrompt,
       messages: [{ role: "user", content: payload, timestamp: Date.now() }],
       tools: [{ name: "submit_review", description: "Submit the completed review once. Quotes must exactly and uniquely match primary text.", parameters: modelReviewSubmissionSchema }],
-    }), { maxTokens: Math.min(model.maxTokens > 0 ? model.maxTokens : 6144, 6144), maxRetries: 0, timeoutMs: 120_000, signal: input.signal, ...(reviewReasoning ? { reasoning: reviewReasoning } : {}) });
+    }), { maxTokens: reviewOutputTokens, maxRetries: 2, timeoutMs: modelCheckLimits.timeoutMs, signal: input.signal, ...(reviewReasoning ? { reasoning: reviewReasoning } : {}) });
     const result = await stream.result();
     if (result.stopReason === "length") throw new Error("The model review exceeded its output limit. Narrow the Check criteria or selected files, then run again. No findings were admitted.");
     if (result.stopReason === "aborted") throw new Error("The model review was interrupted. No findings were admitted.");
@@ -1652,7 +1655,7 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
         `Another request delegated this work. Refer to it as ${turn.delegated.parentHandle}; that handle is all you get, and no command takes it.`,
         turn.delegated.assignmentIsThisMessage
           ? "Your assignment is the message in this turn."
-          : `Your assignment from that request:\n${turn.delegated.assignment ?? ""}${turn.delegated.assignmentTruncated ? "\n[The assignment was cut at 16 KB.]" : ""}`,
+          : `Your assignment from that request:\n${turn.delegated.assignment ?? ""}${turn.delegated.assignmentTruncated ? `\n[The assignment was cut at ${spaceTurnAssignmentMaxBytes / (1024 * 1024)} MB; the full text is the first message of this Chat.]` : ""}`,
         "When the assignment is done, report back with chat report before your final reply, then give the complete useful answer in that reply. Ask with chat ask --to parent when you need that request to decide something.",
       );
     }

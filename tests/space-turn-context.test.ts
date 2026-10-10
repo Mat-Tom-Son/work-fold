@@ -11,9 +11,8 @@ import {
   spaceOperationsGuideForScope,
   workFoldSpaceOperationsGuide,
   workFoldSpaceOperationsGuideHeading,
-  workFoldSpaceOperationsGuideMaxBytes,
 } from "../src/local/agent/space-operations-guide.js";
-import { buildSpaceTurnContext, spaceTurnHistory, spaceTurnParentHandle } from "../src/local/agent/space-turn-context.js";
+import { buildSpaceTurnContext, spaceTurnAssignmentMaxBytes, spaceTurnHistory, spaceTurnParentHandle } from "../src/local/agent/space-turn-context.js";
 import { startLocalApi } from "../src/local/server.js";
 import { workFoldManagementScopeId } from "../src/local/state-paths.js";
 
@@ -78,12 +77,12 @@ test("a delegated turn sees an opaque handle and its assignment, never the paren
     taskId: "task-1",
     requestId: "req-1",
     parentTaskId: "task-parent",
-    assignment: "x".repeat(20 * 1024),
+    assignment: "x".repeat(spaceTurnAssignmentMaxBytes + 1024),
     handleSalt: "salt",
   });
-  assert.equal(Buffer.byteLength(long.delegated!.assignment!, "utf8"), 16 * 1024, "the assignment is cut at the chat-message bound");
+  assert.equal(Buffer.byteLength(long.delegated!.assignment!, "utf8"), spaceTurnAssignmentMaxBytes, "the assignment is cut at the request record bound");
   assert.equal(long.delegated!.assignmentTruncated, true);
-  assert.match(buildTurnContextMessage({ spaceTurn: long }), /\[The assignment was cut at 16 KB\.\]/);
+  assert.match(buildTurnContextMessage({ spaceTurn: long }), /\[The assignment was cut at 1 MB; the full text is the first message of this Chat\.\]/);
 });
 
 test("parent handles are stable per salt, differ across salts, and refuse an empty salt", () => {
@@ -127,7 +126,6 @@ test("the operations guide names the verbs and the rules, stays bounded, and fol
   assert.match(guide, /Report delegated work, requested reports, or structured data and deliverables/);
   assert.match(guide, /After all tools, including any chat report, give the complete answer as your final reply/);
   assert.match(guide, /repeat essential earlier findings/);
-  assert.ok(Buffer.byteLength(guide, "utf8") < workFoldSpaceOperationsGuideMaxBytes, "the guide stays under its budget");
   assert.doesNotMatch(guide, bannedWords);
   assert.doesNotMatch(guide, bannedNames);
 

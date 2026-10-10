@@ -698,7 +698,7 @@ function renderApplication() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 5.7-5.7a3 3 0 1 1 4.2 4.2l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2" /></svg>
       </button>
       <input id="file-input" type="file" multiple hidden />
-      <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold agent" aria-label="Message work-fold agent"${coarsePointer ? "" : " autofocus"}></textarea>
+      <textarea id="prompt" rows="1" maxlength="256000" placeholder="Message work-fold agent" aria-label="Message work-fold agent"${coarsePointer ? "" : " autofocus"}></textarea>
       <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Enter" title="Send message" disabled>
         <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5" /></svg>
       </button>
@@ -1769,7 +1769,8 @@ async function workAction(action, input, work) {
 }
 
 function addUploads(files) {
-  const maximumFiles = 6;
+  // The byte budget is the hosted relay's encrypted envelope; the count is not a separate limit.
+  const maximumFiles = 64;
   const maximumFileBytes = 6 * 1024 * 1024;
   const maximumTotalBytes = 8 * 1024 * 1024;
   const next = [...state.uploads];

@@ -278,7 +278,7 @@ active finding**.
 
 ## Bounded text review (September 2026)
 
-`work-fold.text-review` revision 1 accepts exactly `{"criteria":"..."}` (1–4096 characters). It reviews 1–16 explicitly designated UTF-8 files, at most 128 KiB each and 256 KiB total, with primary and optional reference roles. Binary files, missing designated files, unsafe paths, nested registered Spaces, and partial reads fail closed; no implicit PDF or Word extraction occurs. The fold's selected model and native provider transport are used, without the fold transcript, personal instructions in the prompt, general tools, or a tool-execution loop. This does transmit designated text to that configured provider and may incur charges. Check runs serialize their model requests machine-wide, have a 120-second total budget (including queue time), at most 6,144 output tokens, no automatic provider retries, and at most 32 findings. That queue is the Check lane's own: a Space app's `assistant.infer` reuses the same bounded transport but has its own limiter (docs/app-assistant-tasks.md), so an app's calls never sit behind a Check run and a Check run never waits on an app.
+`work-fold.text-review` revision 1 accepts exactly `{"criteria":"..."}` (up to 64 KiB). It reviews explicitly designated UTF-8 files — up to 1,000 files, 16 MiB each and 64 MiB in total, and in practice whatever fits the selected model's context window — with primary and optional reference roles. Binary files, missing designated files, unsafe paths, nested registered Spaces, and partial reads fail closed; no implicit PDF or Word extraction occurs. The fold's selected model and native provider transport are used, without the fold transcript, personal instructions in the prompt, general tools, or a tool-execution loop. This does transmit designated text to that configured provider and may incur charges. Check runs serialize their model requests machine-wide, have a 120-second total budget (including queue time), at most 6,144 output tokens, no automatic provider retries, and at most 32 findings. That queue is the Check lane's own: a Space app's `assistant.infer` reuses the same bounded transport but has its own limiter (docs/app-assistant-tasks.md), so an app's calls never sit behind a Check run and a Check run never waits on an app.
 
 The model submits an exact unique quote for each primary-file finding; the host derives offsets and hashes itself. Every primary and reference input is hashed again after review, including an empty findings result. Changed files, invalid quotes, malformed or truncated submissions, timeouts, and provider failures are Check errors, never a clean result. Freshness and decision admission recheck all input digests without contacting a model. Opening or refreshing Checks performs only local re-verification. Model findings are visibly labeled suggestions: quote verification does not prove factual accuracy. Checks never edit files automatically.
 
@@ -336,7 +336,7 @@ infer internal record formats to prepare a review.
 
 A `work-fold.check-correction` version-1 proposal has exactly `findingId`,
 `fingerprint`, `path`, `beforeHash`, and `replacement` alongside kind/version.
-It covers one existing primary UTF-8 text file, at most 128 KiB, with a current
+It covers one existing primary UTF-8 text file, at most 16 MiB, with a current
 text-span finding. `checks propose-fix --space <id> --proposal <path>` validates
 and stores it inertly. Reference-only edits, stale evidence, extra fields,
 metadata targets, and unbounded content are rejected. Pending corrections live
@@ -362,7 +362,7 @@ content-free status contract remains version 1.
 
 The desktop creates its shared Check service before the interactive API starts.
 `createDesktopCheckService` supplies a lazy in-process callback to that API's
-serialized fold-model reviewer. The renderer, CLI, and Routings use the same
+fold-model reviewer (up to eight reviews at once since 2026-10-10). The renderer, CLI, and Routings use the same
 service and transport. A Space app's `assistant.infer` calls reuse this bounded
 model transport with their own instructions; they admit no evidence, produce no
 findings, are not Checks, and never become one

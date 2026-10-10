@@ -216,7 +216,7 @@ function assertActLaneShimContract(shim: string): void {
   assert.match(shim, /messageFile/);
   assert.match(shim, /--message-file/);
   assert.match(shim, /--message-from-payload/);
-  assert.match(shim, /262144/);
+  assert.match(shim, /16777216/, "the --message-file payload bound matches WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES");
   assert.match(shim, /Open work-fold to run this command/);
   assert.match(shim, /exit\s*\(?6\)?/);
   assert.match(shim, /--task/);

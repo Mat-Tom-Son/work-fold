@@ -27,7 +27,7 @@ export interface ManagementAttachmentRef {
   name: string;
 }
 
-export const maxManagementAttachments = 16;
+export const maxManagementAttachments = 1_000;
 const maxManagementAttachmentTargetLength = 4_096;
 const maxManagementAttachmentFileBytes = 32 * 1024 * 1024;
 

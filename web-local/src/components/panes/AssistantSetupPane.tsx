@@ -583,7 +583,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
     {scope === "space" ? <section className="assistant-settings-section" aria-labelledby="assistant-instructions-heading">
       <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Worker Instructions</h3></div>
       <form onSubmit={(event) => void saveInstructions(event)}>
-        <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker Instructions</span><textarea ref={instructionsField} value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
+        <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker Instructions</span><textarea ref={instructionsField} value={instructions} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
         <div className="assistant-form-actions assistant-instructions-actions"><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /><button className="ui-control" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save Instructions"}</button></div>
       </form>
     </section> : null}

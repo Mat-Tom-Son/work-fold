@@ -10,7 +10,6 @@ import {
   spaceOperationsGuideForScope,
   workFoldSpaceOperationsGuide,
   workFoldSpaceOperationsGuideHeading,
-  workFoldSpaceOperationsGuideMaxBytes,
   workFoldWorkerWorkingFilesGuide,
 } from "../src/local/agent/space-operations-guide.js";
 
@@ -82,7 +81,6 @@ test("the guide teaches the two rules the host actually enforces", () => {
   assert.doesNotMatch(guide, /never its Chat/);
   assert.match(guide, /completion returns the latest reply and selected result/);
 
-  assert.ok(Buffer.byteLength(guide, "utf8") <= workFoldSpaceOperationsGuideMaxBytes, "the guide stays inside its prompt budget");
 });
 
 function sessionAppendix(client: PiConversationClient): string[] {

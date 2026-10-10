@@ -8,7 +8,6 @@ import { workFoldRoutingDeclarationBounds } from "../../shared/fold-limits.js";
 import { folderAutomationRoles, type FolderAutomationRole } from "../../shared/routing-presentation.js";
 import { restrictedAppAutomationIntervalMinutes } from "../agent/restricted-app-manifest.js";
 import { workFoldCheckDigest } from "../checks/check-integrity.js";
-import { workFoldCheckTargetHardLimits } from "../checks/target-resolver.js";
 
 /**
  * Routing declarations are closed, typed, machine-local data: a declared
@@ -44,8 +43,8 @@ export const workFoldRoutingBounds = Object.freeze({
   ...workFoldRoutingDeclarationBounds,
   minIntervalMinutes: restrictedAppAutomationIntervalMinutes.minimum,
   maxIntervalMinutes: restrictedAppAutomationIntervalMinutes.maximum,
-  maxHandoffFiles: workFoldCheckTargetHardLimits.maxFiles,
-  maxHandoffTotalBytes: workFoldCheckTargetHardLimits.maxTotalBytes,
+  maxHandoffFiles: 100_000,
+  maxHandoffTotalBytes: 64 * 1024 * 1024 * 1024,
 });
 
 /**
@@ -269,7 +268,8 @@ export interface WorkFoldRoutingDeclaration extends WorkFoldRoutingDefinition {
   createdAt: string;
 }
 
-export const workFoldRoutingDocumentMaxBytes = 256 * 1024;
+/** Room for the largest step messages a declaration may carry. */
+export const workFoldRoutingDocumentMaxBytes = 64 * 1024 * 1024;
 
 // Mirrors isSpaceId in src/local/space.ts: routings pin Spaces by stable
 // registered Space id, never by name or path. The CLI may resolve an exact
@@ -439,7 +439,7 @@ export function assertWorkFoldRoutingAtAdmissionHorizon(
   if (!Number.isFinite(nowMs)) throw new Error("Routing admission time is invalid.");
   const advanceMs = Date.parse(definition.trigger.at) - nowMs;
   if (advanceMs < workFoldRoutingBounds.minAtAdvanceMs || advanceMs > workFoldRoutingBounds.maxAtAdvanceMs) {
-    throw new Error("Routing one-time trigger must be between 1 minute and 366 days in the future when it is enabled.");
+    throw new Error("Routing one-time trigger must be in the future, and at most ten years ahead, when it is enabled.");
   }
 }
 
@@ -554,8 +554,8 @@ function normalizeTrigger(value: unknown, version: WorkFoldRoutingContractVersio
     const watch = normalizeFilesSource(record.watch, "Watched folder");
     if (watch.kind !== "tree") throw new Error("A folder-change trigger requires one bounded folder selector.");
     return { kind: "files-changed", space: spaceId(record.space, "Watched Space"), watch,
-      debounceSeconds: boundedInteger(record.debounceSeconds, "Folder-change debounce seconds", 2, 120),
-      cooldownMinutes: boundedInteger(record.cooldownMinutes, "Folder-change cooldown minutes", 1, 1440) };
+      debounceSeconds: boundedInteger(record.debounceSeconds, "Folder-change debounce seconds", 1, 3_600),
+      cooldownMinutes: boundedInteger(record.cooldownMinutes, "Folder-change cooldown minutes", 0, 10_080) };
   }
   if (record.kind === "on-settled") {
     assertKeys(record, ["kind", "source"], [], "Routing on-settled trigger");
@@ -694,8 +694,8 @@ function normalizeOutcomes<Outcome extends string>(
 }
 
 function normalizeExtensions(value: unknown, label: string): string[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 24) {
-    throw new Error(`${label} extensions must contain between 1 and 24 file extensions.`);
+  if (!Array.isArray(value) || value.length < 1 || value.length > 256) {
+    throw new Error(`${label} extensions must contain between 1 and 256 file extensions.`);
   }
   const extensions = value.map((item) => {
     const raw = boundedText(item, `${label} extension`, 24).toLocaleLowerCase("en-US");
@@ -818,7 +818,7 @@ function assertKeys(
 export async function readWorkFoldRoutingDocument(path: string): Promise<string> {
   const info = await lstat(path);
   if (info.isSymbolicLink() || !info.isFile()) throw new Error("Routing document must be an ordinary file, not a link or special file.");
-  if (info.size > workFoldRoutingDocumentMaxBytes) throw new Error("Routing document exceeds the 256 KiB bound.");
+  if (info.size > workFoldRoutingDocumentMaxBytes) throw new Error("Routing document exceeds the 64 MiB bound.");
   // A raced FIFO must not block the app; a raced symlink must not redirect it.
   const handle = await open(path, constants.O_RDONLY | noFollowFlag() | (constants.O_NONBLOCK ?? 0));
   try {

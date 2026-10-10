@@ -29,8 +29,9 @@ export interface ManagementPopoverOptions {
 const popoverWidth = 400;
 const popoverHeight = 560;
 const popoverEdgeGap = 6;
-const maxStagedItems = 16;
-const maxStagedValueLength = 4_096;
+// Mirrors maxManagementAttachments; dropped text lands in the composer, so it may be long.
+const maxStagedItems = 1_000;
+const maxStagedValueLength = 4 * 1024 * 1024;
 
 export class ManagementPopover {
   #window: BrowserWindow | null = null;

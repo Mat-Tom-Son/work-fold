@@ -42,11 +42,11 @@ import { workFoldCheckExperimentalSnapshotVersion } from "./check-types.js";
 import { resolveWorkFoldCheckTargets, type WorkFoldCheckTargetResolution } from "./target-resolver.js";
 
 const defaultRunLimits: WorkFoldCheckRunLimits = Object.freeze({
-  maximumFiles: 512,
-  maximumFileBytes: 64 * 1024 * 1024,
-  maximumTotalBytes: 256 * 1024 * 1024,
-  maximumFindings: 256,
-  timeoutMs: 30_000,
+  maximumFiles: 100_000,
+  maximumFileBytes: 1024 * 1024 * 1024,
+  maximumTotalBytes: 16 * 1024 * 1024 * 1024,
+  maximumFindings: 100_000,
+  timeoutMs: 30 * 60_000,
 });
 
 export interface WorkFoldCheckSpaceRef {
@@ -1013,10 +1013,6 @@ export class WorkFoldCheckService {
       const decision = decisions[finding.fingerprint];
       if (decision?.decision === "reject" || decision?.decision === "resolve") continue;
       if (decision?.decision === "defer" && decision.deferUntil && Date.parse(decision.deferUntil) > this.#now().getTime()) continue;
-      if (findings.length >= 250) {
-        truncated = true;
-        break;
-      }
       findings.push(finding);
     }
     return { findings, invalidated, healthErrors, truncated };

@@ -606,7 +606,7 @@ test("the act facade drives file, search, and Library families with ledger safet
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
     await assert.rejects(
-      () => facade.search({ space: space.id, query: "x".repeat(201) }),
+      () => facade.search({ space: space.id, query: "x".repeat(64 * 1024 + 1) }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
 
@@ -1468,13 +1468,13 @@ test("routing enablement and page exposure execute on one call with one request 
       createdAt: new Date().toISOString(),
       routing: {
         title: "Too soon",
-        trigger: { kind: "at", at: new Date(Date.now() + 30_000).toISOString(), ifMissed: "run" },
+        trigger: { kind: "at", at: new Date(Date.now() - 30_000).toISOString(), ifMissed: "run" },
         steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review the report." }],
       },
     }, null, 2), "utf8");
     await assert.rejects(
       () => facade.routingsEnable({ proposalPath: tooSoonPath, cwd: sandbox, requestId: "req-routing-too-soon" }),
-      /between 1 minute and 366 days/,
+      /in the future, and at most ten years ahead/,
       "an unusable one-time routing is refused before anything is enabled",
     );
 

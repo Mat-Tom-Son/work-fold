@@ -1515,7 +1515,7 @@ export interface WorkFoldActFacade {
    * Enables one declared routing from its inert typed proposal file, or a
    * full declaration (docs/fold-routings.md): direct, receipted, and
    * digest-pinned. Every referenced Space must be registered, a one-time
-   * trigger must be 1 minute–366 days ahead, and enabling an identical
+   * trigger must be in the future (at most ten years ahead), and enabling an identical
    * already-enabled declaration is a no-op that leaves any active run alone.
    * Routings are above Spaces: no `--space` exists on this verb.
    */

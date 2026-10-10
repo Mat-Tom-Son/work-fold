@@ -1523,7 +1523,7 @@ test("a filled-in list names the limit that cut it, and a too-large message fail
   }));
   const many = workFoldRoutingBounds.maxPlaceholderListItems + 50;
   seedReviewManifests(harness, Array.from({ length: many }, (_, index) => ({
-    path: `reports/note-${String(index).padStart(3, "0")}.md`,
+    path: `reports/note-${String(index).padStart(5, "0")}.md`,
   })));
 
   assert.equal((await harness.service.runNow("routing-placeholder-bounds", { requestId: "request-1" })).outcome, "success");
@@ -1531,7 +1531,7 @@ test("a filled-in list names the limit that cut it, and a too-large message fail
   assert.equal(reportHop?.placeholders?.[0]?.truncated, true);
   assert.match(
     reportHop?.placeholders?.[0]?.text ?? "",
-    /\n… and 50 more \(100-item limit for one filled-in placeholder\)$/,
+    new RegExp(`\\n… and 50 more \\(${workFoldRoutingBounds.maxPlaceholderListItems}-item limit for one filled-in placeholder\\)$`),
   );
   assert.equal(
     reportHop?.placeholders?.[0]?.text.split("\n").length,
@@ -1551,16 +1551,18 @@ test("a filled-in list names the limit that cut it, and a too-large message fail
     ],
   }), "request-message-bound");
   const wide = "x".repeat(4_000);
+  // Enough wide paths that twelve filled-in copies overflow the whole-message bound.
+  const wideCount = Math.ceil(workFoldRoutingBounds.maxResolvedMessageBytes / 12 / wide.length) + 10;
   harness.ports.manifests.set(`${spaceA}/pre-review`, { files: [], skippedFilePaths: [] });
   harness.ports.manifests.set(`${spaceA}/post-review`, {
-    files: Array.from({ length: 2 }, (_, index) => ({ path: `reports/${wide}-${index}.md`, hashSha256: `h-${index}`, sizeBytes: 10 })),
+    files: Array.from({ length: wideCount }, (_, index) => ({ path: `reports/${wide}-${index}.md`, hashSha256: `h-${index}`, sizeBytes: 10 })),
     skippedFilePaths: [],
   });
   const flooded = await harness.service.runNow("routing-message-bound", { requestId: "request-2" });
   assert.equal(flooded.outcome, "failure");
   const floodLines = (await harness.journal()).filter((line) => line.routingId === "routing-message-bound" && line.scope === "hop");
   const failed = floodLines.find((line) => line.hopId === "flood" && line.outcome === "failed");
-  assert.match(failed?.detail ?? "", /64 KiB limit for one step/);
+  assert.match(failed?.detail ?? "", new RegExp(`${workFoldRoutingBounds.maxResolvedMessageBytes / 1024} KiB limit for one step`));
   assert.equal(
     floodLines.find((line) => line.hopId === "after" && line.outcome === "skipped")?.failedHopId,
     "flood",
@@ -1671,7 +1673,7 @@ test("enabling an identical declaration again changes nothing and leaves the act
 
 test("routing declarations accept more than the former sixteen-step default", async (t) => {
   const harness = await createHarness(t);
-  assert.equal(workFoldRoutingMaxConcurrentRuns, 8);
+  assert.ok(workFoldRoutingMaxConcurrentRuns >= 8, "runs at once only ever grew");
 
   const seventeen = Array.from({ length: 17 }, (_, index) => ({
     id: `hop-${index}`,
@@ -1688,7 +1690,7 @@ test("routing declarations accept more than the former sixteen-step default", as
   assert.equal(eighteen.declaration.steps.length, 18);
 
   harness.ports.chatImpl = harness.ports.abortableChat;
-  const routingIds = Array.from({ length: 9 }, (_, index) => `routing-slot-hold-${index}`);
+  const routingIds = Array.from({ length: workFoldRoutingMaxConcurrentRuns + 1 }, (_, index) => `routing-slot-hold-${index}`);
   for (const routingId of routingIds) {
     await harness.enable(declarationInput(routingId, {
       steps: [{ id: "hold", kind: "chat", space: spaceA, message: "Hold the slot." }],
@@ -1697,16 +1699,16 @@ test("routing declarations accept more than the former sixteen-step default", as
   const runs = routingIds.map((routingId) => harness.service.runNow(routingId, { requestId: `request-run-${routingId}` }));
   await waitForCondition(
     () => harness.ports.calls.filter((call) => call.hopId === "hold").length === workFoldRoutingMaxConcurrentRuns,
-    "eight runs to hold every slot",
+    "a run holding every slot",
   );
   assert.equal(harness.service.status().activeRunCount, workFoldRoutingMaxConcurrentRuns);
   await new Promise<void>((resolve) => setTimeout(resolve, 20));
   assert.equal(
     harness.ports.calls.filter((call) => call.hopId === "hold").length,
     workFoldRoutingMaxConcurrentRuns,
-    "the ninth admission queues behind the budget instead of launching",
+    "the admission past the budget queues instead of launching",
   );
-  // Let the queued ninth admission finish once a slot frees, so the harness
+  // Let the queued admission finish once a slot frees, so the harness
   // tears down with nothing in flight.
   harness.ports.chatImpl = harness.ports.defaultChat;
   for (const routingId of routingIds) harness.service.stopRun(routingId);
@@ -1714,6 +1716,6 @@ test("routing declarations accept more than the former sixteen-step default", as
   assert.equal(
     harness.ports.calls.filter((call) => call.hopId === "hold").length,
     routingIds.length,
-    "the ninth run launched after a slot freed, never lost",
+    "the queued run launched after a slot freed, never lost",
   );
 });

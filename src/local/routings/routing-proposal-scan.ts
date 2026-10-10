@@ -22,7 +22,7 @@ import {
  * CLI, which pins its digest at that moment.
  */
 export const workFoldRoutingProposalScanBounds = Object.freeze({
-  maxFiles: 64,
+  maxFiles: 1_000,
   maxFileBytes: workFoldRoutingDocumentMaxBytes,
 });
 
@@ -99,7 +99,7 @@ async function scanOne(path: string, fileName: string, now: Date): Promise<WorkF
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message.includes("ordinary file")) return invalid("Not a regular file.");
-    if (message.includes("256 KiB")) return invalid("Larger than 256 KiB.");
+    if (message.includes("exceeds the")) return invalid(`Larger than ${workFoldRoutingDocumentMaxBytes / (1024 * 1024)} MiB.`);
     return invalid("Could not be read.");
   }
   let parsed: unknown;

@@ -165,7 +165,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /do not enable it yourself unless they ask you to/);
     assert.match(managementContext, /Use version 2 for a one-time trigger shaped exactly/);
     assert.match(managementContext, /`ifMissed` is required/);
-    assert.match(managementContext, /1 minute through 366 days ahead/);
+    assert.match(managementContext, /any future time up to ten years ahead/);
     assert.match(managementContext, /routings enable --proposal/);
     assert.match(managementContext, /enabling the same declaration again changes nothing/);
     assert.match(managementContext, /Use version 4 for placeholders or a fold step/);
@@ -217,7 +217,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Handoffs are host-routed\./);
     assert.match(managementContext, /A Space Chat receives only its own work\./);
     assert.match(managementContext, /its assignment, answers to its own questions, report summaries someone deliberately released to it, and copied files/);
-    assert.match(managementContext, /Requests have no fixed lifetime, child-count, depth, or continuation-count quota/);
+    assert.match(managementContext, /Requests have no fixed lifetime, child-count, depth, concurrency, or continuation-count quota/);
     assert.match(managementContext, /help collaborate/);
     // The trap this teaching exists to prevent: a sentence a model obeys
     // literally by sitting on a child instead of finishing its turn.
@@ -259,7 +259,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /work-fold\.routing-proposal/);
     assert.match(skillContent, /one-time trigger requires version 2/);
     assert.match(skillContent, /`ifMissed` is required/);
-    assert.match(skillContent, /1 minute through 366 days ahead/);
+    assert.match(skillContent, /any future time up to ten years ahead/);
     assert.match(skillContent, /routings enable --proposal/);
     assert.match(skillContent, /Version 4 adds the closed placeholder set and the `fold` step/);
     assert.match(skillContent, /`chat`, `files`, `check`, or `fold`/);
@@ -290,7 +290,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /work-fold manage ask --task/);
     assert.match(skillContent, /asks for a handoff with `chat handoff`/);
     assert.doesNotMatch(skillContent, /bounded at 4 per request/);
-    assert.match(skillContent, /Requests have no fixed lifetime, child-count, depth, or continuation-count quota/);
+    assert.match(skillContent, /Requests have no fixed lifetime, child-count, depth, concurrency, or continuation-count quota/);
     assert.match(skillContent, /A Space Chat receives only its assignment, answers to its own questions, released report summaries, and copied files/);
     assert.match(skillContent, /A request is not done while a child is running, waiting, failed, lost, or stopped/);
     assert.match(skillContent, /help collaborate/);
