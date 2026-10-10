@@ -20,6 +20,9 @@ const windowMaterial = rawWindowMaterial === "mica" || rawWindowMaterial === "vi
 
 contextBridge.exposeInMainWorld("workFoldDesktop", {
   desktop: true,
+  clipboard: {
+    write: (content: { text: string; html?: string }) => ipcRenderer.invoke("work-fold:clipboard:write", content),
+  },
   api: {
     baseUrl: apiBaseUrl,
     getSessionHeaders: () => ipcRenderer.invoke("work-fold:api:session-headers"),

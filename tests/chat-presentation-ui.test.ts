@@ -13,7 +13,7 @@ const hook = registerHooks({
   resolve(specifier, context, next) { return specifier === "@fluentui/react-icons" ? { url: "test:presentation-icons", shortCircuit: true } : next(specifier, context); },
   load(url, context, next) { return url === "test:presentation-icons" ? { format: "module", source: iconNames.map((name) => `export const ${name}=${name === "bundleIcon" ? "(filled)=>filled" : "()=>null"};`).join("\n"), shortCircuit: true } : next(url, context); },
 });
-const { ChatMessageRow } = await import("../web-local/src/components/chat/messages.js");
+const { ChatMessageRow, copyMarkdownToClipboard } = await import("../web-local/src/components/chat/messages.js");
 const { RuntimeContextPreview } = await import("../web-local/src/components/chat/activity.js");
 hook.deregister();
 
@@ -26,6 +26,20 @@ function text(...parts: Array<["progress" | "final" | "command", number, string]
 }
 const tool: RuntimePreviewEntry = { id: "tool:edit", kind: "tool", toolName: "edit", text: "Edited", detail: "notes.txt", phase: "complete", order: 2,
   edit: { path: "notes.txt", diff: "-<script>old()</script>\n+New text", firstChangedLine: 4, truncated: true } };
+
+test("Chat Copy keeps the full Markdown and safe rich formatting on the native clipboard route", async (t) => {
+  const dom = await createDomHarness(); t.after(dom.cleanup);
+  const copies: Array<{ text: string; html?: string }> = [];
+  window.workFoldDesktop = { clipboard: { write: async (content) => { copies.push(content); } } } as NonNullable<Window["workFoldDesktop"]>;
+  const input = "Checking the notes.\n\n## Final answer\n\n**Ready** <script>bad()</script> 🌍";
+  await copyMarkdownToClipboard(input);
+  assert.equal(copies.length, 1);
+  assert.equal(copies[0]!.text, input);
+  assert.match(copies[0]!.html!, /<h2>Final answer<\/h2>/);
+  assert.match(copies[0]!.html!, /<strong>Ready<\/strong>/);
+  assert.match(copies[0]!.html!, /&lt;script&gt;/);
+  assert.doesNotMatch(copies[0]!.html!, /<script>/);
+});
 
 test("new presentation interleaves progress and tool evidence, keeping the full reply authoritative", () => {
   const input = text(["progress", 1, "Checking the notes."], ["progress", 3, "Checking the edit."], ["final", 5, "The notes are ready."]);

@@ -4,6 +4,7 @@ import type { ModelContextInspection as ModelContextInspectionRecord, ModelConte
 import { workFoldModelContextLimits } from "../../../../src/shared/fold-limits";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
+import { copyToClipboard } from "../../lib/clipboard";
 
 interface InspectorProps {
   spaceId?: string;
@@ -169,7 +170,7 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
   async function copyJson() {
     const current = copyGeneration.current;
     try {
-      await navigator.clipboard.writeText(json);
+      await copyToClipboard({ text: json });
       if (mounted.current && current === copyGeneration.current) setCopied(true);
     } catch { if (mounted.current && current === copyGeneration.current) setError("Couldn’t copy. You can select and copy the displayed text."); }
   }

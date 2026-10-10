@@ -116,6 +116,7 @@ declare global {
   interface Window {
     workFoldDesktop?: {
       desktop: true;
+      clipboard?: import("../../src/shared/clipboard").ClipboardWriter;
       api: {
         baseUrl: string;
         getSessionHeaders: () => Promise<Record<string, string>>;

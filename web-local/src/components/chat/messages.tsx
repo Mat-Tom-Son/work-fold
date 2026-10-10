@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/react-icons";
 
 import { safeExternalHref } from "../../lib/api";
+import { copyToClipboard } from "../../lib/clipboard";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
 import { assistantTurnView, savedWorkTrailPreviews } from "../../lib/chat-work-trail";
@@ -302,7 +303,7 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
 
   async function copyCode() {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyToClipboard({ text });
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -405,21 +406,7 @@ function reactNodeText(children: ReactNode): string {
 }
 
 export async function copyMarkdownToClipboard(content: string): Promise<void> {
-  const html = markdownToClipboardHtml(content);
-  if (navigator.clipboard && "write" in navigator.clipboard && typeof ClipboardItem !== "undefined") {
-    try {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "text/html": new Blob([html], { type: "text/html" }),
-          "text/plain": new Blob([content], { type: "text/plain" }),
-        }),
-      ]);
-      return;
-    } catch {
-      // Fall through to plain text for clipboard hosts that block rich writes.
-    }
-  }
-  await navigator.clipboard.writeText(content);
+  await copyToClipboard({ text: content, html: markdownToClipboardHtml(content) });
 }
 
 function markdownToClipboardHtml(markdown: string): string {

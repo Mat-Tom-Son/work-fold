@@ -24,6 +24,9 @@ const maxStagedValueLength = 4_096;
 // folder pickers, restricted-app brokers, updates, settings, or shell actions.
 contextBridge.exposeInMainWorld("workFoldDesktop", {
   desktop: true,
+  clipboard: {
+    write: (content: { text: string; html?: string }) => ipcRenderer.invoke("work-fold:clipboard:write", content),
+  },
   api: {
     baseUrl: argumentValue("api-base-url"),
     getSessionHeaders: () => ipcRenderer.invoke("work-fold:api:session-headers"),

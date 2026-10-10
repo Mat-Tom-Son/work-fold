@@ -5,6 +5,9 @@ const { contextBridge, ipcRenderer } = require("electron") as typeof import("ele
 const diagnostics: ModelContextDiagnosticsBridge = {
   request: (input) => ipcRenderer.invoke("work-fold:diagnostics:request", input),
   close: () => ipcRenderer.invoke("work-fold:diagnostics:close"),
+  clipboard: {
+    write: (content) => ipcRenderer.invoke("work-fold:clipboard:write", content),
+  },
 };
 
 contextBridge.exposeInMainWorld("workFoldDiagnostics", diagnostics);
