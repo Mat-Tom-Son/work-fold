@@ -21,6 +21,9 @@ export const excludedPaths = [
   /^desktop\/assets\//,
   /^resources\/included-tools\/.*\/vendor\//,
   /^scripts\/vocabulary\//,
+  // The one-time migration names the old spellings on purpose.
+  /^src\/local\/vocabulary-migration/,
+  /^tests\/vocabulary-migration/,
   /package-lock\.json$/,
   /\.(png|jpe?g|webp|gif|ico|icns|woff2?|ttf|otf|pdf|zip|node|dylib|mp4|mov|svg)$/,
 ];
