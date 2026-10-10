@@ -144,13 +144,13 @@ test("the web surfaces ship the same pack exports", async () => {
     read("services/bridge/public/manifest.webmanifest"),
     read("services/bridge/public/app.css"),
   ]);
-  assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#f2f4ef"/);
-  assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#0f1622"/);
+  assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#ffffff"/);
+  assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#212121"/);
   assert.match(indexHtml, /<link rel="icon" href="\/favicon-32\.png" type="image\/png" sizes="32x32" \/>/);
   assert.match(indexHtml, /property="og:image" content="https:\/\/www\.work-fold\.com\/og-image\.png"/);
   assert.match(indexHtml, /name="twitter:card" content="summary_large_image"/);
-  assert.match(manifest, /"background_color": "#f2f4ef"/);
-  assert.match(manifest, /"theme_color": "#f2f4ef"/);
+  assert.match(manifest, /"background_color": "#ffffff"/);
+  assert.match(manifest, /"theme_color": "#ffffff"/);
 
   // Brand typography is self-hosted: Inter Variable for text, Poppins for
   // display headings, declared in app.css and committed under /fonts.

@@ -300,6 +300,7 @@ export type WorkFoldPublicationErrorCode =
   | "JOURNAL_UNAVAILABLE"
   | "INPUT_INVALID"
   | "NOT_FOUND"
+  | "KEY_MISSING"
   | "ALREADY_SHARED"
   | "ALREADY_REVOKED"
   | "SPACE_NOT_REGISTERED"
@@ -546,6 +547,26 @@ export class WorkFoldPublicationService {
       this.#assertOperational();
       const record = this.#file.publications.find((candidate) => candidate.publicationId === publicationId);
       return record ? this.#view(record) : undefined;
+    });
+  }
+
+  /** Reveal one existing share link on demand, serialized with revocation. */
+  async revealLink(publicationId: string): Promise<{ viewerPath: string; key: string }> {
+    return this.#mutate(async () => {
+      this.#assertOperational();
+      const record = this.#file.publications.find((candidate) => candidate.publicationId === publicationId);
+      if (!record || this.#effectiveState(record) !== "active") {
+        throw new WorkFoldPublicationError("NOT_FOUND", "This page is not shared right now.");
+      }
+      const key = await this.#keys.get(publicationId);
+      if (!key || !/^[A-Za-z0-9_-]{43}$/.test(key)) {
+        throw new WorkFoldPublicationError("KEY_MISSING", "The page key is missing from secure settings; stop sharing and share the page again.");
+      }
+      // Expiry can pass while the secure-settings read is pending.
+      if (this.#effectiveState(record) !== "active") {
+        throw new WorkFoldPublicationError("NOT_FOUND", "This page is not shared right now.");
+      }
+      return { viewerPath: this.#view(record).viewerPath, key };
     });
   }
 

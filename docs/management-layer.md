@@ -444,8 +444,8 @@ content, ciphertext, tokens, addresses, or network identifiers.
 The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
 `WorkFoldRemoteFacade` is a closed semantic adapter with bounded saved-Chat
 listing, summary/transcript/rename/send/stop/watch operations for the management conversation,
-management request projection, Folder-name listing, and bounded Folder-relative
-tree projection, explicit file previews, and exact-installation read-only
+management request projection, an active-publication list and single-link reveal,
+compatibility Folder-name/tree projections, explicit file previews, and exact-installation read-only
 [app views](fold-browser-apps.md). The browser-action foundation separately adds
 `apps.actions.request|get|list|cancel` over declared installed worker actions.
 The app's installed declaration and its current grant are the authority; the
@@ -487,8 +487,16 @@ full-trust management Assistant within the personal single-user trust boundary.
 Space work is initiated only when that
 Assistant uses the attributed act path; delegated children then use the target
 Space's registered runtime authorization, native Pi project resources and tools,
-and pre/post-turn History path. The Files selector is observational and never
-changes the conversation target. Paired browsers can explicitly read bounded
+and pre/post-turn History path. The current web client removes its Files/work-folder browser. Its footer popup
+uses capability-advertised `pages.list` (at most 32 active records: identity,
+title, kind, health and snapshot state; no key or source path) and `pages.link`
+(one active identity, its viewer path and transient key). The desktop transport
+adds the enrolled isolated viewer origin inside the encrypted response. Key
+reads serialize with revocation and recheck expiry after secure-settings reads;
+grant fences protect completion and replay-cache insertion. The browser never
+stores the link, validates its exact origin/path/key and severs the new tab's
+opener. These read operations create no new share or authority. Earlier tree
+operations remain compatible. Paired browsers can explicitly read bounded
 text/image previews through capability-advertised `spaces.filePreview`, with
 an exact Space id and relative path. Copied-file receipts and act receipts
 provide direct navigation; previewing neither invokes a model nor publishes

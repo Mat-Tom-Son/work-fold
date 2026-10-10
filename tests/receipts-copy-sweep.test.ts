@@ -30,6 +30,8 @@ const surviving: Array<[string, string]> = [
   ["approvalSignature", "pairingSignature"],
   ["acceptApproval", "acceptPairing"],
   ['"approved"', '"paired"'],
+  // A real sample input in the landing demo, not a product approval control.
+  ['"approved-order.md"', '"order-brief.md"'],
 ];
 
 function speakableSource(text: string): string {

@@ -161,6 +161,22 @@ function isRefusal(code: string): (error: unknown) => boolean {
   return (error: unknown) => error instanceof WorkFoldPublicationError && error.code === code;
 }
 
+test("link reveal rechecks expiry after reading secure key material", async () => {
+  const fixture = await publicationFixture();
+  const page = await fixture.service.activate({
+    spaceId: "space-pub", relativePath: "report.md", title: "Quarterly report",
+    expiresAt: new Date(fixture.clock.at + 60_000).toISOString(),
+  }, context("share-expiring-link"));
+  const getKey = fixture.keys.get;
+  fixture.keys.get = async (id) => {
+    const key = await getKey(id);
+    fixture.clock.at += 60_001;
+    return key;
+  };
+  await assert.rejects(fixture.service.revealLink(page.publicationId), isRefusal("NOT_FOUND"));
+  assert.equal((await fixture.service.get(page.publicationId))!.state, "expired");
+});
+
 test("activation is journal-first, mints a durable intent with its key, and confirms the bridge slot", async () => {
   const fixture = await publicationFixture();
 

@@ -84,16 +84,17 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /id="delete-chat"/);
   assert.match(applicationSource, /id="rename-chat-input" maxlength="80"/);
   assert.match(applicationSource, /id="chats"/);
-  assert.match(applicationSource, /id="workspace-pane"/);
+  assert.doesNotMatch(applicationSource, /id="workspace-pane"|id="file-tree"|id="context-spaces"|folder-picker|renderWorkspace|loadTree/);
   assert.match(applicationSource, /id="file-input"/);
   assert.match(applicationSource, /newConversation: true/);
   assert.match(applicationSource, /management\.chats/);
   assert.match(applicationSource, /management\.rename/);
   assert.match(applicationSource, /management\.delete/);
-  // The request trail accounts for the Space-free Library disposition; it
-  // renders without the Space-name guard the placed/registered lines need.
-  assert.match(applicationSource, /to the Library<\/strong>|<\/strong> to the Library/);
-  assert.match(applicationSource, /disposition\.status === "library"/);
+  // Outcomes stay in the conversation, with result navigation behind a
+  // disclosure rather than a second transcript of host receipts.
+  assert.match(applicationSource, /<summary>Files and apps<\/summary>/);
+  assert.doesNotMatch(applicationSource, /to the Library/);
+  assert.doesNotMatch(applicationSource, /requestEvents|Saved <strong>/);
   assert.match(applicationSource, /management\.stop/);
   assert.match(applicationSource, /reconcileMessageRows/);
   assert.match(applicationSource, /replaceHtmlIfChanged/);
@@ -101,20 +102,25 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.doesNotMatch(applicationSource, /Chat with Space|id="scope-name"|id="management-home"/);
   assert.match(applicationSource, /id="account-settings"[\s\S]*?id="account-menu"[\s\S]*?>Sign out</);
   // The shell: one sidebar (the desktop column and the phone drawer) holding
-  // New chat, the saved-chat list, and a folder picker; then the screens —
+  // New chat, the saved-chat list, and Shared pages; then the screens —
   // New chat (heading plus composer), Chat (one transcript plus composer),
-  // and the internal folder view (Files and Apps, with an inline preview).
-  assert.match(applicationSource, /<aside id="drawer" class="sidebar"[\s\S]*?id="new-chat"[\s\S]*?class="sidebar-chats"[\s\S]*?id="folder-picker-button"[\s\S]*?id="folder-picker"/);
+  // with no folder or file browsing screen.
+  assert.match(applicationSource, /<aside id="drawer" class="sidebar"[\s\S]*?id="new-chat"[\s\S]*?class="sidebar-chats"[\s\S]*?id="shared-pages-toggle"[\s\S]*?id="shared-pages-popup"/);
   assert.match(applicationSource, /id="context-new"[\s\S]*?>What are we working on\?<[\s\S]*?id="new-composer-slot"/);
   assert.match(applicationSource, /id="context-chat"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
   assert.doesNotMatch(applicationSource, /id="context-needs"|id="fold-home"/);
-  assert.match(applicationSource, /id="context-spaces"[\s\S]*?id="space-title" tabindex="-1">Folder<[\s\S]*?id="workspace-pane"[\s\S]*?id="file-tree"/);
+  assert.match(applicationSource, /remote\("pages\.list"\)/);
+  assert.match(applicationSource, /remote\("pages\.link", \{ publicationId \}\)/);
+  const sharedPagesModule = await fetch(`${baseUrl}/shared-pages.js`);
+  assert.equal(sharedPagesModule.status, 200);
+  assert.match(await sharedPagesModule.text(), /export function createSharedPages/);
   // The phone opens the same sidebar as a drawer from the top bar; there is
   // no bottom tab bar and no second icon rail.
   assert.match(applicationSource, /class="top-bar"[\s\S]*?id="menu-button"[\s\S]*?aria-controls="drawer"/);
   assert.doesNotMatch(applicationSource, /class="tab-bar"|class="icon-rail"|id="back-to-chats"|id="context-home"|id="context-chats"/);
-  assert.match(applicationSource, /Working in \$\{spaceName\}/);
-  assert.match(applicationSource, /Couldn’t finish in \$\{spaceName\}/);
+  assert.doesNotMatch(applicationSource, /Working in \$\{spaceName\}|Couldn’t finish in \$\{spaceName\}/);
+  assert.match(applicationSource, /id="chat-options"[\s\S]*?id="chat-menu"[^>]* hidden/);
+  assert.doesNotMatch(applicationSource, /id="top-new-chat"|class="conversation-scope"/);
   assert.doesNotMatch(applicationSource, /previous chat is still saved on your desktop/);
 
   const applicationStyles = await (await fetch(`${baseUrl}/app.css`)).text();
@@ -137,9 +143,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationStyles, /\.composer-wrap \{[^}]*calc\(12px \+ env\(safe-area-inset-bottom/);
   assert.match(applicationStyles, /\.sidebar \{[^}]*env\(safe-area-inset-bottom/);
   assert.equal(applicationStyles.includes(".tab-bar"), false);
-  // "Needs you" left this list deliberately: it is the heading of the
-  // questions screen (docs/receipts-not-gates.md, F24), pinned in
-  // copy.test.mjs.
+  // Questions stay inside their owning conversation, pinned in copy.test.mjs.
   for (const removedCopy of [
     "Management conversation",
     "Above all Spaces",
@@ -165,8 +169,8 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(pageMarkup, /viewport-fit=cover/);
   assert.match(pageMarkup, /apple-mobile-web-app-capable/);
   assert.match(pageMarkup, /apple-mobile-web-app-status-bar-style/);
-  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#f2f4ef"/);
-  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#0f1622"/);
+  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#ffffff"/);
+  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#212121"/);
   assert.match(pageMarkup, /property="og:image" content="https:\/\/www\.work-fold\.com\/og-image\.png"/);
 
   const manifest = await fetch(`${baseUrl}/manifest.webmanifest`);
@@ -215,8 +219,8 @@ test("fixture previews render canned state and stay inert against the real API",
   assert.doesNotMatch(fixturesSource, /fetch\(|EventSource|indexedDB|crypto\.subtle|api\(|remote\(/);
 
   const applicationSource = await (await fetch(`${baseUrl}/app.js`)).text();
-  // ?fixture accepts the conversation and Spaces previews, with a retired needs alias.
-  assert.match(applicationSource, /requested === "new" \|\| requested === "chat" \|\| requested === "spaces"/);
+  // Retired Files routes open New chat; the fixture has no file browser.
+  assert.match(applicationSource, /requested === "new" \|\| requested === "chat"/);
   // The guard: fixture mode never attaches auth or calls fetch. api() and
   // remote() refuse before touching identity or the network, the event
   // stream and refresh loop never start, and no seen marker is posted from

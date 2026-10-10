@@ -1,82 +1,156 @@
-// Public product introduction. Every screen is a real Worker run in a
-// demonstration work-folder (or the paired web client), shown at one window
-// size. Keep claims to what the screens show.
+// Public product introduction. Saved Worker results are shown in the current
+// desktop release; the bridge renders the saved demonstration conversation.
+// Keep claims to what the screens show.
 const source = "https://github.com/Mat-Tom-Son/work-fold";
 const chromeExtension = "https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk";
 const macDownload = "/download/macos";
-const windowsDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/download/windows-test-0.4.50/work-fold-Setup-0.4.50.exe";
+const windowsDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/tag/windows-test-0.4.50";
 const linuxDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.4.52";
 
 // Each workflow is a work-folder; its colors are the folder's own colors in the app.
+// `before` lists the files the Worker started from, exactly as in
+// landing-assets/fixtures/<id>/inputs; the screen shows what it left behind.
+// `added` outlines the new sidebar rows in that screen (x, y, width, height
+// in the 1440 × 862 capture). `beforeShot` marks a real capture of the same
+// window before the request, at work-<screen>-before-{1440,2880}.webp.
+const range = (count, name) => Array.from({ length: count }, (_, index) => name(index + 1));
 const folders = [
   {
-    id: "research", tab: "Research", screen: "research", retina: false,
-    text: "Reads public sources and saves a cited brief beside them.",
-    alt: "The Research — repair café work-folder: a sources folder beside research-brief.md, open to a table of the public sources the Worker consulted.",
+    id: "receipts", tab: "Receipts", screen: "receipts", retina: true,
+    request: "Add up September’s receipts into one spreadsheet.",
+    text: "14 receipts. $1,063.79. Two dates to check.",
+    alt: "The Receipts — September work-folder: 14 sample receipts beside the spreadsheet and CSV the Worker saved, with receipts-summary.md open to the checked $1,063.79 total and two missing dates.",
+    before: ["brief.md", ...range(14, (n) => `receipt-${String(n).padStart(2, "0")}.txt`)],
+    added: [[64, 312, 474, 93]],
   },
   {
-    id: "orders", tab: "Purchase orders", screen: "orders", retina: false,
-    text: "Checks every price, prepares two purchase orders, and drafts the vendor emails. Nothing is sent.",
+    id: "orders", tab: "Purchase orders", screen: "orders", retina: true,
+    request: "Check every quantity and price.",
+    text: "Two purchase orders. $1,102. Emails drafted. Nothing sent.",
     alt: "The Purchasing — autumn workshop work-folder: two purchase orders and two email drafts in the sidebar, and order-register.md showing a $1,102.00 goods subtotal with both orders marked Draft — not sent.",
+    before: ["approved-order.md", "vendors.md"],
+    added: [[64, 219, 474, 183], [64, 434, 474, 31]],
   },
   {
-    id: "writing", tab: "Writing", screen: "writing", retina: true,
-    text: "Turns rough field notes into a 422-word newsletter draft.",
-    alt: "The Writing — neighborhood letter work-folder: field notes, a writing brief, and editorial notes in the sidebar, with newsletter-draft.md open.",
+    id: "job-search", tab: "Job search", screen: "job-search", retina: true,
+    request: "Tailor my résumé to this job. Add nothing that isn’t in my résumé.",
+    text: "A tailored résumé and cover letter. Original untouched.",
+    alt: "The Job search — next step work-folder: the original résumé and job description beside the tailored résumé, cover letter and application notes created by the Worker.",
+    before: ["resume-original.md", "job-description.md"],
+    added: [[64, 219, 474, 123]],
   },
   {
-    id: "files", tab: "Files", screen: "files", retina: true,
-    text: "Sorts eight loose files into folders and logs every move. Nothing is deleted.",
-    alt: "The Files — studio cleanup work-folder: files sorted into archive, purchases, workshop planning, and writing folders, with organization-log.md open to a before-and-after table.",
+    id: "downloads", tab: "Downloads", screen: "downloads", retina: true,
+    request: "Sort my Downloads. Don’t delete anything. Log every move.",
+    text: "31 files. Six folders. Every move logged. Nothing deleted.",
+    alt: "The Downloads — a little order work-folder: 31 sample files sorted into six folders, with organization-log.md showing the before-and-after paths and unchanged file hashes.",
+    before: [
+      "organizing-brief.md",
+      ...range(5, (n) => `export (${n}).csv`), ...range(5, (n) => `guide-${n}.html`), ...range(6, (n) => `image-${n}.svg`),
+      "notes final copy.md", ...[1, 3, 4, 5, 6].map((n) => `notes${n}.md`), ...range(3, (n) => `old-plan-${n}.txt`), ...range(6, (n) => `scan_${n}.txt`),
+    ],
+    added: [[64, 281, 474, 216]],
   },
 ];
 
-const inbox = {
-  id: "inbox", tab: "Inbox app", screen: "inbox", retina: true,
-  text: "Sorts mail into categories, opens each message in a tab, and remembers what you mark done.",
-  alt: "A Studio inbox app built by a Worker, open in the work-fold sidebar: categories such as Needs reply and Purchasing, a message list, and one message open in its own tab with category and Mark not done controls.",
+const tracker = {
+  id: "tracker", tab: "Job tracker", screen: "tracker", retina: true,
+  text: "Applications, next steps, and notes. Saved in your own app.",
+  alt: "A job-application tracker built by a Worker, running in the work-fold sidebar with six sample applications, status groups, and an application open in its own tab with editable status, next step and notes.",
 };
 
-// Real paired web client captures: the work-fold agent planning a repair café.
+// Saved repair-café conversation rendered in the current bridge client.
 const web = {
   chat: { src: "/screens/web-chat-desktop.webp", width: 876, height: 794, alt: "The work-fold web client in a desktop browser: a request to make the repair café a 9–12 morning event, and the work-fold agent's reply with the updated Saturday schedule." },
   plan: { src: "/screens/web-plan-desktop.webp", width: 876, height: 794, alt: "The work-fold web client showing workshop-plan.md, the plan the work-fold agent saved in the Community workshop work-folder." },
   phone: { src: "/screens/web-chat-phone.webp", width: 390, height: 844, alt: "The same conversation in the work-fold web client on a phone, showing the Saturday morning schedule." },
 };
 
-// Browser and computer use: one real supply-pricing run in the "Repair café —
-// supplies" work-folder, 2026-10-04. The Worker read six public prices in
-// Chrome and created the sheet; the Numbers sorting and bold were assisted
-// by a person, after which the Worker checked Chrome and Numbers through its
-// tools and saved. The copy claims only the checking and reviewing. The step
-// trail is cropped above a later line that shows a local path.
-const handoff = [
-  {
-    id: "chrome", place: "Chrome", width: 1280, height: 800,
-    capture: { src: "/screens/apps-chrome-1280.webp", srcset: "/screens/apps-chrome-1280.webp 1280w, /screens/apps-chrome-2560.webp 2560w", full: "/screens/apps-chrome-2560.webp", alt: "Chrome with the work-fold extension pinned, open to Adafruit's public page for a 6-piece precision screwdriver set at $7.95, in the tab group of the Worker's session." },
-  },
-  {
-    id: "steps", place: "work-fold", folder: "Repair café — supplies", width: 1560, height: 518,
-    capture: { src: "/screens/apps-steps-1560.webp", full: "/screens/apps-workfold-2880.webp", alt: "The Worker's steps in the Repair café — supplies work-folder: Chrome Navigate and Chrome Snapshot confirm the $7.95 price, then Find Roots and Observe Ui check the Numbers document.", fullAlt: "The Worker's final reply in the Repair café — supplies work-folder: the research sheet it saved, the assisted Numbers file, and the three cheapest prices, all checked 2026-10-04." },
-  },
-  {
-    id: "app", place: "Numbers", width: 1280, height: 800,
-    capture: { src: "/screens/apps-numbers-1280.webp", srcset: "/screens/apps-numbers-1280.webp 1280w, /screens/apps-numbers-2560.webp 2560w", full: "/screens/apps-numbers-2560.webp", alt: "Numbers showing supply-prices: six public prices from Adafruit and iFixit, sorted by item and price, with the cheapest price for each item in bold." },
-  },
+// Browser and computer use, drawn rather than captured: the Job search
+// work-folder's Worker fills in a sample application in Chrome, stops before
+// Submit, and adds an interview to Calendar when asked. Everything shown is fictional
+// (Avery Stone and Fieldwork Studio come from landing-assets/fixtures; the form
+// lives at a reserved .example address). Each step names a real tool, worded
+// the way the app's step list words it: chrome_fill → "Used Chrome Fill".
+const apply = {
+  request: "Fill in this application from my résumé. Don’t submit it.",
+  url: "careers.fieldwork.example/apply",
+  letter: "Dear Fieldwork Studio team, I would like to express my interest in the Operations coordinator role. Your work running public workshops and small community events is close to what I do each week.",
+  // The tracker chapter's Fieldwork Studio row: "Interview on October 14".
+  invite: { from: "Fieldwork Studio", subject: "Interview invitation", preview: "Could you join us on Wednesday, October 14 at 10:00?" },
+};
+// One timeline, top to bottom as it appears in the work-fold window:
+// [tool, detail, milliseconds, what the step does on screen]. "reply" is the
+// Worker's answer; "mail" is a new request about an interview invitation.
+const steps = [
+  ["read", "resume-tailored.md", 260],
+  ["read", "cover-letter.md", 260],
+  ["document_run", "resume-tailored.pdf", 360],
+  ["chrome_navigate", "", 700, { window: "chrome", navigate: true }],
+  ["chrome_snapshot", "", 300, { window: "chrome" }],
+  ["chrome_fill", "", 500, { window: "chrome", field: "name", value: "Avery Stone" }],
+  ["chrome_fill", "", 600, { window: "chrome", field: "email", value: "avery@sample.example.test" }],
+  ["chrome_fill", "", 500, { window: "chrome", field: "location", value: "Portland, Oregon" }],
+  ["chrome_upload_file", "", 700, { window: "chrome", field: "resume", upload: true }],
+  ["chrome_fill", "", 750, { window: "chrome", field: "letter", value: apply.letter }],
+  ["chrome_snapshot", "", 550, { window: "chrome", field: "submit", hold: true }],
+  ["reply", "The application is filled in and waiting for you. I didn’t submit it.", 900],
+  ["mail", "New request · Add this interview to my calendar.", 1000, { window: "mail", mail: true }],
+  ["observe_ui", "", 450, { window: "mail" }],
+  ["find_roots", "", 300, { window: "calendar" }],
+  ["act_ui", "", 800, { window: "calendar", event: true }],
+  ["reply", "Your Fieldwork Studio interview is on your calendar: Wednesday, October 14 at 10:00.", 400],
 ];
+const toolWords = (tool) => tool.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const stepLabel = ([tool, detail], active) => `${tool === "read" ? (active ? "Reading" : "Read") : `${active ? "Using" : "Used"} ${toolWords(tool)}`}${detail ? ` ${detail}` : ""}`;
+const stepItem = (step, index) => step[0] === "reply"
+  ? `<li class="scene-reply" data-step="${index}" data-state="done">${step[1]}</li>`
+  : step[0] === "mail"
+    ? `<li class="scene-event" data-step="${index}" data-state="done">${step[1]}</li>`
+    : `<li data-step="${index}" data-state="done"><span class="scene-now">${stepLabel(step, true)}</span><span class="scene-was">${stepLabel(step, false)}</span></li>`;
 
-function appWindow(item) {
-  if (item.capture) {
-    const { src, srcset, alt } = item.capture;
-    const image = `<button class="landing-window-open" type="button" data-zoom="${item.id}" aria-label="View the ${item.place} screen full size"><img src="${src}"${srcset ? ` srcset="${srcset}" sizes="(min-width: 900px) 700px, calc(100vw - 32px)"` : ""} width="${item.width}" height="${item.height}" alt="${alt}" loading="lazy" decoding="async" /></button>`;
-    return item.folder
-      ? `<figure class="landing-window landing-window-${item.id}"><figcaption class="landing-window-tab"><span class="landing-dot" aria-hidden="true"></span>${item.folder}</figcaption><div class="landing-window-shot">${image}</div></figure>`
-      : `<figure class="landing-window landing-window-${item.id}">${image}</figure>`;
-  }
-  return `<figure class="landing-window landing-window-${item.id} is-pending" data-capture-needed="${item.id}">
-    <div class="landing-window-slot"><span>Real capture needed</span><strong>${item.place}</strong><p>${item.need}</p></div>
-  </figure>`;
-}
+// Markup shows the finished moment; with motion, the timeline rewinds it.
+const field = (name, label, value, extra = "") => `<div class="scene-field scene-field-${name}" data-field="${name}"><span class="scene-label">${label}</span><span class="scene-input${extra}"><span class="scene-value" data-value="${value}">${value}</span></span></div>`;
+const scene = `<div class="landing-scene">
+  <p class="landing-sr">Request: ${apply.request} An illustration of the Worker's steps: it reads the tailored résumé and cover letter, opens the sample application in Chrome, fills in the name, email, location and cover letter, attaches the résumé, and leaves Submit for you. Later, an email from Fieldwork Studio invites Avery to an interview. You ask the Worker to add it to Calendar for Wednesday, October 14 at 10:00.</p>
+  <div class="scene-shot">
+    <div class="scene-stage" data-focus="all" data-page="loaded" data-held="yes" data-event="yes" data-mail="no" aria-hidden="true">
+      <div class="scene-window scene-chrome" data-window="chrome">
+        <div class="scene-tabs"><span class="scene-lights"><i></i><i></i><i></i></span><span class="scene-group">work-fold</span><span class="scene-tab"><b></b>Apply · Fieldwork Studio</span></div>
+        <div class="scene-toolbar"><span class="scene-arrows">‹ ›</span><span class="scene-url"><span class="scene-url-text" data-value="${apply.url}">${apply.url}</span></span></div>
+        <div class="scene-page">
+          <p class="scene-brand">Fieldwork Studio</p>
+          <p class="scene-heading">Operations coordinator</p>
+          <p class="scene-meta">Portland, Oregon · Full time</p>
+          <div class="scene-form">
+            ${field("name", "Full name", "Avery Stone")}
+            <div class="scene-row">${field("email", "Email", "avery@sample.example.test")}${field("location", "Location", "Portland, Oregon")}</div>
+            <div class="scene-field scene-field-resume" data-field="resume" data-upload="attached"><span class="scene-label">Résumé</span><span class="scene-input scene-upload"><span class="scene-upload-empty">Upload a file</span><span class="scene-upload-file">resume-tailored.pdf</span><span class="scene-upload-bar"></span></span></div>
+            ${field("letter", "Cover letter", apply.letter, " scene-letter")}
+            <div class="scene-field scene-field-portfolio"><span class="scene-label">Portfolio link (optional)</span><span class="scene-input"></span></div>
+            <div class="scene-submit" data-field="submit"><span class="scene-button">Submit application</span><span class="scene-held">Not submitted · waiting for you</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="scene-window scene-steps" data-window="steps">
+        <p class="scene-steps-head"><span class="landing-dot"></span>Job search — next step</p>
+        <div class="scene-chat">
+          <p class="scene-ask"><span class="landing-request-measure">${apply.request}</span><span class="landing-request-type">${apply.request}</span></p>
+          <ol class="scene-step-list">
+            ${steps.map(stepItem).join("")}
+          </ol>
+        </div>
+      </div>
+      <div class="scene-window scene-calendar" data-window="calendar">
+        <div class="scene-cal-bar"><span class="scene-lights"><i></i><i></i><i></i></span><b>October 2026</b></div>
+        <div class="scene-cal-grid">
+          ${[["Mon", 12, "9:00 Studio shift"], ["Tue", 13], ["Wed", 14], ["Thu", 15, "9:00 Studio shift"], ["Fri", 16]].map(([day, date, busy]) => `<div class="scene-cal-day${date === 14 ? " is-target" : ""}"><span class="scene-cal-date">${day} <b>${date}</b></span>${busy ? `<i class="scene-cal-busy">${busy}</i>` : ""}${date === 14 ? '<i class="scene-cal-event"><b>10:00</b> Interview · Fieldwork Studio</i>' : ""}</div>`).join("")}
+        </div>
+      </div>
+      <div class="scene-notice" data-window="mail"><span class="scene-notice-icon"></span><span class="scene-notice-text"><b>${apply.invite.from}</b><span>${apply.invite.subject}</span><span>${apply.invite.preview}</span></span><span class="scene-notice-app">Mail · now</span></div>
+    </div>
+  </div>
+</div>`;
 
 // The supplied icons, verbatim, as one sprite so each id appears once.
 const sprite = `<svg class="landing-sprite" aria-hidden="true" focusable="false">
@@ -96,6 +170,48 @@ const screenSrc = (item, width) => `/screens/work-${item.screen}-${width}.webp`;
 // Phones show a crop of each screen at 1440/830 of the frame width.
 const sizes = "(max-width: 640px) calc((100vw - 48px) * 1.735), (min-width: 1260px) 1176px, calc(100vw - 48px)";
 
+// A steady scatter, the same on every visit: 0 ≤ value < 1.
+const scatter = (seed) => { const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453; return value - Math.floor(value); };
+const fileKind = (name) => name.slice(name.lastIndexOf(".") + 1);
+
+// The folder as the Worker found it, laid over the finished screen: the same
+// window captured before the request when that capture exists. Otherwise the
+// starting files are drawn, scattered, or as two pages for two documents,
+// and the arriving work files them away to the left, toward the sidebar.
+function beforeFiles(item) {
+  if (!item.before) return "";
+  if (item.beforeShot) {
+    const src = (width) => `/screens/work-${item.screen}-before-${width}.webp`;
+    return `<div class="landing-before landing-before-shot" aria-hidden="true"><img src="${src(1440)}" srcset="${src(1440)} 1440w, ${src(2880)} 2880w" sizes="${sizes}" width="1440" height="862" alt="" decoding="async" /></div>`;
+  }
+  const files = item.before;
+  const pages = files.length <= 2;
+  const cols = files.length > 16 ? 7 : 5;
+  const rows = Math.ceil(files.length / cols);
+  const order = files.map((name, index) => ({ name, key: scatter(index + item.id.length * 31) })).sort((a, b) => a.key - b.key);
+  const placed = order.map(({ name }, slot) => {
+    const seed = slot * 7 + item.id.length;
+    // Loose files stay inside the frame: a 5% margin on each side.
+    const x = pages ? 36 + slot * 28 : 5 + ((slot % cols) + 0.5 + (scatter(seed + 1) - 0.5) * 0.4) * (90 / cols);
+    const y = pages ? 54 : 15 + (Math.floor(slot / cols) + 0.5 + (scatter(seed + 2) - 0.5) * 0.45) * (80 / rows);
+    const turn = pages ? (slot ? 4 : -5) : (scatter(seed + 3) - 0.5) * 14;
+    const position = `${x.toFixed(1)},${y.toFixed(1)},${turn.toFixed(1)},${(x / 100).toFixed(2)}`;
+    const kind = fileKind(name);
+    const receipt = /^receipt-/.test(name) ? " landing-file-receipt" : "";
+    return `<li class="landing-file landing-file-${kind}${receipt}" data-file-position="${position}"><span class="landing-file-icon" data-ext="${kind.toUpperCase()}"><i></i></span><span class="landing-file-name">${name}</span></li>`;
+  });
+  return `<div class="landing-before${pages ? " landing-before-pages" : ""}" data-file-cell="${(90 / cols).toFixed(2)}" aria-hidden="true">
+    <ul>${placed.join("")}</ul>
+  </div>`;
+}
+
+// New rows in the finished screen are outlined once the work has landed.
+const addedMarks = (item) => (item.added ?? []).map(([x, y, width, height]) =>
+  `<span class="landing-added" data-added-rect="${x},${y},${width},${height}" aria-hidden="true"></span>`).join("");
+// Before the request: which moment the screen below shows.
+const check = `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+const status = `<p class="landing-status" aria-hidden="true"><span class="landing-status-before">Before</span><span class="landing-status-after">${check}After</span></p>`;
+
 function folder(item, index, { eager = false } = {}) {
   const srcset = item.retina ? ` srcset="${screenSrc(item, 1440)} 1440w, ${screenSrc(item, 2880)} 2880w" sizes="${sizes}"` : "";
   return `<article class="landing-folder landing-folder-${item.id}" id="folder-${item.id}" data-index="${index}" aria-labelledby="folder-${item.id}-title">
@@ -103,13 +219,16 @@ function folder(item, index, { eager = false } = {}) {
       <h3 class="landing-tab" id="folder-${item.id}-title"><span class="landing-dot" aria-hidden="true"></span>${item.tab}</h3>
       <div class="landing-folder-body">
         <div class="landing-folder-bar">
-          <p>${item.text}</p>
+          ${item.before ? status : ""}
+          <div class="landing-caption">${item.request ? `<p class="landing-request"><span class="landing-request-measure" aria-hidden="true">“${item.request}”</span><span class="landing-request-type" aria-hidden="true">“${item.request}”</span><span class="landing-sr">Request: ${item.request}</span></p>` : ""}<p class="landing-result">${item.text}</p>${item.before ? '<p class="landing-working" aria-hidden="true">Working…</p>' : ""}</div>
           <button class="landing-zoom-button" type="button" data-zoom="${item.id}" aria-label="View the ${item.tab.toLowerCase()} screen full size">${expandIcon}</button>
         </div>
         <div class="landing-shot">
           <div class="landing-shot-media">
             <img src="${screenSrc(item, 1440)}"${srcset} width="1440" height="862" alt="${item.alt}" decoding="async" ${eager ? 'fetchpriority="high"' : 'loading="lazy"'} data-zoom="${item.id}" />
-            ${item.id === "inbox" ? '<span class="landing-ring" aria-hidden="true"></span>' : ""}
+            ${beforeFiles(item)}
+            ${item.before ? addedMarks(item) : ""}
+            ${item.id === "tracker" ? '<span class="landing-ring" aria-hidden="true"></span>' : ""}
           </div>
         </div>
       </div>
@@ -120,9 +239,9 @@ function folder(item, index, { eager = false } = {}) {
 const downloads = `<div class="landing-download-group" role="group" aria-label="Download work-fold">
   <p class="landing-download-label">Download</p>
   <div class="landing-downloads">
-    <a class="landing-download" href="${macDownload}" aria-label="Download for Mac">${icon("apple")}<span>Mac</span></a>
-    <a class="landing-download" href="${windowsDownload}" aria-label="Download for Windows">${icon("windows")}<span>Windows</span></a>
-    <a class="landing-download" href="${linuxDownload}" aria-label="Download for Linux">${icon("linux")}<span>Linux</span></a>
+    <a class="landing-download" href="${macDownload}" aria-label="Download for Mac — Apple silicon">${icon("apple")}<span>Mac<small>Apple silicon</small></span></a>
+    <a class="landing-download landing-download-preview" href="${windowsDownload}" aria-label="Windows test preview — release notes and download">${icon("windows")}<span>Windows<small>Test preview</small></span></a>
+    <a class="landing-download landing-download-preview" href="${linuxDownload}" aria-label="Linux test preview — release notes and downloads">${icon("linux")}<span>Linux<small>Test preview</small></span></a>
   </div>
 </div>`;
 
@@ -161,55 +280,45 @@ export function renderLanding(app) {
       <section class="landing-stack" aria-labelledby="landing-title">
         <div class="landing-hero">
           <div class="landing-hero-copy">
-            <h1 id="landing-title"><span>An AI Worker</span> <span>for every folder.</span></h1>
-            <p class="landing-lede">work-fold is an AI agent harness for everyone. Workers use tools, work in your ordinary folders, and build the apps you need.</p>
+            <h1 id="landing-title"><span>Put your</span> <span>folders</span> <span>to work.</span></h1>
+            <p class="landing-lede">work-fold is a desktop app that gives any folder its own AI Worker. Ask for what you need, and it reads your files, uses Chrome and your apps, and saves the work right there.</p>
             ${downloads}
-            <p class="landing-note"><span>Open source</span><span>Use your own model provider</span></p>
           </div>
         </div>
-        <h2 class="landing-sr">Work done by Workers</h2>
+        <h2 class="landing-sr">Real Worker runs with sample files</h2>
         ${folders.map((item, index) => folder(item, index, { eager: index === 0 })).join("")}
       </section>
 
       <section class="landing-chapter landing-hands" aria-labelledby="hands-title">
         <div class="landing-chapter-head">
-          <h2 id="hands-title">Works with the apps you already use.</h2>
-          <div>
-            <p>Workers can check pages in Chrome and use apps on your Mac. Here, one priced repair-café supplies in Chrome, saved a sheet with your files, and reviewed it in Numbers.</p>
-            <a class="landing-text-link" href="${chromeExtension}">${icon("chrome")}<span>Add work-fold to Chrome</span></a>
-          </div>
+          <h2 id="hands-title">Your own Chrome.<br />Your own apps.</h2>
+          <p>A Worker can fill in forms in your Chrome and use the apps on your Mac. This illustrated workflow shows it filling in a job application, leaving Submit to you, then adding an interview invitation to your calendar when you ask.</p>
+          <a class="landing-text-link" href="${chromeExtension}">${icon("chrome")}<span>Add work-fold to Chrome</span></a>
         </div>
-        <div class="landing-handoff">${handoff.map(appWindow).join("")}</div>
+        ${scene}
       </section>
 
       <section class="landing-chapter landing-app" aria-labelledby="app-title">
         <div class="landing-chapter-head">
-          <h2 id="app-title">Need an app? Ask for one.</h2>
-          <p>A Worker built this inbox organizer from one request. It runs inside work-fold, right in the sidebar.</p>
+          <h2 id="app-title">Need an app?<br />Ask for one.</h2>
+          <p>A Worker built this job-application tracker. It runs inside work-fold, right in the sidebar.</p>
         </div>
-        ${folder(inbox, folders.length)}
+        ${folder(tracker, folders.length)}
       </section>
 
       <section class="landing-chapter landing-web" aria-labelledby="web-title">
         <div class="landing-web-copy">
-          <h2 id="web-title">Check in from anywhere.</h2>
-          <p>Reach the work-fold agent from any browser while your desktop stays on and online. It can update your files and hand work to the Workers in your folders.</p>
+          <h2 id="web-title">Let your computer keep working.<br />Take it with you.</h2>
+          <p>Message the work-fold agent from your phone or any browser. It can reach every work-folder you’ve set up and hand work to the Workers in them, as long as your computer stays on and online.</p>
+          <p class="landing-alpha">Web access is in private alpha.</p>
           ${route}
         </div>
         ${devices}
       </section>
 
       <section class="landing-end" id="download" aria-labelledby="end-title" tabindex="-1">
-        <div class="landing-end-main">
-          <h2 id="end-title">Start with a folder you already have.</h2>
-          ${downloads}
-        </div>
-        <ul class="landing-facts">
-          <li><h3>Ordinary folders</h3><p>Your files stay where they are and open in any app.</p></li>
-          <li><h3>Your model provider</h3><p>Connect the AI provider you choose in Settings.</p></li>
-          <li><h3>Chrome and computer tools</h3><p>Add the <a href="${chromeExtension}">Chrome extension</a> so Workers can use your browser.</p></li>
-          <li><h3>Open source</h3><p>MIT licensed. <a href="${source}">Read the code on GitHub</a>.</p></li>
-        </ul>
+        <h2 class="landing-sr" id="end-title">Download work-fold</h2>
+        ${downloads}
       </section>
     </main>
 
@@ -231,17 +340,28 @@ export function renderLanding(app) {
   </div>`;
 
   const shell = app.querySelector(".landing-shell");
+  // The bridge forbids inline style attributes in HTML. Set individual CSSOM
+  // properties from our numeric geometry, as the scroll player does below.
+  for (const layer of shell.querySelectorAll("[data-file-cell]")) layer.style.setProperty("--cell", `${layer.dataset.fileCell}cqw`);
+  for (const file of shell.querySelectorAll("[data-file-position]")) {
+    const [x, y, turn, order] = file.dataset.filePosition.split(",");
+    for (const [name, value] of [["--x", `${x}%`], ["--y", `${y}%`], ["--r", `${turn}deg`], ["--i", order]]) file.style.setProperty(name, value);
+  }
+  for (const mark of shell.querySelectorAll("[data-added-rect]")) {
+    const [x, y, width, height] = mark.dataset.addedRect.split(",").map(Number);
+    for (const [name, value, scale] of [["left", x, 14.4], ["top", y, 8.62], ["width", width, 14.4], ["height", height, 8.62]]) mark.style.setProperty(name, `${(value / scale).toFixed(2)}%`);
+  }
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!reducedMotion) shell.classList.add("motion-ok");
 
   const dialog = app.querySelector(".landing-zoom");
   const zoomImage = dialog.querySelector("img");
   const scroller = dialog.querySelector(".landing-zoom-scroll");
-  const items = Object.fromEntries([...folders, inbox, ...handoff].map((item) => [item.id, item]));
+  const items = Object.fromEntries([...folders, tracker].map((item) => [item.id, item]));
   function openZoom(id) {
     const item = items[id];
-    zoomImage.src = item.capture ? item.capture.full ?? item.capture.src : screenSrc(item, item.retina ? 2880 : 1440);
-    zoomImage.alt = item.capture ? item.capture.fullAlt ?? item.capture.alt : item.alt;
+    zoomImage.src = screenSrc(item, item.retina ? 2880 : 1440);
+    zoomImage.alt = item.alt;
     if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.setAttribute("open", "");
     // On a narrow screen, start at the Worker's output in the right panel.
     scroller.scrollLeft = scroller.scrollWidth > scroller.clientWidth ? scroller.scrollWidth * 0.38 : 0;
@@ -265,12 +385,17 @@ function followScroll(shell) {
   const hero = shell.querySelector(".landing-hero");
   const copy = shell.querySelector(".landing-hero-copy");
   const stack = [...shell.querySelectorAll(".landing-stack .landing-folder")];
+  const requests = stack.map((item) => {
+    const type = item.querySelector(".landing-request-type");
+    return { item, type, text: type?.textContent ?? "", startedAt: null };
+  });
   const app = shell.querySelector(".landing-app .landing-shot-media");
   const appFrame = app?.closest(".landing-shot");
   const devices = shell.querySelector(".landing-devices");
   const webSection = devices?.closest(".landing-web");
-  const hands = shell.querySelector(".landing-handoff");
   const stacking = matchMedia("(min-width: 900px) and (min-height: 640px)");
+  const mobileStacking = matchMedia("(max-width: 899px) and (min-height: 560px)");
+  let mobileStack = false;
   const clamp = (value) => Math.min(1, Math.max(0, value));
   const nativeScroll = win.CSS?.supports("animation-timeline", "scroll(root block)")
     && win.CSS.supports("animation-range", "0px 1px");
@@ -279,6 +404,9 @@ function followScroll(shell) {
   let geometry;
   let deviceCenters = null;
   let needsMeasure = true;
+  let captionStop = 0;
+  const clock = () => win.performance.now();
+  const loadedAt = clock();
   function measure(first) {
     // Measure its place in document flow, even after the sticky stack has
     // settled. Only viewport/font changes require these layout reads.
@@ -317,30 +445,161 @@ function followScroll(shell) {
     inner.style.setProperty("--sc", scale + (1 - scale) * eased);
     copy.style.setProperty("--fade", clamp(progress * 1.7).toFixed(3));
   }
+  // Each request plays on its own clock, not the scroll position, so it reads
+  // at the same pace however the page is scrolled: the request is typed, the
+  // Worker works, then the result lands and stays. The caption keeps its full
+  // measured height throughout; the accessible request is always whole.
+  const typeTime = (text) => Math.min(1600, Math.max(800, text.length * 30));
+  const workTime = 900;
+  function playback({ item, type, text, startedAt }, time) {
+    const elapsed = startedAt === null ? -1 : time - startedAt;
+    const typing = typeTime(text);
+    const stage = startedAt === null ? "ahead" : elapsed < typing ? "asking" : elapsed < typing + workTime ? "working" : "done";
+    const visible = text.slice(0, startedAt === null ? 0 : Math.round(text.length * clamp(elapsed / typing)));
+    if (type && type.textContent !== visible) type.textContent = visible;
+    if (item.dataset.workStage !== stage) item.dataset.workStage = stage;
+    return stage === "asking" || stage === "working";
+  }
+  // The application scene: one timeline from the typed request through every
+  // step to the reply. Each moment is a pure function of the elapsed time, so
+  // it can rewind, replay, or be read at any frame.
+  function scenePlayer(root) {
+    const stage = root.querySelector(".scene-stage");
+    const type = root.querySelector(".landing-request-type");
+    const text = type.textContent;
+    const items = [...root.querySelectorAll(".scene-step-list li")];
+    const mailAt = steps.findIndex(([tool]) => tool === "mail");
+    const eventAt = steps.findIndex(([, , , effect]) => effect?.event);
+    const fields = Object.fromEntries([...root.querySelectorAll("[data-field]")].map((node) => [node.dataset.field, node]));
+    const values = Object.fromEntries(Object.entries(fields).map(([name, node]) => [name, node.querySelector(".scene-value")]).filter(([, node]) => node));
+    const url = root.querySelector(".scene-url-text");
+    const typing = Math.min(1100, typeTime(text));
+    const starts = [];
+    let end = typing;
+    for (const step of steps) { starts.push(end); end += step[2]; }
+    const set = (node, key, value) => { if (node.dataset[key] !== value) node.dataset[key] = value; };
+    const write = (node, value) => { if (node.textContent !== value) node.textContent = value; };
+    const player = { root, startedAt: null, render(time) {
+      const started = player.startedAt !== null;
+      const elapsed = started ? time - player.startedAt : -1;
+      const moment = !started ? "ahead" : elapsed < typing ? "asking" : elapsed < end + 300 ? "working" : "done";
+      set(root, "workStage", moment);
+      write(type, text.slice(0, started ? Math.round(text.length * clamp(elapsed / typing)) : 0));
+      const progress = (index) => clamp((elapsed - starts[index]) / steps[index][2]);
+      let current = -1;
+      steps.forEach((step, index) => {
+        const state = elapsed < starts[index] ? "ahead" : elapsed < starts[index] + step[2] ? "active" : "done";
+        set(items[index], "state", state);
+        if (state === "active") current = index;
+      });
+      // What each step shows on screen, rebuilt from the start every frame.
+      let page = "blank", held = "no", event = "no", upload = "ahead", focused = null;
+      // The Mail banner shows from the new email until the interview is added.
+      const mail = progress(mailAt) > 0 && elapsed < starts[eventAt] + steps[eventAt][2] + 700 ? "yes" : "no";
+      steps.forEach(([, , , effect = {}], index) => {
+        const done = progress(index);
+        if (effect.navigate) {
+          write(url, url.dataset.value.slice(0, Math.round(url.dataset.value.length * clamp(done / 0.6))));
+          if (done >= 0.75) page = "loaded";
+        }
+        if (effect.value) write(values[effect.field], effect.value.slice(0, Math.round(effect.value.length * clamp(done / 0.85))));
+        if (effect.upload) {
+          upload = done <= 0 ? "ahead" : done < 0.85 ? "uploading" : "attached";
+          fields.resume.style.setProperty("--upload", clamp(done / 0.85).toFixed(2));
+        }
+        if (effect.hold && done > 0.35) held = "yes";
+        if (effect.event && done > 0.45) event = "yes";
+        if (index === current && effect.field) focused = effect.field;
+      });
+      set(stage, "page", page);
+      set(stage, "held", held);
+      set(stage, "event", event);
+      set(stage, "mail", mail);
+      set(fields.resume, "upload", upload);
+      for (const [name, node] of Object.entries(fields)) {
+        if (name === focused) set(node, "focus", "");
+        else if (node.dataset.focus !== undefined) delete node.dataset.focus;
+      }
+      set(stage, "focus", current >= 0 ? steps[current][3]?.window ?? "steps" : moment === "done" ? "all" : "steps");
+      return moment === "asking" || moment === "working";
+    } };
+    return player;
+  }
+  const sceneRoot = shell.querySelector(".landing-scene");
+  const scene = sceneRoot ? scenePlayer(sceneRoot) : null;
+  // Playback frames touch only text and data attributes: no layout reads.
+  let ticking = 0;
+  function tick() {
+    ticking = 0;
+    const time = clock();
+    if ([...requests.map((entry) => playback(entry, time)), scene?.render(time)].some(Boolean)) play();
+  }
+  function play() { if (!ticking) ticking = nextFrame(tick); }
   function update() {
     frame = 0;
     const height = win.innerHeight;
-    if (stacking.matches && stack.length && needsMeasure) measure(stack[0]);
+    if (needsMeasure) {
+      shell.style.removeProperty("--mobile-bar");
+      const mobileCandidate = !stacking.matches && mobileStacking.matches && stack.length > 0;
+      if (mobileCandidate) {
+        // Equal caption heights keep every filed tab on the same baseline.
+        const barHeight = Math.max(...stack.map((item) => item.querySelector(".landing-folder-bar").offsetHeight));
+        shell.style.setProperty("--mobile-bar", `${barHeight}px`);
+      }
+      // Only pin a phone/tablet frame when its entire caption and image fit.
+      // Short landscape screens keep the ordinary, readable flow.
+      mobileStack = mobileCandidate
+        && Math.max(...stack.map((item) => item.offsetHeight)) <= height - shell.querySelector(".landing-nav").offsetHeight - 44;
+      shell.classList.toggle("mobile-stack", mobileStack);
+      if (stacking.matches && stack.length) measure(stack[0]);
+      else needsMeasure = false;
+      captionStop = stacking.matches ? geometry.stickTop : mobileStack
+        ? parseFloat(win.getComputedStyle(stack[0]).top) || 0 : height * 0.22;
+    }
+    const stackActive = stacking.matches || mobileStack;
     // Read untransformed frames first. The inbox's own scaled bounds would
     // feed its last transform back into the next frame and make it oscillate.
-    const boxes = stacking.matches ? stack.map((item) => item.getBoundingClientRect()) : [];
+    const boxes = stack.map((item) => item.getBoundingClientRect());
     const appBox = appFrame?.getBoundingClientRect();
     const devicesBox = devices?.getBoundingClientRect();
-    const handsBox = hands?.getBoundingClientRect();
+    const sceneBox = scene?.root.getBoundingClientRect();
     if (stacking.matches && stack.length) {
       if (!nativeScroll) reveal(stack[0], boxes[0]);
-      const { stickTop } = geometry;
+    }
+    if (stackActive && stack.length) {
+      const stickTop = mobileStack ? parseFloat(win.getComputedStyle(stack[0]).top) || 0 : geometry.stickTop;
       let front = 0;
       boxes.forEach((box, index) => { if (box.top <= stickTop + 1) front = index; });
       stack.forEach((item, index) => {
         const state = index < front ? "filed" : index === front ? "front" : "ahead";
         if (item.dataset.state !== state) item.dataset.state = state;
       });
-    } else if (stack.length) {
+    }
+    if (!stacking.matches && stack.length) {
       for (const name of ["--tx", "--ty", "--sc"]) stack[0].querySelector(".landing-folder-inner").style.removeProperty(name);
       copy.style.removeProperty("--fade");
-      stack.forEach((item) => { delete item.dataset.state; });
+      if (!mobileStack) stack.forEach((item) => { delete item.dataset.state; });
     }
+    const time = clock();
+    requests.forEach((entry, index) => {
+      // A request starts when its folder has risen about halfway into place;
+      // on a wide screen the hero folder starts on its own just after load.
+      // A folder that drops back below the screen resets, so it plays again.
+      if (index === 0 && stacking.matches) entry.startedAt ??= loadedAt + 500;
+      else {
+        const arrival = clamp((height * 0.95 - boxes[index].top) / Math.max(1, height * 0.95 - captionStop));
+        if (arrival <= 0) entry.startedAt = null;
+        else if (arrival >= 0.45) entry.startedAt ??= time;
+      }
+    });
+    if (scene) {
+      // The application scene scrolls with the page, so it starts as soon as
+      // it is well into view and resets once it drops back below the screen.
+      const arrival = clamp((height * 0.95 - sceneBox.top) / Math.max(1, height * 0.73));
+      if (arrival <= 0) scene.startedAt = null;
+      else if (arrival >= 0.25) scene.startedAt ??= time;
+    }
+    if ([...requests.map((entry) => playback(entry, time)), scene?.render(time)].some(Boolean)) play();
     if (appBox) {
       // Starts close on the sidebar app, pulls back to the whole window.
       app.style.setProperty("--reveal", clamp((height - appBox.top) / (height * 0.9)).toFixed(3));
@@ -358,10 +617,6 @@ function followScroll(shell) {
       centers.forEach((center, index) => { if (Math.abs(center - focus) < Math.abs(centers[step] - focus)) step = index; });
       if (webSection.dataset.step !== String(step)) webSection.dataset.step = String(step);
     }
-    if (handsBox) {
-      // The browser, the step trail and the Mac app slide together as they arrive.
-      hands.style.setProperty("--hand", clamp((height - handsBox.top) / (height * 0.85)).toFixed(3));
-    }
   }
   // Keyboard focus never lands on something faded or covered: the hero copy
   // returns to the top of the page, and a folder control brings that folder
@@ -373,7 +628,7 @@ function followScroll(shell) {
     return top;
   }
   function align(target) {
-    if (!stacking.matches || !shell.contains(target)) return;
+    if ((!stacking.matches && !mobileStack) || !shell.contains(target)) return;
     if (copy.contains(target)) {
       if (win.scrollY > 0) win.scrollTo({ top: 0, behavior: "instant" });
       return;
@@ -394,6 +649,7 @@ function followScroll(shell) {
   const remeasure = () => { needsMeasure = true; deviceCenters = null; request(); };
   win.addEventListener("resize", remeasure);
   stacking.addEventListener?.("change", remeasure);
+  mobileStacking.addEventListener?.("change", remeasure);
   shell.ownerDocument.fonts?.ready.then(remeasure);
   update();
 }

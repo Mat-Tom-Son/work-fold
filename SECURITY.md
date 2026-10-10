@@ -216,10 +216,14 @@ weaken the independently authenticated device tokens for existing addresses.
 
 A paired remote browser is nevertheless a powerful authority. It can send
 prompts to the full-trust management Assistant, read bounded saved management
-transcripts, inspect bounded Space-relative file-tree metadata and explicit
-text/image previews, and upload
-bounded files while the desktop is online. Selecting a Files tree never selects
-another Assistant. The management Assistant may delegate through the attributed
+transcripts, open existing shared pages, read explicit text/image result
+previews, and upload bounded files while the desktop is online. The current
+client has no Files/work-folder browser; the semantic tree adapter remains for
+older clients. The Shared pages list carries no key or source path. Its bounded
+single-link reveal runs under the same grant and publication revocation fences,
+returns the isolated viewer origin inside ciphertext, and opens only the exact
+validated viewer path with a fragment key and no opener. Links are transient,
+never stored in the browser, and create no new publication authority. The management Assistant may delegate through the attributed
 act path; those child turns reuse the canonical registered-Space runtime, native
 Pi resources and tools, conflict rules, and History path.
 File previews exclude ignored and reserved paths, links and nested registered

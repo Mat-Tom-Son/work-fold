@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-008
+Merchant: Paper Finch
+Date: 2026-09-14
+Description: envelopes
+Currency: USD
+Total paid: $21.60
+Payment: paid
