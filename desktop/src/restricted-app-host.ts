@@ -102,7 +102,7 @@ const notificationsChannel = "work-fold:restricted-app:notifications";
 const indexPath = "/__work-fold/index.html";
 const bootstrapPath = "/__work-fold/bootstrap.js";
 /** Tool input and output, and an automation event, as serialized JSON. */
-const maxInvocationBytes = 16 * 1024 * 1024;
+const maxInvocationBytes = 64 * 1024 * 1024;
 const maxNotificationEnvelopeBytes = 4 * 1024;
 /**
  * Request input is bounded by the task service; the envelope adds the

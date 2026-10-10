@@ -103,7 +103,7 @@ test("the AI lanes' bounds keep memory finite rather than ration the app", () =>
     [16, 256, 32],
   );
   assert.equal(restrictedAppAssistantLimits.inputBytes, 4 * 1024 * 1024);
-  assert.equal(restrictedAppAssistantLimits.resultBytes, 16 * 1024 * 1024);
+  assert.equal(restrictedAppAssistantLimits.resultBytes, 32 * 1024 * 1024);
   assert.equal(restrictedAppAssistantLimits.runningPerInstallation, 32);
   assert.equal(Object.hasOwn(restrictedAppAssistantLimits, "records"), false, "there is no rolling request quota");
 });

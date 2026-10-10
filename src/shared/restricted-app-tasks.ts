@@ -86,10 +86,11 @@ export interface RestrictedAppTaskDetail {
 export const restrictedAppAssistantLimits = Object.freeze({
   inputBytes: 4 * 1024 * 1024,
   /**
-   * The whole serialized result envelope. Over it, `data` is dropped, then
-   * `files` trimmed, then `summary`, and the summary says what was left out.
+   * The whole serialized result envelope: room for a full-size summary and
+   * full-size details together. Over it, `data` is dropped, then `files`
+   * trimmed, then `summary`, and the summary says what was left out.
    */
-  resultBytes: 16 * 1024 * 1024,
+  resultBytes: 32 * 1024 * 1024,
   /** F29's summary bound, shared with the report verb so both lanes trim alike. */
   summaryBytes: workFoldRequestLimits.maxResultSummaryBytes,
   /** F29's `data` bound; only an action that declared an output shape can reach it. */

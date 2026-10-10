@@ -167,14 +167,14 @@ test("the published number of requests run per installation, the next names the 
   assert.equal((await f.service.list(scope)).length, 1, "terminal receipts older than a day prune on submission");
 });
 
-test("final replies become the summary, bounded UTF-8 at 32 KiB", async (t) => {
+test("final replies become the summary, bounded UTF-8 at the summary limit", async (t) => {
   const f = await fixture(t);
   const first = await f.service.request(scope, f.request());
   const turn = f.turns.get(first.id)!;
   turn.status = "succeeded";
-  turn.assistantText = "\u{1f408}".repeat(80_000);
+  turn.assistantText = "\u{1f408}".repeat(restrictedAppAssistantLimits.summaryBytes / 4 + 1_000);
   const result = (await f.service.get(scope, first.requestId)).result!;
-  assert.equal(Buffer.byteLength(result.summary), 32 * 1024);
+  assert.equal(Buffer.byteLength(result.summary), restrictedAppAssistantLimits.summaryBytes);
   assert.equal(result.truncated, true);
   assert.equal(result.outcome, "succeeded");
   assert.equal(result.data, undefined, "no report means no details");

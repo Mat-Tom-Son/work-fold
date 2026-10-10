@@ -41,7 +41,7 @@ const blobAction: RestrictedAppAssistantAction = {
   title: "Export",
   outputSchema: {
     type: "object",
-    properties: { blob: { type: "string", maxLength: 300_000 } },
+    properties: { blob: { type: "string", maxLength: 16 * 1024 * 1024 } },
     required: ["blob"],
     additionalProperties: false,
   },

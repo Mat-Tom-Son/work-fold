@@ -8,6 +8,7 @@ import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { RestrictedAppInstalled, SpaceSummary } from "../web-local/src/types.js";
 import { restrictedAppAssistantTaskUsageLine } from "../web-local/src/lib/restricted-app-assistant.js";
+import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../src/shared/restricted-app-tasks.js";
 
 test("opening an app task Chat closes its retained Apps dialog and restores shell navigation", async (t) => {
   // The icon package's module field is bundler-owned, just as in Vite. Keep
@@ -91,11 +92,11 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
   const summary = document.querySelector('[aria-label="Assistant result"]')!.textContent!;
   assert.match(summary, /North is cheaper by \$8\./);
   // `truncated` covers two bounds and the ordinary one is the summary, cut at
-  // 32 KB before the 16 MB envelope ceiling is ever consulted. Both numbers
+  // summary limit before the envelope ceiling is ever consulted. Both numbers
   // are named, in the spelling the Limits pane uses, so the person can find
   // the row the sentence sends them to (docs/receipts-not-gates.md, 6).
-  assert.match(summary, /Trimmed to the 32 KB summary limit in Settings → Automations → Limits\./);
-  assert.match(summary, /Details over the 16 MB result limit are left out there too\./);
+  assert.ok(summary.includes(`Trimmed to the ${restrictedAppLimitSize(restrictedAppAssistantLimits.summaryBytes)} summary limit in Settings → Automations → Limits.`));
+  assert.ok(summary.includes(`Details over the ${restrictedAppLimitSize(restrictedAppAssistantLimits.resultBytes)} result limit are left out there too.`));
   assert.doesNotMatch(summary, /KiB/, "the note spells its numbers the way the Limits rows do");
   assert.equal(
     Array.from(document.querySelectorAll(".professional-status-badge")).map((item) => item.textContent).includes("Partly finished"),
