@@ -70,6 +70,8 @@ function run(rawArguments) {
 
 /** Leading positionals decide the lane; content-bearing act reads (status, result, search) are act-lane too. */
 function isActCommand(argumentsList) {
+  // Help for any family is content-free and works without the app running.
+  if (argumentsList.includes("--help") || argumentsList.includes("-h")) return false;
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0] || "";
   const actGroups = ["chat", "chats", "files", "manage", "history", "search", "tools", "apps", "routings", "pages", "trash", "requests"];

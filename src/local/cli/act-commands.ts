@@ -678,8 +678,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "spaces appearance apply",
     "spaces appearance reset",
     "spaces appearance undo",
-    "spaces assistant model",
-    "spaces assistant instructions",
+    "spaces worker model",
+    "spaces worker instructions",
     "tools import-skill",
     "tools install",
     "tools update",
@@ -1248,10 +1248,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         space: requireSpace(),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
-    case "spaces assistant show":
+    case "spaces worker show":
       allowOnlyFlags("--space");
       return { name: "spaces.assistant.show", output, space: requireSpace() };
-    case "spaces assistant model":
+    case "spaces worker model":
       allowOnlyFlags("--space", "--provider", "--model", "--parent-task");
       return {
         name: "spaces.assistant.model",
@@ -1261,7 +1261,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         model: requireBoundedFlag("--model", "model-id"),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
-    case "spaces assistant instructions": {
+    case "spaces worker instructions": {
       allowOnlyFlags("--space", "--instructions", "--instructions-file", "--clear", "--parent-task");
       const clear = flags.get("--clear") === true;
       const rawInstructions = textFileFlag("--instructions", "instructions") ?? stringFlag("--instructions");

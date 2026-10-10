@@ -1,7 +1,7 @@
 import { createEventSource } from "./api";
 import type { LocalEventStream } from "../types";
 
-export type ControlHint = "apps" | "spaces" | "assistant" | "activity" | "reset";
+export type ControlHint = "apps" | "spaces" | "models" | "activity" | "reset";
 const listeners = new Set<(hint: ControlHint) => void>();
 let stream: LocalEventStream | null = null;
 
@@ -16,7 +16,7 @@ function connectWhenVisible(): void {
   stream.onmessage = ({ data }) => {
     let type: unknown;
     try { type = (JSON.parse(data) as { type?: unknown }).type; } catch { return; }
-    if (type !== "apps" && type !== "spaces" && type !== "assistant" && type !== "activity" && type !== "reset") return;
+    if (type !== "apps" && type !== "spaces" && type !== "models" && type !== "activity" && type !== "reset") return;
     for (const listener of listeners) listener(type);
   };
 }

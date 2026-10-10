@@ -96,7 +96,7 @@ test("an accepted Settings save retains its owner across page navigation", async
     return Response.json({ status, models: [{ provider: "openrouter", providerName: "OpenRouter", id: status.model, name: "DeepSeek Flash", authConfigured: true }], catalogs: [], instructions: "Original" });
   }) as typeof fetch;
   await dom.render(createElement(DesktopSettingsModal, {
-    space, agentStatus: status, initialPage: "assistant", updateStatus: null,
+    space, agentStatus: status, initialPage: "ai-models", updateStatus: null,
     onAgentConfigured: () => {}, onClose: () => {},
   }));
   await dom.waitFor(() => Boolean(document.querySelector("textarea")));
@@ -124,7 +124,7 @@ test("opening Settings from a model label focuses the loaded selector only once"
   HTMLElement.prototype.scrollIntoView = () => {};
   window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   await dom.render(createElement(DesktopSettingsModal, {
-    space, agentStatus: status, fixtureMode: true, initialPage: "assistant", focusAssistantModel: true,
+    space, agentStatus: status, fixtureMode: true, initialPage: "ai-models", focusAssistantModel: true,
     updateStatus: null, onAgentConfigured: () => {}, onClose: () => {},
   }));
   await dom.waitFor(() => document.activeElement?.id === "assistant-model");
@@ -140,7 +140,7 @@ test("Settings exposes Customize Folder back navigation only for that entry path
   HTMLElement.prototype.scrollIntoView = () => {};
   window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   let returns = 0;
-  const props = { space, agentStatus: status, fixtureMode: true, initialPage: "assistant" as const,
+  const props = { space, agentStatus: status, fixtureMode: true, initialPage: "ai-models" as const,
     updateStatus: null, onAgentConfigured: () => {}, onClose: () => {} };
   await dom.render(createElement(DesktopSettingsModal, props));
   assert.equal(document.querySelector('[aria-label="Back to Customize work-folder"]'), null);

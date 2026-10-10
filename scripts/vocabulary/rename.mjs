@@ -49,6 +49,8 @@ export const protectedLines = [
   // Path-derived storage keys must keep deriving the same key for existing folders.
   /cleaned \|\| "space";/,
   /\.slice\(0, (?:40|48)\) \|\| "space";/,
+  // An emoji search keyword, not a capability scope.
+  /option\("smile", "Smile"/,
 ];
 
 const overrides = loadOverrides();
@@ -154,7 +156,10 @@ export function mapToken(token, cls) {
  */
 export function isOpaqueIdPrefix(token, rest) {
   if (/^space-(?:[0-9a-f]{16}|removal_.*)$/.test(token)) return true;
-  return token === "space" && (rest === "-" || /^-(?:\[|\$\{|removal_)/.test(rest));
+  if (/^trash-\d{14}-[0-9a-f]{8}$/.test(token)) return true;
+  if (token === "space" && (rest === "-" || /^-(?:\[|\$\{|removal_)/.test(rest))) return true;
+  // Recently deleted entry ids keep their `trash-<timestamp>-<hex>` shape too.
+  return token === "trash" && (rest === "-" || /^-(?:\\d|\$\{|\d)/.test(rest));
 }
 
 function rewriteTokens(text, cls, stats) {

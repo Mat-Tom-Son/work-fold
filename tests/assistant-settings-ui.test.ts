@@ -90,7 +90,7 @@ async function setup(t: TestContext) {
   }); };
   const button = (text: string) => [...dom.container.querySelectorAll("button")].find((item) => item.textContent === text)!;
   const hint = async () => { await dom.act(async () => {
-    for (const controller of eventStreams) controller.enqueue(new TextEncoder().encode('data: {"type":"assistant"}\n\n'));
+    for (const controller of eventStreams) controller.enqueue(new TextEncoder().encode('data: {"type":"models"}\n\n'));
   }); };
   return { dom, requests, render, finish, select, type, submit, button, callbacks, changes, hint };
 }

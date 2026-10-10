@@ -8,7 +8,7 @@ export function useAssistantConfigurationRevision(enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     return subscribeControlEvents((hint) => {
-      if (hint === "assistant" || hint === "reset") changed();
+      if (hint === "models" || hint === "reset") changed();
     });
   }, [changed, enabled]);
   return [revision, changed] as const;

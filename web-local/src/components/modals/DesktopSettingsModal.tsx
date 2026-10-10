@@ -46,9 +46,9 @@ import type { RestrictedAppInstalled } from "../../types";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
+export type SettingsPage = "appearance" | "ai-models" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
 export type FoldSettingsSection = "routings" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
+type SettingsTabId = "appearance" | "ai-models" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
 
 /**
  * The tab a Settings page id opens. "remote", "general" and "desktop" are
@@ -91,7 +91,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
 }) {
   const [narrowNavigation, setNarrowNavigation] = useState(() => window.matchMedia("(max-width: 700px)").matches);
   const [page, setPage] = useState<SettingsTabId>(() => settingsTabForPage(initialPage, initialSection));
-  const [assistantVisited, setAssistantVisited] = useState(initialPage === "assistant");
+  const [assistantVisited, setAssistantVisited] = useState(initialPage === "ai-models");
   const contentRef = useRef<HTMLDivElement>(null);
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
@@ -102,7 +102,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
 
   useEffect(() => { setPage(settingsTabForPage(initialPage, initialSection)); }, [initialPage, initialSection]);
   useEffect(() => {
-    if (page === "assistant") setAssistantVisited(true);
+    if (page === "ai-models") setAssistantVisited(true);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   }, [page]);
   useEffect(() => {
@@ -142,7 +142,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
 
   const tabs: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
-    { id: "assistant", label: "AI Models", icon: <Sparkle20Regular /> },
+    { id: "ai-models", label: "AI Models", icon: <Sparkle20Regular /> },
     { id: "web-access", label: "Web Access", icon: <GlobeCode size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "shared-pages", label: "Shared Pages", icon: <Window20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
@@ -205,9 +205,9 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
                 <AppearanceSettingsPane appearance={appearance} space={space} onCustomizeSpace={onCustomizeSpace} interfaceExtra={closeWindowControl} />
               </div>
             ) : null}
-            {page === "assistant" || assistantVisited ? (
-              <div hidden={page !== "assistant"} className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                <AssistantSetupPane active={page === "assistant"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} focusInstructionsOnOpen={focusAssistantInstructions} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
+            {page === "ai-models" || assistantVisited ? (
+              <div hidden={page !== "ai-models"} className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
+                <AssistantSetupPane active={page === "ai-models"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} focusInstructionsOnOpen={focusAssistantInstructions} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
               </div>
             ) : null}
             {page === "web-access" ? (

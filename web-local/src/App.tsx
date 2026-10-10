@@ -135,10 +135,10 @@ export function App() {
     settingsReturnFocusRef.current = focused && focused !== document.body && !focused.closest(".modal-backdrop")
       ? focused : document.querySelector<HTMLButtonElement>(".space-pane-switch-trigger");
     setSettingsInitialPage(page);
-    setSettingsAssistantScope(page === "assistant" ? assistantScope : undefined);
-    setSettingsFocusAssistantModel(page === "assistant" && focusAssistantModel);
-    setSettingsAssistantSpaceId(page === "assistant" ? assistantSpaceId : undefined);
-    setSettingsFocusAssistantInstructions(page === "assistant" && focusAssistantInstructions);
+    setSettingsAssistantScope(page === "ai-models" ? assistantScope : undefined);
+    setSettingsFocusAssistantModel(page === "ai-models" && focusAssistantModel);
+    setSettingsAssistantSpaceId(page === "ai-models" ? assistantSpaceId : undefined);
+    setSettingsFocusAssistantInstructions(page === "ai-models" && focusAssistantInstructions);
     setSettingsBackAction(() => backToCustomization ?? null);
     setSettingsOpen(true);
   }, []);
@@ -265,7 +265,7 @@ export function App() {
     });
     return unsubscribe;
   }, []);
-  useEffect(() => window.workFoldDesktop?.agent.onOpenSettings((scope) => openSettings("assistant", scope, true)), [openSettings]);
+  useEffect(() => window.workFoldDesktop?.agent.onOpenSettings((scope) => openSettings("ai-models", scope, true)), [openSettings]);
 
   async function createSpace(name: string) {
     if (fixtureRequested) { setCreateSpaceOpen(false); showToast({ text: "work-folder creation is disabled in the preview", tone: "info" }); return; }
@@ -1613,7 +1613,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
                 : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this work-folder." />;
             })() : tab.kind === "chat" ? (
-              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} assistantConfigurationRevision={assistantConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("assistant", "space", true, targetSpace.id)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} mentionFolders={mentionFoldersFor(targetSpace)} />
+              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} assistantConfigurationRevision={assistantConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("ai-models", "space", true, targetSpace.id)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} mentionFolders={mentionFoldersFor(targetSpace)} />
             ) : null}
           </div>
         );
@@ -1633,7 +1633,7 @@ function SpaceView({ space, spaces, restrictedAppsStore, agent, assistantConfigu
       onResetSpace={resetSpaceCustomization}
       onOpenWorkerSettings={(section, returnSection) => {
         setAppearanceSpaceId(null);
-        onOpenSettings("assistant", "space", section === "model", appearanceSpace.id, section === "instructions", () => {
+        onOpenSettings("ai-models", "space", section === "model", appearanceSpace.id, section === "instructions", () => {
           setAppearanceInitialSection(returnSection);
           setAppearanceSpaceId(appearanceSpace.id);
         });

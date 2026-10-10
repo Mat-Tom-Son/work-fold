@@ -8413,7 +8413,7 @@ function assertManagementInstructionsReady(state: LocalApiState): void {
   if (!state.managementInstructionsError) return;
   throw new WorkFoldCliError(
     "unavailable",
-    "The management conversation is unavailable because Space could not prepare its required instructions. Restart Space; if this continues, check the app-data management folder.",
+    "The work-fold agent is unavailable because work-fold could not prepare its required instructions. Restart work-fold; if this continues, check the app-data management folder.",
   );
 }
 
@@ -11671,7 +11671,7 @@ async function runCapabilityMutation<T>(
     const result = await operation();
     if (scope === "global") await invalidateAllClients(state);
     else await invalidateWorkFoldClients(state, space.id);
-    publishControlHint(state, "assistant");
+    publishControlHint(state, "models");
     return result;
   } finally {
     state.capabilityMutations.delete(key);
@@ -14286,7 +14286,7 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
 }
 
 /** Content-free hints only. Reconnect always sends reset; no events are replayed. */
-function publishControlHint(state: LocalApiState, type: "apps" | "spaces" | "assistant" | "activity"): void {
+function publishControlHint(state: LocalApiState, type: "apps" | "spaces" | "models" | "activity"): void {
   for (const response of state.controlStreams) {
     if (response.closed) continue;
     // A slow renderer must reconnect and requery instead of accumulating a queue.

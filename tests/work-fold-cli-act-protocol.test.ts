@@ -434,23 +434,23 @@ test("ledger Chat, History, file, search, and Space commands parse with strict s
     { name: "spaces.appearance.undo", output: "human", space: "space-1" },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["spaces", "assistant", "show", "--space", "space-1"]),
+    parseWorkFoldCliActArgv(["spaces", "worker", "show", "--space", "space-1"]),
     { name: "spaces.assistant.show", output: "human", space: "space-1" },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["spaces", "assistant", "model", "--space", "space-1", "--provider", "openrouter", "--model", "example/model"]),
+    parseWorkFoldCliActArgv(["spaces", "worker", "model", "--space", "space-1", "--provider", "openrouter", "--model", "example/model"]),
     { name: "spaces.assistant.model", output: "human", space: "space-1", provider: "openrouter", model: "example/model" },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["spaces", "assistant", "instructions", "--space", "space-1", "--instructions", "Keep it concise.", "--parent-task", "task-9"]),
+    parseWorkFoldCliActArgv(["spaces", "worker", "instructions", "--space", "space-1", "--instructions", "Keep it concise.", "--parent-task", "task-9"]),
     { name: "spaces.assistant.instructions", output: "human", space: "space-1", instructions: "Keep it concise.", parentTaskId: "task-9" },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["spaces", "assistant", "instructions", "--space", "space-1", "--clear"]),
+    parseWorkFoldCliActArgv(["spaces", "worker", "instructions", "--space", "space-1", "--clear"]),
     { name: "spaces.assistant.instructions", output: "human", space: "space-1", instructions: "", clear: true },
   );
   assert.throws(
-    () => parseWorkFoldCliActArgv(["spaces", "assistant", "instructions", "--space", "space-1", "--instructions", "x", "--clear"]),
+    () => parseWorkFoldCliActArgv(["spaces", "worker", "instructions", "--space", "space-1", "--instructions", "x", "--clear"]),
     /exactly one of --instructions .* or --clear/,
   );
 });
@@ -1978,18 +1978,18 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.equal(lastOk().detail, "storage linked");
   assert.deepEqual(lastOk().undoRef, { kind: "space-root", value: "/tmp/fold" });
 
-  const assistant = await execute(["spaces", "assistant", "show", "--space", "space-1"]);
+  const assistant = await execute(["spaces", "worker", "show", "--space", "space-1"]);
   assert.match(assistant.stdout, /Default model for new Chats: openrouter\/example\/model/);
   assert.match(assistant.stdout, /Example Model \(openrouter\/example\/model\)/);
   assert.match(assistant.stdout, /Keep it concise\./);
   assert.deepEqual(calls.at(-1)?.input, { space: "space-1" });
 
-  const assigned = await execute(["spaces", "assistant", "model", "--space", "space-1", "--provider", "openrouter", "--model", "example/model", "--parent-task", "task-9"]);
+  const assigned = await execute(["spaces", "worker", "model", "--space", "space-1", "--provider", "openrouter", "--model", "example/model", "--parent-task", "task-9"]);
   assert.match(assigned.stdout, /default for new Chats/);
   assert.deepEqual(calls.at(-1)?.input, { space: "space-1", provider: "openrouter", model: "example/model", parentTaskId: "task-9" });
   assert.equal(lastOk().detail, "provider openrouter; model example/model");
 
-  const instructed = await execute(["spaces", "assistant", "instructions", "--space", "space-1", "--instructions", "Use the glossary.", "--parent-task", "task-9"]);
+  const instructed = await execute(["spaces", "worker", "instructions", "--space", "space-1", "--instructions", "Use the glossary.", "--parent-task", "task-9"]);
   assert.match(instructed.stdout, /Saved Space instructions/);
   assert.deepEqual(calls.at(-1)?.input, { space: "space-1", instructions: "Use the glossary.", parentTaskId: "task-9" });
   assert.equal(lastOk().detail, "updated; 17 character(s)");
@@ -2237,7 +2237,7 @@ test("--summary-file, --question-file, --answer-file, and --instructions-file ca
       [["chat", "report", "--space", "space-1", "--task", "task-1", "--summary-file", "summary.md"], "chatReport", "summary", "summary.md"],
       [["chat", "ask", "--space", "space-1", "--task", "task-1", "--question-file", "question.md"], "chatAsk", "question", "question.md"],
       [["chat", "answer", "--space", "space-1", "--question", "q-1", "--answer-file", join(directory, "answer.md")], "chatAnswer", "answer", "answer.md"],
-      [["spaces", "assistant", "instructions", "--space", "space-1", "--instructions-file", "instructions.md"], "assistantSetInstructions", "instructions", "instructions.md"],
+      [["spaces", "worker", "instructions", "--space", "space-1", "--instructions-file", "instructions.md"], "assistantSetInstructions", "instructions", "instructions.md"],
     ] as const) {
       const response = await execute([...argv]);
       assert.equal(response.exitCode, 0, response.stderr);

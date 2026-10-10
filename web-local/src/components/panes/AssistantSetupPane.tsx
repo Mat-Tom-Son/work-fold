@@ -336,7 +336,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
     let disposed = false;
     let controller: AbortController | null = null;
     const unsubscribe = subscribeControlEvents((hint) => {
-      if ((hint !== "assistant" && hint !== "reset") || isMutating()) return;
+      if ((hint !== "models" && hint !== "reset") || isMutating()) return;
       if (currentForm.current.loading) { setLoadAttempt((current) => current + 1); return; }
       controller?.abort();
       const read = new AbortController();

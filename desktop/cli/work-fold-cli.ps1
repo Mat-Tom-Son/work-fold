@@ -79,6 +79,8 @@ $script:MaxWaitSeconds = 2592000
 
 function Test-WorkFoldActCommand {
   param([string[]]$CommandArguments)
+  # Help for any family is content-free and works without the app running.
+  if ($CommandArguments -ccontains '--help' -or $CommandArguments -ccontains '-h') { return $false }
   $positional = @($CommandArguments | Where-Object { $_ -cne '--json' })
   $group = if ($positional.Count -gt 0) { [string]$positional[0] } else { '' }
   $actGroups = @(

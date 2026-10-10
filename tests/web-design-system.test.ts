@@ -194,10 +194,10 @@ test("Skills & Extensions opens as a popup from the Add button, and apps are man
 });
 
 test("Assistant configuration lives in Settings instead of the rail", () => {
-  assert.match(desktopSettingsSource, /id:\s*"assistant"[\s\S]*?label:\s*"AI Models"/);
+  assert.match(desktopSettingsSource, /id:\s*"ai-models"[\s\S]*?label:\s*"AI Models"/);
   assert.match(desktopSettingsSource, /<AssistantSetupPane[\s\S]*?embedded/);
-  assert.match(appSource, /openSettings\("assistant", scope, true\)/);
-  assert.match(appSource, /onOpenSettings\("assistant", "space", true, targetSpace\.id\)/);
+  assert.match(appSource, /openSettings\("ai-models", scope, true\)/);
+  assert.match(appSource, /onOpenSettings\("ai-models", "space", true, targetSpace\.id\)/);
   assert.doesNotMatch(appSource, /activeMode\s*===\s*"setup"/);
   assert.doesNotMatch(spaceChromeSource, /Assistant ·/);
 });

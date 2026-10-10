@@ -141,7 +141,7 @@ test("an external Assistant hint refreshes draft models while existing Chat sess
   await dom.waitFor(() => trigger.textContent?.includes("DeepSeek Flash") === true);
   assert.equal(document.activeElement, trigger, "choosing a model keeps focus when its option unmounts");
   assert.deepEqual(configured, { scope: "space", spaceId: "workshop", provider: nextModel.provider, model: nextModel.id });
-  await dom.act(async () => { stream.enqueue(new TextEncoder().encode('data: {"type":"assistant"}\n\n')); await new Promise(setImmediate); });
+  await dom.act(async () => { stream.enqueue(new TextEncoder().encode('data: {"type":"models"}\n\n')); await new Promise(setImmediate); });
   await dom.waitFor(() => dom.container.querySelector("#other-draft")?.textContent?.includes("DeepSeek Flash") === true);
   assert.doesNotMatch(dom.container.textContent ?? "", /Old GLM/);
   assert.match(dom.container.querySelector("#saved")?.textContent ?? "", /Session Model/);

@@ -127,7 +127,7 @@ test("CLI help covers every landed act family and is honest about what it runs",
     spaces: [
       "list", "create", "register", "rename", "unregister", "delete",
       "appearance apply", "appearance reset", "appearance undo",
-      "assistant show", "assistant model", "assistant instructions",
+      "worker show", "worker model", "worker instructions",
     ],
     tools: ["import-skill", "install", "update", "remove"],
     apps: [
