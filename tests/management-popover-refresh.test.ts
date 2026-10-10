@@ -53,13 +53,10 @@ test("the popover has no decision surface", async () => {
   assert.match(mainPreload, /enable: \(routingId: string\) => ipcRenderer\.invoke\("work-fold:routings:enable", routingId\)/);
 });
 
-test("the popover accounts for every attachment outcome, including the Space-free Library placement", async () => {
+test("the popover accounts for every attachment outcome", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  // The host-recorded trail renders all four recorded outcomes; the Library
-  // line carries no Space name and no restore point, because the Library is
-  // Space-free by design.
-  assert.match(popover, /"placed" \| "registered" \| "library" \| "unrecorded"/);
-  assert.match(popover, /Added \{disposition\.attachment\.name\} to your Library/);
+  // The host-recorded trail renders all three recorded outcomes.
+  assert.match(popover, /"placed" \| "registered" \| "unrecorded"/);
   assert.match(popover, /no recorded placement — see the reply below/);
 });
 

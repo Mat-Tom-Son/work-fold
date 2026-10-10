@@ -192,12 +192,6 @@ import {
   type SpaceFileVersion,
 } from "./history.js";
 import { compareHistoryFile, readHistoryFile } from "./history-review.js";
-import {
-  copyResourcesToSpace,
-  createResourceFolder,
-  listResourceTree,
-  uploadResourceFiles,
-} from "./resources.js";
 import { searchSpace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
 import { normalizeConversationTitle, normalizeGeneratedConversationTitle } from "../shared/chat-title.js";
@@ -333,7 +327,6 @@ import type {
   WorkFoldActConversationRef,
   WorkFoldActFacade,
   WorkFoldActFileVersionRef,
-  WorkFoldActLibraryItem,
   WorkFoldActManagementRequest,
   WorkFoldActPublicationRef,
   WorkFoldActQuestionRef,
@@ -2572,39 +2565,6 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       label: `Before uploading ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}`,
     });
     sendJson(res, { uploaded, safetyCheckpointId: safety?.checkpointId ?? null, historySkippedPaths: safety?.skippedLargeFiles ?? [] }, 201);
-    return;
-  }
-
-  if (method === "GET" && url.pathname === "/api/resources/tree") {
-    sendJson(res, { tree: await listResourceTree() });
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/resources/folders") {
-    const body = await readJsonBody<{ parentPath?: string; name?: string }>(state, req);
-    if (!body.name) throw badRequest("Folder name is required.");
-    sendJson(res, { folder: await createResourceFolder(body.parentPath ?? "", body.name) }, 201);
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/resources/upload") {
-    const multipart = await readMultipartBody(state, req);
-    const relativePaths = parseRelativePaths(multipart.fields.get("relativePaths"), multipart.files.length);
-    const uploaded = await uploadResourceFiles(
-      multipart.fields.get("targetFolderPath") ?? "",
-      multipart.files.map((file, index) => ({ fileName: file.fileName, relativePath: relativePaths[index], data: file.data })),
-    );
-    sendJson(res, { uploaded }, 201);
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/resources/copy-to-space") {
-    const body = await readJsonBody<{ spaceId?: string; paths?: string[]; targetFolder?: string }>(state, req);
-    if (!body.spaceId || !Array.isArray(body.paths)) throw badRequest("A Space and Library items are required.");
-    const space = await getSpace(body.spaceId);
-    const copied = await copyResourcesToSpace(space.spaceRoot, body.paths, body.targetFolder ?? "From Library");
-    const safety = await checkpointAdditiveWritesOrUndo(space.spaceRoot, copied, {
-      reason: "pre_add",
-      label: `Before adding ${copied.length} Library item${copied.length === 1 ? "" : "s"}`,
-    });
-    sendJson(res, { copied, safetyCheckpointId: safety?.checkpointId ?? null, historySkippedPaths: safety?.skippedLargeFiles ?? [] });
     return;
   }
 
@@ -6798,75 +6758,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       }));
       return { space: toActSpaceRef(space), scope, ...result };
     },
-    async libraryList() {
-      const tree = await runActOperation(() => listResourceTree());
-      const items: WorkFoldActLibraryItem[] = [];
-      return { items, truncated: flattenLibraryTree(tree, items) };
-    },
-    async libraryCopy(input) {
-      assertManagementParentAccepting(state, input.parentTaskId);
-      const space = await resolveSpace(input.space);
-      const item = input.item.trim();
-      if (!item) throw new WorkFoldCliError("usage", "Provide --item <library-path>.");
-      return runActOperation(async () => {
-        // Exactly the desktop copy-to-space route: an independent copy landing
-        // under `From Library`, with copy and restore point succeeding or
-        // failing together in the destination Space; the Library original is
-        // untouched.
-        const copied = await copyResourcesToSpace(space.spaceRoot, [item], "From Library");
-        const safety = await checkpointAdditiveWritesOrUndo(space.spaceRoot, copied, {
-          reason: "pre_add",
-          label: `Before adding ${copied.length} Library item${copied.length === 1 ? "" : "s"}`,
-        });
-        await recordFacadeAction(state, input.parentTaskId, {
-          command: "library.copy",
-          space,
-          copied,
-          checkpointId: safety?.checkpointId ?? null,
-        });
-        return {
-          space: toActSpaceRef(space),
-          item,
-          copied: copied[0]!,
-          checkpointId: safety?.checkpointId ?? null,
-        };
-      });
-    },
-    async libraryAdd(input) {
-      assertManagementParentAccepting(state, input.parentTaskId);
-      return runActOperation(async () => {
-        // The same upload internals as the desktop's "Add files to Library"
-        // (`uploadResourceFiles` over `writeUploadedFiles`), fed from
-        // host-read source files instead of a multipart body. The Library is
-        // personal and Space-free: no restore point is recorded, and the total
-        // read is bounded by the same budget as the desktop upload body.
-        const files = await collectLibraryUploadFiles(input.fromPaths, input.cwd, state.maxBodyBytes);
-        const added = await uploadResourceFiles(input.toDir ?? "", files);
-        // Resolved absolute sources are recorded exactly as files.add records
-        // them, so attachment dispositions can account for an attachment that
-        // entered the Library (`library` status in the request views).
-        await state.requests.recordAction(input.parentTaskId, {
-          command: "library.add",
-          at: new Date().toISOString(),
-          sources: input.fromPaths.map((raw) => {
-            const trimmed = raw.trim();
-            return isAbsolute(trimmed) ? resolve(trimmed) : resolve(input.cwd, trimmed);
-          }),
-          copied: added.map((file) => file.path),
-        });
-        return { added };
-      });
-    },
-    async libraryFolderCreate(input) {
-      assertManagementParentAccepting(state, input.parentTaskId);
-      const name = input.name.trim();
-      if (!name) throw new WorkFoldCliError("usage", "A Library folder name is required.");
-      return runActOperation(async () => {
-        const folder = await createResourceFolder("", name);
-        await recordFacadeAction(state, input.parentTaskId, { command: "library.folder.create" });
-        return { created: true as const, path: folder.path };
-      });
-    },
     async createSpace(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const name = input.name.trim();
@@ -8872,7 +8763,7 @@ async function managementRequestView(
       : record.limitHit ? requestLimitStopMessage(record.limitHit.limit) : null),
     content: record.content,
     attachments: record.attachments,
-    dispositions: withLibraryDispositions(record),
+    dispositions: managementAttachmentDispositions({ attachments: record.attachments, actions: record.actions }),
     actions,
     children: children.map(({ files, ...child }) => files.length ? { ...child, files } : child),
     reply,
@@ -8894,28 +8785,6 @@ async function managementRequestView(
       fileCount: result.fileCount,
     })),
   };
-}
-
-/**
- * The registry's mechanical disposition accounting, widened with the
- * Space-free `library` outcome: an attachment whose resolved path matches an
- * attributed `library add`'s recorded sources entered the personal Library.
- * Space placements keep precedence — the registry reports those first and
- * only `unrecorded` attachments are upgraded here, so one attachment never
- * tells two stories.
- */
-function withLibraryDispositions(record: WorkFoldRequestRecord): WorkFoldActAttachmentDisposition[] {
-  return managementAttachmentDispositions({ attachments: record.attachments, actions: record.actions }).map((disposition): WorkFoldActAttachmentDisposition => {
-    if (disposition.status !== "unrecorded" || disposition.attachment.kind === "url") return disposition;
-    const added = record.actions.find((action) =>
-      action.command === "library.add" && action.sources?.includes(disposition.attachment.target));
-    if (!added) return disposition;
-    return {
-      attachment: disposition.attachment,
-      status: "library",
-      copied: added.copied ?? [],
-    };
-  });
 }
 
 /** The person-facing sentence for a bound a request stopped at; it names the Settings section like every refusal. */
@@ -9004,7 +8873,7 @@ function assertManagementParentAccepting(state: LocalApiState, parentTaskId: str
 /**
  * Attributes one applied facade mutation to its explicitly named management
  * request, so the request's recorded story stays complete across every landed
- * verb. Space-free acts (the personal Library, personal-scope tools) record
+ * verb. Space-free acts (personal-scope tools) record
  * no Space fields. `chat.send` keeps its own inline recording because it also
  * threads child-task bookkeeping and post-acceptance cancellation.
  */
@@ -9196,80 +9065,6 @@ async function addExternalFilesInternal(
     label: `Before adding ${copied.length} item${copied.length === 1 ? "" : "s"}`,
   });
   return { copied, checkpointId: safety?.checkpointId ?? null };
-}
-
-const maxActLibraryUploadFiles = 500;
-
-/**
- * Reads `library add` sources into the exact upload shape the desktop's
- * Library upload route feeds `uploadResourceFiles`: files carry their bytes,
- * folder sources walk file-by-file with the folder's name preserved as the
- * relative-path prefix (the desktop's folder-upload behavior). Symbolic links
- * are refused anywhere, nothing is skipped silently, and the total read is
- * bounded by the same budget the desktop upload body enforces.
- */
-async function collectLibraryUploadFiles(
-  fromPaths: string[],
-  cwd: string,
-  maxTotalBytes: number,
-): Promise<Array<{ fileName: string; relativePath?: string; data: Buffer }>> {
-  if (!fromPaths.length) throw new WorkFoldCliError("usage", "Provide at least one --from <path> to add.");
-  const files: Array<{ fileName: string; relativePath?: string; data: Buffer }> = [];
-  let totalBytes = 0;
-  const readBounded = async (path: string, label: string): Promise<Buffer> => {
-    const data = await readFile(path);
-    totalBytes += data.byteLength;
-    if (totalBytes > maxTotalBytes) {
-      throw new WorkFoldCliError("usage", `The sources exceed the ${maxTotalBytes}-byte Library upload budget at ${label}.`);
-    }
-    return data;
-  };
-  const visitFolder = async (root: string, relativePrefix: string): Promise<void> => {
-    for (const name of (await readdir(root)).sort()) {
-      const path = join(root, name);
-      const relativePath = `${relativePrefix}/${name}`;
-      const info = await lstat(path);
-      if (info.isSymbolicLink()) {
-        throw new WorkFoldCliError("usage", `Symbolic-link sources cannot be added to the Library: ${relativePath}.`);
-      }
-      if (info.isDirectory()) {
-        await visitFolder(path, relativePath);
-        continue;
-      }
-      if (!info.isFile()) {
-        throw new WorkFoldCliError("usage", `Only files and folders can be added to the Library: ${relativePath}.`);
-      }
-      if (files.length >= maxActLibraryUploadFiles) {
-        throw new WorkFoldCliError("usage", `At most ${maxActLibraryUploadFiles} files can be added to the Library at once.`);
-      }
-      files.push({ fileName: name, relativePath, data: await readBounded(path, relativePath) });
-    }
-  };
-  for (const raw of fromPaths) {
-    const trimmed = raw.trim();
-    if (!trimmed) throw new WorkFoldCliError("usage", "Source paths cannot be empty.");
-    const source = isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
-    const info = await lstat(source).catch(() => null);
-    if (!info) throw new WorkFoldCliError("notFound", `Source not found: ${trimmed}.`);
-    if (info.isSymbolicLink()) {
-      throw new WorkFoldCliError("usage", `Symbolic-link sources cannot be added to the Library: ${trimmed}.`);
-    }
-    if (info.isDirectory()) {
-      await visitFolder(source, basename(source));
-      continue;
-    }
-    if (!info.isFile()) {
-      throw new WorkFoldCliError("usage", `Only files and folders can be added to the Library: ${trimmed}.`);
-    }
-    if (files.length >= maxActLibraryUploadFiles) {
-      throw new WorkFoldCliError("usage", `At most ${maxActLibraryUploadFiles} files can be added to the Library at once.`);
-    }
-    files.push({ fileName: basename(source), data: await readBounded(source, trimmed) });
-  }
-  if (!files.length) {
-    throw new WorkFoldCliError("usage", "The sources contain no files to add to the Library.");
-  }
-  return files;
 }
 
 export type WorkFoldDeleteRecovery =
@@ -9537,22 +9332,6 @@ function splitActEntryPath(rawPath: string, missingMessage: string): { target: s
     parentPath: lastSlash === -1 ? "" : target.slice(0, lastSlash),
     name: lastSlash === -1 ? target : target.slice(lastSlash + 1),
   };
-}
-
-const maxActLibraryItems = 500;
-
-/** Bounded depth-first flattening of the Library tree; true when the bound cut it short. */
-function flattenLibraryTree(entries: TreeEntry[], items: WorkFoldActLibraryItem[]): boolean {
-  for (const entry of entries) {
-    if (items.length >= maxActLibraryItems) return true;
-    items.push({
-      path: entry.path,
-      kind: entry.kind,
-      ...(entry.kind === "file" ? { sizeBytes: entry.sizeBytes ?? 0 } : {}),
-    });
-    if (entry.children?.length && flattenLibraryTree(entry.children, items)) return true;
-  }
-  return false;
 }
 
 /** Banner-image data URLs dominate a proposal's size; anything past this bound is not a typed proposal. */

@@ -95,23 +95,21 @@ test("the widened action vocabulary records every landed mutation verb, Space-fr
   });
   assert.deepEqual(store.get(request.requestId)?.childRequestIds, [], "recordAction never creates a child request");
 
-  // The personal Library and personal-scope tools are Space-free: the action
-  // records honestly without inventing a Space.
-  await store.recordAction("task-1", { command: "library.add", at: new Date().toISOString(), copied: ["Receipts/one.pdf"] });
+  // Personal-scope tools are Space-free: the action records honestly without
+  // inventing a Space.
   await store.recordAction("task-1", { command: "tools.remove", at: new Date().toISOString() });
   await store.recordAction("task-1", { command: "apps.revoke", at: new Date().toISOString(), spaceId: "space-1", spaceName: "Fold" });
   const record = store.get(request.requestId)!;
   assert.deepEqual(
     record.actions.map((action) => action.command),
-    ["chat.compact", "library.add", "tools.remove", "apps.revoke"],
+    ["chat.compact", "tools.remove", "apps.revoke"],
   );
   assert.equal(record.actions[1]?.spaceId, undefined);
-  assert.deepEqual(record.actions[1]?.copied, ["Receipts/one.pdf"]);
 
   // A chat.send without resolved Space fields records the action and nothing
   // else: there is no child-task list to malform any more.
   await store.recordAction("task-1", { command: "chat.send", at: new Date().toISOString(), conversationId: "chat-2", taskId: "task-child" });
-  assert.equal(store.get(request.requestId)?.actions.length, 5);
+  assert.equal(store.get(request.requestId)?.actions.length, 4);
   assert.deepEqual(store.get(request.requestId)?.childRequestIds, []);
 });
 

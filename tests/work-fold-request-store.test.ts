@@ -836,15 +836,14 @@ test("the action trail keeps attribution past the former cutoff and only credits
 
   assert.equal(await store.recordAction(undefined, { command: "files.add", at: clock.now().toISOString() }), null);
   assert.equal(await store.recordAction("task-unknown", { command: "files.add", at: clock.now().toISOString() }), null);
-  assert.equal(await store.recordAction("task-1", { command: "library.add", at: clock.now().toISOString() }), request.requestId);
 
   // The 201st action was previously dropped from attribution.
   for (let index = 1; index <= 200; index += 1) {
     await store.recordAction("task-1", { command: "files.move", at: clock.now().toISOString(), spaceId: "space-audits", spaceName: "Audits" });
   }
-  assert.equal(store.get(request.requestId)?.actions.length, 201);
+  assert.equal(store.get(request.requestId)?.actions.length, 200);
   assert.equal(await store.recordAction("task-1", { command: "files.move", at: clock.now().toISOString() }), request.requestId);
-  assert.equal(store.get(request.requestId)?.actions.length, 202);
+  assert.equal(store.get(request.requestId)?.actions.length, 201);
 
   // Recording an act never creates a child request; only `beginChild` does.
   assert.deepEqual(store.get(request.requestId)?.childRequestIds, []);

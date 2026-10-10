@@ -152,17 +152,6 @@ export interface WorkFoldActFileVersionRef {
 }
 
 /**
- * Bounded flat projection of one passive Library entry. The Library is
- * personal and Space-free, so items carry no Space ids and no History
- * references — copying into a Space is the explicit act that gains both.
- */
-export interface WorkFoldActLibraryItem {
-  path: string;
-  kind: "file" | "folder";
-  sizeBytes?: number;
-}
-
-/**
  * Phase of one request in the vocabulary `manage status` and the popover
  * speak. `working` is the request's own turn; `handed_off` means that turn
  * finished but a Space Assistant turn it started is still running — "done" is
@@ -191,17 +180,10 @@ export interface WorkFoldActManagementChildStatus {
   files?: string[];
 }
 
-/**
- * One attachment's accounted outcome in a request view. The registry's own
- * disposition vocabulary (`placed`, `registered`, `unrecorded`) is widened
- * with `library`: the attachment entered the personal Library through an
- * attributed `library add`. The Library is Space-free, so a library
- * disposition carries the Library-relative destinations and never a Space id
- * or restore point.
- */
+/** One attachment's accounted outcome in a request view: `placed`, `registered`, or `unrecorded`. */
 export interface WorkFoldActAttachmentDisposition {
   attachment: ManagementAttachmentRef;
-  status: ManagementAttachmentDisposition["status"] | "library";
+  status: ManagementAttachmentDisposition["status"];
   spaceId?: string;
   spaceName?: string;
   copied?: string[];
@@ -1004,40 +986,6 @@ export interface WorkFoldActFacade {
     truncated: boolean;
     scannedFiles: number;
     nextCursor?: string | null; coverage?: SpaceSearchCoverage;
-  }>;
-
-  /**
-   * Library verbs. Listing is a bounded content-free projection of the
-   * personal collection; `libraryCopy` is the explicit independent copy into
-   * a Space the product model requires — landing under `From Library` with a
-   * restore point recorded in the destination Space, the Library original
-   * untouched, and copy and restore point succeeding or failing together.
-   */
-  libraryList(): Promise<{ items: WorkFoldActLibraryItem[]; truncated: boolean }>;
-  libraryCopy(input: { item: string; space: string; parentTaskId?: string }): Promise<{
-    space: WorkFoldActSpaceRef;
-    item: string;
-    copied: string;
-    checkpointId: string | null;
-  }>;
-  /**
-   * Copies external files (or folders, walked file-by-file) into the passive
-   * personal Library through the same upload internals as the desktop's "Add
-   * files to Library". The Library is personal and Space-free: no `--space`,
-   * and no restore point — History is a Space concept (docs/fold-act-ledger.md).
-   * Sources are read fresh from disk; symbolic links are refused.
-   */
-  libraryAdd(input: { fromPaths: string[]; toDir?: string; cwd: string; parentTaskId?: string }): Promise<{
-    added: Array<{ path: string; sizeBytes: number }>;
-  }>;
-  /**
-   * Creates one new top-level Library folder — the desktop's "New Library
-   * folder" control. No in-product removal verb exists on any surface yet, so
-   * the receipt carries the created path with no undo reference.
-   */
-  libraryFolderCreate(input: { name: string; parentTaskId?: string }): Promise<{
-    created: true;
-    path: string;
   }>;
 
   createSpace(input: { name: string; parentTaskId?: string }): Promise<{ space: WorkFoldActSpaceRef }>;

@@ -6,10 +6,8 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 
 import { createSpaceCheckpoint, restoreSpaceCheckpoint } from "../src/local/history.js";
-import { copyResourcesToSpace, listResourceTree, uploadResourceFiles } from "../src/local/resources.js";
 import {
   configureWorkFoldStateRoot,
-  resourceLibraryRoot,
   spaceManifestFile,
   spaceRegistryFile,
 } from "../src/local/state-paths.js";
@@ -605,16 +603,6 @@ test("a replacement created after the managed claim survives approved-folder del
 async function persistSpaceRegistryForTest(registry: SpaceRegistry): Promise<void> {
   await writeFile(spaceRegistryFile(), `${JSON.stringify(registry, null, 2)}\n`, "utf8");
 }
-
-test("Library items copy into a visible From Library folder", async () => {
-  assert.equal(resourceLibraryRoot(), join(stateRoot, "resources"));
-  const space = await createManagedSpace("Library Target", contentRoot);
-  await uploadResourceFiles("", [{ fileName: "template.md", data: Buffer.from("# Template\n") }]);
-  assert.equal((await listResourceTree())[0]?.path, "template.md");
-  const copied = await copyResourcesToSpace(space.spaceRoot, ["template.md"], "From Library");
-  assert.deepEqual(copied, ["From Library/template.md"]);
-  assert.equal(await readFile(join(space.spaceRoot, "From Library", "template.md"), "utf8"), "# Template\n");
-});
 
 test("restore points live externally and can restore space files", async () => {
   const space = await createManagedSpace("History Target", contentRoot);

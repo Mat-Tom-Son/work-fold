@@ -105,7 +105,6 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
     assert.equal(response.status, 200);
     return JSON.stringify(response.body);
   };
-  assert.equal((await upload("/api/resources/upload", "", [{ name: "copy.txt", content: "copy content" }])).status, 201);
   const historyBefore = await checkpoints();
   const childHistoryBefore = await checkpoints(child.id);
   for (const [path, method, body] of [
@@ -117,7 +116,6 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
     [`/api/spaces/${repo.id}/file`, "PUT", { path: "packages//./api/server.ts", text: "parent overwrite" }],
     [`/api/spaces/${repo.id}/folders`, "POST", { parentPath: "packages/api", name: "parent-folder" }],
     [`/api/spaces/${repo.id}/files`, "POST", { parentPath: "packages/api", name: "parent-file.txt", text: "parent create" }],
-    ["/api/resources/copy-to-space", "POST", { spaceId: repo.id, paths: ["copy.txt"], targetFolder: "packages/api" }],
   ] as const) {
     const response = await call(path, { method, body });
     assert.equal(response.status, 409, `${method} ${path} ${JSON.stringify(body)}: ${JSON.stringify(response.body)}`);
@@ -133,7 +131,7 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
     assert.equal(response.status, 409, JSON.stringify(response.body));
   }
   assert.equal(await readFile(join(repoRoot, "packages", "api", "server.ts"), "utf8"), "export {};\n");
-  for (const path of ["parent-folder", "parent-file.txt", "parent-upload.txt", "parent-directory", "copy.txt"]) {
+  for (const path of ["parent-folder", "parent-file.txt", "parent-upload.txt", "parent-directory"]) {
     assert.equal(existsSync(join(repoRoot, "packages", "api", path)), false, path);
   }
   assert.equal(existsSync(join(repoRoot, "Batch")), false, "a refused upload does not write its earlier allowed destination");
@@ -146,11 +144,9 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
     [`/api/spaces/${repo.id}/folders`, "POST", { parentPath: "packages", name: "sibling" }, 201],
     [`/api/spaces/${repo.id}/files`, "POST", { parentPath: "packages/sibling", name: "note.txt", text: "sibling" }, 201],
     [`/api/spaces/${repo.id}/file`, "PUT", { path: "packages/sibling/note.txt", text: "updated sibling" }, 200],
-    ["/api/resources/copy-to-space", "POST", { spaceId: repo.id, paths: ["copy.txt"], targetFolder: "packages/sibling" }, 200],
     [`/api/spaces/${child.id}/file`, "PUT", { path: "server.ts", text: "child update" }, 200],
     [`/api/spaces/${child.id}/folders`, "POST", { parentPath: "", name: "own-folder" }, 201],
     [`/api/spaces/${child.id}/files`, "POST", { parentPath: "own-folder", name: "own-file.txt", text: "child create" }, 201],
-    ["/api/resources/copy-to-space", "POST", { spaceId: child.id, paths: ["copy.txt"], targetFolder: "own-folder" }, 200],
   ] as const) {
     const response = await call(path, { method, body });
     assert.equal(response.status, status, `${method} ${path}: ${JSON.stringify(response.body)}`);
@@ -158,11 +154,9 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
   assert.equal((await upload(`/api/spaces/${repo.id}/upload-local-files`, "packages/sibling", [{ name: "upload.txt", content: "sibling upload" }])).status, 201);
   assert.equal((await upload(`/api/spaces/${child.id}/upload-local-files`, "own-folder", [{ name: "upload.txt", content: "child upload" }])).status, 201);
   assert.equal(await readFile(join(repoRoot, "packages", "sibling", "note.txt"), "utf8"), "updated sibling");
-  assert.equal(await readFile(join(repoRoot, "packages", "sibling", "copy.txt"), "utf8"), "copy content");
   assert.equal(await readFile(join(repoRoot, "packages", "sibling", "upload.txt"), "utf8"), "sibling upload");
   assert.equal(await readFile(join(repoRoot, "packages", "api", "server.ts"), "utf8"), "child update");
   assert.equal(await readFile(join(repoRoot, "packages", "api", "own-folder", "own-file.txt"), "utf8"), "child create");
-  assert.equal(await readFile(join(repoRoot, "packages", "api", "own-folder", "copy.txt"), "utf8"), "copy content");
   assert.equal(await readFile(join(repoRoot, "packages", "api", "own-folder", "upload.txt"), "utf8"), "child upload");
   // The nested Folder still changes its own files.
   assert.equal((await call(`/api/spaces/${child.id}/rename-local-entry`, { method: "POST", body: { path: "server.ts", newName: "main.ts" } })).status, 200);

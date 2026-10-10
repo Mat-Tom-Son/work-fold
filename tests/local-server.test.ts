@@ -19,7 +19,7 @@ import { startLocalApi } from "../src/local/server.js";
 import { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
 import { WorkFoldTrashStore } from "../src/local/trash-store.js";
 
-test("local API covers Space files, the Library, and external restore points", async () => {
+test("local API covers Space files and external restore points", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-api-test-"));
   const api = await startLocalApi({
     port: 0,
@@ -49,29 +49,12 @@ test("local API covers Space files, the Library, and external restore points", a
     const preview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=Notes%2Freadme.md`) as { text: string };
     assert.equal(preview.text, "# Hello\n");
 
-    const resources = new FormData();
-    resources.set("targetFolderPath", "");
-    resources.set("relativePaths", JSON.stringify(["reference.txt"]));
-    resources.append("files", new Blob(["reference"]), "reference.txt");
-    const uploadedLibraryItem = await json(`${api.origin}/api/resources/upload`, { method: "POST", body: resources }) as { uploaded: Array<{ path: string }> };
-    assert.equal(uploadedLibraryItem.uploaded[0]?.path, "reference.txt");
-    const libraryTree = await json(`${api.origin}/api/resources/tree`) as { tree: Array<{ path: string }> };
-    assert.equal(libraryTree.tree[0]?.path, "reference.txt");
-    const copiedLibraryItem = await json(`${api.origin}/api/resources/copy-to-space`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId: created.space.id, paths: ["reference.txt"] }),
-    }) as { copied: string[] };
-    assert.deepEqual(copiedLibraryItem.copied, ["From Library/reference.txt"]);
-    const libraryPreview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
-    assert.equal(libraryPreview.text, "reference");
-
     const checkpoint = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ label: "API snapshot" }),
     }) as { checkpoint: { checkpointId: string; fileCount: number }; created: boolean };
-    assert.equal(checkpoint.checkpoint.fileCount, 2);
+    assert.equal(checkpoint.checkpoint.fileCount, 1);
     assert.equal(checkpoint.created, true);
     const duplicateCheckpoint = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`, {
       method: "POST",
@@ -145,7 +128,7 @@ test("Assistant credentials require explicit removal before replacement", async 
   }
 });
 
-test("uploads and Library copy-ins record additive restore points", async () => {
+test("uploads record additive restore points", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-additive-history-test-"));
   const api = await startLocalApi({
     port: 0,
@@ -171,28 +154,12 @@ test("uploads and Library copy-ins record additive restore points", async () => 
     assert.equal(uploaded.uploaded[0]?.path, "Dropped/notes.md");
     assert.ok(uploaded.safetyCheckpointId, "uploads must record a restore point");
 
-    const resources = new FormData();
-    resources.set("targetFolderPath", "");
-    resources.set("relativePaths", JSON.stringify(["reference.txt"]));
-    resources.append("files", new Blob(["reference"]), "reference.txt");
-    await ok(`${api.origin}/api/resources/upload`, { method: "POST", body: resources });
-    const copied = await json(`${api.origin}/api/resources/copy-to-space`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId: created.space.id, paths: ["reference.txt"] }),
-    }) as { copied: string[]; safetyCheckpointId: string | null };
-    assert.deepEqual(copied.copied, ["From Library/reference.txt"]);
-    assert.ok(copied.safetyCheckpointId, "Library copy-ins must record a restore point");
-
     const checkpoints = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`) as {
       checkpoints: Array<{ checkpointId: string; reason: string; deleteOnRestore: string[] }>;
     };
     const uploadCheckpoint = checkpoints.checkpoints.find((item) => item.checkpointId === uploaded.safetyCheckpointId);
     assert.equal(uploadCheckpoint?.reason, "pre_upload");
     assert.deepEqual(uploadCheckpoint?.deleteOnRestore, ["Dropped/notes.md"]);
-    const copyCheckpoint = checkpoints.checkpoints.find((item) => item.checkpointId === copied.safetyCheckpointId);
-    assert.equal(copyCheckpoint?.reason, "pre_add");
-    assert.deepEqual(copyCheckpoint?.deleteOnRestore, ["From Library/reference.txt"]);
 
     const restored = await json(
       `${api.origin}/api/spaces/${created.space.id}/history/checkpoints/${uploaded.safetyCheckpointId}/restore`,
@@ -201,8 +168,6 @@ test("uploads and Library copy-ins record additive restore points", async () => 
     assert.deepEqual(restored.deletedFiles, ["Dropped/notes.md"]);
     const missing = await fetch(`${api.origin}/api/spaces/${created.space.id}/file?path=Dropped%2Fnotes.md`);
     assert.equal(missing.ok, false, "restoring the upload checkpoint must remove the uploaded file");
-    const libraryPreview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
-    assert.equal(libraryPreview.text, "reference", "restoring the upload checkpoint must not touch the Library copy");
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

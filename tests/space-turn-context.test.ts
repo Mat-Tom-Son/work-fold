@@ -115,7 +115,7 @@ test("the operations guide names the verbs and the rules, stays bounded, and fol
   assert.ok(guide.startsWith(workFoldSpaceOperationsGuideHeading));
   for (const verb of [
     "chat report", "chat ask", "chat answer", "chat handoff", "chat wait",
-    "files delete", "history list|save|restore", "search", "library copy", "checks status", "apps list", "apps invoke", "help collaborate",
+    "files delete", "history list|save|restore", "search", "checks status", "apps list", "apps invoke", "help collaborate",
   ]) {
     assert.ok(guide.includes(verb), `the guide names ${verb}`);
   }

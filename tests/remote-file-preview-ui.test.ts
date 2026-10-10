@@ -92,7 +92,7 @@ test("unavailable capabilities, wrong-file responses and read failures stay hone
 test("deliverable and review links use bounded host receipts with exact Space identities", () => {
   const links = requestResultLinks({ content: "Open /etc/passwd", dispositions: [
     { spaceId: "one", spaceName: "One", copied: ["reports/brief.md", "../secret", ".pi/auth.json"] },
-    { status: "library", copied: ["library-only.md"] },
+    { status: "unrecorded", copied: ["unplaced.md"] },
   ], actions: [{ spaceId: "one", copied: ["reports/brief.md"] }, { spaceId: "two", copied: ["reports/brief.md"] }, { decisionId: "review-one" }] });
   assert.equal(links.length, 2, "a legacy decision id on an older request never renders a link");
   assert.deepEqual(links.map((item: any) => item.kind), ["file", "file"]);

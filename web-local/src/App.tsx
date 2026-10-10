@@ -1798,8 +1798,6 @@ function joinDropPath(...segments: string[]) {
 
 function fixtureConversationGroups(fixture: SpaceUiFixture): Record<string, ConversationSummary[]> { return Object.fromEntries(Object.entries(fixture.conversations).map(([id, conversations]) => [id, conversations.map(({ messages: _messages, ...summary }) => summary)])); }
 function normalizeMode(value: string | null): SpaceRailMode {
-  if (value === "space" || value === "spaces") return "files";
-  if (value === "library" || value === "capabilities" || value === "skills" || value === "extensions") return "files";
   if (value?.startsWith("app:") && /^[a-z0-9][a-z0-9:_-]{0,255}$/i.test(value.slice(4))) return value as SpaceRailMode;
   return (["files", "chats", "history"] as SpaceRailMode[]).includes(value as SpaceRailMode) ? value as SpaceRailMode : "files";
 }

@@ -1600,7 +1600,7 @@ function contentTypeForExtension(extension: string | null): string {
 
 async function copyVisiblePath(source: string, destination: string): Promise<void> {
   const info = await stat(source).catch(() => null);
-  if (!info) throw notFound("Library item not found.");
+  if (!info) throw notFound("Source not found.");
   if (lstatSync(source).isSymbolicLink()) throw new Error("Symbolic links cannot be copied into a Space.");
   if (info.isFile()) {
     await copyFile(source, destination, 1);

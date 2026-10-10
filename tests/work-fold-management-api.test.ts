@@ -208,12 +208,6 @@ test("management requests carry attachments, record lineage, and expose honest p
       parentTaskId: send.taskId,
     });
     assert.ok(added.checkpointId);
-    const libraryAdded = await facade.libraryAdd({
-      fromPaths: [join(sourceDir, "notes.md")],
-      cwd: sandbox,
-      parentTaskId: send.taskId,
-    });
-    assert.equal(libraryAdded.added.length, 1);
     const childConversation = await facade.createConversation({ space: target.space.id });
     changedConversationId = childConversation.conversation.id;
     changedSpaceRoot = target.space.spaceRoot;
@@ -256,14 +250,6 @@ test("management requests carry attachments, record lineage, and expose honest p
     assert.equal(placed.spaceName, "Target Space");
     assert.equal(placed.checkpointId, added.checkpointId);
     assert.equal(request.dispositions.find((item) => item.attachment.kind === "url")!.status, "unrecorded");
-    // An attachment that entered the personal Library is accounted for as
-    // exactly that: Space-free, no restore point, the Library-relative
-    // destinations from the attributed `library add`.
-    const libraryDisposition = request.dispositions.find((item) => item.attachment.name === "notes.md")!;
-    assert.equal(libraryDisposition.status, "library");
-    assert.deepEqual(libraryDisposition.copied, libraryAdded.added.map((file) => file.path));
-    assert.equal(libraryDisposition.spaceName, undefined, "the Library is Space-free");
-    assert.equal(libraryDisposition.checkpointId, undefined, "the Library records no restore point");
 
     // "Done" is never claimed while the delegated Space turn still runs.
     if (request.children[0]!.state === "running") {

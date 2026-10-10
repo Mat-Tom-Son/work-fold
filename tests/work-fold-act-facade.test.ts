@@ -10,7 +10,6 @@ import { RoutedRestrictedAppProposalHost } from "../src/local/agent/restricted-a
 import { RestrictedAppService } from "../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage } from "../src/local/agent/restricted-app-storage.js";
 import { WorkFoldCliError } from "../src/local/cli/index.js";
-import { uploadResourceFiles } from "../src/local/resources.js";
 import {
   normalizeWorkFoldRoutingDeclaration,
   workFoldRoutingDigest,
@@ -451,7 +450,7 @@ test("the act facade drives Chat lifecycle and History families with ledger conf
   }
 });
 
-test("the act facade drives file, search, and Library families with ledger safety rules", async () => {
+test("the act facade drives file and search families with ledger safety rules", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-files-test-"));
   await mkdir(join(sandbox, "agent"), { recursive: true });
   const api = await startLocalApi({
@@ -607,74 +606,6 @@ test("the act facade drives file, search, and Library families with ledger safet
     );
     await assert.rejects(
       () => facade.search({ space: space.id, query: "x".repeat(64 * 1024 + 1) }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
-    );
-
-    // Library: passive personal collection; copy-in is explicit, lands under
-    // From Library, records a restore point in the destination Space, and
-    // leaves the Library original untouched.
-    await uploadResourceFiles("", [{ fileName: "template.md", data: Buffer.from("library template", "utf8") }]);
-    const library = await facade.libraryList();
-    assert.deepEqual(library.items, [{ path: "template.md", kind: "file", sizeBytes: 16 }]);
-    assert.equal(library.truncated, false);
-    const copyIn = await facade.libraryCopy({ item: "template.md", space: space.id });
-    assert.equal(copyIn.copied, "From Library/template.md");
-    assert.ok(copyIn.checkpointId);
-    assert.equal(await readFile(join(space.spaceRoot, "From Library", "template.md"), "utf8"), "library template");
-    await facade.historyRestore({ space: space.id, checkpointId: copyIn.checkpointId! });
-    assert.equal(existsSync(join(space.spaceRoot, "From Library", "template.md")), false, "the destination restore point undoes the copy-in");
-    assert.deepEqual((await facade.libraryList()).items.map((item) => item.path), ["template.md"]);
-    await assert.rejects(() => facade.libraryCopy({ item: "missing.md", space: space.id }), /Library item not found/);
-    await assert.rejects(
-      () => facade.libraryCopy({ item: "   ", space: space.id }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
-    );
-
-    // library add copies external files into the passive personal collection
-    // through the desktop upload internals: Space-free, no restore point,
-    // folder sources walked file-by-file with the folder name preserved, and
-    // name collisions resolved exactly like the upload route.
-    const inbox = join(sandbox, "library-inbox");
-    await mkdir(join(inbox, "nested"), { recursive: true });
-    await writeFile(join(inbox, "cover.md"), "cover", "utf8");
-    await writeFile(join(inbox, "nested", "detail.md"), "detail", "utf8");
-    await writeFile(join(sandbox, "loose.md"), "loose", "utf8");
-    const addedToLibrary = await facade.libraryAdd({
-      fromPaths: [inbox, "loose.md"],
-      cwd: sandbox,
-    });
-    assert.deepEqual(
-      addedToLibrary.added.map((file) => file.path).sort(),
-      ["library-inbox/cover.md", "library-inbox/nested/detail.md", "loose.md"],
-    );
-    assert.deepEqual(
-      (await facade.libraryList()).items.map((item) => item.path).sort(),
-      ["library-inbox", "library-inbox/cover.md", "library-inbox/nested", "library-inbox/nested/detail.md", "loose.md", "template.md"],
-    );
-    const collided = await facade.libraryAdd({ fromPaths: ["loose.md"], toDir: "", cwd: sandbox });
-    assert.deepEqual(collided.added.map((file) => file.path), ["loose (2).md"], "collisions rename, never overwrite");
-    await assert.rejects(
-      () => facade.libraryAdd({ fromPaths: [join(sandbox, "not-there.md")], cwd: sandbox }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
-    );
-    if (process.platform !== "win32") {
-      await symlink(join(sandbox, "loose.md"), join(inbox, "alias.md"));
-      await assert.rejects(
-        () => facade.libraryAdd({ fromPaths: [inbox], cwd: sandbox }),
-        (error: unknown) => error instanceof WorkFoldCliError
-          && error.code === "usage"
-          && /Symbolic-link sources cannot be added to the Library/.test(error.message),
-      );
-      await rm(join(inbox, "alias.md"));
-    }
-
-    // New Library folders are top-level, name-validated, and collision-refused.
-    const libraryFolder = await facade.libraryFolderCreate({ name: "Contracts" });
-    assert.deepEqual(libraryFolder, { created: true, path: "Contracts" });
-    await assert.rejects(() => facade.libraryFolderCreate({ name: "Contracts" }), /already exists/);
-    await assert.rejects(() => facade.libraryFolderCreate({ name: "nested/inside" }), /not allowed/);
-    await assert.rejects(
-      () => facade.libraryFolderCreate({ name: "   " }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
 

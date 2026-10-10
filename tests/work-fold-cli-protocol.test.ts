@@ -124,7 +124,6 @@ test("CLI help covers every landed act family and is honest about what it runs",
     history: ["list", "save", "restore", "versions", "restore-file"],
     search: [""],
     files: ["add", "move", "rename", "delete", "mkdir", "create"],
-    library: ["list", "add", "folder create", "copy"],
     spaces: [
       "list", "create", "register", "rename", "unregister", "delete",
       "appearance apply", "appearance reset", "appearance undo",

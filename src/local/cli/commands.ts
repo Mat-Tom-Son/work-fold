@@ -442,24 +442,6 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "",
     ].join("\n");
   }
-  if (normalizedTopic === "library" || normalizedTopic?.startsWith("library ")) {
-    return [
-      header,
-      "",
-      `Usage: ${executable} library list [--json]`,
-      `       ${executable} library add --from <path> [--from <path>...] [--to <library-folder>] [--json]`,
-      `       ${executable} library folder create --name <folder-name> [--json]`,
-      `       ${executable} library copy --item <library-path> --space <id-or-name> [--json]`,
-      "",
-      "The Library is your passive personal collection, shared across all",
-      "Spaces, so only library copy takes --space. add copies outside files",
-      "in, folder create adds a Library folder, and copy places one Library",
-      "item into a Space with a History restore point. Nothing in the Library",
-      "becomes Assistant context automatically. Needs the work-fold app",
-      "running.",
-      "",
-    ].join("\n");
-  }
   if (normalizedTopic === "tools" || normalizedTopic?.startsWith("tools ")) {
     return [
       header,
@@ -660,8 +642,6 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     "  search              Search one Space's files and Chats (--query)",
     "  files add|move|rename|delete|mkdir|create",
     "                      Work with files inside a Space",
-    "  library list|add|copy; library folder create",
-    "                      Use the passive personal Library",
     "  spaces create|register|rename|unregister|delete; spaces appearance apply|reset|undo",
     "  spaces assistant show|model|instructions",
     "                      Create, manage, restyle, or configure Spaces",

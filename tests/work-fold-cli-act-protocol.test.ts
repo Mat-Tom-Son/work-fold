@@ -331,7 +331,7 @@ test("Checks act execution bounds and terminal-scrubs structured and human outpu
   assert.deepEqual(outcomes, ["accepted", "ok", "accepted", "ok"]);
 });
 
-test("ledger Chat, History, file, search, Library, and Space commands parse with strict shapes", () => {
+test("ledger Chat, History, file, search, and Space commands parse with strict shapes", () => {
   assert.deepEqual(
     parseWorkFoldCliActArgv(["chat", "rename", "--space", "space-1", "--conversation", "conv-1", "--title", "Weekly plan"]),
     { name: "chat.rename", output: "human", space: "space-1", conversation: "conv-1", title: "Weekly plan" },
@@ -407,20 +407,6 @@ test("ledger Chat, History, file, search, Library, and Space commands parse with
   assert.deepEqual(
     parseWorkFoldCliActArgv(["search", "--space", "space-1", "--query", "tax receipts"]),
     { name: "search", output: "human", space: "space-1", query: "tax receipts" },
-  );
-
-  assert.deepEqual(parseWorkFoldCliActArgv(["library", "list"]), { name: "library.list", output: "human" });
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["library", "add", "--from", "one.pdf", "--from", "two.pdf", "--to", "Receipts"]),
-    { name: "library.add", output: "human", fromPaths: ["one.pdf", "two.pdf"], toDir: "Receipts" },
-  );
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["library", "folder", "create", "--name", "Receipts"]),
-    { name: "library.folder.create", output: "human", folderName: "Receipts" },
-  );
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["library", "copy", "--item", "Receipts/one.pdf", "--space", "space-1"]),
-    { name: "library.copy", output: "human", item: "Receipts/one.pdf", space: "space-1" },
   );
 
   assert.deepEqual(
@@ -707,16 +693,6 @@ test("ledger command flag validation refuses malformed and misplaced shapes", ()
   assert.throws(
     () => parseWorkFoldCliActArgv(["search", "--space", "s", "--query", "q", "--parent-task", "task-1"]),
     /--parent-task cannot be used with 'search'/,
-  );
-
-  // The Library is personal and Space-free.
-  assert.throws(
-    () => parseWorkFoldCliActArgv(["library", "list", "--space", "s"]),
-    /--space cannot be used with 'library list'/,
-  );
-  assert.throws(
-    () => parseWorkFoldCliActArgv(["library", "add", "--from", "one.pdf", "--space", "s"]),
-    /--space cannot be used with 'library add'/,
   );
 
   // Space-scoped writes still require explicit selection.
@@ -1464,7 +1440,7 @@ test("Chat lifecycle and History acts dispatch to the facade, stamp undo referen
   assert.equal(lastOk().undoRef, undefined);
 });
 
-test("file, search, and Library acts dispatch to the facade, stamp receipts, and render bespoke output", async () => {
+test("file and search acts dispatch to the facade, stamp receipts, and render bespoke output", async () => {
   const spaceRef = { id: "space-1", name: "Fold Space", spaceRoot: "/tmp/fold" };
   const calls: Array<{ method: string; input?: unknown }> = [];
   let searchResult: Record<string, unknown> = {};
@@ -1573,38 +1549,6 @@ test("file, search, and Library acts dispatch to the facade, stamp receipts, and
     search: async (input: unknown) => {
       calls.push({ method: "search", input });
       return searchResult;
-    },
-    libraryList: async () => {
-      calls.push({ method: "libraryList" });
-      return {
-        items: [
-          { path: "Receipts", kind: "folder" as const },
-          { path: "Receipts/one.pdf", kind: "file" as const, sizeBytes: 12 },
-        ],
-        truncated: false,
-      };
-    },
-    libraryCopy: async (input: unknown) => {
-      calls.push({ method: "libraryCopy", input });
-      return {
-        space: spaceRef,
-        item: "Receipts/one.pdf",
-        copied: "From Library/one.pdf",
-        checkpointId: "cp-20260810130500-ffffffff",
-      };
-    },
-    libraryAdd: async (input: unknown) => {
-      calls.push({ method: "libraryAdd", input });
-      return {
-        added: [
-          { path: "Receipts/two.pdf", sizeBytes: 9 },
-          { path: "Receipts/three.pdf", sizeBytes: 10 },
-        ],
-      };
-    },
-    libraryFolderCreate: async (input: unknown) => {
-      calls.push({ method: "libraryFolderCreate", input });
-      return { created: true, path: "Contracts" };
     },
   } as unknown as WorkFoldActFacade;
   const records: Array<Record<string, unknown>> = [];
@@ -1717,46 +1661,6 @@ test("file, search, and Library acts dispatch to the facade, stamp receipts, and
   const emptySearch = await execute(["search", "--space", "space-1", "--query", "nothing here"]);
   assert.match(emptySearch.stdout, /No matches for "nothing here" in Fold Space \[space-1\] \(scope all\)\./);
   assert.deepEqual(calls.at(-1)?.input, { space: "space-1", query: "nothing here" });
-
-  const listed = await execute(["library", "list"]);
-  assert.match(listed.stdout, /2 Library items:/);
-  assert.match(listed.stdout, /- Receipts\//);
-  assert.match(listed.stdout, /- Receipts\/one\.pdf/);
-  assert.deepEqual(calls.at(-1), { method: "libraryList" });
-
-  const copied = await execute(["library", "copy", "--item", "Receipts/one.pdf", "--space", "space-1"]);
-  assert.match(copied.stdout, /Copied Receipts\/one\.pdf from the Library to From Library\/one\.pdf in Fold Space \[space-1\]\./);
-  assert.match(copied.stdout, /Restore point: cp-20260810130500-ffffffff/);
-  assert.deepEqual(calls.at(-1)?.input, { space: "space-1", item: "Receipts/one.pdf" });
-  assert.equal(lastOk().checkpointId, "cp-20260810130500-ffffffff");
-  assert.equal(lastOk().detail, "copied to From Library/one.pdf");
-
-  // library add is personal and Space-free: no --space, no restore point,
-  // and its receipt records the added-file count only.
-  const addedToLibrary = await execute(["library", "add", "--from", "receipts/two.pdf", "--from", "receipts/three.pdf", "--to", "Receipts", "--parent-task", "task-9"]);
-  assert.equal(addedToLibrary.exitCode, 0);
-  assert.match(addedToLibrary.stdout, /Added 2 files to the Library:/);
-  assert.match(addedToLibrary.stdout, /- Receipts\/two\.pdf/);
-  assert.match(addedToLibrary.stdout, /personal and Space-free, so no restore point applies\./);
-  assert.deepEqual(calls.at(-1)?.input, {
-    fromPaths: ["receipts/two.pdf", "receipts/three.pdf"],
-    toDir: "Receipts",
-    cwd,
-    parentTaskId: "task-9",
-  });
-  assert.equal(lastOk().detail, "added 2 file(s) to the Library");
-  assert.equal(lastOk().spaceId, undefined, "the Library carries no Space id");
-  assert.equal(lastOk().checkpointId, undefined, "History is a Space concept; the Library records no restore point");
-  assert.throws(
-    () => parseWorkFoldCliActArgv(["library", "add", "--from", "x.pdf", "--space", "space-1"]),
-    /--space cannot be used with 'library add'/,
-  );
-
-  const createdLibraryFolder = await execute(["library", "folder", "create", "--name", "Contracts"]);
-  assert.match(createdLibraryFolder.stdout, /Created Library folder Contracts\./);
-  assert.deepEqual(calls.at(-1)?.input, { name: "Contracts" });
-  assert.equal(lastOk().detail, "Library folder Contracts");
-  assert.equal(lastOk().undoRef, undefined, "no in-product Library removal verb exists, so there is no undo reference");
 
   // Permanent deletion left the vocabulary (docs/receipts-not-gates.md, F20).
   assert.throws(

@@ -81,7 +81,6 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /files move --space <id> --from "<space-path>" --to "<space-folder>"/);
     assert.match(managementContext, /files mkdir --space <id> --path/);
     assert.match(managementContext, /search --space <id> --query "<text>" \[--scope files\|chats\|all\]/);
-    assert.match(managementContext, /library copy --item "<library-path>" --space <id>/);
     assert.match(managementContext, /spaces rename --space <id> --name/);
     assert.match(managementContext, /spaces unregister --space <id>/);
     assert.match(managementContext, /spaces appearance apply --space <id> --proposal/);

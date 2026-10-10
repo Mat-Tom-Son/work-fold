@@ -21,11 +21,6 @@ export function managedSpaceRoot(): string {
   return override ? resolve(override) : join(workFoldStateRoot(), "spaces");
 }
 
-export function resourceLibraryRoot(): string {
-  const override = process.env.WORKFOLD_RESOURCES_DIR?.trim();
-  return override ? resolve(override) : join(workFoldStateRoot(), "resources");
-}
-
 export function spaceRegistryFile(): string {
   return join(workFoldStateRoot(), "space-registry.json");
 }

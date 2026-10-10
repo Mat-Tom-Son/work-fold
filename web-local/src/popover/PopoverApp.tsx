@@ -28,8 +28,7 @@ interface ManagementRequestView {
   attachments: Array<{ kind: "file" | "folder" | "url"; target: string; name: string }>;
   dispositions: Array<{
     attachment: { kind: "file" | "folder" | "url"; target: string; name: string };
-    /** `library` is Space-free: the attachment entered the personal Library through an attributed `library add`. */
-    status: "placed" | "registered" | "library" | "unrecorded";
+    status: "placed" | "registered" | "unrecorded";
     spaceName?: string;
     copied?: string[];
     checkpointId?: string | null;
@@ -1088,9 +1087,7 @@ function DispositionTrail({ request }: { request: ManagementRequestView }) {
               ? <>Copied {disposition.attachment.name} to {disposition.spaceName}{disposition.checkpointId ? <span className="muted small"> · restore point {shortId(disposition.checkpointId)}</span> : null}</>
               : disposition.status === "registered"
                 ? <>Registered {disposition.attachment.name} as the folder {disposition.spaceName}</>
-                : disposition.status === "library"
-                  ? <>Added {disposition.attachment.name} to your Library</>
-                  : <>{disposition.attachment.name}: no recorded placement — see the reply below</>}
+                : <>{disposition.attachment.name}: no recorded placement — see the reply below</>}
           </span>
         </li>
       ))}

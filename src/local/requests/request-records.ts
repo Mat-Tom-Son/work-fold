@@ -190,9 +190,6 @@ export const workFoldRequestActionCommands = [
   "files.delete",
   "files.mkdir",
   "files.create",
-  "library.add",
-  "library.folder.create",
-  "library.copy",
   "spaces.create",
   "spaces.register",
   "spaces.rename",
@@ -242,8 +239,7 @@ export interface WorkFoldRequestAction {
   command: WorkFoldRequestActionCommand;
   at: string;
   /**
-   * Absent exactly for Space-free acts: the personal Library verbs and
-   * personal-scope tools removal. Every Space-bound act names its Space.
+   * Absent exactly for Space-free acts: personal-scope tools removal. Every Space-bound act names its Space.
    */
   spaceId?: string;
   spaceName?: string;

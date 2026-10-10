@@ -82,7 +82,7 @@ function Test-WorkFoldActCommand {
   $positional = @($CommandArguments | Where-Object { $_ -cne '--json' })
   $group = if ($positional.Count -gt 0) { [string]$positional[0] } else { '' }
   $actGroups = @(
-    'chat', 'chats', 'files', 'manage', 'history', 'search', 'library',
+    'chat', 'chats', 'files', 'manage', 'history', 'search',
     'tools', 'apps', 'routings', 'pages', 'trash', 'requests'
   )
   if ($actGroups -contains $group) { return $true }
@@ -375,8 +375,7 @@ try {
   [IO.Directory]::CreateDirectory((Join-Path $script:WorkFoldCliRoot 'responses')) | Out-Null
 
   if (Test-WorkFoldActCommand -CommandArguments $commandArguments) {
-    # Every act family (Chats, files, History, Library, Spaces, tools, apps,
-    # routings, pages) rides the separately versioned act lane and requires
+    # Every act family other than the content-free reads rides the separately versioned act lane and requires
     # the per-launch token the running app minted.
     $actToken = Read-WorkFoldActToken -CliRoot $script:WorkFoldCliRoot
     if ([string]::IsNullOrEmpty($actToken)) {

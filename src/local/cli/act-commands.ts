@@ -84,10 +84,6 @@ export type WorkFoldCliActCommandName =
   | "history.diff"
   | "history.restore-file"
   | "search"
-  | "library.list"
-  | "library.add"
-  | "library.folder.create"
-  | "library.copy"
   | "spaces.create"
   | "spaces.register"
   | "spaces.rename"
@@ -203,12 +199,8 @@ export interface WorkFoldCliActParsedCommand {
   query?: string;
   cursor?: string; limit?: number; offsetBytes?: number; lengthBytes?: number; expectedSha256?: string;
   searchScope?: "files" | "chats" | "all";
-  /** Library-relative source item for library.copy. */
-  item?: string;
   /** New entry name for files.rename. */
   entryName?: string;
-  /** New Library folder name for library.folder.create. */
-  folderName?: string;
   toolsScope?: "personal" | "space";
   resourceKind?: "extensions" | "skills" | "prompts" | "themes";
   catalogId?: string;
@@ -375,7 +367,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--query",
     "--cursor", "--limit", "--offset-bytes", "--length-bytes", "--expected-sha256",
     "--scope",
-    "--item",
     "--id",
     "--source",
     "--app",
@@ -476,7 +467,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
   }
 
   const command = positional.join(" ");
-  const fromCommands = new Set(["files add", "files move", "library add", "tools import-skill"]);
+  const fromCommands = new Set(["files add", "files move", "tools import-skill"]);
   if (!fromCommands.has(command) && fromPaths.length) {
     throw usageError(`--from cannot be used with '${command || "(none)"}'.`);
   }
@@ -679,9 +670,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "files delete",
     "files mkdir",
     "files create",
-    "library add",
-    "library folder create",
-    "library copy",
     "spaces create",
     "spaces register",
     "spaces rename",
@@ -1195,39 +1183,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(rawScope !== undefined ? { searchScope: rawScope } : {}),
       };
     }
-    case "library list":
-      allowOnlyFlags();
-      return { name: "library.list", output };
-    case "library add": {
-      // The Library is personal and Space-free: no --space, no restore point.
-      allowOnlyFlags("--to", "--parent-task");
-      if (!fromPaths.length) throw usageError("Provide at least one --from <path>.");
-      const toDir = optionalBoundedFlag("--to", "library-folder", maxActPathLength);
-      return {
-        name: "library.add",
-        output,
-        fromPaths: fromPaths.map((value) => boundedActPath("--from", value, "path")),
-        ...(toDir !== undefined ? { toDir } : {}),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
-    }
-    case "library folder create":
-      allowOnlyFlags("--name", "--parent-task");
-      return {
-        name: "library.folder.create",
-        output,
-        folderName: requireBoundedFlag("--name", "folder-name"),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
-    case "library copy":
-      allowOnlyFlags("--item", "--space", "--parent-task");
-      return {
-        name: "library.copy",
-        output,
-        item: requireBoundedFlag("--item", "library-path", maxActPathLength),
-        space: requireSpace(),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
     case "spaces create": {
       allowOnlyFlags("--name", "--parent-task");
       const spaceName = stringFlag("--name")?.trim();
@@ -2300,26 +2255,6 @@ async function runActCommand(
         ...(command.path ? { path: command.path } : {}), ...(command.cursor ? { cursor: command.cursor } : {}), ...(command.limit ? { limit: command.limit } : {}),
         ...(command.searchScope ? { scope: command.searchScope } : {}),
       }));
-    case "library.list":
-      return toJson(await facade.libraryList());
-    case "library.add":
-      return toJson(await facade.libraryAdd({
-        fromPaths: command.fromPaths ?? [],
-        ...(command.toDir !== undefined ? { toDir: command.toDir } : {}),
-        cwd: request.cwd,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-      }));
-    case "library.folder.create":
-      return toJson(await facade.libraryFolderCreate({
-        name: command.folderName!,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-      }));
-    case "library.copy":
-      return toJson(await facade.libraryCopy({
-        item: command.item!,
-        space: command.space!,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-      }));
     case "spaces.rename":
       return toJson(await facade.spacesRename({
         space: command.space!,
@@ -3214,35 +3149,6 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       }
       return `${total} match${total === 1 ? "" : "es"} for "${terminalText(record.query)}" in ${spaceLabel} (${scopeLabel}):\n${sections.join("\n")}${boundNote}\n`;
     }
-    case "library.list": {
-      const items = (Array.isArray(record.items) ? record.items : []) as Array<{ path?: unknown; kind?: unknown }>;
-      if (!items.length) return "The Library is empty.\n";
-      const shown = items.slice(0, 50);
-      const lines = shown.map((item) => `- ${terminalText(item.path)}${item.kind === "folder" ? "/" : ""}`);
-      const omitted = items.length > shown.length
-        ? `\n${items.length - shown.length} more Library item(s) in the --json result.`
-        : "";
-      const bounded = record.truncated === true
-        ? "\nThe Library listing stopped at its bound; the list is incomplete."
-        : "";
-      return `${items.length} Library item${items.length === 1 ? "" : "s"}:\n${lines.join("\n")}${omitted}${bounded}\n`;
-    }
-    case "library.copy": {
-      const checkpoint = record.checkpointId ? `Restore point: ${terminalText(record.checkpointId)}\n` : "";
-      return `Copied ${terminalText(record.item)} from the Library to ${terminalText(record.copied)} in ${spaceLabel}.\n${checkpoint}`;
-    }
-    case "library.add": {
-      const added = (Array.isArray(record.added) ? record.added : []) as Array<{ path?: unknown; sizeBytes?: unknown }>;
-      const shown = added.slice(0, 20);
-      const lines = shown.map((file) => `- ${terminalText(file.path)}`);
-      const omitted = added.length > shown.length
-        ? `\n${added.length - shown.length} more added file(s) in the --json result.`
-        : "";
-      return `Added ${added.length} file${added.length === 1 ? "" : "s"} to the Library:\n${lines.join("\n")}${omitted}\n`
-        + "The Library is personal and Space-free, so no restore point applies.\n";
-    }
-    case "library.folder.create":
-      return `Created Library folder ${terminalText(record.path)}.\n`;
     case "apps.list": {
       const apps = (Array.isArray(record.apps) ? record.apps : []) as Array<{
         appId?: unknown;
@@ -4161,14 +4067,6 @@ function actReceiptDetail(
       return typeof record.scope === "string" ? `scope ${record.scope}` : undefined;
     case "files.move":
       return typeof record.path === "string" ? `moved to ${record.path}` : undefined;
-    case "library.copy":
-      return typeof record.copied === "string" ? `copied to ${record.copied}` : undefined;
-    case "library.add":
-      // The ledger's receipt column is the added-paths count; the Library is
-      // Space-free, so there is no Space id and no restore point to record.
-      return Array.isArray(record.added) ? `added ${record.added.length} file(s) to the Library` : undefined;
-    case "library.folder.create":
-      return typeof record.path === "string" ? `Library folder ${boundedReceiptText(record.path)}` : undefined;
     case "apps.list":
       return Array.isArray(record.apps) ? `apps ${record.apps.length}` : undefined;
     case "apps.invoke":
