@@ -8,11 +8,11 @@ live consumer of the Space identity variables to a bounded role taxonomy so the 
 without repeating the audit.
 
 **Status: historical audit, partially implemented.** The semantic resolver and
-Customize Space shipped; [Space customization](space-customization.md) is the
+Customize Space shipped; [Space customization](../space-customization.md) is the
 current contract. The paths, line numbers, counts, and legacy `workspace-*`
 names below describe the audited revision, not today's source. Re-audit live
 consumers before continuing the remaining role migration. Read
-[visual design](visual-design.md) and [product model](product-model.md) for the
+[visual design](../visual-design.md) and [product model](../product-model.md) for the
 current visual and storage rails.
 
 ## Scope and method
@@ -411,10 +411,10 @@ surface, not an authenticated caller boundary. A read-only `workspace appearance
 active identity, resolved role values, audit results, schema version — fits v1 and is useful for
 verification. **Applying or importing a theme is a mutation and must not go through v1.** It requires
 the separately versioned authenticated transport, with authorization, replay protection, explicit
-scope, and durable receipts, as recorded in [the management layer](management-layer.md).
+scope, and durable receipts, as recorded in [the management layer](../management-layer.md).
 
 Product rails this inventory assumes and does not change: appearance stays machine-local application
-state and is not written into `.workspace/` (see [product model](product-model.md); the `space.json`
+state and is not written into `.workspace/` (see [product model](../product-model.md); the `space.json`
 schema may grow for portable appearance only as a deliberate, separate decision); themes carry typed,
 bounded values only and never CSS or JavaScript; and navigation order, permission and connection UI,
 native macOS chrome, Space-tab ownership, minimum hit targets, and colour never being the sole carrier

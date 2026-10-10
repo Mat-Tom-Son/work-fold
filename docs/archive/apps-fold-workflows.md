@@ -28,7 +28,7 @@ management surface.
   navigation from completed requests.
 - [x] Web apps: responsive desktop-served views, clear offline/revoked states,
   and bounded actions from paired browsers that run on acceptance (the earlier
-  review step was retired by [Receipts, not gates](receipts-not-gates.md)).
+  review step was retired by [Receipts, not gates](../receipts-not-gates.md)).
   Shared viewer links remain read-only, with no management or runtime-action
   authority.
 - [x] Integration: concise UI, canonical docs and harness parity, automated
@@ -97,7 +97,7 @@ verification and remaining work here as each slice lands.
 
 Implemented complete data export, same-revision/same-installation restore, one
 durable Undo point for clear/restore, and source-Project-scoped retained-data
-export. See [the data contract](app-data-recovery.md). Automated coverage includes
+export. See [the data contract](../app-data-recovery.md). Automated coverage includes
 512-key snapshots, tampering, foreign identities, exact revision conflicts,
 interrupted commits, restart, unchanged grants/jobs and API reservations.
 
@@ -140,7 +140,7 @@ predecessor, including an absent preview, so competing edits cannot silently
 replace each other's reviewed work. Focused tests cover retries/restart,
 interruption, changed copies, corrupt receipts, symlinks, History failure,
 release-backed source/target separation, API reservations, and competing edits.
-See [Changing an installed app](app-changes.md) for the implemented contract.
+See [Changing an installed app](../app-changes.md) for the implemented contract.
 
 The first checklist item remains open: preview placement for a Release
 installed in its own source Space still needs completion. Original-Chat and
@@ -365,7 +365,7 @@ checks and post-read registration/visibility checks. Markdown remains inert;
 HTML/SVG remain escaped text. Browser revocation fences late responses and their
 replay-cache insertion. Shared viewers cannot reach the operation or preview
 module. Disconnect clears the displayed bytes; reconnect requires Refresh.
-See [file previews](fold-file-previews.md) for the complete read contract.
+See [file previews](../fold-file-previews.md) for the complete read contract.
 
 Copied-file receipts open their exact Space/path and staged decision receipts
 open and focus the corresponding Needs you card. Concurrent decision refreshes
@@ -398,7 +398,7 @@ preview to publish a Release. The app receives only packaged-asset and selected
 instance-data reads. Exact installation/revision/authority pins are rechecked
 after queued mutations; browser revocation fences late transport completion.
 Shared viewers keep their separate publication adapter and read-only vocabulary.
-See [browser app views](fold-browser-apps.md) for the implementation contract.
+See [browser app views](../fold-browser-apps.md) for the implementation contract.
 
 The management page embeds a static intermediary and a separate app child,
 both with opaque origins. The intermediary denies direct network traffic and
@@ -709,4 +709,4 @@ and loopback bridge were closed. All feature branches were verified merged and
 removed, leaving main locally and on the active source remote. The installed
 `/Applications/work-fold.app` remains 0.4.22 and its protected newer-data startup
 flow visibly offers 0.4.23 with **Download and Install**. That final installation
-click belongs to the user. See [the release record](releases/README.md).
+click belongs to the user. See [the release record](../releases/README.md).

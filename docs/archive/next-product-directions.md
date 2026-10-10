@@ -1,8 +1,8 @@
 # Proposed next product directions
 
 **Status: ideas for discussion, September 6, 2026.** These are not accepted
-requirements or shipped capabilities. The current [product model](product-model.md),
-[Checks](checks.md), and [Routings](fold-routings.md) remain authoritative.
+requirements or shipped capabilities. The current [product model](../product-model.md),
+[Checks](../checks.md), and [Routings](../fold-routings.md) remain authoritative.
 
 The strongest next step is to finish the everyday coordination experience:
 people describe an outcome to the fold, Spaces do focused work, and the person

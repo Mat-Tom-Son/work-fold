@@ -17,7 +17,7 @@ rail), [the management layer](management-layer.md) (the verification map),
 canon does not carry: the trigger vocabulary and its exclusions, the
 declaration and step contracts, the executor's failure semantics, the
 lifecycle and five-questions record, and the bounds. The promotion record is
-[Fold integration](fold-integration.md).
+[Fold integration](archive/fold-integration.md).
 
 **Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F23):
 enablement is one receipted call, `chat` and `fold` messages accept a closed
@@ -358,7 +358,7 @@ records — after durable persistence, fire-and-forget, failure-isolated —
 through the settle-signal seam (`src/local/routings/settle-signal.ts`)
 attached at the Check service's terminal-persistence funnel and the
 restricted-app `onResult` funnel; the seam has one owner (reconciliation 8
-in [Fold integration](fold-integration.md)). Settle records carry lineage,
+in [Fold integration](archive/fold-integration.md)). Settle records carry lineage,
 so routing-caused runs are dropped at evaluation; settles during suspension
 are not queued. Routing runs register as the experimental kernel task kind
 `routing_run`, excluded from stable protocol-v1 task projections like
@@ -521,7 +521,7 @@ The plan items shipped as follows:
 7. Enablement wiring (superseded by 12) — the original gated enablement path; `tests/work-fold-routing-service.test.ts`.
 8. Fold instruction teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.
 9. Settings surface and glance projection — `web-local/`; `tests/routings-settings-ui.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
-10. Docs promotion — recorded in [Fold integration](fold-integration.md).
+10. Docs promotion — recorded in [Fold integration](archive/fold-integration.md).
 11. Version-2 one-time scheduling and schema migration — `src/local/agent/work-fold-automation-service.ts`, `src/local/routings/`; `tests/work-fold-automation-service.test.ts`, `tests/work-fold-routing-declarations.test.ts`, `tests/work-fold-routing-store.test.ts`, `tests/work-fold-routing-service.test.ts`.
 12. Receipts-not-gates: direct `routings enable`, version-4 placeholders and the `fold` step, raised defaults — `src/local/routings/`, `src/local/server.ts`; `tests/work-fold-routing-*.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/routings-settings-ui.test.ts`.
 13. Pending proposals in Settings and the Folder filter (2026-09-24) — `src/local/routings/routing-proposal-scan.ts`, the `routingSettings` facade in `src/local/server.ts`, `work-fold:routings:proposals` and `work-fold:routings:enable-proposal` in `desktop/src/`, `web-local/src/components/modals/FoldRoutingsPane.tsx`; `tests/work-fold-routing-proposal-scan.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/routings-settings-ui.test.ts`.

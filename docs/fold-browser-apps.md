@@ -152,6 +152,6 @@ Paired desktop/browser acceptance verified an actual worker write, exact
 review, same-request retry, native data parity, restart recovery and offline
 containment. The real-model multi-Space journey independently verified native
 Assistant requests, Check failure/repair, and attributed file handoff. See the
-[integration evidence](apps-fold-workflows.md) for exact records and the
+[integration evidence](archive/apps-fold-workflows.md) for exact records and the
 [Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest)
 for publication status.

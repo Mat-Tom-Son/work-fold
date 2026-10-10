@@ -44,11 +44,11 @@ contract references retaining the detail canon does not carry:
 - [Receipts, not gates](receipts-not-gates.md) — the 2026-09-10 decisions F19–F24, the trash, app defaults, app AI lanes, and routing changes.
 - [The collaboration contract](collaboration-contract.md) — the 2026-09-11 decisions F25–F30: durable requests, Space turn context, report/ask/answer/handoff, one result shape, app change hints.
 - [The verb ledger](fold-act-ledger.md) — every product verb's classification, command shape, receipt additions, undo path, and conflict rules.
-- [Consecrations](fold-consecrations.md) — superseded 2026-09-10; retained for the threat-model residuals that still apply.
+- [Consecrations](archive/fold-consecrations.md) — superseded 2026-09-10; retained for the threat-model residuals that still apply.
 - [Routings](fold-routings.md) — declared deterministic cross-Space glue: triggers, declarations, the executor, and bounds.
 - [The glance](fold-glance.md) — the deterministic digest: sources, sections, markers, surfaces, and non-goals.
 - [The publishing ladder](fold-publishing.md) — the viewer audience class, rungs 1–3, origin isolation, and the bridge's viewer plane.
-- [Integration](fold-integration.md) — the promotion record: applied amendment blocks, cross-thread reconciliations, and the items still held with their gates.
+- [Integration](archive/fold-integration.md) — the promotion record: applied amendment blocks, cross-thread reconciliations, and the items still held with their gates.
 
 ## The doctrine in one paragraph
 
@@ -94,7 +94,7 @@ What the fold is **not**:
 
 Recorded from the product owner on **2026-08-10**; promoted into the
 canonical documents on 2026-08-11 through the amendment blocks recorded in
-[Integration](fold-integration.md). The siblings design within these
+[Integration](archive/fold-integration.md). The siblings design within these
 decisions, not around them. Rows without an inline date were recorded on
 2026-08-10. F3–F7 and F17 are retained as history and superseded by F19
 (2026-09-10); F8, F9, and F18 are narrowed as noted in their rows. The
@@ -121,7 +121,7 @@ their specification; F8 and F9 keep the narrowings that record relies on.
 | F13 | Copy specifics: **"Fold it in"** is the capture verb; Settings → Remote access becomes **"Your fold on the web"** without renaming technical contracts; the word Space stays; no "foldr"; Spaces are never renamed to folds. | Space, Library, Assistant tools, Chats, History vocabulary is untouched. |
 | F14 | Routing chat-step provenance: the message a routing sends into a Space chat is an **ordinary user-role message** — the portable transcript carries no automation marker. Attribution is machine-local: routing run receipts, hop journals, run history, and the glance. *Narrowed 2026-09-10 (F23):* the reviewed message is a template; the closed set of host-resolved placeholders is the only substitution, and the resolved text is bounded and recorded on the hop receipt. | The interruption-marker semantics of Space chats and the F9 leak rule are untouched; the message is still reviewed at enablement and names nothing cross-Space beyond what the declared placeholders carry. |
 | F15 | The fold's Settings surface is one section named **Settings → The fold**, hosting **Your fold on the web** (web access) as a subsection alongside standing policies, routing management, and publication controls. *Narrowed 2026-09-10 (F19, F20):* the section hosts Your fold on the web, Recently deleted, Limits, routing management, and publication controls; it has no standing-rules or authority subsection. | Page ids and routes stay technical per F12; "Remote access" survives in contract and security prose. |
-| F16 | At promotion, [fold.md](fold.md) shrinks into a compact fold decision register named by AGENTS.md's required reading (the Checks precedent); the siblings shrink into it as their sections ship. | product-model.md remains the constitution; the amendment blocks in [Integration](fold-integration.md) still apply exactly as written. |
+| F16 | At promotion, [fold.md](fold.md) shrinks into a compact fold decision register named by AGENTS.md's required reading (the Checks precedent); the siblings shrink into it as their sections ship. | product-model.md remains the constitution; the amendment blocks in [Integration](archive/fold-integration.md) still apply exactly as written. |
 | F17 | **Superseded by F19 (2026-09-10).** **Authority modes** (2026-08-31): Settings → The fold → Authority offers **Reviewed** and **Unrestricted**. Reviewed preserves host-composed cards and standing policies. Unrestricted executes every newly admitted staged act, including irreversible destruction, viewer exposure, routing enablement, and whole-Space file grants. Approved browsers inherit it structurally through the desktop host. Mode changes, pairing, and credential entry remain local setup surfaces with no Assistant/CLI/remote verb. Existing pending cards are not drained when the mode changes. | Pins, eligibility, effect-time rechecks, journal-first consumption, receipts, fences, at-most-once execution, and failure-without-auto-retry remain intact. The five setup-only families are boundaries of identity and secret handling, not recurring approvals. |
 | F18 | **Explicit folder observation and text review** (2026-09-05): version-3 routings may watch one bounded folder with explicit types, debounce, and cooldown. Watchers baseline on startup/wake and pause during routing work, without catch-up, to prevent file feedback loops. Cross-Space composition remains one ordered routing. The built-in text-review Check uses the fold's selected model with only designated text and criteria, no conversation or general tools, and quote/digest admission. *Narrowed 2026-09-10:* the text-review Check keeps its evidence admission; it is no longer the only bounded model lane, and `assistant.infer` reuses its transport. | Observation is an exact standing grant, never inferred from opening a Space. Model findings are suggestions; provider charges and target limits are disclosed at enablement. |
 | F19 | **One authority mode** (2026-09-10). The Reviewed/Unrestricted selector, standing policies, decision cards, the pending-decision store, remote `decisions.*` operations, and the `staged` CLI family are removed. The fifteen formerly staged verbs plus `apps uninstall --purge-data` are direct receipted verbs that run through the existing prepare, pin, journal-first, fenced execution path immediately. | Receipts, identity pins, effect-time rechecks, at-most-once execution, failure-without-auto-retry, capability-mutation fences, and turn-conflict rejection all stay. |
@@ -264,7 +264,7 @@ taught behavior in `src/local/management-instructions.ts`.
   framing anywhere (rule 6).
 - **No enforced tool restriction of the fold.** It remains full-trust and
   taught, per [the management layer](management-layer.md) and the residual
-  risks restated in [Consecrations (superseded)](fold-consecrations.md);
+  risks restated in [Consecrations (superseded)](archive/fold-consecrations.md);
   changing that is a separate deliberate design.
 - **No gate reintroduced as a convenience.** A confirmation, hold, or
   approval state on any verb is a register decision, not a UI tweak.

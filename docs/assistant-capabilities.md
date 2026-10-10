@@ -346,4 +346,4 @@ Pi's economical cache warming runs while an accepted turn is streaming. `off` is
 respected; `idle` is bounded to `streaming` in work-fold without changing the
 personal settings file, so no model spend starts after request settlement.
 Canonical session messages, context edits and compaction are Pi-owned; portable
-Chat text and its activity trail remain projections. See [integration evidence](pi-1.1-integration.md).
+Chat text and its activity trail remain projections. See [integration evidence](archive/pi-1.1-integration.md).

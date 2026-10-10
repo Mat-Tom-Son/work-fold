@@ -5,7 +5,7 @@
 > **Purpose:** Lay out the existing system and test whether Workspace should evolve from a Space-centered tool into a local-first app studio and runtime.
 >
 > **Decision:** The Project/Release/Instance direction and Gate 1–4 semantics are
-> accepted in [App platform foundation](app-platform-foundation.md). Candidate
+> accepted in [App platform foundation](../app-platform-foundation.md). Candidate
 > questions and record shapes in this memo remain historical unless carried into
 > that contract.
 
@@ -563,7 +563,7 @@ Explicitly throwaway distributed-systems spikes may inform Gates 3 and 4 when pa
 
 Write the one-page definitions and ownership rules for Space, App Project, Feature, Feature Revision, Feature Installation, Development Instance, App Release, App Instance, Principal, and Tenant. Define the degenerate no-account local tenant/principal explicitly. Treat an Organization as one possible principal/tenant shape rather than committing the first milestone to a team or B2B account model.
 
-Run every proposed noun through the existing [Decision test](product-model.md#decision-test): explain why it cannot fit cleanly inside the current concepts, make its scope and authority understandable, preserve ordinary folders and Pi compatibility, and prove that it still works for non-coding computer work. A noun that fails the test remains internal architecture or disappears.
+Run every proposed noun through the existing [Decision test](../product-model.md#decision-test): explain why it cannot fit cleanly inside the current concepts, make its scope and authority understandable, preserve ordinary folders and Pi compatibility, and prove that it still works for non-coding computer work. A noun that fails the test remains internal architecture or disappears.
 
 ### Phase 2: journeys
 

@@ -485,7 +485,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 
 Roadmap wording must distinguish shipped behavior from direction. Update this section when a capability moves between layers.
 
-The completed [App platform exploration](app-platform-exploration.md) and its
+The completed [App platform exploration](archive/app-platform-exploration.md) and its
 Gate 1–4 memos preserve the rationale and rejected ambiguities behind the
 accepted [App platform foundation](app-platform-foundation.md). Roadmap wording
 must continue to distinguish accepted direction from shipped behavior.

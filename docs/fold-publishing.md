@@ -15,7 +15,7 @@ documented in [Restricted app authoring](restricted-app-authoring.md) and
 what canon does not carry: the viewer class contract, the serving path, the
 key design decision, origin isolation, honest states, the mutation ledger,
 the viewer-safe broker table, and the bounds. The promotion record is
-[Fold integration](fold-integration.md).
+[Fold integration](archive/fold-integration.md).
 
 **Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F19):
 sharing is a prepared verb that executes on the call that asks for it and
@@ -511,7 +511,7 @@ The plan items shipped as follows (numbering preserved for references):
 5. Desktop surfaces — publications list, share-link reveal, budget and snapshot controls, and revoke in Settings → Shared pages; glance change items; `tests/fold-publication-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 6. Snapshot opt-in lane — push/delete in `desktop/src/remote-access.ts`, bridge storage, "as of" rendering, label copy.
 7. Rung 3 viewer surface — the `viewer` manifest declaration in `src/local/agent/restricted-app-manifest.ts`, the viewer adapter in `src/local/agent/restricted-app-viewer.ts`, opaque-origin iframe hosting in the shell, probe denial cases in `scripts/restricted-app-electron-smoke.mjs`; `tests/restricted-app-manifest.test.ts`, `tests/restricted-app-product-contract.test.ts`, `tests/work-fold-publications.test.ts`.
-8. Docs and canonical promotion — recorded in [Fold integration](fold-integration.md).
+8. Docs and canonical promotion — recorded in [Fold integration](archive/fold-integration.md).
 9. Receipts, not gates (2026-09-10, F19) — sharing became a prepared verb that executes and receipts on the call that asks; the receipt's retired decision fields were dropped — `src/local/publications.ts`, `src/local/cli/act-receipts.ts`; `tests/work-fold-publications.test.ts`, `tests/work-fold-cli-act-receipts.test.ts`.
 10. Verb rename (2026-09-10) — the two outward-exposure verbs became `pages share` and `pages share-app` across the act protocol, help, the fold's instructions, and these docs; the retired holding spellings are unknown commands — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`, `src/local/cli/commands.ts`, `src/local/management-instructions.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-direct-verbs.test.ts`.
 11. Share from the file tab and widen in place (2026-09-24) — `POST /api/settings/publications/share` and `pages share` run one domain path that refuses without an address; `POST /api/settings/publications/:id/widen` and `pages widen` raise budgets or turn the sleep copy on under a receipt; each Shared pages row shows its page state (Live, Asleep, Resting, Not available, Stopped) with the precise reason as a tooltip — `src/local/server.ts`, `src/local/publications.ts`, `src/shared/publications.ts`, `web-local/src/components/panes/FileSharePopover.tsx`; `tests/fold-publication-settings.test.ts`, `tests/work-fold-publications.test.ts`.

@@ -1,7 +1,7 @@
 # Checks expansion: current boundary and remaining ideas
 
 **Status: partially superseded proposal, updated September 6, 2026.**
-[Checks](checks.md) is the current decision register. The earlier phased plan
+[Checks](../checks.md) is the current decision register. The earlier phased plan
 predated text review, folder triggers, trials, and reviewed corrections. Its
 original text remains in Git history; its proposed sequencing is not a gate on
 features that have since shipped.

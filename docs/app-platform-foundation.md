@@ -347,7 +347,7 @@ policy migrations instead of pretending to support them.
 
 The four semantic paper gates are accepted as the design contract. The required
 lease, cadence/clock, and offline-expiry experiments have also passed; see
-[App platform runtime spike evidence](app-platform-runtime-spike-evidence.md)
+[App platform runtime spike evidence](archive/app-platform-runtime-spike-evidence.md)
 for the demonstrated invariants and honest limits.
 
 - **Gate 1:** ontology, identities, ownership, local no-account forms, and the

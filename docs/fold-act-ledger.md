@@ -14,11 +14,11 @@ authority. This document retains what canon does not carry: the per-verb
 classification tables, the consolidated conflict rules, the receipt schema
 record, and the deliberate absences. The 2026-09-10 supersession is recorded
 in [Receipts, not gates](receipts-not-gates.md);
-[Consecrations](fold-consecrations.md) is retained only for threat-model
+[Consecrations](archive/fold-consecrations.md) is retained only for threat-model
 residuals. Routing, glance, and publishing verbs are owned by
 [Routings](fold-routings.md), [the glance](fold-glance.md), and
 [Publishing](fold-publishing.md); the promotion record by
-[Fold integration](fold-integration.md).
+[Fold integration](archive/fold-integration.md).
 
 The doctrine, in one paragraph: every product verb is a receipted act-lane
 verb except the setup-only boundary, which the fold can neither do nor
@@ -457,7 +457,7 @@ The ledger's plan items shipped as follows (suites named in
 7. Desktop host and shims — `desktop/src/work-fold-cli-host.ts`, `desktop/cli/`; `tests/desktop-work-fold-cli-host.test.ts`, `tests/desktop-cli-packaging.test.ts`.
 8. Help and read-lane text — `src/local/cli/commands.ts`; `tests/work-fold-cli-protocol.test.ts`.
 9. Management-instruction teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.
-10. Documentation promotion — recorded in [Fold integration](fold-integration.md).
+10. Documentation promotion — recorded in [Fold integration](archive/fold-integration.md).
 11. Receipts, not gates (2026-09-10) — reclassification of every formerly gated row to a prepared or direct verb, `files destroy` removed, the `trash` family, `apps list|invoke`, and `routings enable`; recorded in [Receipts, not gates](receipts-not-gates.md).
 
 ## Deliberately not in this design

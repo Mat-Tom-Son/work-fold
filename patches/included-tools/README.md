@@ -19,7 +19,7 @@ The host's async CredentialStore durably serializes Electron encrypted saves.
 MCP OAuth uses Pi's file/refresh locks around an Electron-encrypted backend;
 browser/CLI development falls back to Pi's ordinary private profile files.
 
-See [the integration trace](../../docs/pi-1.1-integration.md) and the pinned
+See [the integration trace](../../docs/archive/pi-1.1-integration.md) and the pinned
 [SDK example](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
 
 ## Chrome 0.15.51

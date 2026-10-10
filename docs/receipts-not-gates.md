@@ -206,7 +206,7 @@ never says staged, card, approve, policy, or mode.
 
 ## The collaboration primitives, amended
 
-[assistant-collaboration-plan.md](assistant-collaboration-plan.md) remains the
+[assistant-collaboration-plan.md](archive/assistant-collaboration-plan.md) remains the
 design for durable requests, typed results, questions, and declared
 actions. Under this record it is amended as follows and built as the second
 wave:

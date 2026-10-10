@@ -12,7 +12,7 @@
 > code and conformance fixtures implement them.
 
 This document is a companion to
-[App platform exploration](app-platform-exploration.md). It authorizes the
+[App platform exploration](archive/app-platform-exploration.md). It authorizes the
 bounded implementation order in the foundation; it does not silently change
 `agent-app.json`, expose a cloud mutation API, or weaken the existing
 restricted-app boundary.
@@ -712,7 +712,7 @@ The three spikes below were executed with synthetic in-memory inputs and all
 required invariants were demonstrated without a global clock or exactly-once
 queue. Their models, observed transitions, limitations, and contract
 consequences are recorded in
-[App platform runtime spike evidence](app-platform-runtime-spike-evidence.md).
+[App platform runtime spike evidence](archive/app-platform-runtime-spike-evidence.md).
 No experiment code or temporary artifact was retained.
 
 Paper reasoning is insufficient for three failure classes. These spikes may inform Gate 4, subject to the exploration's constraints: no production or personal data, no product integration, no durable schema, no compatibility promise, unmerged and unshipped, question/result recorded, and code destroyed after evidence is captured.

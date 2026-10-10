@@ -10,7 +10,7 @@ and verification map), `README.md`, `SECURITY.md`, `PRIVACY.md`, and
 (surface placement). This document retains what canon does not carry: the
 closed source inventory, the section and ordering rules, the marker
 contract, and the non-goals. The promotion record is
-[Fold integration](fold-integration.md).
+[Fold integration](archive/fold-integration.md).
 
 **Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F24):
 **Needs you** carries Assistant questions, due snoozes, and requests waiting
@@ -256,7 +256,7 @@ The plan items shipped as follows:
 7. Shared renderer — removed; `web-local/src/popover/GlanceSection.tsx` was unmounted on 2026-09-23 and deleted on 2026-10-10, and `tests/management-popover-refresh.test.ts` pins its absence.
 8. Remote surface — `src/local/remote-management.ts`, `desktop/src/remote-access.ts`, `services/bridge/`; `tests/desktop-remote-access.test.ts`, `tests/work-fold-remote-management.test.ts`, the bridge suite.
 9. Main-window panel — shipped, then removed on 2026-09-23; `tests/frontend-interaction-contract.test.ts` pins its absence.
-10. Documentation promotion — recorded in [Fold integration](fold-integration.md).
+10. Documentation promotion — recorded in [Fold integration](archive/fold-integration.md).
 11. Receipts-not-gates (2026-09-10, F24) — needs-you reduced to questions and due snoozes, the removed source and its change kind dropped, the remote screen's allow controls removed — `src/local/glance.ts`, `services/bridge/`; `tests/work-fold-glance.test.ts`, the bridge suite.
 12. Collaboration contract (2026-09-11, F25/F27/F28) — the request source read from the durable request store, running items folded from the request and the turns it started, one needs-you item per open question the person owns, and settled items covering `partial` and `expired` — `src/local/glance.ts`; `tests/work-fold-glance.test.ts`.
 

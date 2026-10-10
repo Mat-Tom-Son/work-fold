@@ -6,7 +6,7 @@ technical `space`, `fold`, and `routing` record and command names.
 
 > **Status:** Accepted 2026-09-11 (owner decision) as the wave B build
 > specification under [Receipts, not gates](receipts-not-gates.md). It turns
-> the design in [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md)
+> the design in [Assistant collaboration and app AI primitives](archive/assistant-collaboration-plan.md)
 > into concrete verbs, records, and defaults. Where this document and that
 > plan differ, this document governs; where this document and the receipts
 > record differ, the receipts record governs.
