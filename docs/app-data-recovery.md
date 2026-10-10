@@ -13,8 +13,10 @@ The versioned `work-fold.app-data` envelope contains its app id, exact package
 digest, export time, completeness flag, SHA-256 integrity digest, and one
 complete data snapshot. The snapshot records its owner class, Tenant, Runtime
 Instance, Feature Installation, Data Namespace, storage revision, byte usage,
-and entries. Its limits match storage: 512 keys, 128 KiB per value, 5 MiB of
-data and a 6 MiB envelope/request ceiling. This is a data export, not an app
+and entries. Its limits match storage: 65,536 keys, 16 MiB per value, and
+256 MiB of data. The restore request itself is still read with a 6 MiB body
+ceiling, so a larger backup exports but cannot yet be restored through that
+route. This is a data export, not an app
 package, Space backup, connection export, or migration format. Host credentials,
 grants, schedules, Chats and separately selected Space files are absent. Data
 the app itself stored remains part of the export.

@@ -11,7 +11,7 @@
  *
  * The limiter is deliberately not the Check reviewer's serial chain. Check
  * runs serialize machine-wide so a run cannot fan provider calls out; an app
- * is granted four concurrent calls per installation, which a serial queue
+ * is granted many concurrent calls per installation, which a serial queue
  * cannot honour. Both lanes bound their own total budget instead.
  */
 import { randomUUID } from "node:crypto";
@@ -103,9 +103,10 @@ interface LimiterWaiter {
 }
 
 /**
- * Four running and twelve waiting per installation, eight running machine-wide.
- * A call that cannot even queue is refused immediately with both numbers, so an
- * app can back off instead of discovering the bound by timing out.
+ * `runningPerInstallation` running and `waitingPerInstallation` waiting per
+ * installation, `runningMachineWide` running across the machine. A call that
+ * cannot even queue is refused immediately with both numbers, so an app can
+ * back off instead of discovering the bound by timing out.
  */
 export class RestrictedAppInferenceLimiter {
   readonly #limits: LimiterLimits;

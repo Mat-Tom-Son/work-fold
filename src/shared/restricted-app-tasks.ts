@@ -78,27 +78,43 @@ export interface RestrictedAppTaskDetail {
 }
 
 /**
- * These bounds keep app input and delivery envelopes sane; they are not a
- * filesystem or tool sandbox for the Assistant. Settings → Automations → Limits
+ * These bounds keep one request's memory and journal footprint finite; they
+ * are not a filesystem or tool sandbox for the Assistant and they are not a
+ * quota on how much an app may ask for. Settings → Automations → Limits
  * presents these numbers, and every limit hit names that section.
  */
 export const restrictedAppAssistantLimits = Object.freeze({
-  inputBytes: 65_536,
-  /** The whole serialized result envelope. `data` is dropped, then `files` trimmed, then `summary`. */
-  resultBytes: 262_144,
+  inputBytes: 4 * 1024 * 1024,
+  /**
+   * The whole serialized result envelope. Over it, `data` is dropped, then
+   * `files` trimmed, then `summary`, and the summary says what was left out.
+   */
+  resultBytes: 16 * 1024 * 1024,
   /** F29's summary bound, shared with the report verb so both lanes trim alike. */
   summaryBytes: workFoldRequestLimits.maxResultSummaryBytes,
   /** F29's `data` bound; only an action that declared an output shape can reach it. */
   dataBytes: workFoldRequestLimits.maxResultDataBytes,
-  records: 1_000,
-  listItems: 50,
+  listItems: 1_000,
   /** Counts dispatching, running and waiting tasks for one installation. */
-  runningPerInstallation: 4,
+  runningPerInstallation: 32,
   /** Replay window for a retained request envelope. */
   requestAgeMs: 15 * 60_000,
   /** Terminal receipts older than this prune on the next submission. */
   receiptRetentionMs: 24 * 60 * 60_000,
 });
+
+/**
+ * A byte bound spelled the way Settings → Automations → Limits spells it
+ * ("512 KB", "16 MB", "1 GB"), so a refusal and the row it names agree.
+ */
+export function restrictedAppLimitSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"] as const;
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${Number.isInteger(value) ? String(value) : value.toFixed(1)} ${units[unit]}`;
+}
 
 /**
  * `bridge.tasks.onChanged`: this installation's own Assistant tasks and

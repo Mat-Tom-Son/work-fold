@@ -186,6 +186,18 @@ const allowedRequestHeaders = new Set(["accept", "content-type", "if-modified-si
 const exposedResponseHeaders = new Set(["cache-control", "content-language", "content-type", "etag", "expires", "last-modified"]);
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
+/**
+ * Default bounds for one brokered request. The byte bounds keep one response
+ * in memory; the timeout is a hang guard for a slow or stalled destination.
+ * Destination, DNS, header, and credential policy are separate and fixed.
+ */
+export const restrictedAppNetworkDefaultLimits = Object.freeze({
+  timeoutMs: 120_000,
+  maxRequestBytes: 16 * 1024 * 1024,
+  maxResponseBytes: 64 * 1024 * 1024,
+  maxRedirects: 3,
+});
+
 export class RestrictedAppNetworkBroker {
   readonly #credentials: RestrictedAppConnectionStore;
   readonly #fetch?: typeof globalThis.fetch;
@@ -199,10 +211,10 @@ export class RestrictedAppNetworkBroker {
   constructor(options: RestrictedAppNetworkBrokerOptions) {
     this.#credentials = options.credentials;
     this.#fetch = options.fetch;
-    this.#timeoutMs = options.timeoutMs ?? 15_000;
-    this.#maxRequestBytes = options.maxRequestBytes ?? 128 * 1024;
-    this.#maxResponseBytes = options.maxResponseBytes ?? 256 * 1024;
-    this.#maxRedirects = options.maxRedirects ?? 3;
+    this.#timeoutMs = options.timeoutMs ?? restrictedAppNetworkDefaultLimits.timeoutMs;
+    this.#maxRequestBytes = options.maxRequestBytes ?? restrictedAppNetworkDefaultLimits.maxRequestBytes;
+    this.#maxResponseBytes = options.maxResponseBytes ?? restrictedAppNetworkDefaultLimits.maxResponseBytes;
+    this.#maxRedirects = options.maxRedirects ?? restrictedAppNetworkDefaultLimits.maxRedirects;
     // Tests may inject a closed fake fetch. Production always performs a DNS
     // policy check before letting the real transport resolve the same host.
     this.#resolveHost = options.resolveHost ?? (options.fetch ? undefined : resolveHost);

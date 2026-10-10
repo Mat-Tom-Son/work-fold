@@ -20,6 +20,8 @@ import {
   sep,
 } from "node:path";
 
+import { restrictedAppFilePermissionLimit } from "./restricted-app-manifest.js";
+
 export type RestrictedAppFileAccess = "read" | "read-write";
 export type RestrictedAppFileTarget = "file" | "directory";
 
@@ -118,10 +120,20 @@ export interface RestrictedAppFileBrokerOptions {
 
 const idPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const maximumRelativePathLength = 512;
-const maximumGrants = 32;
-const defaultMaximumReadBytes = 512 * 1024;
-const defaultMaximumWriteBytes = 512 * 1024;
-const defaultMaximumListEntries = 200;
+/** Every file permission a manifest may declare can be granted at once. */
+const maximumGrants = restrictedAppFilePermissionLimit;
+/**
+ * Default bounds for one whole-file read or write and one directory listing.
+ * They keep a single operation's memory finite; they are not a quota.
+ */
+export const restrictedAppFileDefaultLimits = Object.freeze({
+  maxReadBytes: 64 * 1024 * 1024,
+  maxWriteBytes: 64 * 1024 * 1024,
+  maxListEntries: 10_000,
+});
+/** The most a host may configure; past this a whole-file operation stops being reasonable in memory. */
+const hostMaximumFileBytes = 1024 * 1024 * 1024;
+const hostMaximumListEntries = 100_000;
 const noFollowFlag = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 
 interface PreparedGrant {
@@ -150,9 +162,9 @@ export class RestrictedAppFileBroker {
   readonly #maxListEntries: number;
 
   constructor(options: RestrictedAppFileBrokerOptions = {}) {
-    this.#maxReadBytes = positiveBound(options.maxReadBytes, defaultMaximumReadBytes, "read byte limit", 16 * 1024 * 1024);
-    this.#maxWriteBytes = positiveBound(options.maxWriteBytes, defaultMaximumWriteBytes, "write byte limit", 16 * 1024 * 1024);
-    this.#maxListEntries = positiveBound(options.maxListEntries, defaultMaximumListEntries, "list entry limit", 1_000);
+    this.#maxReadBytes = positiveBound(options.maxReadBytes, restrictedAppFileDefaultLimits.maxReadBytes, "read byte limit", hostMaximumFileBytes);
+    this.#maxWriteBytes = positiveBound(options.maxWriteBytes, restrictedAppFileDefaultLimits.maxWriteBytes, "write byte limit", hostMaximumFileBytes);
+    this.#maxListEntries = positiveBound(options.maxListEntries, restrictedAppFileDefaultLimits.maxListEntries, "list entry limit", hostMaximumListEntries);
   }
 
   /** Effective bounds for this broker, published to apps through the limits bridge. */
@@ -232,8 +244,14 @@ export class RestrictedAppFileBroker {
       if (!info.isFile()) throw new RestrictedAppFileError("FILE_NOT_FOUND", "The requested app path is not a file.");
       if (info.size > this.#maxReadBytes) throw new RestrictedAppFileError("FILE_TOO_LARGE", `The granted file exceeds the ${this.#maxReadBytes}-byte read limit.`);
       await assertCanonicalContainment(prepared, target.absolutePath);
-      const bytes = Buffer.alloc(this.#maxReadBytes + 1);
-      const read = await handle.read(bytes, 0, bytes.length, 0);
+      // Sized to the file (plus one byte to notice growth), not to the bound.
+      const bytes = Buffer.alloc(Math.min(Number(info.size), this.#maxReadBytes) + 1);
+      const read = { bytesRead: 0 };
+      while (read.bytesRead < bytes.length) {
+        const { bytesRead } = await handle.read(bytes, read.bytesRead, bytes.length - read.bytesRead, read.bytesRead);
+        if (bytesRead === 0) break;
+        read.bytesRead += bytesRead;
+      }
       if (read.bytesRead > this.#maxReadBytes) throw new RestrictedAppFileError("FILE_TOO_LARGE", `The granted file exceeds the ${this.#maxReadBytes}-byte read limit.`);
       const data = bytes.subarray(0, read.bytesRead);
       const encoding = request.encoding ?? "utf8";

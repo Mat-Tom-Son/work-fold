@@ -1626,7 +1626,10 @@ test("RestrictedAppService rejects an oversized registry commit without bricking
     }];
     await writeFile(manifestPath, JSON.stringify(manifest), "utf8");
 
-    service = await RestrictedAppService.create({ rootPath });
+    // The production ceiling is 256 MiB; a small configured one keeps this fast
+    // while exercising the same refusal and recovery path.
+    const registryMaximumBytes = 5 * 1024 * 1024;
+    service = await RestrictedAppService.create({ rootPath, registryMaximumBytes });
     const review = await service.inspect({ spaceId: "ws-registry-0", spaceRoot, sourcePath: "apps/large-contract" });
     const installedWorkspaces: string[] = [];
     let rejectedWorkspace = "";
@@ -1643,13 +1646,13 @@ test("RestrictedAppService rejects an oversized registry commit without bricking
     }
     assert.ok(installedWorkspaces.length > 1 && rejectedWorkspace, "the fixture must reach the write boundary");
     const registryPath = join(rootPath, "registry.json");
-    assert.ok((await readFile(registryPath)).byteLength <= 5 * 1024 * 1024);
+    assert.ok((await readFile(registryPath)).byteLength <= registryMaximumBytes);
     assert.equal((await service.list(rejectedWorkspace)).length, 0);
     assert.equal((await service.list(installedWorkspaces.at(-1)!)).length, 1);
     await service.close();
     service = undefined;
 
-    service = await RestrictedAppService.create({ rootPath });
+    service = await RestrictedAppService.create({ rootPath, registryMaximumBytes });
     assert.equal((await service.list(rejectedWorkspace)).length, 0);
     assert.equal((await service.list(installedWorkspaces.at(-1)!)).length, 1);
     await service.close();

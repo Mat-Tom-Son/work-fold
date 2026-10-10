@@ -441,7 +441,7 @@ Host-specific until deliberately standardized:
 - cost, CPU, memory, network, notification, and wall-time budgets; and
 - retention duration for detailed attempt logs.
 
-The current desktop values—15 to 1,440 minute intervals, two machine-wide FIFO slots, `skip` overlap, one latest catch-up, five-second worker deadline, and execution only while work-fold runs—remain local policy. A hosted adapter must publish its actual policy through capability/limit introspection instead of imitating those values accidentally.
+The current desktop values—1-minute to 366-day intervals, the machine-wide FIFO slots shown in Settings → Automations → Limits, `skip` overlap, one latest catch-up, a ten-minute worker hang guard that excludes host-call waits, and execution only while work-fold runs—remain local policy. A hosted adapter must publish its actual policy through capability/limit introspection instead of imitating those values accidentally.
 
 A manual run while a schedule is disabled requires independent interactive authority. It does not inherit schedule-only notification or unattended connection authority unless policy explicitly grants the manual invocation those powers.
 

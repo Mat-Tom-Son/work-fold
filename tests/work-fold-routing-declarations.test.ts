@@ -228,7 +228,7 @@ test("routing declarations retain safety bounds without artificial count caps", 
   for (const intervalMinutes of [workFoldRoutingBounds.minIntervalMinutes - 1, workFoldRoutingBounds.maxIntervalMinutes + 1, 60.5]) {
     assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
       value.routing.trigger = { kind: "interval", intervalMinutes };
-    })), /integer between 15 and 1440/);
+    })), new RegExp(`integer between ${workFoldRoutingBounds.minIntervalMinutes} and ${workFoldRoutingBounds.maxIntervalMinutes}`));
   }
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[0].message = "m".repeat(workFoldRoutingBounds.maxChatMessageBytes + 1);

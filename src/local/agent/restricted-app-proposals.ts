@@ -248,9 +248,6 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
         throw new RestrictedAppError("INPUT_INVALID", "This app-change request already belongs to a different revision.");
       }
       if (change?.status === "ready") return structuredClone(change);
-      if (!change && this.#registry.changes.length >= 1_000) {
-        throw new RestrictedAppError("INPUT_INVALID", "This computer has reached its saved app-change limit.");
-      }
       const snapshot = await this.#service.snapshotForChange(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const app = snapshot.app;
       if (change && (change.baseFeatureInstallationId !== app.featureInstallationId || change.targetRuntimeInstanceId !== app.runtimeInstanceId)) {
@@ -401,11 +398,31 @@ function normalizeRegistry(value: unknown): ProposalRegistryFile {
   }
   const proposals = (value as ProposalRegistryFile).proposals.filter(validReceipt).map(copyReceipt).slice(-100);
   const rawChanges = (value as Partial<ProposalRegistryFile>).changes;
-  if (rawChanges !== undefined && (!Array.isArray(rawChanges) || rawChanges.length > 1_000 || !rawChanges.every(validChange)
+  if (rawChanges !== undefined && (!Array.isArray(rawChanges) || !rawChanges.every(validChange)
     || new Set(rawChanges.map((item) => item.id)).size !== rawChanges.length)) {
     throw new Error("App-change provenance is invalid. Restore the machine-local proposal registry before continuing.");
   }
-  return { schemaVersion: 2, proposals, changes: structuredClone(rawChanges ?? []) };
+  return { schemaVersion: 2, proposals, changes: retainedChanges(structuredClone(rawChanges ?? [])) };
+}
+
+/**
+ * App-change records are never refused for count. They are guards on working
+ * copies, so the newest are kept: past `retainedChangeRecords`, the oldest
+ * settled (`ready`) records are pruned — a working copy that old proposes as
+ * an ordinary local preview again — and a change still being prepared is
+ * never dropped.
+ */
+const retainedChangeRecords = 10_000;
+
+function retainedChanges(changes: RestrictedAppChangeReceipt[]): RestrictedAppChangeReceipt[] {
+  if (changes.length <= retainedChangeRecords) return changes;
+  const excess = changes.length - retainedChangeRecords;
+  const prunable = new Set(changes
+    .filter((item) => item.status === "ready")
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .slice(0, excess)
+    .map((item) => item.id));
+  return changes.filter((item) => !prunable.has(item.id));
 }
 
 function validChange(value: unknown): value is RestrictedAppChangeReceipt {
@@ -457,7 +474,8 @@ function validNeeds(value: unknown): value is RestrictedAppInstallationNeeds {
     && Object.keys(needs).every((key) => ["connections", "files", "checks"].includes(key));
 }
 
-const maximumErrorLength = 500;
+/** A failed install keeps its whole plain error up to this many characters. */
+const maximumErrorLength = 16 * 1024;
 
 function boundedError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? "unknown error");

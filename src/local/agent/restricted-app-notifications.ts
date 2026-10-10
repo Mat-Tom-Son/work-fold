@@ -1,9 +1,14 @@
 import type { RestrictedAppNotificationDeclaration } from "./restricted-app-manifest.js";
 
+/**
+ * A spam guard for the person, not a budget for the app: a notification over
+ * these rates is answered `rate-limited` rather than shown. The per-category
+ * spacing is short enough that one category can reach the hourly rate.
+ */
 export const restrictedAppNotificationLimits = {
-  perInvocation: 2,
-  perHour: 8,
-  categoryIntervalMs: 5 * 60_000,
+  perInvocation: 20,
+  perHour: 120,
+  categoryIntervalMs: 30_000,
   outstandingPerApp: 3,
 } as const;
 

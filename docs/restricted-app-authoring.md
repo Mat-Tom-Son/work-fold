@@ -131,8 +131,13 @@ work-fold never runs npm or installs those dependencies. Bundle every runtime
 asset into the reviewed directory before proposing it. Package roots and files
 must be ordinary files and directories, not links or junctions.
 
-The package limits are 2,048 files, 50 MiB total, 20 MiB per file, a 512 KiB
-app manifest, and 24 directory levels. `package.json` is limited to 64 KiB.
+The package limits are 100,000 files and 1 GiB total (one file may use all of
+it), a 16 MiB app manifest, and 24 directory levels. `package.json` is limited
+to 64 KiB. A package is held in memory whole while it is staged and running,
+so these bounds keep that finite rather than ration what an app may ship. A
+Release envelope still uses the App platform's own artifact bounds
+([App platform foundation](app-platform-foundation.md)), so a package larger
+than those can be previewed and installed but not yet published as a Release.
 
 ## Complete manifest template
 
@@ -269,12 +274,18 @@ may additionally use underscores.
 The supported tool-schema subset contains `object`, `array`, `string`,
 `number`, `integer`, `boolean`, and `null`, with closed properties, required
 keys, one `items` schema, scalar enums, and the declared string, number, and
-array bounds. Open-ended or executable schema features are rejected. A worker
-is required when `tools` is nonempty.
+array bounds. Open-ended or executable schema features are rejected. A schema
+may nest 32 levels deep, with up to 1,024 properties per object and 1,024 enum
+values, `maxItems` up to 100,000, and `maxLength` up to 16,777,216; tool and
+schema descriptions may run to 16,384 characters, because they reach the
+model. A worker is required when `tools` is nonempty.
 
-An app may declare up to sixteen automations. Each automation has a unique id,
-reviewed title, optional description, handler id, an interval from 15 through
-1,440 whole minutes, `catchUp` set to `none` or `latest`, and `overlap` set to
+A manifest may declare up to 256 each of tools, network destinations, file
+permissions, notification categories, Check-result slots, and automations.
+These counts keep a manifest finite; every declared power still has its own
+grant. Each automation has a unique id,
+reviewed title, optional description, handler id, an interval from 1 minute
+through 527,040 whole minutes (366 days), `catchUp` set to `none` or `latest`, and `overlap` set to
 `skip`. Its `permissions` object is required, all three arrays are required,
 and every id must reference an app-level declaration. This is an exact maximum
 for that job: launch-time authority is the intersection of this subset and the
@@ -286,7 +297,7 @@ and description are reviewed, bounded, plain single-line text.
 paired browser or, after a separate receipted share, by link holders at the
 person's address ("an app at your address"). It is the complete
 viewer-readable surface: `entry` names the packaged document the viewer plane
-serves, and `readable` names up to sixteen exact instance-owned storage key
+serves, and `readable` names up to 256 exact instance-owned storage key
 prefixes (lowercase letters, numbers, `._/-`, at most 64 characters each)
 viewers may read. Everything else is refused for viewers desktop-side —
 storage writes, Assistant actions, network, connections, Space files,
@@ -346,7 +357,7 @@ if (actions) {
 request ids after reopening; use `get(requestId)` for a result and
 `cancel(requestId)` to stop a request. Poll conservatively while visible.
 `createRequest` works in opaque frames where `crypto.randomUUID` may be absent.
-Inputs are schema-checked and limited to 16 KiB, results to 128 KiB. The normal
+Inputs are schema-checked and limited to 4 MiB, results to 4 MiB. The normal
 worker executes with existing installed grants, not browser-chosen owners or
 new permissions. There is no app-facing shell or grant API.
 If a request times out, check its status or list existing requests before
@@ -431,7 +442,7 @@ const value = JSON.parse(response.body);
 
 Requests name a reviewed destination, allowed method, and origin-relative
 path. `GET` and `DELETE` cannot include a body. Request bodies default to a
-128 KiB limit; responses default to 256 KiB and a 15-second deadline. App-set
+16 MiB limit; responses default to 64 MiB and a 120-second deadline. App-set
 headers may use `accept`, `content-type`, `if-modified-since`, and
 `if-none-match`. A destination may also accept the exact additional names in
 its reviewed `requestHeaders` declaration. The response contains `status`, a
@@ -462,8 +473,10 @@ await bridge.storage.transaction({
 `set`, `delete`, `clear`, and `transaction` return usage metadata plus
 `changed` and `changedKeys`. Transactions may use `expectedRevision` for
 optimistic concurrency and may also set `clear: true`. Values must be ordinary
-JSON. Default limits are 5 MiB per app, 512 keys, 128 KiB per value, and 128
-operations or 160 KiB per transaction.
+JSON. Default limits are 256 MiB per app, 65,536 keys, 16 MiB per value, and
+4,096 operations or 64 MiB per transaction. Storage is one document read and
+rewritten whole on every operation, which is why it stops well short of
+V8's maximum string length; keep bulk data in granted Space files.
 
 Only active visible UI receives invalidation hints:
 
@@ -562,8 +575,8 @@ const written = await bridge.files.write({
 `kind`, optional `sizeBytes`, and `modifiedAt`. `read` returns `{ path,
 encoding, data, sizeBytes, modifiedAt }`. `write` returns `{ path, sizeBytes,
 modifiedAt }` and requires explicit `create` or `replace` mode. Data may be
-`utf8` or `base64`. Default read and write limits are 512 KiB and listings are
-limited to 200 entries. Every write is atomic and creates a targeted History
+`utf8` or `base64`. Default read and write limits are 64 MiB per whole file and
+listings return up to 10,000 entries. Every write is atomic and creates a targeted History
 checkpoint. Grant-relative paths cannot traverse links, metadata roots, or the
 selected Space target.
 
@@ -577,7 +590,7 @@ bounded metadata-only poll and calls `files.onChanged` when it settles; see
 
 ### Selected Check results
 
-An optional `permissions.checks` array declares up to eight named choices:
+An optional `permissions.checks` array declares up to 256 named choices:
 
 ```json
 "checks": [{ "id": "quote-review", "title": "Quote review" }]
@@ -608,7 +621,8 @@ States distinguish `never-run`, `running`, `stale`, `blocked`, `check-error`,
 findings. Results include `checkId`, `declarationDigest`, `title`, `lastRunAt`,
 `findings` and `truncated`. Each finding has identity/fingerprint, title, optional
 detail/suggestion, path, severity, observation time and exact quotations.
-Results are bounded to 64 findings and 256 KiB; `truncated` must remain visible.
+Results are bounded to 10,000 findings and 16 MiB — in practice every finding
+the Check holds; `truncated` must remain visible.
 Treat model findings as suggestions. A changed Check requires selecting it again.
 Changed app bytes reset these grants; an exact unchanged Release update can
 retain them through its reviewed continuity plan. Revocation fences in-flight
@@ -643,7 +657,11 @@ const { json } = await bridge.assistant.infer({
 data, so an app's own content cannot redirect the task. Without `outputSchema`
 the result is `{ text, truncated, receiptId }`; with one — the same closed JSON
 Schema subset tool declarations use — it is `{ json, receiptId }`, already
-validated. `receiptId` matches the id a `tasks.onChanged` hint carries. Active
+validated. work-fold never cuts a reply: `truncated` means only that the model
+itself stopped at its output-token limit, and a reply over `maxOutputBytes` is
+refused with `INFER_OUTPUT_TOO_LARGE`. The call uses the Space's configured
+model and thinking level with the model's own output-token limit.
+`receiptId` matches the id a `tasks.onChanged` hint carries. Active
 views, workers holding a tool action, and named automation runs reach
 `assistant.request`; views and workers reach `assistant.infer`; viewers and
 remote app views reach neither and get `INFER_UNAVAILABLE`. Both leave
@@ -731,7 +749,12 @@ export async function handleAutomation(event) {
 ```
 
 Tool inputs and results are checked against the manifest schemas and limited
-to 256 KiB. Worker invocations default to a five-second deadline. Automation
+to 16 MiB. A worker invocation has a ten-minute hang guard that counts only
+time the worker spends in its own code: waiting on a network request, an
+Assistant request, or `assistant.infer` never counts. One worker runs one
+action or automation at a time; a second one queues and starts when the first
+finishes, instead of being refused. Error text a worker reports is kept up to
+16,384 characters. Automation
 events contain `runId`, `automationId`, `handler`, `reason` (`scheduled`,
 `manual`, or `resume`), and ISO `scheduledAt`. Treat `automationId` and
 `handler` as the reviewed dispatch pair and reject unknown values.
@@ -890,8 +913,10 @@ It reports `network` (`maxRequestBytes`, `maxResponseBytes`, `timeoutMs`,
 They are composed from the live brokers and the shared limit records, so a host
 running non-default bounds publishes the bounds it is actually enforcing.
 
-Design against these numbers instead of discovering them by failing. In
-particular, app storage is small and is the wrong home for bulk data: request a
+Design against these numbers instead of discovering them by failing. They
+keep one operation's memory finite rather than ration what an app may do, but
+app storage is still the wrong home for bulk data — it is one document read and
+rewritten whole on every operation: request a
 read-write directory permission and write large or long-lived records as
 ordinary Space files, which the person and the Assistant can also read with
 normal tools. Overruns report their own bound —

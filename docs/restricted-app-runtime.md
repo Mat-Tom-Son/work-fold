@@ -262,9 +262,16 @@ long displayed name suffixes are truncated.
 Apps that expose Assistant tools or automations declare a separate worker
 module. work-fold loads it in a hidden sandboxed renderer with the same
 direct-network and Node denials. Inputs and outputs are schema checked and
-bounded; timeouts, crashes, cyclic values, intrinsic tampering, and oversized
-results terminate the worker. The worker is optional so a UI-only app does not
-need executable worker code.
+bounded at 16 MiB; timeouts, crashes, cyclic values, intrinsic tampering, and
+oversized results terminate the worker. The timeout is a ten-minute hang guard
+measured only over time the worker spends in its own code — a host call in
+flight (network, Assistant request, bounded inference) stops the clock — so it
+never caps real work that waits on the host. A worker holds one operation at a
+time because host effects are attributed to the operation holding it; a second
+action or automation queues for that slot instead of being refused, and moves
+to a fresh worker if the current one is replaced while it waits. Worker error
+text is kept up to 16,384 characters. The worker is optional so a UI-only app
+does not need executable worker code.
 
 Worker reuse, pending launches, stop generations, and authority lookup are
 scoped to the exact Feature Installation as well as Space, app, and revision.
@@ -284,8 +291,9 @@ trusted browser controls are described in [browser app views](fold-browser-apps.
 Automations are first-class host jobs, not one app-wide background switch.
 Every declared job is enabled on install and can be turned off or on separately in Settings → Apps.
 The worker exports `handleAutomation(event)` and dispatches using the reviewed
-`automationId` and `handler`. Intervals are whole minutes from 15 through
-1,440. `catchUp: "latest"` permits at most one deterministically staggered run
+`automationId` and `handler`. Intervals are whole minutes from 1 through
+527,040 (366 days); routing interval schedules share that range.
+`catchUp: "latest"` permits at most one deterministically staggered run
 for the latest missed occurrence after startup or resume; `"none"` skips missed
 occurrences. `overlap` is currently fixed to `"skip"`.
 
@@ -308,8 +316,11 @@ Notifications are host-owned system notifications, not arbitrary renderer
 UI. The manifest title and category copy are single-line reviewed text; the
 runtime cannot add dynamic copy, actions, or URLs. A category grant, an enabled
 automation, and inclusion in that automation's permission subset are all
-required. The host limits each invocation,
-category frequency, hourly app volume, and outstanding notifications. Rate
+required. The host limits each invocation (20),
+category frequency (one per category every 30 seconds), hourly app volume
+(120), and outstanding notifications (3, oldest closed first); a notification
+over a rate is answered `rate-limited`, never queued. These protect the person
+from spam rather than ration the app. Rate
 history is keyed by Space and app so renderer restarts, permission churn, and
 digest updates cannot reset the anti-spam budget. Clicking revalidates the
 current digest, declaration, grant, and automation authority before opening
@@ -356,8 +367,10 @@ both cases.
 
 Every installed app has bounded, machine-local JSON storage physically keyed by
 Tenant and Data Namespace and self-describing its Runtime Instance and Feature
-Installation owner. The default limits are 5 MiB, 512 keys, 128 KiB per value,
-and bounded atomic transactions with revision checks. Legacy Workspace storage
+Installation owner. The default limits are 256 MiB, 65,536 keys, 16 MiB per
+value, and atomic transactions of up to 4,096 operations or 64 MiB with revision
+checks. Storage is one document per installation read and rewritten whole, so
+its quota stays well under V8's maximum string length (about 512 MiB). Legacy Workspace storage
 is never opened or adopted. Data created by work-fold survives renderer
 replacement and reviewed updates and is never
 placed in the Space. Removing a Development preview purges its namespace after
@@ -526,7 +539,10 @@ On startup, any receipt left only in `accepted` state is reconciled to an
 `interrupted` outcome and `expired` state with an explicit warning that the
 completion of external effects is unknown; work-fold never reports a guessed
 success, failure, or cancellation.
-The registry has the same 5 MiB bound on write and read. Each automation
+The registry has the same 256 MiB bound on write and read — one JSON document
+holding every installation's manifest, kept well under V8's maximum string
+length — and machine-wide counts (4,096 App Projects, 32,768 installations,
+16,384 Releases) generous enough never to be a working limit. Each automation
 acceptance preflights enough space for every currently accepted run to become a
 worst-case terminal receipt, so a successful admission cannot create a result
 that the persistence format has no room to record.
@@ -650,7 +666,11 @@ matched to the call the app made without reading anything back.
 
 Inference waits for an available scheduler slot without a host wall-clock
 budget. Once dispatched, provider transport, Stop, and authority revocation
-govern the exact in-flight call; this lane has no fixed 120-second timeout.
+govern the exact in-flight call; this lane has no fixed host timeout. The call
+uses the Space session's configured thinking level and the model's own
+output-token limit, reduced only as far as the context window requires, with
+the provider SDK's usual two retries; a reply is never cut to fit, and one
+larger than `maxOutputBytes` is refused with `INFER_OUTPUT_TOO_LARGE`.
 
 The native bridge transfers asynchronous outcomes as plain data and constructs
 public Errors in the app's JavaScript world. This preserves `error.code`, which

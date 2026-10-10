@@ -136,7 +136,9 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           ["Short answer instructions", kib(inference.instructionsBytes)],
           ["Short answer input", kib(inference.inputBytes)],
           ["Short answer result shape", kib(inference.schemaBytes)],
-          ["Short answer result", `${kib(inference.defaultOutputBytes)} by default, up to ${kib(inference.maxOutputBytes)}`],
+          ["Short answer result", inference.defaultOutputBytes === inference.maxOutputBytes
+            ? kib(inference.maxOutputBytes)
+            : `${kib(inference.defaultOutputBytes)} by default, up to ${kib(inference.maxOutputBytes)}`],
           ["Short answers running per app", `${inference.runningPerInstallation}, with ${inference.waitingPerInstallation} more waiting`],
           ["Short answers running on this computer", String(inference.runningMachineWide)],
         ]}

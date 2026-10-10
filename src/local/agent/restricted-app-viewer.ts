@@ -140,7 +140,11 @@ export interface RestrictedAppViewerAdapterOptions {
   maximumAssetBytes?: number;
 }
 
-export const RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES = 2 * 1024 * 1024;
+/**
+ * One viewer asset read whole into memory. A page published through the relay
+ * is still bounded afterwards by the publication service's own ciphertext cap.
+ */
+export const RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES = 64 * 1024 * 1024;
 
 /** What staging and decision-time recheck need to know about one exposable instance. */
 export type RestrictedAppViewerExposure =

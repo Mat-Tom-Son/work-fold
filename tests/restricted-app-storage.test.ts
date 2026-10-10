@@ -107,12 +107,32 @@ test("restricted app storage commits bounded transactions atomically with revisi
   assert.equal(unchanged.revision, usage.revision);
 });
 
-test("restricted app storage enforces value, transaction, key-count, and app byte quotas without partial writes", async (t) => {
+test("restricted app storage defaults are generous and a value far over the old 128 KiB bound is stored", async (t) => {
+  assert.deepEqual(
+    { appBytes: restrictedAppStorageLimits.appBytes, keys: restrictedAppStorageLimits.keys, valueBytes: restrictedAppStorageLimits.valueBytes,
+      transactionBytes: restrictedAppStorageLimits.transactionBytes, transactionOperations: restrictedAppStorageLimits.transactionOperations },
+    { appBytes: 256 * 1024 * 1024, keys: 65_536, valueBytes: 16 * 1024 * 1024, transactionBytes: 64 * 1024 * 1024, transactionOperations: 4_096 },
+  );
+  // One JSON document holds the whole store, so its ceiling must stay well under V8's maximum string length.
+  assert.ok(restrictedAppStorageLimits.fileBytes > restrictedAppStorageLimits.appBytes);
+  assert.ok(restrictedAppStorageLimits.fileBytes < 512 * 1024 * 1024);
   const { store } = await temporaryStore(t);
+  const value = "v".repeat(1024 * 1024);
+  await store.set(owner, "large", value);
+  assert.equal(await store.get(owner, "large"), value);
+  assert.equal((await store.usage(owner)).quotaBytes, restrictedAppStorageLimits.appBytes);
+});
+
+test("restricted app storage enforces value, transaction, key-count, and app byte quotas without partial writes", async (t) => {
+  // The same enforcement at small configured bounds, so the test stays fast.
+  const limits = { appBytes: 5 * 1024 * 1024, keys: 512, valueBytes: 128 * 1024, transactionBytes: 160 * 1024, transactionOperations: 128, fileBytes: 6 * 1024 * 1024 };
+  const { root } = await temporaryStore(t);
+  const store = new FileRestrictedAppStorage(root, { limits });
+  assert.equal((await store.usage(owner)).quotaBytes, limits.appBytes, "a configured store reports the bound it enforces");
 
   await assert.rejects(
-    store.set(owner, "oversized", "x".repeat(restrictedAppStorageLimits.valueBytes)),
-    (error) => error instanceof RestrictedAppStorageError && error.code === "STORAGE_QUOTA",
+    store.set(owner, "oversized", "x".repeat(limits.valueBytes)),
+    (error) => error instanceof RestrictedAppStorageError && error.code === "STORAGE_QUOTA" && /128 KB limit/.test(error.message),
   );
   assert.equal(await store.get(owner, "oversized"), undefined);
 
@@ -129,13 +149,13 @@ test("restricted app storage enforces value, transaction, key-count, and app byt
 
   for (let batch = 0; batch < 4; batch += 1) {
     await store.transaction(owner, {
-      set: Array.from({ length: restrictedAppStorageLimits.transactionOperations }, (_, index) => ({
+      set: Array.from({ length: limits.transactionOperations }, (_, index) => ({
         key: `key-${batch}-${index}`,
         value: index,
       })),
     });
   }
-  assert.equal((await store.usage(owner)).keyCount, restrictedAppStorageLimits.keys);
+  assert.equal((await store.usage(owner)).keyCount, limits.keys);
   await assert.rejects(
     store.set(owner, "key-over-limit", true),
     (error) => error instanceof RestrictedAppStorageError && error.code === "STORAGE_QUOTA",
@@ -157,7 +177,7 @@ test("restricted app storage enforces value, transaction, key-count, and app byt
     }
   }
   assert.equal(quotaRejected, true);
-  assert.ok((await store.usage(owner)).usageBytes <= restrictedAppStorageLimits.appBytes);
+  assert.ok((await store.usage(owner)).usageBytes <= limits.appBytes);
 });
 
 test("restricted app storage rejects non-JSON data, cycles, unsafe keys, and conflicting operations", async (t) => {

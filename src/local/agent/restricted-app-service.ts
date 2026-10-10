@@ -1,4 +1,4 @@
-import type { RestrictedAppCheckGrant } from "../../shared/restricted-app-checks.js";
+import { restrictedAppCheckLimits, type RestrictedAppCheckGrant } from "../../shared/restricted-app-checks.js";
 import type { RestrictedAppCheckReader } from "./restricted-app-checks.js";
 import { restrictedAppTaskAuthorityDigest, RestrictedAppTaskError, type RestrictedAppTaskScope } from "./restricted-app-tasks.js";
 import type { RestrictedAppAssistantAction } from "./restricted-app-manifest.js";
@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { readRestrictedAppWebView } from "./restricted-app-viewer.js";
+import { readRestrictedAppWebView, RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES } from "./restricted-app-viewer.js";
 import {
   normalizeRestrictedAppCredential,
   RestrictedAppError,
@@ -38,6 +38,7 @@ import {
 import { RestrictedAppOAuthError, type RestrictedAppOAuthPkceClient } from "./restricted-app-oauth.js";
 import {
   inspectRestrictedAppPackage,
+  restrictedAppPackageLimits,
   snapshotRestrictedAppPackage,
   stageRestrictedAppReleaseArtifact,
   stageRestrictedAppPackage,
@@ -381,6 +382,8 @@ export interface RestrictedAppServiceOptions {
   settleSignal?: WorkFoldSettleSignal;
   /** Machine-wide automation slots; the scheduler's generous default applies when omitted. */
   automationMaxConcurrency?: number;
+  /** The registry's persistence ceiling; the generous default applies when omitted. Tests run a small one. */
+  registryMaximumBytes?: number;
 }
 
 interface RestrictedAppRegistryFile {
@@ -403,15 +406,21 @@ interface RestrictedAppRegistryFile {
   historicalAutomationRuns: RestrictedAppHistoricalAutomationRegistryReceipt[];
 }
 
-const restrictedAppRegistryMaximumBytes = 5 * 1024 * 1024;
+/**
+ * The registry is one JSON document rewritten whole, and each installation
+ * carries its full manifest, so its ceiling stays well under V8's maximum
+ * string length rather than at a size picked for small apps.
+ */
+const restrictedAppRegistryMaximumBytes = 256 * 1024 * 1024;
 const restrictedAppStagingTemporaryDirectoryPattern = /^\.(?:staging|release)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+/** Machine-wide counts that keep the registry finite; generous enough never to be a working limit. */
 const restrictedAppRegistryLimits = Object.freeze({
-  projects: 256,
-  runtimeInstances: 1_024,
-  installations: 2_048,
-  releases: 1_024,
-  operations: 128,
-  retainedData: 2_048,
+  projects: 4_096,
+  runtimeInstances: 16_384,
+  installations: 32_768,
+  releases: 16_384,
+  operations: 2_048,
+  retainedData: 32_768,
   adminReceipts: 1_000,
 });
 
@@ -569,6 +578,7 @@ export class RestrictedAppService {
   readonly #rootPath: string;
   readonly #catalogListeners = new Set<() => void>();
   readonly #registryPath: string;
+  readonly #registryMaximumBytes: number;
   readonly #stagingPath: string;
   readonly #runtimeHost?: RestrictedAppRuntimeHost;
   readonly #connections?: RestrictedAppConnectionStore;
@@ -592,6 +602,7 @@ export class RestrictedAppService {
     this.#listChecks = options.listChecks;
     this.#rootPath = resolve(options.rootPath);
     this.#registryPath = join(this.#rootPath, "registry.json");
+    this.#registryMaximumBytes = options.registryMaximumBytes ?? restrictedAppRegistryMaximumBytes;
     this.#stagingPath = join(this.#rootPath, "staged");
     this.#runtimeHost = options.runtimeHost;
     this.#connections = options.connections;
@@ -627,7 +638,7 @@ export class RestrictedAppService {
     await mkdir(join(rootPath, "staged"), { recursive: true });
     await assertRestrictedAppStagingRoot(join(rootPath, "staged"));
     const now = options.now ?? (() => new Date());
-    const loaded = await readRegistry(join(rootPath, "registry.json"));
+    const loaded = await readRegistry(join(rootPath, "registry.json"), options.registryMaximumBytes ?? restrictedAppRegistryMaximumBytes);
     const reconciled = reconcileInterruptedAutomationRuns(loaded.registry, now().toISOString());
     const releaseStore = options.releaseStore ?? new LocalAppReleaseStore(join(rootPath, "releases"));
     const releaseRecovery = await releaseStore.recover();
@@ -1736,7 +1747,7 @@ export class RestrictedAppService {
       }
       await assertRestrictedAppStagingRoot(this.#stagingPath);
       const missingStorage = async (): Promise<never> => { throw new Error("App data requires the desktop storage host."); };
-      const result = await readRestrictedAppWebView({ ...app, stagedRoot: this.#digestRoot(app.digest) }, call, this.#storage ?? { get: missingStorage, keys: missingStorage }, 1024 * 1024);
+      const result = await readRestrictedAppWebView({ ...app, stagedRoot: this.#digestRoot(app.digest) }, call, this.#storage ?? { get: missingStorage, keys: missingStorage }, RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES);
       this.#assertInstalledAuthority(app);
       return result;
     });
@@ -2751,7 +2762,7 @@ export class RestrictedAppService {
         next,
         acceptedAt,
         "\0".repeat(workFoldAutomationMaxErrorLength),
-      ).registry);
+      ).registry, this.#registryMaximumBytes);
       await this.#writeRegistry(next);
       if (this.#spaceRuntimeExclusions.has(current.spaceId) || this.#historyRestoreReservations.has(current.spaceId)) {
         throw new RestrictedAppError("APP_UNAVAILABLE", "Automations cannot start while this Space is unavailable or History is restoring it.");
@@ -3077,12 +3088,12 @@ export class RestrictedAppService {
   async #writeRegistry(next: RestrictedAppRegistryFile): Promise<void> {
     await mkdir(this.#rootPath, { recursive: true });
     const temporary = `${this.#registryPath}.${randomUUID()}.tmp`;
-    const projected: unknown = JSON.parse(serializeRegistryFile(next));
+    const projected: unknown = JSON.parse(serializeRegistryFile(next, this.#registryMaximumBytes));
     if (!projected || typeof projected !== "object" || Array.isArray(projected)) {
       throw new Error("Restricted app registry projection must be an object.");
     }
     const validated = registryFileV6(projected as Record<string, unknown>);
-    const source = serializeRegistryFile(validated);
+    const source = serializeRegistryFile(validated, this.#registryMaximumBytes);
     const handle = await open(temporary, "wx", 0o600);
     try {
       await handle.writeFile(source, "utf8");
@@ -3223,10 +3234,11 @@ async function removeOwnedRestrictedAppStagingDirectory(stagingRoot: string, own
 
 async function readRegistry(
   path: string,
+  maximumBytes: number,
 ): Promise<{ registry: RestrictedAppRegistryFile; needsWrite: boolean }> {
   if (!existsSync(path)) return { registry: freshRegistry(), needsWrite: true };
   const info = await lstat(path);
-  if (info.isSymbolicLink() || !info.isFile() || info.size > restrictedAppRegistryMaximumBytes) {
+  if (info.isSymbolicLink() || !info.isFile() || info.size > maximumBytes) {
     throw new Error("Restricted app registry is unsafe or too large.");
   }
   let value: unknown;
@@ -3378,14 +3390,16 @@ function reconcileInterruptedAutomationRuns(
   };
 }
 
-function assertRegistryPersistenceBound(registry: RestrictedAppRegistryFile): void {
-  serializeRegistryFile(registry);
+function assertRegistryPersistenceBound(registry: RestrictedAppRegistryFile, maximumBytes: number): void {
+  serializeRegistryFile(registry, maximumBytes);
 }
 
-function serializeRegistryFile(registry: RestrictedAppRegistryFile): string {
-  const source = `${JSON.stringify(registry, null, 2)}\n`;
-  if (Buffer.byteLength(source, "utf8") > restrictedAppRegistryMaximumBytes) {
-    throw new Error(`Restricted app registry exceeds the ${restrictedAppRegistryMaximumBytes}-byte persistence limit.`);
+function serializeRegistryFile(registry: RestrictedAppRegistryFile, maximumBytes: number): string {
+  let source: string;
+  try { source = `${JSON.stringify(registry, null, 2)}\n`; }
+  catch { throw new Error(`Restricted app registry exceeds the ${maximumBytes}-byte persistence limit.`); }
+  if (Buffer.byteLength(source, "utf8") > maximumBytes) {
+    throw new Error(`Restricted app registry exceeds the ${maximumBytes}-byte persistence limit.`);
   }
   return source;
 }
@@ -3708,7 +3722,7 @@ function commonRegistryEntry(value: unknown, index: number): CommonRegistryEntry
     throw new Error("Restricted app registry has invalid file grants.");
   }
   const checkGrants = item.checkGrants === undefined ? [] : item.checkGrants;
-  if (!Array.isArray(checkGrants) || checkGrants.length > 8) throw new Error("Restricted app Check grants are invalid.");
+  if (!Array.isArray(checkGrants) || checkGrants.length > restrictedAppCheckLimits.permissions) throw new Error("Restricted app Check grants are invalid.");
   const parsedCheckGrants = checkGrants.map((value) => {
     const grant = objectValue(value, "Restricted app Check grant");
     exactObjectKeys(grant, ["permissionId", ...(Object.hasOwn(grant, "title") ? ["title"] : []), "checkId", "declarationDigest"], "Restricted app Check grant");
@@ -3755,8 +3769,8 @@ function commonRegistryEntry(value: unknown, index: number): CommonRegistryEntry
     notificationGrants,
     automations,
     automationRuns,
-    fileCount: boundedInteger(item.fileCount, "Restricted app registry file count", 1, 2_048),
-    totalBytes: boundedInteger(item.totalBytes, "Restricted app registry byte count", 1, 50 * 1024 * 1024),
+    fileCount: boundedInteger(item.fileCount, "Restricted app registry file count", 1, restrictedAppPackageLimits.files),
+    totalBytes: boundedInteger(item.totalBytes, "Restricted app registry byte count", 1, restrictedAppPackageLimits.bytes),
     installedAt: isoDate(item.installedAt, "Restricted app installed time"),
     updatedAt: isoDate(item.updatedAt, "Restricted app updated time"),
   };

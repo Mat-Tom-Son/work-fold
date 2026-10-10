@@ -32,4 +32,8 @@ export interface RestrictedAppCheckResult {
   truncated: boolean;
 }
 
-export const restrictedAppCheckLimits = Object.freeze({ permissions: 8, findings: 64, resultBytes: 256 * 1024 });
+/**
+ * `permissions` is a manifest count. `findings` and `resultBytes` only keep one
+ * read's memory finite; in practice an app sees every finding the Check holds.
+ */
+export const restrictedAppCheckLimits = Object.freeze({ permissions: 256, findings: 10_000, resultBytes: 16 * 1024 * 1024 });

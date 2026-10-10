@@ -140,6 +140,34 @@ test("build context keeps the source Chat and exact update target through subseq
   } finally { await f.close(); }
 });
 
+test("app-change requests have no lifetime cap; past retention the oldest settled records prune and preparing ones stay", async () => {
+  const f = await fixture();
+  try {
+    const copy = (change: any, files: ReadonlyMap<string, Uint8Array>) => materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async () => {});
+    const real = await f.host.prepareChange(f.input, copy);
+    const registry = JSON.parse(await readFile(f.registryPath, "utf8"));
+    const synthetic = (index: number, status: "ready" | "preparing") => {
+      const id = randomUUID();
+      return { ...real, id, status, sourcePath: `${real.appId}-change-${id}`, createdAt: new Date(Date.UTC(2020, 0, 1) + index * 1_000).toISOString() };
+    };
+    // Far past the old 1,000-record lifetime cap, and past the 10,000-record retention.
+    const stale = Array.from({ length: 10_050 }, (_, index) => synthetic(index, "ready"));
+    const preparing = synthetic(0, "preparing");
+    registry.changes = [preparing, ...stale, ...registry.changes];
+    await writeFile(f.registryPath, JSON.stringify(registry));
+    const reopened = await RoutedRestrictedAppProposalHost.create({ service: f.service, registryPath: f.registryPath });
+    const another = await reopened.prepareChange({ ...f.input, id: randomUUID() }, copy);
+    assert.equal(another.status, "ready", "a new app change is never refused for count");
+    const saved = JSON.parse(await readFile(f.registryPath, "utf8")).changes as Array<{ id: string; status: string }>;
+    assert.equal(saved.length, 10_000);
+    const ids = new Set(saved.map((item) => item.id));
+    assert.ok(ids.has(preparing.id), "a change still being prepared is never pruned");
+    assert.ok(ids.has(real.id) && ids.has(another.id), "the newest guards are kept");
+    assert.ok(!ids.has(stale[0]!.id), "the oldest settled guard went first");
+    assert.deepEqual(await reopened.prepareChange(f.input, async () => { assert.fail("a kept guard still replays"); }), real);
+  } finally { await f.close(); }
+});
+
 test("interrupted copies resume from exact bytes, preserve later edits, and fail closed on corrupt provenance", async () => {
   const f = await fixture();
   try {

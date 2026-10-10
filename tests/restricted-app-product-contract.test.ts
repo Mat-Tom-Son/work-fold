@@ -169,12 +169,12 @@ async function read(relativePath: string): Promise<string> {
 test("the worker bridge can request Assistant work while it holds an operation lease, within the raised envelope", () => {
   assert.match(desktopHost, /Assistant requests need an active app view or a running worker operation\./);
   assert.doesNotMatch(desktopHost, /Assistant requests require an active app view\./);
-  // The envelope carries the JSON-escaping allowance over the published 64 KiB
+  // The envelope carries the JSON-escaping allowance over the published 4 MiB
   // input bound, so the service — not the transport — reports a limit hit.
   assert.match(desktopHost, /const maxAssistantEnvelopeBytes = restrictedAppAssistantEnvelopeBytes;/);
   assert.match(desktopHost, /jsonEnvelope\(value, maxAssistantEnvelopeBytes, "Assistant request"\)/);
   assert.match(restrictedAppPreload, /\{ operation: "request", request \}, maximumAssistantEnvelopeBytes/);
-  assert.match(restrictedAppPreload, /nestedPositiveInteger\(limits, "assistant", "inputBytes", 64 \* 1024\) \* 6/);
+  assert.match(restrictedAppPreload, /nestedPositiveInteger\(limits, "assistant", "inputBytes", 4 \* 1024 \* 1024\) \* 6/);
   assert.match(desktopMain, /listChecks,/);
 });
 
@@ -224,13 +224,17 @@ test("bounded inference reaches app views and workers over its own channel, and 
 
 test("host-bridge wait time never counts against the worker invocation deadline", async () => {
   const inference = await read("src/shared/restricted-app-inference.ts");
-  // A real model call is essentially never under the five-second invocation
-  // deadline. Inference has no fixed wall-clock budget. If the
-  // deadline counted host-lane wait time, a worker awaiting `assistant.infer`
+  // The invocation deadline is a ten-minute hang guard, not a compute budget,
+  // and inference has no fixed wall-clock budget at all. If the deadline
+  // counted host-lane wait time, a worker awaiting a long `assistant.infer`
   // would have its renderer forcefully crashed and the action would fail with
   // APP_TIMEOUT — so the clock stops while a host call is in flight.
   assert.doesNotMatch(inference, /timeoutMs:/);
-  assert.match(desktopHost, /const defaultInvocationTimeoutMs = 5_000;/);
+  assert.match(desktopHost, /const defaultInvocationTimeoutMs = 10 \* 60_000;/);
+  assert.doesNotMatch(desktopHost, /120 s budget|five-second invocation/, "no stale deadline wording survives");
+  // A second action or automation queues for the worker's one operation slot instead of being refused.
+  assert.doesNotMatch(desktopHost, /already handling (an action|work)/);
+  assert.match(desktopHost, /async #claimWorker\(/);
   assert.match(desktopHost, /hostCalls: \{ inFlight: number; idleSince: number \};/);
   assert.match(desktopHost, /async #throughHostLane<T>\(/);
 

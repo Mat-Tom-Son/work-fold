@@ -14,7 +14,8 @@ import {
   type RestrictedAppTaskPorts,
   type RestrictedAppTaskScope,
 } from "../src/local/agent/restricted-app-tasks.js";
-import type { RestrictedAppAssistantAction } from "../src/local/agent/restricted-app-manifest.js";
+import { restrictedAppFilePermissionLimit, type RestrictedAppAssistantAction } from "../src/local/agent/restricted-app-manifest.js";
+import { restrictedAppCheckLimits } from "../src/shared/restricted-app-checks.js";
 import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js";
 import { WorkFoldCheckService } from "../src/local/checks/check-service.js";
 import { WorkFoldCheckStore } from "../src/local/checks/check-store.js";
@@ -261,7 +262,7 @@ test("the published hint bounds are the ones the preload and the host enforce", 
   assert.equal(restrictedAppSubscriptionLimits.receiptIds, 64);
   assert.ok(preload.includes("boundedIdList(candidate.taskIds, 64)"));
   assert.ok(preload.includes("boundedIdList(candidate.receiptIds, 64)"));
-  assert.ok(preload.includes("boundedIdList(candidate.permissionIds, 8)"), "Check permissions are capped at 8 by the manifest");
-  assert.ok(preload.includes("boundedIdList(candidate.permissionIds, 16)"), "file permissions are capped at 16 by the manifest");
+  assert.ok(preload.includes(`boundedIdList(candidate.permissionIds, ${restrictedAppCheckLimits.permissions})`), "Check permission ids are capped by the manifest's Check-slot count");
+  assert.ok(preload.includes(`boundedIdList(candidate.permissionIds, ${restrictedAppFilePermissionLimit})`), "file permission ids are capped by the manifest's file-permission count");
   assert.match(host, /restrictedAppSubscriptionLimits\.fileMinHintIntervalMs\s*\n?\s*:\s*restrictedAppSubscriptionLimits\.minHintIntervalMs/);
 });

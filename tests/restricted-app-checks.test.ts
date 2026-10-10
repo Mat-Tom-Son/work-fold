@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readRestrictedAppCheck } from "../src/local/agent/restricted-app-checks.js";
-import type { RestrictedAppCheckResult } from "../src/shared/restricted-app-checks.js";
+import { restrictedAppCheckLimits, type RestrictedAppCheckResult } from "../src/shared/restricted-app-checks.js";
 
 const result: RestrictedAppCheckResult = { checkId: "selected", declarationDigest: "a".repeat(64), title: "Quote review", state: "never-run", lastRunAt: null, findings: [], truncated: false };
 const declarations = [{ id: "quote-review", title: "Quote review" }];
@@ -24,7 +24,7 @@ test("restricted Check broker fences in-flight reads and bounds failed or mismat
   const context = { spaceId: "space-one", declarations, grants, assertCurrent() { if (!current) throw new Error("revoked"); }, read: async () => { current = false; return result; } };
   await assert.rejects(readRestrictedAppCheck(context, { permissionId: "quote-review" }), /revoked/);
   current = true;
-  for (const read of [async () => ({ ...result, checkId: "foreign" }), async () => ({ ...result, title: "a".repeat(300_000) }), async () => { throw new Error("secret internal file path"); }]) {
+  for (const read of [async () => ({ ...result, checkId: "foreign" }), async () => ({ ...result, title: "a".repeat(restrictedAppCheckLimits.resultBytes + 1) }), async () => { throw new Error("secret internal file path"); }]) {
     await assert.rejects(readRestrictedAppCheck({ ...context, read }, { permissionId: "quote-review" }), (error: any) => error.code === "CHECK_UNAVAILABLE" && !error.message.includes("secret"));
   }
 });

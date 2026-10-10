@@ -100,12 +100,25 @@ export const restrictedAppStorageEnvelopeBytes =
   restrictedAppStorageLimits.transactionBytes + 64 * 1024;
 
 /**
- * Inference input is JSON-escaped into its envelope exactly like a network
- * body, so the published input bound stays reachable for text that escapes
- * badly, plus room for the instructions and schema that ride along.
+ * A file write's data is JSON-escaped into its envelope exactly like a network
+ * body (base64 data only grows by a third), so the published write bound stays
+ * reachable for text that escapes badly.
+ */
+export function restrictedAppFileEnvelopeBytes(maxWriteBytes: number): number {
+  if (!Number.isSafeInteger(maxWriteBytes) || maxWriteBytes < 1) {
+    throw new Error("Restricted app file write limit is invalid.");
+  }
+  return maxWriteBytes * 6 + 64 * 1024;
+}
+
+/**
+ * Inference instructions, input, and schema are each JSON-escaped into one
+ * envelope exactly like a network body, so every published bound stays
+ * reachable together for text that escapes badly.
  */
 export const restrictedAppInferenceEnvelopeBytes =
-  restrictedAppInferenceLimits.inputBytes * 6 + 128 * 1024;
+  (restrictedAppInferenceLimits.instructionsBytes + restrictedAppInferenceLimits.inputBytes
+    + restrictedAppInferenceLimits.schemaBytes) * 6 + 64 * 1024;
 
 /** The Assistant-request envelope: the same escaping allowance over the published input bound. */
 export const restrictedAppAssistantEnvelopeBytes =
