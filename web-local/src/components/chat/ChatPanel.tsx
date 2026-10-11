@@ -2061,7 +2061,7 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
   }
   const needs = proposal.needs;
   const still = needs ? [
-    ...(needs.connections.length ? [`Connect ${needs.connections.join(", ")} in Apps → ${title}`] : []),
+    ...(needs.connections.length ? [`Connect ${needs.connections.join(", ")} in Settings → Apps → ${title}`] : []),
     ...(needs.files.length ? [`Choose a file for ${needs.files.join(", ")}`] : []),
     ...(needs.checks.length ? [`Choose a Check for ${needs.checks.join(", ")}`] : []),
   ] : [];

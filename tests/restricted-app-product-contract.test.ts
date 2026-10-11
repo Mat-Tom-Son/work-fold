@@ -134,6 +134,9 @@ test("owning Chat shows the added-app receipt with a retry for failures and open
   assert.match(chat, /function RestrictedAppAddedNotice/);
   assert.match(chat, /Added \{title\} to this work-folder\./);
   assert.match(chat, /Still needs you:/);
+  // The connection a person still owes is named where it lives, as everywhere else.
+  assert.match(chat, /Connect \$\{needs\.connections\.join\(", "\)\} in Settings → Apps → \$\{title\}/);
+  assert.doesNotMatch(chat, /[^s] in Apps → /);
   assert.match(chat, />Open App</);
   assert.match(chat, />Try Again</);
   assert.doesNotMatch(chat, /installDisabled=\{running\}|closeLabel="Decline"|RestrictedAppReviewDialog/);
