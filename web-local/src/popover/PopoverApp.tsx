@@ -3,6 +3,7 @@ import { WorkRequest } from "../components/chat/WorkRequest";
 import { useApplicationAppearance } from "../hooks/useApplicationAppearance";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowUp, ChevronRight, File, Folder, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -14,7 +15,9 @@ import { activeFolderMention, addressedFolderIds, insertFolderMention, matchingM
 import { folderTreeRows } from "../lib/folder-nesting";
 import { FolderMentionMenu, type MentionFolderOption } from "../components/chat/FolderMentionMenu";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
-import type { ComposerState, ConversationRuntime, ChatStreamEvent, ExtensionUiRequest } from "../types";
+import { RuntimeContextPreview } from "../components/chat/activity";
+import { savedWorkTrailPreviews } from "../lib/chat-work-trail";
+import type { ChatMessage, ComposerState, ConversationRuntime, ChatStreamEvent, ExtensionUiRequest, RuntimePreviewEntry } from "../types";
 
 /** Mirrors the server's WorkFoldActManagementRequest projection. */
 interface WorkFoldAgentRequestView {
@@ -76,6 +79,9 @@ interface WorkFoldAgentMessage {
   createdAt: string;
   kind?: string;
   source?: string;
+  /** The steps the agent took for this reply, folded above it. */
+  workTrail?: ChatMessage["workTrail"];
+  interruption?: ChatMessage["interruption"];
 }
 
 interface StagedItem {
@@ -135,8 +141,32 @@ const popoverFixtureComposer: ComposerState = {
   thinkingLevels: ["low", "medium", "high"],
 };
 
+/** The menu-bar popover: its own window, so it owns the appearance preferences. */
 export function PopoverApp() {
   useApplicationAppearance({ fixtureMode: popoverFixtureRequested });
+  return <WorkFoldAgentChat host="popover" fixtureMode={popoverFixtureRequested} />;
+}
+
+export interface WorkFoldAgentChatProps {
+  /** The menu-bar popover window, or the panel beside the main window's work area. */
+  host: "popover" | "panel";
+  fixtureMode?: boolean;
+  /** Panel only: the window's top strip, where the chat's controls render. */
+  controlsTarget?: HTMLElement | null;
+  /** Panel only: the panel is showing (it stays mounted while closed). */
+  visible?: boolean;
+  /** Panel only: opens Settings → AI Models for the work-fold agent. */
+  onOpenModelSettings?: () => void;
+}
+
+/**
+ * The work-fold agent's chat. The menu-bar popover and the main window's
+ * panel render this same component, so both show one conversation the same
+ * way, including each turn's thinking and tool steps as they happen.
+ */
+export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = null, visible = true, onOpenModelSettings }: WorkFoldAgentChatProps) {
+  const popoverFixtureRequested = fixtureMode;
+  const extensionFixture = fixtureMode && extensionFixtureRequested;
   const bridge = window.workFoldDesktop;
   const [available, setAvailable] = useState<boolean | null>(popoverFixtureRequested ? true : null);
   const [unavailableReason, setUnavailableReason] = useState<string>("");
@@ -167,6 +197,10 @@ export function PopoverApp() {
   const [dropActive, setDropActive] = useState(false);
   const [activity, setActivity] = useState<string>("");
   const [streamingAssistant, setStreamingAssistant] = useState("");
+  // The current turn's steps, as the main window's Chat shows them.
+  const [liveSteps, setLiveSteps] = useState<RuntimePreviewEntry[]>([]);
+  const activeThinkingIdRef = useRef<string | null>(null);
+  const stepCounterRef = useRef(0);
   const [workFoldAgentComposer, setWorkFoldAgentComposer] = useState<ComposerState | null>(popoverFixtureRequested ? popoverFixtureComposer : null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -174,13 +208,14 @@ export function PopoverApp() {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const selectionRef = useRef<string | null>(popoverFixtureRequested ? "fixture-agent" : null);
   const refreshGeneration = useRef(0);
-  const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(extensionFixtureRequested ? {
+  const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(extensionFixture ? {
     conversationId: "fixture-agent", requests: [
       { id: "fixture-extension", method: "select", title: "Which account should I use for the report?", options: ["Work account", "Personal account"] },
     ],
   } : null);
   const draftsRef = useRef(new Map<string, { text: string; staged: StagedItem[] }>());
   const transcriptRef = useRef<HTMLElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const transcriptPinnedRef = useRef(true);
   const dragDepthRef = useRef(0);
   const streamingDeltaRef = useRef("");
@@ -282,7 +317,11 @@ export function PopoverApp() {
       // array identity for identical content spares re-renders and the
       // follow-scroll effect.
       setMessages((current) => (sameTranscript(current, next) ? current : next));
-      if (!summary.latestRequest || !activePhases.has(summary.latestRequest.phase)) replaceStreamingAssistant("");
+      if (!summary.latestRequest || !activePhases.has(summary.latestRequest.phase)) {
+        replaceStreamingAssistant("");
+        activeThinkingIdRef.current = null;
+        setLiveSteps([]);
+      }
     } catch (error) {
       if (generation !== refreshGeneration.current) return;
       if (error instanceof ApiError && error.status === 404) {
@@ -319,6 +358,44 @@ export function PopoverApp() {
     return () => unsubscribe?.();
   }, [bridge]);
 
+  const clearLiveSteps = useCallback(() => {
+    activeThinkingIdRef.current = null;
+    setLiveSteps([]);
+  }, []);
+
+  const upsertLiveStep = useCallback((step: RuntimePreviewEntry) => {
+    setLiveSteps((current) => {
+      const index = current.findIndex((item) => item.id === step.id);
+      if (index < 0) return [...current, step];
+      const next = [...current];
+      next[index] = { ...next[index], ...step };
+      return next;
+    });
+  }, []);
+
+  const startLiveThought = useCallback((event?: ChatStreamEvent) => {
+    const id = event?.workTrailId ?? `thinking-${++stepCounterRef.current}`;
+    activeThinkingIdRef.current = id;
+    upsertLiveStep({ id, kind: "thinking", text: "", phase: "streaming", startedAt: event?.startedAt ?? Date.now(), ...(event?.order !== undefined ? { order: event.order } : {}) });
+  }, [upsertLiveStep]);
+
+  const appendLiveThought = useCallback((text: string, event?: ChatStreamEvent) => {
+    let id = event?.workTrailId ?? activeThinkingIdRef.current;
+    if (!id) { startLiveThought(event); id = activeThinkingIdRef.current; }
+    if (!id) return;
+    setLiveSteps((current) => current.map((entry) => entry.id === id ? { ...entry, text: `${entry.text}${text}`, phase: "streaming" } : entry));
+  }, [startLiveThought]);
+
+  const finishLiveThought = useCallback((event?: ChatStreamEvent) => {
+    const id = event?.workTrailId ?? activeThinkingIdRef.current;
+    if (!id) return;
+    activeThinkingIdRef.current = null;
+    const endedAt = Date.now();
+    setLiveSteps((current) => current.map((entry) => entry.id === id
+      ? { ...entry, phase: "complete", ...(event?.durationMs !== undefined ? { durationMs: event.durationMs } : entry.startedAt ? { durationMs: Math.max(0, endedAt - entry.startedAt) } : {}) }
+      : entry));
+  }, []);
+
   // Live turn events for the active request's conversation.
   useEffect(() => {
     if (!conversationId || popoverFixtureRequested) return;
@@ -341,11 +418,38 @@ export function PopoverApp() {
         if (message || tool) setActivity(message || tool);
       }
       if (event.type === "turn_state" || event.type === "turn_snapshot") {
-        if (event.running === true && !observedRunning) replaceStreamingAssistant("");
+        if (event.running === true && !observedRunning) {
+          replaceStreamingAssistant("");
+          clearLiveSteps();
+        }
         observedRunning = event.running === true;
       }
       if (event.type === "turn_snapshot" && typeof event.text === "string" && event.running === true) {
-        replaceStreamingAssistant(event.text);
+        replaceStreamingAssistant(event.presentation?.text ?? event.text);
+        // A snapshot replaces the steps at its cursor, so a reconnect never duplicates rows.
+        if (event.presentation) {
+          setLiveSteps(event.presentation.workTrail);
+          activeThinkingIdRef.current = [...event.presentation.workTrail].reverse()
+            .find((entry) => entry.kind === "thinking" && ["running", "streaming"].includes(entry.phase ?? ""))?.id ?? null;
+        }
+      }
+      if (event.type === "tool") {
+        upsertLiveStep({
+          id: event.workTrailId ?? (event.toolCallId?.trim() ? `tool-${event.toolCallId.trim()}` : `tool-${++stepCounterRef.current}`),
+          kind: "tool",
+          text: event.message?.trim() || event.toolName?.trim() || "Tool",
+          ...(event.detail?.trim() ? { detail: event.detail.trim() } : {}),
+          ...(event.toolName?.trim() ? { toolName: event.toolName.trim() } : {}),
+          ...(event.order !== undefined ? { order: event.order } : {}),
+          ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+          ...(event.edit ? { edit: event.edit } : {}),
+          phase: event.phase ?? "running",
+        });
+      }
+      if (event.type === "assistant_thinking") {
+        if (event.thinkingPhase === "start") startLiveThought(event);
+        if (event.text) appendLiveThought(event.text, event);
+        if (event.thinkingPhase === "end") finishLiveThought(event);
       }
       if (event.type === "assistant_delta" && typeof event.text === "string") {
         queueStreamingAssistant(event.text);
@@ -354,13 +458,13 @@ export function PopoverApp() {
         replaceStreamingAssistant(event.text);
       }
       if (event.type === "turn_state" || event.type === "done" || event.type === "error") {
-        if (event.type === "done" || event.type === "error" || event.running === false) flushStreamingAssistant();
+        if (event.type === "done" || event.type === "error" || event.running === false) { flushStreamingAssistant(); finishLiveThought(); }
         if (event.type === "done" || event.type === "error" || event.running === false) void refreshConversationRuntime(conversationId);
         void refreshConversation();
       }
     };
     return () => stream.close();
-  }, [conversationId, refreshConversation, refreshConversationRuntime, flushStreamingAssistant, queueStreamingAssistant, replaceStreamingAssistant]);
+  }, [conversationId, refreshConversation, refreshConversationRuntime, flushStreamingAssistant, queueStreamingAssistant, replaceStreamingAssistant, clearLiveSteps, upsertLiveStep, startLiveThought, appendLiveThought, finishLiveThought]);
 
   useEffect(() => {
     if (popoverFixtureRequested) return;
@@ -433,13 +537,20 @@ export function PopoverApp() {
       if (transcriptPinnedRef.current) transcript.scrollTop = transcript.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [messages, phase, streamingAssistant, activity, conversationId]);
+  }, [messages, phase, streamingAssistant, activity, liveSteps, conversationId]);
 
   // The door comes first: whenever the shown popover has nothing that outranks
   // it — no running work hiding the composer — and focus has not landed
   // anywhere yet, the composer takes it.
   useEffect(() => {
-    if (available !== true) return;
+    if (host !== "panel" || !visible || available !== true) return;
+    const current = requestRef.current;
+    if (current && activePhases.has(current.phase)) return;
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [host, visible, available]);
+
+  useEffect(() => {
+    if (host !== "popover" || available !== true) return;
     // `phase` is a dependency so the composer regains focus the moment a
     // settled request brings it back, not only on the next window focus.
     const focusComposerFirst = () => {
@@ -457,13 +568,14 @@ export function PopoverApp() {
       window.removeEventListener("focus", focusComposerFirst);
       document.removeEventListener("visibilitychange", focusComposerFirst);
     };
-  }, [available, phase]);
+  }, [host, available, phase]);
 
   // Hiding the popover releases focus parked on a button or strip: Chromium
   // keeps DOM focus across hide/show, and a stale button would otherwise
   // swallow both the reopen keystrokes and the composer's first-focus claim.
   // Text entry (the composer) keeps its focus across reopens.
   useEffect(() => {
+    if (host !== "popover") return;
     const releaseStaleFocus = () => {
       if (document.visibilityState !== "hidden") return;
       const active = document.activeElement;
@@ -473,7 +585,7 @@ export function PopoverApp() {
     };
     document.addEventListener("visibilitychange", releaseStaleFocus);
     return () => document.removeEventListener("visibilitychange", releaseStaleFocus);
-  }, []);
+  }, [host]);
 
   const send = useCallback(async () => {
     const content = text.trim();
@@ -483,6 +595,7 @@ export function PopoverApp() {
     setBanner("");
     setActivity("");
     replaceStreamingAssistant("");
+    clearLiveSteps();
     try {
       const current = requestRef.current;
       const addressedWorkFolderIds = addressedFolderIds(content, mentionFolders);
@@ -536,7 +649,7 @@ export function PopoverApp() {
     } finally {
       setSending(false);
     }
-  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, mentionFolders]);
+  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, clearLiveSteps, mentionFolders]);
 
   const activeMention = useMemo(() => mentionFolders.length ? activeFolderMention(text, composerCaret) : null, [composerCaret, mentionFolders.length, text]);
   const mentionSuggestions = useMemo(() => activeMention ? matchingMentionFolders(mentionFolders, activeMention.query) : [], [activeMention, mentionFolders]);
@@ -580,10 +693,11 @@ export function PopoverApp() {
     setMessages(popoverFixtureRequested && id ? popoverFixtureMessages : []);
     setActivity("");
     replaceStreamingAssistant("");
+    clearLiveSteps();
     setBanner("");
     void refreshConversation();
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [sending, stopping, workState.busy, savingChat, text, staged, chats, refreshConversation, replaceStreamingAssistant]);
+  }, [sending, stopping, workState.busy, savingChat, text, staged, chats, refreshConversation, replaceStreamingAssistant, clearLiveSteps]);
   async function changeChat(action: "rename" | "delete") {
     if (!chatAction || savingChat) return;
     const { id } = chatAction;
@@ -638,6 +752,14 @@ export function PopoverApp() {
     const onKeyDown = (event: KeyboardEvent) => {
       // Cancelling an IME composition must not dismiss the surface.
       if (event.isComposing) return;
+      if (host === "panel") {
+        const target = event.target instanceof Node ? event.target : null;
+        const inside = Boolean(target && (rootRef.current?.contains(target) || controlsTarget?.contains(target)));
+        if (!inside || event.key !== "Escape") return;
+        if (chatAction) { if (!savingChat) setChatAction(null); }
+        else if (historyOpen) { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }
+        return;
+      }
       if (event.key === "Escape") {
         if (chatAction) { if (!savingChat) setChatAction(null); }
         else if (historyOpen) { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }
@@ -651,7 +773,7 @@ export function PopoverApp() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge, startNewChat, historyOpen, chatAction, savingChat]);
+  }, [bridge, host, controlsTarget, startNewChat, historyOpen, chatAction, savingChat]);
 
   const stop = useCallback(async () => {
     const current = requestRef.current;
@@ -679,7 +801,7 @@ export function PopoverApp() {
     const transfer = event.dataTransfer;
     let added = false;
     for (const file of Array.from(transfer.files)) {
-      const path = bridge?.workFoldAgent?.getPathForFile(file) ?? "";
+      const path = (bridge?.workFoldAgent?.getPathForFile ?? bridge?.agent?.getPathForFile)?.(file) ?? "";
       if (path) {
         addStagedValue(path, setStaged);
         added = true;
@@ -795,13 +917,26 @@ export function PopoverApp() {
 
   return (
     <div
-      className={`popover${dropActive ? " drop-active" : ""}${popoverFixtureRequested ? " popover-fixture" : ""}`}
+      ref={rootRef}
+      className={`popover${host === "panel" ? " agent-panel-chat" : ""}${dropActive ? " drop-active" : ""}${popoverFixtureRequested && host === "popover" ? " popover-fixture" : ""}`}
       onDragEnter={onDragEnter}
       onDragOver={(event) => { event.preventDefault(); }}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <header className="popover-header">
+      {host === "panel" ? (controlsTarget ? createPortal(
+        // The panel's chat controls live in the window's top strip, icon only.
+        <>
+          <button className="window-chrome-button" type="button" aria-label={historyOpen ? "Back to chat" : "Chats"} title={historyOpen ? "Back to chat" : `Chats · ${chatTitle}`} aria-pressed={historyOpen} aria-controls="agent-chat-history"
+            onClick={() => { setHistoryOpen((open) => !open); void refreshConversation(); }}>
+            <History aria-hidden="true" size={16} />
+          </button>
+          <button className="window-chrome-button" type="button" aria-label="New Chat" title="New Chat" onClick={startNewChat} disabled={navigationBusy}>
+            <SquarePen aria-hidden="true" size={16} />
+          </button>
+        </>,
+        controlsTarget,
+      ) : null) : <header className="popover-header">
         <h1 className="popover-chat-title">{chatTitle}</h1>
         <div className="popover-header-actions">
           <button className="popover-new-chat" type="button" aria-expanded={historyOpen} aria-controls="agent-chat-history"
@@ -819,12 +954,12 @@ export function PopoverApp() {
             <span>New Chat</span>
           </button>
         </div>
-      </header>
+      </header>}
 
       {visibleBanner ? (
-        <div className="banner" role="alert">
-          <span className="banner-text">{visibleBanner}</span>
-          <button className="banner-dismiss" type="button" aria-label="Dismiss" onClick={() => setBanner("")}><X aria-hidden="true" /></button>
+        <div className="agent-banner" role="alert">
+          <span className="agent-banner-text">{visibleBanner}</span>
+          <button className="agent-banner-dismiss" type="button" aria-label="Dismiss" onClick={() => setBanner("")}><X aria-hidden="true" /></button>
         </div>
       ) : null}
 
@@ -884,6 +1019,7 @@ export function PopoverApp() {
               key={message.id}
               title={`${message.source === "remote_web" ? "Sent from the web · " : ""}${timestampTitle(message.createdAt)}`}
             >
+              {message.role === "assistant" && message.kind !== "assistant_continuation" ? <RuntimeContextPreview entries={savedWorkTrailPreviews(message as ChatMessage)} renderText={renderStepText} /> : null}
               <div className="popover-message-body">
                 {message.kind === "assistant_continuation" ? "Continuing with the results from delegated work." : message.role === "assistant"
                   ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
@@ -891,6 +1027,9 @@ export function PopoverApp() {
               </div>
             </article>
           ))}
+          {request?.phase === "working" || liveSteps.length ? (
+            <RuntimeContextPreview entries={liveSteps} running={request?.phase === "working"} replyStarted={Boolean(streamingAssistant)} renderText={renderStepText} />
+          ) : null}
           {streamingAssistant ? (
             <article className="popover-message assistant streaming" aria-label="work-fold is replying">
               <div className="popover-message-body">
@@ -923,11 +1062,8 @@ export function PopoverApp() {
           {request && activePhases.has(request.phase) ? (
             <div className="agent-tail">
               {request.phase === "working" ? (
-                <p className="working-line" role="status" aria-live="polite">
-                  <span className="spinner" aria-hidden="true" />
-                  <span className="working-copy">{activity || "Thinking…"}</span>
-                  {elapsedLabel ? <span className="working-elapsed">{elapsedLabel}</span> : null}
-                </p>
+                // The steps above show what is happening; this line keeps the time.
+                elapsedLabel ? <p className="working-line" role="status" aria-live="polite"><span className="working-elapsed">{elapsedLabel}</span></p> : null
               ) : !workState.work ? (
                 <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="working-copy">Working in {request.children.filter((child) => child.state === "running").length === 1 ? "a work-folder" : "work-folders"}…</span></p>
               ) : null}
@@ -948,7 +1084,7 @@ export function PopoverApp() {
           ))}
         </ul>
       ) : null}
-      <section className="composer">
+      <section className="agent-composer">
         <div className="composer-field">
           <div className="composer-input">
             {mentionMenuOpen ? (
@@ -1001,7 +1137,7 @@ export function PopoverApp() {
               <button
                 className="composer-model"
                 type="button"
-                onClick={() => { void bridge?.workFoldAgent?.openAiModelsSettings(); }}
+                onClick={() => { if (host === "panel") onOpenModelSettings?.(); else void bridge?.workFoldAgent?.openAiModelsSettings(); }}
                 aria-label={`Change the model used by the work-fold agent. Current model: ${workFoldAgentModelLabel}`}
               >
                 <span>{workFoldAgentModelLabel}</span>
@@ -1040,6 +1176,11 @@ export function PopoverApp() {
       ) : null}
     </div>
   );
+}
+
+/** Progress notes inside the steps render with the same Markdown as replies. */
+function renderStepText(text: string) {
+  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>;
 }
 
 function chatDateLabel(value: string): string {

@@ -1,0 +1,172 @@
+/* Files sort control: one icon beside the search field. */
+
+:root[data-theme] .app-shell .file-sort-button {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+:root[data-theme] .app-shell .file-sort-button:is(:hover, :focus-visible, .active) {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+:root[data-theme] .app-shell .file-sort-menu {
+  width: 190px;
+}
+
+:root[data-theme] .app-shell .file-sort-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:root[data-theme] .app-shell .file-sort-menu .file-sort-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+:root[data-theme] .app-shell .file-sort-menu button[aria-checked="true"] {
+  color: var(--ui-text);
+  font-weight: 600;
+}
+
+/* The window's top strip. macOS draws its window buttons there (and
+   styles.css makes it draggable); the browser gets the same strip so the
+   controls sit in one place everywhere. */
+
+:root:not([data-desktop]) {
+  --work-fold-window-inset-top: 32px;
+  --work-fold-window-gutter-top: 0px;
+}
+
+.window-chrome {
+  position: fixed;
+  z-index: 45;
+  top: 0;
+  height: var(--work-fold-window-inset-top, 32px);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.window-chrome-leading { left: 10px; }
+.window-chrome-trailing { right: 10px; }
+
+/* Clear of the traffic lights. */
+:root[data-platform="darwin"] .window-chrome-leading { left: 78px; }
+
+/* Windows draws its own title bar; the controls sit before the window buttons. */
+.desktop-chrome-shell .window-chrome { height: var(--desktop-titlebar-height); }
+.desktop-chrome-shell .window-chrome-leading { left: auto; right: calc(var(--desktop-window-controls-width) + 112px); }
+.desktop-chrome-shell .window-chrome-trailing { right: calc(var(--desktop-window-controls-width) + 8px); }
+
+/* The menu-bar mark, recolored like the other strip icons. */
+.window-chrome-agent-mark {
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask: var(--agent-mark) center / contain no-repeat;
+  mask: var(--agent-mark) center / contain no-repeat;
+}
+
+.window-chrome-agent-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.window-chrome-agent-controls[hidden] { display: none; }
+
+:root[data-theme] .app-shell .window-chrome-button {
+  width: 28px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text-muted);
+  background: transparent;
+  cursor: default;
+}
+
+:root[data-theme] .app-shell .window-chrome-button:is(:hover, :focus-visible) {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+:root[data-theme] .app-shell .window-chrome-button[aria-pressed="true"]:is(.window-chrome-trailing > *) {
+  color: var(--ui-accent);
+}
+
+/* Hidden navigation pane: the rail stays, the work area takes the room. */
+
+.app-shell .work-folder-layout.sidebar-collapsed {
+  grid-template-columns: var(--work-folder-rail-width) minmax(0, 1fr);
+}
+
+.app-shell .work-folder-layout.sidebar-collapsed > :is(.work-folder-mode-pane, .work-folder-resizer:not(.agent-panel-resizer)) {
+  display: none;
+}
+
+/* The work-fold agent panel, beside the work area on the right. */
+
+.app-shell .work-folder-layout.agent-panel-open {
+  grid-template-columns: var(--work-folder-rail-width) minmax(280px, var(--work-folder-sidebar-width)) var(--work-folder-resizer-width) minmax(0, 1fr) var(--work-folder-resizer-width) var(--agent-panel-width, 380px);
+}
+
+.app-shell .work-folder-layout.agent-panel-open.sidebar-collapsed {
+  grid-template-columns: var(--work-folder-rail-width) minmax(0, 1fr) var(--work-folder-resizer-width) var(--agent-panel-width, 380px);
+}
+
+.app-shell .work-folder-layout > :is(.agent-panel, .agent-panel-resizer)[hidden] {
+  display: none;
+}
+
+:root[data-theme] .app-shell .work-folder-layout.agent-panel-open .right-rail {
+  border-radius: 11px;
+}
+
+:root[data-theme] .app-shell .agent-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  border-radius: 11px 0 0 11px;
+  background: var(--ui-surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / .035);
+}
+
+/* The shared chat fills the panel; its popover frame and fixed size do not apply here. */
+:root[data-theme] .app-shell .agent-panel .popover.agent-panel-chat {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 14px 14px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text);
+  font-size: var(--work-fold-font-size, 14px);
+  line-height: 1.5;
+  user-select: text;
+}
+
+:root[data-theme] .app-shell .window-chrome-agent-controls .window-chrome-button svg {
+  stroke-width: 1.7;
+}
+
+:root[data-theme] .app-shell .window-chrome-agent-controls .window-chrome-button:disabled {
+  opacity: 0.45;
+}
