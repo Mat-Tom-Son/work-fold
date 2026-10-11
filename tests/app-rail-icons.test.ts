@@ -55,6 +55,9 @@ test("an app rail button with an unknown icon name shows the generic Apps glyph"
   assert.equal(module.knownWorkFolderIconOption("mail")?.name, "mail");
   assert.equal(module.knownWorkFolderIconOption("  MAIL ")?.name, "mail");
   assert.equal(module.knownWorkFolderIconOption("archive-restore")?.name, "archive", "an alias is a known name");
+  for (const guess of ["images", "photos", "screenshots"]) {
+    assert.equal(module.knownWorkFolderIconOption(guess)?.name, "image", `a Worker's natural guess "${guess}" finds the image icon`);
+  }
   assert.equal(module.knownWorkFolderIconOption("definitely-not-an-icon"), null);
   assert.equal(module.knownWorkFolderIconOption(undefined), null);
   assert.equal(module.knownWorkFolderIconOption(""), null);
