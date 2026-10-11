@@ -620,7 +620,7 @@ export const workFolderIconOptions: WorkFolderIconOption[] = [
   option("phone", "Phone", Phone20Filled, Phone20Regular, [], ["mobile", "call", "device"]),
   option("video", "Video", Video20Filled, Video20Regular, [], ["media", "recording", "meeting"]),
   option("camera", "Camera", Camera20Filled, Camera20Regular, [], ["photo", "image", "capture"]),
-  option("image", "Image", Image20Filled, Image20Regular, [], ["picture", "photo", "visual"]),
+  option("image", "Image", Image20Filled, Image20Regular, ["images", "picture", "pictures", "photo", "photos", "screenshot", "screenshots"], ["picture", "photo", "visual"]),
   option("slide", "Slides", SlideMultiple20Filled, SlideMultiple20Regular, [], ["presentation", "deck", "powerpoint"]),
   option("table", "Table", Table20Filled, Table20Regular, [], ["spreadsheet", "grid", "matrix"]),
   option("document", "Document", Document20Filled, Document20Regular, [], ["file", "paper", "text"]),
