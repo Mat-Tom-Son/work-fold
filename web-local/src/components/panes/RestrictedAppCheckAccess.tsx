@@ -19,7 +19,7 @@ export function RestrictedAppCheckAccess({ app, busy, onAppChanged, onError }: {
     setChoices(null);
     setSelection("");
     try {
-      const result = await api<{ overview: ChecksOverview }>(`/api/spaces/${encodeURIComponent(app.spaceId)}/checks/overview`, { method: "POST", body: {} });
+      const result = await api<{ overview: ChecksOverview }>(`/api/work-folders/${encodeURIComponent(app.workFolderId)}/checks/overview`, { method: "POST", body: {} });
       setChoices(result.overview.checks.filter((check) => check.digest));
       setEditing(permissionId);
     } catch (error) { onError(errorText(error)); }
@@ -49,7 +49,7 @@ export function RestrictedAppCheckAccess({ app, busy, onAppChanged, onError }: {
             <option value="">Choose a Check</option>
             {choices?.map((check) => <option key={check.id} value={check.id}>{check.title}</option>)}
           </select></label>
-          {!choices?.length ? <p>No Checks in this Space yet.</p> : null}
+          {!choices?.length ? <p>No Checks in this work-folder yet.</p> : null}
           <div className="restricted-app-destination-actions">
             <button className="ui-control ui-control--primary" disabled={busy || loading || !selection} onClick={() => void change(permission.id)}>Allow results</button>
             <button className="ui-control" disabled={loading} onClick={() => setEditing(null)}>Cancel</button>

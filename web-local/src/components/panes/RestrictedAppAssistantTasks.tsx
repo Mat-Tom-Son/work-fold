@@ -8,15 +8,15 @@ import { cancelRestrictedAppAssistantTask, listRestrictedAppAssistantTasks, read
 import { ConnectedWorkRequest, openWorkFile } from "../chat/WorkRequest";
 
 /**
- * Requests this app handed to the Space's Assistant. Each one already started
+ * Requests this app handed to the work-folder's Worker. Each one already started
  * its own Chat when the app asked; this list shows status, the exact
  * instructions and input, the reply once done, and offers Open Chat and Stop.
  */
 export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenFile = openWorkFile }: {
   app: RestrictedAppInstalled;
   disabled: boolean;
-  onOpenChat?: (spaceId: string, conversationId: string) => Promise<void>;
-  onOpenFile?: (spaceId: string, path: string) => Promise<void>;
+  onOpenChat?: (workFolderId: string, conversationId: string) => Promise<void>;
+  onOpenFile?: (workFolderId: string, path: string) => Promise<void>;
 }) {
   const [tasks, setTasks] = useState<RestrictedAppAssistantTask[]>([]);
   const [detail, setDetail] = useState<RestrictedAppTaskDetail | null>(null);
@@ -53,7 +53,7 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
     setBusy(true); setError(null);
     try {
       const next = await readRestrictedAppAssistantTask(app, task.requestId);
-      if (openChat && onOpenChat) await onOpenChat(app.spaceId, next.conversationId);
+      if (openChat && onOpenChat) await onOpenChat(app.workFolderId, next.conversationId);
       else setDetail(next);
     } catch (caught) { setError(errorText(caught)); }
     finally { setBusy(false); }
@@ -68,15 +68,15 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
   }
   const unavailable = disabled || busy;
   if (!tasks.length && !error) return null;
-  return <section className="restricted-app-connections restricted-app-assistant-tasks" aria-label="Assistant Requests">
-    <div className="restricted-app-connections-heading"><h3>Assistant Requests</h3></div>
+  return <section className="restricted-app-connections restricted-app-assistant-tasks" aria-label="Worker Requests">
+    <div className="restricted-app-connections-heading"><h3>Worker Requests</h3></div>
     {error ? <p role="alert">{error}</p> : null}
     {tasks.map((task) => <article className="restricted-app-destination-card" key={task.id} tabIndex={-1}>
       <div className="restricted-app-task-heading"><strong>{task.title}</strong><span className="professional-status-badge">{restrictedAppAssistantTaskStatusLabel(task)}</span></div>
       {task.result ? <div className="restricted-app-task-result">
-        <p className="work-result-summary" aria-label="Assistant result">{task.result.summary}{task.result.truncated ? restrictedAppAssistantResultTrimNote : ""}</p>
-        {task.result.files?.length ? <ul className="work-result-files" aria-label="Assistant result files">
-          {task.result.files.map((file) => <li key={file.path}><button className="work-file-button" type="button" onClick={() => void onOpenFile(app.spaceId, file.path).catch((caught) => setError(errorText(caught)))}><span>{file.path}</span><small>{restrictedAppResultFileSize(file.sizeBytes)} · Open file</small></button></li>)}
+        <p className="work-result-summary" aria-label="Worker result">{task.result.summary}{task.result.truncated ? restrictedAppAssistantResultTrimNote : ""}</p>
+        {task.result.files?.length ? <ul className="work-result-files" aria-label="Worker result files">
+          {task.result.files.map((file) => <li key={file.path}><button className="work-file-button" type="button" onClick={() => void onOpenFile(app.workFolderId, file.path).catch((caught) => setError(errorText(caught)))}><span>{file.path}</span><small>{restrictedAppResultFileSize(file.sizeBytes)} · Open file</small></button></li>)}
         </ul> : null}
       </div> : null}
       <div className="restricted-app-task-actions">
@@ -87,18 +87,18 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
       {task.status === "waiting" ? <AppTaskQuestion app={app} task={task} onOpenFile={onOpenFile} /> : null}
       {detail?.task.id === task.id ? <div className="restricted-app-task-review">
         <details><summary>Request Details</summary>
-          <pre tabIndex={0} aria-label="Assistant request">{detail.instructions}{"\n\n"}{JSON.stringify(JSON.parse(detail.inputJson), null, 2)}</pre>
+          <pre tabIndex={0} aria-label="Worker request">{detail.instructions}{"\n\n"}{JSON.stringify(JSON.parse(detail.inputJson), null, 2)}</pre>
           {restrictedAppAssistantTaskUsageLine(task) ? <p className="restricted-app-task-usage">{restrictedAppAssistantTaskUsageLine(task)}</p> : null}
         </details>
         {task.status !== "waiting" && detail.taskId ? <ConnectedWorkRequest path={`/api/tasks/${encodeURIComponent(detail.taskId)}/work`} showResultSummary={false} showResultFiles={false} showStop={false} onOpenFile={onOpenFile} /> : null}
-        {detail.task.result?.data === undefined ? null : <details><summary>Result Details</summary><pre tabIndex={0} aria-label="Assistant result details">{JSON.stringify(detail.task.result.data, null, 2)}</pre></details>}
+        {detail.task.result?.data === undefined ? null : <details><summary>Result Details</summary><pre tabIndex={0} aria-label="Worker result details">{JSON.stringify(detail.task.result.data, null, 2)}</pre></details>}
         <button className="ui-control" disabled={busy} onClick={() => setDetail(null)}>Close</button>
       </div> : null}
     </article>)}
   </section>;
 }
 
-function AppTaskQuestion({ app, task, onOpenFile }: { app: RestrictedAppInstalled; task: RestrictedAppAssistantTask; onOpenFile: (spaceId: string, path: string) => Promise<void> }) {
+function AppTaskQuestion({ app, task, onOpenFile }: { app: RestrictedAppInstalled; task: RestrictedAppAssistantTask; onOpenFile: (workFolderId: string, path: string) => Promise<void> }) {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {

@@ -12,7 +12,7 @@
 > code and conformance fixtures implement them.
 
 This document is a companion to
-[App platform exploration](app-platform-exploration.md). It authorizes the
+[App platform exploration](archive/app-platform-exploration.md). It authorizes the
 bounded implementation order in the foundation; it does not silently change
 `agent-app.json`, expose a cloud mutation API, or weaken the existing
 restricted-app boundary.
@@ -36,8 +36,8 @@ The current desktop runtime already establishes useful constraints:
 
 - reviewed feature bytes are content-addressed and digest-pinned before execution;
 - visible UI and hidden action/automation workers run in separate sandboxed Chromium hosts;
-- main binds each sender to its Space, app id, exact Feature Installation, digest, lifecycle, placement, and current grants;
-- network, storage, Space files, tabs, and notifications are host brokers rather than ambient browser powers;
+- main binds each sender to its work-folder, app id, exact Feature Installation, digest, lifecycle, placement, and current grants;
+- network, storage, work-folder files, tabs, and notifications are host brokers rather than ambient browser powers;
 - storage uses revisions and bounded atomic transactions;
 - file writes are grant-relative, atomic, and History-covered;
 - secrets stay in a separate encrypted store and are injected only by the network broker;
@@ -58,7 +58,7 @@ a mount, invocation, grant, data namespace, or effect.
 | --- | --- |
 | **Feature Revision** | Immutable reviewed feature bytes plus their closed declarations, identified by a digest. |
 | **Runtime Instance** | Internal union over exactly two runtime owners: a source-bound, release-less Development Instance or a release-backed App Instance. It is not a user-facing third instance kind. |
-| **Development Instance** | A local Runtime Instance bound to one Space and App Project. It runs reviewed Feature Revisions without an App Release. |
+| **Development Instance** | A local Runtime Instance bound to one work-folder and App Project. It runs reviewed Feature Revisions without an App Release. |
 | **App Instance** | A release-backed Runtime Instance that may be hosted locally or in the cloud. It always identifies its immutable App Release. |
 | **Feature Installation** | One stable runtime incarnation of a Feature inside one Runtime Instance, with its own current revision, grants, connections, jobs, and complete `AuthorityStamp`. A fresh install receives a fresh id; a reviewed update preserves it. |
 | **Data Namespace** | Mutable Feature data identity separate from executable installation identity. Retention, export, migration, removal, and purge policy decide whether it survives an installation transition. |
@@ -127,7 +127,7 @@ type RuntimeInstanceContext =
   | {
       kind: "development";
       runtimeInstanceId: string;
-      spaceId: string;
+      workFolderId: string;
       projectId: string;
       connectivity: "online" | "offline" | "degraded";
       authorityExpiresAt?: string;
@@ -200,7 +200,7 @@ Candidate operations:
 | `views.open({ viewId, title, route, state })` | Ask the host to create or activate one app-local persistent view in the current instance. |
 | `views.update({ title, route, state })` | Update the calling view's host-owned presentation. |
 | `views.close()` | Close the calling view. |
-| `tasks.onChanged(listener)` | Deliver bounded hints when the installation's own Assistant tasks or short-answer receipts move: ids and an ordering revision only. |
+| `tasks.onChanged(listener)` | Deliver bounded hints when the installation's own agent tasks or short-answer receipts move: ids and an ordering revision only. |
 | `checks.onChanged(listener)` | Deliver bounded hints when a selected Check's result changes: the feature's own permission ids and a revision. |
 | `files.onChanged(listener)` | Deliver bounded hints when files under a granted root change: the feature's own permission ids, a revision, and whether the bounded observation was partial. |
 
@@ -268,7 +268,7 @@ Portable guarantees:
 - cancellation or revocation is checked before commit; and
 - resource contents never become model context, network payload, or another feature's data implicitly.
 
-The Electron adapter maps `tree` grants to ordinary Space-relative files and keeps `.work-fold`, preserved legacy `.workspace`, and `.pi` unavailable; its writes remain atomic and History-covered. A hosted adapter maps grants to a tenant-aware object/document service and records audit lineage. Local History and cloud audit are different host services even when the feature observes the same write result.
+The Electron adapter maps `tree` grants to ordinary work-folder-relative files and keeps `.work-fold`, preserved legacy `.workspace`, and `.pi` unavailable; its writes remain atomic and History-covered. A hosted adapter maps grants to a tenant-aware object/document service and records audit lineage. Local History and cloud audit are different host services even when the feature observes the same write result.
 
 A Development Instance may grant selected project files, but publish inputs require visible risk composition and History. When a granted resource mutation commits bytes that are selected publish inputs, the trusted project mutation service must, in one serialized crash-safe transaction, commit the file change, advance the durable project-source generation, invalidate every proposal/review over the prior source generation or digest, and commit its History/receipt metadata before reporting success. A journal or equivalent recovery record must make an interrupted commit complete or fail closed after restart; a successful file write with a still-valid stale publish proposal is forbidden.
 
@@ -348,7 +348,7 @@ interface ActionInvocation {
 }
 ```
 
-An action declaration may additionally name a host-enforced `accessPolicyId` defining the Runtime Instance roles allowed to invoke it. The host validates the action declaration, access policy, one effective Principal, and bounded input schema before dispatch, supplies current grants, enforces one or more host concurrency limits, and validates the bounded result schema before returning it. An Assistant action uses an `agent` Principal plus the human-authorized Chat/tool context; an end-user action uses the authenticated interactive `human` Principal. These Principals are not interchangeable. Context capability hints may hide or disable a control, but the host rechecks roles and policy at dispatch and every brokered effect.
+An action declaration may additionally name a host-enforced `accessPolicyId` defining the Runtime Instance roles allowed to invoke it. The host validates the action declaration, access policy, one effective Principal, and bounded input schema before dispatch, supplies current grants, enforces one or more host concurrency limits, and validates the bounded result schema before returning it. An agent action uses an `agent` Principal plus the human-authorized Chat/tool context; an end-user action uses the authenticated interactive `human` Principal. These Principals are not interchangeable. Context capability hints may hide or disable a control, but the host rechecks roles and policy at dispatch and every brokered effect.
 
 The worker executes as the identified Feature Installation on behalf of exactly that one Principal. Feature code, a renderer sender, and a `featureInstallationId` are not additional Principals and cannot become independent action attribution.
 
@@ -441,7 +441,7 @@ Host-specific until deliberately standardized:
 - cost, CPU, memory, network, notification, and wall-time budgets; and
 - retention duration for detailed attempt logs.
 
-The current desktop values—15 to 1,440 minute intervals, two machine-wide FIFO slots, `skip` overlap, one latest catch-up, five-second worker deadline, and execution only while work-fold runs—remain local policy. A hosted adapter must publish its actual policy through capability/limit introspection instead of imitating those values accidentally.
+The current desktop values—1-minute to 366-day intervals, the machine-wide FIFO slots shown in Settings → Automations → Limits, `skip` overlap, one latest catch-up, a ten-minute worker hang guard that excludes host-call waits, and execution only while work-fold runs—remain local policy. A hosted adapter must publish its actual policy through capability/limit introspection instead of imitating those values accidentally.
 
 A manual run while a schedule is disabled requires independent interactive authority. It does not inherit schedule-only notification or unattended connection authority unless policy explicitly grants the manual invocation those powers.
 
@@ -651,11 +651,11 @@ Break-glass access, if ever offered, requires a named incident/purpose, least-pr
 
 | Concern | Local Electron adapter | Hosted web adapter |
 | --- | --- | --- |
-| Principal binding | Trusted main process binds one human, agent, service, or system Principal to the sender, Assistant turn, or event. | Authenticated human/agent/service/system Principal plus Tenant and Runtime Instance authorization. |
+| Principal binding | Trusted main process binds one human, agent, service, or system Principal to the sender, agent turn, or event. | Authenticated human/agent/service/system Principal plus Tenant and Runtime Instance authorization. |
 | Feature binding | Verified staged digest, sender-bound ephemeral origin, and complete host-owned `AuthorityStamp`. | Immutable artifact digest, installation record, worker/image identity, and complete durable `AuthorityStamp`. |
-| Views | Sandboxed `WebContentsView`, rail navigator, Space-owned tabs. | Sandboxed browser frame/document and host-owned route/navigation shell. |
+| Views | Sandboxed `WebContentsView`, rail navigator, work-folder-owned tabs. | Sandboxed browser frame/document and host-owned route/navigation shell. |
 | Storage | Bounded local host-owned JSON namespace. | Tenant-aware database/service with the same revision/transaction contract. |
-| Resources | Explicit Space-relative file grants; atomic History-covered writes. | Explicit object/document collection grants; revisioned writes and audit. |
+| Resources | Explicit work-folder-relative file grants; atomic History-covered writes. | Explicit object/document collection grants; revisioned writes and audit. |
 | Network | Main-process public-HTTPS or development loopback broker; OS-encrypted connections. | Egress proxy/service; cloud secret/connection service; destination and tenant policy. |
 | Jobs | In-process scheduler while work-fold runs. | Durable scheduler, queue, leases, fenced workers, retries, and regional policy. |
 | Notifications | Static reviewed Windows notifications. | Separately configured web push/email/mobile adapters. |
@@ -712,7 +712,7 @@ The three spikes below were executed with synthetic in-memory inputs and all
 required invariants were demonstrated without a global clock or exactly-once
 queue. Their models, observed transitions, limitations, and contract
 consequences are recorded in
-[App platform runtime spike evidence](app-platform-runtime-spike-evidence.md).
+[App platform runtime spike evidence](archive/app-platform-runtime-spike-evidence.md).
 No experiment code or temporary artifact was retained.
 
 Paper reasoning is insufficient for three failure classes. These spikes may inform Gate 4, subject to the exploration's constraints: no production or personal data, no product integration, no durable schema, no compatibility promise, unmerged and unshipped, question/result recorded, and code destroyed after evidence is captured.

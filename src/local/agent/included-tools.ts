@@ -29,7 +29,7 @@ export function includedToolsRoot(): string {
     }
     dir = dirname(dir);
   }
-  throw new Error("The included Assistant tools could not be located.");
+  throw new Error("The included Skills & Extensions could not be located.");
 }
 
 /** Pi itself evaluates the same exact +path/-path filters used for user-added resources. */

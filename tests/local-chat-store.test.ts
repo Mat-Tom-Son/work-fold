@@ -18,7 +18,7 @@ import {
   updateConversationLifecycle,
   type ChatMessage,
 } from "../src/local/agent/chat-store.js";
-import { configureWorkFoldStateRoot, spaceStateDir } from "../src/local/state-paths.js";
+import { configureWorkFoldStateRoot, workFolderStateDir } from "../src/local/state-paths.js";
 
 const chatStateRoot = await mkdtemp(join(tmpdir(), "workspace-chat-state-"));
 configureWorkFoldStateRoot(chatStateRoot);
@@ -37,53 +37,53 @@ function message(id: string, content: string): ChatMessage {
 }
 
 test("chat store appends messages without rewriting the conversation log", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-append-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-append-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
   await Promise.all(
-    Array.from({ length: 20 }, (_, index) => appendMessage(spaceRoot, "chat-concurrent", message(String(index), `message ${index}`))),
+    Array.from({ length: 20 }, (_, index) => appendMessage(workFolderRoot, "chat-concurrent", message(String(index), `message ${index}`))),
   );
 
-  const messages = await readConversation(spaceRoot, "chat-concurrent");
+  const messages = await readConversation(workFolderRoot, "chat-concurrent");
   assert.equal(messages.length, 20);
   assert.deepEqual(new Set(messages.map((item) => item.id)), new Set(Array.from({ length: 20 }, (_, index) => String(index))));
 });
 
 test("chat store rejects unsafe conversation ids", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-safe-id-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-safe-id-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
   await assert.rejects(
-    () => appendMessage(spaceRoot, "../outside", message("1", "escape attempt")),
+    () => appendMessage(workFolderRoot, "../outside", message("1", "escape attempt")),
     /Invalid conversation id/,
   );
   await assert.rejects(
-    () => readConversation(spaceRoot, "nested/chat"),
+    () => readConversation(workFolderRoot, "nested/chat"),
     /Invalid conversation id/,
   );
 });
 
 test("chat store ignores legacy external conversations and leaves them unchanged", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-migration-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
-  const legacyDir = join(spaceRoot, ".workspace", "conversations");
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-migration-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
+  const legacyDir = join(workFolderRoot, ".workspace", "conversations");
   await mkdir(legacyDir, { recursive: true });
   const legacyPath = join(legacyDir, "chat-legacy.jsonl");
   await writeFile(legacyPath, `${JSON.stringify(message("1", "legacy conversation"))}\n`, "utf8");
 
-  assert.deepEqual(await listConversations(spaceRoot), []);
-  await appendMessage(spaceRoot, "chat-legacy", message("2", "new work-fold conversation"));
-  const portablePath = join(conversationsDir(spaceRoot), "chat-legacy.jsonl");
+  assert.deepEqual(await listConversations(workFolderRoot), []);
+  await appendMessage(workFolderRoot, "chat-legacy", message("2", "new work-fold conversation"));
+  const portablePath = join(conversationsDir(workFolderRoot), "chat-legacy.jsonl");
   assert.notEqual(await readFile(portablePath, "utf8"), await readFile(legacyPath, "utf8"));
   assert.equal(await readFile(legacyPath, "utf8"), `${JSON.stringify(message("1", "legacy conversation"))}\n`);
-  assert.deepEqual(await readConversation(spaceRoot, "chat-legacy"), [message("2", "new work-fold conversation")]);
+  assert.deepEqual(await readConversation(workFolderRoot, "chat-legacy"), [message("2", "new work-fold conversation")]);
 });
 
 test("chat store skips malformed JSONL lines without deleting the transcript", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-malformed-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-malformed-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const dir = conversationsDir(spaceRoot);
+  const dir = conversationsDir(workFolderRoot);
   await mkdir(dir, { recursive: true });
   const path = join(dir, "chat-malformed.jsonl");
   const systemLine = JSON.stringify({ id: "system", role: "system", content: "Workspace chat", createdAt: "2026-01-01T00:00:00Z" });
@@ -91,12 +91,12 @@ test("chat store skips malformed JSONL lines without deleting the transcript", a
   const original = `${systemLine}\nnot json\n${userLine}\n{"id":"bad","role":"unknown","content":"bad","createdAt":"2026-01-01T00:00:02Z"}\n`;
   await writeFile(path, original, "utf8");
 
-  assert.deepEqual(await readConversation(spaceRoot, "chat-malformed"), [
+  assert.deepEqual(await readConversation(workFolderRoot, "chat-malformed"), [
     { id: "system", role: "system", content: "Workspace chat", createdAt: "2026-01-01T00:00:00Z" },
     message("1", "valid user message"),
   ]);
 
-  const summaries = await listConversations(spaceRoot);
+  const summaries = await listConversations(workFolderRoot);
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]?.id, "chat-malformed");
   assert.equal(summaries[0]?.title, "New Chat");
@@ -104,23 +104,23 @@ test("chat store skips malformed JSONL lines without deleting the transcript", a
 });
 
 test("chat store keeps new appends readable after an unterminated malformed line", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-unterminated-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-unterminated-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const dir = conversationsDir(spaceRoot);
+  const dir = conversationsDir(workFolderRoot);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "chat-unterminated.jsonl"), "truncated", "utf8");
 
-  await appendMessage(spaceRoot, "chat-unterminated", message("2", "after corruption"));
+  await appendMessage(workFolderRoot, "chat-unterminated", message("2", "after corruption"));
 
-  assert.deepEqual(await readConversation(spaceRoot, "chat-unterminated"), [
+  assert.deepEqual(await readConversation(workFolderRoot, "chat-unterminated"), [
     message("2", "after corruption"),
   ]);
 });
 
 test("chat store preserves assistant landing metadata", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-landing-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-landing-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
   const assistantMessage: ChatMessage = {
     id: "assistant-1",
@@ -138,14 +138,14 @@ test("chat store preserves assistant landing metadata", async (t) => {
     },
   };
 
-  await appendMessage(spaceRoot, "chat-landing", assistantMessage);
+  await appendMessage(workFolderRoot, "chat-landing", assistantMessage);
 
-  assert.deepEqual(await readConversation(spaceRoot, "chat-landing"), [assistantMessage]);
+  assert.deepEqual(await readConversation(workFolderRoot, "chat-landing"), [assistantMessage]);
 });
 
 test("chat store preserves interrupted assistant output and completed activity", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-interruption-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-interruption-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
   const assistantMessage: ChatMessage = {
     id: "assistant-interrupted-1",
@@ -167,14 +167,14 @@ test("chat store preserves interrupted assistant output and completed activity",
     },
   };
 
-  await appendMessage(spaceRoot, "chat-interrupted", assistantMessage);
+  await appendMessage(workFolderRoot, "chat-interrupted", assistantMessage);
 
-  assert.deepEqual(await readConversation(spaceRoot, "chat-interrupted"), [assistantMessage]);
+  assert.deepEqual(await readConversation(workFolderRoot, "chat-interrupted"), [assistantMessage]);
 });
 
 test("chat store preserves bounded thinking and tool trails on successful replies", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-work-trail-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-work-trail-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
   const assistantMessage: ChatMessage = {
     id: "assistant-work-trail-1",
@@ -187,15 +187,15 @@ test("chat store preserves bounded thinking and tool trails on successful replie
     ],
   };
 
-  await appendMessage(spaceRoot, "chat-work-trail", assistantMessage);
-  assert.deepEqual(await readConversation(spaceRoot, "chat-work-trail"), [assistantMessage]);
+  await appendMessage(workFolderRoot, "chat-work-trail", assistantMessage);
+  assert.deepEqual(await readConversation(workFolderRoot, "chat-work-trail"), [assistantMessage]);
 
-  await appendMessage(spaceRoot, "chat-invalid-work-trail", {
+  await appendMessage(workFolderRoot, "chat-invalid-work-trail", {
     ...assistantMessage,
     id: "assistant-invalid-work-trail",
     workTrail: [{ kind: "thinking", text: "x".repeat(32_001), phase: "complete" }],
   });
-  const [sanitized] = await readConversation(spaceRoot, "chat-invalid-work-trail");
+  const [sanitized] = await readConversation(workFolderRoot, "chat-invalid-work-trail");
   assert.equal(sanitized?.workTrail, undefined);
 
   // Reasoning a model keeps hidden has no text, so its duration is what the
@@ -204,25 +204,25 @@ test("chat store preserves bounded thinking and tool trails on successful replie
     { kind: "thinking", text: "", phase: "complete", durationMs: 2_600 },
     { kind: "tool", text: "Read complete", detail: "notes.md", toolName: "read", phase: "complete" },
   ];
-  await appendMessage(spaceRoot, "chat-timed-work-trail", { ...assistantMessage, id: "assistant-timed-work-trail", workTrail: timedTrail });
-  const [timed] = await readConversation(spaceRoot, "chat-timed-work-trail");
+  await appendMessage(workFolderRoot, "chat-timed-work-trail", { ...assistantMessage, id: "assistant-timed-work-trail", workTrail: timedTrail });
+  const [timed] = await readConversation(workFolderRoot, "chat-timed-work-trail");
   assert.deepEqual(timed?.workTrail, timedTrail);
 
-  await appendMessage(spaceRoot, "chat-untimed-hidden-thinking", {
+  await appendMessage(workFolderRoot, "chat-untimed-hidden-thinking", {
     ...assistantMessage,
     id: "assistant-untimed-hidden-thinking",
     workTrail: [{ kind: "thinking", text: "", phase: "complete" }],
   });
-  const [untimed] = await readConversation(spaceRoot, "chat-untimed-hidden-thinking");
+  const [untimed] = await readConversation(workFolderRoot, "chat-untimed-hidden-thinking");
   assert.equal(untimed?.workTrail, undefined);
 });
 
 test("chat store prefers generated landing title in conversation summaries", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  await appendMessage(spaceRoot, "chat-title", message("1", "Can you inspect the notes in this workspace and summarize the open questions?"));
-  await appendMessage(spaceRoot, "chat-title", {
+  await appendMessage(workFolderRoot, "chat-title", message("1", "Can you inspect the notes in this workspace and summarize the open questions?"));
+  await appendMessage(workFolderRoot, "chat-title", {
     id: "assistant-1",
     role: "assistant",
     content: "Completed the requested review.",
@@ -238,17 +238,17 @@ test("chat store prefers generated landing title in conversation summaries", asy
     },
   });
 
-  const summaries = await listConversations(spaceRoot);
+  const summaries = await listConversations(workFolderRoot);
   assert.equal(summaries[0]?.title, "Workspace Notes Review");
 });
 
 test("new Chat placeholder does not override its generated landing title", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-created-title-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-created-title-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const created = await createConversation(spaceRoot);
-  await appendMessage(spaceRoot, created.id, message("1", "Plan a garden event rain fallback."));
-  await appendMessage(spaceRoot, created.id, {
+  const created = await createConversation(workFolderRoot);
+  await appendMessage(workFolderRoot, created.id, message("1", "Plan a garden event rain fallback."));
+  await appendMessage(workFolderRoot, created.id, {
     id: "assistant-1",
     role: "assistant",
     content: "The rain plan is ready.",
@@ -264,81 +264,81 @@ test("new Chat placeholder does not override its generated landing title", async
     },
   });
 
-  const summaries = await listConversations(spaceRoot);
+  const summaries = await listConversations(workFolderRoot);
   assert.equal(summaries[0]?.title, "Garden Event Rain Plan");
 });
 
 test("an intentional later rename to New Chat remains authoritative", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-new-chat-rename-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-new-chat-rename-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const created = await createConversation(spaceRoot);
-  await appendMessage(spaceRoot, created.id, message("1", "Review this draft."));
-  const renamed = await renameConversation(spaceRoot, created.id, "New Chat");
+  const created = await createConversation(workFolderRoot);
+  await appendMessage(workFolderRoot, created.id, message("1", "Review this draft."));
+  const renamed = await renameConversation(workFolderRoot, created.id, "New Chat");
 
   assert.equal(renamed.title, "New Chat");
 });
 
 test("generated title persists after the first successful turn without overriding later manual renames", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-generated-title-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-generated-title-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const created = await createConversation(spaceRoot);
-  await appendMessage(spaceRoot, created.id, message("1", "Review the launch checklist and identify missing owners."));
-  const generated = await setGeneratedConversationTitle(spaceRoot, created.id, "Review the launch checklist");
+  const created = await createConversation(workFolderRoot);
+  await appendMessage(workFolderRoot, created.id, message("1", "Review the launch checklist and identify missing owners."));
+  const generated = await setGeneratedConversationTitle(workFolderRoot, created.id, "Review the launch checklist");
   assert.equal(generated.title, "Review the launch checklist");
   assert.equal(
-    (await readConversation(spaceRoot, created.id)).filter((item) => item.titleSource === "generated").length,
+    (await readConversation(workFolderRoot, created.id)).filter((item) => item.titleSource === "generated").length,
     1,
   );
 
-  await setGeneratedConversationTitle(spaceRoot, created.id, "A different generated title");
-  const renamed = await renameConversation(spaceRoot, created.id, "Launch owner review");
-  await setGeneratedConversationTitle(spaceRoot, created.id, "A third generated title");
+  await setGeneratedConversationTitle(workFolderRoot, created.id, "A different generated title");
+  const renamed = await renameConversation(workFolderRoot, created.id, "Launch owner review");
+  await setGeneratedConversationTitle(workFolderRoot, created.id, "A third generated title");
   assert.equal(renamed.title, "Launch owner review");
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "Launch owner review");
+  assert.equal((await listConversations(workFolderRoot))[0]?.title, "Launch owner review");
 });
 
 test("a failed first title request stays New Chat and is not repeated", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-attempt-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-attempt-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const created = await createConversation(spaceRoot);
-  await appendMessage(spaceRoot, created.id, message("1", "Please give this conversation a useful title."));
-  assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), true);
+  const created = await createConversation(workFolderRoot);
+  await appendMessage(workFolderRoot, created.id, message("1", "Please give this conversation a useful title."));
+  assert.equal(conversationNeedsGeneratedTitle(await readConversation(workFolderRoot, created.id)), true);
 
-  const attempted = await markConversationTitleAttempted(spaceRoot, created.id);
+  const attempted = await markConversationTitleAttempted(workFolderRoot, created.id);
   assert.equal(attempted.title, "New Chat");
-  const transcript = await readConversation(spaceRoot, created.id);
+  const transcript = await readConversation(workFolderRoot, created.id);
   assert.equal(transcript.filter((item) => item.titleSource === "attempted").length, 1);
   assert.equal(conversationNeedsGeneratedTitle(transcript), false);
 
-  await markConversationTitleAttempted(spaceRoot, created.id);
-  assert.equal((await readConversation(spaceRoot, created.id)).filter((item) => item.titleSource === "attempted").length, 1);
+  await markConversationTitleAttempted(workFolderRoot, created.id);
+  assert.equal((await readConversation(workFolderRoot, created.id)).filter((item) => item.titleSource === "attempted").length, 1);
 });
 
 test("a model title may legitimately match the first user message after the request is recorded", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-matches-request-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-matches-request-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const created = await createConversation(spaceRoot);
+  const created = await createConversation(workFolderRoot);
   const request = "Fix chat naming";
-  await appendMessage(spaceRoot, created.id, message("1", request));
-  await markConversationTitleAttempted(spaceRoot, created.id);
+  await appendMessage(workFolderRoot, created.id, message("1", request));
+  await markConversationTitleAttempted(workFolderRoot, created.id);
 
-  const generated = await setGeneratedConversationTitle(spaceRoot, created.id, request);
+  const generated = await setGeneratedConversationTitle(workFolderRoot, created.id, request);
   assert.equal(generated.title, request);
-  assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), false);
+  assert.equal(conversationNeedsGeneratedTitle(await readConversation(workFolderRoot, created.id)), false);
 });
 
 test("legacy generated first-message titles remain visible and authoritative", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-legacy-title-fallback-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-legacy-title-fallback-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const created = await createConversation(spaceRoot);
+  const created = await createConversation(workFolderRoot);
   const request = "hey, what's up what do you think of my game here in this space?";
-  await appendMessage(spaceRoot, created.id, message("1", request));
-  await appendMessage(spaceRoot, created.id, {
+  await appendMessage(workFolderRoot, created.id, message("1", request));
+  await appendMessage(workFolderRoot, created.id, {
     id: "old-fallback",
     role: "system",
     kind: "conversation_title",
@@ -347,17 +347,17 @@ test("legacy generated first-message titles remain visible and authoritative", a
     createdAt: "2026-01-01T00:00:02Z",
   });
 
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "hey, what's up what do you think of my game here in this...");
-  assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), false);
-  assert.equal((await setGeneratedConversationTitle(spaceRoot, created.id, "Tic Tac Flow Game Review")).title, "hey, what's up what do you think of my game here in this...");
+  assert.equal((await listConversations(workFolderRoot))[0]?.title, "hey, what's up what do you think of my game here in this...");
+  assert.equal(conversationNeedsGeneratedTitle(await readConversation(workFolderRoot, created.id)), false);
+  assert.equal((await setGeneratedConversationTitle(workFolderRoot, created.id, "Tic Tac Flow Game Review")).title, "hey, what's up what do you think of my game here in this...");
 });
 
 test("chat store manual conversation title overrides generated landing title", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-manual-title-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-manual-title-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  await appendMessage(spaceRoot, "chat-manual-title", message("1", "Review this document draft."));
-  await appendMessage(spaceRoot, "chat-manual-title", {
+  await appendMessage(workFolderRoot, "chat-manual-title", message("1", "Review this document draft."));
+  await appendMessage(workFolderRoot, "chat-manual-title", {
     id: "assistant-1",
     role: "assistant",
     content: "Completed the requested review.",
@@ -373,67 +373,67 @@ test("chat store manual conversation title overrides generated landing title", a
     },
   });
 
-  const renamed = await renameConversation(spaceRoot, "chat-manual-title", "Manual Document Rename");
+  const renamed = await renameConversation(workFolderRoot, "chat-manual-title", "Manual Document Rename");
   assert.equal(renamed.title, "Manual Document Rename");
 
-  const summaries = await listConversations(spaceRoot);
+  const summaries = await listConversations(workFolderRoot);
   assert.equal(summaries[0]?.title, "Manual Document Rename");
-  assert.ok((await readConversation(spaceRoot, "chat-manual-title")).some((item) => item.kind === "conversation_title" && item.content === "Manual Document Rename"));
+  assert.ok((await readConversation(workFolderRoot, "chat-manual-title")).some((item) => item.kind === "conversation_title" && item.content === "Manual Document Rename"));
 });
 
 test("remote Chat title retries are append-only and idempotent within one browser grant", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-remote-title-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-remote-title-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const created = await createConversation(spaceRoot);
-  await appendMessage(spaceRoot, created.id, message("1", "Review the launch notes."));
+  const created = await createConversation(workFolderRoot);
+  await appendMessage(workFolderRoot, created.id, message("1", "Review the launch notes."));
   const provenance = {
     source: "remote_web" as const,
     remotePrincipalId: "browser-title-test",
     remoteGrantId: "grant-title-test",
     remoteRequestId: "request-title-test",
   };
-  const renamed = await renameConversation(spaceRoot, created.id, "Launch notes review", provenance);
-  const transcriptPath = join(conversationsDir(spaceRoot), `${created.id}.jsonl`);
+  const renamed = await renameConversation(workFolderRoot, created.id, "Launch notes review", provenance);
+  const transcriptPath = join(conversationsDir(workFolderRoot), `${created.id}.jsonl`);
   const afterRename = await readFile(transcriptPath, "utf8");
 
-  const replay = await renameConversation(spaceRoot, created.id, "A retry must not replace the result", provenance);
+  const replay = await renameConversation(workFolderRoot, created.id, "A retry must not replace the result", provenance);
   assert.equal(replay.title, "Launch notes review");
   assert.equal(await readFile(transcriptPath, "utf8"), afterRename, "an exact retry does not append another title event");
-  assert.equal((await findRemoteConversationTitleRename(spaceRoot, created.id, provenance))?.title, "Launch notes review");
+  assert.equal((await findRemoteConversationTitleRename(workFolderRoot, created.id, provenance))?.title, "Launch notes review");
 
-  const otherGrant = await renameConversation(spaceRoot, created.id, "Launch notes for approval", {
+  const otherGrant = await renameConversation(workFolderRoot, created.id, "Launch notes for approval", {
     ...provenance,
     remoteGrantId: "grant-title-test-replacement",
   });
   assert.equal(otherGrant.title, "Launch notes for approval", "a replacement grant does not inherit the old grant's request ids");
   assert.equal(
-    (await readConversation(spaceRoot, created.id)).filter((item) => item.kind === "conversation_title" && item.source === "remote_web").length,
+    (await readConversation(workFolderRoot, created.id)).filter((item) => item.kind === "conversation_title" && item.source === "remote_web").length,
     2,
   );
 });
 
 test("chat store persists archive and snooze state as append-only lifecycle events", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-lifecycle-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-lifecycle-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  await appendMessage(spaceRoot, "chat-lifecycle", message("1", "Review the launch checklist."));
-  const before = (await listConversations(spaceRoot))[0]!;
-  const archived = await updateConversationLifecycle(spaceRoot, "chat-lifecycle", { archived: true });
+  await appendMessage(workFolderRoot, "chat-lifecycle", message("1", "Review the launch checklist."));
+  const before = (await listConversations(workFolderRoot))[0]!;
+  const archived = await updateConversationLifecycle(workFolderRoot, "chat-lifecycle", { archived: true });
   assert.ok(archived.archivedAt);
   assert.equal(archived.snoozedUntil, null);
   assert.equal(archived.updatedAt, before.updatedAt, "lifecycle bookkeeping must not make a Chat look newly active");
 
-  const restored = await updateConversationLifecycle(spaceRoot, "chat-lifecycle", { archived: false });
+  const restored = await updateConversationLifecycle(workFolderRoot, "chat-lifecycle", { archived: false });
   assert.equal(restored.archivedAt, null);
   const snoozedUntil = new Date(Date.now() + 60 * 60 * 1_000).toISOString();
-  const snoozed = await updateConversationLifecycle(spaceRoot, "chat-lifecycle", { snoozedUntil });
+  const snoozed = await updateConversationLifecycle(workFolderRoot, "chat-lifecycle", { snoozedUntil });
   assert.equal(snoozed.snoozedUntil, snoozedUntil);
   assert.equal(snoozed.updatedAt, before.updatedAt);
 
-  const resumed = await updateConversationLifecycle(spaceRoot, "chat-lifecycle", { snoozedUntil: null });
+  const resumed = await updateConversationLifecycle(workFolderRoot, "chat-lifecycle", { snoozedUntil: null });
   assert.equal(resumed.snoozedUntil, null);
-  const lifecycleEvents = (await readConversation(spaceRoot, "chat-lifecycle"))
+  const lifecycleEvents = (await readConversation(workFolderRoot, "chat-lifecycle"))
     .filter((item) => item.kind === "conversation_lifecycle");
   assert.deepEqual(lifecycleEvents.map((item) => item.lifecycle), [
     { archived: true, snoozedUntil: null },
@@ -444,26 +444,26 @@ test("chat store persists archive and snooze state as append-only lifecycle even
 });
 
 test("chat store rejects past snoozes and snoozing archived Chats", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-lifecycle-invalid-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-lifecycle-invalid-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  await appendMessage(spaceRoot, "chat-lifecycle-invalid", message("1", "Keep this for later."));
+  await appendMessage(workFolderRoot, "chat-lifecycle-invalid", message("1", "Keep this for later."));
   await assert.rejects(
-    () => updateConversationLifecycle(spaceRoot, "chat-lifecycle-invalid", { snoozedUntil: "2020-01-01T00:00:00.000Z" }),
+    () => updateConversationLifecycle(workFolderRoot, "chat-lifecycle-invalid", { snoozedUntil: "2020-01-01T00:00:00.000Z" }),
     /future snooze time/,
   );
-  await updateConversationLifecycle(spaceRoot, "chat-lifecycle-invalid", { archived: true });
+  await updateConversationLifecycle(workFolderRoot, "chat-lifecycle-invalid", { archived: true });
   await assert.rejects(
-    () => updateConversationLifecycle(spaceRoot, "chat-lifecycle-invalid", { snoozedUntil: new Date(Date.now() + 3_600_000).toISOString() }),
+    () => updateConversationLifecycle(workFolderRoot, "chat-lifecycle-invalid", { snoozedUntil: new Date(Date.now() + 3_600_000).toISOString() }),
     /Unarchive this Chat/,
   );
 });
 
 test("chat store keeps messages when landing metadata is malformed", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-bad-landing-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-bad-landing-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
-  const dir = conversationsDir(spaceRoot);
+  const dir = conversationsDir(workFolderRoot);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "chat-bad-landing.jsonl"), `${JSON.stringify({
     id: "assistant-1",
@@ -480,7 +480,7 @@ test("chat store keeps messages when landing metadata is malformed", async (t) =
     },
   })}\n`, "utf8");
 
-  assert.deepEqual(await readConversation(spaceRoot, "chat-bad-landing"), [
+  assert.deepEqual(await readConversation(workFolderRoot, "chat-bad-landing"), [
     {
       id: "assistant-1",
       role: "assistant",
@@ -491,35 +491,35 @@ test("chat store keeps messages when landing metadata is malformed", async (t) =
 });
 
 test("chat listing reuses cached summaries and rebuilds them when a transcript changes", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
-  await appendMessage(spaceRoot, "chat-indexed", message("1", "Give this Chat a compact cache title."));
-  await setGeneratedConversationTitle(spaceRoot, "chat-indexed", "alpha");
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
+  await appendMessage(workFolderRoot, "chat-indexed", message("1", "Give this Chat a compact cache title."));
+  await setGeneratedConversationTitle(workFolderRoot, "chat-indexed", "alpha");
 
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "alpha");
+  assert.equal((await listConversations(workFolderRoot))[0]?.title, "alpha");
 
   // Same size, same mtime, different bytes. The filesystem change identity
   // still moves, so an external rewrite must invalidate the derived cache.
-  const transcript = join(conversationsDir(spaceRoot), "chat-indexed.jsonl");
+  const transcript = join(conversationsDir(workFolderRoot), "chat-indexed.jsonl");
   const before = await stat(transcript);
   await writeFile(transcript, (await readFile(transcript, "utf8")).replace("alpha", "bravo"), "utf8");
   await utimes(transcript, before.atime, before.mtime);
   assert.equal((await stat(transcript)).size, before.size, "rewrite must preserve size for this assertion to mean anything");
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "bravo", "a metadata-preserving rewrite invalidates the cached summary");
+  assert.equal((await listConversations(workFolderRoot))[0]?.title, "bravo", "a metadata-preserving rewrite invalidates the cached summary");
 
   // Appending moves both size and mtime, so the summary must be rebuilt.
-  await appendMessage(spaceRoot, "chat-indexed", message("2", "charlie"));
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "bravo", "a later append keeps the updated title");
+  await appendMessage(workFolderRoot, "chat-indexed", message("2", "charlie"));
+  assert.equal((await listConversations(workFolderRoot))[0]?.title, "bravo", "a later append keeps the updated title");
 });
 
 test("chat listing ignores cache records that do not describe their own transcript", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-invalid-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
-  await appendMessage(spaceRoot, "chat-guarded", message("1", "genuine"));
-  await listConversations(spaceRoot);
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-invalid-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
+  await appendMessage(workFolderRoot, "chat-guarded", message("1", "genuine"));
+  await listConversations(workFolderRoot);
 
-  const indexFile = join(spaceStateDir(spaceRoot), "conversation-index.json");
-  const transcript = await stat(join(conversationsDir(spaceRoot), "chat-guarded.jsonl"));
+  const indexFile = join(workFolderStateDir(workFolderRoot), "conversation-index.json");
+  const transcript = await stat(join(conversationsDir(workFolderRoot), "chat-guarded.jsonl"));
   await writeFile(indexFile, `${JSON.stringify({
     version: 5,
     entries: {
@@ -535,18 +535,18 @@ test("chat listing ignores cache records that do not describe their own transcri
     },
   })}\n`, "utf8");
 
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "New Chat", "a self-inconsistent cache record is discarded");
+  assert.equal((await listConversations(workFolderRoot))[0]?.title, "New Chat", "a self-inconsistent cache record is discarded");
 });
 
 test("chat listing rebuilds a previous-version cache after title semantics change", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-version-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
-  const created = await createConversation(spaceRoot);
-  await appendMessage(spaceRoot, created.id, message("1", "Name this completed conversation"));
-  const transcript = await stat(join(conversationsDir(spaceRoot), `${created.id}.jsonl`));
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-version-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
+  const created = await createConversation(workFolderRoot);
+  await appendMessage(workFolderRoot, created.id, message("1", "Name this completed conversation"));
+  const transcript = await stat(join(conversationsDir(workFolderRoot), `${created.id}.jsonl`));
 
-  const indexFile = join(spaceStateDir(spaceRoot), "conversation-index.json");
-  await mkdir(spaceStateDir(spaceRoot), { recursive: true });
+  const indexFile = join(workFolderStateDir(workFolderRoot), "conversation-index.json");
+  await mkdir(workFolderStateDir(workFolderRoot), { recursive: true });
   await writeFile(indexFile, `${JSON.stringify({
     version: 4,
     entries: {
@@ -568,34 +568,34 @@ test("chat listing rebuilds a previous-version cache after title semantics chang
     },
   })}\n`, "utf8");
 
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "New Chat");
+  assert.equal((await listConversations(workFolderRoot))[0]?.title, "New Chat");
   assert.equal(JSON.parse(await readFile(indexFile, "utf8")).version, 5);
 });
 
-test("listing a Space never deletes a Chat that is still being started", async (t) => {
-  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-new-chat-survives-"));
-  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+test("listing a work-folder never deletes a Chat that is still being started", async (t) => {
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-new-chat-survives-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
 
   // A Chat exists from the moment it is created; its first user message lands
   // a moment later, once the turn is reserved. Whoever lists Chats in that
-  // window — the rail, a routing chat hop's sibling Space, a handoff into
-  // another Space — must not make that turn fail as "Conversation not found."
-  const created = await createConversation(spaceRoot);
-  const transcript = join(conversationsDir(spaceRoot), `${created.id}.jsonl`);
-  assert.deepEqual(await listConversations(spaceRoot), [], "a Chat with no message yet is not listed");
+  // window — the rail, an automation chat hop's sibling work-folder, a handoff into
+  // another work-folder — must not make that turn fail as "Conversation not found."
+  const created = await createConversation(workFolderRoot);
+  const transcript = join(conversationsDir(workFolderRoot), `${created.id}.jsonl`);
+  assert.deepEqual(await listConversations(workFolderRoot), [], "a Chat with no message yet is not listed");
   assert.ok((await stat(transcript).catch(() => null)), "listing left the started Chat in place");
 
-  await appendMessage(spaceRoot, created.id, message("1", "Review the rain plan."));
-  const listed = await listConversations(spaceRoot);
+  await appendMessage(workFolderRoot, created.id, message("1", "Review the rain plan."));
+  const listed = await listConversations(workFolderRoot);
   assert.deepEqual(listed.map((entry) => entry.id), [created.id], "the Chat is listed once it carries a message");
 
   // Housekeeping still reclaims a Chat somebody opened and walked away from.
-  const abandoned = await createConversation(spaceRoot);
-  const abandonedTranscript = join(conversationsDir(spaceRoot), `${abandoned.id}.jsonl`);
+  const abandoned = await createConversation(workFolderRoot);
+  const abandonedTranscript = join(conversationsDir(workFolderRoot), `${abandoned.id}.jsonl`);
   const longAgo = new Date(Date.now() - 10 * 60_000);
   await utimes(abandonedTranscript, longAgo, longAgo);
   assert.deepEqual(
-    (await listConversations(spaceRoot)).map((entry) => entry.id),
+    (await listConversations(workFolderRoot)).map((entry) => entry.id),
     [created.id],
     "an abandoned Chat is never listed",
   );

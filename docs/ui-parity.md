@@ -6,11 +6,11 @@ work-fold is the clean-break successor to the legacy Workspace extraction of the
 
 | Baseline concept | work-fold concept |
 | --- | --- |
-| Workspace backed by a local SharePoint mirror | Space backed directly by an ordinary folder |
+| Workspace backed by a local SharePoint mirror | work-folder backed directly by an ordinary folder |
 | Kits | Skills |
-| Sources | Ordinary files in a Space (the desktop Library was retired on 2026-09-25) |
-| Microsoft organization login | Assistant setup using Pi providers |
-| Kai | Assistant |
+| Sources | Ordinary files in a work-folder (the desktop Library was retired on 2026-09-25) |
+| Microsoft organization login | Agent setup using Pi providers |
+| Kai | Agent |
 | SharePoint sync and publish | Local files first; cloud-synced folders work through their desktop clients |
 
 The translation is intentionally narrow. It does not justify replacing the shell, tabs, file interactions, chat experience, desktop integration, or accessibility behavior.
@@ -20,22 +20,22 @@ The translation is intentionally narrow. It does not justify replacing the shell
 ### Persistent surface tabs
 
 - Chat, file, and History surfaces open as tabs instead of route-only panes.
-- Customize Folder opens a popup from the Folder header, Manage Folders, or Settings → Appearance,
+- Customize work-folder opens a popup from the work-folder header, Manage work-folders, or Settings → Appearance,
   with Banner, Icon, and Color sections, offline image presets, framing, and categorized icon search.
-  Model and Instructions shortcuts open that Folder's AI Models settings; a back arrow beside the
-  Settings title returns to the same Folder and customization section only from this entry path.
-  It stays pinned to the target Folder without creating a tab or replacing the active work surface and uses
+  Model and Instructions shortcuts open that work-folder's AI Models settings; a back arrow beside the
+  Settings title returns to the same work-folder and customization section only from this entry path.
+  It stays pinned to the target work-folder without creating a tab or replacing the active work surface and uses
   the shared modal focus, Escape, outside-click, and close-control behavior. Old saved appearance
   tabs are discarded on restore while the remaining work tabs stay intact.
 - Tabs persist and restore across application restarts.
-- Each tab retains its Space identity; activating a tab from another Space activates that Space.
-- Each Space remembers its most recently active tab.
+- Each tab retains its work-folder identity; activating a tab from another work-folder activates that work-folder.
+- Each work-folder remembers its most recently active tab.
 - Existing conversations deduplicate to one tab while multiple unsent New Chat drafts remain possible.
 - Renamed conversations update their tab titles.
 - Moving or renaming a file retargets its open tab; deleting it closes the affected tab.
 - Closing a tab selects the adjacent tab predictably.
 - Arrow keys, Home, and End navigate the tab strip with correct focus and ARIA tab semantics.
-- With four or more tabs open, tabs narrow but keep their Folder icon and a normal close button.
+- With four or more tabs open, tabs narrow but keep their work-folder icon and a normal close button.
 - Inactive tab panels remain mounted when needed so drafts, scroll position, and transient UI state survive tab switches.
 
 ### Desktop shell
@@ -44,36 +44,37 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Preserve window size, position, maximized state, theme integration, and renderer recovery behavior.
 - On Windows, closing the window may hide work-fold to the system tray when the preference is enabled. On macOS, closing the last window keeps the application host alive and the Dock icon recreates the window. Explicit Quit exits cleanly on both. Close-to-tray remains Windows behavior: the macOS menu-bar item never changes what closing the last macOS window means.
 - The tray exposes clear **Your fold**, **Show**, and **Quit** actions and does not strand an invisible process.
-- Both platforms carry the management popover (**Your fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon become reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, holds drops without sending, and its Stop names the management turn and every delegated Space turn it aborts.
+- Both platforms carry the work-fold agent popover (**Your fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon become reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, holds drops without sending, and its Stop names the work-fold agent turn and every delegated work-folder turn it aborts.
 - Update status and commands remain available from both the platform-appropriate desktop menu and settings surface.
 
 ### Files and folders
 
-- The Files rail item, resizable file pane, search, expandable tree, file-type icons, details pane, and file history remain first-class for the selected Space.
+- The Files rail item, resizable file pane, search, expandable tree, file-type icons, details pane, and file history remain first-class for the selected work-folder.
 - Right-click actions are available throughout the file tree and use native desktop context behavior where appropriate.
-- Supported actions include open, reveal in Explorer/Finder, copy path, attach to chat, rename, move, upload/import, delete, and version history. **New folder** in the Files toolbar creates a directory at the Folder root; **New Folder Here** in a folder's context menu creates a child directory. Both use an in-app naming dialog and the existing History restore-point path, including the native macOS menu. File creation remains unavailable.
-- Attach to Chat stages a quiet file icon, filename and remove control above the owning Chat's composer, without a success toast or extraction-status badge. Folder file attachments give the Worker the selected paths to inspect with tools; supported images retain bounded native vision admission. Missing files or invalid paths show a real error instead of a successful attachment chip.
-- Desktop drag-out, file opening, and reveal operations use safe Space-relative paths and never escape the Space root.
+- Supported actions include open, reveal in Explorer/Finder, copy path, attach to chat, rename, move, upload/import, delete, and version history. **New folder** in the Files toolbar creates a directory at the work-folder root; **New work-folder Here** in a folder's context menu creates a child directory. Both use an in-app naming dialog and the existing History restore-point path, including the native macOS menu. File creation remains unavailable.
+- Attach to Chat stages a quiet file icon, filename and remove control above the owning Chat's composer, without a success toast or extraction-status badge. work-folder file attachments give the Worker the selected paths to inspect with tools; supported images retain bounded native vision admission. Missing files or invalid paths show a real error instead of a successful attachment chip.
+- Explicit Copy actions in the desktop, work-fold agent popover, and context inspector write text (and formatted Chat HTML when available) through a write-only native clipboard bridge. Native-menu focus transitions must not make Copy fail. Only trusted top-level renderer frames can call it; restricted apps receive no clipboard bridge. Browser hosts retain the browser clipboard API, and copy success is shown only after the write succeeds.
+- Desktop drag-out, file opening, and reveal operations use safe work-folder-relative paths and never escape the work-folder root.
 - Delete moves content into History's undo window or Recently deleted; confirmations may remain, but nothing is permanent at the moment it happens and the Undo toast restores from whichever holds it.
-- Registering an existing folder as a Space never moves or converts user files. It maintains only the documented hidden `.work-fold/` identity and conversation layer; that layer, preserved legacy `.workspace/`, and native `.pi/` configuration never appear as ordinary Files. Legacy `.workspace/` content is never parsed or imported.
+- Registering an existing folder as a work-folder never moves or converts user files. It maintains only the documented hidden `.work-fold/` identity and conversation layer; that layer, preserved legacy `.workspace/`, and native `.pi/` configuration never appear as ordinary Files. Legacy `.workspace/` content is never parsed or imported.
 
 ### Chat and navigation
 
 - Each message keeps its icon-only Copy control at the far left of its footer.
   Its timestamp occupies the next slot and fades in on hover or keyboard focus
   without moving the Copy control.
-- Preserve conversation history, rename, drafts, streamed replies, actual model reasoning text, the compact inline trail of real tool calls, stop behavior, context attachments, copy actions, suggested prompts, and extension UI requests. Persist settled Thinking/tool entries with their Assistant message so tab switches and relaunches restore the same trail without running indicators or completed-tool replay. Reasoning may carry the quiet `Thinking…`/`Thinking` label; repair only orphan Markdown text markers after parsing, preserve valid code/emphasis, and show safe tool targets rather than raw result bodies. Do not reintroduce a separate Activity drawer, brain icon, completion badge, or large app-authored reasoning status card.
-- Preserve the command palette, keyboard shortcuts, toast/confirm feedback, onboarding, Space creation/linking, themes, typography, and resizable layout. [Application appearance](application-appearance.md) owns device-local presets, readable semantic colors, interface/conversation typography, density, and accessibility. Desktop and menu-bar chat use one shared preference store; Space identity stays separate, and the paired web fold retains browser appearance.
-- The persistent Folder header chooses the root-folder entity and offers compact create/use-existing/manage actions on every left-pane surface. Primary rail navigation uses `Files`, `Chats`, and `History`; Chats in other Folders stay collapsed below the selected Folder's list. The bottom-rail Add button opens the Skills & Extensions popup directly (2026-09-25); there is no Add menu, no Library tab, and no Folder-owned Apps tab. Installed apps open from their contributed rail region and are managed in Settings → Apps, which lists apps by Folder; a person asks a Worker to build an app in a Chat. The Skills & Extensions popup is pinned to the Folder it was opened from and combines Installed and Discover views for Skills and Extensions while retaining scope, provenance, load state, diagnostics, and package lifecycle; its Installed view starts with the Included with work-fold strip and shows Everywhere and This folder only side by side. Provider connections, model defaults, per-Folder instructions, API-key, and OAuth setup live in `Settings → AI Models`, whose scope is chosen with two large buttons (This worker and work-fold agent) and whose model dropdown opens with a search box and vendor groupings and closes on a choice; only model defaults and Folder instructions have narrow work-fold-agent verbs.
+- Preserve conversation history, rename, drafts, streamed replies, actual model reasoning text, the compact inline trail of real tool calls, stop behavior, context attachments, copy actions, suggested prompts, and extension UI requests. Persist settled Thinking/tool entries with their agent message so tab switches and relaunches restore the same trail without running indicators or completed-tool replay. Reasoning may carry the quiet `Thinking…`/`Thinking` label; repair only orphan Markdown text markers after parsing, preserve valid code/emphasis, and show safe tool targets rather than raw result bodies. Do not reintroduce a separate Activity drawer, brain icon, completion badge, or large app-authored reasoning status card.
+- Preserve the command palette, keyboard shortcuts, toast/confirm feedback, onboarding, work-folder creation/linking, themes, typography, and resizable layout. [Application appearance](application-appearance.md) owns device-local presets, readable semantic colors, interface/conversation typography, density, and accessibility. Desktop and menu-bar chat use one shared preference store; work-folder identity stays separate, and the paired web fold retains browser appearance.
+- The persistent work-folder header chooses the root-folder entity and offers compact create/use-existing/manage actions on every left-pane surface. Primary rail navigation uses `Files`, `Chats`, and `History`; Chats in other work-folders stay collapsed below the selected work-folder's list. The bottom-rail Add button opens the Skills & Extensions popup directly (2026-09-25); there is no Add menu, no Library tab, and no work-folder-owned Apps tab. Installed apps open from their contributed rail region and are managed in Settings → Apps, which lists apps by work-folder; a person asks a Worker to build an app in a Chat. The Skills & Extensions popup is pinned to the work-folder it was opened from and combines Installed and Discover views for Skills and Extensions while retaining scope, provenance, load state, diagnostics, and package lifecycle; its Installed view starts with the Included with work-fold strip and shows Everywhere and This folder only side by side. Provider connections, model defaults, per-work-folder instructions, API-key, and OAuth setup live in `Settings → AI Models`, whose scope is chosen with two large buttons (This worker and work-fold agent) and whose model dropdown opens with a search box and vendor groupings and closes on a choice; only model defaults and work-folder instructions have narrow work-fold-agent verbs.
 
 ### Collaboration within a conversation
 
 [Collaboration experience](collaboration-experience.md) defines the shared work
-presentation. Space Chats, the fold, and trusted App requests follow the durable
+presentation. work-folder Chats, the work-fold agent, and trusted App requests follow the durable
 request while the message stream follows its current turn. Questions show their
 origin and an addressed answer field; Needs you opens those questions inline.
 Stop includes outstanding delegated work and remains available between turns.
-Selected files open in their owning Space; partial results are named explicitly.
+Selected files open in their owning work-folder; partial results are named explicitly.
 Host continuations appear as quiet activity, never as messages typed by the person.
 
 Refresh and reconnect preserve drafts and focus. Unsent question answers use
@@ -84,22 +85,23 @@ own browser-grant request family; other Needs you items direct it to the desktop
 
 ### Management layer and CLI
 
-- The read-only management layer is additive infrastructure; it must not replace or weaken Space-bound tabs, background continuity, native menus, or the visible trust and capability-management surfaces.
-- The installed `work-fold` command resolves the terminal's current folder to the same Space model as the renderer, can report live Assistant/compaction tasks, and exposes compact capability metadata through stable JSON.
+- The read-only work-fold agent layer is additive infrastructure; it must not replace or weaken work-folder-bound tabs, background continuity, native menus, or the visible trust and capability-management surfaces.
+- The paired web client focuses on New chat and saved Chats. It removes Files/work-folder browsing and replaces the footer picker with a Shared pages popup for existing desktop publications. It reveals links only on click, opens their isolated viewer with a fragment key and no opener, and uses the same neutral hover surface throughout. Desktop Files remains first-class.
+- The installed `work-fold` command resolves the terminal's current folder to the same work-folder model as the renderer, can report live agent/compaction tasks, and exposes compact capability metadata through stable JSON.
 - A headless CLI request must coexist with the running single-instance desktop app, return bounded stdout/stderr/exit status, and avoid opening or stealing focus from the interactive window.
 - Installer PATH integration must be reversible and must not modify shell profile files.
-- Settings uses Appearance, AI Models, Web access, Shared pages, Automations, Recently deleted, and About, plus an Apps page (2026-09-25) that lists installed Folder apps by Folder and owns their management. Automations also carries Limits, collapsed by default under a Limits disclosure; Recently deleted carries the entry list, Restore, Save a copy, Delete now, and the retention window; Updates lives in About; no authority selector or standing-rules section exists on any surface.
+- Settings uses Appearance, AI Models, Web access, Shared pages, Automations, Recently deleted, and About, plus an Apps page (2026-09-25) that lists installed work-folder apps by work-folder and owns their management. Automations also carries Limits, collapsed by default under a Limits disclosure; Recently deleted carries the entry list, Restore, Save a copy, Delete now, and the retention window; Updates lives in About; no authority selector or standing-rules section exists on any surface.
 - The work-folder header's right-click menu appears above pane dividers. An outside press dismisses it without starting a resize or activating an underlying control; Escape also dismisses it and returns focus to the header. Pane resizing resumes normally after dismissal.
-- **Needs you** shows only Assistant questions and due snoozes — never an action waiting for approval. On the desktop, questions appear inside their owning Chats and due snoozes return to the Chats list. The paired web client shows questions inside their owning Chats, with a quiet answer indicator in the chat list; it has no separate Needs you screen or receipt feed. The popover stays focused on its always-visible, incrementally streaming conversation, one expanding composer whose action becomes **Stop** during active work, a clickable actual-model label, and a text-only supported reasoning selector; it neither fetches nor acknowledges the glance. None of these adds a rail destination, tab, or notification; the main window may carry at most a questions-only indicator that opens those items — never an approval control — and with nothing to show, no control appears.
+- **Needs you** shows only agent questions and due snoozes — never an action waiting for approval. On the desktop, questions appear inside their owning Chats and due snoozes return to the Chats list. The paired web client shows questions inside their owning Chats and plain titles in the chat list; it has no separate Needs you screen or receipt feed. The popover stays focused on its always-visible, incrementally streaming conversation, one expanding composer whose action becomes **Stop** during active work, a clickable actual-model label, and a text-only supported reasoning selector; it neither fetches nor acknowledges the overview. None of these adds a rail destination, tab, or notification; the main window may carry at most a questions-only indicator that opens those items — never an approval control — and with nothing to show, no control appears.
 
-### Restricted Space apps
+### Restricted work-folder apps
 
-- A reviewed restricted app belongs to exactly one Space and contributes its rail navigator without becoming a full-trust Pi Extension or silently inheriting another Space's identity.
-- App-requested work tabs are ordinary persistent Space-owned tabs. Restoring or activating one restores its owning Space, while removal or a reviewed-digest change cannot leave a stale executable view mounted.
-- Adding a preview grants every destination, Space-file permission, notification category, and Check slot the package declares and enables its automations; each stays a separate visible control the person can narrow or re-allow, and a connection's secret is entered by the person once per destination.
+- A reviewed restricted app belongs to exactly one work-folder and contributes its rail navigator without becoming a full-trust Pi Extension or silently inheriting another work-folder's identity.
+- App-requested work tabs are ordinary persistent work-folder-owned tabs. Restoring or activating one restores its owning work-folder, while removal or a reviewed-digest change cannot leave a stale executable view mounted.
+- Adding a preview grants every destination, work-folder-file permission, notification category, and Check slot the package declares and enables its automations; each stays a separate visible control the person can narrow or re-allow, and a connection's secret is entered by the person once per destination.
 - Visible UI and optional worker execution use separate sandbox hosts. Direct networking, Node access, arbitrary navigation, and host powers outside an accepted UI/action/automation lifecycle remain denied.
 - Machine-local app storage survives a reviewed app update and an application update. Active visible app UI receives bounded invalidation hints; inactive views recover durable state when reopened instead of receiving queued hidden updates.
-- System notifications use only reviewed static copy during an enabled automation whose permission subset includes the granted category. Clicking one targets the exact owning Space and app, and revocation, suspend, app stop, removal, or shutdown closes outstanding authority and native handles.
+- System notifications use only reviewed static copy during an enabled automation whose permission subset includes the granted category. Clicking one targets the exact owning work-folder and app, and revocation, suspend, app stop, removal, or shutdown closes outstanding authority and native handles.
 
 ## Deliberately removed or replaced
 
@@ -108,29 +110,29 @@ own browser-grant request family; other Needs you items direct it to the desktop
 - Compliance/SOP-specific review surfaces and Kymanox/Kai branding.
 - Company signing credentials and compatibility identifiers that are not needed by work-fold.
 
-Pi remains the agent runtime. work-fold should expose Pi's provider setup, standard built-in tools, Skills, Extensions, packages, registered-Space project authorization, and supported extension UI without inventing a second full-trust capability system. Restricted app packages are a deliberately separate sandbox lane and must never be loaded as Pi Extensions.
+Pi remains the agent runtime. work-fold should expose Pi's provider setup, standard built-in tools, Skills, Extensions, packages, registered-work-folder project authorization, and supported extension UI without inventing a second full-trust capability system. Restricted app packages are a deliberately separate sandbox lane and must never be loaded as Pi Extensions.
 
 ## Acceptance evidence
 
 A corrective port is ready for release only when all of the following are true:
 
 1. The original and Workspace fixture screens have been captured at the same viewport and reviewed side by side.
-2. Tabs have been exercised for restore, multiple drafts, cross-Space activation, rename, move, delete, close fallback, and keyboard navigation.
-3. File-tree context actions and native open/reveal/drag behavior have been exercised against a disposable Space.
+2. Tabs have been exercised for restore, multiple drafts, cross-work-folder activation, rename, move, delete, close fallback, and keyboard navigation.
+3. File-tree context actions and native open/reveal/drag behavior have been exercised against a disposable work-folder.
 4. Custom menus, close-to-tray, Show, Quit, window-state restore, and updater surfaces have been exercised in packaged Electron.
 5. Type checks, tests, renderer build, desktop compile/preflight, the real-Electron restricted-app probe, and a packaged smoke build pass on the supported Node runtime.
 6. The app contains no user-facing Kai, Kymanox, Kits, Sources, SharePoint, Microsoft-login, or legacy Workspace copy except in historical documentation.
-7. The packaged CLI resolves context, lists Spaces/tasks/capabilities, coexists with the GUI, and cleans its request/response handoff.
+7. The packaged CLI resolves context, lists work-folders/tasks/capabilities, coexists with the GUI, and cleans its request/response handoff.
 8. No public release is published until the product review is accepted and the exact release commit is green on both main and matching source-tag CI.
-9. The checked-in restricted Connected inbox example has been exercised in a disposable Space for default-off grants and schedules, rail and persistent-tab ownership, storage invalidation/reload, explicit named automation runs and receipts, static notification routing, revocation, suspend/resume, and teardown.
-10. An installed-updater smoke preserves version-2 restricted-app reviewed digests, grants, encrypted connection status, automation settings and receipts, local storage, and Space-owned surfaces across the version change.
+9. The checked-in restricted Connected inbox example has been exercised in a disposable work-folder for default-off grants and schedules, rail and persistent-tab ownership, storage invalidation/reload, explicit named automation runs and receipts, static notification routing, revocation, suspend/resume, and teardown.
+10. An installed-updater smoke preserves version-2 restricted-app reviewed digests, grants, encrypted connection status, automation settings and receipts, local storage, and work-folder-owned surfaces across the version change.
 
 ## Accepted public baseline
 
-The first July 10, 2026 local candidate at commit `71e5fa4` was rejected after real screenshots exposed two release-blocking defects: it called the Files surface “Space,” and several newly written pane structures had no matching styles. That build remains historical evidence of why packaged visual review is a release gate.
+The first July 10, 2026 local candidate at commit `71e5fa4` was rejected after real screenshots exposed two release-blocking defects: it called the Files surface “work-folder,” and several newly written pane structures had no matching styles. That build remains historical evidence of why packaged visual review is a release gate.
 
 Workspace 0.2.7 at commit `db5c149` established the accepted public baseline on July 12, 2026. It preserves the interaction contract above, uses the compact Fluent icon-only rail with accessible labels/tooltips, applies supported Windows Mica with a safe fallback, and includes the shared management kernel and installed read-only CLI.
 
-The 0.2.8 development checkpoint at commit `27aa329` established the restricted-app sandbox baseline: Space-owned rail and work-tab surfaces, separate visible and worker sandboxes, default-off external authority, host-owned connections and storage, deterministic teardown, and a release-gating real-Electron probe. The current version-2 contract replaces its single-job prototype with named automations; compatibility with that unreleased manifest shape is intentionally not retained. The checkpoint notes remain in [releases/0.2.8.md](releases/0.2.8.md) as development history.
+The 0.2.8 development checkpoint at commit `27aa329` established the restricted-app sandbox baseline: work-folder-owned rail and work-tab surfaces, separate visible and worker sandboxes, default-off external authority, host-owned connections and storage, deterministic teardown, and a release-gating real-Electron probe. The current version-2 contract replaces its single-job prototype with named automations; compatibility with that unreleased manifest shape is intentionally not retained. The checkpoint notes remain in [releases/0.2.8.md](releases/workspace/0.2.8.md) as development history.
 
-Future changes must retain those behaviors while satisfying [the work-fold visual system](visual-design.md), [the management-layer contract](management-layer.md), and the current build/release gates. Browser review must cover every primary, Assistant, and restricted-app surface in light and dark themes at the true minimum window size and at a tall desktop aspect ratio. Automated checks must continue to guard the Files/Space distinction, Space-bound tabs, Fluent shell-icon contract, compact neutral chrome, JSX-to-CSS contracts, and the restricted-app runtime boundary.
+Future changes must retain those behaviors while satisfying [the work-fold visual system](visual-design.md), [the management-layer contract](work-fold-agent-and-cli.md), and the current build/release gates. Browser review must cover every primary, agent, and restricted-app surface in light and dark themes at the true minimum window size and at a tall desktop aspect ratio. Automated checks must continue to guard the Files/work-folder distinction, work-folder-bound tabs, Fluent shell-icon contract, compact neutral chrome, JSX-to-CSS contracts, and the restricted-app runtime boundary.

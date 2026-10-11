@@ -26,8 +26,8 @@ function Observation({ title, value }: { title: string; value: HistoryFileObserv
 }
 
 /** Read-only, explicitly selected evidence. Changing the target invalidates late responses. */
-export function HistoryFileComparison({ spaceId, path, fromCheckpointId, toCheckpointId, refreshRequest = 0 }: {
-  spaceId: string; path: string; fromCheckpointId: string; toCheckpointId?: string; refreshRequest?: number;
+export function HistoryFileComparison({ workFolderId, path, fromCheckpointId, toCheckpointId, refreshRequest = 0 }: {
+  workFolderId: string; path: string; fromCheckpointId: string; toCheckpointId?: string; refreshRequest?: number;
 }) {
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<Comparison | null>(null);
@@ -37,7 +37,7 @@ export function HistoryFileComparison({ spaceId, path, fromCheckpointId, toCheck
     const controller = new AbortController();
     setResult(null); setError("");
     const query = new URLSearchParams({ path, fromCheckpointId, ...(toCheckpointId ? { toCheckpointId } : {}) });
-    void api<{ comparison: Comparison }>(`/api/spaces/${spaceId}/history/diff?${query}`, { signal: controller.signal }).then(({ comparison }) => {
+    void api<{ comparison: Comparison }>(`/api/work-folders/${workFolderId}/history/diff?${query}`, { signal: controller.signal }).then(({ comparison }) => {
       if (cancelled) return;
       if (comparison.path !== path || comparison.before.checkpointId !== fromCheckpointId ||
         (toCheckpointId ? comparison.after.checkpointId !== toCheckpointId : comparison.after.source !== "current")) {
@@ -46,7 +46,7 @@ export function HistoryFileComparison({ spaceId, path, fromCheckpointId, toCheck
       setResult(comparison);
     }).catch((failure) => { if (!cancelled) setError(errorText(failure)); });
     return () => { cancelled = true; controller.abort(); };
-  }, [spaceId, path, fromCheckpointId, toCheckpointId, refreshRequest, revision]);
+  }, [workFolderId, path, fromCheckpointId, toCheckpointId, refreshRequest, revision]);
   return <section className="history-file-comparison" aria-label={`Comparison for ${path}`}>
     <div className="history-comparison-heading"><strong>{path}</strong><button type="button" className="ui-control" onClick={() => setRevision((value) => value + 1)}>Compare again</button></div>
     <p>Saved content compared with {toCheckpointId ? "another saved version" : "the current file"}. This view does not change files. Changes describe this interval, regardless of who made them.</p>

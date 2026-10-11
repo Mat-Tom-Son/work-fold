@@ -100,7 +100,7 @@ export function RestrictedAppViewport({
       document.removeEventListener("visibilitychange", schedule);
       void desktop.unmountView(mountId).catch(() => undefined);
     };
-  }, [desktop, generation, app.spaceId, app.manifest.id, app.digest, app.featureInstallationId]);
+  }, [desktop, generation, app.workFolderId, app.manifest.id, app.digest, app.featureInstallationId]);
 
   useLayoutEffect(() => {
     const element = hostRef.current;
@@ -144,7 +144,7 @@ function viewRequest(
   const bounds = nativeViewBounds(element, elementBounds, latest.placement);
   const active = latest.active && !element.hidden && document.visibilityState === "visible";
   return {
-    spaceId: latest.app.spaceId,
+    workFolderId: latest.app.workFolderId,
     appId: latest.app.manifest.id,
     featureInstallationId: latest.app.featureInstallationId,
     digest: latest.app.digest,
@@ -172,7 +172,7 @@ function nativeViewBounds(element: HTMLElement, bounds: DOMRect, placement: "nav
   const right = bounds.right - borderRight;
   const bottom = bounds.bottom - borderBottom;
   if (placement === "navigator") {
-    const rail = document.querySelector<HTMLElement>(".professional-space-rail")?.getBoundingClientRect();
+    const rail = document.querySelector<HTMLElement>(".professional-work-folder-rail")?.getBoundingClientRect();
     if (rail) left = Math.max(left, rail.right + restrictedAppRailGuard);
   }
   return {
@@ -200,7 +200,7 @@ function nativeViewOccluded(element: HTMLElement, bounds: DOMRect): boolean {
     ".command-palette-backdrop",
     ".context-menu-backdrop",
     ".context-menu",
-    ".surface-tab-space-menu",
+    ".surface-tab-work-folder-menu",
     ".chat-rename-popover",
     "[role='menu']",
     "[role='dialog'][aria-modal='true']",

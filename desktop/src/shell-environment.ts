@@ -10,7 +10,7 @@ import { basename, delimiter } from "node:path";
  * Spotlight, or `open`, the process inherits launchd's minimal environment:
  * `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and no shell startup files ever run.
  * Pi's bash tool spawns `/bin/bash -c` with this process environment, so the
- * Assistant cannot find Homebrew, nvm, pnpm, or anything else the person's
+ * agent cannot find Homebrew, nvm, pnpm, or anything else the person's
  * shell profile adds — even though the same prompt in a terminal `pi` session
  * would. A terminal launch already carries the shell environment and is left
  * alone.

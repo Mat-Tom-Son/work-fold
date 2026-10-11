@@ -14,7 +14,7 @@ $metadataPath = Join-Path $OutputDirectory "work-fold-Personal-Code-Signing.json
 
 $existing = @(@($pfxPath, $publicPath, $passwordPath, $metadataPath) | Where-Object { Test-Path -LiteralPath $_ })
 if ($existing.Count -eq 4) {
-  Write-Host "work-fold personal signing certificate already exists at $OutputDirectory."
+  Write-Host "work-fold everywhere signing certificate already exists at $OutputDirectory."
   Get-Content -Raw -LiteralPath $metadataPath
   exit 0
 }
@@ -32,7 +32,7 @@ $securePassword = ConvertTo-SecureString -String $plainPassword -AsPlainText -Fo
 $certificate = New-SelfSignedCertificate `
   -Type CodeSigningCert `
   -Subject "CN=$Publisher" `
-  -FriendlyName "work-fold personal code signing" `
+  -FriendlyName "work-fold everywhere code signing" `
   -CertStoreLocation "Cert:\CurrentUser\My" `
   -KeyAlgorithm RSA `
   -KeyLength 3072 `
@@ -70,5 +70,5 @@ Set-Acl -LiteralPath $OutputDirectory -AclObject $acl
 $plainPassword = $null
 $securePassword.Dispose()
 
-Write-Host "Created work-fold personal code-signing certificate."
+Write-Host "Created work-fold everywhere code-signing certificate."
 $metadata | ConvertTo-Json

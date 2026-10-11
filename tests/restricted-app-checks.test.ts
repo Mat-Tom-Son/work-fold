@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readRestrictedAppCheck } from "../src/local/agent/restricted-app-checks.js";
-import type { RestrictedAppCheckResult } from "../src/shared/restricted-app-checks.js";
+import { restrictedAppCheckLimits, type RestrictedAppCheckResult } from "../src/shared/restricted-app-checks.js";
 
 const result: RestrictedAppCheckResult = { checkId: "selected", declarationDigest: "a".repeat(64), title: "Quote review", state: "never-run", lastRunAt: null, findings: [], truncated: false };
 const declarations = [{ id: "quote-review", title: "Quote review" }];
@@ -9,10 +9,10 @@ const grants = [{ permissionId: "quote-review", checkId: result.checkId, declara
 
 test("restricted Check broker derives the selected identity and rejects widening before reading", async () => {
   const calls: unknown[] = [];
-  const context = { spaceId: "space-one", declarations, grants, assertCurrent() {}, read: async (...args: string[]) => { calls.push(args); return result; } };
+  const context = { workFolderId: "work-folder-one", declarations, grants, assertCurrent() {}, read: async (...args: string[]) => { calls.push(args); return result; } };
   assert.deepEqual(await readRestrictedAppCheck(context, { permissionId: "quote-review" }), result);
-  assert.deepEqual(calls, [["space-one", "selected", "a".repeat(64)]]);
-  for (const request of [null, {}, [], { permissionId: "other" }, { permissionId: "quote-review", spaceId: "space-two" }, { permissionId: "quote-review", checkId: "secret" }]) {
+  assert.deepEqual(calls, [["work-folder-one", "selected", "a".repeat(64)]]);
+  for (const request of [null, {}, [], { permissionId: "other" }, { permissionId: "quote-review", workFolderId: "work-folder-two" }, { permissionId: "quote-review", checkId: "secret" }]) {
     await assert.rejects(readRestrictedAppCheck(context, request), { code: "CHECK_DENIED" });
   }
   await assert.rejects(readRestrictedAppCheck({ ...context, grants: [] }, { permissionId: "quote-review" }), { code: "CHECK_DENIED" });
@@ -21,10 +21,10 @@ test("restricted Check broker derives the selected identity and rejects widening
 
 test("restricted Check broker fences in-flight reads and bounds failed or mismatched responses", async () => {
   let current = true;
-  const context = { spaceId: "space-one", declarations, grants, assertCurrent() { if (!current) throw new Error("revoked"); }, read: async () => { current = false; return result; } };
+  const context = { workFolderId: "work-folder-one", declarations, grants, assertCurrent() { if (!current) throw new Error("revoked"); }, read: async () => { current = false; return result; } };
   await assert.rejects(readRestrictedAppCheck(context, { permissionId: "quote-review" }), /revoked/);
   current = true;
-  for (const read of [async () => ({ ...result, checkId: "foreign" }), async () => ({ ...result, title: "a".repeat(300_000) }), async () => { throw new Error("secret internal file path"); }]) {
+  for (const read of [async () => ({ ...result, checkId: "foreign" }), async () => ({ ...result, title: "a".repeat(restrictedAppCheckLimits.resultBytes + 1) }), async () => { throw new Error("secret internal file path"); }]) {
     await assert.rejects(readRestrictedAppCheck({ ...context, read }, { permissionId: "quote-review" }), (error: any) => error.code === "CHECK_UNAVAILABLE" && !error.message.includes("secret"));
   }
 });
@@ -35,25 +35,25 @@ test("Check grants pin installations and declarations, carry across changed byte
   const { tmpdir } = await import("node:os");
   const { RestrictedAppService } = await import("../src/local/agent/restricted-app-service.js");
   const root = await mkdtemp(join(tmpdir(), "work-fold-app-check-grants-"));
-  const packageRoot = join(root, "space", "app");
+  const packageRoot = join(root, "work-folder", "app");
   await mkdir(packageRoot, { recursive: true });
   const manifest = { version: 2, id: "quote-app", title: "Quotes", runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], automations: [], permissions: { network: [], checks: declarations } };
   await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "quote-app", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
   await writeFile(join(packageRoot, "agent-app.json"), JSON.stringify(manifest));
   await writeFile(join(packageRoot, "index.html"), "<!doctype html><p>Quotes</p>");
   const stops: unknown[][] = [];
-  const options = { rootPath: join(root, "state"), readCheckResult: async (spaceId: string, checkId: string, digest: string) => {
-    assert.equal(spaceId, "source");
+  const options = { rootPath: join(root, "state"), readCheckResult: async (workFolderId: string, checkId: string, digest: string) => {
+    assert.equal(workFolderId, "source");
     if (checkId !== result.checkId || digest !== result.declarationDigest) throw new Error("Selected Check unavailable");
     return result;
   }, runtimeHost: { async invoke() {}, async stop(...args: unknown[]) { stops.push(args); }, async close() {} } };
   let service = await RestrictedAppService.create(options);
   t.after(async () => { await service.close(); await rm(root, { recursive: true, force: true }); });
-  const scope = { spaceId: "source", spaceRoot: join(root, "space"), sourcePath: "app" };
+  const scope = { workFolderId: "source", workFolderRoot: join(root, "work-folder"), sourcePath: "app" };
   const reviewed = await service.inspect(scope);
   const preview = await service.install({ ...scope, expectedDigest: reviewed.digest });
   const selection = { checkId: result.checkId, declarationDigest: result.declarationDigest };
-  const pin = { spaceId: preview.spaceId, appId: preview.manifest.id, featureInstallationId: preview.featureInstallationId, expectedDigest: preview.digest, permissionId: "quote-review", selection };
+  const pin = { workFolderId: preview.workFolderId, appId: preview.manifest.id, featureInstallationId: preview.featureInstallationId, expectedDigest: preview.digest, permissionId: "quote-review", selection };
   assert.deepEqual(preview.checkGrants ?? [], []);
   await assert.rejects(service.setCheckGrant({ ...pin, permissionId: "unknown" }));
   await assert.rejects(service.setCheckGrant({ ...pin, selection: { ...selection, checkId: "foreign" } }));
@@ -62,16 +62,16 @@ test("Check grants pin installations and declarations, carry across changed byte
   assert.equal(granted.checkGrants?.[0]?.checkId, "selected");
   assert.notDeepEqual(granted.authority, preview.authority);
   assert.deepEqual((await service.setCheckGrant(pin)).authority, granted.authority, "same selection is idempotent after revalidation");
-  assert.deepEqual(stops.at(-1), [preview.spaceId, preview.manifest.id, preview.digest, preview.featureInstallationId]);
-  const release = await service.prepareLocalAppRelease({ spaceId: "source", displayVersion: "1.0.0" });
-  await service.publishLocalAppRelease({ spaceId: "source", releaseDigest: release.releaseDigest });
-  const plan = await service.prepareLocalAppInstall({ sourceSpaceId: "source", targetSpaceId: "source", releaseDigest: release.releaseDigest });
+  assert.deepEqual(stops.at(-1), [preview.workFolderId, preview.manifest.id, preview.digest, preview.featureInstallationId]);
+  const release = await service.prepareLocalAppRelease({ workFolderId: "source", displayVersion: "1.0.0" });
+  await service.publishLocalAppRelease({ workFolderId: "source", releaseDigest: release.releaseDigest });
+  const plan = await service.prepareLocalAppInstall({ sourceWorkFolderId: "source", targetWorkFolderId: "source", releaseDigest: release.releaseDigest });
   const live = (await service.activateLocalAppInstall(plan.operationId)).apps[0]!;
   assert.deepEqual(live.checkGrants ?? [], [], "release never inherits preview grants");
   await service.setCheckGrant({ ...pin, featureInstallationId: live.featureInstallationId });
-  const identical = await service.prepareLocalAppRelease({ spaceId: "source", displayVersion: "1.0.1" });
-  await service.publishLocalAppRelease({ spaceId: "source", releaseDigest: identical.releaseDigest });
-  const update = await service.prepareLocalAppUpdate({ sourceSpaceId: "source", runtimeInstanceId: live.runtimeInstanceId, releaseDigest: identical.releaseDigest });
+  const identical = await service.prepareLocalAppRelease({ workFolderId: "source", displayVersion: "1.0.1" });
+  await service.publishLocalAppRelease({ workFolderId: "source", releaseDigest: identical.releaseDigest });
+  const update = await service.prepareLocalAppUpdate({ sourceWorkFolderId: "source", runtimeInstanceId: live.runtimeInstanceId, releaseDigest: identical.releaseDigest });
   const updated = (await service.activateLocalAppUpdate(update.operationId)).apps[0]!;
   assert.equal(updated.checkGrants?.[0]?.checkId, "selected");
   await writeFile(join(packageRoot, "index.html"), "<!doctype html><p>Changed</p>");

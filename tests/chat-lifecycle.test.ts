@@ -56,25 +56,25 @@ test("snooze labels compare local days safely across daylight-saving boundaries"
   assert.match(chatSnoozeTimeLabel(nextMorning, beforeSpringChange), /^Tomorrow,/);
 });
 
-test("chat activity keys remain scoped to a Space and conversation", () => {
-  assert.equal(chatActivityKey("space-a", "chat-1"), "space-a:chat-1");
-  assert.notEqual(chatActivityKey("space-a", "chat-1"), chatActivityKey("space-b", "chat-1"));
+test("chat activity keys remain scoped to a work-folder and conversation", () => {
+  assert.equal(chatActivityKey("work-folder-a", "chat-1"), "work-folder-a:chat-1");
+  assert.notEqual(chatActivityKey("work-folder-a", "chat-1"), chatActivityKey("work-folder-b", "chat-1"));
 });
 
-test("Space activity remains visible when the active Chat is filtered from the current list", () => {
+test("work-folder activity remains visible when the active Chat is filtered from the current list", () => {
   const chats = [
     { id: "chat-running", title: "Hidden by search", updatedAt: "2026-07-25T12:00:00.000Z" },
     { id: "chat-visible", title: "Visible", updatedAt: "2026-07-25T13:00:00.000Z" },
   ];
-  assert.equal(aggregateChatActivityStatus("space-a", chats, { "space-a:chat-running": "running" }), "running");
-  assert.equal(aggregateChatActivityStatus("space-a", chats, { "space-a:chat-running": "attention" }), "attention");
-  assert.equal(aggregateChatActivityStatus("space-a", chats, {}), null);
+  assert.equal(aggregateChatActivityStatus("work-folder-a", chats, { "work-folder-a:chat-running": "running" }), "running");
+  assert.equal(aggregateChatActivityStatus("work-folder-a", chats, { "work-folder-a:chat-running": "attention" }), "attention");
+  assert.equal(aggregateChatActivityStatus("work-folder-a", chats, {}), null);
 });
 
 test("persisted attention state keeps only bounded scoped keys", () => {
   assert.deepEqual(
-    [...normalizeChatAttentionKeys(["space-a:chat-1", "space-a:chat-1", "", 3, "unscoped"])],
-    ["space-a:chat-1"],
+    [...normalizeChatAttentionKeys(["work-folder-a:chat-1", "work-folder-a:chat-1", "", 3, "unscoped"])],
+    ["work-folder-a:chat-1"],
   );
-  assert.deepEqual([...normalizeChatAttentionKeys({ key: "space-a:chat-1" })], []);
+  assert.deepEqual([...normalizeChatAttentionKeys({ key: "work-folder-a:chat-1" })], []);
 });

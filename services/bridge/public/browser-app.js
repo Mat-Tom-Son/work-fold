@@ -26,7 +26,7 @@ export function createBrowserAppView({ read, online, resolve = async (app) => ap
   const clear = () => { clearTimeout(loadTimer); clearInterval(healthTimer); actionPanel.reset(); generation++; frame = null; entry = null; content.replaceChildren(); inFlight = 0; checking = false; };
   const unavailable = (message) => { clear(); content.textContent = message; refresh.disabled = !online(); };
   const close = () => { clear(); selected = null; if (dialog.open) dialog.close(); if (opener?.isConnected) opener.focus({ preventScroll: true }); };
-  function label() { dialog.querySelector("h2").textContent = selected.title; dialog.querySelector("header p").textContent = `${selected.spaceName} · ${selected.version}${selected.preview ? " · Preview" : ""}${selected.sourceDigest && selected.sourceDigest !== selected.digest ? " · Updated since this task" : ""}`; }
+  function label() { dialog.querySelector("h2").textContent = selected.title; dialog.querySelector("header p").textContent = `${selected.workFolderName} · ${selected.version}${selected.preview ? " · Preview" : ""}${selected.sourceDigest && selected.sourceDigest !== selected.digest ? " · Updated since this task" : ""}`; }
   async function call(value, expectedGeneration) {
     let result;
     try { result = await read(selected, value); }
@@ -50,7 +50,7 @@ export function createBrowserAppView({ read, online, resolve = async (app) => ap
       const target = selected;
       const fresh = await resolve({ ...target });
       if (current !== generation) return;
-      if (!fresh || fresh.spaceId !== target.spaceId || fresh.featureInstallationId !== target.featureInstallationId || fresh.appId !== target.appId) throw new Error("This app is no longer installed. Open Apps again.");
+      if (!fresh || fresh.workFolderId !== target.workFolderId || fresh.featureInstallationId !== target.featureInstallationId || fresh.appId !== target.appId) throw new Error("This app is no longer installed. Open Apps again.");
       selected = { ...target, ...fresh }; label();
       dialog.querySelector("footer span").textContent = selected.actions && actions ? "Actions run on your desktop" : "Read-only view";
       if (!selected.webView) return unavailable("This app has no web view yet. Open it on your desktop.");
@@ -78,7 +78,7 @@ export function createBrowserAppView({ read, online, resolve = async (app) => ap
         const shown = selected;
         void resolve({ ...shown }).then((fresh) => {
           if (current !== generation) return;
-          if (!fresh || fresh.featureInstallationId !== shown.featureInstallationId || fresh.spaceId !== shown.spaceId || fresh.appId !== shown.appId || fresh.digest !== shown.digest || fresh.authorityDigest !== shown.authorityDigest) unavailable("This app changed. Refresh to open the current view.");
+          if (!fresh || fresh.featureInstallationId !== shown.featureInstallationId || fresh.workFolderId !== shown.workFolderId || fresh.appId !== shown.appId || fresh.digest !== shown.digest || fresh.authorityDigest !== shown.authorityDigest) unavailable("This app changed. Refresh to open the current view.");
         }).catch(() => { if (current === generation) unavailable("This app could not be reached. Refresh to try again."); })
           .finally(() => { if (current === generation) checking = false; });
       }, 15_000);

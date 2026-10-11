@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createSpaceCheckpoint, createSpaceMutationCheckpoint, restoreSpaceCheckpoint } from "../src/local/history.js";
+import { createWorkFolderCheckpoint, createWorkFolderMutationCheckpoint, restoreWorkFolderCheckpoint } from "../src/local/history.js";
 import { GitignoreDirectoryRules, createFullHistoryCapturePolicy } from "../src/local/history-capture-policy.js";
-import { setSpaceIgnoreState } from "../src/local/space-ignore.js";
+import { setWorkFolderIgnoreState } from "../src/local/work-folder-ignore.js";
 import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
 
 test("gitignore directory rules follow git precedence: anchoring, any-depth names, descendants, negation, nesting", () => {
@@ -45,9 +45,9 @@ test("gitignore directory rules follow git precedence: anchoring, any-depth name
   assert.equal(rules.excludesDirectory("packages/app/dist"), false, "a closer negation wins over the root rule");
 });
 
-test("full checkpoints skip gitignored, Space-ignored, dependency, and cache directories — but keep every individual file", async (t) => {
-  const sandbox = await mkdtemp(join(tmpdir(), "space-history-policy-"));
-  const root = join(sandbox, "space");
+test("full checkpoints skip gitignored, work-folder-ignored, dependency, and cache directories — but keep every individual file", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-folder-history-policy-"));
+  const root = join(sandbox, "work-folder");
   configureWorkFoldStateRoot(join(sandbox, "state"));
   t.after(async () => {
     configureWorkFoldStateRoot(undefined);
@@ -77,9 +77,9 @@ test("full checkpoints skip gitignored, Space-ignored, dependency, and cache dir
   await writeFile(join(root, ".env"), "SECRET=keep-me\n");
   await writeFile(join(root, "debug.log"), "gitignored file, still captured\n");
   await writeFile(join(root, "README.md"), "# Project\n");
-  await setSpaceIgnoreState(root, ["scratch", "README.md"], true);
+  await setWorkFolderIgnoreState(root, ["scratch", "README.md"], true);
 
-  const checkpoint = await createSpaceCheckpoint(root, { reason: "pre_turn" });
+  const checkpoint = await createWorkFolderCheckpoint(root, { reason: "pre_turn" });
   assert.deepEqual(new Set(checkpoint.files.map((file) => file.path)), new Set([
     ".env",
     ".gitignore",
@@ -96,7 +96,7 @@ test("full checkpoints skip gitignored, Space-ignored, dependency, and cache dir
   const policy = await createFullHistoryCapturePolicy(root);
   await policy.enterDirectory("", root);
   assert.equal(await policy.excludeDirectory("dist", join(root, "dist")), "gitignore");
-  assert.equal(await policy.excludeDirectory("scratch", join(root, "scratch")), "space_ignore");
+  assert.equal(await policy.excludeDirectory("scratch", join(root, "scratch")), "work-folder_ignore");
   assert.equal(await policy.excludeDirectory("target", join(root, "target")), "builtin");
   assert.equal(await policy.excludeDirectory(".venv", join(root, ".venv")), "builtin");
   assert.equal(policy.excludeFile("README.md"), null, "a file hidden from Files and Search remains History material");
@@ -106,19 +106,19 @@ test("full checkpoints skip gitignored, Space-ignored, dependency, and cache dir
   // A targeted mutation checkpoint still captures exactly what it is asked
   // about, even inside gitignored output, so an explicit edit there keeps a
   // restore point.
-  const targeted = await createSpaceMutationCheckpoint(root, { paths: ["dist/assets/bundle.js"], reason: "mutation" });
+  const targeted = await createWorkFolderMutationCheckpoint(root, { paths: ["dist/assets/bundle.js"], reason: "mutation" });
   assert.deepEqual(targeted.files.map((file) => file.path), ["dist/assets/bundle.js"]);
 
   // Restoring a full checkpoint never deletes excluded content.
   await writeFile(join(root, "src", "index.ts"), "export const answer = 43;\n");
-  const restored = await restoreSpaceCheckpoint(root, checkpoint.checkpointId);
+  const restored = await restoreWorkFolderCheckpoint(root, checkpoint.checkpointId);
   assert.deepEqual(restored.restoredFiles, ["src/index.ts"]);
   assert.deepEqual(restored.deletedFiles, []);
 });
 
 test("large files are hashed from a stream and stored once", async (t) => {
-  const sandbox = await mkdtemp(join(tmpdir(), "space-history-stream-"));
-  const root = join(sandbox, "space");
+  const sandbox = await mkdtemp(join(tmpdir(), "work-folder-history-stream-"));
+  const root = join(sandbox, "work-folder");
   configureWorkFoldStateRoot(join(sandbox, "state"));
   t.after(async () => {
     configureWorkFoldStateRoot(undefined);
@@ -129,11 +129,11 @@ test("large files are hashed from a stream and stored once", async (t) => {
   await writeFile(join(root, "big.bin"), big);
   await writeFile(join(root, "big-copy.bin"), big);
   await writeFile(join(root, "small.txt"), "hello");
-  const first = await createSpaceCheckpoint(root, { reason: "manual" });
+  const first = await createWorkFolderCheckpoint(root, { reason: "manual" });
   assert.equal(first.fileCount, 3);
   const hashes = new Set(first.files.map((file) => file.hashSha256));
   assert.equal(hashes.size, 2, "identical large files share one blob");
   assert.equal(first.files.find((file) => file.path === "big.bin")?.sizeBytes, big.byteLength);
-  const second = await createSpaceCheckpoint(root, { reason: "manual" });
-  assert.equal(second.checkpointId, first.checkpointId, "an unchanged Space reuses the identical manifest");
+  const second = await createWorkFolderCheckpoint(root, { reason: "manual" });
+  assert.equal(second.checkpointId, first.checkpointId, "an unchanged work-folder reuses the identical manifest");
 });

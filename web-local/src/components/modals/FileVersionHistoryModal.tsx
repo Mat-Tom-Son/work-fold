@@ -5,20 +5,20 @@ import { api, errorText } from "../../lib/api";
 import { formatBytes, formatDateTime, formatTimeAgo, splitConfirmMessage } from "../../lib/format";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { requestConfirm, showToast } from "../../ui/feedback";
-import type { FileVersionEntry, FileVersionRestoreOutcome, SpaceSummary } from "../../types";
+import type { FileVersionEntry, FileVersionRestoreOutcome, WorkFolderSummary } from "../../types";
 
 function fileVersionSourceLabel(source: FileVersionEntry["source"]): string {
   return source === "edit" ? "Saved during an edit" : "From a restore point";
 }
 
 function FileVersionHistoryModal({
-  space,
+  workFolder,
   filePath,
   fileName,
   onClose,
   onRestored,
 }: {
-  space: SpaceSummary;
+  workFolder: WorkFolderSummary;
   filePath: string;
   fileName: string;
   onClose: () => void;
@@ -44,7 +44,7 @@ function FileVersionHistoryModal({
     setError(null);
     try {
       const body = await api<{ path: string; versions: FileVersionEntry[] }>(
-        `/api/spaces/${space.id}/history/file-versions?path=${encodeURIComponent(filePath)}`,
+        `/api/work-folders/${workFolder.id}/history/file-versions?path=${encodeURIComponent(filePath)}`,
       );
       if (loadRequestRef.current !== requestId) return;
       setVersions(body.versions);
@@ -53,7 +53,7 @@ function FileVersionHistoryModal({
       setError(errorText(loadError));
       setVersions([]);
     }
-  }, [space.id, filePath]);
+  }, [workFolder.id, filePath]);
 
   useEffect(() => {
     setVersions(null);
@@ -80,7 +80,7 @@ function FileVersionHistoryModal({
     setNotice(null);
     try {
       const body = await api<{ result: FileVersionRestoreOutcome }>(
-        `/api/spaces/${space.id}/history/file-versions`,
+        `/api/work-folders/${workFolder.id}/history/file-versions`,
         { method: "POST", body: { path: filePath, hashSha256: version.hashSha256 } },
       );
       setUndoRestorePointId(body.result.safetyCheckpointId);
@@ -101,7 +101,7 @@ function FileVersionHistoryModal({
     setUndoing(true);
     setError(null);
     try {
-      await api(`/api/spaces/${space.id}/history/checkpoints/${undoRestorePointId}/restore`, { method: "POST" });
+      await api(`/api/work-folders/${workFolder.id}/history/checkpoints/${undoRestorePointId}/restore`, { method: "POST" });
       setUndoRestorePointId(null);
       setNotice(`Undo complete — "${fileName}" is back to how it was.`);
       setComparisonRevision((value) => value + 1);
@@ -191,7 +191,7 @@ function FileVersionHistoryModal({
               {(versions ?? []).filter((version) => version.checkpointId !== comparisonVersion.checkpointId).map((version) => <option key={version.checkpointId} value={version.checkpointId}>{formatDateTime(version.capturedAt)}</option>)}
             </select>
           </label>
-          <HistoryFileComparison spaceId={space.id} path={filePath} fromCheckpointId={comparisonVersion.checkpointId} toCheckpointId={comparisonTarget || undefined} refreshRequest={comparisonRevision} />
+          <HistoryFileComparison workFolderId={workFolder.id} path={filePath} fromCheckpointId={comparisonVersion.checkpointId} toCheckpointId={comparisonTarget || undefined} refreshRequest={comparisonRevision} />
         </div> : null}
       </section>
     </div>

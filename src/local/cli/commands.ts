@@ -14,7 +14,7 @@ import {
   type WorkFoldCliParsedCommand,
   type WorkFoldCliRequestV1,
   type WorkFoldCliResponseV1,
-  type WorkFoldCliSpaceSummary,
+  type WorkFoldCliWorkFolderSummary,
   type WorkFoldCliTaskSummary,
 } from "./protocol.js";
 
@@ -31,7 +31,7 @@ export interface WorkFoldCliCommandResult {
 
 const commandPatterns: Array<{ tokens: string[]; name: WorkFoldCliCommandName }> = [
   { tokens: ["context"], name: "context" },
-  { tokens: ["spaces", "list"], name: "spaces.list" },
+  { tokens: ["work-folders", "list"], name: "work-folders.list" },
   { tokens: ["tasks", "list"], name: "tasks.list" },
   { tokens: ["capabilities", "list"], name: "capabilities.list" },
   { tokens: ["checks", "status"], name: "checks.status" },
@@ -39,7 +39,7 @@ const commandPatterns: Array<{ tokens: string[]; name: WorkFoldCliCommandName }>
 
 export function parseWorkFoldCliArgv(argv: readonly string[]): WorkFoldCliParsedCommand {
   let output: WorkFoldCliOutputMode = "human";
-  let space: string | undefined;
+  let workFolder: string | undefined;
   let help = false;
   let version = false;
   const positional: string[] = [];
@@ -58,17 +58,17 @@ export function parseWorkFoldCliArgv(argv: readonly string[]): WorkFoldCliParsed
       version = true;
       continue;
     }
-    if (token === "--space") {
-      if (space !== undefined) throw usageError("--space may be provided only once.");
+    if (token === "--work-folder") {
+      if (workFolder !== undefined) throw usageError("--work-folder may be provided only once.");
       const value = argv[index + 1];
-      if (value === undefined || value.startsWith("-")) throw usageError("--space requires a Space id or name.");
-      space = normalizeSpaceSelector(value);
+      if (value === undefined || value.startsWith("-")) throw usageError("--work-folder requires a work-folder id or name.");
+      workFolder = normalizeWorkFolderSelector(value);
       index += 1;
       continue;
     }
-    if (token.startsWith("--space=")) {
-      if (space !== undefined) throw usageError("--space may be provided only once.");
-      space = normalizeSpaceSelector(token.slice("--space=".length));
+    if (token.startsWith("--work-folder=")) {
+      if (workFolder !== undefined) throw usageError("--work-folder may be provided only once.");
+      workFolder = normalizeWorkFolderSelector(token.slice("--work-folder=".length));
       continue;
     }
     if (token.startsWith("-")) throw usageError(`Unknown option: ${token}`);
@@ -83,24 +83,24 @@ export function parseWorkFoldCliArgv(argv: readonly string[]): WorkFoldCliParsed
     };
   }
   if (version) {
-    if (positional.length || space !== undefined) throw usageError("--version cannot be combined with a command or --space.");
+    if (positional.length || workFolder !== undefined) throw usageError("--version cannot be combined with a command or --work-folder.");
     return { name: "version", output };
   }
   if (!positional.length) {
-    if (space !== undefined) throw usageError("--space must be used with context, spaces list, tasks list, capabilities list, or checks status.");
+    if (workFolder !== undefined) throw usageError("--work-folder must be used with context, work-folders list, tasks list, capabilities list, or checks status.");
     return { name: "help", output };
   }
   if (positional[0] === "help") {
     return { name: "help", output, ...(positional.length > 1 ? { topic: positional.slice(1).join(" ") } : {}) };
   }
   if (positional[0] === "version") {
-    if (positional.length !== 1 || space !== undefined) throw usageError("version does not accept arguments or --space.");
+    if (positional.length !== 1 || workFolder !== undefined) throw usageError("version does not accept arguments or --work-folder.");
     return { name: "version", output };
   }
 
   const matched = commandPatterns.find(({ tokens }) => tokens.length === positional.length && tokens.every((token, index) => positional[index] === token));
   if (!matched) throw usageError(`Unknown command: ${positional.join(" ")}`);
-  return { name: matched.name, output, ...(space ? { space } : {}) };
+  return { name: matched.name, output, ...(workFolder ? { workFolder } : {}) };
 }
 
 export async function executeWorkFoldCliRequest(
@@ -142,30 +142,30 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
   const executable = "work-fold";
   const normalizedTopic = topic?.trim().toLocaleLowerCase();
   const header = `${terminalText(productName)} CLI`;
-  if (normalizedTopic === "context") return `${header}\n\nUsage: ${executable} context [--space <id-or-name>] [--json]\n\nShow the resolved Space and host context for this working directory.\n`;
-  if (normalizedTopic === "tasks" || normalizedTopic === "tasks list") return `${header}\n\nUsage: ${executable} tasks list [--space <id-or-name>] [--json]\n\nList host-managed tasks, optionally for one Space.\n`;
-  if (normalizedTopic === "capabilities" || normalizedTopic === "capabilities list") return `${header}\n\nUsage: ${executable} capabilities list [--space <id-or-name>] [--json]\n\nList Personal and Space capabilities.\n`;
+  if (normalizedTopic === "context") return `${header}\n\nUsage: ${executable} context [--work-folder <id-or-name>] [--json]\n\nShow the resolved work-folder and host context for this working directory.\n`;
+  if (normalizedTopic === "tasks" || normalizedTopic === "tasks list") return `${header}\n\nUsage: ${executable} tasks list [--work-folder <id-or-name>] [--json]\n\nList host-managed tasks, optionally for one work-folder.\n`;
+  if (normalizedTopic === "capabilities" || normalizedTopic === "capabilities list") return `${header}\n\nUsage: ${executable} capabilities list [--work-folder <id-or-name>] [--json]\n\nList Skills & Extensions, everywhere and for one work-folder.\n`;
   if (normalizedTopic === "checks" || normalizedTopic?.startsWith("checks ")) {
     return [
       header,
       "",
-      `Usage: ${executable} checks status [--space <id-or-name>] [--json]`,
-      `       ${executable} checks propose --space <id-or-name> --proposal <path> [--json]`,
-      `       ${executable} checks enable --space <id-or-name> --proposal <path> [--json]`,
-      `       ${executable} checks propose-fix --space <id-or-name> --proposal <path> [--json]`,
-      `       ${executable} checks disable --space <id-or-name> --check <id> [--json]`,
-      `       ${executable} checks run --space <id-or-name> [--check <id>] [--json]`,
-      `       ${executable} checks task --space <id-or-name> --task <id> [--json]`,
-      `       ${executable} checks result --space <id-or-name> --task <id> [--json]`,
-      `       ${executable} checks wait --space <id-or-name> --task <id> [--timeout <seconds>] [--json]`,
-      `       ${executable} checks abort --space <id-or-name> --task <id> [--json]`,
-      `       ${executable} checks problems --space <id-or-name> [--check <id>] [--json]`,
-      `       ${executable} checks decide --space <id-or-name> --finding <id> --decision <accept|reject|resolve|defer> [--until <ISO-time>] [--json]`,
+      `Usage: ${executable} checks status [--work-folder <id-or-name>] [--json]`,
+      `       ${executable} checks propose --work-folder <id-or-name> --proposal <path> [--json]`,
+      `       ${executable} checks enable --work-folder <id-or-name> --proposal <path> [--json]`,
+      `       ${executable} checks propose-fix --work-folder <id-or-name> --proposal <path> [--json]`,
+      `       ${executable} checks disable --work-folder <id-or-name> --check <id> [--json]`,
+      `       ${executable} checks run --work-folder <id-or-name> [--check <id>] [--json]`,
+      `       ${executable} checks task --work-folder <id-or-name> --task <id> [--json]`,
+      `       ${executable} checks result --work-folder <id-or-name> --task <id> [--json]`,
+      `       ${executable} checks wait --work-folder <id-or-name> --task <id> [--timeout <seconds>] [--json]`,
+      `       ${executable} checks abort --work-folder <id-or-name> --task <id> [--json]`,
+      `       ${executable} checks problems --work-folder <id-or-name> [--check <id>] [--json]`,
+      `       ${executable} checks decide --work-folder <id-or-name> --finding <id> --decision <accept|reject|resolve|defer> [--until <ISO-time>] [--json]`,
       "",
       "Checks are optional expectations over explicitly designated files or",
       "bounded file sets. Status is content-free. Every mutation, run, and",
-      "contentful result uses the authenticated act lane and an explicit Space.",
-      "Nothing watches a Space or enables a portable declaration automatically.",
+      "contentful result uses the authenticated act lane and an explicit work-folder.",
+      "Nothing watches a work-folder or enables a portable declaration automatically.",
       "",
       "To prepare a correction, read checks problems for the current finding and",
       "its evidence. Save this JSON in a temporary file and pass it to propose-fix:",
@@ -182,26 +182,26 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} chat create --space <id-or-name> [--json]`,
-      `       ${executable} chat send --space <id-or-name> (--conversation <id> | --new) (--message <text> | --message-file <path>) [--json]`,
-      `       ${executable} chat status --space <id-or-name> (--conversation <id> | --task <id>) [--json]`,
-      `       ${executable} chat result --space <id-or-name> (--conversation <id> [--messages <n>] | --task <id>) [--json]`,
-      `       ${executable} chat wait --space <id-or-name> --task <id> [--timeout <seconds>] [--json]`,
-      `       ${executable} chat abort --space <id-or-name> --conversation <id> [--json]`,
-      `       ${executable} chat rename --space <id-or-name> --conversation <id> --title <title> [--json]`,
-      `       ${executable} chat snooze --space <id-or-name> --conversation <id> --until <ISO-time> [--json]`,
-      `       ${executable} chat archive --space <id-or-name> --conversation <id> [--json]`,
-      `       ${executable} chat resume --space <id-or-name> --conversation <id> [--json]`,
-      `       ${executable} chat compact --space <id-or-name> --conversation <id> [--json]`,
-      `       ${executable} chat report --space <id-or-name> --task <id> --summary <text> [--data <json-or-@path>] [--file <space-path>]... [--outcome <succeeded|partial|failed>] [--json]`,
-      `       ${executable} chat ask --space <id-or-name> --task <id> --question <text> [--to <person|parent>] [--json]`,
-      `       ${executable} chat answer --space <id-or-name> --question <id> --answer <text> [--json]`,
-      `       ${executable} chat handoff --space <id-or-name> --task <id> --to-space <id-or-name> (--message <text> | --message-file <path>) [--file <space-path>]... [--json]`,
+      `Usage: ${executable} chat create --work-folder <id-or-name> [--json]`,
+      `       ${executable} chat send --work-folder <id-or-name> (--conversation <id> | --new) (--message <text> | --message-file <path>) [--json]`,
+      `       ${executable} chat status --work-folder <id-or-name> (--conversation <id> | --task <id>) [--json]`,
+      `       ${executable} chat result --work-folder <id-or-name> (--conversation <id> [--messages <n>] | --task <id>) [--json]`,
+      `       ${executable} chat wait --work-folder <id-or-name> --task <id> [--timeout <seconds>] [--json]`,
+      `       ${executable} chat abort --work-folder <id-or-name> --conversation <id> [--json]`,
+      `       ${executable} chat rename --work-folder <id-or-name> --conversation <id> --title <title> [--json]`,
+      `       ${executable} chat snooze --work-folder <id-or-name> --conversation <id> --until <ISO-time> [--json]`,
+      `       ${executable} chat archive --work-folder <id-or-name> --conversation <id> [--json]`,
+      `       ${executable} chat resume --work-folder <id-or-name> --conversation <id> [--json]`,
+      `       ${executable} chat compact --work-folder <id-or-name> --conversation <id> [--json]`,
+      `       ${executable} chat report --work-folder <id-or-name> --task <id> (--summary <text> | --summary-file <path>) [--data <json-or-@path>] [--file <work-folder-path>]... [--outcome <succeeded|partial|failed>] [--json]`,
+      `       ${executable} chat ask --work-folder <id-or-name> --task <id> (--question <text> | --question-file <path>) [--to <person|parent>] [--json]`,
+      `       ${executable} chat answer --work-folder <id-or-name> --question <id> (--answer <text> | --answer-file <path>) [--json]`,
+      `       ${executable} chat handoff --work-folder <id-or-name> --task <id> --to-work-folder <id-or-name> (--message <text> | --message-file <path>) [--file <work-folder-path>]... [--json]`,
       "",
-      "Start, continue, await, inspect, curate, or abort a Space Chat. These",
+      "Start, continue, await, inspect, curate, or abort a Worker Chat. These",
       "act commands need the work-fold app running and require an explicit",
-      "--space. chat send returns a task id; wait and result take it to follow",
-      "exactly that turn's outcome instead of whatever message is newest.",
+      "--work-folder. chat send returns a task id; wait and result take it to",
+      "follow exactly that turn's outcome instead of whatever message is newest.",
       "wait settles when that turn ends or when the task is waiting on an",
       "answer, and says which; it never sits on a question.",
       "rename, snooze, archive, and resume are the receipted lifecycle verbs;",
@@ -209,8 +209,8 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "running.",
       "",
       "report, ask, answer, and handoff move results, questions, and work",
-      `between Spaces without a fold turn in the middle. Run '${executable} help`,
-      "collaborate' for what each one does and a worked example.",
+      "between work-folders without a work-fold agent turn in the middle. Run",
+      `'${executable} help collaborate' for what each one does and a worked example.`,
       "",
     ].join("\n");
   }
@@ -218,26 +218,28 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} chat report --space <id-or-name> --task <own-task-id> --summary <text> [--data <json-or-@path>] [--file <space-path>]... [--outcome <succeeded|partial|failed>] [--json]`,
-      `       ${executable} chat ask --space <id-or-name> --task <own-task-id> --question <text> [--to <person|parent>] [--json]`,
-      `       ${executable} chat answer --space <id-or-name> --question <id> --answer <text> [--json]`,
-      `       ${executable} chat handoff --space <id-or-name> --task <own-task-id> --to-space <id-or-name> (--message <text> | --message-file <path>) [--file <space-path>]... [--json]`,
-      `       ${executable} chat wait --space <id-or-name> --task <id> [--timeout <seconds>] [--json]`,
-      `       ${executable} manage ask --task <own-task-id> --question <text> [--json]`,
-      `       ${executable} manage answer --question <id> --answer <text> [--json]`,
-      `       ${executable} manage wait --task <id> [--timeout <seconds>] [--json]`,
+      `Usage: ${executable} chat report --work-folder <id-or-name> --task <own-task-id> (--summary <text> | --summary-file <path>) [--data <json-or-@path>] [--file <work-folder-path>]... [--outcome <succeeded|partial|failed>] [--json]`,
+      `       ${executable} chat ask --work-folder <id-or-name> --task <own-task-id> (--question <text> | --question-file <path>) [--to <person|parent>] [--json]`,
+      `       ${executable} chat answer --work-folder <id-or-name> --question <id> (--answer <text> | --answer-file <path>) [--json]`,
+      `       ${executable} chat handoff --work-folder <id-or-name> --task <own-task-id> --to-work-folder <id-or-name> (--message <text> | --message-file <path>) [--file <work-folder-path>]... [--json]`,
+      `       ${executable} chat wait --work-folder <id-or-name> --task <id> [--timeout <seconds>] [--json]`,
+      `       ${executable} agent ask --task <own-task-id> (--question <text> | --question-file <path>) [--json]`,
+      `       ${executable} agent answer --question <id> (--answer <text> | --answer-file <path>) [--json]`,
+      `       ${executable} agent wait --task <id> [--timeout <seconds>] [--json]`,
       `       ${executable} requests list [--json]`,
       `       ${executable} requests show --request <id> [--json]`,
       "",
-      "How a Space Assistant, an app, the fold, and an outside agent hand work",
+      "How a Worker, an app, the work-fold agent, and an outside agent hand work",
       "to each other. Every verb here runs immediately and leaves a receipt.",
       "Nothing waits on someone clicking something.",
       "",
       "report attaches one result to a task you own: a summary of at most",
-      "32 KiB, optional --data JSON of at most 256 KiB, any deliverables you",
+      "4 MiB, optional --data JSON of at most 16 MiB, any deliverables you",
       "name with --file, and an outcome of succeeded, partial, or failed.",
-      "--data takes inline JSON or @<path> to a JSON file, read from the",
-      "directory you ran in; a file is the practical form for anything long.",
+      "--data takes inline JSON or @<path> to a JSON file. --summary-file,",
+      "--question-file, and --answer-file take the text from a file instead;",
+      "every file is read from the directory you ran in. A file is the",
+      "practical form for anything long.",
       "When the request that gave you the task declared a shape for --data,",
       "work-fold checks it and names the property that does not fit.",
       "",
@@ -248,17 +250,17 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "person instead and says so.",
       "",
       "answer delivers exactly one answer to one question and continues that",
-      "Chat once, in the Space that owns the question. A second answer, an",
-      "answer after Stop, and an answer sent from another Space",
-      "are all refused. A person typing a reply in the Chat answers it too.",
+      "Chat once, in the work-folder that owns the question. A second answer,",
+      "an answer after Stop, and an answer sent from another work-folder are",
+      "all refused. A person typing a reply in the Chat answers it too.",
       "",
-      "handoff asks for a new Chat in another Space with your message and",
+      "handoff asks for a new Chat in another work-folder with your message and",
       "copies of the files you name. Copies are additive and land with a",
       "History restore point, exactly as 'files add' does; the new Chat is",
       "recorded under the same request as yours, so what it reports comes back",
-      "to the same place. Handing off to your own Space is allowed and just",
-      "means a fresh Chat there; the files are already in place, so --file is",
-      "left off.",
+      "to the same place. Handing off to your own work-folder is allowed and",
+      "just means a fresh Chat there; the files are already in place, so --file",
+      "is left off.",
       "",
       "wait follows one task and comes back when that turn ends or when the",
       "task is waiting on an answer, and tells you which happened. When it",
@@ -266,22 +268,24 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "the question in your own final line and finish. Never loop on wait.",
       "",
       "requests list and requests show read the record: what was handed out,",
-      "what is still open, and what came back. Both sit above Spaces and take",
-      "no --space, and both are refused when they are run from inside a",
-      "registered Space, because the record carries every Space's results.",
+      "what is still open, and what came back. Both sit above work-folders and",
+      "take no --work-folder, and both are refused when they are run from inside",
+      "a registered work-folder, because the record carries every work-folder's",
+      "results.",
       "",
-      "A worked example. The fold hands a draft to a Space, the Space asks one",
-      "question and stops, the answer continues it, and the finished work",
-      "comes back. The fold runs every line but the report, which the Space",
-      "runs during its own turn. chat answer returns the continuation's own",
-      "task id: wait on that one and report from it, not the task that asked.",
+      "A worked example. The work-fold agent hands a draft to a Worker, the",
+      "Worker asks one question and stops, the answer continues it, and the",
+      "finished work comes back. The work-fold agent runs every line but the",
+      "report, which the Worker runs during its own turn. chat answer returns",
+      "the continuation's own task id: wait on that one and report from it,",
+      "not the task that asked.",
       "Ids here are examples; use the ones each command returns.",
       "",
-      `  $ ${executable} chat send --space space-0000000000000002 --new --message "Draft the Q3 note from Incoming/brief.md and report back." --parent-task task-root --json`,
-      `  $ ${executable} chat wait --space space-0000000000000002 --task task-child --json`,
-      `  $ ${executable} chat answer --space space-0000000000000002 --question q-20260911120000-a1b2c3d4 --answer "Use the November figures." --json`,
-      `  $ ${executable} chat report --space space-0000000000000002 --task task-continuation --summary "Drafted drafts/q3-note.md from the brief." --file drafts/q3-note.md --outcome succeeded --json`,
-      `  $ ${executable} chat wait --space space-0000000000000002 --task task-continuation --json`,
+      `  $ ${executable} chat send --work-folder space-0000000000000002 --new --message "Draft the Q3 note from Incoming/brief.md and report back." --parent-task task-root --json`,
+      `  $ ${executable} chat wait --work-folder space-0000000000000002 --task task-child --json`,
+      `  $ ${executable} chat answer --work-folder space-0000000000000002 --question q-20260911120000-a1b2c3d4 --answer "Use the November figures." --json`,
+      `  $ ${executable} chat report --work-folder space-0000000000000002 --task task-continuation --summary "Drafted drafts/q3-note.md from the brief." --file drafts/q3-note.md --outcome succeeded --json`,
+      `  $ ${executable} chat wait --work-folder space-0000000000000002 --task task-continuation --json`,
       `  $ ${executable} requests show --request req-20260911115900-0f1e2d3c --json`,
       "",
       "Requests have no fixed lifetime, child-count, depth, or continuation-count",
@@ -301,76 +305,77 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "A request is the machine-local record of one piece of work and",
       "everything handed out under it: the turns it started, the questions",
       "still open, the results that came back, and what it spent. Requests sit",
-      "above Spaces, so neither verb takes --space, both are reads — nothing",
-      "here starts or stops work — and both are refused when they run from",
-      "inside a registered Space, because the record carries every Space's",
-      "results. list shows recent roots, newest",
-      "first; show prints one request with its children, its questions, and",
-      "each result. Space Chats stay portable and carry none of this.",
+      "above work-folders, so neither verb takes --work-folder; both are reads —",
+      "nothing here starts or stops work — and both are refused when they run",
+      "from inside a registered work-folder, because the record carries every",
+      "work-folder's results. list shows recent roots, newest first; show",
+      "prints one request with its children, its questions, and each result.",
+      "Worker Chats stay portable and carry none of this.",
       `Run '${executable} help collaborate' for the verbs that fill it in.`,
       "Needs the work-fold app running.",
       "",
     ].join("\n");
   }
-  if (normalizedTopic === "chats" || normalizedTopic === "chats list") return `${header}\n\nUsage: ${executable} chats list --space <id-or-name> [--json]\n\nList a Space's Chats. Needs the work-fold app running.\n`;
-  if (normalizedTopic === "manage" || normalizedTopic?.startsWith("manage ")) {
+  if (normalizedTopic === "chats" || normalizedTopic === "chats list") return `${header}\n\nUsage: ${executable} chats list --work-folder <id-or-name> [--json]\n\nList a work-folder's Chats. Needs the work-fold app running.\n`;
+  if (normalizedTopic === "agent" || normalizedTopic?.startsWith("manage ")) {
     return [
       header,
       "",
-      `Usage: ${executable} manage send [--conversation <id> | --new] (--message <text> | --message-file <path>) [--attach <path-or-link> ...] [--json]`,
-      `       ${executable} manage ask --task <own-task-id> --question <text> [--json]`,
-      `       ${executable} manage answer --question <id> --answer <text> [--json]`,
-      `       ${executable} manage status [--conversation <id> | --task <id>] [--json]`,
-      `       ${executable} manage result [--conversation <id> [--messages <n>] | --task <id>] [--json]`,
-      `       ${executable} manage wait --task <id> [--timeout <seconds>] [--json]`,
-      `       ${executable} manage stop --task <id> [--json]`,
-      `       ${executable} manage abort [--conversation <id>] [--json]`,
-      `       ${executable} manage list [--json]`,
-      `       ${executable} manage glance [--json]`,
+      `Usage: ${executable} agent send [--conversation <id> | --new] (--message <text> | --message-file <path>) [--attach <path-or-link> ...] [--json]`,
+      `       ${executable} agent ask --task <own-task-id> (--question <text> | --question-file <path>) [--json]`,
+      `       ${executable} agent answer --question <id> (--answer <text> | --answer-file <path>) [--json]`,
+      `       ${executable} agent status [--conversation <id> | --task <id>] [--json]`,
+      `       ${executable} agent result [--conversation <id> [--messages <n>] | --task <id>] [--json]`,
+      `       ${executable} agent wait --task <id> [--timeout <seconds>] [--json]`,
+      `       ${executable} agent stop --task <id> [--json]`,
+      `       ${executable} agent abort [--conversation <id>] [--json]`,
+      `       ${executable} agent list [--json]`,
+      `       ${executable} agent overview [--json]`,
       "",
-      "Talk to the management conversation that sits above all Spaces. It runs",
-      "on the same Assistant runtime as Space Chats but belongs to no Space:",
-      "its transcript is machine-local application state, and it acts across",
-      "Spaces through these same work-fold commands. Without a selector,",
-      "commands target the most recent active management conversation,",
-      "creating it on first send. --attach adds reference attachments (file or",
-      "folder paths, or http(s) links); nothing is copied until the Assistant",
-      "places material with a restore point. manage status --task reports the",
-      "request's attachments, actions, delegated turns, and phase, and manage",
+      "Talk to the work-fold agent that sits above all work-folders. It runs",
+      "on the same runtime as Worker Chats but belongs to no work-folder: its",
+      "transcript is machine-local application state, and it acts across",
+      "work-folders through these same work-fold commands. Without a selector,",
+      "commands target the most recent active work-fold agent chat, starting",
+      "one on first send. --attach adds reference attachments (file or folder",
+      "paths, or http(s) links); nothing is copied until the work-fold agent",
+      "places material with a restore point. agent status --task reports the",
+      "request's attachments, actions, delegated turns, and phase, and agent",
       "stop --task stops the request plus every recorded delegated turn still",
-      "running. manage glance prints the deterministic digest of recorded",
+      "running. agent overview prints the deterministic digest of recorded",
       "state — running work, needs-you items, what changed, and Check rows —",
-      "composed by app code, never by the Assistant. Needs the work-fold app",
+      "composed by app code, never by the model. Needs the work-fold app",
       "running.",
       "",
     ].join("\n");
   }
-  if (normalizedTopic === "spaces" || normalizedTopic?.startsWith("spaces ")) {
+  if (normalizedTopic === "work-folders" || normalizedTopic?.startsWith("work-folders ")) {
     return [
       header,
       "",
-      `Usage: ${executable} spaces list [--space <id-or-name>] [--json]`,
-      `       ${executable} spaces create --name <space-name> [--json]`,
-      `       ${executable} spaces register --path <absolute-folder-path> [--json]`,
-      `       ${executable} spaces rename --space <id-or-name> --name <space-name> [--json]`,
-      `       ${executable} spaces unregister --space <id-or-name> [--json]`,
-      `       ${executable} spaces delete --space <id-or-name> [--json]`,
-      `       ${executable} spaces appearance apply --space <id-or-name> --proposal <path> [--json]`,
-      `       ${executable} spaces appearance reset --space <id-or-name> [--json]`,
-      `       ${executable} spaces appearance undo --space <id-or-name> [--json]`,
-      `       ${executable} spaces assistant show --space <id-or-name> [--json]`,
-      `       ${executable} spaces assistant model --space <id-or-name> --provider <id> --model <id> [--json]`,
-      `       ${executable} spaces assistant instructions --space <id-or-name> (--instructions <text> | --clear) [--json]`,
+      `Usage: ${executable} work-folders list [--work-folder <id-or-name>] [--json]`,
+      `       ${executable} work-folders create --name <work-folder-name> [--json]`,
+      `       ${executable} work-folders register --path <absolute-folder-path> [--json]`,
+      `       ${executable} work-folders rename --work-folder <id-or-name> --name <work-folder-name> [--json]`,
+      `       ${executable} work-folders unregister --work-folder <id-or-name> [--json]`,
+      `       ${executable} work-folders delete --work-folder <id-or-name> [--json]`,
+      `       ${executable} work-folders appearance apply --work-folder <id-or-name> --proposal <path> [--json]`,
+      `       ${executable} work-folders appearance reset --work-folder <id-or-name> [--json]`,
+      `       ${executable} work-folders appearance undo --work-folder <id-or-name> [--json]`,
+      `       ${executable} work-folders worker show --work-folder <id-or-name> [--json]`,
+      `       ${executable} work-folders worker model --work-folder <id-or-name> --provider <id> --model <id> [--json]`,
+      `       ${executable} work-folders worker instructions --work-folder <id-or-name> (--instructions <text> | --instructions-file <path> | --clear) [--json]`,
       "",
-      "spaces list is a content-free read; every other spaces command needs",
-      "the work-fold app running. register never moves, copies, or renames",
-      "the folder's files, and unregister removes only the registration while",
-      "the folder stays in place. spaces delete moves a managed Space's folder",
-      "to Recently deleted and records a receipt. appearance apply imports a typed",
-      "proposal file; reset and undo step the appearance back. assistant",
-      "show reports connected model choices and Space instructions; model saves",
-      "the default for new Chats, while instructions affect subsequent turns.",
-      "Provider connections and credentials remain Settings-only.",
+      "work-folders list is a content-free read; every other work-folders",
+      "command needs the work-fold app running. register never moves, copies,",
+      "or renames the folder's files, and unregister removes only the",
+      "registration while the folder stays in place. work-folders delete moves",
+      "a managed work-folder to Recently deleted and records a receipt.",
+      "appearance apply imports a typed proposal file; reset and undo step the",
+      "appearance back. worker show reports the connected model choices and",
+      "the Worker Instructions; worker model saves the default for new Chats,",
+      "while worker instructions affect subsequent turns. Provider connections",
+      "and credentials stay in Settings → AI Models.",
       "",
     ].join("\n");
   }
@@ -378,18 +383,18 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} files add --space <id-or-name> --from <path> [--from <path>...] [--to <space-folder>] [--json]`,
-      `       ${executable} files move --space <id-or-name> --from <space-path> --to <space-folder> [--json]`,
-      `       ${executable} files rename --space <id-or-name> --path <space-path> --name <new-name> [--json]`,
-      `       ${executable} files delete --space <id-or-name> --path <space-path> [--json]`,
-      `       ${executable} files mkdir --space <id-or-name> --path <space-folder> [--json]`,
-      `       ${executable} files create --space <id-or-name> --path <space-path> [--json]`,
+      `Usage: ${executable} files add --work-folder <id-or-name> --from <path> [--from <path>...] [--to <folder-in-work-folder>] [--json]`,
+      `       ${executable} files move --work-folder <id-or-name> --from <work-folder-path> --to <folder-in-work-folder> [--json]`,
+      `       ${executable} files rename --work-folder <id-or-name> --path <work-folder-path> --name <new-name> [--json]`,
+      `       ${executable} files delete --work-folder <id-or-name> --path <work-folder-path> [--json]`,
+      `       ${executable} files mkdir --work-folder <id-or-name> --path <folder-in-work-folder> [--json]`,
+      `       ${executable} files create --work-folder <id-or-name> --path <work-folder-path> [--json]`,
       "",
-      "Work with files inside one Space. add copies outside material in, and",
-      "move, rename, and delete take a History restore point first so they",
+      "Work with files inside one work-folder. add copies outside material in,",
+      "and move, rename, and delete take a History restore point first so they",
       "stay undoable. delete always goes through: whatever History cannot keep",
-      `a copy of moves to Recently deleted instead (see '${executable} help trash').`,
-      "Needs the work-fold app running.",
+      "a copy of moves to Recently deleted instead",
+      `(see '${executable} help recently-deleted'). Needs the work-fold app running.`,
       "",
     ].join("\n");
   }
@@ -397,13 +402,13 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} history list --space <id-or-name> [--limit <n>] [--cursor <cursor>] [--json]`,
-      `       ${executable} history save --space <id-or-name> [--label <label>] [--json]`,
-      `       ${executable} history restore --space <id-or-name> --checkpoint <id> [--json]`,
-      `       ${executable} history versions --space <id-or-name> --path <space-path> [--limit <n>] [--cursor <cursor>] [--json]`,
-      `       ${executable} history read --space <id-or-name> --path <space-path> --checkpoint <id> [--offset-bytes <n>] [--length-bytes <n>] [--expected-sha256 <hash>] [--json]`,
-      `       ${executable} history diff --space <id-or-name> --path <space-path> --from-checkpoint <id> [--to-checkpoint <id>] [--json]`,
-      `       ${executable} history restore-file --space <id-or-name> --path <space-path> --version <sha256> [--json]`,
+      `Usage: ${executable} history list --work-folder <id-or-name> [--limit <n>] [--cursor <cursor>] [--json]`,
+      `       ${executable} history save --work-folder <id-or-name> [--label <label>] [--json]`,
+      `       ${executable} history restore --work-folder <id-or-name> --checkpoint <id> [--json]`,
+      `       ${executable} history versions --work-folder <id-or-name> --path <work-folder-path> [--limit <n>] [--cursor <cursor>] [--json]`,
+      `       ${executable} history read --work-folder <id-or-name> --path <work-folder-path> --checkpoint <id> [--offset-bytes <n>] [--length-bytes <n>] [--expected-sha256 <hash>] [--json]`,
+      `       ${executable} history diff --work-folder <id-or-name> --path <work-folder-path> --from-checkpoint <id> [--to-checkpoint <id>] [--json]`,
+      `       ${executable} history restore-file --work-folder <id-or-name> --path <work-folder-path> --version <sha256> [--json]`,
       "",
       "list/versions return total and nextCursor. Keep the same selection and pass",
       "--cursor to continue; a changed ledger requires starting again.",
@@ -414,11 +419,11 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "or the current file when --to-checkpoint is omitted. Neither restores or",
       "changes files. Binary, oversized and uncaptured content is reported explicitly.",
       "These content-bearing reads require the running app's authenticated act lane.",
-      "List a Space's History checkpoints, save a restore point, restore the",
-      "Space to a checkpoint, or restore one file to a captured version",
+      "List a work-folder's History checkpoints, save a restore point, restore the",
+      "work-folder to a checkpoint, or restore one file to a captured version",
       "(restore-file takes the hash shown by history versions). Every restore",
       "records a safety checkpoint first. history restore is refused while",
-      "the Space has active work; finish or stop it first. Needs the",
+      "the work-folder has active work; finish or stop it first. Needs the",
       "work-fold app running.",
       "",
     ].join("\n");
@@ -427,34 +432,16 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} search --space <id-or-name> --query <text> [--scope <files|chats|all>] [--path <file-or-folder>] [--limit <n>] [--cursor <cursor>] [--json]`,
+      `Usage: ${executable} search --work-folder <id-or-name> --query <text> [--scope <files|chats|all>] [--path <file-or-folder>] [--limit <n>] [--cursor <cursor>] [--json]`,
       "",
       "Narrow files with --path; ordinary text has no per-file size ceiling.",
       "Repeat the same query/scope/path with --cursor nextCursor until it is null.",
       "Pages may contain no matches while advancing through large files. Coverage",
       "names skipped categories; incomplete coverage is never a complete no-match.",
       "Cursors expire on restart or changed source/selection; start again then.",
-      "Search one Space's files and Chats with the same in-app search the",
+      "Search one work-folder's files and Chats with the same in-app search the",
       "desktop uses. The results carry content, so this rides the act lane",
       "and needs the work-fold app running.",
-      "",
-    ].join("\n");
-  }
-  if (normalizedTopic === "library" || normalizedTopic?.startsWith("library ")) {
-    return [
-      header,
-      "",
-      `Usage: ${executable} library list [--json]`,
-      `       ${executable} library add --from <path> [--from <path>...] [--to <library-folder>] [--json]`,
-      `       ${executable} library folder create --name <folder-name> [--json]`,
-      `       ${executable} library copy --item <library-path> --space <id-or-name> [--json]`,
-      "",
-      "The Library is your passive personal collection, shared across all",
-      "Spaces, so only library copy takes --space. add copies outside files",
-      "in, folder create adds a Library folder, and copy places one Library",
-      "item into a Space with a History restore point. Nothing in the Library",
-      "becomes Assistant context automatically. Needs the work-fold app",
-      "running.",
       "",
     ].join("\n");
   }
@@ -462,17 +449,21 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} tools import-skill --scope <personal|space> [--space <id-or-name>] --from <skill-path> [--json]`,
-      `       ${executable} tools install --scope <personal|space> [--space <id-or-name>] (--id <catalog-id> | --source <package-source>) [--json]`,
-      `       ${executable} tools enable|disable --scope <personal|space> [--space <id-or-name>] --kind <extensions|skills|prompts|themes> --path <resource-path> [--json]`,
-      `       ${executable} tools update --scope <personal|space> [--space <id-or-name>] --source <package-source> [--json]`,
-      `       ${executable} tools remove --scope <personal|space> [--space <id-or-name>] --source <package-source> [--json]`,
+      `Usage: ${executable} tools import-skill --scope <everywhere|work-folder> [--work-folder <id-or-name>] --from <skill-path> [--json]`,
+      `       ${executable} tools install --scope <everywhere|work-folder> [--work-folder <id-or-name>] (--id <catalog-id> | --source <package-source>) [--json]`,
+      `       ${executable} tools enable|disable --scope <everywhere|work-folder> [--work-folder <id-or-name>] --kind <extensions|skills|prompts|themes> --path <resource-path> [--json]`,
+      `       ${executable} tools update --scope <everywhere|work-folder> [--work-folder <id-or-name>] --source <package-source> [--json]`,
+      `       ${executable} tools remove --scope <everywhere|work-folder> [--work-folder <id-or-name>] --source <package-source> [--json]`,
       "",
-      "Manage Assistant tools (Skills and Extensions). --scope space requires",
-      "an explicit --space; --scope personal forbids one. import-skill,",
-      "install, and update run immediately with a receipt; --scope personal",
-      "loads into every conversation's runtime. remove also runs immediately",
-      "with a receipt. Needs the work-fold app running.",
+      "Manage Skills & Extensions. --scope everywhere puts them in every",
+      "work-folder and the work-fold agent (Everywhere) and forbids",
+      "--work-folder; --scope work-folder keeps them in one work-folder (This",
+      "work-folder only) and requires an explicit --work-folder. import-skill",
+      "copies in a Skill; install adds a package by catalog id or source;",
+      "enable and disable turn one installed extension, skill, prompt, or",
+      "theme on or off by its path without removing it; update refreshes a",
+      "package; remove uninstalls one.",
+      "Every verb runs immediately with a receipt. Needs the work-fold app running.",
       "",
     ].join("\n");
   }
@@ -480,31 +471,31 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} apps list --space <id-or-name> [--json]`,
-      `       ${executable} apps invoke --space <id-or-name> --app <id> --tool <name> --input <json> [--json]`,
-      `       ${executable} apps proposals list --space <id-or-name> --conversation <id> [--json]`,
-      `       ${executable} apps proposals dismiss --space <id-or-name> --conversation <id> --proposal <id> [--json]`,
-      `       ${executable} apps install-proposal --space <id-or-name> --conversation <id> --proposal <id> [--json]`,
-      `       ${executable} apps install-preview --space <id-or-name> --package <space-path> [--json]`,
-      `       ${executable} apps remove --space <id-or-name> --app <id> [--json]`,
-      `       ${executable} apps grant --space <id-or-name> --app <id> --digest <sha256> --kind <network|files|notifications> --declaration <id> [--path <space-path>] [--json]`,
-      `       ${executable} apps revoke --space <id-or-name> --app <id> --digest <sha256> --kind <network|files|notifications> --declaration <id> [--json]`,
-      `       ${executable} apps connect --space <id-or-name> --app <id> --destination <id> [--json]`,
-      `       ${executable} apps disconnect --space <id-or-name> --app <id> --destination <id> [--json]`,
-      `       ${executable} apps automation enable --space <id-or-name> --app <id> --automation <id> [--json]`,
-      `       ${executable} apps automation disable --space <id-or-name> --app <id> --automation <id> [--json]`,
-      `       ${executable} apps automation run --space <id-or-name> --app <id> --automation <id> [--json]`,
-      `       ${executable} apps storage clear --space <id-or-name> --app <id> [--json]`,
-      `       ${executable} apps retained purge --space <id-or-name> --retained <id> [--json]`,
-      `       ${executable} apps project declare --space <id-or-name> --presentation <json-path> [--json]`,
-      `       ${executable} apps release prepare --space <id-or-name> --version <display-version> [--json]`,
-      `       ${executable} apps release publish --space <id-or-name> --release <digest> [--json]`,
-      `       ${executable} apps release delete --space <id-or-name> --release <digest> [--json]`,
-      `       ${executable} apps install prepare --space <id-or-name> --release <digest> --target-space <id-or-name> [--json]`,
-      `       ${executable} apps update prepare --space <id-or-name> --instance <id> --release <digest> [--json]`,
-      `       ${executable} apps operation activate --space <id-or-name> --operation <id> [--json]`,
-      `       ${executable} apps operation cancel --space <id-or-name> --operation <id> [--json]`,
-      `       ${executable} apps uninstall --space <id-or-name> --instance <id> (--retain-data | --purge-data) [--json]`,
+      `Usage: ${executable} apps list --work-folder <id-or-name> [--json]`,
+      `       ${executable} apps invoke --work-folder <id-or-name> --app <id> --tool <name> --input <json> [--json]`,
+      `       ${executable} apps proposals list --work-folder <id-or-name> --conversation <id> [--json]`,
+      `       ${executable} apps proposals dismiss --work-folder <id-or-name> --conversation <id> --proposal <id> [--json]`,
+      `       ${executable} apps install-proposal --work-folder <id-or-name> --conversation <id> --proposal <id> [--json]`,
+      `       ${executable} apps install-preview --work-folder <id-or-name> --package <work-folder-path> [--json]`,
+      `       ${executable} apps remove --work-folder <id-or-name> --app <id> [--json]`,
+      `       ${executable} apps grant --work-folder <id-or-name> --app <id> --digest <sha256> --kind <network|files|notifications> --declaration <id> [--path <work-folder-path>] [--json]`,
+      `       ${executable} apps revoke --work-folder <id-or-name> --app <id> --digest <sha256> --kind <network|files|notifications> --declaration <id> [--json]`,
+      `       ${executable} apps connect --work-folder <id-or-name> --app <id> --destination <id> [--json]`,
+      `       ${executable} apps disconnect --work-folder <id-or-name> --app <id> --destination <id> [--json]`,
+      `       ${executable} apps automation enable --work-folder <id-or-name> --app <id> --automation <id> [--json]`,
+      `       ${executable} apps automation disable --work-folder <id-or-name> --app <id> --automation <id> [--json]`,
+      `       ${executable} apps automation run --work-folder <id-or-name> --app <id> --automation <id> [--json]`,
+      `       ${executable} apps storage clear --work-folder <id-or-name> --app <id> [--json]`,
+      `       ${executable} apps retained purge --work-folder <id-or-name> --retained <id> [--json]`,
+      `       ${executable} apps project declare --work-folder <id-or-name> --presentation <json-path> [--json]`,
+      `       ${executable} apps release prepare --work-folder <id-or-name> --version <display-version> [--json]`,
+      `       ${executable} apps release publish --work-folder <id-or-name> --release <digest> [--json]`,
+      `       ${executable} apps release delete --work-folder <id-or-name> --release <digest> [--json]`,
+      `       ${executable} apps install prepare --work-folder <id-or-name> --release <digest> --target-work-folder <id-or-name> [--json]`,
+      `       ${executable} apps update prepare --work-folder <id-or-name> --instance <id> --release <digest> [--json]`,
+      `       ${executable} apps operation activate --work-folder <id-or-name> --operation <id> [--json]`,
+      `       ${executable} apps operation cancel --work-folder <id-or-name> --operation <id> [--json]`,
+      `       ${executable} apps uninstall --work-folder <id-or-name> --instance <id> (--retain-data | --purge-data) [--json]`,
       "",
       "Operate restricted apps and App Studio. Every apps verb runs",
       "immediately and leaves a receipt: install-proposal, install-preview,",
@@ -515,68 +506,68 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "prepare, update prepare, operation activate/cancel, uninstall",
       "--retain-data). Credentials never ride this lane: apps connect opens",
       "the browser sign-in flow; a destination that takes a typed secret is",
-      "connected from the Apps tab. A --kind files permission that covers a",
-      "folder covers the whole Space; one that names a single file needs",
-      "--path <space-path> to say which file in the Space it covers. list",
-      "shows each installed app with its tools and their schemas, named",
-      "Assistant actions, powers, connections, and automations; invoke runs",
-      "one declared tool through the app's own runtime and returns its result",
-      "with a receipt.",
+      "connected from Settings → Apps. A --kind files permission that covers a",
+      "folder covers the whole work-folder; one that names a single file needs",
+      "--path <work-folder-path> to say which file it covers. list shows each",
+      "installed app with its tools and their schemas, named Worker actions,",
+      "powers, connections, and automations; invoke runs one declared tool",
+      "through the app's own runtime and returns its result with a receipt.",
       "Needs the work-fold app running.",
       "",
     ].join("\n");
   }
-  if (normalizedTopic === "routings" || normalizedTopic?.startsWith("routings ")) {
+  if (normalizedTopic === "automations" || normalizedTopic?.startsWith("automations ")) {
     return [
       header,
       "",
-      `Usage: ${executable} routings enable --proposal <path> [--json]`,
-      `       ${executable} routings list [--json]`,
-      `       ${executable} routings show --routing <id> [--json]`,
-      `       ${executable} routings run --routing <id> [--json]`,
-      `       ${executable} routings stop --routing <id> [--json]`,
-      `       ${executable} routings disable --routing <id> [--json]`,
-      `       ${executable} routings delete --routing <id> [--json]`,
-      `       ${executable} routings receipts [--routing <id>] [--json]`,
+      `Usage: ${executable} automations enable --proposal <path> [--json]`,
+      `       ${executable} automations list [--json]`,
+      `       ${executable} automations show --automation <id> [--json]`,
+      `       ${executable} automations run --automation <id> [--json]`,
+      `       ${executable} automations stop --automation <id> [--json]`,
+      `       ${executable} automations disable --automation <id> [--json]`,
+      `       ${executable} automations delete --automation <id> [--json]`,
+      `       ${executable} automations receipts [--automation <id>] [--json]`,
       "",
-      "Routings are declared, machine-local cross-Space glue: a trigger plus",
-      "bounded deterministic steps executed by app code, never by an open",
-      "conversation. They sit above Spaces, so no --space. enable reads an",
-      "inert typed proposal, checks every Space it names is registered, and",
-      "turns it on at once — the receipt pins the exact declaration, and",
-      "enabling the same declaration again changes nothing. run starts one",
-      "bounded run now; stop, disable, and delete only narrow standing",
-      "behavior and run immediately. receipts lists per-run receipts. Needs",
-      "the work-fold app running.",
+      "Automations are declared, machine-local cross-work-folder glue: a trigger",
+      "plus bounded deterministic steps executed by app code, never by an open",
+      "conversation. They sit above work-folders, so none takes --work-folder.",
+      "enable reads an inert typed proposal, checks that every work-folder it",
+      "names is registered, and turns it on at once — the receipt pins the",
+      "exact declaration, and enabling the same declaration again changes",
+      "nothing. run starts one bounded run now; stop, disable, and delete only",
+      "narrow standing behavior and run immediately. receipts lists per-run",
+      "receipts. Needs the work-fold app running.",
       "",
-      "Folder-change proposal example (replace sample Space/Check ids, paths,",
-      "messages, and timestamp with your own values):",
+      "folder-change proposal example (replace the sample work-folder and Check",
+      "ids, paths, messages, and timestamp with your own values):",
       JSON.stringify({
-        kind: "work-fold.routing-proposal", version: 4, name: "Brief handoff",
+        kind: "work-fold.automation-proposal", version: 4, name: "Brief handoff",
         createdBy: "assistant", createdAt: "2026-01-01T00:00:00.000Z",
-        routing: {
+        automation: {
           title: "Brief handoff",
-          trigger: { kind: "files-changed", space: "space-0000000000000001", watch: { kind: "tree", path: "Ready", recursive: false, extensions: [".md"] }, debounceSeconds: 5, cooldownMinutes: 1 },
+          trigger: { kind: "files-changed", workFolder: "space-0000000000000001", watch: { kind: "tree", path: "Ready", recursive: false, extensions: [".md"] }, debounceSeconds: 5, cooldownMinutes: 1 },
           steps: [
-            { id: "copy", kind: "files", fromSpace: "space-0000000000000001", from: { kind: "paths", paths: ["Ready/brief.md"] }, toSpace: "space-0000000000000002", to: "Incoming" },
-            { id: "adopt", kind: "chat", space: "space-0000000000000002", message: "Adopt the newest Incoming/brief*.md copy into reference/brief.md. Preserve the draft and other files. Changed files this run:\n{{trigger.changedFiles}}" },
-            { id: "review", kind: "check", space: "space-0000000000000002", check: "check-example1" },
-            { id: "report", kind: "fold", message: "{{trigger.summary}} The brief handoff finished. Files the adopt step created:\n{{steps.adopt.createdFiles}}" },
+            { id: "copy", kind: "files", fromWorkFolder: "space-0000000000000001", from: { kind: "paths", paths: ["Ready/brief.md"] }, toWorkFolder: "space-0000000000000002", to: "Incoming" },
+            { id: "adopt", kind: "chat", workFolder: "space-0000000000000002", message: "Adopt the newest Incoming/brief*.md copy into reference/brief.md. Preserve the draft and other files. Changed files this run:\n{{trigger.changedFiles}}" },
+            { id: "review", kind: "check", workFolder: "space-0000000000000002", check: "check-example1" },
+            { id: "report", kind: "agent", message: "{{trigger.summary}} The brief handoff finished. Files the adopt step created:\n{{steps.adopt.createdFiles}}" },
           ],
         },
       }),
-      "Keep title, trigger, and steps inside routing. Copies are additive and",
-      "collision-renamed; a Check step completing does not mean its findings are clear.",
-      "Observers establish a baseline on enable/restart/wake and pause during",
-      "Routing runs. They do not replay edits from that pause or while quit/asleep.",
+      "Keep title, trigger, and steps inside the automation object. Copies are",
+      "additive and collision-renamed; a Check step completing does not mean its",
+      "findings are clear. Observers establish a baseline on enable/restart/wake",
+      "and pause during automation runs. They do not replay edits from that",
+      "pause or while quit/asleep.",
       "",
-      "Messages in chat and fold steps may use {{trigger.summary}},",
+      "Messages in chat and agent steps may use {{trigger.summary}},",
       "{{trigger.changedFiles}} (folder-change triggers), {{trigger.findings}}",
       "(Check-run triggers), and {{steps.<id>.createdFiles}} (an earlier chat",
       "step). work-fold fills them in when the run starts, keeps each under",
       "8 KiB, and records what it filled in on the hop receipt; anything else",
-      "inside {{ }} is refused when you enable. A fold step opens a new thread",
-      "in the management conversation.",
+      "inside {{ }} is refused when you enable. An agent step starts a new",
+      "work-fold agent chat.",
       "Debounce: 2–120 seconds. Cooldown: 1–1440 minutes. Eight runs may",
       "execute at once; declarations have no step-count quota.",
       "",
@@ -586,8 +577,8 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} pages share --space <id-or-name> --path <space-path> --title <page-title> [--snapshot] [--json]`,
-      `       ${executable} pages share-app --space <id-or-name> --instance <app-instance-id> [--json]`,
+      `Usage: ${executable} pages share --work-folder <id-or-name> --path <work-folder-path> --title <page-title> [--snapshot] [--json]`,
+      `       ${executable} pages share-app --work-folder <id-or-name> --instance <app-instance-id> [--json]`,
       `       ${executable} pages list [--json]`,
       `       ${executable} pages status --publication <id> [--json]`,
       `       ${executable} pages revoke --publication <id> [--json]`,
@@ -595,7 +586,7 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       `       ${executable} pages widen --publication <id> [--serve-rate <per-minute>] [--byte-budget <bytes-per-day>] [--snapshot] [--json]`,
       `       ${executable} pages snapshot-off --publication <id> [--json]`,
       "",
-      "Publish one Space file as a read-only page served live from this",
+      "Publish one work-folder file as a read-only page served live from this",
       "desktop at your work-fold address. pages share shares the page",
       "immediately and records a receipt; share-app puts one installed App",
       "Instance at the address instead: viewers get the app's reviewed",
@@ -611,19 +602,19 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "",
     ].join("\n");
   }
-  if (normalizedTopic === "trash" || normalizedTopic?.startsWith("trash ")) {
+  if (normalizedTopic === "recently-deleted" || normalizedTopic?.startsWith("trash ")) {
     return [
       header,
       "",
-      `Usage: ${executable} trash list [--json]`,
-      `       ${executable} trash restore --entry <id> [--to <absolute-path>] [--json]`,
+      `Usage: ${executable} recently-deleted list [--json]`,
+      `       ${executable} recently-deleted restore --entry <id> [--to <absolute-path>] [--json]`,
       "",
       "Recently deleted holds what a delete could not leave to History: files",
-      "and folders History could not keep a copy of, deleted managed Space",
-      "folders, and app data that was cleared or purged. list shows what is",
-      "waiting and when it will be removed (30 days by default; change that in",
-      "Settings → Recently deleted). restore puts an item back where",
-      "it came from, renaming it if something else now has that name. App data",
+      "and folders History could not keep a copy of, deleted managed",
+      "work-folders, and app data that was cleared or purged. list shows what",
+      "is waiting and when it will be removed (30 days by default; change that",
+      "in Settings → Recently deleted). restore puts an item back where it",
+      "came from, renaming it if something else now has that name. App data",
       "whose app is gone can only be saved as a file, which is what --to does.",
       "Nothing empties Recently deleted early. Needs the work-fold app running.",
       "",
@@ -632,55 +623,56 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
   return [
     header,
     "",
-    `Usage: ${executable} [--json] <command> [--space <id-or-name>]`,
+    `Usage: ${executable} [--json] <command> [--work-folder <id-or-name>]`,
     "",
     "Read commands:",
-    "  context             Show the resolved Space and host context",
-    "  spaces list         List Spaces",
+    "  context             Show the resolved work-folder and host context",
+    "  work-folders list   List work-folders",
     "  tasks list          List host-managed tasks",
-    "  capabilities list   List Assistant capabilities",
-    "  checks status       Show aggregate Check status for one Space",
+    "  capabilities list   List Skills & Extensions, everywhere and per work-folder",
+    "  checks status       Show aggregate Check status for one work-folder",
     "  version             Show the installed work-fold version",
     "  help [command]      Show command help",
     "",
-    "Act commands (need the work-fold app running; Space commands take --space):",
+    "Act commands (need the work-fold app running; work-folder commands take --work-folder):",
     "  chat create|send|status|result|wait|abort|rename|snooze|archive|resume|compact",
-    "                      Start, continue, follow, curate, or compact a Space Chat",
+    "                      Start, continue, follow, curate, or compact a Worker Chat",
     "  chat report|ask|answer|handoff",
-    "                      Hand results, questions, answers, and work between Spaces",
-    "  chats list          List a Space's Chats",
-    "  manage send|ask|answer|status|result|wait|stop|abort|list|glance",
-    "                      Talk to the management conversation above all Spaces",
+    "                      Hand results, questions, answers, and work between work-folders",
+    "  chats list          List a work-folder's Chats",
+    "  agent send|ask|answer|status|result|wait|stop|abort|list|overview",
+    "                      Talk to the work-fold agent above all work-folders",
     "  checks propose|propose-fix|enable|disable|run|task|result|wait|abort|problems|decide",
-    "                      Operate optional, explicitly scoped Space Checks",
-    "  history list|save|restore|versions|restore-file",
-    "                      Save and restore Space History",
-    "  search              Search one Space's files and Chats (--query)",
+    "                      Operate optional, explicitly scoped work-folder Checks",
+    "  history list|save|restore|versions|read|diff|restore-file",
+    "                      Save and restore work-folder History",
+    "  search              Search one work-folder's files and Chats (--query)",
     "  files add|move|rename|delete|mkdir|create",
-    "                      Work with files inside a Space",
-    "  library list|add|copy; library folder create",
-    "                      Use the passive personal Library",
-    "  spaces create|register|rename|unregister|delete; spaces appearance apply|reset|undo",
-    "  spaces assistant show|model|instructions",
-    "                      Create, manage, restyle, or configure Spaces",
-    "  tools import-skill|install|update|remove",
-    "                      Manage Assistant tools (Skills and Extensions)",
+    "                      Work with files inside a work-folder",
+    "  work-folders create|register|rename|unregister|delete",
+    "  work-folders appearance apply|reset|undo",
+    "  work-folders worker show|model|instructions",
+    "                      Create, manage, restyle, or configure work-folders and their Workers",
+    "  tools import-skill|install|enable|disable|update|remove",
+    "                      Manage Skills & Extensions",
     `  apps <verb>         Restricted apps and App Studio (see '${executable} help apps')`,
-    "  routings enable|list|show|run|stop|disable|delete|receipts",
-    "                      Declared cross-Space glue, above Spaces",
+    "  automations enable|list|show|run|stop|disable|delete|receipts",
+    "                      Declared steps that run across work-folders on a trigger",
     "  pages share|share-app|list|status|revoke|narrow|widen|snapshot-off",
     "                      Read-only pages served from this desktop",
-    "  trash list|restore  Bring back what was deleted",
-    `  requests list|show  Follow one piece of work across Spaces (see '${executable} help collaborate')`,
+    "  recently-deleted list|restore",
+    "                      Bring back what was deleted",
+    `  requests list|show  Follow one piece of work across work-folders (see '${executable} help collaborate')`,
     "",
     "Every act verb runs immediately and leaves a receipt in the act",
-    "journal. Mutating act verbs accept --parent-task <id> to record",
-    "management-request lineage. Remote access administration, pairing and",
-    "act tokens, and provider credentials are local setup: this CLI refuses",
-    "them.",
+    "journal. Mutating act verbs accept --parent-task <id> to record which",
+    "work-fold agent request they belong to. Web Access administration,",
+    "pairing and act tokens, and provider credentials are local setup: this",
+    "CLI refuses them.",
     "",
     "Options:",
-    "  --space <value>     Select a Space by id or exact name",
+    "  --work-folder <value>",
+    "                      Select a work-folder by id or exact name",
     "  --json              Emit stable JSON output",
     "  -h, --help          Show help",
     "  -v, --version       Show the version",
@@ -715,16 +707,16 @@ async function runCommand(
         },
       };
     case "context":
-      return { command: command.name, data: contextJson(await kernel.getContext(actor, { space: command.space })) };
-    case "spaces.list":
-      return { command: command.name, data: spacesJson(await kernel.listSpaces(actor, { space: command.space })) };
+      return { command: command.name, data: contextJson(await kernel.getContext(actor, { workFolder: command.workFolder })) };
+    case "work-folders.list":
+      return { command: command.name, data: workFoldersJson(await kernel.listWorkFolders(actor, { workFolder: command.workFolder })) };
     case "tasks.list":
-      return { command: command.name, data: tasksJson(await kernel.listTasks(actor, { space: command.space })) };
+      return { command: command.name, data: tasksJson(await kernel.listTasks(actor, { workFolder: command.workFolder })) };
     case "capabilities.list":
-      return { command: command.name, data: capabilitiesJson(await kernel.listCapabilities(actor, { space: command.space })) };
+      return { command: command.name, data: capabilitiesJson(await kernel.listCapabilities(actor, { workFolder: command.workFolder })) };
     case "checks.status": {
       if (!kernel.getChecksStatus) throw new WorkFoldCliError("unavailable", "Checks status is unavailable in this work-fold host.");
-      return { command: command.name, data: checksStatusJson(await kernel.getChecksStatus(actor, { space: command.space })) };
+      return { command: command.name, data: checksStatusJson(await kernel.getChecksStatus(actor, { workFolder: command.workFolder })) };
     }
   }
 }
@@ -739,8 +731,8 @@ function humanOutput(result: WorkFoldCliCommandResult, options: WorkFoldCliExecu
     }
     case "context":
       return humanContext(result.data as unknown as WorkFoldCliContextSnapshot);
-    case "spaces.list":
-      return humanSpaces((result.data as unknown as { spaces: WorkFoldCliSpaceSummary[] }).spaces);
+    case "work-folders.list":
+      return humanWorkFolders((result.data as unknown as { workFolders: WorkFoldCliWorkFolderSummary[] }).workFolders);
     case "tasks.list":
       return humanTasks((result.data as unknown as { tasks: WorkFoldCliTaskSummary[] }).tasks);
     case "capabilities.list":
@@ -755,14 +747,14 @@ function humanOutput(result: WorkFoldCliCommandResult, options: WorkFoldCliExecu
 function contextJson(value: WorkFoldCliContextSnapshot): WorkFoldCliJson {
   return {
     cwd: value.cwd,
-    space: value.space ? spaceJson(value.space) : null,
+    workFolder: value.workFolder ? workFolderJson(value.workFolder) : null,
     selectedPath: value.selectedPath ?? null,
     activeSurface: value.activeSurface ?? null,
   };
 }
 
-function spacesJson(values: WorkFoldCliSpaceSummary[]): WorkFoldCliJson {
-  return { spaces: values.map(spaceJson), total: values.length };
+function workFoldersJson(values: WorkFoldCliWorkFolderSummary[]): WorkFoldCliJson {
+  return { workFolders: values.map(workFolderJson), total: values.length };
 }
 
 function tasksJson(values: WorkFoldCliTaskSummary[]): WorkFoldCliJson {
@@ -771,7 +763,7 @@ function tasksJson(values: WorkFoldCliTaskSummary[]): WorkFoldCliJson {
       id: item.id,
       label: item.label,
       status: item.status,
-      spaceId: item.spaceId ?? null,
+      workFolderId: item.workFolderId ?? null,
       updatedAt: item.updatedAt ?? null,
     })),
     total: values.length,
@@ -797,7 +789,7 @@ function checksStatusJson(value: WorkFoldCliCheckStatusSummary): WorkFoldCliJson
     kind: value.kind,
     version: value.version,
     available: value.available,
-    spaceId: value.spaceId,
+    workFolderId: value.workFolderId,
     state: value.state,
     configured: value.configured,
     proposed: value.proposed,
@@ -813,37 +805,37 @@ function checksStatusJson(value: WorkFoldCliCheckStatusSummary): WorkFoldCliJson
   };
 }
 
-function spaceJson(value: WorkFoldCliSpaceSummary): WorkFoldCliJson {
+function workFolderJson(value: WorkFoldCliWorkFolderSummary): WorkFoldCliJson {
   return {
     id: value.id,
     name: value.name,
-    spaceRoot: value.spaceRoot ?? null,
+    workFolderRoot: value.workFolderRoot ?? null,
     active: value.active ?? false,
-    ...(value.parentSpaceId ? { parentSpaceId: value.parentSpaceId } : {}),
+    ...(value.parentWorkFolderId ? { parentWorkFolderId: value.parentWorkFolderId } : {}),
   };
 }
 
 function humanContext(value: WorkFoldCliContextSnapshot): string {
   const lines = [`Working directory: ${terminalText(value.cwd)}`];
-  if (value.space) {
-    lines.push(`Space: ${terminalText(value.space.name)} [${terminalText(value.space.id)}]`);
-    if (value.space.spaceRoot) lines.push(`Root: ${terminalText(value.space.spaceRoot)}`);
+  if (value.workFolder) {
+    lines.push(`work-folder: ${terminalText(value.workFolder.name)} [${terminalText(value.workFolder.id)}]`);
+    if (value.workFolder.workFolderRoot) lines.push(`Root: ${terminalText(value.workFolder.workFolderRoot)}`);
   } else {
-    lines.push("Space: none");
+    lines.push("work-folder: none");
   }
   if (value.selectedPath) lines.push(`Selected: ${terminalText(value.selectedPath)}`);
   if (value.activeSurface) lines.push(`Surface: ${terminalText(value.activeSurface)}`);
   return `${lines.join("\n")}\n`;
 }
 
-function humanSpaces(values: WorkFoldCliSpaceSummary[]): string {
-  if (!values.length) return "No Spaces found.\n";
-  return `${values.map((item) => `- ${terminalText(item.name)} [${terminalText(item.id)}]${item.spaceRoot ? ` — ${terminalText(item.spaceRoot)}` : ""}${item.active ? " (active)" : ""}`).join("\n")}\n`;
+function humanWorkFolders(values: WorkFoldCliWorkFolderSummary[]): string {
+  if (!values.length) return "No work-folders found.\n";
+  return `${values.map((item) => `- ${terminalText(item.name)} [${terminalText(item.id)}]${item.workFolderRoot ? ` — ${terminalText(item.workFolderRoot)}` : ""}${item.active ? " (active)" : ""}`).join("\n")}\n`;
 }
 
 function humanTasks(values: WorkFoldCliTaskSummary[]): string {
   if (!values.length) return "No tasks found.\n";
-  return `${values.map((item) => `- ${terminalText(item.label)} [${terminalText(item.status)}] (${terminalText(item.id)})${item.spaceId ? ` — Space ${terminalText(item.spaceId)}` : ""}`).join("\n")}\n`;
+  return `${values.map((item) => `- ${terminalText(item.label)} [${terminalText(item.status)}] (${terminalText(item.id)})${item.workFolderId ? ` — work-folder ${terminalText(item.workFolderId)}` : ""}`).join("\n")}\n`;
 }
 
 function humanCapabilities(values: WorkFoldCliCapabilitySummary[]): string {
@@ -852,7 +844,7 @@ function humanCapabilities(values: WorkFoldCliCapabilitySummary[]): string {
 }
 
 function humanChecksStatus(value: WorkFoldCliCheckStatusSummary): string {
-  if (!value.available) return `Checks: unavailable\nSpace: ${terminalText(value.spaceId)}\n`;
+  if (!value.available) return `Checks: unavailable\nwork-folder: ${terminalText(value.workFolderId)}\n`;
   const labels: Record<Exclude<WorkFoldCliCheckStatusSummary["state"], "unavailable">, string> = {
     "not-configured": "not configured",
     "current-clear": "current, no findings",
@@ -864,7 +856,7 @@ function humanChecksStatus(value: WorkFoldCliCheckStatusSummary): string {
   const state = value.state === "unavailable" ? "unavailable" : labels[value.state];
   return [
     `Checks: ${state}`,
-    `Space: ${terminalText(value.spaceId)}`,
+    `work-folder: ${terminalText(value.workFolderId)}`,
     `Configured: ${value.configured} (${value.enabled} enabled, ${value.proposed} proposed)`,
     `Current: ${value.current}`,
     `Never run: ${value.neverRun}`,
@@ -890,10 +882,10 @@ function humanErrorMessage(error: WorkFoldCliError): string {
   return terminalText(error.message);
 }
 
-function normalizeSpaceSelector(value: string): string {
+function normalizeWorkFolderSelector(value: string): string {
   const normalized = value.trim();
   if (!normalized || normalized.length > 256 || /[\u0000-\u001f]/.test(normalized)) {
-    throw usageError("--space requires a valid Space id or name.");
+    throw usageError("--work-folder requires a valid work-folder id or name.");
   }
   return normalized;
 }

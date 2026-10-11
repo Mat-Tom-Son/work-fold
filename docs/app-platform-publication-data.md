@@ -30,20 +30,24 @@ The current restricted-app implementation establishes useful safety properties:
   scripts;
 - every package byte participates in one SHA-256 digest, and installation stages
   and verifies the exact reviewed bytes;
-- a proposal receipt is bound to one Space, Chat, source path, and digest;
-- installing a digest grants no destination, file root, notification category,
-  connection, or automation;
+- a proposal receipt is bound to one work-folder, Chat, source path, and digest;
+- installing a digest grants only the destinations, file permissions,
+  notification categories, and Check-result slots it declares and enables only
+  its declared automations; connection secrets are still entered by the person
+  ([Receipts, not gates](receipts-not-gates.md), F21);
 - host-owned JSON storage is keyed by Tenant, Runtime Instance, Feature
   Installation, and Data Namespace, so data lineage is separate from a package
   digest;
 - connections and automation execution bind the exact runtime, installation,
   revision, declaration, target, owner, and relevant authority; and
 - Development-preview updates and changed App-Release revisions stop the old
-  runtime, preserve the Feature/Data lineage, and reset grants, connections,
-  schedules, and current-revision run history.
+  runtime and preserve the Feature/Data lineage; grants, Check slots, and
+  automation states carry forward by declaration id, connections carry forward
+  only when their destination declaration is byte-identical, and run receipts
+  are kept.
 
-The release-backed local model makes continuity more selective, and future
-hosts must preserve that rule: review is never equivalent to a live grant and a
+The release-backed local model plans that continuity per Feature, and future
+hosts must preserve its rule: review is never equivalent to a live grant and a
 friendly id never substitutes for reviewed bytes.
 
 ## Candidate identity model
@@ -53,7 +57,7 @@ ownership or authority.
 
 | Identifier | Meaning | Stability and security use |
 | --- | --- | --- |
-| `spaceId` | Portable identity of one ordinary folder-backed Space | Survives a folder move; is not a cloud credential, tenant id, or project role |
+| `workFolderId` | Portable identity of one ordinary folder-backed work-folder | Survives a folder move; is not a cloud credential, tenant id, or project role |
 | `projectId` | Local/project identity of one App Project and its App lineage | Stable across releases; machine-local in the current product, and never a cloud credential or ownership proof; a future portable form needs explicit import/collision rules |
 | `cloudProjectId` | Registry identity of one remotely registered App Project | Bound to `projectId` only through an authenticated, revocable record; excluded from the immutable release identity |
 | `featureId` | Stable logical slot for one feature within the project's App lineage | Names storage and update comparison; cannot prove code or declaration continuity |
@@ -79,7 +83,7 @@ an App Instance separately chooses its runtime Tenant.
 work-fold implements the account-free local subset without creating the
 candidate cloud binding above:
 
-- one source Space has at most one machine-local App Project and one
+- one source work-folder has at most one machine-local App Project and one
   Development Instance;
 - Project presentation is an explicit `{ title, description, icon }` record in
   work-fold application data, not a new `.work-fold/` file. The first reviewed
@@ -93,17 +97,19 @@ candidate cloud binding above:
   allocated ids and plan content. Activation re-reads the Release, rechecks
   conflicts or the current active pointer, and consumes the operation only when
   the registry transition commits;
-- one release-backed local App Instance may exist for a `(projectId, target
-  Space)` pair. A target with any Development or App Feature using the same
-  `featureId` is rejected instead of silently merging runtimes; and
-- the target Space supplies navigation attachment and eligibility for explicit
-  file grants. Release bytes, live authority, connections, schedules, receipts,
-  operation journals, and mutable data remain host-owned application data.
+- one release-backed local App Instance may exist for a
+  `(projectId, targetWorkFolderId)` pair. A target with any Development or App
+  Feature using the same `featureId` is rejected instead of silently merging
+  runtimes; and
+- the target work-folder supplies navigation attachment and eligibility for
+  explicit file grants. Release bytes, live authority, connections, schedules,
+  receipts, operation journals, and mutable data remain host-owned application
+  data.
 
 Local “publish” is not upload, registry publication, signing, hosting, sync, or
-App Store submission. Removing either a source Space whose Project has an
-active release-backed instance or that instance's target Space is blocked until
-the App Instance is explicitly uninstalled. A retain choice keeps the source
+App Store submission. Removing either a source work-folder whose Project has an
+active release-backed instance or that instance's target work-folder is blocked
+until the App Instance is explicitly uninstalled. A retain choice keeps the source
 registered until its inactive Data Namespaces are explicitly purged; the former
 target may then be removed. Source removal without live or retained data clears
 the machine-local Project and its Release lineage, while target removal cancels
@@ -187,7 +193,11 @@ review, or publication authority.
    enter or execute as dependencies of the restricted end-user artifact.
 7. **Release installation and deployment start default-off.** Runtime grants,
    connection bindings, notification categories, and named jobs are instance
-   decisions after review.
+   decisions after review. (Amended 2026-09-10 for the local product: a local
+   installation grants its declared powers and enables its declared
+   automations, and the person narrows them; see
+   [Receipts, not gates](receipts-not-gates.md), F21. The hosted semantic core
+   still starts them off.)
 8. **Continuity is evaluated per feature and per declaration.** An unchanged
    feature revision may qualify for narrowly defined continuity; a stable
    `featureId`, `projectId`, display version, or publisher is insufficient.
@@ -216,16 +226,10 @@ A release closure excludes:
 - install, postinstall, or deploy-time build scripts;
 - credentials, refresh tokens, signing private keys, connection values, or
   environment secrets;
-- machine paths, a local Space registry entry, local History objects, or runtime
-  data;
-- raw `.work-fold/` metadata or conversations;
-- `.pi/` and other executable project configuration; and
-- the personal Library or a pointer that can read from it later.
-
-A Library item explicitly copied into a Space becomes an independent ordinary
-file. It can enter a release only if the person then selects that copied file as
-a publish input and its licensing permits distribution. Its origin in Library
-does not create a live dependency or silently select it.
+- machine paths, a local work-folder registry entry, local History objects, or
+  runtime data;
+- raw `.work-fold/` metadata or conversations; and
+- `.pi/` and other executable project configuration.
 
 A raw numeric-loopback destination may remain valid for a local Development
 Instance, but it does not describe a closed hosted dependency. Hosted publication
@@ -342,13 +346,16 @@ another installation. A later reinstall receives a new `featureInstallationId`
 and new data namespace unless an administrator explicitly adopts a compatible
 retained namespace through a reviewed, receipted migration decision.
 
-The current local build implements the no-schema subset. Its persisted planner treats an
-exact Feature artifact and declaration as `keep`: eligible grants,
+The current local build implements the no-schema subset. Its persisted planner
+treats an exact Feature artifact and declaration as `keep`: eligible grants,
 instance-owned connections, enabled jobs, the Feature Installation, and the Data
 Namespace can continue unless the person chooses the stricter reset policy. A
-changed revision is `update`: the installation and data namespace remain, while
-grants, connections, jobs, current-revision runs, and stale hosts reset. Added
-Features receive freshly reserved installation/data ids. Removed Features are
+changed revision is `update`: the installation and data namespace remain and
+stale hosts stop, while the default continuity carries grants, Check slots, and
+automation states forward by declaration id, keeps run receipts, and keeps
+connections only when their destination declaration is byte-identical
+([Receipts, not gates](receipts-not-gates.md), F21). The reset policy instead
+starts over with the install defaults. Added Features receive freshly reserved installation/data ids. Removed Features are
 fenced and their data is retained as inactive data pending an explicit purge.
 Choosing an older published Release uses the same planner and activation path,
 so rollback is not a byte-copy exception. Releases containing a data schema or
@@ -505,7 +512,7 @@ project plane and a Runtime Instance. It is source-bound and release-less; a
 release-backed local or hosted App Instance is a different object. It follows
 these candidate rules:
 
-1. It is local, belongs to one registered Space and App Project, and requires no
+1. It is local, belongs to one registered work-folder and App Project, and requires no
    account.
 2. It executes only a staged, inspected, approved feature revision. Editing
    source does not hot-replace installed bytes.
@@ -531,7 +538,7 @@ these candidate rules:
    `runtimeInstanceId`, Feature Installation identity, and the typed Authority
    Stamp just like any other runtime.
 9. Removing the Development Instance follows its explicit data-retention choice;
-   it never deletes project files. Removing or unregistering the Space revokes
+   it never deletes project files. Removing or unregistering the work-folder revokes
    future Development Instance launches.
 
 This preserves a tight edit-review-run loop without pretending source and a
@@ -541,7 +548,7 @@ running instance are the same object.
 
 ### Accepted semantic decisions
 
-1. **Do not build a work-fold-owned generic “sync the Space.”** Publication,
+1. **Do not build a work-fold-owned generic “sync the work-folder.”** Publication,
    project collaboration, instance-data replication, secret storage,
    operational control, and Chat sharing are separate protocols.
 2. **Each App Instance belongs to exactly one tenant in the first model.** An
@@ -573,7 +580,7 @@ running instance are the same object.
 | --- | --- | --- |
 | Primary identity | `projectId`, plus an optional authenticated `cloudProjectId` registry binding | `tenantId` and `runtimeInstanceId` |
 | Mutable content | Ordinary selected source files and assets | Typed feature records, attachments, preferences, and operational state |
-| Executable content | Builder-side `.pi` resources under Space-registration trust; restricted feature source before review | Exact reviewed Feature Revisions staged from source for a Development Instance or pinned by one immutable Release for an App Instance |
+| Executable content | Builder-side `.pi` resources under work-folder-registration trust; restricted feature source before review | Exact reviewed Feature Revisions staged from source for a Development Instance or pinned by one immutable Release for an App Instance |
 | Secrets | No release or runtime secrets | Host-owned instance- or principal-owned bindings |
 | History | Source edits and History checkpoints | Data revisions, migrations, grants, jobs, and audit receipts |
 | Collaboration | Explicit source roles and selected material | Instance roles and data access policy |
@@ -715,16 +722,16 @@ and instance-data synchronization streams:
 - `.work-fold/conversations/`, preserved legacy `.workspace/` content, Chat attachments, compaction state, and Pi
   sessions. Chat sharing requires its own consent, participant, model-provider,
   retention, and deletion contract.
-- raw `.work-fold/space.json`. It can help reconcile a moved folder locally but
+- raw `.work-fold/work-folder.json`. It can help reconcile a moved folder locally but
   cannot claim a cloud project, tenant, role, or publication right.
-- personal Library storage. Only an explicit independent copy into the Space may
+- personal Library storage. Only an explicit independent copy into the work-folder may
   later be selected as ordinary project input.
 - provider credentials, app connection values, local encrypted stores, instance
   secrets, and signing material.
 - local History objects, machine registry state, cached views, run queues, and
   updater state.
 
-These exclusions govern work-fold-owned streams only. A Space remains an
+These exclusions govern work-fold-owned streams only. A work-folder remains an
 ordinary folder: Google Drive for desktop, source control, backup software, or
 another third-party synchronization tool may still copy `.work-fold/`, its
 conversations, `.pi/`, and any other folder content under that tool's settings.
@@ -928,8 +935,8 @@ it never deletes separately selected ordinary resource targets. Retained local
 namespaces are inactive and visible to the source Project for a later explicit
 purge. The app also implements [data export](app-data-recovery.md)
 and same-installation recovery; retained-data adoption is not implemented. Only a Development Instance is
-source-bound to an App Project and source Space, while a local App Instance is
-attached to its chosen target Space. work-fold blocks removing either
+source-bound to an App Project and source work-folder, while a local App Instance is
+attached to its chosen target work-folder. work-fold blocks removing either
 registration while that release-backed Instance remains active and directs the
 person to uninstall first. Retained data continues to bind the source Project
 until explicit purge, but not the former target. A future hosted contract must
@@ -990,7 +997,7 @@ real adapters and operating policy before launch:
 - offline and queued operations have documented expiry, fencing, conflict, and
   reconnection behavior; and
 - the first private hosted journey works without generalized folder sync or an
-  account requirement for unrelated local Spaces.
+  account requirement for unrelated local work-folders.
 
 ## Design and implementation fixtures
 

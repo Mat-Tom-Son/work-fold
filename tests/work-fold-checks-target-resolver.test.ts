@@ -33,14 +33,14 @@ function resolutionError(code: WorkFoldCheckTargetResolutionErrorCode): (error: 
   return (error) => error instanceof WorkFoldCheckTargetResolutionError && error.code === code;
 }
 
-async function temporarySpace(t: test.TestContext): Promise<string> {
+async function temporaryWorkFolder(t: test.TestContext): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "work-fold checks targets "));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
 
 test("Check targets resolve exact files and explicitly filtered trees in deterministic order", async (t) => {
-  const root = await temporarySpace(t);
+  const root = await temporaryWorkFolder(t);
   await mkdir(join(root, "Trip", "nested"), { recursive: true });
   await writeFile(join(root, "Trip", "z.txt"), "zz", "utf8");
   await writeFile(join(root, "Trip", "A.MD"), "a", "utf8");
@@ -68,7 +68,7 @@ test("Check targets resolve exact files and explicitly filtered trees in determi
 });
 
 test("tree recursion and extension membership are always explicit", async (t) => {
-  const root = await temporarySpace(t);
+  const root = await temporaryWorkFolder(t);
   await mkdir(join(root, "Data", "nested"), { recursive: true });
   await writeFile(join(root, "Data", "top.csv"), "top", "utf8");
   await writeFile(join(root, "Data", "top.txt"), "ignored", "utf8");
@@ -89,17 +89,17 @@ test("tree recursion and extension membership are always explicit", async (t) =>
   );
 });
 
-test("the resolver refuses the Space root, path escapes, and reserved Check material", async (t) => {
-  const root = await temporarySpace(t);
+test("the resolver refuses the work-folder root, path escapes, and reserved Check material", async (t) => {
+  const root = await temporaryWorkFolder(t);
   const targets = [
     tree(".", [".md"]),
     file("../outside.txt"),
     file("/tmp/outside.txt"),
     file("C:/outside.txt"),
     file("folder\\outside.txt"),
-    file(".work-fold/space.json"),
-    file(".WORK-FOLD/space.json"),
-    file(".workspace/space.json"),
+    file(".work-fold/work-folder.json"),
+    file(".WORK-FOLD/work-folder.json"),
+    file(".workspace/work-folder.json"),
     file("Notes/.PI/AGENTS.md"),
     file("docs/report.txt:alternate"),
     file("docs/CON.txt"),
@@ -117,7 +117,7 @@ test("the resolver refuses the Space root, path escapes, and reserved Check mate
 });
 
 test("reserved metadata nested below an explicit tree is never resolved", async (t) => {
-  const root = await temporarySpace(t);
+  const root = await temporaryWorkFolder(t);
   await mkdir(join(root, "Docs", ".work-fold"), { recursive: true });
   await mkdir(join(root, "Docs", ".workspace"), { recursive: true });
   await mkdir(join(root, "Docs", ".pi"), { recursive: true });
@@ -131,7 +131,7 @@ test("reserved metadata nested below an explicit tree is never resolved", async 
 });
 
 test("exact missing files are data while missing trees and type mismatches are resolver errors", async (t) => {
-  const root = await temporarySpace(t);
+  const root = await temporaryWorkFolder(t);
   await mkdir(join(root, "Expected"));
   await writeFile(join(root, "Expected", "not-a-directory.txt"), "file", "utf8");
 
@@ -161,7 +161,7 @@ test("exact missing files are data while missing trees and type mismatches are r
 
 test("exact and tree targets reject symbolic links and junctions", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold checks links "));
-  const root = join(sandbox, "Space");
+  const root = join(sandbox, "work-folder");
   const outside = join(sandbox, "outside");
   await mkdir(root);
   await mkdir(outside);
@@ -197,7 +197,7 @@ test("exact and tree targets reject symbolic links and junctions", async (t) => 
 });
 
 test("file-count and byte bounds fail closed without returning a partial target set", async (t) => {
-  const root = await temporarySpace(t);
+  const root = await temporaryWorkFolder(t);
   await mkdir(join(root, "Files"));
   await writeFile(join(root, "Files", "a.txt"), "aaa", "utf8");
   await writeFile(join(root, "Files", "b.txt"), "bbb", "utf8");

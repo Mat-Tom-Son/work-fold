@@ -4,13 +4,13 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { createSpaceCheckpoint, createSpaceMutationCheckpoint, restoreSpaceCheckpoint, restoreFileVersion, listSpaceCheckpoints, previewSpaceCheckpointRestore } from "../src/local/history.js";
+import { createWorkFolderCheckpoint, createWorkFolderMutationCheckpoint, restoreWorkFolderCheckpoint, restoreFileVersion, listWorkFolderCheckpoints, previewWorkFolderCheckpointRestore } from "../src/local/history.js";
 import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
-import { registerLinkedSpace, withSpaceHistoryOperation } from "../src/local/space.js";
+import { registerLinkedWorkFolder, withWorkFolderHistoryOperation } from "../src/local/work-folder.js";
 
 async function fixture(t: TestContext) {
   const sandbox = await mkdtemp(join(tmpdir(), "history-boundary-"));
-  const root = join(sandbox, "space");
+  const root = join(sandbox, "work-folder");
   configureWorkFoldStateRoot(join(sandbox, "state"));
   await mkdir(root);
   t.after(async () => { configureWorkFoldStateRoot(undefined); await rm(sandbox, { recursive: true, force: true }); });
@@ -22,45 +22,45 @@ test("restore refuses deleting or overwriting content its new safety checkpoint 
   const oldLimit = process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES;
   process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES = "32";
   t.after(() => { if (oldLimit === undefined) delete process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES; else process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES = oldLimit; });
-  const added = await createSpaceMutationCheckpoint(root, { deleteOnRestore: ["added"] });
+  const added = await createWorkFolderMutationCheckpoint(root, { deleteOnRestore: ["added"] });
   await mkdir(join(root, "added"));
   const bytes = Buffer.alloc(64, 7);
   await writeFile(join(root, "added", "large.bin"), bytes);
-  const preview = await previewSpaceCheckpointRestore(root, added.checkpointId);
+  const preview = await previewWorkFolderCheckpointRestore(root, added.checkpointId);
   assert.match(preview.conflicts.join(), /cannot be recovered/);
   assert.deepEqual(preview.removePaths, ["added"]);
-  await assert.rejects(restoreSpaceCheckpoint(root, added.checkpointId), /cannot be recovered/);
+  await assert.rejects(restoreWorkFolderCheckpoint(root, added.checkpointId), /cannot be recovered/);
   assert.deepEqual(await readFile(join(root, "added", "large.bin")), bytes);
   await writeFile(join(root, "note.txt"), "small");
-  const cp = await createSpaceCheckpoint(root);
+  const cp = await createWorkFolderCheckpoint(root);
   await writeFile(join(root, "note.txt"), bytes);
-  await assert.rejects(restoreSpaceCheckpoint(root, cp.checkpointId), /cannot be recovered/);
+  await assert.rejects(restoreWorkFolderCheckpoint(root, cp.checkpointId), /cannot be recovered/);
   await assert.rejects(restoreFileVersion(root, "note.txt", cp.files.find((file) => file.path === "note.txt")!.hashSha256), /cannot be recovered/);
   assert.deepEqual(await readFile(join(root, "note.txt")), bytes);
 });
 
 test("additive undo never recursively deletes protected metadata", async (t) => {
   const { root } = await fixture(t);
-  const cp = await createSpaceMutationCheckpoint(root, { deleteOnRestore: ["added"] });
+  const cp = await createWorkFolderMutationCheckpoint(root, { deleteOnRestore: ["added"] });
   await mkdir(join(root, "added", ".workspace"), { recursive: true });
   await writeFile(join(root, "added", ".workspace", "sentinel"), "preserve");
-  await assert.rejects(restoreSpaceCheckpoint(root, cp.checkpointId), /cannot be recovered/);
+  await assert.rejects(restoreWorkFolderCheckpoint(root, cp.checkpointId), /cannot be recovered/);
   assert.equal(await readFile(join(root, "added", ".workspace", "sentinel"), "utf8"), "preserve");
 });
 
-test("History excludes nested Spaces and refuses older checkpoints after child registration", async (t) => {
+test("History excludes nested work-folders and refuses older checkpoints after child registration", async (t) => {
   const { root } = await fixture(t);
   const child = join(root, "child"); await mkdir(child);
-  await registerLinkedSpace(root);
+  await registerLinkedWorkFolder(root);
   await writeFile(join(child, "note.txt"), "before");
-  const old = await createSpaceCheckpoint(root);
-  await registerLinkedSpace(child);
+  const old = await createWorkFolderCheckpoint(root);
+  await registerLinkedWorkFolder(child);
   await writeFile(join(child, "note.txt"), "after");
-  const current = await createSpaceCheckpoint(root);
+  const current = await createWorkFolderCheckpoint(root);
   assert.equal(current.files.some((file) => file.path.startsWith("child/")), false);
-  const targeted = await createSpaceMutationCheckpoint(root, { paths: ["child/note.txt"] });
+  const targeted = await createWorkFolderMutationCheckpoint(root, { paths: ["child/note.txt"] });
   assert.equal(targeted.files.length, 0);
-  await assert.rejects(restoreSpaceCheckpoint(root, old.checkpointId), /another registered Space/);
+  await assert.rejects(restoreWorkFolderCheckpoint(root, old.checkpointId), /another registered work-folder/);
   assert.equal(await readFile(join(child, "note.txt"), "utf8"), "after");
 });
 
@@ -69,23 +69,23 @@ test("old directory exclusions protect descendants after ignore rules change", a
   await mkdir(join(root, "scratch"));
   await writeFile(join(root, ".gitignore"), "scratch/\n");
   await writeFile(join(root, "scratch", "note.txt"), "precious");
-  const cp = await createSpaceCheckpoint(root);
+  const cp = await createWorkFolderCheckpoint(root);
   await writeFile(join(root, ".gitignore"), "");
-  assert.deepEqual((await previewSpaceCheckpointRestore(root, cp.checkpointId)).removePaths, []);
-  await restoreSpaceCheckpoint(root, cp.checkpointId);
+  assert.deepEqual((await previewWorkFolderCheckpointRestore(root, cp.checkpointId)).removePaths, []);
+  await restoreWorkFolderCheckpoint(root, cp.checkpointId);
   assert.equal(await readFile(join(root, "scratch", "note.txt"), "utf8"), "precious");
 });
 
-test("relinking a moved Space preserves its machine-local History", async (t) => {
+test("relinking a moved work-folder preserves its machine-local History", async (t) => {
   const { root, sandbox } = await fixture(t);
-  const original = await registerLinkedSpace(root);
+  const original = await registerLinkedWorkFolder(root);
   await writeFile(join(root, "note.txt"), "before");
-  const cp = await createSpaceCheckpoint(root);
+  const cp = await createWorkFolderCheckpoint(root);
   const moved = join(sandbox, "moved"); await rename(root, moved);
-  assert.equal((await registerLinkedSpace(moved)).id, original.id);
-  assert.equal((await listSpaceCheckpoints(moved))[0]?.checkpointId, cp.checkpointId);
+  assert.equal((await registerLinkedWorkFolder(moved)).id, original.id);
+  assert.equal((await listWorkFolderCheckpoints(moved))[0]?.checkpointId, cp.checkpointId);
   await writeFile(join(moved, "note.txt"), "after");
-  await restoreSpaceCheckpoint(moved, cp.checkpointId);
+  await restoreWorkFolderCheckpoint(moved, cp.checkpointId);
   assert.equal(await readFile(join(moved, "note.txt"), "utf8"), "before");
   assert.equal(existsSync(root), false);
 });
@@ -94,9 +94,9 @@ test("History holds ownership stable and refuses independent concurrent writers"
   const { root, sandbox } = await fixture(t);
   const child = join(sandbox, "other"); await mkdir(child);
   let release!: () => void;
-  const held = withSpaceHistoryOperation(root, () => new Promise<void>((resolve) => { release = resolve; }));
-  await assert.rejects(registerLinkedSpace(child), /Wait for History/);
-  await assert.rejects(createSpaceCheckpoint(root), /current History/);
+  const held = withWorkFolderHistoryOperation(root, () => new Promise<void>((resolve) => { release = resolve; }));
+  await assert.rejects(registerLinkedWorkFolder(child), /Wait for History/);
+  await assert.rejects(createWorkFolderCheckpoint(root), /current History/);
   release(); await held;
-  await registerLinkedSpace(child);
+  await registerLinkedWorkFolder(child);
 });

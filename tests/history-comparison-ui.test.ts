@@ -5,9 +5,9 @@ import { HistoryFileComparison } from "../web-local/src/components/panes/History
 import { FileVersionHistoryModal } from "../web-local/src/components/modals/FileVersionHistoryModal.js";
 import { HISTORY_REVIEW_LIMITS, type HistoryFileComparison as Comparison } from "../src/shared/history-review.js";
 import { createDomHarness } from "./support/dom.js";
-import type { SpaceSummary } from "../web-local/src/types.js";
+import type { WorkFolderSummary } from "../web-local/src/types.js";
 
-const props = { spaceId: "folder-a", path: "notes.txt", fromCheckpointId: "cp-before" };
+const props = { workFolderId: "folder-a", path: "notes.txt", fromCheckpointId: "cp-before" };
 const comparison = (path = props.path): Comparison => ({ schemaVersion: 1, path, before: { source: "checkpoint", checkpointId: props.fromCheckpointId, status: "text", text: "Before\n" }, after: { source: "current", status: "text", text: "After\n", observedAt: "2026-09-27T12:00:00Z" }, change: "modified", diff: { status: "available", text: "-Before\n+After", truncated: false }, limits: HISTORY_REVIEW_LIMITS });
 
 test("History comparison is an inert GET, renders text literally, and discloses incomplete evidence", async (t) => {
@@ -35,7 +35,7 @@ test("switching folders and closing ignore stale History responses", async (t) =
   const pending: Array<(response: Response) => void> = [];
   globalThis.fetch = (() => new Promise<Response>((resolve) => pending.push(resolve))) as typeof fetch;
   await dom.render(createElement(HistoryFileComparison, props));
-  await dom.render(createElement(HistoryFileComparison, { ...props, spaceId: "folder-b", path: "second.txt" }));
+  await dom.render(createElement(HistoryFileComparison, { ...props, workFolderId: "folder-b", path: "second.txt" }));
   await dom.act(async () => pending[1]!(Response.json({ comparison: comparison("second.txt") })));
   await dom.act(async () => { const old = comparison(); old.diff.text = "STALE SECRET"; pending[0]!(Response.json({ comparison: old })); });
   assert.doesNotMatch(dom.container.textContent!, /STALE SECRET/); assert.match(dom.container.textContent!, /second.txt/);
@@ -54,7 +54,7 @@ test("mismatched History responses are refused and the version modal compares wi
     if (url.includes("file-versions")) return Response.json({ versions: [{ path: props.path, hashSha256: "a".repeat(64), sizeBytes: 7, modifiedAt: "2026-09-27T00:00:00Z", capturedAt: "2026-09-27T00:00:00Z", checkpointId: props.fromCheckpointId, source: "checkpoint" }] });
     return Response.json({ comparison: comparison("wrong.txt") });
   }) as typeof fetch;
-  await dom.render(createElement(FileVersionHistoryModal, { space: { id: props.spaceId, name: "Notes" } as SpaceSummary, filePath: props.path, fileName: props.path, onClose() {}, onRestored() { assert.fail("Comparing cannot restore"); } }));
+  await dom.render(createElement(FileVersionHistoryModal, { workFolder: { id: props.workFolderId, name: "Notes" } as WorkFolderSummary, filePath: props.path, fileName: props.path, onClose() {}, onRestored() { assert.fail("Comparing cannot restore"); } }));
   const button = [...dom.container.querySelectorAll("button")].find((item) => item.textContent === "Compare")!;
   assert.ok(button); await dom.act(() => button.click());
   assert.match(dom.container.querySelector('[role="alert"]')!.textContent!, /does not match/);

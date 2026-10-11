@@ -84,7 +84,7 @@ function draw(container, controller) {
   if (work.questionCount > work.questions.length) container.append(element("p", "work-detail", `${work.questionCount - work.questions.length} more questions follow these answers.`));
   if (work.children.length) {
     const details = element("details", "work-details"); details.open = expanded ?? false;
-    details.append(element("summary", "", `Work across ${work.children.length === 1 ? "another Assistant" : `${work.children.length} Assistants`}`));
+    details.append(element("summary", "", `Work across ${work.children.length === 1 ? "another Worker" : `${work.children.length} Workers`}`));
     const list = element("ul");
     for (const child of work.children) { const row = element("li"); row.append(element("span", "", child.title), element("span", "", child.label)); list.append(row); }
     details.append(list); container.append(details);
@@ -95,13 +95,13 @@ function draw(container, controller) {
     for (const file of work.result.files) {
       const row = element("li"); const link = button("", "work-file-button", () => {
         const scope = controller.scope;
-        void Promise.resolve().then(() => openFile?.(file.spaceId, file.path)).catch((caught) => {
+        void Promise.resolve().then(() => openFile?.(file.workFolderId, file.path)).catch((caught) => {
           if (scope !== controller.scope) return;
           controller.error = caught?.message || "Could not open this file."; draw(container, controller);
         });
       });
-      link.title = `${file.spaceName} · ${file.path}`;
-      link.append(element("span", "", file.path.split("/").at(-1)), element("small", "", `${file.spaceName} · Open file`)); row.append(link); files.append(row);
+      link.title = `${file.workFolderName} · ${file.path}`;
+      link.append(element("span", "", file.path.split("/").at(-1)), element("small", "", `${file.workFolderName} · Open file`)); row.append(link); files.append(row);
     }
     container.append(files);
   }

@@ -7,16 +7,16 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - The mark ships from the designer icon pack in `desktop/assets/brand/pack/`: one vector master with an optically simplified small-size variant, exported per platform (tiled macOS/Windows app icons, bare-cube transparents, monochrome ladders, and the tab-ready menu-bar template). Lockups are the provided horizontal artwork as single images — black on light themes, white on dark — never stitched from separate cube and wordmark pieces. The installers (`npm run desktop:icons`, `node scripts/generate-bridge-web-icons.mjs`, `node scripts/sync-bridge-fonts.mjs`) are copy-and-verify; no surface keeps a private or redrawn copy of the mark.
 - The palette pairs deep navy ink (`#0e386c` brand navy, `#1c2530` body ink) with the bright blue interactive accent (`#0b6fd6` on light fields, `#1ea0ff` on dark), and reserves the cube's teal `#22cfc6`, green `#46d586`, and gold `#f6b516` for semantic and illustrative moments. The Original light palette builds on the `#e9eae6` neutral field; the Original dark palette builds on charcoal (`#202425` canvas). Filled accent controls use the paired contrast color, never white-on-bright-blue.
 - In-app lockups pair the mark with the product name set in Poppins — the bubble wordmark art is reserved for marketing surfaces (the landing page, the OG image, the DMG background).
-- Tokens live in `web-local/src/brand.css` and `web-local/src/styles.css` (desktop shell), `web-local/src/popover/popover.css` (the fold popover), and `services/bridge/public/app.css` (the web client); `tests/work-fold-brand.test.ts` guards the contract.
+- Tokens live in `web-local/src/brand.css` and `web-local/src/styles.css` (desktop shell), `web-local/src/popover/popover.css` (the work-fold agent popover), and `services/bridge/public/app.css` (the web client); `tests/work-fold-brand.test.ts` guards the contract.
 
 ## Information hierarchy
 
-- A **Space** is a root folder. It is selected or switched; it is not a peer navigation surface.
-- **Files** is the first working surface inside the selected Space.
-- Primary rail surfaces are Files, Chats, and History. Add and Settings stay at the bottom; Keyboard Shortcuts is a Settings page; Add opens the Skills & Extensions popup directly, a dialog pinned to the Space it was opened from.
-- Provider, model, and authentication controls live in Settings under Assistant; Assistant is not a rail group.
-- The persistent header above the left pane identifies the selected root folder. Its compact menu switches, creates, registers, or manages Spaces; the selected rail item identifies the current surface.
-- A conditional **Needs you** indicator may join the bottom-rail cluster only while an Assistant question or a due snooze waits, opening an anchored flyout of those items. It is not a rail destination, tab, permanent badge, or notification stream, and it disappears entirely when it has nothing to show.
+- A **work-folder** is a root folder. It is selected or switched; it is not a peer navigation surface.
+- **Files** is the first working surface inside the selected work-folder.
+- Primary rail surfaces are Files, Chats, and History. Add and Settings stay at the bottom; Keyboard Shortcuts is a Settings page; Add opens the Skills & Extensions popup directly, a dialog pinned to the work-folder it was opened from.
+- Provider, model, and authentication controls live in Settings under agent; agent is not a rail group.
+- The persistent header above the left pane identifies the selected root folder. Its compact menu switches, creates, registers, or manages work-folders; the selected rail item identifies the current surface.
+- A conditional **Needs you** indicator may join the bottom-rail cluster only while an agent question or a due snooze waits, opening an anchored flyout of those items. It is not a rail destination, tab, permanent badge, or notification stream, and it disappears entirely when it has nothing to show.
 
 ## Iconography
 
@@ -24,8 +24,8 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Use regular icons at rest and the matching filled icon for a selected navigation item.
 - Use 16px icons for inline actions, 24px for the icon-only rail navigation, 20px for section markers, and no more than 24px for empty states.
 - Material file-type icons retain their familiar type colors. The rail's Skills & Extensions control uses the Lucide **Blocks** icon at 24px; Settings → Apps uses **Layout Panel Left** and Web Access uses **Globe Code** at 20px (2026-10-08). These requested icons use a 1.5px stroke to match the neighboring Fluent outlines and inherit the same control colors; other shell controls retain Fluent icons.
-- Keep icon-library exceptions limited to those named controls. The Space glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and Space-bound tabs. The banner itself is name-first.
-- Space color may appear as a small avatar accent or active indicator, never as a frame around the application.
+- Keep icon-library exceptions limited to those named controls. The work-folder glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and work-folder-bound tabs. The banner itself is name-first.
+- work-folder color may appear as a small avatar accent or active indicator, never as a frame around the application.
 
 ## Typography and spacing
 
@@ -38,20 +38,20 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 ## Layout
 
 - Desktop rail navigation is icon-only: centered square targets (44–48px) with 24px Fluent icons, tooltips and accessible names carrying the labels, and one subtle selected state (soft fill plus a small accent pill). Narrow layouts return to horizontal rows with text labels.
-- Every left-pane surface begins with the same 112px identity band in the same position. Its centered, name-only lockup represents the selected Space, not the active page, and opens the same Space menu on built-in, management, and contributed-app surfaces. The menu keeps Space rows and the three compact management actions on one-line row geometry. Skills & Extensions opens as a popup dialog, like Settings, rather than a navigator or work tab.
-- Space banners stay inside the identity header and appearance previews. They do not wallpaper the right work surface or recolor structural borders; interaction color and shell structure remain part of the global application system.
-- Color and icon identity inherit through Space-bound cards, chat groups, tabs, surfaces, and chat empty states. Content belonging to another Space carries that Space's own identity rather than the currently selected one.
-- Chats in the selected Space remain visually primary. Every other registered Space appears afterward as a compact, collapsed disclosure row with its current-view count and aggregate activity across all of its Chats; opening one reveals its matching Chats without making it look like another permanent navigation level.
+- Every left-pane surface begins with the same 112px identity band in the same position. Its centered, name-only lockup represents the selected work-folder, not the active page, and opens the same work-folder menu on built-in, management, and contributed-app surfaces. The menu keeps work-folder rows and the three compact management actions on one-line row geometry. Skills & Extensions opens as a popup dialog, like Settings, rather than a navigator or work tab.
+- work-folder banners stay inside the identity header and appearance previews. They do not wallpaper the right work surface or recolor structural borders; interaction color and shell structure remain part of the global application system.
+- Color and icon identity inherit through work-folder-bound cards, chat groups, tabs, surfaces, and chat empty states. Content belonging to another work-folder carries that work-folder's own identity rather than the currently selected one.
+- Chats in the selected work-folder remain visually primary. Every other registered work-folder appears afterward as a compact, collapsed disclosure row with its current-view count and aggregate activity across all of its Chats; opening one reveals its matching Chats without making it look like another permanent navigation level.
 - The Skills & Extensions Installed view places the Included with work-fold strip above Everywhere and This folder only, which sit side by side and stack on narrow widths; rows open their details on click.
 - Skills & Extensions uses compact view tabs beside Add Custom and one aligned search/filter toolbar. Discover listings have text-only names, types, descriptions, provenance and source links, with the same gutters as their heading and search. Installed rows use neutral type glyphs; the five included tools keep their recognizable icons and palette-derived tile borders.
-- With four or more tabs open, tabs narrow but keep their Space icon and a normal close button.
+- With four or more tabs open, tabs narrow but keep their work-folder icon and a normal close button.
 - The banner and tab controls have 8px above and below inside their respective headers, with their top edges aligned. The active tab extends through that bottom gap to join the work surface, using the same background, curved shoulders, and no bottom border. Its side borders align with the shoulders, which meet a continuous border across the top of the work surface. macOS uses one 32px native drag strip without another gutter beneath it; browser and Windows layouts keep a 12px top gutter. Nested tab lists add no extra top padding. Exposed pane corners share an 11px radius; the left pane's corners against the rail are square, and the work area and tab strip meet the right window edge without an outer gutter or inset corner there.
 - When selecting an existing tab, its connected chrome glides to the new position over 180ms, with 150ms label-color easing. Labels, hit areas, and mounted work surfaces stay still. Rapid selections continue from the visible position; tab additions, removals, grouping changes, and resizing snap into place. Application Reduce Motion and the operating system preference both disable the glide, including an animation already running.
-- Hover fills the existing control or row hit area in 110ms without lifting, scaling, or adding an outline. Pressed fills are stronger; keyboard focus retains its independent outline. Selected rows deepen their Space tint on hover. Neutral and primary states resolve through the selected application palette and accent; Send retains its owning Space accent. Disabled controls do not react.
+- Hover fills the existing control or row hit area in 110ms without lifting, scaling, or adding an outline. Pressed fills are stronger; keyboard focus retains its independent outline. Selected rows deepen their work-folder tint on hover. Neutral and primary states resolve through the selected application palette and accent; Send retains its owning work-folder accent. Disabled controls do not react.
 - Floating menus have an opaque palette surface and one shared shadow. Settings groups use spacing instead of nested frames; editable fields and data tables keep their visible boundaries.
-- Settings → AI Models chooses its scope with two large buttons (This worker, naming the Space, and work-fold agent) rather than radio circles; its model is a dropdown that shows the chosen model closed and opens with a search box at the top and vendor headings, closing again on a choice. Settings → Automations keeps Limits collapsed under a disclosure by default.
+- Settings → AI Models chooses its scope with two large buttons (This worker, naming the work-folder, and work-fold agent) rather than radio circles; its model is a dropdown that shows the chosen model closed and opens with a search box at the top and vendor headings, closing again on a choice. Settings → Automations keeps Limits collapsed under a disclosure by default.
 - Settings → Appearance starts with a labeled Preview, followed by Presets, without a reserved success-notice strip. AI Models places Save Model at the right of its action row. Shared Pages gives each page a padded summary and a separate wrapping footer with Sleep Copy and its sharing actions; state, source, budgets, and usage remain visible, and links and budget editors open within the same row.
-- User Chat bubbles use the contrast-solved soft Space accent and its matching reading foreground; Quiet uses the selected neutral surface. Copy sits at the right edge beneath the user bubble, with its timestamp revealed to its left on hover or keyboard focus. Assistant message headers are text-only and do not repeat a decorative Assistant avatar.
+- User Chat bubbles use the contrast-solved soft work-folder accent and its matching reading foreground; Quiet uses the selected neutral surface. Copy sits at the right edge beneath the user bubble, with its timestamp revealed to its left on hover or keyboard focus. Agent message headers are text-only and do not repeat a decorative agent avatar.
 - Forms use stacked labels and hints with an explicit action row.
 - Notices use `icon | copy | action` and stack only when their own pane becomes narrow.
 - Empty states are centered, restrained, and no wider than 440px.
@@ -64,13 +64,13 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - The preload reports `window.material` and `main.tsx` applies `data-window-material="mica"` synchronously before React's first paint. Do not move this to a passive effect that produces a solid-background flash.
 - Older Windows builds and reduced-transparency sessions use a theme-matched solid background. Light, dark, and system theme changes must update native chrome and the renderer together.
 
-## Restricted Space app surfaces
+## Restricted work-folder app surfaces
 
-- Installed Space apps occupy the contributed rail region below the three stable primary destinations. They never replace or reorder Files, Chats, or History, and they never displace the Add button that opens Skills & Extensions.
-- work-fold owns the rail target, Space identity header, navigator frame, tab chrome, loading/unavailable states, theme context, and permission/lifecycle UI. The app owns only the sandboxed canvas inside its navigator or work-tab placeholder.
+- Installed work-folder apps occupy the contributed rail region below the three stable primary destinations. They never replace or reorder Files, Chats, or History, and they never displace the Add button that opens Skills & Extensions.
+- work-fold owns the rail target, work-folder identity header, navigator frame, tab chrome, loading/unavailable states, theme context, and permission/lifecycle UI. The app owns only the sandboxed canvas inside its navigator or work-tab placeholder.
 - A restricted app may render any reviewed local HTML/CSS/JavaScript that fits its task, but it must adapt to both compact navigator and full work-tab placements. Use `workFoldRestrictedApp.context` rather than viewport guesses to select the layout.
 - Grant controls and connection forms stay in Settings → Apps, not inside app-controlled pixels. App UI may explain why a power is useful and handle denial, but it must not imitate a work-fold grant dialog or claim access before the host confirms it.
-- App-requested tabs use the same Space-bound tab strip, focus, restore, close, and cross-Space behavior as built-in tabs. Titles should describe the current object or view, not repeat the app name on every tab.
+- App-requested tabs use the same work-folder-bound tab strip, focus, restore, close, and cross-work-folder behavior as built-in tabs. Titles should describe the current object or view, not repeat the app name on every tab.
 - Host theme changes are delivered through app context. App content must remain legible in both themes, but it cannot make the shell transparent, recolor structural chrome, or draw over native menus and modals.
 
 ## macOS chrome
@@ -79,8 +79,8 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Reserve one 32px drag strip above the panes on macOS, without stacking the normal 12px page gutter below it. The banner and tabs retain 8px above and below inside their own headers; browser and Windows top gutters remain 12px.
 - Keep Settings and About in the application menu, standard editing roles in Edit, and minimize/zoom/front roles in Window.
 - Use sidebar vibrancy only for structural chrome when reduced transparency is off. Keep work surfaces opaque and fall back to theme-matched solid chrome.
-- Use the macOS system font, system accent color, shortcut glyphs, and native overlay scrollbars without changing the shared Space, Files, Chats, History, Add, and Skills & Extensions interaction contract.
-- Support Finder-oriented file behavior: Show in Finder, Quick Look, represented Space folders, and recent Space documents. Keep all host actions path-confined to the owning Space.
+- Use the macOS system font, system accent color, shortcut glyphs, and native overlay scrollbars without changing the shared work-folder, Files, Chats, History, Add, and Skills & Extensions interaction contract.
+- Support Finder-oriented file behavior: Show in Finder, Quick Look, represented work-folders, and recent work-folder documents. Keep all host actions path-confined to the owning work-folder.
 
 ## Visual acceptance
 
@@ -100,21 +100,21 @@ For Electron-integrated changes, repeat a packaged-app pass that confirms the pl
 ## Appearance scopes
 
 - **Settings → Appearance** controls the application theme, font, and text size.
-- **Customize Folder** controls one Folder's accent, compact banner, and Fluent identity icon.
-- Customize Folder opens a popup from the Folder header, Manage Folders, or Settings → Appearance, pinned to that Folder. The work tab remains in place. Changes repaint every identity consumer immediately.
-- Per-Space appearance is personal application state. It is not written into the user's ordinary folder and does not travel with shared files.
+- **Customize work-folder** controls one work-folder's accent, compact banner, and Fluent identity icon.
+- Customize work-folder opens a popup from the work-folder header, Manage work-folders, or Settings → Appearance, pinned to that work-folder. The work tab remains in place. Changes repaint every identity consumer immediately.
+- Per-work-folder appearance is personal application state. It is not written into the user's ordinary folder and does not travel with shared files.
 - The editor shows light and dark previews together and reports the semantic contrast audit without claiming that arbitrary images or gradients are statically certified.
 - Banner, Icon, and Color sit at the top right of the fixed popup header. Name and paired previews
   keep the same geometry across sections; only the control region scrolls. Bundled images use named
   thumbnails; image framing uses draggable previews and an on-demand position/zoom popover. Color
   offers 24 labeled accent swatches; second colors belong only to Banner’s pattern controls. Icons start with a small Popular
   selection and add Nature, Life, Creative, Travel, Work, and All filters with larger 24px glyphs.
-  Keep utility copy short. Worker shortcuts open the existing Folder-scoped model and instruction settings.
+  Keep utility copy short. Worker shortcuts open the existing work-folder-scoped model and instruction settings.
 - A custom image is resized and compressed before machine-local service storage. Unsafe image formats and malformed stored values are rejected.
-- Every Space appearance control updates the preview, saves immediately, and offers Undo and Reset. Import/export uses the same typed, code-free proposal format as the agent harness.
+- Every work-folder appearance control updates the preview, saves immediately, and offers Undo and Reset. Import/export uses the same typed, code-free proposal format as the agent harness.
 - Layout order, native chrome, permission UI, target sizes, and non-colour state indicators are invariants, not customization options.
 
-See [Space customization](space-customization.md) for the resolver, persistence, and harness contract,
+See [work-folder customization](work-folder-customization.md) for the resolver, persistence, and harness contract,
 [Desktop experience parity](ui-parity.md) for the complete interaction contract, and
 [Architecture](architecture.md) for the native/renderer boundary.
 

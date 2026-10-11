@@ -9,7 +9,7 @@ import { builtInPiCommands } from "../src/local/agent/skill-catalog.js";
 import { startLocalApi } from "../src/local/server.js";
 import type { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
 
-test("an Assistant turn has no wall-clock cap unless a host opts into one", () => {
+test("a turn has no wall-clock cap unless a host opts into one", () => {
   assert.equal(piTurnTimeoutMs({}), 0, "native Pi sessions have no turn cap, so neither does work-fold by default");
   assert.equal(piTurnTimeoutMs({ WORKFOLD_PI_TURN_TIMEOUT_MS: "120000" }), 120_000);
   assert.equal(piTurnTimeoutMs({ PI_TURN_TIMEOUT_MS: "5000" }), 5_000);
@@ -45,20 +45,20 @@ test("steering requires a running agent turn and never appends a message it coul
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider,
   });
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Steer Space" }),
-    }) as { space: { id: string } };
-    const spaceId = created.space.id;
-    const conversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+      body: JSON.stringify({ name: "Steer work-folder" }),
+    }) as { workFolder: { id: string } };
+    const workFolderId = created.workFolder.id;
+    const conversation = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
     const conversationId = conversation.conversation.id;
-    const messages = `${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/messages`;
+    const messages = `${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}/messages`;
 
     const invalid = await fetch(messages, {
       method: "POST",
@@ -91,17 +91,17 @@ test("steering requires a running agent turn and never appends a message it coul
     assert.equal(duringCommand.status, 409, await duringCommand.text());
 
     await waitForTurnToSettle(api.kernel, conversationId);
-    const transcript = await json(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}`) as { messages: Array<{ role: string; content: string; delivery?: string }> };
+    const transcript = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}`) as { messages: Array<{ role: string; content: string; delivery?: string }> };
     assert.equal(transcript.messages.some((message) => message.content === "redirect please"), false, "a refused steer leaves no trace in the transcript");
     assert.equal(transcript.messages.some((message) => message.delivery === "steer"), false);
 
-    const runtime = await json(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/runtime`) as { runtime: { thinkingLevel: string; thinkingLevels: string[] } };
+    const runtime = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}/runtime`) as { runtime: { thinkingLevel: string; thinkingLevels: string[] } };
     assert.ok(Array.isArray(runtime.runtime.thinkingLevels), "runtime state lists the levels the current model supports");
     assert.ok(runtime.runtime.thinkingLevels.includes(runtime.runtime.thinkingLevel));
 
     const nextLevel = runtime.runtime.thinkingLevels.find((level) => level !== runtime.runtime.thinkingLevel);
     if (nextLevel) {
-      const changed = await json(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/thinking`, {
+      const changed = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}/thinking`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ level: nextLevel }),
@@ -110,7 +110,7 @@ test("steering requires a running agent turn and never appends a message it coul
       assert.equal(changed.runtime.thinkingLevel, nextLevel, "the selected reasoning level updates the live Pi session");
     }
 
-    const badLevel = await fetch(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/thinking`, {
+    const badLevel = await fetch(`${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}/thinking`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ level: "galaxy-brain" }),

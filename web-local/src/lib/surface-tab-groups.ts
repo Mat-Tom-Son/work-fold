@@ -1,10 +1,10 @@
-import type { SpaceSurfaceTab } from "../types";
+import type { WorkFolderSurfaceTab } from "../types";
 
-export function groupSurfaceTabsBySpace(
-  tabs: SpaceSurfaceTab[],
-): Array<{ spaceId: string; tabs: SpaceSurfaceTab[] }> {
-  const groups = new Map<string, SpaceSurfaceTab[]>();
-  for (const tab of tabs) groups.set(tab.spaceId, [...(groups.get(tab.spaceId) ?? []), tab]);
+export function groupSurfaceTabsByWorkFolder(
+  tabs: WorkFolderSurfaceTab[],
+): Array<{ workFolderId: string; tabs: WorkFolderSurfaceTab[] }> {
+  const groups = new Map<string, WorkFolderSurfaceTab[]>();
+  for (const tab of tabs) groups.set(tab.workFolderId, [...(groups.get(tab.workFolderId) ?? []), tab]);
   return [...groups.entries()]
-    .map(([spaceId, groupedTabs]) => ({ spaceId, tabs: groupedTabs }));
+    .map(([workFolderId, groupedTabs]) => ({ workFolderId, tabs: groupedTabs }));
 }

@@ -1,7 +1,7 @@
 /** Trusted person-facing projection. Never exposed to sandboxed App bridges. */
 export interface WorkRequestOwner {
-  spaceId?: string;
-  spaceName?: string;
+  workFolderId?: string;
+  workFolderName?: string;
   conversationId: string;
 }
 
@@ -36,15 +36,15 @@ export interface WorkRequestView {
     outcome: "succeeded" | "partial" | "failed";
     summary: string;
     data?: unknown;
-    files: Array<{ spaceId: string; spaceName: string; path: string; sizeBytes: number }>;
+    files: Array<{ workFolderId: string; workFolderName: string; path: string; sizeBytes: number }>;
   } | null;
 }
 
 export function workRequestLabel(state: WorkRequestState, personQuestions = 0, savedAnswers = 0): string {
   switch (state) {
     case "working": return "Working";
-    case "handed_off": return "Working with other Assistants";
-    case "waiting": return personQuestions ? "Needs your answer" : savedAnswers ? "Ready to continue" : "Waiting for an Assistant";
+    case "handed_off": return "Working with other Workers";
+    case "waiting": return personQuestions ? "Needs your answer" : savedAnswers ? "Ready to continue" : "Waiting for a Worker";
     case "done": return "Finished";
     case "partial": return "Partly finished";
     case "failed": return "Couldn’t finish";

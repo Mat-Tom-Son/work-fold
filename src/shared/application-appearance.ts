@@ -1,4 +1,4 @@
-import { accentIdentityFromHex, resolveAccent } from "./space-appearance.js";
+import { accentIdentityFromHex, resolveAccent } from "./work-folder-appearance.js";
 
 export const applicationAppearanceKey = "work-fold.application-appearance.v1";
 export const applicationPresetsKey = "work-fold.appearance-presets.v1";

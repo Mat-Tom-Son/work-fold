@@ -1,26 +1,26 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
-  spaceChatPreferredMinWidth,
-  spacePaneKeyboardLargeStep,
-  spacePaneKeyboardStep,
-  spacePaneResizeHandleWidth,
-  spaceSidebarPreferredMaxWidth,
-  spaceSidebarPreferredMinWidth,
-  spaceSidebarWidthPreferenceKey,
+  workFolderChatPreferredMinWidth,
+  workFolderPaneKeyboardLargeStep,
+  workFolderPaneKeyboardStep,
+  workFolderPaneResizeHandleWidth,
+  workFolderSidebarPreferredMaxWidth,
+  workFolderSidebarPreferredMinWidth,
+  workFolderSidebarWidthPreferenceKey,
 } from "../constants";
 import { readStoredValue, writeStoredValue } from "../lib/storage";
-import type { SpacePaneBounds } from "../types";
+import type { WorkFolderPaneBounds } from "../types";
 
-function readStoredSpaceSidebarWidth(): number | null {
-  const stored = readStoredValue(spaceSidebarWidthPreferenceKey);
+function readStoredWorkFolderSidebarWidth(): number | null {
+  const stored = readStoredValue(workFolderSidebarWidthPreferenceKey);
   if (!stored) return null;
   const width = Number.parseInt(stored, 10);
   return Number.isFinite(width) ? width : null;
 }
 
-function writeStoredSpaceSidebarWidth(width: number | null) {
-  writeStoredValue(spaceSidebarWidthPreferenceKey, width === null ? null : String(Math.round(width)));
+function writeStoredWorkFolderSidebarWidth(width: number | null) {
+  writeStoredValue(workFolderSidebarWidthPreferenceKey, width === null ? null : String(Math.round(width)));
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -28,9 +28,9 @@ function clampNumber(value: number, min: number, max: number): number {
 }
 
 export function usePaneResize(deterministic = false) {
-  const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => deterministic ? null : readStoredSpaceSidebarWidth());
+  const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => deterministic ? null : readStoredWorkFolderSidebarWidth());
   const [sidebarResizing, setSidebarResizing] = useState(false);
-  const spaceLayoutRef = useRef<HTMLElement | null>(null);
+  const workFolderLayoutRef = useRef<HTMLElement | null>(null);
   const preferredSidebarWidthRef = useRef<number | null>(sidebarWidth);
   const renderedSidebarWidthRef = useRef<number | null>(sidebarWidth);
   const pendingSidebarWidthRef = useRef<number | null>(null);
@@ -38,89 +38,89 @@ export function usePaneResize(deterministic = false) {
   const sidebarResizeCleanupRef = useRef<(() => void) | null>(null);
   // Pane bounds are stable for the duration of a pointer drag; cache them so
   // per-frame renders skip getComputedStyle.
-  const dragBoundsRef = useRef<SpacePaneBounds | null>(null);
+  const dragBoundsRef = useRef<WorkFolderPaneBounds | null>(null);
 
   useEffect(() => () => {
     sidebarResizeCleanupRef.current?.();
     sidebarResizeCleanupRef.current = null;
     if (sidebarResizeFrameRef.current !== null) window.cancelAnimationFrame(sidebarResizeFrameRef.current);
-    document.body.classList.remove("space-pane-resizing");
+    document.body.classList.remove("work-folder-pane-resizing");
   }, []);
 
   useEffect(() => {
-    const layout = spaceLayoutRef.current;
+    const layout = workFolderLayoutRef.current;
     if (!layout) return;
-    const initialWidth = preferredSidebarWidthRef.current ?? defaultSpaceSidebarWidth(layout);
-    renderSpaceSidebarWidth(initialWidth);
+    const initialWidth = preferredSidebarWidthRef.current ?? defaultWorkFolderSidebarWidth(layout);
+    renderWorkFolderSidebarWidth(initialWidth);
   }, []);
 
   useEffect(() => {
-    const layout = spaceLayoutRef.current;
+    const layout = workFolderLayoutRef.current;
     if (!layout || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      renderSpaceSidebarWidth(preferredSidebarWidthRef.current ?? defaultSpaceSidebarWidth(layout));
+      renderWorkFolderSidebarWidth(preferredSidebarWidthRef.current ?? defaultWorkFolderSidebarWidth(layout));
     });
     observer.observe(layout);
     return () => observer.disconnect();
   }, []);
 
-  function spacePaneBounds(layout = spaceLayoutRef.current): SpacePaneBounds {
+  function workFolderPaneBounds(layout = workFolderLayoutRef.current): WorkFolderPaneBounds {
     if (!layout) {
       return {
-        min: spaceSidebarPreferredMinWidth,
-        max: spaceSidebarPreferredMaxWidth,
+        min: workFolderSidebarPreferredMinWidth,
+        max: workFolderSidebarPreferredMaxWidth,
         fallback: 420,
       };
     }
     const styles = window.getComputedStyle(layout);
     const horizontalPadding = Number.parseFloat(styles.paddingLeft) + Number.parseFloat(styles.paddingRight);
     const availableWidth = Math.max(0, layout.clientWidth - horizontalPadding);
-    const minimumByChat = Math.max(220, availableWidth - spacePaneResizeHandleWidth - spaceChatPreferredMinWidth);
-    const min = Math.min(spaceSidebarPreferredMinWidth, minimumByChat);
-    const max = Math.max(min, Math.min(spaceSidebarPreferredMaxWidth, availableWidth - spacePaneResizeHandleWidth - spaceChatPreferredMinWidth));
+    const minimumByChat = Math.max(220, availableWidth - workFolderPaneResizeHandleWidth - workFolderChatPreferredMinWidth);
+    const min = Math.min(workFolderSidebarPreferredMinWidth, minimumByChat);
+    const max = Math.max(min, Math.min(workFolderSidebarPreferredMaxWidth, availableWidth - workFolderPaneResizeHandleWidth - workFolderChatPreferredMinWidth));
     const fallback = clampNumber(Math.round(availableWidth * 0.34), min, max);
     return { min, max, fallback };
   }
 
-  function defaultSpaceSidebarWidth(layout = spaceLayoutRef.current): number {
-    return spacePaneBounds(layout).fallback;
+  function defaultWorkFolderSidebarWidth(layout = workFolderLayoutRef.current): number {
+    return workFolderPaneBounds(layout).fallback;
   }
 
-  function renderSpaceSidebarWidth(width: number): number {
-    const bounds = dragBoundsRef.current ?? spacePaneBounds();
+  function renderWorkFolderSidebarWidth(width: number): number {
+    const bounds = dragBoundsRef.current ?? workFolderPaneBounds();
     const nextWidth = Math.round(clampNumber(width, bounds.min, bounds.max));
     renderedSidebarWidthRef.current = nextWidth;
     setSidebarWidth(nextWidth);
-    spaceLayoutRef.current?.style.setProperty("--space-sidebar-width", `${nextWidth}px`);
+    workFolderLayoutRef.current?.style.setProperty("--work-folder-sidebar-width", `${nextWidth}px`);
     return nextWidth;
   }
 
-  function queueSpaceSidebarWidth(width: number) {
+  function queueWorkFolderSidebarWidth(width: number) {
     pendingSidebarWidthRef.current = width;
     if (sidebarResizeFrameRef.current !== null) return;
     sidebarResizeFrameRef.current = window.requestAnimationFrame(() => {
       sidebarResizeFrameRef.current = null;
       const pendingWidth = pendingSidebarWidthRef.current;
-      if (pendingWidth !== null) renderSpaceSidebarWidth(pendingWidth);
+      if (pendingWidth !== null) renderWorkFolderSidebarWidth(pendingWidth);
     });
   }
 
-  function commitSpaceSidebarWidth(width: number | null = renderedSidebarWidthRef.current) {
+  function commitWorkFolderSidebarWidth(width: number | null = renderedSidebarWidthRef.current) {
     if (width === null) return;
-    const nextWidth = renderSpaceSidebarWidth(width);
+    const nextWidth = renderWorkFolderSidebarWidth(width);
     preferredSidebarWidthRef.current = nextWidth;
-    if (!deterministic) writeStoredSpaceSidebarWidth(nextWidth);
+    if (!deterministic) writeStoredWorkFolderSidebarWidth(nextWidth);
   }
 
-  function resetSpaceSidebarWidth() {
+  function resetWorkFolderSidebarWidth() {
     preferredSidebarWidthRef.current = null;
-    if (!deterministic) writeStoredSpaceSidebarWidth(null);
-    renderSpaceSidebarWidth(defaultSpaceSidebarWidth());
+    if (!deterministic) writeStoredWorkFolderSidebarWidth(null);
+    renderWorkFolderSidebarWidth(defaultWorkFolderSidebarWidth());
   }
 
   function startSidebarResize(event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0) return;
-    const layout = spaceLayoutRef.current;
+    const layout = workFolderLayoutRef.current;
     if (!layout) return;
     event.preventDefault();
     const resizeHandle = event.currentTarget;
@@ -131,17 +131,17 @@ export function usePaneResize(deterministic = false) {
       // Pointer capture can fail for synthetic or already-cancelled events; window listeners still cover normal drags.
     }
     setSidebarResizing(true);
-    document.body.classList.add("space-pane-resizing");
-    const pane = document.getElementById("space-file-panel");
+    document.body.classList.add("work-folder-pane-resizing");
+    const pane = document.getElementById("work-folder-file-panel");
     const dragStartClientX = event.clientX;
-    dragBoundsRef.current = spacePaneBounds(layout);
-    const dragStartWidth = pane?.getBoundingClientRect().width ?? renderedSidebarWidthRef.current ?? defaultSpaceSidebarWidth(layout);
+    dragBoundsRef.current = workFolderPaneBounds(layout);
+    const dragStartWidth = pane?.getBoundingClientRect().width ?? renderedSidebarWidthRef.current ?? defaultWorkFolderSidebarWidth(layout);
     const widthFromPointer = (clientX: number) => dragStartWidth + clientX - dragStartClientX;
     let stopped = false;
 
     const handlePointerMove = (pointerEvent: PointerEvent) => {
       pointerEvent.preventDefault();
-      queueSpaceSidebarWidth(widthFromPointer(pointerEvent.clientX));
+      queueWorkFolderSidebarWidth(widthFromPointer(pointerEvent.clientX));
     };
     const stopResize = (pointerEvent?: PointerEvent | Event) => {
       if (stopped) return;
@@ -159,11 +159,11 @@ export function usePaneResize(deterministic = false) {
         window.cancelAnimationFrame(sidebarResizeFrameRef.current);
         sidebarResizeFrameRef.current = null;
       }
-      if (pendingSidebarWidthRef.current !== null) renderSpaceSidebarWidth(pendingSidebarWidthRef.current);
+      if (pendingSidebarWidthRef.current !== null) renderWorkFolderSidebarWidth(pendingSidebarWidthRef.current);
       pendingSidebarWidthRef.current = null;
-      commitSpaceSidebarWidth();
+      commitWorkFolderSidebarWidth();
       setSidebarResizing(false);
-      document.body.classList.remove("space-pane-resizing");
+      document.body.classList.remove("work-folder-pane-resizing");
     };
 
     window.addEventListener("pointermove", handlePointerMove, { passive: false });
@@ -181,9 +181,9 @@ export function usePaneResize(deterministic = false) {
   }
 
   function handleSidebarResizeKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
-    const bounds = spacePaneBounds();
+    const bounds = workFolderPaneBounds();
     const currentWidth = renderedSidebarWidthRef.current ?? bounds.fallback;
-    const step = event.shiftKey ? spacePaneKeyboardLargeStep : spacePaneKeyboardStep;
+    const step = event.shiftKey ? workFolderPaneKeyboardLargeStep : workFolderPaneKeyboardStep;
     let nextWidth: number | null = null;
     if (event.key === "ArrowLeft") nextWidth = currentWidth - step;
     else if (event.key === "ArrowRight") nextWidth = currentWidth + step;
@@ -191,22 +191,22 @@ export function usePaneResize(deterministic = false) {
     else if (event.key === "End") nextWidth = bounds.max;
     else if (event.key === "Enter") {
       event.preventDefault();
-      resetSpaceSidebarWidth();
+      resetWorkFolderSidebarWidth();
       return;
     }
     if (nextWidth === null) return;
     event.preventDefault();
-    commitSpaceSidebarWidth(nextWidth);
+    commitWorkFolderSidebarWidth(nextWidth);
   }
 
-  const sidebarResizeBounds = spacePaneBounds();
+  const sidebarResizeBounds = workFolderPaneBounds();
   const sidebarResizeValue = Math.round(clampNumber(sidebarWidth ?? sidebarResizeBounds.fallback, sidebarResizeBounds.min, sidebarResizeBounds.max));
 
   return {
     sidebarWidth,
     sidebarResizing,
-    spaceLayoutRef,
-    resetSpaceSidebarWidth,
+    workFolderLayoutRef,
+    resetWorkFolderSidebarWidth,
     startSidebarResize,
     handleSidebarResizeKeyDown,
     sidebarResizeBounds,

@@ -1,17 +1,17 @@
 # work-fold remote bridge
 
-The remote client presents the management agent as the **work-fold agent**
-and registered Spaces as **Folders**. This service guide keeps the existing
-technical `management`, `space`, and `fold` protocol names.
+The remote client presents the **work-fold agent** and the registered
+**work-folders**. The paired-web protocol keeps its existing `management.*`
+operation names.
 
 This service hosts the private-alpha web surface at
 `<name>.work-fold.com`. It is a relay to a person's running work-fold desktop,
-not a cloud copy of their Spaces or management conversation.
+not a cloud copy of their work-folders or work-fold agent.
 
 The durable PostgreSQL records contain the address and password verifier,
 device/browser public keys and revocation generations, hashed session tokens,
 pairing certificates, and bounded operation metadata. Prompt text, transcript
-content, file names, file contents, and Assistant results cross the service only
+content, file names, file contents, and agent results cross the service only
 inside signed AES-GCM envelopes whose private keys remain in the paired
 browser and desktop app. Completed envelope bodies are not written to the
 database. This is application-layer protection against passive handling and
@@ -55,19 +55,43 @@ device generations are fenced. Browser event streams tolerate ordinary Node
 backpressure and drop a slow client only after an explicit 8 MiB queued-byte
 bound.
 
-The browser can open and rename bounded saved management Chats, invoke that one canonical
-management Assistant, inspect filtered relative Space trees, and attach at most
-six files (6 MB each, 8 MB total) per message. Selecting a Space opens its Files
-and Apps views, with an inline file preview. Asking about a Space or file prepares
-an explicit reference in a Chat draft; the management Assistant performs or
-delegates Space work through the desktop's attributed act path. Questions remain
-in their owning Chats rather than a separate activity inbox. The bridge only relays the encrypted
-upload envelope, and the desktop keeps uploads in quota- and expiry-bounded
-app-owned staging until the Assistant explicitly uses or places them. No
-operation is a direct Space Chat, generic local-HTTP tunnel, or direct
-capability/settings endpoint.
+The browser can open and rename bounded saved work-fold agent Chats, invoke that one
+canonical management agent, and attach at most six files (6 MB each, 8 MB
+total) per message. The agent performs or delegates work-folder work through
+the desktop's attributed act path. Questions remain in their owning Chats.
+Uploads travel encrypted and stay in quota- and expiry-bounded desktop staging
+until explicitly used or placed. The client has no Files/work-folder browsing
+screen, file-tree state, or inline preview. Older semantic tree operations remain
+available for client compatibility; no operation tunnels arbitrary local HTTP.
+
+The workspace uses a neutral light/dark surface, plain saved-chat titles and a
+title filter that preserves the open Chat and its draft. Person messages appear
+as right-aligned bubbles; agent replies remain unboxed. The header shows the
+title and one **Chat options** menu for Rename/Delete. Result files and apps sit
+behind a **Files and apps** disclosure. A compact pill composer expands as
+needed, with Attach and Send/Stop at its edges. Navigation, menus and secondary
+actions use the same restrained hover surface. On phones the same sidebar
+becomes a focus-trapped drawer.
+
+**Shared pages** replaces the work-folder picker in the sidebar footer. Its
+popup reads up to 32 active publications through capability-advertised
+`pages.list`, carrying only title, kind, health and publication identity. Clicking
+one calls `pages.link` to reveal its current key, then opens the exact isolated
+`pages-<slug>` viewer origin with the key in the fragment and no window opener.
+The encrypted desktop response supplies the viewer origin; the relay and list
+never receive plaintext keys. Links stay transient and are not stored. Closing,
+revocation or disconnect fences late replies. This is navigation to existing
+shares; sharing and management remain in the desktop.
 
 ## Local development
+
+The inert `?fixture=chat` preview opens a finished conversation. Four saved Chats
+have distinct transcripts and keep their own drafts; Rename/Delete only change
+the in-memory fixture. Use `activity=running` explicitly to review streaming and
+Stop, or `work=question|saved-answer|partial|interrupted` for the durable-question
+states. The Shared pages popup has three distinct sample documents; a local
+`pages-casey.localhost` viewer preview with `fixture=1` is inert. Fixture
+navigation never calls the desktop or relay API.
 
 Use Node 24 (matching the root `.nvmrc`) and a local PostgreSQL database.
 Run these commands from the repository root:

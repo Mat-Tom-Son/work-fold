@@ -1,5 +1,5 @@
 /* Shared application preferences, loaded after the desktop/popover styles.
-   Space identity roles remain local to their Space; application roles only
+   work-folder identity roles remain local to their work-folder; application roles only
    replace the retained fixed interface colors and typography. */
 :root[data-appearance-palette] {
   color: var(--ui-text);
@@ -79,7 +79,7 @@
 }
 :root[data-appearance-palette] .capabilities-hierarchy-glyph g.active text { fill: var(--ui-on-accent); }
 
-:root[data-appearance-palette] .app-shell :is(.right-rail, .chat-panel, .file-details-pane, .space-surface-body-empty) {
+:root[data-appearance-palette] .app-shell :is(.right-rail, .chat-panel, .file-details-pane, .work-folder-surface-body-empty) {
   color: var(--ui-text);
   background: var(--ui-surface);
 }
@@ -129,8 +129,8 @@
 :root[data-appearance-palette] .app-shell :is(.file-preview-text, .markdown-preview pre, .markdown-preview code) {
   font-family: var(--work-fold-monospace-font);
 }
-:root[data-appearance-palette] .app-shell .chat-panel .message-body :is(code, th, td, .message-table-scroll, .message-code-block, .space-file-link-code) { border-color: var(--ui-border); }
-:root[data-appearance-palette] .app-shell .chat-panel .message-body :is(code, th, .space-file-link-code),
+:root[data-appearance-palette] .app-shell .chat-panel .message-body :is(code, th, td, .message-table-scroll, .message-code-block, .work-folder-file-link-code) { border-color: var(--ui-border); }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body :is(code, th, .work-folder-file-link-code),
 :root[data-appearance-palette] .app-shell .chat-panel .message-code-toolbar {
   color: var(--ui-text);
   background: var(--ui-surface-subtle);
@@ -145,16 +145,16 @@
   line-height: var(--work-fold-reading-leading);
 }
 
-/* Tinted keeps each Space's accent; quiet changes only message treatment,
-   never the Space icon, banner, selection, or saved identity. */
+/* Tinted keeps each work-folder's accent; quiet changes only message treatment,
+   never the work-folder icon, banner, selection, or saved identity. */
 :root[data-appearance-palette] .app-shell .message.user .message-surface {
-  background: var(--space-accent-soft-fill, var(--ui-accent-soft));
-  color: var(--space-accent-text-body, var(--ui-accent));
+  background: var(--work-folder-accent-soft-fill, var(--ui-accent-soft));
+  color: var(--work-folder-accent-text-body, var(--ui-accent));
   box-shadow: none;
 }
 :root[data-appearance-palette] .app-shell .chat-panel .message.user .message-body,
-:root[data-appearance-palette] .app-shell .chat-panel .message.user .message-body :is(h1, h2, h3, h4, h5, h6, a, code, .space-file-link),
-:root[data-appearance-palette] .app-shell .message.user :is(.message-image-external, .message-image-unavailable) { color: var(--space-accent-text-body, var(--ui-accent)); }
+:root[data-appearance-palette] .app-shell .chat-panel .message.user .message-body :is(h1, h2, h3, h4, h5, h6, a, code, .work-folder-file-link),
+:root[data-appearance-palette] .app-shell .message.user :is(.message-image-external, .message-image-unavailable) { color: var(--work-folder-accent-text-body, var(--ui-accent)); }
 :root[data-appearance-palette] .popover .popover-message.user { background: var(--ui-accent-soft); color: var(--ui-accent); }
 :root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .message.user .message-surface,
 :root[data-appearance-palette][data-appearance-messages="quiet"] .popover .popover-message.user {
@@ -162,37 +162,37 @@
   color: var(--ui-text);
 }
 :root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .chat-panel .message.user .message-body,
-:root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .chat-panel .message.user .message-body :is(h1, h2, h3, h4, h5, h6, a, code, .space-file-link),
+:root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .chat-panel .message.user .message-body :is(h1, h2, h3, h4, h5, h6, a, code, .work-folder-file-link),
 :root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .message.user :is(.message-image-external, .message-image-unavailable) { color: var(--ui-text); }
 
 /* Density changes row padding, not glyph scale or content hierarchy. */
-:root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row-shell),
+:root[data-appearance-palette] .app-shell :is(.file-row, .chat-work-folder-row-shell),
 :root[data-appearance-palette] .app-shell .settings-window .settings-tab,
-:root[data-appearance-palette] .popover :is(.popover-new-chat, .fold-chat-row) {
+:root[data-appearance-palette] .popover :is(.popover-new-chat, .agent-chat-row) {
   min-height: var(--work-fold-list-height);
   padding-block: var(--work-fold-list-padding);
 }
 :root[data-appearance-palette] .app-shell .file-row { color: var(--ui-text); font-size: .8667rem; }
-:root[data-appearance-palette] .app-shell .file-row.selected { color: var(--ui-text); background: var(--space-accent-soft-fill, var(--ui-accent-soft)); }
+:root[data-appearance-palette] .app-shell .file-row.selected { color: var(--ui-text); background: var(--work-folder-accent-soft-fill, var(--ui-accent-soft)); }
 :root[data-appearance-palette] .app-shell .file-row:is(.draft-area, .is-ignored):not(.selected) { color: var(--ui-text-muted); }
-:root[data-appearance-palette] .app-shell .chat-space-row-title { color: var(--ui-text); }
-:root[data-appearance-palette] .app-shell .chat-space-row-time { color: var(--ui-text-muted); }
+:root[data-appearance-palette] .app-shell .chat-work-folder-row-title { color: var(--ui-text); }
+:root[data-appearance-palette] .app-shell .chat-work-folder-row-time { color: var(--ui-text-muted); }
 :root[data-appearance-palette] .app-shell .settings-window :is(.settings-tab, .settings-field input, .settings-field select, .settings-section p, .context-meta-grid dt, .context-meta-grid dd) { font-size: max(13px, calc(var(--work-fold-font-size) - 2px)); }
-:root[data-appearance-palette] .popover :is(.popover-new-chat, .fold-chat-row) { font-size: max(12px, calc(var(--work-fold-font-size) - 2px)); }
+:root[data-appearance-palette] .popover :is(.popover-new-chat, .agent-chat-row) { font-size: max(12px, calc(var(--work-fold-font-size) - 2px)); }
 :root[data-appearance-palette] .popover :is(.composer-model, .composer-thinking) { font-size: max(11px, calc(var(--work-fold-font-size) - 3px)); }
 
 :root[data-appearance-palette] .app-shell .send-button:not(.stop-send-button):not(:disabled) {
-  background: var(--space-accent-solid, var(--ui-accent-solid));
-  color: var(--space-on-accent-solid, var(--ui-on-accent));
+  background: var(--work-folder-accent-solid, var(--ui-accent-solid));
+  color: var(--work-folder-on-accent-solid, var(--ui-on-accent));
 }
 :root[data-appearance-palette] .app-shell .send-button:not(.stop-send-button):hover:not(:disabled) {
-  background: color-mix(in srgb, var(--space-accent-solid, var(--ui-accent-solid)) 28%, var(--ui-surface));
+  background: color-mix(in srgb, var(--work-folder-accent-solid, var(--ui-accent-solid)) 28%, var(--ui-surface));
   color: var(--ui-text);
   box-shadow: none;
   filter: none;
 }
 :root[data-appearance-palette] .app-shell .send-button:not(.stop-send-button):active:not(:disabled) {
-  background: color-mix(in srgb, var(--space-accent-solid, var(--ui-accent-solid)) 38%, var(--ui-surface));
+  background: color-mix(in srgb, var(--work-folder-accent-solid, var(--ui-accent-solid)) 38%, var(--ui-surface));
   color: var(--ui-text);
   box-shadow: none;
   filter: none;
@@ -202,21 +202,21 @@
 :root[data-appearance-palette] .popover :is(button, input, select, textarea, [tabindex]):focus-visible {
   outline-color: var(--ui-focus);
 }
-:root[data-appearance-palette] .app-shell .file-row:focus-visible { box-shadow: inset 0 0 0 2px var(--space-accent-border-state, var(--ui-focus)); }
+:root[data-appearance-palette] .app-shell .file-row:focus-visible { box-shadow: inset 0 0 0 2px var(--work-folder-accent-border-state, var(--ui-focus)); }
 
 /* The hook combines explicit choices with OS preferences. These selectors also
    cover a native vibrancy/Mica window without changing the native material. */
 :root[data-appearance-transparency="opaque"],
 :root[data-appearance-transparency="opaque"] :is(body, #root),
 :root[data-appearance-transparency="opaque"] .app-shell,
-:root[data-appearance-transparency="opaque"] .app-shell .space-layout { background: var(--ui-canvas); }
-:root[data-appearance-transparency="opaque"] .app-shell .space-layout .professional-space-rail { background: var(--ui-surface-subtle); }
-:root[data-appearance-transparency="opaque"] .app-shell .space-layout .space-mode-pane,
+:root[data-appearance-transparency="opaque"] .app-shell .work-folder-layout { background: var(--ui-canvas); }
+:root[data-appearance-transparency="opaque"] .app-shell .work-folder-layout .professional-work-folder-rail { background: var(--ui-surface-subtle); }
+:root[data-appearance-transparency="opaque"] .app-shell .work-folder-layout .work-folder-mode-pane,
 :root[data-appearance-transparency="opaque"] .desktop-titlebar,
 :root[data-appearance-transparency="opaque"] .popover { background: var(--ui-surface); }
 :root[data-appearance-transparency="opaque"] :is(.context-menu, .composer-command-menu, .drop-overlay) { backdrop-filter: none; background: var(--ui-surface); }
 
-:root[data-appearance-contrast="more"] .app-shell :is(.message-time, .message-copy-button, .chat-space-row-actions),
+:root[data-appearance-contrast="more"] .app-shell :is(.message-time, .message-copy-button, .chat-work-folder-row-actions),
 :root[data-appearance-contrast="more"] .popover .working-elapsed { opacity: 1; color: var(--ui-text-muted); }
 :root[data-appearance-contrast="more"] :is(button, input, select, textarea):focus-visible { outline-width: 3px; outline-style: solid; }
 
@@ -246,7 +246,7 @@
 }
 
 @media (pointer: coarse) {
-  :root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row-shell),
+  :root[data-appearance-palette] .app-shell :is(.file-row, .chat-work-folder-row-shell),
   :root[data-appearance-palette] .app-shell .settings-window .settings-tab,
-  :root[data-appearance-palette] .popover :is(.popover-new-chat, .fold-chat-row) { min-height: max(44px, var(--work-fold-list-height)); }
+  :root[data-appearance-palette] .popover :is(.popover-new-chat, .agent-chat-row) { min-height: max(44px, var(--work-fold-list-height)); }
 }

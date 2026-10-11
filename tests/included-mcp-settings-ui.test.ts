@@ -12,7 +12,7 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   const calls: any[] = [];
   globalThis.fetch = async (_input, init) => {
     const body = JSON.parse(String(init?.body)); calls.push(body);
-    assert.equal(body.spaceId, "space-fixture");
+    assert.equal(body.workFolderId, "work-folder-fixture");
     if (body.operation === "open") return Response.json({ sessionId: "setup-fixture", servers: [server] });
     assert.equal(body.sessionId, "setup-fixture");
     if (body.operation === "close") return Response.json({ closed: true });
@@ -24,7 +24,7 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
     return Response.json({ servers: [server] });
   };
   const button = (text: string) => { const found = [...dom.container.querySelectorAll("button")].find(item => item.textContent === text); assert.ok(found, `Missing ${text}`); return found; };
-  await dom.render(createElement(IncludedMcpSetup, { spaceId: "space-fixture", enabled: true }));
+  await dom.render(createElement(IncludedMcpSetup, { workFolderId: "work-folder-fixture", enabled: true }));
   await dom.waitFor(() => dom.container.textContent?.includes("Turn Off") === true);
   assert.match(dom.container.textContent!, /No saved sign-in/);
   assert.doesNotMatch(dom.container.textContent!, /Sign-in required|Sign in required/);
@@ -32,7 +32,7 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   await dom.waitFor(() => dom.container.textContent?.includes("Turned Off") === true);
   assert.equal(button("Check").disabled, true);
   assert.equal(button("Sign in").disabled, true);
-  assert.deepEqual(calls.at(-1), { scope: "project", name: server.name, expectedRevision: "a".repeat(64), enabled: false, spaceId: "space-fixture", sessionId: "setup-fixture", operation: "enabled" });
+  assert.deepEqual(calls.at(-1), { scope: "project", name: server.name, expectedRevision: "a".repeat(64), enabled: false, workFolderId: "work-folder-fixture", sessionId: "setup-fixture", operation: "enabled" });
   server = { ...server, revision: "c".repeat(64) };
   await dom.act(() => button("Turn On").click());
   await dom.waitFor(() => !!dom.container.querySelector('[role="alert"]'));
@@ -46,6 +46,6 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   assert.equal(calls.at(-1).expectedRevision, "c".repeat(64)); assert.equal(calls.at(-1).enabled, true);
   assert.equal(button("Check").disabled, false);
   assert.match(dom.container.textContent!, /No saved sign-in/);
-  await dom.render(createElement(IncludedMcpSetup, { spaceId: "space-fixture", enabled: false }));
+  await dom.render(createElement(IncludedMcpSetup, { workFolderId: "work-folder-fixture", enabled: false }));
   assert.equal(button("Turn Off").disabled, true, "a disabled Extension cannot change its native connection");
 });

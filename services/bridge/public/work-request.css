@@ -10,7 +10,7 @@
 .work-question label { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.55; font-weight: 500; }
 .work-question textarea { box-sizing: border-box; width: 100%; resize: vertical; min-height: 64px; max-height: 240px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 7px; padding: 10px 12px; background: color-mix(in srgb, currentColor 3%, transparent); color: inherit; font: inherit; font-size: 13px; }
 .work-primary-button, .work-text-button, .work-file-button { font: inherit; cursor: pointer; color: inherit; }
-.work-primary-button { justify-self: start; border: 0; border-radius: 6px; padding: 8px 12px; background: var(--work-accent); color: white; font-size: 12px; font-weight: 500; min-height: 34px; }
+.work-primary-button { justify-self: start; border: 0; border-radius: 6px; padding: 8px 12px; background: var(--work-accent); color: var(--accent-contrast, white); font-size: 12px; font-weight: 500; min-height: 34px; }
 .work-text-button { border: 0; background: transparent; text-decoration: underline; text-underline-offset: 3px; padding: 4px; font-size: 12px; }
 .work-request button:disabled { opacity: .5; cursor: default; }
 .work-request :is(button, textarea, summary):focus-visible { outline: 2px solid var(--work-accent); outline-offset: 3px; }

@@ -1,5 +1,5 @@
 /**
- * @-mentions of Folder Workers in a composer (2026-10-01). The draft text is
+ * @-mentions of work-folder Workers in a composer (2026-10-01). The draft text is
  * the only state: a Worker is addressed when its `@Name` appears in the
  * message, whether it was picked from the menu or typed by hand, so deleting
  * the text un-addresses it and nothing hidden rides along with a send.
@@ -28,7 +28,7 @@ export function activeFolderMention(draft: string, caret: number): ActiveMention
   return { query: match[2]!, start, end: before.length };
 }
 
-/** Folders whose name matches the query: prefix matches first, then contains, keeping caller order. */
+/** work-folders whose name matches the query: prefix matches first, then contains, keeping caller order. */
 export function matchingMentionFolders<T extends MentionableFolder>(folders: readonly T[], query: string, limit = 6): T[] {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return folders.slice(0, limit);
@@ -58,12 +58,12 @@ export function insertFolderMention(draft: string, mention: ActiveMention, folde
 }
 
 /**
- * The name each Folder is addressed by. A name shared by several Folders is
+ * The name each work-folder is addressed by. A name shared by several work-folders is
  * qualified with the folders above it on disk (`projA/docs`, `projB/docs`)
  * until it is unique, so `@Name` always means exactly one Worker.
  */
-export function mentionNames(folders: ReadonlyArray<MentionableFolder & { spaceRoot: string }>): Map<string, string> {
-  const segments = new Map(folders.map((folder) => [folder.id, folder.spaceRoot.replace(/\\/g, "/").replace(/\/+$/, "").split("/").filter(Boolean)]));
+export function mentionNames(folders: ReadonlyArray<MentionableFolder & { workFolderRoot: string }>): Map<string, string> {
+  const segments = new Map(folders.map((folder) => [folder.id, folder.workFolderRoot.replace(/\\/g, "/").replace(/\/+$/, "").split("/").filter(Boolean)]));
   const result = new Map<string, string>();
   const counts = new Map<string, number>();
   for (const folder of folders) counts.set(folder.name.toLocaleLowerCase(), (counts.get(folder.name.toLocaleLowerCase()) ?? 0) + 1);
@@ -87,7 +87,7 @@ export function mentionNames(folders: ReadonlyArray<MentionableFolder & { spaceR
 }
 
 /**
- * The Folders a message addresses: each whose `@Name` appears at a word start
+ * The work-folders a message addresses: each whose `@Name` appears at a word start
  * and ends at a boundary. Longer names claim their text first, so `@api docs`
  * never also addresses `@api`.
  */
@@ -110,5 +110,5 @@ export function addressedFolderIds(content: string, folders: readonly Mentionabl
       found.add(folder.id);
     }
   }
-  return folders.filter((folder) => found.has(folder.id)).map((folder) => folder.id).slice(0, 8);
+  return folders.filter((folder) => found.has(folder.id)).map((folder) => folder.id);
 }

@@ -11,7 +11,7 @@ import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { startLocalApi } from "../src/local/server.js";
 import { PiConversationClient } from "../src/local/agent/pi-client.js";
 import { ModelContextInspector } from "../src/local/agent/model-context-inspector.js";
-import { workFoldManagementScopeId } from "../src/local/state-paths.js";
+import { workFoldAgentScopeId } from "../src/local/state-paths.js";
 import type { ModelContextInspection, ModelContextInspectionState } from "../src/shared/model-context-inspection.js";
 
 test("context diagnostics are authenticated, read-only to Pi, exactly scoped and absent from portable and remote Chat projections", { timeout: 20_000 }, async (t) => {
@@ -51,7 +51,7 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
   let runtimeResolutions = 0;
   const sessionToken = "local-context-test-session";
   const options = {
-    port: 0, appMode: "desktop" as const, stateBase: join(root, "state"), spaceBase: join(root, "content"), loadEnv: false,
+    port: 0, appMode: "desktop" as const, stateBase: join(root, "state"), workFolderBase: join(root, "content"), loadEnv: false,
     sessionToken,
     piRuntimeProvider: { async resolveRuntime() {
       runtimeResolutions += 1;
@@ -87,35 +87,35 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
   }
   assert.equal((await request("/api/model-context/missing", "POST", { enabled: true })).status, 400);
   assert.equal((await json<ModelContextInspectionState>("/api/model-context", "POST", { enabled: true })).enabled, true);
-  assert.deepEqual((await inspect(`?spaceId=${workFoldManagementScopeId}&conversationId=unopened-chat`)).records, []);
+  assert.deepEqual((await inspect(`?workFolderId=${workFoldAgentScopeId}&conversationId=unopened-chat`)).records, []);
   assert.equal(runtimeResolutions, initialResolutions, "opening or changing diagnostics never initializes a Pi session");
   assert.equal(providerRequests.length, 0);
 
-  const space = (await api.actFacade.createSpace({ name: "Context inspection" })).space;
-  const chat = (await api.actFacade.createConversation({ space: space.id })).conversation;
-  const wrongChat = (await api.actFacade.createConversation({ space: space.id })).conversation;
-  const [fold, spaceTurn] = await Promise.all([
-    api.actFacade.manageSend({ content: "Handle a fold request.", newConversation: true }),
-    api.actFacade.sendMessage({ space: space.id, conversationId: chat.id, content: "Handle a Space request." }),
+  const workFolder = (await api.actFacade.createWorkFolder({ name: "Context inspection" })).workFolder;
+  const chat = (await api.actFacade.createConversation({ workFolder: workFolder.id })).conversation;
+  const wrongChat = (await api.actFacade.createConversation({ workFolder: workFolder.id })).conversation;
+  const [fold, workFolderTurn] = await Promise.all([
+    api.actFacade.agentSend({ content: "Handle a fold request.", newConversation: true }),
+    api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: chat.id, content: "Handle a work-folder request." }),
   ]);
-  await until(async () => (await api.actFacade.manageTurnStatus({ taskId: fold.taskId })).task.state === "succeeded"
-    && (await api.actFacade.turnStatus({ space: space.id, taskId: spaceTurn.taskId })).task.state === "succeeded");
-  const foldQuery = `?spaceId=${workFoldManagementScopeId}&conversationId=${fold.conversationId}`;
-  const spaceQuery = `?spaceId=${space.id}&conversationId=${chat.id}`;
-  const foldRecords = (await inspect(foldQuery)).records;
-  const spaceRecords = (await inspect(spaceQuery)).records;
-  const foldRecord = foldRecords.find((record) => record.owner.purpose === "assistant")!;
-  const spaceRecord = spaceRecords.find((record) => record.owner.purpose === "assistant")!;
-  assert.ok(foldRecord); assert.ok(spaceRecord);
-  assert.equal(foldRecord.owner.taskId, fold.taskId);
-  assert.equal(spaceRecord.owner.taskId, spaceTurn.taskId);
-  assert.ok(foldRecords.every((record) => record.owner.conversationId === fold.conversationId));
-  assert.ok(spaceRecords.every((record) => record.owner.conversationId === chat.id));
-  assert.ok((await inspect()).records.length >= foldRecords.length + spaceRecords.length);
-  assert.deepEqual((await inspect(`?spaceId=${space.id}&conversationId=${wrongChat.id}`)).records, []);
-  assert.equal((await request(`/api/model-context/${spaceRecord.id}${foldQuery}`)).status, 404);
-  assert.equal((await request(`/api/model-context/${spaceRecord.id}?spaceId=${space.id}&conversationId=${wrongChat.id}`)).status, 404);
-  const detail = (await json<{ record: ModelContextInspection }>(`/api/model-context/${spaceRecord.id}${spaceQuery}`)).record;
+  await until(async () => (await api.actFacade.agentTurnStatus({ taskId: fold.taskId })).task.state === "succeeded"
+    && (await api.actFacade.turnStatus({ workFolder: workFolder.id, taskId: workFolderTurn.taskId })).task.state === "succeeded");
+  const workFoldAgentQuery = `?workFolderId=${workFoldAgentScopeId}&conversationId=${fold.conversationId}`;
+  const workFolderQuery = `?workFolderId=${workFolder.id}&conversationId=${chat.id}`;
+  const workFoldAgentRecords = (await inspect(workFoldAgentQuery)).records;
+  const workFolderRecords = (await inspect(workFolderQuery)).records;
+  const workFoldAgentRecord = workFoldAgentRecords.find((record) => record.owner.purpose === "assistant")!;
+  const workFolderRecord = workFolderRecords.find((record) => record.owner.purpose === "assistant")!;
+  assert.ok(workFoldAgentRecord); assert.ok(workFolderRecord);
+  assert.equal(workFoldAgentRecord.owner.taskId, fold.taskId);
+  assert.equal(workFolderRecord.owner.taskId, workFolderTurn.taskId);
+  assert.ok(workFoldAgentRecords.every((record) => record.owner.conversationId === fold.conversationId));
+  assert.ok(workFolderRecords.every((record) => record.owner.conversationId === chat.id));
+  assert.ok((await inspect()).records.length >= workFoldAgentRecords.length + workFolderRecords.length);
+  assert.deepEqual((await inspect(`?workFolderId=${workFolder.id}&conversationId=${wrongChat.id}`)).records, []);
+  assert.equal((await request(`/api/model-context/${workFolderRecord.id}${workFoldAgentQuery}`)).status, 404);
+  assert.equal((await request(`/api/model-context/${workFolderRecord.id}?workFolderId=${workFolder.id}&conversationId=${wrongChat.id}`)).status, 404);
+  const detail = (await json<{ record: ModelContextInspection }>(`/api/model-context/${workFolderRecord.id}${workFolderQuery}`)).record;
   assert.equal(detail.stage, "provider_payload");
   assert.ok(JSON.stringify(detail.payloads).includes(marker), "the native payload hook is captured after its transformation");
   assert.ok(!JSON.stringify(detail.assembled).includes(marker), "provider payload and assembled context remain distinct");
@@ -127,9 +127,9 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
   const inferenceInspector = new ModelContextInspector();
   inferenceInspector.setEnabled(true);
   const sessionOnlyInstructions = "SESSION-INSTRUCTIONS-NOT-SENT-TO-BOUNDED-INFERENCE";
-  const inferenceClient = new PiConversationClient("app-inference", space.spaceRoot, {
+  const inferenceClient = new PiConversationClient("app-inference", workFolder.workFolderRoot, {
     async resolveRuntime() {
-      return { ...await options.piRuntimeProvider.resolveRuntime(), assistantInstructions: sessionOnlyInstructions,
+      return { ...await options.piRuntimeProvider.resolveRuntime(), workerInstructions: sessionOnlyInstructions,
         modelContextInspector: inferenceInspector };
     },
   });
@@ -147,7 +147,7 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
     assert.equal(provenance.dispatch.systemPrompt.sha256, createHash("sha256").update(getCurrentSystemPrompt(assembled.messages)).digest("hex"));
     assert.ok(provenance.loadedSessionResources.tools.length > 0, "loaded tools remain discoverable as session metadata");
     assert.ok(provenance.loadedSessionResources.appendedInstructions.some((item: any) =>
-      item.sha256 === createHash("sha256").update(`## Space instructions\n\n${sessionOnlyInstructions}`).digest("hex")));
+      item.sha256 === createHash("sha256").update(`## Worker instructions\n\n${sessionOnlyInstructions}`).digest("hex")));
     assert.equal("tools" in assembled, false);
     assert.ok(!JSON.stringify(providerRequests.at(-1)).includes(sessionOnlyInstructions));
     assert.ok(!JSON.stringify(inference).includes(secret));
@@ -158,21 +158,21 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
 
   const baselineResolutions = runtimeResolutions;
   const baselineRequests = providerRequests.length;
-  await inspect(); await inspect(spaceQuery);
-  await json(`/api/model-context/${foldRecord.id}${foldQuery}`);
+  await inspect(); await inspect(workFolderQuery);
+  await json(`/api/model-context/${workFoldAgentRecord.id}${workFoldAgentQuery}`);
   assert.equal(runtimeResolutions, baselineResolutions);
   assert.equal(providerRequests.length, baselineRequests, "reopening captures never reruns model work");
   const assertPrivateProjection = (value: unknown) => {
     const text = JSON.stringify(value);
     assert.ok(!text.includes(marker));
-    assert.ok(!text.includes(spaceRecord.id));
-    assert.ok(!text.includes(foldRecord.id));
+    assert.ok(!text.includes(workFolderRecord.id));
+    assert.ok(!text.includes(workFoldAgentRecord.id));
     assert.ok(!text.includes("assembled"));
   };
-  const transcript = await json(`/api/spaces/${space.id}/conversations/${chat.id}`);
+  const transcript = await json(`/api/work-folders/${workFolder.id}/conversations/${chat.id}`);
   assertPrivateProjection(transcript);
-  assertPrivateProjection(await json(`/api/management/conversations/${fold.conversationId}`));
-  const portableRoot = join(space.spaceRoot, ".work-fold", "conversations");
+  assertPrivateProjection(await json(`/api/work-fold-agent/conversations/${fold.conversationId}`));
+  const portableRoot = join(workFolder.workFolderRoot, ".work-fold", "conversations");
   for (const name of await readdir(portableRoot)) {
     if (name.endsWith(".jsonl") || name.endsWith(".json")) assertPrivateProjection(await readFile(join(portableRoot, name), "utf8"));
   }
@@ -181,23 +181,23 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
 
   const cleared = await json<ModelContextInspectionState>("/api/model-context", "POST", { clear: true });
   assert.equal(cleared.enabled, true); assert.deepEqual(cleared.records, []);
-  assert.equal((await request(`/api/model-context/${spaceRecord.id}${spaceQuery}`)).status, 404);
-  const afterClear = await api.actFacade.manageSend({ conversationId: fold.conversationId, content: "Create a fresh capture after clearing." });
-  await until(async () => (await api.actFacade.manageTurnStatus({ taskId: afterClear.taskId })).task.state === "succeeded");
+  assert.equal((await request(`/api/model-context/${workFolderRecord.id}${workFolderQuery}`)).status, 404);
+  const afterClear = await api.actFacade.agentSend({ conversationId: fold.conversationId, content: "Create a fresh capture after clearing." });
+  await until(async () => (await api.actFacade.agentTurnStatus({ taskId: afterClear.taskId })).task.state === "succeeded");
   const beforeDisable = (await inspect()).records;
   assert.ok(beforeDisable.length > 0, "clear retains recording for subsequent requests");
   const disabled = await json<ModelContextInspectionState>("/api/model-context", "POST", { enabled: false });
   assert.equal(disabled.enabled, false); assert.deepEqual(disabled.records, []);
   assert.equal((await request(`/api/model-context/${beforeDisable[0]!.id}`)).status, 404, "disabling discards retained captures");
-  const next = await api.actFacade.sendMessage({ space: space.id, conversationId: chat.id, content: "Another ordinary request while diagnostics are off." });
-  await until(async () => (await api.actFacade.turnStatus({ space: space.id, taskId: next.taskId })).task.state === "succeeded");
+  const next = await api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: chat.id, content: "Another ordinary request while diagnostics are off." });
+  await until(async () => (await api.actFacade.turnStatus({ workFolder: workFolder.id, taskId: next.taskId })).task.state === "succeeded");
   assert.deepEqual((await inspect()).records, [], "disabled recording stays empty during real model work");
-  assertPrivateProjection(await json(`/api/spaces/${space.id}/conversations/${chat.id}`));
+  assertPrivateProjection(await json(`/api/work-folders/${workFolder.id}/conversations/${chat.id}`));
   assertPrivateProjection(await api.remoteFacade.execute("management.summary", { conversationId: fold.conversationId }, principal));
 
   await json("/api/model-context", "POST", { enabled: true });
-  const last = await api.actFacade.sendMessage({ space: space.id, conversationId: chat.id, content: "Create a capture before restart." });
-  await until(async () => (await api.actFacade.turnStatus({ space: space.id, taskId: last.taskId })).task.state === "succeeded");
+  const last = await api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: chat.id, content: "Create a capture before restart." });
+  await until(async () => (await api.actFacade.turnStatus({ workFolder: workFolder.id, taskId: last.taskId })).task.state === "succeeded");
   assert.ok((await inspect()).records.length > 0);
   const beforeRestartRequests = providerRequests.length;
   await api.close();
@@ -210,7 +210,7 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
 async function until(predicate: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!await predicate()) {
-    if (Date.now() > deadline) throw new Error("Timed out waiting for the owned Assistant turn to settle.");
+    if (Date.now() > deadline) throw new Error("Timed out waiting for the owned turn to settle.");
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }

@@ -17,10 +17,10 @@ export function parseModelContextDiagnosticRequest(value: unknown): ModelContext
   }
   const url = new URL(input.path, "http://diagnostics.local");
   const keys = [...url.searchParams.keys()];
-  if (keys.some((key) => key !== "spaceId" && key !== "conversationId")
+  if (keys.some((key) => key !== "workFolderId" && key !== "conversationId")
     || new Set(keys).size !== keys.length
     || keys.some((key) => !url.searchParams.get(key) || url.searchParams.get(key)!.length > 256)
-    || (url.searchParams.has("conversationId") && !url.searchParams.has("spaceId"))) {
+    || (url.searchParams.has("conversationId") && !url.searchParams.has("workFolderId"))) {
     throw new Error("Invalid diagnostic scope.");
   }
   if (input.body === undefined) return { path: input.path, method: "GET" };
@@ -82,7 +82,7 @@ export class ModelContextWindow {
     const window = this.#window;
     if (!window || window.isDestroyed() || !window.isFocused()) return false;
     if (command === "close-tab") { window.close(); return true; }
-    if (command === "reload-space-state") { window.webContents.reload(); return true; }
+    if (command === "reload-work-folder-state") { window.webContents.reload(); return true; }
     return false;
   }
 
@@ -115,9 +115,9 @@ export class ModelContextWindow {
     window.webContents.on("before-input-event", (event, input) => {
       if (input.type !== "keyDown" || input.alt || !(input.meta || (process.platform !== "darwin" && input.control))) return;
       const key = input.key.toLowerCase();
-      // The app menu normally directs these shortcuts to the main Space.
-      // They must also work here when no Space is open and its menu is disabled.
-      if ((key === "w" || key === "r") && this.handleMenuCommand(key === "w" ? "close-tab" : "reload-space-state")) {
+      // The app menu normally directs these shortcuts to the main work-folder.
+      // They must also work here when no work-folder is open and its menu is disabled.
+      if ((key === "w" || key === "r") && this.handleMenuCommand(key === "w" ? "close-tab" : "reload-work-folder-state")) {
         event.preventDefault();
       }
     });

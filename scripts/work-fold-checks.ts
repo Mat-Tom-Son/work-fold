@@ -45,7 +45,7 @@ async function createFilePresence(args: string[]): Promise<void> {
   const title = parsed.values.title?.trim();
   if (!title) throw new Error("--title is required.");
   const files = parsed.values.file ?? [];
-  if (!files.length) throw new Error("Provide at least one --file <Space-relative-path>.");
+  if (!files.length) throw new Error("Provide at least one --file <work-folder-relative-path>.");
   const expect = parsed.values.expect;
   if (expect !== "present" && expect !== "absent") throw new Error("--expect must be present or absent.");
   const severity = normalizeSeverity(parsed.values.severity);
@@ -76,7 +76,7 @@ async function createFilePresence(args: string[]): Promise<void> {
   }
   process.stdout.write(`Created inert Check proposal: ${outputPath}\n`);
   printScope(proposal);
-  process.stdout.write("Nothing was enabled or run. Review it, then use work-fold checks enable with an explicit Space.\n");
+  process.stdout.write("Nothing was enabled or run. Review it, then use work-fold checks enable with an explicit work-folder.\n");
 }
 
 async function validateProposal(args: string[]): Promise<void> {
@@ -131,7 +131,7 @@ Commands:
   validate <proposal.work-fold-check.json> [--json]
 
 Create options:
-  --file <path>           Exact Space-relative file; repeat for more files
+  --file <path>           Exact work-folder-relative file; repeat for more files
   --expect present       present or absent
   --severity warning     info, warning, or error
   --name <text>          Review/proposal name; defaults to the title

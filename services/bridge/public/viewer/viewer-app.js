@@ -1,4 +1,4 @@
-// The viewer-app shell for "an app at your address" (docs/fold-publishing.md,
+// The viewer-app shell for "an app at your address" (docs/shared-pages.md,
 // rung 3). It runs on the isolated pages-<slug> origin with the same
 // fragment-key rule as pages: the decryption key rides only in the URL
 // fragment and never leaves this shell. The reviewed app renders inside a

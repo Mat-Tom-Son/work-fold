@@ -49,7 +49,7 @@ export function useWorkRequest(path: string | null) {
     ++generation.current;
     try {
       const result = await api<{ work: WorkRequestView }>(`/api/requests/${encodeURIComponent(work.requestId)}/${action}`, {
-        method: "POST", body: { ...body, surface: window.workFoldDesktop?.management ? "popover" : "main-window", ...(action === "continue" ? { deliveryId: delivery.current } : {}) },
+        method: "POST", body: { ...body, surface: window.workFoldDesktop?.workFoldAgent ? "popover" : "main-window", ...(action === "continue" ? { deliveryId: delivery.current } : {}) },
       });
       if (owner !== scope.current) return true;
       // The action response already contains the accepted request state.

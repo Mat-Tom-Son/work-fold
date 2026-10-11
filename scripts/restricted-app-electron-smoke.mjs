@@ -92,11 +92,11 @@ async function runSmoke() {
   let host;
   try {
     process.env.WORKFOLD_STATE_DIR = join(sandbox, "state");
-    const spaceRoot = join(sandbox, "space");
-    const sourceRoot = join(spaceRoot, "apps", "source");
+    const workFolderRoot = join(sandbox, "work-folder");
+    const sourceRoot = join(workFolderRoot, "apps", "source");
     const stagingRoot = join(sandbox, "staged");
     await writeSmokePackage(sourceRoot, address.port);
-    await mkdir(join(spaceRoot, "exports"), { recursive: true });
+    await mkdir(join(workFolderRoot, "exports"), { recursive: true });
     const receipt = await stageRestrictedAppPackage(sourceRoot, stagingRoot);
     await mark("package-staged");
     const connections = new EmptyConnections();
@@ -139,8 +139,8 @@ async function runSmoke() {
       },
     });
     host = new RestrictedAppHost({
-      readCheckResult: async (spaceId, checkId, declarationDigest) => {
-        assert.equal(spaceId, "ws-electron-smoke");
+      readCheckResult: async (workFolderId, checkId, declarationDigest) => {
+        assert.equal(workFolderId, "ws-electron-smoke");
         assert.equal(checkId, "smoke-check");
         assert.equal(declarationDigest, "c".repeat(64));
         return { checkId, declarationDigest, title: "Smoke Check", state: "never-run", lastRunAt: null, findings: [], truncated: false };
@@ -148,7 +148,7 @@ async function runSmoke() {
       assistantTasks: async () => ({
         async request(scope, request, assertCurrent) {
           assertCurrent();
-          assert.equal(scope.spaceId, "ws-electron-smoke");
+          assert.equal(scope.workFolderId, "ws-electron-smoke");
           assert.equal(scope.appId, "restricted-electron-smoke");
           assert.equal(typeof scope.featureInstallationId, "string");
           assert.match(scope.authorityDigest, /^[a-f0-9]{64}$/);
@@ -165,7 +165,7 @@ async function runSmoke() {
           // an app meets in the running product.
           const parsed = parseRestrictedAppInferenceRequest(request);
           options.assertCurrent();
-          assert.equal(scope.spaceId, "ws-electron-smoke");
+          assert.equal(scope.workFolderId, "ws-electron-smoke");
           assert.equal(scope.appId, "restricted-electron-smoke");
           assert.match(scope.authorityDigest, /^[a-f0-9]{64}$/);
           const model = { provider: "smoke", id: "smoke-model" };
@@ -184,13 +184,16 @@ async function runSmoke() {
       connections,
       networkBroker,
       storage,
-      resolveSpaceRoot: async (spaceId) => spaceId === "ws-electron-smoke" ? spaceRoot : null,
+      resolveWorkFolderRoot: async (workFolderId) => workFolderId === "ws-electron-smoke" ? workFolderRoot : null,
       preloadPath: join(rootDir, "dist", "desktop", "desktop", "src", "restricted-app-preload.cjs"),
       notifications: notificationBroker,
       onTabCommand: (command) => tabCommands.push(command),
+      // The production hang guard is ten minutes; the smoke shortens it so the
+      // `hang` probe exercises the same APP_TIMEOUT path in seconds.
+      invocationTimeoutMs: 5_000,
     });
     const descriptor = {
-      spaceId: "ws-electron-smoke",
+      workFolderId: "ws-electron-smoke",
       projectId: createProjectId(),
       tenantId: createTenantId(),
       principalId: createPrincipalId(),
@@ -223,7 +226,7 @@ async function runSmoke() {
       dataNamespaceId: descriptor.dataNamespaceId,
     };
     host.syncAuthority([{
-      spaceId: descriptor.spaceId,
+      workFolderId: descriptor.workFolderId,
       appId: descriptor.manifest.id,
       digest: descriptor.digest,
       runtimeInstanceId: descriptor.runtimeInstanceId,
@@ -249,7 +252,7 @@ async function runSmoke() {
 
     const peer = { ...descriptor, runtimeInstanceId: createRuntimeInstanceId(), featureInstallationId: createFeatureInstallationId(),
       dataNamespaceId: createDataNamespaceId(), authority: createAuthorityStamp(), networkGrants: [], fileGrants: [], notificationGrants: [], automations: [] };
-    const authorityOf = (item) => ({ spaceId: item.spaceId, appId: item.manifest.id, digest: item.digest,
+    const authorityOf = (item) => ({ workFolderId: item.workFolderId, appId: item.manifest.id, digest: item.digest,
       runtimeInstanceId: item.runtimeInstanceId, featureInstallationId: item.featureInstallationId, authority: item.authority });
     const peerOwner = { ...storageOwner, runtimeInstanceId: peer.runtimeInstanceId, featureInstallationId: peer.featureInstallationId, dataNamespaceId: peer.dataNamespaceId };
     await storage.set(storageOwner, "instance-value", "source");
@@ -292,9 +295,9 @@ async function runSmoke() {
     assert.deepEqual(await host.invoke(descriptor, "instance", {}), afterFencedAction, "revoking a sibling must not invalidate the original worker");
     host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
     const peerAfterRevocation = await host.invoke(peer, "instance", {});
-    await host.stop(descriptor.spaceId, descriptor.manifest.id, descriptor.digest, descriptor.featureInstallationId);
+    await host.stop(descriptor.workFolderId, descriptor.manifest.id, descriptor.digest, descriptor.featureInstallationId);
     assert.deepEqual(await host.invoke(peer, "instance", {}), peerAfterRevocation, "an exact installation stop leaves its sibling running");
-    await host.stop(peer.spaceId, peer.manifest.id, peer.digest, peer.featureInstallationId);
+    await host.stop(peer.workFolderId, peer.manifest.id, peer.digest, peer.featureInstallationId);
     const pendingPeer = host.invoke(peer, "instance", {});
     const pendingRejection = assert.rejects(pendingPeer, (error) => error?.code === "APP_UNAVAILABLE");
     host.syncAuthority([authorityOf(descriptor)]);
@@ -329,14 +332,23 @@ async function runSmoke() {
     assert.equal(hits, 0);
     await mark("recovery-complete");
 
-    await mark("automation-start");
-    await host.runAutomation(descriptor, automationEvent("2026-07-13T00:00:00.000Z", "manual", {
+    // A second action on the same worker queues for its single operation slot
+    // instead of being refused, and runs on the same worker afterwards.
+    const [queuedFirst, queuedSecond] = await Promise.all([
+      host.invoke(descriptor, "instance", {}),
+      host.invoke(descriptor, "instance", {}),
+    ]);
+    assert.deepEqual(queuedSecond, queuedFirst, "a queued action runs on the same worker once the slot frees");
+    await mark("queued-action-complete");
+
+    await mark("app-automation-start");
+    await host.runAppAutomation(descriptor, appAutomationEvent("2026-07-13T00:00:00.000Z", "manual", {
       principalId: descriptor.principalId,
       kind: "human",
       realm: "local",
     }));
     assert.equal(networkOwners.at(-1)?.effectivePrincipalId, descriptor.principalId, "manual work reaches the broker as the human Principal");
-    await host.runAutomation(descriptor, automationEvent("2026-07-13T00:00:15.000Z", "manual", {
+    await host.runAppAutomation(descriptor, appAutomationEvent("2026-07-13T00:00:15.000Z", "manual", {
       principalId: descriptor.principalId,
       kind: "human",
       realm: "local",
@@ -345,13 +357,13 @@ async function runSmoke() {
     assert.equal(lateNetworkEffects, 0, "unawaited network work cannot outlive its exact worker operation");
     assert.deepEqual(await storage.get(storageOwner, "automation"), {
       runId: "smoke-2026-07-13T00:00:00.000Z",
-      automationId: "smoke-automation",
+      appAutomationId: "smoke-automation",
       handler: "smoke",
       reason: "manual",
       scheduledAt: "2026-07-13T00:00:00.000Z",
     });
     assert.deepEqual(shownNotifications.map((item) => item.notification), [{
-      spaceId: descriptor.spaceId,
+      workFolderId: descriptor.workFolderId,
       appId: descriptor.manifest.id,
       featureInstallationId: descriptor.featureInstallationId,
       digest: descriptor.digest,
@@ -369,7 +381,7 @@ async function runSmoke() {
     assert.equal(await storage.get(storageOwner, "worker-checks-hints"), 0);
     assert.equal(await storage.get(storageOwner, "worker-tasks-hints"), 0);
 
-    const suspendedRun = host.runAutomation(descriptor, automationEvent("2026-07-13T00:00:30.000Z", "scheduled", {
+    const suspendedRun = host.runAppAutomation(descriptor, appAutomationEvent("2026-07-13T00:00:30.000Z", "scheduled", {
       principalId: descriptor.servicePrincipalId,
       kind: "service",
       realm: "local",
@@ -380,7 +392,7 @@ async function runSmoke() {
     assert.equal(networkOwners.at(-1)?.effectivePrincipalId, descriptor.servicePrincipalId, "scheduled work reaches the broker as the service Principal");
     assert.equal(shownNotifications.length, 1, "suspend denies an in-flight automation notification");
     host.resume();
-    await mark("automation-complete");
+    await mark("app-automation-complete");
 
     const parent = new BrowserWindow({ show: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
     await parent.loadURL("data:text/html,<main>work-fold owner</main>");
@@ -399,7 +411,7 @@ async function runSmoke() {
       (error) => error?.code === "APP_UNAVAILABLE",
       "stop invalidates an in-flight stale UI mount",
     );
-    await host.stop(descriptor.spaceId, descriptor.manifest.id, descriptor.digest);
+    await host.stop(descriptor.workFolderId, descriptor.manifest.id, descriptor.digest);
     await staleMountRejection;
     const mountId = "11111111-1111-4111-8111-111111111111";
     await host.mountUi(descriptor, parent.webContents, parent, {
@@ -418,9 +430,9 @@ async function runSmoke() {
       "the visible restricted app did not finish its startup bridge calls",
     );
     assert.equal(hits, 0, "the visible restricted app must not reach loopback directly");
-    assert.deepEqual(tabCommands.map((command) => ({ type: command.type, spaceId: command.spaceId, appId: command.appId, digest: command.digest, featureInstallationId: command.featureInstallationId, tab: command.tab })), [{
+    assert.deepEqual(tabCommands.map((command) => ({ type: command.type, workFolderId: command.workFolderId, appId: command.appId, digest: command.digest, featureInstallationId: command.featureInstallationId, tab: command.tab })), [{
       type: "open",
-      spaceId: descriptor.spaceId,
+      workFolderId: descriptor.workFolderId,
       appId: descriptor.manifest.id,
       digest: descriptor.digest,
       featureInstallationId: descriptor.featureInstallationId,
@@ -482,7 +494,7 @@ async function runSmoke() {
     await storage.transaction(storageOwner, {
       set: Array.from({ length: 128 }, (_, index) => ({ key: "seed-" + String(index).padStart(3, "0"), value: index })),
     });
-    await host.runAutomation(descriptor, automationEvent("2026-07-13T00:01:00.000Z", "scheduled", {
+    await host.runAppAutomation(descriptor, appAutomationEvent("2026-07-13T00:01:00.000Z", "scheduled", {
       principalId: descriptor.servicePrincipalId,
       kind: "service",
       realm: "local",
@@ -502,36 +514,36 @@ async function runSmoke() {
     // the host, delivered to the mounts each read lane admits, carrying ids and
     // a revision and never content.
     host.publishAssistantActivity({
-      spaceId: descriptor.spaceId,
+      workFolderId: descriptor.workFolderId,
       appId: descriptor.manifest.id,
       featureInstallationId: descriptor.featureInstallationId,
       taskIds: ["smoke-task"],
       receiptIds: ["smoke-receipt"],
     });
     await waitFor(async () => (await storage.get(storageOwner, "ui-tasks-hint"))?.count === 1,
-      "the active app view never received its Assistant task hint", 15_000);
+      "the active app view never received its Worker task hint", 15_000);
     const firstTasksHint = await storage.get(storageOwner, "ui-tasks-hint");
     assert.deepEqual(firstTasksHint.taskIds, ["smoke-task"]);
     assert.deepEqual(firstTasksHint.receiptIds, ["smoke-receipt"]);
     assert.equal(firstTasksHint.revision, 1, "a revision orders hints inside one mount's lifetime");
     assert.equal(firstTasksHint.active, true);
 
-    host.publishCheckResultsChanged({ spaceId: descriptor.spaceId, checkIds: ["smoke-check", "not-selected"] });
+    host.publishCheckResultsChanged({ workFolderId: descriptor.workFolderId, checkIds: ["smoke-check", "not-selected"] });
     await waitFor(async () => (await storage.get(storageOwner, "ui-checks-hint"))?.count === 1,
       "the active app view never received its Check result hint", 15_000);
     assert.deepEqual((await storage.get(storageOwner, "ui-checks-hint")).permissionIds, ["review"],
       "a Check hint names this app's own slot, never the Check id");
-    host.publishCheckResultsChanged({ spaceId: descriptor.spaceId, checkIds: ["not-selected"] });
-    host.publishCheckResultsChanged({ spaceId: "another-space", checkIds: ["smoke-check"] });
+    host.publishCheckResultsChanged({ workFolderId: descriptor.workFolderId, checkIds: ["not-selected"] });
+    host.publishCheckResultsChanged({ workFolderId: "another-work-folder", checkIds: ["smoke-check"] });
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 400));
     assert.equal((await storage.get(storageOwner, "ui-checks-hint")).count, 1,
-      "a Check this app did not select, or another Space's, produces nothing");
+      "a Check this app did not select, or another work-folder's, produces nothing");
 
     // A granted-root watch starts without a baseline and its first observation
     // is silent, so the view's startup write of smoke.txt is never news. Change
     // the granted folder here instead, spaced wider than one poll plus the
     // debounce so a changed snapshot can hold still and fire.
-    const observedPath = join(spaceRoot, "exports", "observed.txt");
+    const observedPath = join(workFolderRoot, "exports", "observed.txt");
     let observedWrites = 0;
     let lastObservedWriteAt = Number.NEGATIVE_INFINITY;
     await waitFor(async () => {
@@ -560,15 +572,15 @@ async function runSmoke() {
     // window and must reach it never.
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
     host.publishAssistantActivity({
-      spaceId: descriptor.spaceId,
+      workFolderId: descriptor.workFolderId,
       appId: descriptor.manifest.id,
       featureInstallationId: descriptor.featureInstallationId,
       taskIds: ["worker-task"],
       receiptIds: [],
     });
-    host.publishCheckResultsChanged({ spaceId: descriptor.spaceId, checkIds: ["smoke-check"] });
+    host.publishCheckResultsChanged({ workFolderId: descriptor.workFolderId, checkIds: ["smoke-check"] });
     const workerHints = await workerProbe;
-    assert.equal(workerHints.workerTasksHints, 1, "a worker holding an operation receives its own Assistant task hint");
+    assert.equal(workerHints.workerTasksHints, 1, "a worker holding an operation receives its own Worker task hint");
     assert.equal(workerHints.workerChecksHints, 0, "Check results stay view-only, even for a worker holding an operation");
     // Granted-root changes are the one hint a bounded worker operation cannot
     // realistically see: a watch takes a silent baseline on its first poll and
@@ -613,14 +625,14 @@ async function runSmoke() {
       files: (await storage.get(storageOwner, "ui-files-hint"))?.count,
     };
     host.publishAssistantActivity({
-      spaceId: descriptor.spaceId,
+      workFolderId: descriptor.workFolderId,
       appId: descriptor.manifest.id,
       featureInstallationId: descriptor.featureInstallationId,
       taskIds: ["while-inactive"],
       receiptIds: [],
     });
-    host.publishCheckResultsChanged({ spaceId: descriptor.spaceId, checkIds: ["smoke-check"] });
-    await writeFile(join(spaceRoot, "exports", "while-inactive.txt"), "changed while inactive", "utf8");
+    host.publishCheckResultsChanged({ workFolderId: descriptor.workFolderId, checkIds: ["smoke-check"] });
+    await writeFile(join(workFolderRoot, "exports", "while-inactive.txt"), "changed while inactive", "utf8");
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 4_000));
     assert.deepEqual({
       tasks: (await storage.get(storageOwner, "ui-tasks-hint"))?.count,
@@ -628,7 +640,7 @@ async function runSmoke() {
       files: (await storage.get(storageOwner, "ui-files-hint"))?.count,
     }, hintsWhenInactive, "an inactive app view receives no hint and no replay");
     assert.equal(hits, 0, "an inactive app view must not retain file or network powers");
-    await host.runAutomation(descriptor, automationEvent("2026-07-13T00:02:00.000Z", "resume", {
+    await host.runAppAutomation(descriptor, appAutomationEvent("2026-07-13T00:02:00.000Z", "resume", {
       principalId: descriptor.servicePrincipalId,
       kind: "service",
       realm: "local",
@@ -638,7 +650,7 @@ async function runSmoke() {
     assert.equal(await storage.get(storageOwner, "inactive-storage-event"), undefined, "inactive app views receive no storage event or replay");
     tooltipOverlay.close();
     // Reusing a renderer mount id must never reuse another installation's view.
-    await mkdir(join(spaceRoot, "peer-exports"));
+    await mkdir(join(workFolderRoot, "peer-exports"));
     const peerUi = { ...peer, fileGrants: descriptor.fileGrants.map((grant) => ({ ...grant, root: "peer-exports" })), networkGrants: descriptor.networkGrants };
     host.syncAuthority([authorityOf(descriptor), authorityOf(peerUi)]);
     await host.mountUi(peerUi, parent.webContents, parent, {
@@ -650,13 +662,13 @@ async function runSmoke() {
     assert.equal(tabCommands[1].featureInstallationId, peer.featureInstallationId);
     assert.equal(await storage.get(peerOwner, "visible"), "visible-ui");
     const peerView = parent.contentView.children[0];
-    await host.stop(descriptor.spaceId, descriptor.manifest.id, descriptor.digest, descriptor.featureInstallationId);
+    await host.stop(descriptor.workFolderId, descriptor.manifest.id, descriptor.digest, descriptor.featureInstallationId);
     assert.equal(peerView.webContents.isDestroyed(), false, "stopping the original must preserve its sibling view");
     await host.unmountUi(parent.webContents.id, mountId);
     parent.destroy();
     await mark("ui-complete");
 
-    // Rung 3 viewer-scope denials (docs/fold-publishing.md; fold integration
+    // Rung 3 viewer-scope denials (docs/shared-pages.md; fold integration
     // item 26): the desktop viewer adapter over the same real staged bytes,
     // storage, and identity records this Electron host runs — viewers reach
     // the reviewed entry, exact staged assets, and the manifest-declared
@@ -669,7 +681,7 @@ async function runSmoke() {
         const manifest = structuredClone(descriptor.manifest);
         if (viewerState.widenSurface && manifest.viewer) manifest.viewer.readable.push("viewer-private/");
         return {
-          spaceId: descriptor.spaceId,
+          workFolderId: descriptor.workFolderId,
           packageName: descriptor.packageName,
           version: descriptor.version,
           digest: descriptor.digest,
@@ -736,7 +748,7 @@ async function runSmoke() {
     await deniedViewer({ kind: "oauth.start", destinationId: "mail-api" }, /saved credential/);
     await deniedViewer({ kind: "files.read", grantId: "exports", path: "smoke.txt" }, /person's own use of the app/);
     await deniedViewer({ kind: "notifications.show", permissionId: "automation-update" }, /Notifications are not viewer-reachable/);
-    await deniedViewer({ kind: "automation.run", automationId: "smoke-automation" }, /Viewers cannot run, schedule, or observe jobs/);
+    await deniedViewer({ kind: "automation.run", appAutomationId: "smoke-automation" }, /Viewers cannot run, schedule, or observe jobs/);
     await deniedViewer({ kind: "tabs.open", tabId: "viewer-tab" }, /outside the desktop shell/);
     await deniedViewer({ kind: "made.up.call" }, /not viewer-reachable/);
     await deniedViewer({ kind: "data.get", key: "viewer-private/secret" }, /outside the app's viewer-readable collections/);
@@ -933,7 +945,7 @@ catch { workerTopLevelStorageDenied = true; }
 let workerTopLevelNotificationDenied = false;
 try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
 catch { workerTopLevelNotificationDenied = true; }
-// Outside an operation a worker holds no lease, so neither Assistant lane answers.
+// Outside an operation a worker holds no lease, so neither agent lane answers.
 let workerTopLevelInferDenied = false;
 try { await globalThis.workFoldRestrictedApp.assistant.infer({ instructions: "Echo.", input: "top" }); }
 catch (error) { workerTopLevelInferDenied = error instanceof Error && error.code === "INFER_UNAVAILABLE"; }
@@ -973,10 +985,10 @@ export async function handleAction(action, input) {
     try { await globalThis.workFoldRestrictedApp.checks.read({ permissionId: "review" }); }
     catch (error) { checkDenied = error instanceof Error && error.code === "CHECK_DENIED"; }
     if (!checkDenied) throw new Error("A worker must not read Check results.");
-    // A worker holding an operation may reach both Assistant lanes
+    // A worker holding an operation may reach both agent lanes
     // (docs/receipts-not-gates.md, F22).
     const workerTasks = await globalThis.workFoldRestrictedApp.assistant.list();
-    if (!Array.isArray(workerTasks)) throw new Error("A worker action must reach Assistant requests.");
+    if (!Array.isArray(workerTasks)) throw new Error("A worker action must reach Worker requests.");
     const workerInference = await globalThis.workFoldRestrictedApp.assistant.infer({ instructions: "Echo.", input: "worker" });
     if (workerInference.text !== "echo:worker") throw new Error("A worker action must reach bounded inference.");
     let actionNotificationDenied = false;
@@ -984,7 +996,7 @@ export async function handleAction(action, input) {
     catch { actionNotificationDenied = true; }
     return { workerTopLevelNotificationDenied, actionNotificationDenied, workerInferText: workerInference.text, workerTopLevelInferDenied, workerChecksHints };
   }
-  if (action === "huge") return "x".repeat(300000);
+  if (action === "huge") return "x".repeat(64 * 1024 * 1024 + 1); // One byte over maxInvocationBytes (64 MiB) in desktop/src/restricted-app-host.ts.
   if (action === "cyclic") { const value = {}; value.self = value; return value; }
   if (action === "frame") {
     document.body.append(document.createElement("iframe"));
@@ -993,7 +1005,8 @@ export async function handleAction(action, input) {
   if (action === "intrinsics") {
     JSON.stringify = () => "{}";
     TextEncoder.prototype.encode = () => new Uint8Array(0);
-    return "x".repeat(300000);
+    // Over maxInvocationBytes even though the tampered intrinsics would report it as empty.
+    return "x".repeat(64 * 1024 * 1024 + 1);
   }
   if (action === "hang") { for (;;) {} }
   let nodeImportBlocked = false;
@@ -1029,7 +1042,7 @@ export async function handleAction(action, input) {
 }
 
 export async function handleAutomation(event) {
-  if (event.automationId !== "smoke-automation" || event.handler !== "smoke") throw new Error("Unknown automation.");
+  if (event.appAutomationId !== "smoke-automation" || event.handler !== "smoke") throw new Error("Unknown automation.");
   if (event.scheduledAt === "2026-07-13T00:00:15.000Z") {
     void globalThis.workFoldRestrictedApp.request({ destinationId: "late-effect", method: "POST", path: "/commit" }).catch(() => {});
     return;
@@ -1177,17 +1190,17 @@ function smokeManifest(loopbackPort) {
         { id: "escape", target: { kind: "loopback-http", host: "127.0.0.1", port: loopbackPort }, methods: ["GET"], auth: [{ kind: "none" }] },
       ],
     },
-    // The rung-3 viewer surface (docs/fold-publishing.md): one reviewed entry
+    // The rung-3 viewer surface (docs/shared-pages.md): one reviewed entry
     // document and one viewer-readable collection, exercised by the
     // viewer-scope denial probe below.
     viewer: { entry: "viewer.html", readable: ["viewer-public/"] },
   };
 }
 
-function automationEvent(scheduledAt, reason, effectivePrincipal) {
+function appAutomationEvent(scheduledAt, reason, effectivePrincipal) {
   return {
     runId: `smoke-${scheduledAt}`,
-    automationId: "smoke-automation",
+    appAutomationId: "smoke-automation",
     handler: "smoke",
     reason,
     scheduledAt,

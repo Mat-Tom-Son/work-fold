@@ -35,11 +35,11 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: join(agentDir, "models.json") });
   const settingsManager = SettingsManager.inMemory();
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, credentials: authStorage, modelRuntime, settingsManager }; } };
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "content"), loadEnv: false, piRuntimeProvider: provider });
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "content"), loadEnv: false, piRuntimeProvider: provider });
   t.after(() => api.close());
   const configure = (azure: unknown, apiKey?: string, providerId = AZURE_OPENAI_PROVIDER) => fetch(`${api.origin}/api/agent/configure`, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ scope: "management", provider: providerId, model: "team", azure, ...(apiKey ? { apiKey } : {}) }),
+    body: JSON.stringify({ scope: "agent", provider: providerId, model: "team", azure, ...(apiKey ? { apiKey } : {}) }),
   });
   const azure = { baseUrl: "https://example.openai.azure.com", deployments: ["team", "fast", "gpt"] };
   const saved = await configure(azure, "synthetic-azure-secret");
@@ -66,7 +66,7 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
     assert.deepEqual((await client.getState()).model, { provider: AZURE_OPENAI_PROVIDER, id: "team", name: "team" });
   } finally { await client.stop(); }
   await authStorage.modify(AZURE_OPENAI_PROVIDER, async () => ({ ...credential, env: { ...credential.env, UNRELATED_SECRET: "private-environment-value" } }));
-  const loaded = await fetch(`${api.origin}/api/agent/models?scope=management`);
+  const loaded = await fetch(`${api.origin}/api/agent/models?scope=agent`);
   const loadedText = await loaded.text();
   assert.doesNotMatch(loadedText, /synthetic-azure-secret|private-environment-value|UNRELATED_SECRET/);
   assert.deepEqual(JSON.parse(loadedText).azure, normalizeAzureOpenAIConnection(azure));
@@ -74,7 +74,7 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   const changed = { ...azure, baseUrl: "https://other.services.ai.azure.com/openai/v1/responses" };
   const updated = await fetch(`${api.origin}/api/agent/configure`, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ scope: "management", provider: AZURE_OPENAI_PROVIDER, azure: changed }),
+    body: JSON.stringify({ scope: "agent", provider: AZURE_OPENAI_PROVIDER, azure: changed }),
   });
   assert.equal(updated.status, 200, await updated.clone().text());
   assert.equal((await updated.json()).status.model, "team", "connection updates preserve the saved model without submitting it");
@@ -120,7 +120,7 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   }
   const removed = await fetch(`${api.origin}/api/agent/auth`, {
     method: "DELETE", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ scope: "management", provider: AZURE_OPENAI_PROVIDER }),
+    body: JSON.stringify({ scope: "agent", provider: AZURE_OPENAI_PROVIDER }),
   });
   assert.equal(removed.status, 200);
   assert.equal(await authStorage.read(AZURE_OPENAI_PROVIDER), undefined);
@@ -131,8 +131,8 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
 test("Chat titles use the active Azure deployment and its stored connection without unsupported minimal reasoning", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-azure-title-"));
   const agentDir = join(root, "agent");
-  const spaceRoot = join(root, "space");
-  await mkdir(spaceRoot, { recursive: true });
+  const workFolderRoot = join(root, "work-folder");
+  await mkdir(workFolderRoot, { recursive: true });
   const authStorage = FileCredentialStore.inMemory();
   const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
   const provider: PiRuntimeProvider = { async resolveRuntime() {
@@ -141,10 +141,10 @@ test("Chat titles use the active Azure deployment and its stored connection with
       settingsManager: SettingsManager.inMemory({ defaultThinkingLevel: "medium", retry: { enabled: false } }),
     };
   } };
-  await saveAzureOpenAIConnection(spaceRoot, {
+  await saveAzureOpenAIConnection(workFolderRoot, {
     baseUrl: "https://title-fixture.openai.azure.com", deployments: ["gpt-4.1", "gpt-5.2", "gpt-5.5-pro", "gpt-5.6-sol", "gpt-6-astra", "gpt-6.1-sol", "team-review"],
   }, "synthetic-title-key", provider);
-  const client = new PiConversationClient("azure-title-chat", spaceRoot, provider);
+  const client = new PiConversationClient("azure-title-chat", workFolderRoot, provider);
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; key: string | null; body: any }> = [];
   let incompleteTitle = false;

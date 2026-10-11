@@ -23,7 +23,7 @@ export function FileContextMenu({
   onDelete,
   canDelete = true,
   onShare,
-  shareSpaceId,
+  shareWorkFolderId,
   fixtureMode = false,
   onClose,
 }: {
@@ -39,22 +39,22 @@ export function FileContextMenu({
   onNewFile?: (parentPath: string) => void;
   onUploadHere?: (parentPath: string) => void;
   onRefresh?: () => void;
-  /** "Make a work-folder": registers this plain folder as a nested Folder with its own Worker. */
+  /** "Make a work-folder": registers this plain folder as a nested work-folder with its own Worker. */
   onGiveWorker?: (path: string) => void;
   onDelete: (path: string) => void | Promise<void>;
-  /** False for a folder that holds a nested Folder, which cannot be deleted from here. */
+  /** False for a folder that holds a nested work-folder, which cannot be deleted from here. */
   canDelete?: boolean;
   /** Shares a shareable file, or opens its link when it is already shared. */
   onShare?: (path: string) => void;
-  /** The Space the menu's entries belong to, for the Share / Shared label. */
-  shareSpaceId?: string;
+  /** The work-folder the menu's entries belong to, for the Share / Shared label. */
+  shareWorkFolderId?: string;
   fixtureMode?: boolean;
   onClose: () => void;
 }) {
   const { entry } = state;
   const sharedPages = useSharedPages(fixtureMode);
-  const shareable = Boolean(onShare && shareSpaceId && entry.kind === "file" && isShareablePath(entry.path));
-  const alreadyShared = shareable && Boolean(activeSharedPageFor(sharedPages, shareSpaceId!, entry.path));
+  const shareable = Boolean(onShare && shareWorkFolderId && entry.kind === "file" && isShareablePath(entry.path));
+  const alreadyShared = shareable && Boolean(activeSharedPageFor(sharedPages, shareWorkFolderId!, entry.path));
   const openLabel = nativeOpenLabel(entry);
   const menuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); }, [entry.path]);

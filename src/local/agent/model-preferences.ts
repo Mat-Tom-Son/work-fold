@@ -4,50 +4,50 @@ import { dirname, join, resolve } from "node:path";
 
 import type { PiPreferredModel } from "./pi-runtime-config.js";
 
-// Keep one instructions value below the act broker's 8 KiB per-argument cap.
-export const maximumAssistantInstructionsLength = 8_000;
+/** Instructions ride every turn's system prompt; this only guards against a runaway value. */
+export const maximumWorkerInstructionsLength = 1024 * 1024;
 
-interface AssistantPreferencesEntry {
+interface ModelPreferencesEntry {
   model?: PiPreferredModel;
   instructions?: string;
   updatedAt: string;
 }
 
-interface AssistantPreferencesFile {
+interface ModelPreferencesFile {
   version: 2;
-  scopes: Record<string, AssistantPreferencesEntry>;
+  scopes: Record<string, ModelPreferencesEntry>;
 }
 
-interface LegacyAssistantModelPreferencesFile {
+interface LegacyModelPreferencesFile {
   version: 1;
   scopes: Record<string, PiPreferredModel & { updatedAt: string }>;
 }
 
 /**
- * Machine-local model choices for each portable Space identity and for the
- * fold. Provider credentials remain in Pi's shared AuthStorage.
+ * Machine-local model choices for each portable work-folder identity and for the
+ * work-fold agent. Provider credentials remain in Pi's shared AuthStorage.
  */
-export class AssistantModelPreferenceStore {
+export class ModelPreferenceStore {
   readonly #filePath: string;
-  readonly #managementRoot?: string;
+  readonly #workFoldAgentRootPath?: string;
   #writeQueue = Promise.resolve();
 
-  constructor(options: { filePath: string; managementRoot?: string }) {
+  constructor(options: { filePath: string; workFoldAgentRootPath?: string }) {
     this.#filePath = options.filePath;
-    this.#managementRoot = options.managementRoot ? rootKey(options.managementRoot) : undefined;
+    this.#workFoldAgentRootPath = options.workFoldAgentRootPath ? rootKey(options.workFoldAgentRootPath) : undefined;
   }
 
-  async get(spaceRoot: string): Promise<PiPreferredModel | undefined> {
+  async get(workFolderRoot: string): Promise<PiPreferredModel | undefined> {
     const data = await this.#read();
-    const saved = data.scopes[await this.#scopeKey(spaceRoot)]?.model;
+    const saved = data.scopes[await this.#scopeKey(workFolderRoot)]?.model;
     return saved ? { provider: saved.provider, id: saved.id } : undefined;
   }
 
-  async set(spaceRoot: string, model: PiPreferredModel): Promise<void> {
+  async set(workFolderRoot: string, model: PiPreferredModel): Promise<void> {
     const provider = model.provider.trim();
     const id = model.id.trim();
     if (!provider || !id) throw new Error("A provider and model are required.");
-    const scope = await this.#scopeKey(spaceRoot);
+    const scope = await this.#scopeKey(workFolderRoot);
     const write = this.#writeQueue.then(async () => {
       const data = await this.#read();
       data.scopes[scope] = {
@@ -61,14 +61,14 @@ export class AssistantModelPreferenceStore {
     await write;
   }
 
-  async getInstructions(spaceRoot: string): Promise<string> {
+  async getInstructions(workFolderRoot: string): Promise<string> {
     const data = await this.#read();
-    return data.scopes[await this.#scopeKey(spaceRoot)]?.instructions ?? "";
+    return data.scopes[await this.#scopeKey(workFolderRoot)]?.instructions ?? "";
   }
 
-  async setInstructions(spaceRoot: string, instructions: string): Promise<void> {
-    const normalized = normalizeAssistantInstructions(instructions);
-    const scope = await this.#scopeKey(spaceRoot);
+  async setInstructions(workFolderRoot: string, instructions: string): Promise<void> {
+    const normalized = normalizeWorkerInstructions(instructions);
+    const scope = await this.#scopeKey(workFolderRoot);
     const write = this.#writeQueue.then(async () => {
       const data = await this.#read();
       const current = data.scopes[scope];
@@ -87,14 +87,14 @@ export class AssistantModelPreferenceStore {
     await write;
   }
 
-  async #write(data: AssistantPreferencesFile): Promise<void> {
+  async #write(data: ModelPreferencesFile): Promise<void> {
     await mkdir(dirname(this.#filePath), { recursive: true });
     const temporaryPath = `${this.#filePath}.${process.pid}.tmp`;
     await writeFile(temporaryPath, `${JSON.stringify(data, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     await rename(temporaryPath, this.#filePath);
   }
 
-  async #read(): Promise<AssistantPreferencesFile> {
+  async #read(): Promise<ModelPreferencesFile> {
     let source: string;
     try {
       source = await readFile(this.#filePath, "utf8");
@@ -106,7 +106,7 @@ export class AssistantModelPreferenceStore {
     try {
       parsed = JSON.parse(source);
     } catch {
-      throw new Error("Assistant model preferences are not valid JSON.");
+      throw new Error("Model preferences are not valid JSON.");
     }
     if (isLegacyPreferencesFile(parsed)) {
       return {
@@ -117,17 +117,17 @@ export class AssistantModelPreferenceStore {
         }])),
       };
     }
-    if (!isPreferencesFile(parsed)) throw new Error("Assistant preferences are invalid.");
+    if (!isPreferencesFile(parsed)) throw new Error("Model preferences are invalid.");
     return parsed;
   }
 
-  async #scopeKey(spaceRoot: string): Promise<string> {
-    const normalizedRoot = rootKey(spaceRoot);
-    if (this.#managementRoot && normalizedRoot === this.#managementRoot) return "management";
+  async #scopeKey(workFolderRoot: string): Promise<string> {
+    const normalizedRoot = rootKey(workFolderRoot);
+    if (this.#workFoldAgentRootPath && normalizedRoot === this.#workFoldAgentRootPath) return "agent";
     try {
-      const source = await readFile(join(spaceRoot, ".work-fold", "space.json"), "utf8");
+      const source = await readFile(join(workFolderRoot, ".work-fold", "work-folder.json"), "utf8");
       const parsed = JSON.parse(source) as { id?: unknown };
-      if (typeof parsed.id === "string" && parsed.id.trim()) return `space:${parsed.id.trim()}`;
+      if (typeof parsed.id === "string" && parsed.id.trim()) return `work-folder:${parsed.id.trim()}`;
     } catch {
       // Unregistered test and management roots fall back to a non-content path key.
     }
@@ -135,7 +135,7 @@ export class AssistantModelPreferenceStore {
   }
 }
 
-function isPreferencesFile(value: unknown): value is AssistantPreferencesFile {
+function isPreferencesFile(value: unknown): value is ModelPreferencesFile {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as { version?: unknown; scopes?: unknown };
   if (candidate.version !== 2 || !candidate.scopes || typeof candidate.scopes !== "object" || Array.isArray(candidate.scopes)) return false;
@@ -145,8 +145,8 @@ function isPreferencesFile(value: unknown): value is AssistantPreferencesFile {
     if (typeof preference.updatedAt !== "string" || Number.isNaN(Date.parse(preference.updatedAt))) return false;
     if (preference.instructions !== undefined
       && (typeof preference.instructions !== "string"
-        || preference.instructions.length > maximumAssistantInstructionsLength
-        || preference.instructions !== normalizeAssistantInstructions(preference.instructions))) return false;
+        || preference.instructions.length > maximumWorkerInstructionsLength
+        || preference.instructions !== normalizeWorkerInstructions(preference.instructions))) return false;
     if (preference.model === undefined) return typeof preference.instructions === "string" && Boolean(preference.instructions);
     if (!preference.model || typeof preference.model !== "object" || Array.isArray(preference.model)) return false;
     const model = preference.model as { provider?: unknown; id?: unknown };
@@ -155,7 +155,7 @@ function isPreferencesFile(value: unknown): value is AssistantPreferencesFile {
   });
 }
 
-function isLegacyPreferencesFile(value: unknown): value is LegacyAssistantModelPreferencesFile {
+function isLegacyPreferencesFile(value: unknown): value is LegacyModelPreferencesFile {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as { version?: unknown; scopes?: unknown };
   if (candidate.version !== 1 || !candidate.scopes || typeof candidate.scopes !== "object" || Array.isArray(candidate.scopes)) return false;
@@ -168,10 +168,10 @@ function isLegacyPreferencesFile(value: unknown): value is LegacyAssistantModelP
   });
 }
 
-export function normalizeAssistantInstructions(value: string): string {
+export function normalizeWorkerInstructions(value: string): string {
   const normalized = value.replace(/\r\n?/g, "\n").trim();
-  if (normalized.length > maximumAssistantInstructionsLength) {
-    throw new Error(`Worker instructions must be ${maximumAssistantInstructionsLength.toLocaleString()} characters or fewer.`);
+  if (normalized.length > maximumWorkerInstructionsLength) {
+    throw new Error(`Worker instructions must be ${maximumWorkerInstructionsLength.toLocaleString()} characters or fewer.`);
   }
   if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(normalized)) {
     throw new Error("Worker instructions contain unsupported control characters.");

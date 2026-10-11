@@ -35,9 +35,9 @@ import { parseFeatureInstallationId } from "../../src/local/agent/app-platform-c
 import { RoutedPiExtensionUiBridge, type PiExtensionUiEvent } from "../../src/local/agent/extension-ui.js";
 import { defaultAgentSdkDir } from "../../src/local/agent/agent-data-dir.js";
 import {
-  RegisteredSpaceRuntimeProvider,
-  RegisteredSpaceTrustAuthority,
-} from "../../src/local/agent/registered-space-runtime.js";
+  RegisteredWorkFolderRuntimeProvider,
+  RegisteredWorkFolderTrustAuthority,
+} from "../../src/local/agent/registered-work-folder-runtime.js";
 import type { PiRuntimeProvider } from "../../src/local/agent/pi-runtime-config.js";
 import { startLocalApi } from "../../src/local/server.js";
 import { loadLocalEnvironmentFile } from "../../src/local/server-dev-options.js";
@@ -46,13 +46,14 @@ import {
   removeWorkFoldCliActTokenFile,
   writeWorkFoldCliActTokenFile,
 } from "../../src/local/cli/act-token.js";
-import { configureWorkFoldStateRoot, managedSpaceRoot, workFoldManagementRoot } from "../../src/local/state-paths.js";
-import { getSpace, listSpaces } from "../../src/local/space.js";
+import { configureWorkFoldStateRoot, managedWorkFolderRoot, workFoldAgentRoot } from "../../src/local/state-paths.js";
+import { migrateVocabularyState } from "../../src/local/vocabulary-migration.js";
+import { getWorkFolder, listWorkFolders } from "../../src/local/work-folder.js";
 import { WorkFoldCliKernelAdapter } from "../../src/local/work-fold-cli-adapter.js";
 import { WorkFoldKernel } from "../../src/local/work-fold-kernel.js";
 import { WorkFoldCheckService } from "../../src/local/checks/check-service.js";
 import { createDesktopCheckService } from "./desktop-checks.js";
-import { WorkFoldSettleSignal } from "../../src/local/routings/settle-signal.js";
+import { WorkFoldSettleSignal } from "../../src/local/automations/settle-signal.js";
 import { RestrictedAppService } from "../../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage } from "../../src/local/agent/restricted-app-storage.js";
 import { RestrictedAppNotificationBroker } from "../../src/local/agent/restricted-app-notifications.js";
@@ -64,8 +65,9 @@ import {
   workFoldInspectContextFromArgv,
   workFoldSecondInstanceIntent,
 } from "./work-fold-cli-host.js";
-import { ManagementPopover, type ManagementPopoverStagedItem } from "./management-popover.js";
+import { WorkFoldAgentPopover, type WorkFoldAgentPopoverStagedItem } from "./work-fold-agent-popover.js";
 import { ModelContextWindow } from "./model-context-window.js";
+import { writeDesktopClipboard } from "./clipboard.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
 import { includedToolsRoot } from "../../src/local/agent/included-tools.js";
 import { IncludedChromeConnectionService } from "../../src/local/agent/included-chrome-connection.js";
@@ -178,12 +180,12 @@ const resumeUpdateCheckDelayMs = 20_000;
 const headlessCliIdleGraceMs = 500;
 const defaultWindowState = { width: 1440, height: 960 };
 const minimumWindowState = { width: 1100, height: 760 };
-const folderGrants = new Map<string, { spaceRoot: string; expiresAt: number }>();
+const folderGrants = new Map<string, { workFolderRoot: string; expiresAt: number }>();
 
 let mainWindow: BrowserWindow | null = null;
 let railTooltipOverlay: RailTooltipOverlay | null = null;
 let tray: Tray | null = null;
-let managementPopover: ManagementPopover | null = null;
+let workFoldAgentPopover: WorkFoldAgentPopover | null = null;
 let modelContextWindow: ModelContextWindow | null = null;
 const localApiLifetime = new AppLifetimeResource<Awaited<ReturnType<typeof startLocalApi>>>();
 let piRuntime: PackagedPiRuntimeProvider | null = null;
@@ -192,14 +194,14 @@ let remoteAccessClient: RemoteAccessClient | null = null;
 let apiSessionToken = "";
 let actFacade: WorkFoldActFacade | null = null;
 let actToken = "";
-let resolveManagementLineageParent: ((taskId: string) => { taskId: string } | null) | null = null;
+let resolveWorkFoldAgentLineageParent: ((taskId: string) => { taskId: string } | null) | null = null;
 /**
- * The routing executor's sleep/wake lifecycle handle (docs/fold-routings.md:
+ * The automation executor's sleep/wake lifecycle handle (docs/automations.md:
  * suspension aborts the active run, which settles `interrupted`; resume
  * re-arms cadences from the durable anchor). Set once the interactive local
  * API exists; both calls are safe no-ops after close.
  */
-let routingPowerLifecycle: { suspend: () => void; resume: () => Promise<void> } | null = null;
+let automationPowerLifecycle: { suspend: () => void; resume: () => Promise<void> } | null = null;
 let quitting = false;
 let quittingForUpdate = false;
 let activeAgentTurns = 0;
@@ -217,15 +219,15 @@ let rendererRecoveryAttempts = 0;
 let rendererLoadFailed = false;
 let rendererRecoveryFailurePromptShown = false;
 let createWindowPromise: Promise<void> | null = null;
-let rendererMenuState: RendererMenuState = { spaceOpen: false };
+let rendererMenuState: RendererMenuState = { workFolderOpen: false };
 let desktopHostPromise: Promise<DesktopHost> | null = null;
 let interactiveStartupPromise: Promise<void> | null = null;
 let activateRegistered = false;
 let interactiveRequested = false;
 let cliRequestGeneration = 0;
-let activeNativeSpace: { id: string; name: string; spaceRoot: string } | null = null;
-let activeNativeSpaceGeneration = 0;
-let pendingOpenSpaceRequest: { token: string; spaceId: string; view?: "checks" } | null = null;
+let activeNativeWorkFolder: { id: string; name: string; workFolderRoot: string } | null = null;
+let activeNativeWorkFolderGeneration = 0;
+let pendingOpenWorkFolderRequest: { token: string; workFolderId: string; view?: "checks" } | null = null;
 const pendingMacOpenPaths: string[] = [];
 let macOpenPathDrainPromise: Promise<void> | null = null;
 const quitCoordinator = new GracefulQuitCoordinator({
@@ -294,7 +296,7 @@ if (!ownsInstance) app.quit();
 
 if (ownsInstance && process.platform === "darwin") {
   // macOS can deliver this before `ready`. Queue the path so Finder and Dock
-  // launches can be resolved against the registered Space catalog once the
+  // launches can be resolved against the registered work-folder catalog once the
   // app host is available. Unknown folders are never registered implicitly.
   app.on("open-file", (event, path) => {
     event.preventDefault();
@@ -337,6 +339,8 @@ if (ownsInstance) {
     configureWorkFoldStateRoot(app.getPath("userData"));
     await ensureLoginShellEnvironment();
     configureCliEnvironment();
+    // Before anything reads app state, including a CLI request served from this launch.
+    await migrateVocabularyState(app.getPath("userData"));
     if (initialCliArgumentError) throw initialCliArgumentError;
     if (initialCliRequestId) {
       await processWorkFoldCliRequest(initialCliRequestId);
@@ -388,7 +392,7 @@ interface DesktopHost {
   extensionUi: RoutedPiExtensionUiBridge;
   runtime: PackagedPiRuntimeProvider;
   runtimeProvider: PiRuntimeProvider;
-  spaceTrustAuthority: RegisteredSpaceTrustAuthority;
+  workFolderTrustAuthority: RegisteredWorkFolderTrustAuthority;
   kernel: WorkFoldKernel;
   checks: WorkFoldCheckService;
   cli: WorkFoldDesktopCliHost;
@@ -396,10 +400,10 @@ interface DesktopHost {
   restrictedAppHost: RestrictedAppHost;
   chromeConnection: IncludedChromeConnectionService;
   /**
-   * The one in-process settle seam (docs/fold-routings.md): the host's Check
+   * The one in-process settle seam (docs/automations.md): the host's Check
    * and restricted-app services publish into this exact instance, and the
-   * interactive local API consumes it for routing triggers — one signal for
-   * the whole desktop, or settles silently never reach enabled routings.
+   * interactive local API consumes it for automation triggers — one signal for
+   * the whole desktop, or settles silently never reach enabled automations.
    */
   settleSignal: WorkFoldSettleSignal;
 }
@@ -446,20 +450,20 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
     });
     // One settle signal for the whole desktop host: the Check service and the
     // restricted-app service publish durable settles into it, and the local
-    // API's routing executor subscribes to the same instance.
+    // API's automation executor subscribes to the same instance.
     const settleSignal = new WorkFoldSettleSignal();
     let restrictedApps!: RestrictedAppService;
     let checks!: WorkFoldCheckService;
-    const readCheckResult = async (spaceId: string, checkId: string, declarationDigest: string) => {
-      const space = (await listSpaces()).find((item) => item.id === spaceId);
-      if (!space || !checks) throw new Error("The Check's Space is unavailable.");
-      return checks.selectedResult(space, checkId, declarationDigest);
+    const readCheckResult = async (workFolderId: string, checkId: string, declarationDigest: string) => {
+      const workFolder = (await listWorkFolders()).find((item) => item.id === workFolderId);
+      if (!workFolder || !checks) throw new Error("The Check's work-folder is unavailable.");
+      return checks.selectedResult(workFolder, checkId, declarationDigest);
     };
-    // An install binds a declared Check slot only when the Space has exactly one Check.
-    const listChecks = async (spaceId: string) => {
-      const space = (await listSpaces()).find((item) => item.id === spaceId);
-      if (!space || !checks) throw new Error("The Check's Space is unavailable.");
-      return (await checks.overview(space)).checks
+    // An install binds a declared Check slot only when the work-folder has exactly one Check.
+    const listChecks = async (workFolderId: string) => {
+      const workFolder = (await listWorkFolders()).find((item) => item.id === workFolderId);
+      if (!workFolder || !checks) throw new Error("The Check's work-folder is unavailable.");
+      return (await checks.overview(workFolder)).checks
         .filter((item): item is typeof item & { digest: string } => typeof item.digest === "string")
         .map((item) => ({ checkId: item.id, declarationDigest: item.digest, title: item.title }));
     };
@@ -471,7 +475,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       oauth: restrictedOAuth,
       storage: restrictedStorage,
       notifications: restrictedNotifications,
-      resolveSpaceRoot: async (spaceId) => (await listSpaces()).find((space) => space.id === spaceId)?.spaceRoot ?? null,
+      resolveWorkFolderRoot: async (workFolderId) => (await listWorkFolders()).find((workFolder) => workFolder.id === workFolderId)?.workFolderRoot ?? null,
       preloadPath: resolveRestrictedAppPreloadPath(),
       onTabCommand: (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -483,7 +487,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       },
       onNotificationOpen: (request) => {
         if (!request.featureInstallationId) return;
-        const resolveOwner = restrictedApps.findByFeatureInstallation(request.spaceId, request.featureInstallationId);
+        const resolveOwner = restrictedApps.findByFeatureInstallation(request.workFolderId, request.featureInstallationId);
         void resolveOwner.then((current) => {
           if (!current || current.manifest.id !== request.appId || current.digest !== request.digest) return;
           const enabledForNotification = current.automations.some((state) => state.enabled
@@ -506,7 +510,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         connections: restrictedConnections,
         oauth: restrictedOAuth,
         storage: restrictedStorage,
-        deferAutomationStart: true,
+        deferAppAutomationStart: true,
         settleSignal,
       });
     } catch (error) {
@@ -560,13 +564,13 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         agentDir: defaultAgentSdkDir(),
         authStorageHost: settings,
         mcpCredentialBackend: createEncryptedMcpCredentialBackend(join(userData, "pi-mcp-credentials.bin"), safeStorage),
-        assistantPreferencesPath: join(userData, "assistant-model-preferences.json"),
+        modelPreferencesPath: join(userData, "model-preferences.json"),
         openRouterCatalogPath: join(userData, "model-catalogs", "openrouter.json"),
-        managementRoot: workFoldManagementRoot(),
+        workFoldAgentRootPath: workFoldAgentRoot(),
         extensionUi,
       });
-      const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listSpaces()).map((space) => space.spaceRoot));
-      const runtimeProvider = new RegisteredSpaceRuntimeProvider(runtime, spaceTrustAuthority);
+      const workFolderTrustAuthority = new RegisteredWorkFolderTrustAuthority((await listWorkFolders()).map((workFolder) => workFolder.workFolderRoot));
+      const runtimeProvider = new RegisteredWorkFolderRuntimeProvider(runtime, workFolderTrustAuthority);
       const kernel = new WorkFoldKernel({ runtimeProvider });
       checks = createDesktopCheckService({
         kernel,
@@ -579,17 +583,17 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       const cli = new WorkFoldDesktopCliHost({
       stateRoot: userData,
       kernel: new WorkFoldCliKernelAdapter(kernel, {
-        checksStatusProvider: ({ spaceId, spaceRoot }) => checks.status({ id: spaceId, spaceRoot: spaceRoot }),
+        checksStatusProvider: ({ workFolderId, workFolderRoot }) => checks.status({ id: workFolderId, workFolderRoot: workFolderRoot }),
       }),
       version: applicationVersion,
       productName,
       getActFacade: () => (actFacade && actToken ? { facade: actFacade, token: actToken } : null),
-      resolveLineageParent: (taskId) => resolveManagementLineageParent?.(taskId) ?? null,
+      resolveLineageParent: (taskId) => resolveWorkFoldAgentLineageParent?.(taskId) ?? null,
       });
       await cli.initialize();
       secureSettings = settings;
       piRuntime = runtime;
-      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime, settleSignal, chromeConnection };
+      return { settings, extensionUi, runtime, runtimeProvider, workFolderTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime, settleSignal, chromeConnection };
     } catch (error) {
       await restrictedApps.close();
       throw error;
@@ -665,7 +669,7 @@ function reportStartupError(error: unknown): void {
       console.error(`${productName} update recovery failed: ${errorMessage(recoveryError)}`);
       dialog.showErrorBox(
         `${productName} update recovery failed`,
-        "work-fold could not complete update recovery. Your Spaces and app data are still safe.",
+        "work-fold could not complete update recovery. Your work-folders and app data are still safe.",
       );
       quitting = true;
       app.quit();
@@ -717,7 +721,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     const api = await startLocalApi({
       appMode: "desktop",
       port: 0,
-      spaceBase: managedSpaceRoot(),
+      workFolderBase: managedWorkFolderRoot(),
       stateBase: userData,
       sessionToken: apiSessionToken,
       allowedOrigins: [`${appProtocol}://app`],
@@ -732,12 +736,12 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
         },
         onError: (error) => console.warn(`${productName} provider sign-in UI failed: ${errorMessage(error)}`),
       }),
-      spaceTrustAuthority: host.spaceTrustAuthority,
+      workFolderTrustAuthority: host.workFolderTrustAuthority,
       extensionUiBridge: host.extensionUi,
       kernel: host.kernel,
       checkService: host.checks,
       // The exact instance the injected Check and restricted-app services
-      // publish into, so desktop settles reach routing triggers; and the CLI
+      // publish into, so desktop settles reach automation triggers; and the CLI
       // host's own act-receipts journal, so Settings acts, publications, and
       // CLI acts share one ledger file and one at-most-once gate.
       settleSignal: host.settleSignal,
@@ -748,7 +752,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       // Resolved before any window exists, so no app view can be mounted
       // without this wire in place (docs/collaboration-contract.md, F30).
       onAppAssistantActivity: (activity) => host.restrictedAppHost.publishAssistantActivity(activity),
-      // Pages your fold serves (docs/fold-publishing.md): publication keys
+      // Shared pages (docs/shared-pages.md): publication keys
       // live in operating-system-encrypted secure settings beside the other
       // Remote access material, and the slot/snapshot sync lane reads the
       // current Remote access credential at call time — unconfigured means
@@ -762,8 +766,8 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     // unavailable rather than half-working.
     actToken = randomBytes(32).toString("hex");
     actFacade = api.actFacade;
-    resolveManagementLineageParent = api.resolveManagementLineageParent;
-    routingPowerLifecycle = api.routings;
+    resolveWorkFoldAgentLineageParent = api.resolveWorkFoldAgentLineageParent;
+    automationPowerLifecycle = api.automations;
     try {
       await writeWorkFoldCliActTokenFile(userData, actToken, productName);
     } catch (error) {
@@ -788,7 +792,7 @@ async function ensureRemoteAccessClient(api: Awaited<ReturnType<typeof startLoca
     // The desktop side of the serving path: `viewer.fetch` renders through
     // the publication authority's effect-time recheck, reconnects re-drive
     // pending slot syncs and snapshot seeds, and the bridge's resting notice
-    // becomes the publisher-facing health note the glance surfaces.
+    // becomes the publisher-facing health note the overview surfaces.
     viewerPages: {
       servePage: (publicationId) => api.publications.serveViewerPage(publicationId),
       serveAppCall: (publicationId, call) => api.publications.serveViewerAppCall(publicationId, call),
@@ -1018,7 +1022,7 @@ async function createMainWindow(): Promise<void> {
       // The built-in PDF viewer is plugin-backed; File tabs preview PDFs inline.
       plugins: true,
       devTools: !app.isPackaged,
-      // Assistant turns and automations are owned by the app host, not renderer
+      // Worker turns and automations are owned by the app host, not renderer
       // paint. Let Chromium throttle hidden/occluded UI to preserve battery life.
       backgroundThrottling: true,
       additionalArguments: [
@@ -1031,7 +1035,7 @@ async function createMainWindow(): Promise<void> {
   });
   railTooltipOverlay = new RailTooltipOverlay(mainWindow);
 
-  applyNativeActiveSpaceToWindow(mainWindow);
+  applyNativeActiveWorkFolderToWindow(mainWindow);
 
   if (process.platform === "win32") {
     try {
@@ -1044,9 +1048,9 @@ async function createMainWindow(): Promise<void> {
   mainWindow.webContents.on("did-start-navigation", () => railTooltipOverlay?.hide());
   mainWindow.webContents.on("render-process-gone", () => railTooltipOverlay?.hide());
   mainWindow.webContents.on("page-title-updated", (event) => {
-    if (process.platform !== "darwin" || !activeNativeSpace) return;
+    if (process.platform !== "darwin" || !activeNativeWorkFolder) return;
     event.preventDefault();
-    applyNativeActiveSpaceToWindow(mainWindow);
+    applyNativeActiveWorkFolderToWindow(mainWindow);
   });
   mainWindow.webContents.once("destroyed", () => {
     void desktopHostPromise?.then((host) => host.restrictedAppHost.unmountUiOwner(rendererWebContentsId));
@@ -1152,6 +1156,18 @@ async function openModelContextWindow(): Promise<void> {
 function registerIpc(): void {
   if (ipcRegistered) return;
   ipcRegistered = true;
+  ipcMain.handle("work-fold:clipboard:write", (event, value: unknown) => {
+    if (modelContextWindow?.owns(event.sender)) modelContextWindow.assertSender(event);
+    else {
+      assertTrustedRenderer(event);
+      const frame = event.senderFrame;
+      const mainFrame = event.sender.mainFrame;
+      if (!frame || frame.processId !== mainFrame.processId || frame.routingId !== mainFrame.routingId) {
+        throw new Error("Clipboard requests require a trusted main frame.");
+      }
+    }
+    writeDesktopClipboard(value, (content) => clipboard.write(content));
+  });
   ipcMain.handle("work-fold:diagnostics:request", (event, input: unknown) => {
     if (!modelContextWindow) throw new Error("The developer inspector is not open.");
     return modelContextWindow.request(event, input);
@@ -1171,73 +1187,73 @@ function registerIpc(): void {
       settings: secureSettings ? await secureSettings.status() : { encryptionAvailable: false, configuredProviders: [] },
     };
   });
-  ipcMain.handle("work-fold:space:choose-folder", async (event) => {
+  ipcMain.handle("work-fold:work-folder:choose-folder", async (event) => {
     assertTrustedRenderer(event);
     const result = mainWindow
       ? await dialog.showOpenDialog(mainWindow, { title: "Choose a folder", properties: ["openDirectory", "createDirectory"] })
       : await dialog.showOpenDialog({ title: "Choose a folder", properties: ["openDirectory", "createDirectory"] });
-    const spaceRoot = result.filePaths[0];
-    if (result.canceled || !spaceRoot) return null;
-    return { path: spaceRoot, folderGrantId: createFolderGrant(spaceRoot) };
+    const workFolderRoot = result.filePaths[0];
+    if (result.canceled || !workFolderRoot) return null;
+    return { path: workFolderRoot, folderGrantId: createFolderGrant(workFolderRoot) };
   });
-  const routingSettings = async (event: IpcMainInvokeEvent, value?: unknown) => {
+  const automationSettings = async (event: IpcMainInvokeEvent, value?: unknown) => {
     assertTrustedMainRenderer(event);
     return {
-      facade: (await ensureInteractiveLocalApi()).routingSettings,
-      ...(value !== undefined ? { routingId: routingSettingsId(value) } : {}),
+      facade: (await ensureInteractiveLocalApi()).automationSettings,
+      ...(value !== undefined ? { automationId: automationSettingsId(value) } : {}),
     };
   };
-  ipcMain.handle("work-fold:routings:list", async (event) => {
-    const { facade } = await routingSettings(event);
+  ipcMain.handle("work-fold:automations:list", async (event) => {
+    const { facade } = await automationSettings(event);
     return facade.list();
   });
-  ipcMain.handle("work-fold:routings:proposals", async (event) => {
-    const { facade } = await routingSettings(event);
+  ipcMain.handle("work-fold:automations:proposals", async (event) => {
+    const { facade } = await automationSettings(event);
     return facade.proposals();
   });
-  ipcMain.handle("work-fold:routings:enable-proposal", async (event, value: unknown) => {
-    const { facade } = await routingSettings(event);
-    return facade.enableProposal(routingProposalPath(value));
+  ipcMain.handle("work-fold:automations:enable-proposal", async (event, value: unknown) => {
+    const { facade } = await automationSettings(event);
+    return facade.enableProposal(automationProposalPath(value));
   });
-  ipcMain.handle("work-fold:routings:show", async (event, value: unknown) => {
-    const { facade, routingId } = await routingSettings(event, value);
-    return facade.show(routingId!);
+  ipcMain.handle("work-fold:automations:show", async (event, value: unknown) => {
+    const { facade, automationId } = await automationSettings(event, value);
+    return facade.show(automationId!);
   });
-  ipcMain.handle("work-fold:routings:history", async (event, value: unknown) => {
-    const { facade, routingId } = await routingSettings(event, value);
-    return facade.history(routingId!);
+  ipcMain.handle("work-fold:automations:history", async (event, value: unknown) => {
+    const { facade, automationId } = await automationSettings(event, value);
+    return facade.history(automationId!);
   });
-  ipcMain.handle("work-fold:routings:enable", async (event, value: unknown) => {
-    const { facade, routingId } = await routingSettings(event, value);
-    return facade.enable(routingId!);
+  ipcMain.handle("work-fold:automations:enable", async (event, value: unknown) => {
+    const { facade, automationId } = await automationSettings(event, value);
+    return facade.enable(automationId!);
   });
-  ipcMain.handle("work-fold:routings:run", async (event, value: unknown) => {
-    const { facade, routingId } = await routingSettings(event, value);
-    return facade.run(routingId!);
+  ipcMain.handle("work-fold:automations:run", async (event, value: unknown) => {
+    const { facade, automationId } = await automationSettings(event, value);
+    return facade.run(automationId!);
   });
-  ipcMain.handle("work-fold:routings:stop", async (event, value: unknown) => {
-    const { facade, routingId } = await routingSettings(event, value);
-    return facade.stop(routingId!);
+  ipcMain.handle("work-fold:automations:stop", async (event, value: unknown) => {
+    const { facade, automationId } = await automationSettings(event, value);
+    return facade.stop(automationId!);
   });
-  ipcMain.handle("work-fold:routings:disable", async (event, value: unknown) => {
-    const { facade, routingId } = await routingSettings(event, value);
-    return facade.disable(routingId!);
+  ipcMain.handle("work-fold:automations:disable", async (event, value: unknown) => {
+    const { facade, automationId } = await automationSettings(event, value);
+    return facade.disable(automationId!);
   });
-  ipcMain.handle("work-fold:routings:delete", async (event, value: unknown) => {
-    const { facade, routingId } = await routingSettings(event, value);
-    return facade.delete(routingId!);
+  ipcMain.handle("work-fold:automations:delete", async (event, value: unknown) => {
+    const { facade, automationId } = await automationSettings(event, value);
+    return facade.delete(automationId!);
   });
-  ipcMain.handle("work-fold:space:reveal-folder", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:work-folder:reveal-folder", async (event, value: unknown) => {
     assertTrustedRenderer(event);
-    if (typeof value !== "string") throw new Error("A Space id is required.");
-    const space = await getSpace(value);
-    const error = await shell.openPath(space.spaceRoot);
-    if (error) throw new Error(`work-fold could not show this Space's folder. ${error}`);
+    if (typeof value !== "string") throw new Error("A work-folder id is required.");
+    const workFolder = await getWorkFolder(value);
+    const error = await shell.openPath(workFolder.workFolderRoot);
+    if (error) throw new Error(`work-fold could not show this folder. ${error}`);
   });
-  ipcMain.handle("work-fold:space:open-path", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:work-folder:open-path", async (event, value: unknown) => {
     assertTrustedRenderer(event);
-    const request = spacePathRequest(value);
-    const filePath = await resolveSpaceItem(request.spaceId, request.path);
+    const request = workFolderPathRequest(value);
+    const filePath = await resolveWorkFolderItem(request.workFolderId, request.path);
     if (request.action === "reveal") {
       shell.showItemInFolder(filePath);
       return;
@@ -1245,12 +1261,12 @@ function registerIpc(): void {
     const result = await shell.openPath(filePath);
     if (result) throw new Error(`${productName} could not open this item. ${result}`);
   });
-  ipcMain.handle("work-fold:space:open-path-with", async (event, value: unknown): Promise<{ opened: boolean; canceled: boolean; appName: string | null }> => {
+  ipcMain.handle("work-fold:work-folder:open-path-with", async (event, value: unknown): Promise<{ opened: boolean; canceled: boolean; appName: string | null }> => {
     assertTrustedRenderer(event);
-    const request = spacePathRequest(value, false);
+    const request = workFolderPathRequest(value, false);
     return openFileWithPickedApp(process.platform, {
       resolveFile: async () => {
-        const filePath = await resolveSpaceItem(request.spaceId, request.path);
+        const filePath = await resolveWorkFolderItem(request.workFolderId, request.path);
         if (!(await stat(filePath)).isFile()) throw new Error("Only files can be opened with another app.");
         return filePath;
       },
@@ -1264,22 +1280,22 @@ function registerIpc(): void {
       launch: launchOpenWith,
     });
   });
-  ipcMain.handle("work-fold:space:start-drag", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:work-folder:start-drag", async (event, value: unknown) => {
     assertTrustedRenderer(event);
-    const request = spacePathRequest(value, false);
-    const filePath = await resolveSpaceItem(request.spaceId, request.path);
+    const request = workFolderPathRequest(value, false);
+    const filePath = await resolveWorkFolderItem(request.workFolderId, request.path);
     const info = await stat(filePath);
-    if (!info.isFile()) throw new Error("Only files can be dragged out of a Space.");
+    if (!info.isFile()) throw new Error("Only files can be dragged out of a work-folder.");
     const icon = nativeImage.createFromPath(join(resolveDesktopAssetsDir(), "icon-32.png"));
     if (icon.isEmpty()) return false;
     event.sender.startDrag({ file: filePath, icon });
     return true;
   });
-  ipcMain.handle("work-fold:space:preview-file", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:work-folder:preview-file", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     if (process.platform !== "darwin") return false;
-    const request = spacePathRequest(value, false);
-    const filePath = await resolveSpaceItem(request.spaceId, request.path);
+    const request = workFolderPathRequest(value, false);
+    const filePath = await resolveWorkFolderItem(request.workFolderId, request.path);
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error("Only files can be previewed with Quick Look.");
     const window = mainWindow;
@@ -1287,29 +1303,29 @@ function registerIpc(): void {
     window.previewFile(filePath, basename(filePath));
     return true;
   });
-  ipcMain.handle("work-fold:space:popup-file-menu", async (event, value: unknown): Promise<NativeFileMenuCommand | null> => {
+  ipcMain.handle("work-fold:work-folder:popup-file-menu", async (event, value: unknown): Promise<NativeFileMenuCommand | null> => {
     assertTrustedMainRenderer(event);
     if (process.platform !== "darwin") return null;
     const request = parseNativeFileMenuRequest(value);
     await validateNativeFileMenuEntry(request);
     return popupNativeFileMenu(request);
   });
-  ipcMain.handle("work-fold:space:set-active-space", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:work-folder:set-active-work-folder", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     if (value !== null && (typeof value !== "string" || !value.trim() || value.length > 512)) {
-      throw new Error("A valid Space id is required.");
+      throw new Error("A valid work-folder id is required.");
     }
-    await setActiveNativeSpace(value === null ? null : value.trim());
+    await setActiveNativeWorkFolder(value === null ? null : value.trim());
   });
-  ipcMain.handle("work-fold:space:take-open-space", (event) => {
+  ipcMain.handle("work-fold:work-folder:take-open-work-folder", (event) => {
     assertTrustedMainRenderer(event);
-    const request = pendingOpenSpaceRequest;
-    pendingOpenSpaceRequest = null;
+    const request = pendingOpenWorkFolderRequest;
+    pendingOpenWorkFolderRequest = null;
     return request;
   });
-  ipcMain.on("work-fold:space:ack-open-space", (event, value: unknown) => {
+  ipcMain.on("work-fold:work-folder:ack-open-work-folder", (event, value: unknown) => {
     assertTrustedMainRenderer(event);
-    if (typeof value === "string" && pendingOpenSpaceRequest?.token === value) pendingOpenSpaceRequest = null;
+    if (typeof value === "string" && pendingOpenWorkFolderRequest?.token === value) pendingOpenWorkFolderRequest = null;
   });
   ipcMain.handle("work-fold:shell:open-external", async (event, value: unknown) => {
     assertTrustedRenderer(event);
@@ -1320,39 +1336,39 @@ function registerIpc(): void {
     assertTrustedRenderer(event);
     return getSystemAccentColor();
   });
-  ipcMain.handle("work-fold:agent:open-fold-draft", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:agent:open-agent-draft", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
-    if (typeof value !== "string" || !value.trim() || value.length > 4096) throw new Error("A bounded fold draft is required.");
-    await openManagementPopoverWithItems([{ kind: "text", value }]);
+    if (typeof value !== "string" || !value.trim() || value.length > 4096) throw new Error("A bounded work-fold agent draft is required.");
+    await openWorkFoldAgentPopoverWithItems([{ kind: "text", value }]);
     return true;
   });
-  ipcMain.handle("work-fold:management:open-checks", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:agent:open-checks", async (event, value: unknown) => {
     assertTrustedRenderer(event);
-    if (typeof value !== "string" || !(await listSpaces()).some((space) => space.id === value)) throw new Error("Registered Space required.");
-    const request = { token: randomUUID(), spaceId: value, view: "checks" as const };
-    pendingOpenSpaceRequest = request;
-    managementPopover?.hide();
+    if (typeof value !== "string" || !(await listWorkFolders()).some((workFolder) => workFolder.id === value)) throw new Error("A registered work-folder is required.");
+    const request = { token: randomUUID(), workFolderId: value, view: "checks" as const };
+    pendingOpenWorkFolderRequest = request;
+    workFoldAgentPopover?.hide();
     await ensureMainWindow();
     showWindow();
-    mainWindow?.webContents.send("work-fold:space:open-space", request);
+    mainWindow?.webContents.send("work-fold:work-folder:open-work-folder", request);
     return true;
   });
-  ipcMain.on("work-fold:management:hide", (event) => {
+  ipcMain.on("work-fold:agent:hide", (event) => {
     assertTrustedRenderer(event);
-    managementPopover?.hide();
+    workFoldAgentPopover?.hide();
   });
-  ipcMain.handle("work-fold:management:open-main", (event) => {
+  ipcMain.handle("work-fold:agent:open-main", (event) => {
     assertTrustedRenderer(event);
-    managementPopover?.hide();
+    workFoldAgentPopover?.hide();
     showWindow();
     return true;
   });
-  ipcMain.handle("work-fold:management:open-assistant-settings", async (event) => {
+  ipcMain.handle("work-fold:agent:open-ai-models-settings", async (event) => {
     assertTrustedRenderer(event);
-    managementPopover?.hide();
+    workFoldAgentPopover?.hide();
     await ensureMainWindow();
     showWindow();
-    mainWindow?.webContents.send("work-fold:agent:open-settings", "management");
+    mainWindow?.webContents.send("work-fold:agent:open-settings", "agent");
     return true;
   });
   ipcMain.handle("work-fold:window:get-close-to-tray", (event) => {
@@ -1439,7 +1455,7 @@ function registerIpc(): void {
     if (!window || window.isDestroyed()) throw new Error("The work-fold window is not available.");
     const identity = restrictedAppViewIdentity(value);
     const host = await ensureDesktopHost();
-    const descriptor = await host.restrictedApps.runtimeDescriptor(identity.spaceId, identity.appId, identity.digest, identity.featureInstallationId);
+    const descriptor = await host.restrictedApps.runtimeDescriptor(identity.workFolderId, identity.appId, identity.digest, identity.featureInstallationId);
     const mounted = await host.restrictedAppHost.mountUi(descriptor, event.sender, window, restrictedAppViewPayload(value));
     railTooltipOverlay?.raise();
     return mounted;
@@ -1478,11 +1494,11 @@ function registerIpc(): void {
 }
 
 type RendererMenuCommand =
-  | "new-space"
+  | "new-work-folder"
   | "open-local-folder"
   | "new-chat"
   | "close-tab"
-  | "reload-space-state"
+  | "reload-work-folder-state"
   | "check-for-updates"
   | "open-settings"
   | "open-about"
@@ -1495,7 +1511,7 @@ type RendererMenuCommand =
 type ApplicationMenuId = "file" | "edit" | "view" | "help";
 
 interface RendererMenuState {
-  spaceOpen: boolean;
+  workFolderOpen: boolean;
 }
 
 function configureMenu(): void {
@@ -1528,16 +1544,16 @@ function buildApplicationMenuTemplate(): MenuItemConstructorOptions[] {
 function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemConstructorOptions[] {
   if (menuId === "file") {
     const items: MenuItemConstructorOptions[] = [
-      { label: "New work-folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-space") },
-      { label: "Add Existing Folder...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
+      { label: "Create new work-folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-work-folder") },
+      { label: "Use existing folder...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
       ...(process.platform === "darwin" ? [{
         label: "Open Recent",
         role: "recentDocuments" as const,
         submenu: [{ role: "clearRecentDocuments" as const }],
       }] : []),
       { type: "separator" },
-      { id: "new-chat", label: "New Chat", accelerator: "CommandOrControl+Shift+N", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("new-chat") },
-      { id: "refresh-space", label: "Refresh work-folder", accelerator: "CommandOrControl+R", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("reload-space-state") },
+      { id: "new-chat", label: "New Chat", accelerator: "CommandOrControl+Shift+N", enabled: rendererMenuState.workFolderOpen, click: () => sendRendererMenuCommand("new-chat") },
+      { id: "refresh-work-folder", label: "Refresh work-folder", accelerator: "CommandOrControl+R", enabled: rendererMenuState.workFolderOpen, click: () => sendRendererMenuCommand("reload-work-folder-state") },
     ];
     if (process.platform !== "darwin") {
       items.push(
@@ -1550,7 +1566,7 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
       // tab; the window keeps the conventional Shift+Cmd+W.
       items.push(
         { type: "separator" },
-        { id: "close-tab", label: "Close Tab", accelerator: "CommandOrControl+W", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("close-tab") },
+        { id: "close-tab", label: "Close Tab", accelerator: "CommandOrControl+W", enabled: rendererMenuState.workFolderOpen, click: () => sendRendererMenuCommand("close-tab") },
         { role: "close", accelerator: "Shift+CommandOrControl+W" },
       );
     } else {
@@ -1586,8 +1602,8 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
     ];
   }
   const items: MenuItemConstructorOptions[] = [
-    { id: "open-capabilities", label: "Skills & Extensions", accelerator: "CommandOrControl+Shift+S", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("open-capabilities") },
-    { label: "Keyboard Shortcuts", accelerator: "CommandOrControl+/", click: () => sendRendererMenuCommand("open-keyboard-shortcuts") },
+    { id: "open-capabilities", label: "Skills & Extensions", accelerator: "CommandOrControl+Shift+S", enabled: rendererMenuState.workFolderOpen, click: () => sendRendererMenuCommand("open-capabilities") },
+    { label: "Shortcut Keys", accelerator: "CommandOrControl+/", click: () => sendRendererMenuCommand("open-keyboard-shortcuts") },
   ];
   if (process.platform !== "darwin") {
     items.push(
@@ -1623,7 +1639,7 @@ function macApplicationMenu(): MenuItemConstructorOptions[] {
       { role: "hideOthers" },
       { role: "unhide" },
       { type: "separator" },
-      { id: "quit-space", label: `Quit ${productName}`, accelerator: "Command+Q", click: requestApplicationQuit },
+      { id: "quit-work-folder", label: `Quit ${productName}`, accelerator: "Command+Q", click: requestApplicationQuit },
     ],
   }];
 }
@@ -1693,14 +1709,14 @@ function sendRendererMenuCommand(command: RendererMenuCommand): void {
 
 function updateApplicationMenuState(value: unknown): void {
   rendererMenuState = {
-    spaceOpen: isRecord(value)
-      ? value.spaceOpen === true || value.spaceOpen === true
-      : rendererMenuState.spaceOpen,
+    workFolderOpen: isRecord(value)
+      ? value.workFolderOpen === true || value.workFolderOpen === true
+      : rendererMenuState.workFolderOpen,
   };
   const menu = Menu.getApplicationMenu();
-  setMenuItemEnabled(menu, "new-chat", rendererMenuState.spaceOpen);
-  setMenuItemEnabled(menu, "refresh-space", rendererMenuState.spaceOpen);
-  setMenuItemEnabled(menu, "open-capabilities", rendererMenuState.spaceOpen);
+  setMenuItemEnabled(menu, "new-chat", rendererMenuState.workFolderOpen);
+  setMenuItemEnabled(menu, "refresh-work-folder", rendererMenuState.workFolderOpen);
+  setMenuItemEnabled(menu, "open-capabilities", rendererMenuState.workFolderOpen);
 }
 
 function setMenuItemEnabled(menu: Menu | null, id: string, enabled: boolean): void {
@@ -1811,10 +1827,11 @@ function configureStableUserDataPath(): void {
 }
 
 function configureCliEnvironment(): void {
-  // Every Assistant shell must address the same profile as the desktop process
-  // that launched it. Development and installed builds intentionally use
-  // different userData roots, so leaving this unset can expose a different
-  // Space registry through an installed work-fold CLI on PATH.
+  // Every shell a Worker or the work-fold agent opens must address the same
+  // profile as the desktop process that launched it. Development and
+  // installed builds intentionally use different userData roots, so leaving
+  // this unset can expose a different work-folder registry through an
+  // installed work-fold CLI on PATH.
   process.env.WORKFOLD_CLI_STATE_DIR = app.getPath("userData");
   if (!app.isPackaged || (process.platform !== "win32" && process.platform !== "darwin")) return;
   const executableDirectory = dirnameFromFile(process.execPath);
@@ -1834,18 +1851,18 @@ function configureCliEnvironment(): void {
   process.env.WORKFOLD_CLI_APP = process.execPath;
 }
 
-function createFolderGrant(spaceRoot: string): string {
+function createFolderGrant(workFolderRoot: string): string {
   cleanupFolderGrants();
   const id = randomUUID();
-  folderGrants.set(id, { spaceRoot: resolve(spaceRoot), expiresAt: Date.now() + folderGrantTtlMs });
+  folderGrants.set(id, { workFolderRoot: resolve(workFolderRoot), expiresAt: Date.now() + folderGrantTtlMs });
   return id;
 }
 
-function consumeLocalFolderGrant(input: { spaceRoot: string; grantId: string }): boolean {
+function consumeLocalFolderGrant(input: { workFolderRoot: string; grantId: string }): boolean {
   cleanupFolderGrants();
   const grant = folderGrants.get(input.grantId);
   folderGrants.delete(input.grantId);
-  return Boolean(grant && grant.expiresAt >= Date.now() && samePath(grant.spaceRoot, input.spaceRoot));
+  return Boolean(grant && grant.expiresAt >= Date.now() && samePath(grant.workFolderRoot, input.workFolderRoot));
 }
 
 function cleanupFolderGrants(): void {
@@ -1855,21 +1872,21 @@ function cleanupFolderGrants(): void {
   }
 }
 
-type SpacePathAction = "open" | "open-native" | "reveal";
+type WorkFolderPathAction = "open" | "open-native" | "reveal";
 
-function spacePathRequest(value: unknown, requireAction = true): { spaceId: string; path: string; action: SpacePathAction } {
-  if (!isRecord(value)) throw new Error("A Space file request is required.");
-  const spaceId = typeof value.spaceId === "string" ? value.spaceId.trim() : "";
+function workFolderPathRequest(value: unknown, requireAction = true): { workFolderId: string; path: string; action: WorkFolderPathAction } {
+  if (!isRecord(value)) throw new Error("A work-folder file request is required.");
+  const workFolderId = typeof value.workFolderId === "string" ? value.workFolderId.trim() : "";
   const path = typeof value.path === "string" ? value.path : "";
   const action = value.action === "reveal" || value.action === "open-native" || value.action === "open"
     ? value.action
     : "open";
-  if (!spaceId) throw new Error("A Space id is required.");
-  if (!path || path.includes("\0") || isAbsolute(path)) throw new Error("A relative Space file path is required.");
+  if (!workFolderId) throw new Error("A work-folder id is required.");
+  if (!path || path.includes("\0") || isAbsolute(path)) throw new Error("A relative work-folder file path is required.");
   if (requireAction && value.action !== undefined && value.action !== "reveal" && value.action !== "open-native" && value.action !== "open") {
-    throw new Error("Unsupported Space file action.");
+    throw new Error("Unsupported work-folder file action.");
   }
-  return { spaceId, path, action };
+  return { workFolderId, path, action };
 }
 
 function launchOpenWith(plan: OpenWithLaunchPlan): Promise<void> {
@@ -1888,43 +1905,43 @@ function launchOpenWith(plan: OpenWithLaunchPlan): Promise<void> {
   });
 }
 
-async function resolveSpaceItem(spaceId: string, itemPath: string): Promise<string> {
-  const space = await getSpace(spaceId);
-  const spaceRoot = await realpath(space.spaceRoot);
-  const candidate = resolve(spaceRoot, itemPath);
-  assertPathInsideRoot(spaceRoot, candidate);
+async function resolveWorkFolderItem(workFolderId: string, itemPath: string): Promise<string> {
+  const workFolder = await getWorkFolder(workFolderId);
+  const workFolderRoot = await realpath(workFolder.workFolderRoot);
+  const candidate = resolve(workFolderRoot, itemPath);
+  assertPathInsideRoot(workFolderRoot, candidate);
   const resolvedCandidate = await realpath(candidate);
-  assertPathInsideRoot(spaceRoot, resolvedCandidate);
+  assertPathInsideRoot(workFolderRoot, resolvedCandidate);
   return resolvedCandidate;
 }
 
-async function setActiveNativeSpace(spaceId: string | null): Promise<void> {
-  const generation = ++activeNativeSpaceGeneration;
-  if (spaceId === null) {
-    activeNativeSpace = null;
-    applyNativeActiveSpaceToWindow(mainWindow);
+async function setActiveNativeWorkFolder(workFolderId: string | null): Promise<void> {
+  const generation = ++activeNativeWorkFolderGeneration;
+  if (workFolderId === null) {
+    activeNativeWorkFolder = null;
+    applyNativeActiveWorkFolderToWindow(mainWindow);
     return;
   }
 
   // The renderer supplies identity only. Name and root are always loaded from
   // the host-owned registry before they reach native window or OS APIs.
-  const space = await getSpace(spaceId);
-  if (generation !== activeNativeSpaceGeneration) return;
-  activeNativeSpace = { id: space.id, name: space.name, spaceRoot: space.spaceRoot };
-  applyNativeActiveSpaceToWindow(mainWindow);
-  if (process.platform === "darwin") app.addRecentDocument(space.spaceRoot);
+  const workFolder = await getWorkFolder(workFolderId);
+  if (generation !== activeNativeWorkFolderGeneration) return;
+  activeNativeWorkFolder = { id: workFolder.id, name: workFolder.name, workFolderRoot: workFolder.workFolderRoot };
+  applyNativeActiveWorkFolderToWindow(mainWindow);
+  if (process.platform === "darwin") app.addRecentDocument(workFolder.workFolderRoot);
 }
 
 async function validateNativeFileMenuEntry(request: NativeFileMenuRequest): Promise<void> {
   let info;
   if (request.path) {
-    info = await stat(await resolveSpaceItem(request.spaceId, request.path));
+    info = await stat(await resolveWorkFolderItem(request.workFolderId, request.path));
   } else {
-    const space = await getSpace(request.spaceId);
-    info = await stat(await realpath(space.spaceRoot));
+    const workFolder = await getWorkFolder(request.workFolderId);
+    info = await stat(await realpath(workFolder.workFolderRoot));
   }
   if ((request.kind === "file" && !info.isFile()) || (request.kind === "folder" && !info.isDirectory())) {
-    throw new Error("The native file menu entry no longer matches this Space.");
+    throw new Error("The native file menu entry no longer matches this work-folder.");
   }
 }
 
@@ -1952,10 +1969,10 @@ function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFile
   });
 }
 
-function applyNativeActiveSpaceToWindow(window: BrowserWindow | null): void {
+function applyNativeActiveWorkFolderToWindow(window: BrowserWindow | null): void {
   if (process.platform !== "darwin" || !window || window.isDestroyed()) return;
-  window.setRepresentedFilename(activeNativeSpace?.spaceRoot ?? "");
-  window.setTitle(activeNativeSpace?.name ?? productName);
+  window.setRepresentedFilename(activeNativeWorkFolder?.workFolderRoot ?? "");
+  window.setTitle(activeNativeWorkFolder?.name ?? productName);
 }
 
 async function drainPendingMacOpenPaths(): Promise<void> {
@@ -1972,17 +1989,17 @@ async function drainPendingMacOpenPaths(): Promise<void> {
       if (!path) continue;
       await ensureMainWindow();
       showWindow();
-      const spaceId = await registeredSpaceIdForOpenPath(path);
-      if (!spaceId) {
+      const workFolderId = await registeredWorkFolderIdForOpenPath(path);
+      if (!workFolderId) {
         console.warn(`${productName} ignored an unregistered Finder folder: ${path}`);
         continue;
       }
-      await setActiveNativeSpace(spaceId);
-      const request = { token: randomUUID(), spaceId };
-      pendingOpenSpaceRequest = request;
+      await setActiveNativeWorkFolder(workFolderId);
+      const request = { token: randomUUID(), workFolderId };
+      pendingOpenWorkFolderRequest = request;
       const window = mainWindow;
       if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.send("work-fold:space:open-space", request);
+        window.webContents.send("work-fold:work-folder:open-work-folder", request);
       }
     }
   })().finally(() => {
@@ -1993,15 +2010,15 @@ async function drainPendingMacOpenPaths(): Promise<void> {
   if (pendingMacOpenPaths.length) await drainPendingMacOpenPaths();
 }
 
-async function registeredSpaceIdForOpenPath(path: string): Promise<string | null> {
+async function registeredWorkFolderIdForOpenPath(path: string): Promise<string | null> {
   try {
     const info = await stat(path);
     if (!info.isDirectory()) return null;
     const openedRoot = await realpath(path);
-    for (const space of await listSpaces()) {
+    for (const workFolder of await listWorkFolders()) {
       try {
-        const registeredRoot = await realpath(space.spaceRoot);
-        if (samePath(openedRoot, registeredRoot)) return space.id;
+        const registeredRoot = await realpath(workFolder.workFolderRoot);
+        if (samePath(openedRoot, registeredRoot)) return workFolder.id;
       } catch {
         // Missing registered folders are already excluded from normal bootstrap;
         // one stale registration must not block another exact match.
@@ -2013,9 +2030,9 @@ async function registeredSpaceIdForOpenPath(path: string): Promise<string | null
   return null;
 }
 
-function assertPathInsideRoot(spaceRoot: string, candidate: string): void {
-  const child = relative(spaceRoot, candidate);
-  if (!child || /^\.\.(?:[\\/]|$)/.test(child) || isAbsolute(child)) throw new Error("The requested item is outside this Space.");
+function assertPathInsideRoot(workFolderRoot: string, candidate: string): void {
+  const child = relative(workFolderRoot, candidate);
+  if (!child || /^\.\.(?:[\\/]|$)/.test(child) || isAbsolute(child)) throw new Error("The requested item is outside this work-folder.");
 }
 
 function updateAgentPowerState(activeTurns: number): void {
@@ -2044,7 +2061,7 @@ async function shutdown(): Promise<void> {
   // Pi runtime, so the act authority is revoked before anything else stops.
   actFacade = null;
   actToken = "";
-  resolveManagementLineageParent = null;
+  resolveWorkFoldAgentLineageParent = null;
   remoteAccessClient?.stop();
   updateAgentPowerState(0);
   const runtime = piRuntime;
@@ -2153,7 +2170,7 @@ function createTrayIfSupported(): void {
   }
   tray = new Tray(icon);
   const menu = Menu.buildFromTemplate([
-    { label: "work-fold agent", click: () => { void toggleManagementPopover(); } },
+    { label: "work-fold agent", click: () => { void toggleWorkFoldAgentPopover(); } },
     { label: `Open ${productName}`, click: showWindow },
     { type: "separator" },
     { label: "Check for Updates...", click: () => sendRendererMenuCommand("check-for-updates") },
@@ -2162,15 +2179,15 @@ function createTrayIfSupported(): void {
   ]);
   if (process.platform === "darwin") {
     // No persistent context menu on macOS: setContextMenu would swallow the
-    // left click. Click opens the management popover, right-click the menu,
+    // left click. Click opens the work-fold agent popover, right-click the menu,
     // and material dropped on the icon lands in the popover as staged context.
-    tray.on("click", () => { void toggleManagementPopover(); });
+    tray.on("click", () => { void toggleWorkFoldAgentPopover(); });
     tray.on("right-click", () => tray?.popUpContextMenu(menu));
     tray.on("drop-files", (_event, files) => {
-      void openManagementPopoverWithItems(files.map((file) => ({ kind: "path" as const, value: file })));
+      void openWorkFoldAgentPopoverWithItems(files.map((file) => ({ kind: "path" as const, value: file })));
     });
     tray.on("drop-text", (_event, text) => {
-      void openManagementPopoverWithItems([{ kind: "text" as const, value: text }]);
+      void openWorkFoldAgentPopoverWithItems([{ kind: "text" as const, value: text }]);
     });
   } else {
     tray.setContextMenu(menu);
@@ -2181,7 +2198,7 @@ function createTrayIfSupported(): void {
   // Warm the hidden popover renderer off the startup critical path so the
   // first work-fold agent summon paints the ready surface immediately.
   setTimeout(() => {
-    void ensureManagementPopover().then((popover) => popover.warm()).catch(() => {});
+    void ensureWorkFoldAgentPopover().then((popover) => popover.warm()).catch(() => {});
   }, 2_500);
 }
 
@@ -2215,16 +2232,16 @@ function resolveTrayIcon(): Electron.NativeImage | string | null {
 function destroyTray(): void {
   tray?.destroy();
   tray = null;
-  managementPopover?.destroy();
-  managementPopover = null;
+  workFoldAgentPopover?.destroy();
+  workFoldAgentPopover = null;
 }
 
-async function ensureManagementPopover(): Promise<ManagementPopover> {
-  if (managementPopover) return managementPopover;
+async function ensureWorkFoldAgentPopover(): Promise<WorkFoldAgentPopover> {
+  if (workFoldAgentPopover) return workFoldAgentPopover;
   const api = await ensureInteractiveLocalApi();
-  managementPopover = new ManagementPopover({
+  workFoldAgentPopover = new WorkFoldAgentPopover({
     appProtocol,
-    preloadPath: resolveManagementPopoverPreloadPath(),
+    preloadPath: resolveWorkFoldAgentPopoverPreloadPath(),
     additionalArguments: [
       ...productRendererArguments(),
       rendererArgument("api-base-url", api.origin),
@@ -2235,23 +2252,23 @@ async function ensureManagementPopover(): Promise<ManagementPopover> {
     vibrancy: process.platform === "darwin" && macVibrancySupported,
     devTools: !app.isPackaged,
     configureNavigation: configureWindowNavigation,
-    onError: (message) => console.warn(`${productName} management popover failed to load: ${message}`),
+    onError: (message) => console.warn(`${productName} work-fold agent popover failed to load: ${message}`),
   });
-  return managementPopover;
+  return workFoldAgentPopover;
 }
 
-async function toggleManagementPopover(): Promise<void> {
+async function toggleWorkFoldAgentPopover(): Promise<void> {
   try {
-    const popover = await ensureManagementPopover();
+    const popover = await ensureWorkFoldAgentPopover();
     await popover.toggle(tray?.getBounds() ?? null);
   } catch (error) {
-    console.warn(`${productName} could not open the management popover: ${errorMessage(error)}`);
+    console.warn(`${productName} could not open the work-fold agent popover: ${errorMessage(error)}`);
   }
 }
 
-async function openManagementPopoverWithItems(items: ManagementPopoverStagedItem[]): Promise<void> {
+async function openWorkFoldAgentPopoverWithItems(items: WorkFoldAgentPopoverStagedItem[]): Promise<void> {
   try {
-    const popover = await ensureManagementPopover();
+    const popover = await ensureWorkFoldAgentPopover();
     await popover.stage(items, tray?.getBounds() ?? null);
   } catch (error) {
     console.warn(`${productName} could not stage dropped material: ${errorMessage(error)}`);
@@ -2261,7 +2278,7 @@ async function openManagementPopoverWithItems(items: ManagementPopoverStagedItem
 function updateTrayTooltip(): void {
   if (!tray) return;
   tray.setToolTip(activeAgentTurns > 0
-    ? `${productName} — Assistant is working on ${activeAgentTurns === 1 ? "a task" : `${activeAgentTurns} tasks`}`
+    ? `${productName} — working on ${activeAgentTurns === 1 ? "a task" : `${activeAgentTurns} tasks`}`
     : productName);
 }
 
@@ -2271,12 +2288,12 @@ function maybeShowTrayNotice(): void {
   if (!Notification.isSupported()) return;
   new Notification({
     title: `${productName} is still running`,
-    body: "Your Assistant can keep working in the background. Use the tray icon to reopen or quit work-fold, or change this in Settings.",
+    body: "Your Workers and the work-fold agent can keep working in the background. Use the tray icon to reopen or quit work-fold, or change this in Settings.",
   }).show();
 }
 
 function closeToTrayStatus(): { supported: boolean; enabled: boolean } {
-  // A macOS menu-bar item is a management surface, not close-to-tray support:
+  // A macOS menu-bar item opens the work-fold agent, not close-to-tray support:
   // closing the last macOS window already keeps the app alive via the Dock.
   return { supported: process.platform === "win32" && tray !== null, enabled: desktopPreferences.closeToTray };
 }
@@ -2285,19 +2302,19 @@ function configurePowerMonitor(): void {
   if (powerMonitorRegistered) return;
   powerMonitorRegistered = true;
   powerMonitor.on("suspend", () => {
-    void desktopHostPromise?.then((host) => host.restrictedApps.suspendAutomations());
-    // Routing runs share the scheduler discipline: suspension aborts the
+    void desktopHostPromise?.then((host) => host.restrictedApps.suspendAppAutomations());
+    // Automation runs share the scheduler discipline: suspension aborts the
     // active run (it settles `interrupted`, honestly receipted) and holds
-    // admissions until resume (docs/fold-routings.md).
-    routingPowerLifecycle?.suspend();
+    // admissions until resume (docs/automations.md).
+    automationPowerLifecycle?.suspend();
   });
   powerMonitor.on("resume", () => {
-    void desktopHostPromise?.then((host) => host.restrictedApps.resumeAutomations());
-    void routingPowerLifecycle?.resume().catch((error) => {
-      console.warn(`${productName} could not resume Routings after wake: ${errorMessage(error)}`);
+    void desktopHostPromise?.then((host) => host.restrictedApps.resumeAppAutomations());
+    void automationPowerLifecycle?.resume().catch((error) => {
+      console.warn(`${productName} could not resume Automations after wake: ${errorMessage(error)}`);
     });
     void remoteAccessClient?.recoverConnection().catch((error) => {
-      console.warn(`${productName} could not recover Remote access after resume: ${errorMessage(error)}`);
+      console.warn(`${productName} could not recover Web Access after resume: ${errorMessage(error)}`);
     });
     setTimeout(ensureRendererAfterResume, resumeRendererHealthDelayMs);
     setTimeout(() => { void checkForUpdates(false); }, resumeUpdateCheckDelayMs);
@@ -2494,7 +2511,7 @@ function assertTrustedMainRenderer(event: IpcMainInvokeEvent | IpcMainEvent): vo
 }
 
 /** Shape check only; the local API confines the path to the agent's working folder. */
-function routingProposalPath(value: unknown): string {
+function automationProposalPath(value: unknown): string {
   if (typeof value !== "string" || !value || value.length > 4096
     || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value)) {
     throw new Error("The automation file path is invalid.");
@@ -2502,32 +2519,32 @@ function routingProposalPath(value: unknown): string {
   return value;
 }
 
-function routingSettingsId(value: unknown): string {
-  if (typeof value !== "string") throw new Error("A Routing id is required.");
-  const routingId = value.trim();
-  if (!routingId || routingId.length > 256
-    || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(routingId)) {
-    throw new Error("The Routing id is invalid.");
+function automationSettingsId(value: unknown): string {
+  if (typeof value !== "string") throw new Error("An Automation id is required.");
+  const automationId = value.trim();
+  if (!automationId || automationId.length > 256
+    || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(automationId)) {
+    throw new Error("The Automation id is invalid.");
   }
-  return routingId;
+  return automationId;
 }
 
-function restrictedAppViewIdentity(value: unknown): { spaceId: string; appId: string; digest: string; featureInstallationId: string } {
+function restrictedAppViewIdentity(value: unknown): { workFolderId: string; appId: string; digest: string; featureInstallationId: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Restricted app view identity is invalid.");
   const record = value as Record<string, unknown>;
-  const spaceId = typeof record.spaceId === "string" ? record.spaceId : "";
+  const workFolderId = typeof record.workFolderId === "string" ? record.workFolderId : "";
   const appId = typeof record.appId === "string" ? record.appId : "";
   const digest = typeof record.digest === "string" ? record.digest.toLowerCase() : "";
   const featureInstallationId = parseFeatureInstallationId(record.featureInstallationId);
-  if (!spaceId || spaceId.length > 256 || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(appId) || !/^[a-f0-9]{64}$/.test(digest)) {
+  if (!workFolderId || workFolderId.length > 256 || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(appId) || !/^[a-f0-9]{64}$/.test(digest)) {
     throw new Error("Restricted app view identity is invalid.");
   }
-  return { spaceId, appId, digest, featureInstallationId };
+  return { workFolderId, appId, digest, featureInstallationId };
 }
 
 function restrictedAppViewPayload(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Restricted app view request is invalid.");
-  const { spaceId: _spaceId, appId: _appId, digest: _digest, featureInstallationId: _featureInstallationId, ...payload } = value as Record<string, unknown>;
+  const { workFolderId: _workFolderId, appId: _appId, digest: _digest, featureInstallationId: _featureInstallationId, ...payload } = value as Record<string, unknown>;
   return payload;
 }
 
@@ -2561,8 +2578,8 @@ function resolvePreloadPath(): string {
   return join(dirnameFromFile(currentFile), "preload.cjs");
 }
 
-function resolveManagementPopoverPreloadPath(): string {
-  return join(dirnameFromFile(currentFile), "management-popover-preload.cjs");
+function resolveWorkFoldAgentPopoverPreloadPath(): string {
+  return join(dirnameFromFile(currentFile), "work-fold-agent-popover-preload.cjs");
 }
 
 function resolveRestrictedAppPreloadPath(): string {

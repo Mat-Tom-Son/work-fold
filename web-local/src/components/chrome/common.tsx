@@ -1,7 +1,7 @@
 import type React from "react";
 import { ChatAdd20Filled, ChatAdd20Regular, bundleIcon, type FluentIcon } from "@fluentui/react-icons";
 import { AlertTriangle, X } from "lucide-react";
-import type { SpaceIconOption } from "../../space-icons";
+import type { WorkFolderIconOption } from "../../work-folder-icons";
 
 const NewChatIcon = bundleIcon(ChatAdd20Filled, ChatAdd20Regular);
 
@@ -26,13 +26,13 @@ function FluentGlyph({
   );
 }
 
-function SpaceIconGlyph({
+function WorkFolderIconGlyph({
   icon,
   size,
   filled = true,
   className,
 }: {
-  icon: SpaceIconOption["Icon"];
+  icon: WorkFolderIconOption["Icon"];
   size: number;
   filled?: boolean;
   className?: string;
@@ -42,7 +42,7 @@ function SpaceIconGlyph({
       icon={icon}
       size={size}
       filled={filled}
-      className={["space-fluent-icon", className ?? ""].filter(Boolean).join(" ")}
+      className={["work-folder-fluent-icon", className ?? ""].filter(Boolean).join(" ")}
     />
   );
 }
@@ -84,4 +84,4 @@ function CenteredState({ icon, title, text }: { icon?: React.ReactNode; title: s
   );
 }
 
-export { Banner, CenteredState, EmptyInline, FluentGlyph, NewChatIcon, PanelTitle, SpaceIconGlyph };
+export { Banner, CenteredState, EmptyInline, FluentGlyph, NewChatIcon, PanelTitle, WorkFolderIconGlyph };

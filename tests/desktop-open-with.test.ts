@@ -28,22 +28,22 @@ test("the chosen app is named without its extension", () => {
 });
 
 test("launch plans are argument vectors with the file as its own argument", () => {
-  assert.deepEqual(openWithLaunchPlan("darwin", "/Applications/Preview.app", "/Users/me/Space/a b.pdf"), {
+  assert.deepEqual(openWithLaunchPlan("darwin", "/Applications/Preview.app", "/Users/me/work-folder/a b.pdf"), {
     kind: "exec",
     command: "/usr/bin/open",
-    args: ["-a", "/Applications/Preview.app", "/Users/me/Space/a b.pdf"],
+    args: ["-a", "/Applications/Preview.app", "/Users/me/work-folder/a b.pdf"],
   });
-  assert.deepEqual(openWithLaunchPlan("win32", "C:\\Apps\\tool.exe", "C:\\Space\\x & y.txt"), {
+  assert.deepEqual(openWithLaunchPlan("win32", "C:\\Apps\\tool.exe", "C:\\work-folder\\x & y.txt"), {
     kind: "spawn",
     command: "C:\\Apps\\tool.exe",
-    args: ["C:\\Space\\x & y.txt"],
+    args: ["C:\\work-folder\\x & y.txt"],
   });
-  assert.deepEqual(openWithLaunchPlan("linux", "/usr/bin/gedit", "/home/me/Space/$(rm).txt").args, ["/home/me/Space/$(rm).txt"]);
+  assert.deepEqual(openWithLaunchPlan("linux", "/usr/bin/gedit", "/home/me/work-folder/$(rm).txt").args, ["/home/me/work-folder/$(rm).txt"]);
   assert.throws(() => openWithLaunchPlan("linux", "", "/tmp/x"), /required/);
   assert.throws(() => openWithLaunchPlan("linux", "/usr/bin/gedit", "/tmp/x\0y"), /required/);
 });
 
-test("Open with rechecks the Folder file after the picker closes", async () => {
+test("Open with rechecks the work-folder file after the picker closes", async () => {
   const calls: string[] = [];
   const launches: OpenWithLaunchPlan[] = [];
   let file = "/Folder/before.txt";
@@ -57,7 +57,7 @@ test("Open with rechecks the Folder file after the picker closes", async () => {
   assert.deepEqual(result, { opened: true, canceled: false, appName: "Preview" });
 });
 
-test("Open with never launches after its Folder or file disappears during selection", async () => {
+test("Open with never launches after its work-folder or file disappears during selection", async () => {
   let available = true;
   let launched = false;
   await assert.rejects(openFileWithPickedApp("darwin", {

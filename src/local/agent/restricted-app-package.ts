@@ -13,14 +13,28 @@ import {
   type AppPlatformArtifactDigest,
   type AppPlatformArtifactEntry,
 } from "./app-platform-artifact.js";
-import { isReservedSpacePathSegment } from "../space-path-policy.js";
+import { isReservedWorkFolderPathSegment } from "../work-folder-path-policy.js";
+import { restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
+/**
+ * A package is snapshotted into memory whole when it is staged and launched,
+ * so these bounds keep that snapshot finite; they are not a size budget for
+ * what an app may ship. A single file may use the whole package allowance.
+ */
 export const restrictedAppPackageLimits = {
-  files: 2_048,
-  bytes: 50 * 1024 * 1024,
-  fileBytes: 20 * 1024 * 1024,
-  manifestBytes: 512 * 1024,
+  files: 100_000,
+  bytes: 1024 * 1024 * 1024,
+  fileBytes: 1024 * 1024 * 1024,
+  manifestBytes: 16 * 1024 * 1024,
   depth: 24,
 } as const;
+
+/** The artifact digest of a package is bounded by the package limits, not the Release format's defaults. */
+const restrictedAppArtifactLimits = {
+  files: restrictedAppPackageLimits.files,
+  pathBytes: 240,
+  fileBytes: restrictedAppPackageLimits.fileBytes,
+  totalBytes: restrictedAppPackageLimits.bytes,
+};
 
 const forbiddenPackageFields = [
   "scripts",
@@ -98,7 +112,7 @@ export async function inspectRestrictedAppPackage(
   const initialManifestEntry = byPath.get(initialManifestPath);
   if (!initialManifestEntry) throw new Error(`Restricted app manifest does not exist: ${initialManifestPath}`);
   if (initialManifestEntry.size > restrictedAppPackageLimits.manifestBytes) {
-    throw new Error(`Restricted app manifest exceeds the ${restrictedAppPackageLimits.manifestBytes / 1024} KB limit.`);
+    throw new Error(`Restricted app manifest exceeds the ${restrictedAppLimitSize(restrictedAppPackageLimits.manifestBytes)} limit.`);
   }
 
   const snapshot = await readPackageEntries(entries, "package");
@@ -114,7 +128,7 @@ export async function inspectRestrictedAppPackage(
   const manifestEntry = byPath.get(manifestPath);
   if (!manifestEntry) throw new Error(`Restricted app manifest does not exist: ${manifestPath}`);
   if (manifestEntry.size > restrictedAppPackageLimits.manifestBytes) {
-    throw new Error(`Restricted app manifest exceeds the ${restrictedAppPackageLimits.manifestBytes / 1024} KB limit.`);
+    throw new Error(`Restricted app manifest exceeds the ${restrictedAppLimitSize(restrictedAppPackageLimits.manifestBytes)} limit.`);
   }
 
   const manifest = parseRestrictedAppManifest(jsonObject(
@@ -206,12 +220,7 @@ export async function stageRestrictedAppReleaseArtifact(
 ): Promise<RestrictedAppStageReceipt> {
   const expected = parseAppPlatformArtifactDigest(expectedArtifactDigest);
   const decoded = decodeReleaseArtifactEntries(entries);
-  if (hashAppPlatformArtifact(decoded, {
-    files: restrictedAppPackageLimits.files,
-    pathBytes: 240,
-    fileBytes: restrictedAppPackageLimits.fileBytes,
-    totalBytes: restrictedAppPackageLimits.bytes,
-  }) !== expected) {
+  if (hashAppPlatformArtifact(decoded, restrictedAppArtifactLimits) !== expected) {
     throw new Error("Restricted app release artifact digest does not match its entries.");
   }
   assertMaterializablePackagePaths(decoded.map((entry) => entry.path));
@@ -374,7 +383,7 @@ async function readPackageEntries(
     files,
     totalBytes,
     digest: digest.digest("hex"),
-    artifactDigest: hashAppPlatformArtifact(artifactEntries),
+    artifactDigest: hashAppPlatformArtifact(artifactEntries, restrictedAppArtifactLimits),
   };
 }
 
@@ -525,7 +534,7 @@ function assertPortablePackagePath(value: string, label: string): void {
   const segments = value.split("/");
   if (!value || value.length > 240 || value.includes("\\") || value.includes(":") || value.includes("\0")
     || value.startsWith("/") || segments.some((segment) => !segment || segment === "." || segment === ".."
-      || isReservedSpacePathSegment(segment) || isReservedWindowsName(segment))) {
+      || isReservedWorkFolderPathSegment(segment) || isReservedWindowsName(segment))) {
     throw new Error(`${label} must be a portable relative package path.`);
   }
 }

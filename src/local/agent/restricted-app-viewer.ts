@@ -10,7 +10,7 @@ import type { RestrictedAppStorageJsonValue, RestrictedAppStorageOwner } from ".
 
 /**
  * The desktop viewer adapter for "an app at your address"
- * (docs/fold-publishing.md, rung 3). A viewer is an unauthenticated audience,
+ * (docs/shared-pages.md, rung 3). A viewer is an unauthenticated audience,
  * never a Principal: this adapter enforces the viewer-safe broker table
  * desktop-side, at effect time, over the same installed-instance authority
  * records the sandboxed desktop host uses — never in app code, never at the
@@ -22,8 +22,8 @@ import type { RestrictedAppStorageJsonValue, RestrictedAppStorageOwner } from ".
  *   the key prefixes the reviewed manifest marks viewer-readable.
  *
  * Everything else is refused with a typed viewer-scope denial: storage
- * writes, Assistant actions and tool invocations, network egress,
- * connections and credentials, Space files, notifications, automations and
+ * writes, Worker actions and tool invocations, network egress,
+ * connections and credentials, work-folder files, notifications, automations and
  * jobs, OAuth, and host-UI powers. Principal- and role-owned data is
  * structurally unreachable — the adapter builds only the instance-owned
  * storage owner and exposes no owner parameter (the host-derived-Principal
@@ -36,9 +36,6 @@ export type RestrictedAppViewerCall =
   | { kind: "asset"; path: string }
   | { kind: "data.keys"; prefix?: string }
   | { kind: "data.get"; key: string };
-
-export const RESTRICTED_APP_VIEWER_CALL_KINDS = ["entry", "asset", "data.keys", "data.get"] as const;
-
 /**
  * Broker families that exist for the person's own use of an installed app and
  * are never viewer-reachable. Named so refusals can say what was asked for
@@ -49,10 +46,10 @@ export const RESTRICTED_APP_VIEWER_CALL_KINDS = ["entry", "asset", "data.keys", 
  */
 const VIEWER_DENIED_FAMILIES: ReadonlyArray<{ pattern: RegExp; denied: string }> = [
   { pattern: /^(data\.(set|delete|clear|transaction)|storage\.(set|delete|clear|transaction|write))$/, denied: "Viewers mutate nothing; storage writes are not viewer-reachable." },
-  { pattern: /^(action|actions|invoke|tool|tools)([./].*)?$/, denied: "Assistant actions are mutations executed with the person's runtime; they are not viewer-reachable." },
+  { pattern: /^(action|actions|invoke|tool|tools)([./].*)?$/, denied: "Worker actions are mutations executed with the person's runtime; they are not viewer-reachable." },
   { pattern: /^(network|fetch|request|egress)([./].*)?$/, denied: "A viewer cannot make this desktop send requests anywhere; network egress is not viewer-reachable." },
   { pattern: /^(connection|connections|credential|credentials|oauth)([./].*)?$/, denied: "A viewer can never cause this desktop to spend a saved credential; connections are not viewer-reachable." },
-  { pattern: /^(file|files)([./].*)?$/, denied: "Space file grants exist for the person's own use of the app; files are not viewer-reachable." },
+  { pattern: /^(file|files)([./].*)?$/, denied: "work-folder file grants exist for the person's own use of the app; files are not viewer-reachable." },
   { pattern: /^(notification|notifications)([./].*)?$/, denied: "Notifications are not viewer-reachable." },
   { pattern: /^(automation|automations|job|jobs)([./].*)?$/, denied: "Viewers cannot run, schedule, or observe jobs." },
   { pattern: /^(tab|tabs|ui|window)([./].*)?$/, denied: "Host UI powers are meaningless outside the desktop shell and are not viewer-reachable." },
@@ -80,7 +77,7 @@ export type RestrictedAppViewerServedResult =
 /**
  * A serve outcome distinguishes what the audience may know (`served`, with a
  * possibly-refusing payload) from what only the publisher may know
- * (`not-available` and its precise reason, surfaced through the glance).
+ * (`not-available` and its precise reason, surfaced through the overview).
  */
 export type RestrictedAppViewerServeOutcome =
   | { state: "served"; result: RestrictedAppViewerCallResult }
@@ -108,7 +105,7 @@ export interface RestrictedAppViewerExposurePins {
  * leaves the desktop.
  */
 export interface RestrictedAppViewerInstanceProjection {
-  spaceId: string;
+  workFolderId: string;
   packageName: string;
   version: string;
   digest: string;
@@ -134,7 +131,7 @@ export interface RestrictedAppViewerStorageReads {
 export interface RestrictedAppViewerAdapterOptions {
   /**
    * Resolves one installed App Instance by its machine-unique
-   * `featureInstallationId`, across every registered Space. Absent means not
+   * `featureInstallationId`, across every registered work-folder. Absent means not
    * installed anywhere on this machine.
    */
   resolveInstance(appInstanceId: string): Promise<RestrictedAppViewerInstanceProjection | null>;
@@ -143,13 +140,17 @@ export interface RestrictedAppViewerAdapterOptions {
   maximumAssetBytes?: number;
 }
 
-export const RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES = 2 * 1024 * 1024;
+/**
+ * One viewer asset read whole into memory. A page published through the relay
+ * is still bounded afterwards by the publication service's own ciphertext cap.
+ */
+export const RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES = 64 * 1024 * 1024;
 
 /** What staging and decision-time recheck need to know about one exposable instance. */
 export type RestrictedAppViewerExposure =
   | {
     eligible: true;
-    spaceId: string;
+    workFolderId: string;
     title: string;
     appId: string;
     pins: RestrictedAppViewerExposurePins;
@@ -255,7 +256,7 @@ export function createRestrictedAppViewerAdapter(options: RestrictedAppViewerAda
     }
     return {
       eligible: true,
-      spaceId: instance.spaceId,
+      workFolderId: instance.workFolderId,
       title: instance.manifest.title,
       appId: instance.manifest.id,
       pins: {

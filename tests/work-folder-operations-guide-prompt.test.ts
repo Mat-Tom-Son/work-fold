@@ -1,0 +1,89 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { PiConversationClient } from "../src/local/agent/pi-client.js";
+import { workFoldToolFeedbackGuide } from "../src/local/agent/tool-feedback-guide.js";
+import {
+  workFolderOperationsGuideForScope,
+  workFoldWorkFolderOperationsGuide,
+  workFoldWorkFolderOperationsGuideHeading,
+  workFoldWorkerWorkingFilesGuide,
+} from "../src/local/agent/work-folder-operations-guide.js";
+
+/**
+ * The operations guide reaches a work-folder Chat's real Pi session as a system
+ * prompt appendix, after the person's work-folder instructions, the way those are
+ * appended (docs/collaboration-contract.md, F26). No model is contacted:
+ * building the session composes the prompt without a turn.
+ */
+test("a work-folder Chat's system prompt carries work-folder instructions and then the operations guide", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-guide-prompt-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const agentDir = join(root, "agent");
+  const workFolderRoot = join(root, "work-folder");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await mkdir(workFolderRoot, { recursive: true });
+  const provider = {
+    async resolveRuntime() {
+      return { agentDir, workerInstructions: "Prefer short answers." };
+    },
+  };
+
+  const guided = new PiConversationClient("guide", workFolderRoot, provider, undefined, {
+    operationsGuide: workFolderOperationsGuideForScope("work-folder-1")!,
+  });
+  t.after(() => guided.stop());
+  await guided.getCatalog();
+  const appended = sessionAppendix(guided);
+  assert.equal(appended.length, 4, "work-folder instructions, operations, working files, and shared tool feedback guidance");
+  assert.match(appended[0]!, /^## Worker instructions\n\nPrefer short answers\.$/);
+  assert.ok(appended[1]!.startsWith(workFoldWorkFolderOperationsGuideHeading));
+  assert.equal(appended[2], workFoldWorkerWorkingFilesGuide);
+  assert.equal(appended[3], workFoldToolFeedbackGuide);
+
+  const unguided = new PiConversationClient("plain", workFolderRoot, provider);
+  t.after(() => unguided.stop());
+  await unguided.getCatalog();
+  const plain = sessionAppendix(unguided);
+  assert.equal(plain.length, 2, "management also receives shared tool feedback guidance without work-folder operations");
+  assert.match(plain[0]!, /^## Worker instructions/);
+  assert.equal(plain[1], workFoldToolFeedbackGuide);
+  assert.doesNotMatch(plain.join("\n"), /Worker working files/);
+
+  // The guide is a session appendix; nothing new is written into the work-folder's folder.
+  const { readdir } = await import("node:fs/promises");
+  assert.deepEqual(await readdir(workFolderRoot), []);
+});
+
+/**
+ * What the guide teaches has to be what the host does. Two rules cost a work-folder
+ * Agent a refused command or a false boundary if the text drifts:
+ * `chat answer` names the ASKING work-folder, not this one (src/local/server.ts
+ * refuses any other), and `chat wait` returns the destination turn's own
+ * latest reply and the selected request result.
+ */
+test("the guide teaches the two rules the host actually enforces", () => {
+  const guide = workFoldWorkFolderOperationsGuide();
+
+  // `--work-folder` is this work-folder's id everywhere except `chat answer`.
+  assert.match(guide, /child result\/wait and answer reads name the owning work-folder/);
+  assert.match(guide, /chat answer --work-folder <the work-folder that asked>/);
+  assert.match(guide, /Name the asking work-folder, never your own/);
+  assert.match(guide, /### Pages the person may share/);
+  assert.match(guide, /write shareable HTML self-contained/);
+  assert.match(guide, /Script, forms, frames, and external loads are stripped/);
+  assert.doesNotMatch(guide, /chat answer --work-folder <id>/, "the answer verb never shows the caller's own id");
+
+  // `chat wait` does not promise a filter the built path does not apply.
+  assert.doesNotMatch(guide, /never its Chat/);
+  assert.match(guide, /completion returns the latest reply and selected result/);
+
+});
+
+function sessionAppendix(client: PiConversationClient): string[] {
+  const session = (client as unknown as { session: { resourceLoader: { getAppendSystemPrompt(): string[] } } }).session;
+  return session.resourceLoader.getAppendSystemPrompt();
+}

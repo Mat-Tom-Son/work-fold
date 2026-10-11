@@ -15,11 +15,11 @@ interface SecureSettingsFile {
   credentials: PiAuthStorageData;
   remoteAccess: RemoteAccessSettings | null;
   /**
-   * Per-publication page keys for "pages your fold serves"
-   * (docs/fold-publishing.md, rung 2): publicationId -> 32-byte base64url
+   * Per-publication page keys for shared pages
+   * (docs/shared-pages.md, rung 2): publicationId -> 32-byte base64url
    * AES-256-GCM key. Remote access material — operating-system-encrypted
    * beside the device and grant keys, never in the publication store and
-   * never inside a Space folder. The share link's fragment is the only other
+   * never inside a work-folder. The share link's fragment is the only other
    * place a key exists.
    */
   publicationKeys: Record<string, string>;
@@ -55,7 +55,7 @@ const emptySettings = (): SecureSettingsFile => ({
   publicationKeys: {},
 });
 
-/** Encrypted, application-scoped credentials. Never stored inside a Space. */
+/** Encrypted, application-scoped credentials. Never stored inside a work-folder. */
 export class SecureSettingsStore implements PiAuthStorageHost {
   private queue: Promise<void> = Promise.resolve();
   private cache: SecureSettingsFile | undefined;

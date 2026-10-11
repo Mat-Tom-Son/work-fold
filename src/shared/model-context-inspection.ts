@@ -1,8 +1,8 @@
-/** Machine-local diagnostics; these records never become Assistant context. */
+/** Machine-local diagnostics; these records never become agent context. */
 export type ModelContextValue = null | boolean | number | string | ModelContextValue[] | { [key: string]: ModelContextValue };
 
 export interface ModelContextOwner {
-  spaceRoot: string;
+  workFolderRoot: string;
   conversationId: string;
   sessionId: string;
   taskId?: string;
@@ -10,7 +10,7 @@ export interface ModelContextOwner {
 }
 
 export interface ModelContextFilter {
-  spaceRoot?: string;
+  workFolderRoot?: string;
   conversationId?: string;
 }
 

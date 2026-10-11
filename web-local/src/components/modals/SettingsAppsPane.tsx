@@ -3,75 +3,75 @@ import { useEffect, useRef } from "react";
 import type { useRestrictedApps } from "../../hooks/useRestrictedApps";
 import { RestrictedAppsSection } from "../panes/RestrictedAppsSection";
 import { showToast } from "../../ui/feedback";
-import type { RestrictedAppInstalled, SpaceSummary } from "../../types";
+import type { RestrictedAppInstalled, WorkFolderSummary } from "../../types";
 
 export type RestrictedAppsState = ReturnType<typeof useRestrictedApps>;
 
 /**
- * Settings → Apps (2026-09-25): every installed app, listed by the Folder it
+ * Settings → Apps (2026-09-25): every installed app, listed by the work-folder it
  * belongs to, with the grants, connections, automations, data, update and
- * removal controls the retired Folder-owned Apps tab used to hold. Opening
+ * removal controls the retired work-folder-owned Apps tab used to hold. Opening
  * an app itself still happens from its rail entry.
  */
-export function SettingsAppsPane({ spaces, apps, fixtureMode = false, onChangeApp, onOpenBuildChat, onOpenResultFile, onOpenAppStudio }: {
-  spaces: SpaceSummary[];
+export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onChangeApp, onOpenBuildChat, onOpenResultFile, onOpenAppStudio }: {
+  workFolders: WorkFolderSummary[];
   apps: RestrictedAppsState | null;
   fixtureMode?: boolean;
   onChangeApp?: (app: RestrictedAppInstalled) => void;
-  onOpenBuildChat?: (spaceId: string, conversationId: string) => void;
-  onOpenResultFile?: (spaceId: string, path: string) => void;
-  onOpenAppStudio?: (spaceId: string, runtimeInstanceId?: string) => void;
+  onOpenBuildChat?: (workFolderId: string, conversationId: string) => void;
+  onOpenResultFile?: (workFolderId: string, path: string) => void;
+  onOpenAppStudio?: (workFolderId: string, runtimeInstanceId?: string) => void;
 }) {
-  const knownSpaceIds = apps?.knownSpaceIds;
-  const loadingSpaceIds = apps?.loadingSpaceIds;
+  const knownWorkFolderIds = apps?.knownWorkFolderIds;
+  const loadingWorkFolderIds = apps?.loadingWorkFolderIds;
   const refresh = apps?.refresh;
-  const attemptedSpaceIds = useRef(new Set<string>());
+  const attemptedWorkFolderIds = useRef(new Set<string>());
   useEffect(() => {
-    if (!refresh || !knownSpaceIds || !loadingSpaceIds) return;
-    const registered = new Set(spaces.map((space) => space.id));
-    for (const id of attemptedSpaceIds.current) if (!registered.has(id) || knownSpaceIds.has(id)) attemptedSpaceIds.current.delete(id);
-    for (const space of spaces) {
-      if (knownSpaceIds.has(space.id) || attemptedSpaceIds.current.has(space.id)) continue;
+    if (!refresh || !knownWorkFolderIds || !loadingWorkFolderIds) return;
+    const registered = new Set(workFolders.map((workFolder) => workFolder.id));
+    for (const id of attemptedWorkFolderIds.current) if (!registered.has(id) || knownWorkFolderIds.has(id)) attemptedWorkFolderIds.current.delete(id);
+    for (const workFolder of workFolders) {
+      if (knownWorkFolderIds.has(workFolder.id) || attemptedWorkFolderIds.current.has(workFolder.id)) continue;
       // A failed read clears loading without making the catalog known. Record
       // the attempt (including a shared in-flight read) so that transition
       // exposes Retry instead of starting an unbounded request loop.
-      attemptedSpaceIds.current.add(space.id);
-      if (!loadingSpaceIds.has(space.id)) void refresh(space.id);
+      attemptedWorkFolderIds.current.add(workFolder.id);
+      if (!loadingWorkFolderIds.has(workFolder.id)) void refresh(workFolder.id);
     }
-  }, [knownSpaceIds, loadingSpaceIds, refresh, spaces]);
+  }, [knownWorkFolderIds, loadingWorkFolderIds, refresh, workFolders]);
 
-  const foldersWithApps = spaces.filter((space) => (apps?.appsBySpace[space.id] ?? []).length > 0);
-  const loading = spaces.some((space) => loadingSpaceIds?.has(space.id));
-  const failedSpaces = spaces.filter((space) => attemptedSpaceIds.current.has(space.id)
-    && !knownSpaceIds?.has(space.id) && !loadingSpaceIds?.has(space.id));
+  const foldersWithApps = workFolders.filter((workFolder) => (apps?.appsByWorkFolder[workFolder.id] ?? []).length > 0);
+  const loading = workFolders.some((workFolder) => loadingWorkFolderIds?.has(workFolder.id));
+  const failedWorkFolders = workFolders.filter((workFolder) => attemptedWorkFolderIds.current.has(workFolder.id)
+    && !knownWorkFolderIds?.has(workFolder.id) && !loadingWorkFolderIds?.has(workFolder.id));
   const report = (message: string | null) => { if (message) showToast({ text: message, tone: "error" }); };
   return (
     <section className="settings-section settings-apps" aria-labelledby="settings-apps-title">
       <div className="settings-section-heading"><h3 id="settings-apps-title">Apps</h3></div>
-      {!foldersWithApps.length && !failedSpaces.length ? (
+      {!foldersWithApps.length && !failedWorkFolders.length ? (
         <p className="settings-section-note">{loading ? "Loading apps…" : "No apps yet. To make one, open a chat in the work-folder it is for and describe what the app should do. The Worker builds it, and it shows up here."}</p>
       ) : null}
-      {failedSpaces.length ? <p className="settings-section-note" role="status">
-        Could not load apps in {failedSpaces.map((space) => space.name).join(", ")}.{" "}
+      {failedWorkFolders.length ? <p className="settings-section-note" role="status">
+        Could not load apps in {failedWorkFolders.map((workFolder) => workFolder.name).join(", ")}.{" "}
         <button className="ui-control" type="button" onClick={() => {
-          for (const space of failedSpaces) void refresh?.(space.id);
+          for (const workFolder of failedWorkFolders) void refresh?.(workFolder.id);
         }}>Retry Loading Apps</button>
       </p> : null}
-      {foldersWithApps.map((space) => (
-        <section className="settings-apps-folder" aria-label={`Apps in ${space.name}`} key={space.id}>
-          <h4 className="settings-apps-folder-title">{space.name}</h4>
+      {foldersWithApps.map((workFolder) => (
+        <section className="settings-apps-folder" aria-label={`Apps in ${workFolder.name}`} key={workFolder.id}>
+          <h4 className="settings-apps-folder-title">{workFolder.name}</h4>
           <RestrictedAppsSection
-            space={space}
-            apps={apps?.appsBySpace[space.id] ?? []}
-            loading={Boolean(loadingSpaceIds?.has(space.id))}
+            workFolder={workFolder}
+            apps={apps?.appsByWorkFolder[workFolder.id] ?? []}
+            loading={Boolean(loadingWorkFolderIds?.has(workFolder.id))}
             fixtureMode={fixtureMode}
             presentation="page"
             onChangeApp={onChangeApp ? async (app) => onChangeApp(app) : undefined}
-            onOpenBuildChat={onOpenBuildChat ? async (spaceId, conversationId) => onOpenBuildChat(spaceId, conversationId) : undefined}
-            onOpenResultFile={onOpenResultFile ? async (spaceId, path) => onOpenResultFile(spaceId, path) : undefined}
-            onOpenAppStudio={(spaceId, runtimeInstanceId) => onOpenAppStudio?.(spaceId ?? space.id, runtimeInstanceId)}
+            onOpenBuildChat={onOpenBuildChat ? async (workFolderId, conversationId) => onOpenBuildChat(workFolderId, conversationId) : undefined}
+            onOpenResultFile={onOpenResultFile ? async (workFolderId, path) => onOpenResultFile(workFolderId, path) : undefined}
+            onOpenAppStudio={(workFolderId, runtimeInstanceId) => onOpenAppStudio?.(workFolderId ?? workFolder.id, runtimeInstanceId)}
             onUpsertApp={(app) => apps?.upsertApp(app)}
-            onRemoveApp={(featureInstallationId) => apps?.removeApp(space.id, featureInstallationId)}
+            onRemoveApp={(featureInstallationId) => apps?.removeApp(workFolder.id, featureInstallationId)}
             onError={report}
           />
         </section>

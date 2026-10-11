@@ -9,7 +9,7 @@
   "updaterCacheDirectoryName": "work-fold-desktop-updater",
   "cliCommand": "work-fold",
   "portableMetadataDirectory": ".work-fold",
-  "managementScopeId": "work-fold-management",
+  "managementScopeId": "work-fold-agent",
   "sourceRepositoryOwner": "Mat-Tom-Son",
   "sourceRepositoryName": "work-fold",
   "macReleaseRepositoryName": "work-fold-mac-releases"

@@ -1,4 +1,4 @@
-// Canned local state for ?fixture=new|chat|needs|spaces QA previews (the
+// Canned local state for ?fixture=new|chat|needs QA previews (the
 // pattern set by the desktop renderer's folder view). Fixture mode is
 // client-side only and inert against the real API: app.js refuses to attach
 // auth, open the event stream, or call fetch while a fixture is showing, so
@@ -6,8 +6,7 @@
 // enough recorded-state shapes to render every screen.
 
 const minutes = (count) => new Date(Date.now() - count * 60_000).toISOString();
-// Calendar days, so the sidebar's date groups are the
-// same in a screenshot taken at any hour.
+// Keep the saved-chat order stable in a screenshot taken at any hour.
 const daysAgo = (count) => {
   const date = new Date();
   date.setDate(date.getDate() - count);
@@ -15,122 +14,74 @@ const daysAgo = (count) => {
   return date.toISOString();
 };
 
-export function buildFixture(name) {
+export function buildFixture(name, { running = false } = {}) {
   const grantId = "fixture-grant";
-  const messages = [
-    {
-      id: "message-1",
-      role: "user",
-      content: "Pull the numbers together for the quarterly report and flag anything that looks off.",
-      attachments: [{ kind: "file", name: "q3-numbers.csv" }],
-    },
-    {
-      id: "message-2",
-      role: "assistant",
-      content: "Looked through **q3-numbers.csv** and started a summary:\n\n- Revenue is up 12% quarter over quarter\n- Two invoices are missing purchase orders\n- `travel` is coded inconsistently across months\n\nI put a draft in `reports/q3-summary.md`. Want me to reconcile the invoice gaps next?",
-    },
-    {
-      id: "message-3",
-      role: "user",
-      source: "remote_web",
-      content: "Yes — reconcile them, and keep the draft in sentence case.",
-    },
-  ];
   const conversations = [
-    { id: "chat-1", title: "Quarterly report", updatedAt: minutes(2), state: "running" },
-    { id: "chat-2", title: "Field notes cleanup", updatedAt: minutes(140), state: "idle", needsAnswer: true },
-    { id: "chat-3", title: "Grant application draft", updatedAt: daysAgo(1), state: "idle" },
-    { id: "chat-4", title: "Reading list", updatedAt: daysAgo(4), state: "idle" },
+    { id: "chat-1", title: "A weekend in Montréal", updatedAt: minutes(2), state: "idle" },
+    { id: "chat-2", title: "Quarterly report", updatedAt: minutes(140), state: running ? "running" : "idle" },
+    { id: "chat-3", title: "Website copy", updatedAt: daysAgo(1), state: "idle" },
+    { id: "chat-4", title: "Reading notes", updatedAt: daysAgo(4), state: "idle" },
   ];
-  const glance = {
-    cursor: `${minutes(4)}/change-1`,
-    seen: { [`remote:${grantId}`]: `${minutes(90)}/change-4` },
-    running: [
-      { id: "run-1", spaceName: "Launch plan", headline: "Worker turn running" },
-      { id: "run-2", spaceName: "Field notes", headline: "Check run in progress" },
-    ],
-    needsYou: [
-      {
-        kind: "chat-question",
-        spaceName: "Field notes",
-        headline: "Keep the older duplicates or archive them?",
-        ref: { conversationId: "chat-2" },
-      },
-    ],
-    changes: [
-      { id: "change-1", at: minutes(4), spaceName: "Launch plan", headline: "Checkpoint saved before edits" },
-      { id: "change-2", at: minutes(26), headline: "Chat renamed to Grant application draft" },
-      { id: "change-3", at: minutes(70), spaceName: "Field notes", headline: "Turn finished" },
-      { id: "change-4", at: minutes(95), headline: "Denied: install weather-widget 0.2.1" },
-      { id: "change-5", at: minutes(60 * 9), spaceName: "Old scans", headline: "Check run settled: needs attention" },
-    ],
-    checks: [
-      { spaceName: "Old scans", state: "needs-attention", needsAttention: 2 },
-      { spaceName: "Launch plan", state: "current-clear" },
-    ],
-    truncated: { changes: true },
-    unavailable: [],
-  };
-  const summary = {
-    state: "running",
-    latestRequest: {
-      phase: "working",
-      canStop: true,
-      taskId: "task-1",
-      startedAt: minutes(2),
-      children: [
-        { spaceName: "Launch plan", state: "running" },
-        { spaceId: "space-2", spaceName: "Field notes", state: "succeeded", files: ["delivery-plan.md"] },
-      ],
-      dispositions: [{ attachment: { name: "q3-numbers.csv" }, status: "library" }],
-      actions: [
-        { command: "files.add", spaceId: "space-1", spaceName: "Launch plan", copied: ["reports/q3-summary.md"] },
-        { command: "apps.grant", spaceId: "space-1", spaceName: "Launch plan" },
-        { command: "apps.install-preview", apps: [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board",
-          digest: "b".repeat(64), title: "Quote board", version: "0.9.0" }] },
-      ],
-    },
-  };
+  const transcript = (id, entries) => entries.map(([role, content, attachments], index) => ({
+    id: `${id}-message-${index + 1}`, role, content, ...(attachments ? { attachments } : {}),
+  }));
+  const idle = (messages) => ({ messages, summary: { state: "idle", capabilities: { delete: true } }, work: null,
+    activeTasks: new Map(), liveAssistantText: "", liveAssistantTextTruncated: false, liveActivity: "" });
+  const fixtureThreads = new Map([
+    ["chat-1", idle(transcript("trip", [
+      ["user", "Help me plan a relaxed weekend in Montréal. We arrive Friday afternoon and head home Sunday."],
+      ["assistant", "I’d leave room to wander and give each day just one main plan.\n\n**Friday** — Settle in, take a walk through Old Montréal, and have dinner nearby.\n\n**Saturday** — Start with a slow breakfast, spend the afternoon around Mile End, and leave the evening open.\n\n**Sunday** — Coffee, a walk in Mount Royal Park, then head home.\n\nWhere are you staying? I can shape the route around your neighborhood."],
+      ["user", "Near the Plateau. We’d rather walk than drive."],
+      ["assistant", "Then I’d make the Plateau your base and keep Saturday entirely on foot. Put Old Montréal on Friday and Mount Royal on Sunday. That gives you three different parts of the city without spending the weekend in transit."],
+    ]))],
+    ["chat-2", idle(transcript("report", [
+      ["user", "Summarize the quarter and flag anything I should check before sharing the report.", [{ kind: "file", name: "q3-numbers.csv" }]],
+      ["assistant", "Revenue is up **12%** over last quarter. Two invoices need purchase-order references, and travel expenses use different category names across the months.\n\nI saved the summary in `reports/q3-summary.md`, with those three items called out for review."],
+    ]))],
+    ["chat-3", idle(transcript("copy", [
+      ["user", "Make this website introduction sound less corporate: ‘We deliver innovative solutions that empower organizations to unlock their potential.’"],
+      ["assistant", "Try something more direct:\n\n> We help small teams turn good ideas into useful products.\n\nIt says who you work with and what you help them do. If you tell me what you actually make, I can make the line more specific."],
+      ["user", "We design websites for independent shops."],
+      ["assistant", "> Thoughtful websites for independent shops.\n\nFor a supporting sentence: ‘We design clear, welcoming sites that make it easy for people to find you and buy from you.’"],
+    ]))],
+    ["chat-4", idle(transcript("reading", [
+      ["user", "Give me a simple way to keep notes from the books I’m reading. Nothing elaborate."],
+      ["assistant", "One file per book, with three headings:\n\n### Ideas to keep\nA few sentences in your own words.\n\n### Passages to return to\nThe quote and its page number.\n\n### What this changes\nOne thing you might think about or do differently.\n\nAdd to it as you read. You don’t need to fill every section."],
+    ]))],
+  ]);
+  fixtureThreads.get("chat-2").summary.latestRequest = { phase: "succeeded",
+    actions: [{ command: "files.add", workFolderId: "work-folder-1", workFolderName: "Launch plan", copied: ["reports/q3-summary.md"] }] };
+  if (running) {
+    const report = fixtureThreads.get("chat-2");
+    Object.assign(report, {
+      messages: report.messages.slice(0, 1),
+      summary: { state: "running", latestRequest: { phase: "working", canStop: true, taskId: "task-2",
+        actions: [{ command: "files.add", workFolderId: "work-folder-1", workFolderName: "Launch plan", copied: ["reports/q3-summary.md"] }] } },
+      activeTasks: new Map([["chat-2", { taskId: "task-2", conversationId: "chat-2" }]]),
+      liveAssistantText: "I’m checking the invoice references and putting the summary together.",
+    });
+  }
+  const selectedConversationId = running ? "chat-2" : "chat-1";
   return {
     context: name,
     state: {
       context: { slug: "casey", addressAvailable: true, authenticated: true },
       session: { paired: true, desktopOnline: true, slug: "casey", grant: { id: grantId } },
       identity: { grantId },
-      spaces: [
-        { id: "space-1", name: "Launch plan" },
-        { id: "space-2", name: "Field notes" },
-      ],
-      explorerSpaceId: "space-1",
-      spaceApps: new Map([["space-2", []], ["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
-      trees: new Map([
-        ["space-2:", []],
-        ["space-1:", [
-          { kind: "folder", name: "reports", path: "reports" },
-          { kind: "file", name: "q3-numbers.csv", path: "q3-numbers.csv", sizeBytes: 48_213 },
-          { kind: "file", name: "notes.md", path: "notes.md", sizeBytes: 2_140 },
-        ]],
-        ["space-1:reports", [
-          { kind: "file", name: "q3-summary.md", path: "reports/q3-summary.md", sizeBytes: 9_812 },
-        ]],
-      ]),
-      treeStatus: new Map([
-        ["space-2:", "loaded"],
-        ["space-1:", "loaded"],
-        ["space-1:reports", "loaded"],
-      ]),
-      treeTruncated: new Map(),
-      expanded: new Set(["space-1:reports"]),
+      workFolderApps: new Map([["work-folder-2", []], ["work-folder-1", [{ workFolderId: "work-folder-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
       conversations,
-      selectedConversationId: "chat-1",
-      messages,
-      transcriptConversationId: "chat-1",
+      conversationsLoaded: true,
+      sharedPagesAvailable: true,
+      fixtureSharedPages: [
+        { publicationId: "fixture-quarterly", title: "Quarterly overview", kind: "page", health: { state: "live" } },
+        { publicationId: "fixture-trip", title: "Montréal weekend", kind: "page", health: { state: "live" } },
+        { publicationId: "fixture-reading", title: "Reading notes", kind: "page", health: { state: "live" } },
+      ],
+      selectedConversationId,
+      fixtureThreads,
+      ...structuredClone(fixtureThreads.get(selectedConversationId)),
+      transcriptConversationId: selectedConversationId,
       transcriptTruncated: false,
-      summary,
-      activeTasks: new Map([["chat-1", { taskId: "task-1", conversationId: "chat-1" }]]),
-      liveAssistantText: "I’m reconciling the two missing purchase orders now and checking the draft’s sentence case.",
-      liveAssistantTextTruncated: false,
-      glance,
     },
   };
 }

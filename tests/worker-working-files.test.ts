@@ -3,11 +3,11 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { scanSpaceTree } from "../src/local/space.js";
-import { searchSpace } from "../src/local/search.js";
-import { createSpaceCheckpoint, restoreSpaceCheckpoint } from "../src/local/history.js";
+import { scanWorkFolderTree } from "../src/local/work-folder.js";
+import { searchWorkFolder } from "../src/local/search.js";
+import { createWorkFolderCheckpoint, restoreWorkFolderCheckpoint } from "../src/local/history.js";
 import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
-import { containsReservedSpacePathSegment } from "../src/local/space-path-policy.js";
+import { containsReservedWorkFolderPathSegment } from "../src/local/work-folder-path-policy.js";
 
 test("Worker scratch remains ordinary visible, searchable and recoverable content", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-worker-files-"));
@@ -19,15 +19,15 @@ test("Worker scratch remains ordinary visible, searchable and recoverable conten
   const path = ".worker/task-a/ocr.txt";
   await writeFile(join(folder, path), "Worker scratch search marker\n");
   await writeFile(join(folder, ".worker/task-b/notes.txt"), "Independent task\n");
-  const tree = await scanSpaceTree(folder);
+  const tree = await scanWorkFolderTree(folder);
   assert.ok(tree.entries.some(entry => entry.path === ".worker"));
-  assert.equal(containsReservedSpacePathSegment(path), false, "attachments, Checks and grants use ordinary content policy");
-  const result = await searchSpace(folder, "scratch search marker");
+  assert.equal(containsReservedWorkFolderPathSegment(path), false, "attachments, Checks and grants use ordinary content policy");
+  const result = await searchWorkFolder(folder, "scratch search marker");
   assert.ok(result.files.some(file => file.path === path));
-  const checkpoint = await createSpaceCheckpoint(folder, { reason: "manual" });
+  const checkpoint = await createWorkFolderCheckpoint(folder, { reason: "manual" });
   assert.ok(checkpoint.files.some(file => file.path === path));
   await writeFile(join(folder, path), "Edited scratch\n");
-  await restoreSpaceCheckpoint(folder, checkpoint.checkpointId);
+  await restoreWorkFolderCheckpoint(folder, checkpoint.checkpointId);
   assert.equal(await readFile(join(folder, path), "utf8"), "Worker scratch search marker\n");
   assert.equal(await readFile(join(folder, ".worker/task-b/notes.txt"), "utf8"), "Independent task\n");
 });

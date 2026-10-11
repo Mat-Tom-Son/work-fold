@@ -98,7 +98,7 @@ test("AuthorityStamp requires exactly seven independently typed fields and no sc
     withoutField(authorityFixture(), "dataGeneration"),
     { ...authorityFixture(), grantGeneration: 2 },
     { ...authorityFixture(), grantGeneration: "" },
-    { ...authorityFixture(), grantGeneration: "contains space" },
+    { ...authorityFixture(), grantGeneration: "contains work-folder" },
   ]) {
     assert.throws(() => parseAuthorityStamp(invalid), /AuthorityStamp|Generation|generation/);
   }
@@ -159,13 +159,13 @@ test("RuntimeInstanceContext is a strict release-less development or release-bac
   const development = parseRuntimeInstanceContext({
     kind: "development",
     runtimeInstanceId,
-    spaceId: "space-123",
+    workFolderId: "work-folder-123",
     projectId,
   });
   assert.deepEqual(development, {
     kind: "development",
     runtimeInstanceId,
-    spaceId: "space-123",
+    workFolderId: "work-folder-123",
     projectId,
   });
   assert.equal("releaseDigest" in development, false);
@@ -179,7 +179,7 @@ test("RuntimeInstanceContext is a strict release-less development or release-bac
   }
 
   for (const invalid of [
-    { kind: "development", runtimeInstanceId, spaceId: "space-123", projectId, releaseDigest },
+    { kind: "development", runtimeInstanceId, workFolderId: "work-folder-123", projectId, releaseDigest },
     { kind: "development", runtimeInstanceId, projectId },
     { kind: "app", runtimeInstanceId, host: "desktop", releaseDigest },
     { kind: "app", runtimeInstanceId, host: "local" },

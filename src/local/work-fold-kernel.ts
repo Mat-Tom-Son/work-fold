@@ -15,17 +15,17 @@ import {
   type PiRuntimeProvider,
 } from "./agent/pi-runtime-config.js";
 import {
-  getSpace,
-  listSpaces,
-  type SpaceLocation,
-  type SpaceSummary,
-} from "./space.js";
+  getWorkFolder,
+  listWorkFolders,
+  type WorkFolderLocation,
+  type WorkFolderSummary,
+} from "./work-folder.js";
 import {
-  composeWorkFoldGlance,
-  type WorkFoldGlanceSnapshot,
-  type WorkFoldGlanceSourceReaders,
-  type WorkFoldGlanceTaskRecord,
-} from "./glance.js";
+  composeWorkFoldOverview,
+  type WorkFoldOverviewSnapshot,
+  type WorkFoldOverviewSourceReaders,
+  type WorkFoldOverviewTaskRecord,
+} from "./overview.js";
 
 export const workFoldKernelSnapshotVersion = 1 as const;
 
@@ -34,38 +34,38 @@ export type WorkFoldActorKind = "human" | "assistant" | "cli" | "renderer" | "ex
 export interface WorkFoldActor {
   kind: WorkFoldActorKind;
   cwd?: string;
-  spaceId?: string;
+  workFolderId?: string;
   conversationId?: string;
 }
 
-export interface WorkFoldSpaceSnapshot {
+export interface WorkFoldWorkFolderSnapshot {
   id: string;
   name: string;
-  spaceRoot: string;
-  location: SpaceLocation;
+  workFolderRoot: string;
+  location: WorkFolderLocation;
   createdAt: string;
   updatedAt: string;
   /**
-   * The nearest registered Space whose folder contains this one (2026-10-01).
-   * Present only in the spaces list and only for a nested Space; additive to
-   * the v1 snapshot, so a top-level Space's shape is unchanged.
+   * The nearest registered work-folder whose folder contains this one (2026-10-01).
+   * Present only in the work-folders list and only for a nested work-folder; additive to
+   * the v1 snapshot, so a top-level work-folder's shape is unchanged.
    */
-  parentSpaceId?: string;
+  parentWorkFolderId?: string;
 }
 
 export interface WorkFoldContextSnapshot {
   kind: "work-fold.context";
   version: typeof workFoldKernelSnapshotVersion;
   actor: WorkFoldActor;
-  resolution: "space_id" | "cwd" | "none";
-  space: WorkFoldSpaceSnapshot | null;
+  resolution: "work-folder_id" | "cwd" | "none";
+  workFolder: WorkFoldWorkFolderSnapshot | null;
 }
 
-export interface WorkFoldSpacesSnapshot {
-  kind: "work-fold.spaces";
+export interface WorkFoldWorkFoldersSnapshot {
+  kind: "work-fold.work-folders";
   version: typeof workFoldKernelSnapshotVersion;
   actor: WorkFoldActor;
-  spaces: WorkFoldSpaceSnapshot[];
+  workFolders: WorkFoldWorkFolderSnapshot[];
 }
 
 export type WorkFoldTaskKind = "assistant_turn" | "compaction";
@@ -74,7 +74,7 @@ export interface WorkFoldTaskSnapshot {
   id: string;
   kind: WorkFoldTaskKind;
   status: "running";
-  spaceId: string;
+  workFolderId: string;
   conversationId?: string;
   actor: WorkFoldActor;
   startedAt: string;
@@ -83,18 +83,18 @@ export interface WorkFoldTaskSnapshot {
 export interface WorkFoldTaskInput {
   id?: string;
   kind: WorkFoldTaskKind;
-  spaceId: string;
+  workFolderId: string;
   conversationId?: string;
   actor: WorkFoldActor;
 }
 
 /**
  * Experimental internal task shape for Checks dogfooding. It is deliberately
- * separate from WorkFoldTaskKind and must not enter space.tasks v1.
+ * separate from WorkFoldTaskKind and must not enter the stable `work-fold.tasks` v1 projection.
  */
 export interface WorkFoldExperimentalCheckRunTaskInput {
   id?: string;
-  spaceId: string;
+  workFolderId: string;
   actor: WorkFoldActor;
 }
 
@@ -102,7 +102,7 @@ export interface WorkFoldExperimentalCheckRunTask {
   id: string;
   kind: "check_run";
   status: "running";
-  spaceId: string;
+  workFolderId: string;
   actor: WorkFoldActor;
   startedAt: string;
 }
@@ -110,15 +110,16 @@ export interface WorkFoldExperimentalCheckRunTask {
 /**
  * Experimental internal task shape for one prepared-act execution: the
  * mutation a receipted verb that installs code, widens a power, or destroys
- * data performs through the prepared-act path (src/local/fold-prepared-acts.ts,
+ * data performs through the prepared-act path (src/local/prepared-acts.ts,
  * docs/receipts-not-gates.md). Following the `check_run` precedent it is
  * deliberately separate from WorkFoldTaskKind and must not enter the stable
- * space.tasks v1 projection. A Space id is present only when the execution
- * mutates one Space; Personal-scope and machine-scope executions carry none.
+ * `work-fold.tasks` v1 projection. A work-folder id is present only when the
+ * execution mutates one work-folder; Everywhere-scope and machine-scope
+ * executions carry none.
  */
-export interface WorkFoldExperimentalFoldActTaskInput {
+export interface WorkFoldExperimentalPreparedActTaskInput {
   id?: string;
-  spaceId?: string;
+  workFolderId?: string;
   /** The journaled act request whose execution this task tracks. */
   requestId: string;
   /** The prepared-act kind being performed. */
@@ -126,11 +127,11 @@ export interface WorkFoldExperimentalFoldActTaskInput {
   actor: WorkFoldActor;
 }
 
-export interface WorkFoldExperimentalFoldActTask {
+export interface WorkFoldExperimentalPreparedActTask {
   id: string;
-  kind: "fold_act";
+  kind: "prepared_act";
   status: "running";
-  spaceId: string | null;
+  workFolderId: string | null;
   requestId: string;
   actKind: string;
   actor: WorkFoldActor;
@@ -138,24 +139,25 @@ export interface WorkFoldExperimentalFoldActTask {
 }
 
 /**
- * Experimental internal task shape for one routing run (docs/fold-routings.md).
+ * Experimental internal task shape for one automation run (docs/automations.md).
  * Following the `check_run` precedent it is deliberately separate from
- * WorkFoldTaskKind and must not enter the stable space.tasks v1 projection. A
- * routing run is cross-Space glue, so it carries no Space id; the glance
- * renders routing runs from their own receipts source, never from this task.
+ * WorkFoldTaskKind and must not enter the stable `work-fold.tasks` v1
+ * projection. An automation run is cross-work-folder glue, so it carries no
+ * work-folder id; the overview
+ * renders automation runs from their own receipts source, never from this task.
  */
-export interface WorkFoldExperimentalRoutingRunTaskInput {
+export interface WorkFoldExperimentalAutomationRunTaskInput {
   id?: string;
-  routingId: string;
+  automationId: string;
   runId: string;
   actor: WorkFoldActor;
 }
 
-export interface WorkFoldExperimentalRoutingRunTask {
+export interface WorkFoldExperimentalAutomationRunTask {
   id: string;
-  kind: "routing_run";
+  kind: "automation_run";
   status: "running";
-  routingId: string;
+  automationId: string;
   runId: string;
   actor: WorkFoldActor;
   startedAt: string;
@@ -165,39 +167,39 @@ export interface WorkFoldTasksSnapshot {
   kind: "work-fold.tasks";
   version: typeof workFoldKernelSnapshotVersion;
   actor: WorkFoldActor;
-  spaceId: string | null;
+  workFolderId: string | null;
   tasks: WorkFoldTaskSnapshot[];
 }
 
 /**
- * Injected readers for the whole-Space History-restore fence
- * (docs/fold-act-ledger.md, conflict rule 7). The kernel's own task registry
- * is the record of which routing runs are active; these readers resolve what
- * an active run means for one Space. Both follow the glance-source pattern:
+ * Injected readers for the whole-work-folder History-restore fence
+ * (docs/act-ledger.md, conflict rule 7). The kernel's own task registry
+ * is the record of which automation runs are active; these readers resolve what
+ * an active run means for one work-folder. Both follow the overview-source pattern:
  * the owning application host wires them over its live services.
  */
 export interface WorkFoldHistoryRestoreFenceSources {
   /**
-   * Space ids the routing's declared files hops copy into (`toSpace`), or
-   * null when the routing's declaration cannot be found. Absent reader and
-   * null/failed reads fail closed: an active routing run whose hops cannot
+   * work-folder ids the automation's declared files hops copy into (`toWorkFolder`), or
+   * null when the automation's declaration cannot be found. Absent reader and
+   * null/failed reads fail closed: an active automation run whose hops cannot
    * be verified blocks the restore rather than racing it.
    */
-  routingRunFilesHopTargets?(routingId: string): Promise<string[] | null>;
+  automationRunFilesHopTargets?(automationId: string): Promise<string[] | null>;
   /**
    * Active (accepted, not yet settled) restricted-app automation runs whose
-   * app holds a file grant into the named Space. The owning host wires it
+   * app holds a file grant into the named work-folder. The owning host wires it
    * over the restricted-app registry's machine-wide accessor
    * (`listActiveAutomationRuns` in
    * `src/local/agent/restricted-app-service.ts`); a run whose grants cannot
    * be resolved is included by that wiring rather than dropped, and a
    * configured reader that fails blocks the restore (fail closed). An absent
-   * reader is absence of evidence, unlike an active routing-run task the
+   * reader is absence of evidence, unlike an active automation-run task the
    * kernel can already see.
    */
-  automationRunsWithFileGrantInto?(spaceId: string): Promise<Array<{
+  appAutomationRunsWithFileGrantInto?(workFolderId: string): Promise<Array<{
     appId: string;
-    automationId: string;
+    appAutomationId: string;
     runId: string;
   }>>;
 }
@@ -345,26 +347,26 @@ export interface WorkFoldCapabilitiesSnapshot {
   kind: "work-fold.capabilities";
   version: typeof workFoldKernelSnapshotVersion;
   actor: WorkFoldActor;
-  space: WorkFoldSpaceSnapshot;
+  workFolder: WorkFoldWorkFolderSnapshot;
   catalog: WorkFoldCapabilityCatalogSnapshot;
 }
 
 export interface WorkFoldKernelOptions {
   runtimeProvider?: PiRuntimeProvider;
-  listSpaces?: () => Promise<SpaceSummary[]>;
-  getSpace?: (spaceId: string) => Promise<SpaceSummary>;
-  loadCapabilityCatalog?: (spaceRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<PiResourceCatalog>;
-  listPackages?: (spaceRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<PiConfiguredPackage[]>;
-  isProjectMutationTrusted?: (spaceRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<boolean>;
+  listWorkFolders?: () => Promise<WorkFolderSummary[]>;
+  getWorkFolder?: (workFolderId: string) => Promise<WorkFolderSummary>;
+  loadCapabilityCatalog?: (workFolderRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<PiResourceCatalog>;
+  listPackages?: (workFolderRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<PiConfiguredPackage[]>;
+  isProjectMutationTrusted?: (workFolderRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<boolean>;
   /**
-   * Injected glance source readers, exactly as `listSpaces` and
+   * Injected overview source readers, exactly as `listWorkFolders` and
    * `loadCapabilityCatalog` are today. The kernel always supplies its own task
-   * registry as the running-task source; an absent reader renders its glance
+   * registry as the running-task source; an absent reader renders its overview
    * kinds as absent.
    */
-  glanceSources?: WorkFoldGlanceSourceReaders;
+  overviewSources?: WorkFoldOverviewSourceReaders;
   /** Reads the per-surface seen markers. The kernel never writes them. */
-  readGlanceSeen?: () => Promise<Record<string, string>>;
+  readOverviewSeen?: () => Promise<Record<string, string>>;
   /** Injected History-restore fence readers; see the interface's fail-closed rules. */
   historyRestoreFenceSources?: WorkFoldHistoryRestoreFenceSources;
   now?: () => Date;
@@ -375,25 +377,25 @@ export class WorkFoldContextRequiredError extends Error {
   readonly code = "WORKFOLD_CONTEXT_REQUIRED";
 
   constructor() {
-    super("A Space must be selected explicitly or resolved from the actor's current directory.");
+    super("A work-folder must be selected explicitly or resolved from the actor's current directory.");
     this.name = "WorkFoldContextRequiredError";
   }
 }
 
 /**
- * Reusable in-process authority for the read-only Space control plane.
- * HTTP, CLI, and Assistant adapters consume the same typed snapshots while
+ * Reusable in-process authority for the read-only work-folder control plane.
+ * HTTP, CLI, and agent adapters consume the same typed snapshots while
  * mutation policy remains in the owning domain services.
  */
 export class WorkFoldKernel {
   readonly #runtimeProvider?: PiRuntimeProvider;
-  readonly #listSpaces: () => Promise<SpaceSummary[]>;
-  readonly #getSpace: (spaceId: string) => Promise<SpaceSummary>;
+  readonly #listWorkFolders: () => Promise<WorkFolderSummary[]>;
+  readonly #getWorkFolder: (workFolderId: string) => Promise<WorkFolderSummary>;
   readonly #loadCapabilityCatalog: WorkFoldKernelOptions["loadCapabilityCatalog"] & {};
   readonly #listPackages: WorkFoldKernelOptions["listPackages"] & {};
   readonly #isProjectMutationTrusted: WorkFoldKernelOptions["isProjectMutationTrusted"] & {};
-  #glanceSources: WorkFoldGlanceSourceReaders;
-  #readGlanceSeen?: () => Promise<Record<string, string>>;
+  #overviewSources: WorkFoldOverviewSourceReaders;
+  #readOverviewSeen?: () => Promise<Record<string, string>>;
   #historyRestoreFenceSources: WorkFoldHistoryRestoreFenceSources;
   readonly #now: () => Date;
   readonly #createTaskId: () => string;
@@ -401,19 +403,19 @@ export class WorkFoldKernel {
     string,
     | WorkFoldTaskSnapshot
     | WorkFoldExperimentalCheckRunTask
-    | WorkFoldExperimentalFoldActTask
-    | WorkFoldExperimentalRoutingRunTask
+    | WorkFoldExperimentalPreparedActTask
+    | WorkFoldExperimentalAutomationRunTask
   >();
 
   constructor(options: WorkFoldKernelOptions = {}) {
     this.#runtimeProvider = options.runtimeProvider;
-    this.#listSpaces = options.listSpaces ?? listSpaces;
-    this.#getSpace = options.getSpace ?? getSpace;
+    this.#listWorkFolders = options.listWorkFolders ?? listWorkFolders;
+    this.#getWorkFolder = options.getWorkFolder ?? getWorkFolder;
     this.#loadCapabilityCatalog = options.loadCapabilityCatalog ?? loadAgentSkillCatalog;
     this.#listPackages = options.listPackages ?? listPiPackages;
     this.#isProjectMutationTrusted = options.isProjectMutationTrusted ?? isPiProjectMutationTrusted;
-    this.#glanceSources = options.glanceSources ?? {};
-    this.#readGlanceSeen = options.readGlanceSeen;
+    this.#overviewSources = options.overviewSources ?? {};
+    this.#readOverviewSeen = options.readOverviewSeen;
     this.#historyRestoreFenceSources = options.historyRestoreFenceSources ?? {};
     this.#now = options.now ?? (() => new Date());
     this.#createTaskId = options.createTaskId ?? (() => `task-${randomUUID()}`);
@@ -421,28 +423,28 @@ export class WorkFoldKernel {
 
   async getContext(actor: WorkFoldActor): Promise<WorkFoldContextSnapshot> {
     const normalizedActor = normalizeActor(actor);
-    if (normalizedActor.spaceId) {
+    if (normalizedActor.workFolderId) {
       return {
         kind: "work-fold.context",
         version: workFoldKernelSnapshotVersion,
         actor: normalizedActor,
-        resolution: "space_id",
-        space: toSpaceSnapshot(await this.#getSpace(normalizedActor.spaceId)),
+        resolution: "work-folder_id",
+        workFolder: toWorkFolderSnapshot(await this.#getWorkFolder(normalizedActor.workFolderId)),
       };
     }
 
     if (normalizedActor.cwd) {
       const cwd = resolve(normalizedActor.cwd);
-      const candidates = (await this.#listSpaces())
-        .filter((space) => pathContains(space.spaceRoot, cwd))
-        .sort((left, right) => resolve(right.spaceRoot).length - resolve(left.spaceRoot).length);
+      const candidates = (await this.#listWorkFolders())
+        .filter((workFolder) => pathContains(workFolder.workFolderRoot, cwd))
+        .sort((left, right) => resolve(right.workFolderRoot).length - resolve(left.workFolderRoot).length);
       if (candidates[0]) {
         return {
           kind: "work-fold.context",
           version: workFoldKernelSnapshotVersion,
           actor: normalizedActor,
           resolution: "cwd",
-          space: toSpaceSnapshot(candidates[0]),
+          workFolder: toWorkFolderSnapshot(candidates[0]),
         };
       }
     }
@@ -452,85 +454,85 @@ export class WorkFoldKernel {
       version: workFoldKernelSnapshotVersion,
       actor: normalizedActor,
       resolution: "none",
-      space: null,
+      workFolder: null,
     };
   }
 
-  async getSpaces(actor: WorkFoldActor): Promise<WorkFoldSpacesSnapshot> {
+  async getWorkFolders(actor: WorkFoldActor): Promise<WorkFoldWorkFoldersSnapshot> {
     return {
-      kind: "work-fold.spaces",
+      kind: "work-fold.work-folders",
       version: workFoldKernelSnapshotVersion,
       actor: normalizeActor(actor),
-      spaces: withParentSpaceIds((await this.#listSpaces()).map(toSpaceSnapshot)),
+      workFolders: withParentWorkFolderIds((await this.#listWorkFolders()).map(toWorkFolderSnapshot)),
     };
   }
 
   async getTasks(actor: WorkFoldActor): Promise<WorkFoldTasksSnapshot> {
     const normalizedActor = normalizeActor(actor);
-    const scoped = Boolean(normalizedActor.spaceId || normalizedActor.cwd);
+    const scoped = Boolean(normalizedActor.workFolderId || normalizedActor.cwd);
     const context = scoped ? await this.getContext(normalizedActor) : null;
-    const spaceId = context?.space?.id ?? null;
+    const workFolderId = context?.workFolder?.id ?? null;
     const tasks = [...this.#tasks.values()]
-      // Only the stable kinds enter the space.tasks v1 projection; the
+      // Only the stable kinds enter the `work-fold.tasks` v1 projection; the
       // experimental check_run and fold_act lifecycles stay internal.
       .filter((task): task is WorkFoldTaskSnapshot => task.kind === "assistant_turn" || task.kind === "compaction")
-      .filter((task) => !scoped || task.spaceId === spaceId)
+      .filter((task) => !scoped || task.workFolderId === workFolderId)
       .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id))
       .map(copyTask);
     return {
       kind: "work-fold.tasks",
       version: workFoldKernelSnapshotVersion,
       actor: normalizedActor,
-      spaceId,
+      workFolderId,
       tasks,
     };
   }
 
   async getCapabilities(actor: WorkFoldActor): Promise<WorkFoldCapabilitiesSnapshot> {
     const context = await this.getContext(actor);
-    if (!context.space) throw new WorkFoldContextRequiredError();
+    if (!context.workFolder) throw new WorkFoldContextRequiredError();
     const [catalog, packages, mutationTrusted] = await Promise.all([
-      this.#loadCapabilityCatalog(context.space.spaceRoot, this.#runtimeProvider),
-      this.#listPackages(context.space.spaceRoot, this.#runtimeProvider),
-      this.#isProjectMutationTrusted(context.space.spaceRoot, this.#runtimeProvider),
+      this.#loadCapabilityCatalog(context.workFolder.workFolderRoot, this.#runtimeProvider),
+      this.#listPackages(context.workFolder.workFolderRoot, this.#runtimeProvider),
+      this.#isProjectMutationTrusted(context.workFolder.workFolderRoot, this.#runtimeProvider),
     ]);
     return {
       kind: "work-fold.capabilities",
       version: workFoldKernelSnapshotVersion,
       actor: context.actor,
-      space: context.space,
+      workFolder: context.workFolder,
       catalog: buildWorkFoldCapabilityCatalog(catalog, packages, mutationTrusted),
     };
   }
 
   /**
-   * Composes the experimental glance digest (version 0) over the kernel's own
-   * task registry, the registered Spaces, and the injected source readers,
-   * with one clock reading. The digest is management-scoped: it never varies
+   * Composes the experimental overview digest (version 0) over the kernel's own
+   * task registry, the registered work-folders, and the injected source readers,
+   * with one clock reading. The digest sits above all work-folders: it never varies
    * by actor, and the actor is normalized only for interface consistency. The
    * experimental snapshot stays out of the stable `work-fold.tasks`/protocol
    * v1 projections, following the `check_run` precedent, and the kernel stays
    * read-only here — it reads seen markers and never writes one.
    */
-  async getGlance(actor: WorkFoldActor): Promise<WorkFoldGlanceSnapshot> {
+  async getOverview(actor: WorkFoldActor): Promise<WorkFoldOverviewSnapshot> {
     normalizeActor(actor);
-    const spaces = (await this.#listSpaces()).map(toSpaceSnapshot);
+    const workFolders = (await this.#listWorkFolders()).map(toWorkFolderSnapshot);
     let seen: Record<string, string> = {};
-    if (this.#readGlanceSeen) {
+    if (this.#readOverviewSeen) {
       try {
-        seen = await this.#readGlanceSeen();
+        seen = await this.#readOverviewSeen();
       } catch {
         // A lost seen table only renders more items as new — over-reporting
         // is the safe failure direction for markers.
         seen = {};
       }
     }
-    return composeWorkFoldGlance({
+    return composeWorkFoldOverview({
       now: this.#now(),
-      spaces: spaces.map((space) => ({ id: space.id, name: space.name, spaceRoot: space.spaceRoot })),
+      workFolders: workFolders.map((workFolder) => ({ id: workFolder.id, name: workFolder.name, workFolderRoot: workFolder.workFolderRoot })),
       sources: {
-        ...this.#glanceSources,
-        runningTasks: async () => this.#glanceTaskRecords(),
+        ...this.#overviewSources,
+        runningTasks: async () => this.#overviewTaskRecords(),
       },
       seen,
     });
@@ -541,66 +543,66 @@ export class WorkFoldKernel {
    * constructs its live-registry source readers and seen-marker reader only
    * after the kernel exists (the desktop builds the kernel first), so this
    * attaches them post-construction. It rewires reads only — the kernel stays
-   * read-only over glance state, and its own task registry still always
+   * read-only over overview state, and its own task registry still always
    * supplies the running-task source.
    */
-  configureGlance(input: {
-    sources?: WorkFoldGlanceSourceReaders;
+  configureOverview(input: {
+    sources?: WorkFoldOverviewSourceReaders;
     readSeen?: () => Promise<Record<string, string>>;
   }): void {
-    if (input.sources) this.#glanceSources = { ...input.sources };
-    if (input.readSeen) this.#readGlanceSeen = input.readSeen;
+    if (input.sources) this.#overviewSources = { ...input.sources };
+    if (input.readSeen) this.#readOverviewSeen = input.readSeen;
   }
 
   /**
    * Post-construction wiring for the History-restore fence readers, exactly
-   * like `configureGlance`: the owning host builds its routing executor after
+   * like `configureOverview`: the owning host builds its automation executor after
    * the kernel exists, so the readers attach here. Reads only — the kernel
-   * never mutates routing or app state through this seam.
+   * never mutates automation or app state through this seam.
    */
   configureHistoryRestoreFence(input: { sources: WorkFoldHistoryRestoreFenceSources }): void {
     this.#historyRestoreFenceSources = { ...input.sources };
   }
 
   /**
-   * The whole-Space History-restore fence (docs/fold-act-ledger.md, conflict
-   * rule 7, item 4): person-readable blockers for restoring the named Space
+   * The whole-work-folder History-restore fence (docs/act-ledger.md, conflict
+   * rule 7, item 4): person-readable blockers for restoring the named work-folder
    * right now, judged from the kernel's own task registry plus the injected
    * fence readers. Restore replaces the working set running work may be
    * writing into, so the rule is deliberate strengthening over the desktop's
    * confirm dialog:
    *
-   * - An active `routing_run` task whose declaration includes a files hop
-   *   into this Space blocks. A run whose hops cannot be verified — no
-   *   reader, an unknown routing, a failed read — blocks too (fail closed):
+   * - An active `automation_run` task whose declaration includes a files hop
+   *   into this work-folder blocks. A run whose hops cannot be verified — no
+   *   reader, an unknown automation, a failed read — blocks too (fail closed):
    *   the registry proves work is running, so unverifiable hops must not
    *   race a restore.
    * - An active restricted-app automation run whose app holds a file grant
-   *   into this Space blocks, through the injected reader; a configured
+   *   into this work-folder blocks, through the injected reader; a configured
    *   reader that fails blocks (fail closed). While no reader is configured
    *   there is no recorded evidence of such runs anywhere in-process, and
    *   this half of the rule stays honestly inactive.
    *
    * The experimental method follows the `check_run` precedent: it is not part
-   * of the stable snapshot surface, and Assistant-turn/compaction/Check-run
+   * of the stable snapshot surface, and turn/compaction/Check-run
    * fencing stays with the act facade's own live route state.
    */
-  async listExperimentalHistoryRestoreBlockers(spaceId: string): Promise<string[]> {
-    const targetSpaceId = spaceId.trim();
-    if (!targetSpaceId) throw new Error("Space task Space id is required.");
+  async listExperimentalHistoryRestoreBlockers(workFolderId: string): Promise<string[]> {
+    const targetWorkFolderId = workFolderId.trim();
+    if (!targetWorkFolderId) throw new Error("A work-folder id is required.");
     const blockers: string[] = [];
-    const routingRuns = [...this.#tasks.values()]
-      .filter((task): task is WorkFoldExperimentalRoutingRunTask => task.kind === "routing_run");
-    const readTargets = this.#historyRestoreFenceSources.routingRunFilesHopTargets;
-    for (const run of routingRuns) {
-      const label = `routing run ${run.runId} (routing ${run.routingId})`;
+    const automationRuns = [...this.#tasks.values()]
+      .filter((task): task is WorkFoldExperimentalAutomationRunTask => task.kind === "automation_run");
+    const readTargets = this.#historyRestoreFenceSources.automationRunFilesHopTargets;
+    for (const run of automationRuns) {
+      const label = `automation run ${run.runId} (automation ${run.automationId})`;
       if (!readTargets) {
         blockers.push(`Wait for the running ${label} to finish before restoring: its files-hop targets cannot be verified in this build.`);
         continue;
       }
       let targets: string[] | null;
       try {
-        targets = await readTargets(run.routingId);
+        targets = await readTargets(run.automationId);
       } catch {
         targets = null;
       }
@@ -608,40 +610,40 @@ export class WorkFoldKernel {
         blockers.push(`Wait for the running ${label} to finish before restoring: its files-hop targets could not be verified.`);
         continue;
       }
-      if (targets.includes(targetSpaceId)) {
-        blockers.push(`Wait for the running ${label} to finish before restoring: it declares a files hop into this Space.`);
+      if (targets.includes(targetWorkFolderId)) {
+        blockers.push(`Wait for the running ${label} to finish before restoring: it declares a files hop into this work-folder.`);
       }
     }
-    const readAutomationRuns = this.#historyRestoreFenceSources.automationRunsWithFileGrantInto;
-    if (readAutomationRuns) {
+    const readAppAutomationRuns = this.#historyRestoreFenceSources.appAutomationRunsWithFileGrantInto;
+    if (readAppAutomationRuns) {
       try {
-        for (const run of await readAutomationRuns(targetSpaceId)) {
+        for (const run of await readAppAutomationRuns(targetWorkFolderId)) {
           blockers.push(
-            `Wait for the running app automation ${run.automationId} of ${run.appId} (run ${run.runId}) to finish before restoring: the app holds a file grant into this Space.`,
+            `Wait for the running app automation ${run.appAutomationId} of ${run.appId} (run ${run.runId}) to finish before restoring: the app holds a file grant into this work-folder.`,
           );
         }
       } catch {
-        blockers.push("Wait before restoring: running app automations with file grants into this Space could not be verified.");
+        blockers.push("Wait before restoring: running app automations with file grants into this work-folder could not be verified.");
       }
     }
     return blockers;
   }
 
-  #glanceTaskRecords(): WorkFoldGlanceTaskRecord[] {
-    // The glance's running-task vocabulary is closed (assistant_turn,
+  #overviewTaskRecords(): WorkFoldOverviewTaskRecord[] {
+    // The overview's running-task vocabulary is closed (assistant_turn,
     // compaction, check_run). A running fold_act execution is deliberately
-    // not projected: the act's receipt reaches the glance through the
+    // not projected: the act's receipt reaches the overview through the
     // act-receipts source, and the execution itself is a short internal step
     // between the accepted and terminal lines. A routing_run task is likewise
-    // excluded: routing runs reach the glance through their own receipts
-    // source, and this internal task carries no Space id to render.
+    // excluded: automation runs reach the overview through their own receipts
+    // source, and this internal task carries no work-folder id to render.
     return [...this.#tasks.values()]
       .filter((task): task is WorkFoldTaskSnapshot | WorkFoldExperimentalCheckRunTask =>
         task.kind === "assistant_turn" || task.kind === "compaction" || task.kind === "check_run")
       .map((task) => ({
         id: task.id,
         kind: task.kind,
-        spaceId: task.spaceId,
+        workFolderId: task.workFolderId,
         ...(task.kind !== "check_run" && task.conversationId ? { conversationId: task.conversationId } : {}),
         startedAt: task.startedAt,
       }));
@@ -649,15 +651,15 @@ export class WorkFoldKernel {
 
   startTask(input: WorkFoldTaskInput): WorkFoldTaskSnapshot {
     const id = input.id?.trim() || this.#createTaskId();
-    if (!id) throw new Error("Space task id is required.");
-    if (this.#tasks.has(id)) throw new Error(`Space task is already running: ${id}`);
-    const spaceId = input.spaceId.trim();
-    if (!spaceId) throw new Error("Space task Space id is required.");
+    if (!id) throw new Error("A task id is required.");
+    if (this.#tasks.has(id)) throw new Error(`A task with this id is already running: ${id}`);
+    const workFolderId = input.workFolderId.trim();
+    if (!workFolderId) throw new Error("A task needs a work-folder id.");
     const task: WorkFoldTaskSnapshot = {
       id,
       kind: input.kind,
       status: "running",
-      spaceId,
+      workFolderId,
       ...(input.conversationId?.trim() ? { conversationId: input.conversationId.trim() } : {}),
       actor: normalizeActor(input.actor),
       startedAt: this.#now().toISOString(),
@@ -668,19 +670,19 @@ export class WorkFoldKernel {
 
   /**
    * Starts a Check run in the shared internal lifecycle without promoting the
-   * experimental kind into the stable space.tasks v1 projection.
+   * experimental kind into the stable `work-fold.tasks` v1 projection.
    */
   startExperimentalCheckRunTask(input: WorkFoldExperimentalCheckRunTaskInput): WorkFoldExperimentalCheckRunTask {
     const id = input.id?.trim() || this.#createTaskId();
-    if (!id) throw new Error("Space task id is required.");
-    if (this.#tasks.has(id)) throw new Error(`Space task is already running: ${id}`);
-    const spaceId = input.spaceId.trim();
-    if (!spaceId) throw new Error("Space task Space id is required.");
+    if (!id) throw new Error("A task id is required.");
+    if (this.#tasks.has(id)) throw new Error(`A task with this id is already running: ${id}`);
+    const workFolderId = input.workFolderId.trim();
+    if (!workFolderId) throw new Error("A task needs a work-folder id.");
     const task: WorkFoldExperimentalCheckRunTask = {
       id,
       kind: "check_run",
       status: "running",
-      spaceId,
+      workFolderId,
       actor: normalizeActor(input.actor),
       startedAt: this.#now().toISOString(),
     };
@@ -690,60 +692,60 @@ export class WorkFoldKernel {
 
   /**
    * Starts one prepared-act execution in the shared internal lifecycle
-   * without promoting the experimental kind into the stable space.tasks v1
-   * projection. The prepared-act executor (src/local/fold-prepared-acts.ts)
+   * without promoting the experimental kind into the stable `work-fold.tasks` v1
+   * projection. The prepared-act executor (src/local/prepared-acts.ts)
    * starts one task per execution and finishes it on every outcome —
    * success, failure, and abort cleanup — so a capability mutation can be
    * fenced against it and no ghost task survives the execution.
    */
-  startExperimentalFoldActTask(input: WorkFoldExperimentalFoldActTaskInput): WorkFoldExperimentalFoldActTask {
+  startExperimentalPreparedActTask(input: WorkFoldExperimentalPreparedActTaskInput): WorkFoldExperimentalPreparedActTask {
     const id = input.id?.trim() || this.#createTaskId();
-    if (this.#tasks.has(id)) throw new Error(`Space task is already running: ${id}`);
+    if (this.#tasks.has(id)) throw new Error(`A task with this id is already running: ${id}`);
     const requestId = input.requestId.trim();
     if (!requestId) throw new Error("Fold act task request id is required.");
     const actKind = input.kind.trim();
     if (!actKind) throw new Error("Fold act task kind is required.");
-    const spaceId = input.spaceId?.trim() || null;
-    if (input.spaceId !== undefined && !spaceId) throw new Error("Space task Space id is required.");
-    const task: WorkFoldExperimentalFoldActTask = {
+    const workFolderId = input.workFolderId?.trim() || null;
+    if (input.workFolderId !== undefined && !workFolderId) throw new Error("A task needs a work-folder id.");
+    const task: WorkFoldExperimentalPreparedActTask = {
       id,
-      kind: "fold_act",
+      kind: "prepared_act",
       status: "running",
-      spaceId,
+      workFolderId,
       requestId,
       actKind,
       actor: normalizeActor(input.actor),
       startedAt: this.#now().toISOString(),
     };
     this.#tasks.set(task.id, task);
-    return copyExperimentalFoldActTask(task);
+    return copyExperimentalPreparedActTask(task);
   }
 
   /**
-   * Starts one routing run in the shared internal lifecycle without promoting
-   * the experimental kind into the stable space.tasks v1 projection. The
-   * routing executor (src/local/routings/routing-service.ts) starts one task
+   * Starts one automation run in the shared internal lifecycle without promoting
+   * the experimental kind into the stable `work-fold.tasks` v1 projection. The
+   * automation executor (src/local/automations/automation-service.ts) starts one task
    * per launched run through its observability port and finishes it on every
    * outcome, so no ghost task survives a settled run.
    */
-  startExperimentalRoutingRunTask(input: WorkFoldExperimentalRoutingRunTaskInput): WorkFoldExperimentalRoutingRunTask {
+  startExperimentalAutomationRunTask(input: WorkFoldExperimentalAutomationRunTaskInput): WorkFoldExperimentalAutomationRunTask {
     const id = input.id?.trim() || this.#createTaskId();
-    if (this.#tasks.has(id)) throw new Error(`Space task is already running: ${id}`);
-    const routingId = input.routingId.trim();
-    if (!routingId) throw new Error("Routing run task routing id is required.");
+    if (this.#tasks.has(id)) throw new Error(`A task with this id is already running: ${id}`);
+    const automationId = input.automationId.trim();
+    if (!automationId) throw new Error("Automation run task automation id is required.");
     const runId = input.runId.trim();
-    if (!runId) throw new Error("Routing run task run id is required.");
-    const task: WorkFoldExperimentalRoutingRunTask = {
+    if (!runId) throw new Error("Automation run task run id is required.");
+    const task: WorkFoldExperimentalAutomationRunTask = {
       id,
-      kind: "routing_run",
+      kind: "automation_run",
       status: "running",
-      routingId,
+      automationId,
       runId,
       actor: normalizeActor(input.actor),
       startedAt: this.#now().toISOString(),
     };
     this.#tasks.set(task.id, task);
-    return copyExperimentalRoutingRunTask(task);
+    return copyExperimentalAutomationRunTask(task);
   }
 
   finishTask(taskId: string): boolean {
@@ -769,7 +771,7 @@ export function buildWorkFoldCapabilityCatalog(
     ...(catalog.resources ? { resources: catalog.resources } : {}),
     projectTrust: { ...projectTrust },
     trust: { ...projectTrust },
-    // Compatibility for older renderers. A Space with no gated resources is
+    // Compatibility for older renderers. A work-folder with no gated resources is
     // runtime-trusted even when it has no saved mutation decision.
     projectTrusted: catalog.projectTrust.trusted,
     packages: packages.map((item) => ({
@@ -891,7 +893,7 @@ function copySurfaceBlock(block: PiSurfaceBlock): PiSurfaceBlock {
 }
 
 function sourceLabel(source: PiCatalogSource): string {
-  const scope = source.scope === "user" ? "Personal" : source.scope === "project" ? "This Space" : "Temporary";
+  const scope = source.scope === "user" ? "Everywhere" : source.scope === "project" ? "This work-folder only" : "Temporary";
   const origin = source.origin === "package"
     ? source.source
     : source.source === "auto" ? "standard Pi location" : source.source;
@@ -928,27 +930,27 @@ function normalizeActor(actor: WorkFoldActor): WorkFoldActor {
   return {
     kind: actor.kind,
     ...(actor.cwd?.trim() ? { cwd: resolve(actor.cwd.trim()) } : {}),
-    ...(actor.spaceId?.trim() ? { spaceId: actor.spaceId.trim() } : {}),
+    ...(actor.workFolderId?.trim() ? { workFolderId: actor.workFolderId.trim() } : {}),
     ...(actor.conversationId?.trim() ? { conversationId: actor.conversationId.trim() } : {}),
   };
 }
 
-function toSpaceSnapshot(space: SpaceSummary): WorkFoldSpaceSnapshot {
+function toWorkFolderSnapshot(workFolder: WorkFolderSummary): WorkFoldWorkFolderSnapshot {
   return {
-    id: space.id,
-    name: space.name,
-    spaceRoot: resolve(space.spaceRoot),
-    location: { ...space.location },
-    createdAt: space.createdAt,
-    updatedAt: space.updatedAt,
+    id: workFolder.id,
+    name: workFolder.name,
+    workFolderRoot: resolve(workFolder.workFolderRoot),
+    location: { ...workFolder.location },
+    createdAt: workFolder.createdAt,
+    updatedAt: workFolder.updatedAt,
   };
 }
 
-function withParentSpaceIds(spaces: WorkFoldSpaceSnapshot[]): WorkFoldSpaceSnapshot[] {
-  const parents = folderParentIds(spaces);
-  return spaces.map((space) => {
-    const parentSpaceId = parents.get(space.id);
-    return parentSpaceId ? { ...space, parentSpaceId } : space;
+function withParentWorkFolderIds(workFolders: WorkFoldWorkFolderSnapshot[]): WorkFoldWorkFolderSnapshot[] {
+  const parents = folderParentIds(workFolders);
+  return workFolders.map((workFolder) => {
+    const parentWorkFolderId = parents.get(workFolder.id);
+    return parentWorkFolderId ? { ...workFolder, parentWorkFolderId } : workFolder;
   });
 }
 
@@ -960,11 +962,11 @@ function copyExperimentalCheckRunTask(task: WorkFoldExperimentalCheckRunTask): W
   return { ...task, actor: { ...task.actor } };
 }
 
-function copyExperimentalFoldActTask(task: WorkFoldExperimentalFoldActTask): WorkFoldExperimentalFoldActTask {
+function copyExperimentalPreparedActTask(task: WorkFoldExperimentalPreparedActTask): WorkFoldExperimentalPreparedActTask {
   return { ...task, actor: { ...task.actor } };
 }
 
-function copyExperimentalRoutingRunTask(task: WorkFoldExperimentalRoutingRunTask): WorkFoldExperimentalRoutingRunTask {
+function copyExperimentalAutomationRunTask(task: WorkFoldExperimentalAutomationRunTask): WorkFoldExperimentalAutomationRunTask {
   return { ...task, actor: { ...task.actor } };
 }
 

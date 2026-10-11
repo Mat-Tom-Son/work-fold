@@ -7,7 +7,7 @@ import type { ChatMessage } from "../web-local/src/types.js";
 const user = (id: string): ChatMessage => ({ id, role: "user", content: id, createdAt: "2026-08-01T00:00:00.000Z" });
 const assistant = (id: string): ChatMessage => ({ id, role: "assistant", content: id, createdAt: "2026-08-01T00:00:01.000Z" });
 
-test("latest Assistant message ignores a trailing user turn", () => {
+test("latest agent message ignores a trailing user turn", () => {
   assert.equal(latestAssistantMessageId([user("user-1"), assistant("assistant-1"), user("user-2")]), "assistant-1");
   assert.equal(latestAssistantMessageId([user("user-only")]), null);
 });

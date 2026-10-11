@@ -126,7 +126,7 @@ export function createSurfaceTabReorder(strip: HTMLElement, options: {
       const all = [...strip.querySelectorAll<HTMLElement>(".surface-tab[data-tab-id]")];
       const element = all.find((peer) => peer.dataset.tabId === id);
       if (!element) return;
-      const peers = options.grouped() ? all.filter((peer) => peer.dataset.spaceId === element.dataset.spaceId) : all;
+      const peers = options.grouped() ? all.filter((peer) => peer.dataset.workFolderId === element.dataset.workFolderId) : all;
       if (peers.length < 2) return;
       suppressClick = false;
       drag = { id, pointerId: event.pointerId, startX: event.clientX, x: event.clientX, scroll: strip.scrollLeft,

@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Copy, Loader2, Share2 } from "lucide-react";
 import { api, ApiError, errorText } from "../../lib/api";
+import { copyToClipboard } from "../../lib/clipboard";
 import { activeSharedPageFor, pageTitleFromFileName, sharedPageLink, sharedPagesSnapshot, type SharedPageView } from "../../lib/page-sharing";
 import { reloadSharedPages, useSharedPages } from "../../hooks/useSharedPages";
-import { fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/space-fixture";
+import { fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/work-folder-fixture";
 import { showToast } from "../../ui/feedback";
-import { fileSharing, foldPublicationsSettings } from "../../ui-contract";
+import { fileSharing, publicationsSettings } from "../../ui-contract";
 
 /** The popover's preferred width and its gutter inside the file pane. */
 const popoverWidth = 440;
@@ -30,14 +31,14 @@ function popoverPlacement(anchor: HTMLElement): CSSProperties {
 /** Share requests from the Files context menu, each handled by the one file tab it names. */
 
 /**
- * The file tab's Share button and its popover (docs/fold-publishing.md,
+ * The file tab's Share button and its popover (docs/shared-pages.md,
  * amended 2026-09-24). Sharing executes on the click through the same path
  * as `pages share` and leaves a receipt — no confirmation — and the popover
  * then holds the page link, composed transiently from the reveal route and
  * dropped when it closes. Stop sharing keeps its confirm.
  */
-export function FileShareControl({ spaceId, path, fileName, fixtureMode = false, shareRequestId, onOpenSettings }: {
-  spaceId: string;
+export function FileShareControl({ workFolderId, path, fileName, fixtureMode = false, shareRequestId, onOpenSettings }: {
+  workFolderId: string;
   path: string;
   fileName: string;
   fixtureMode?: boolean;
@@ -46,7 +47,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
   onOpenSettings?: (page: "shared-pages" | "web-access") => void;
 }) {
   const publications = useSharedPages(fixtureMode);
-  const shared = activeSharedPageFor(publications, spaceId, path);
+  const shared = activeSharedPageFor(publications, workFolderId, path);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<SharedPageView | null>(null);
   const [link, setLink] = useState<string | null>(null);
@@ -78,14 +79,14 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
 
   // Close when this control moves to a different file, not on mount: a
   // StrictMode remount must not wipe a popover a Files-menu Share just opened.
-  const shownFileRef = useRef(`${spaceId}\0${path}`);
+  const shownFileRef = useRef(`${workFolderId}\0${path}`);
   useEffect(() => {
-    const key = `${spaceId}\0${path}`;
+    const key = `${workFolderId}\0${path}`;
     if (shownFileRef.current === key) return;
     shownFileRef.current = key;
     close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spaceId, path]);
+  }, [workFolderId, path]);
 
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) { setPlacement(undefined); return; }
@@ -179,7 +180,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
         await reloadSharedPages({ afterMutation: true });
         if (!currentRequest(request)) return;
       }
-      const existing = activeSharedPageFor(fixtureMode ? publications : sharedPagesSnapshot(), spaceId, path);
+      const existing = activeSharedPageFor(fixtureMode ? publications : sharedPagesSnapshot(), workFolderId, path);
       if (existing) {
         await openFor(existing, request);
         return;
@@ -196,7 +197,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
       }
       const result = await api<{ publication: SharedPageView; revealable: boolean }>("/api/settings/publications/share", {
         method: "POST",
-        body: { spaceId, path, title: pageTitleFromFileName(fileName) },
+        body: { workFolderId, path, title: pageTitleFromFileName(fileName) },
       });
       void reloadSharedPages({ afterMutation: true });
       if (!currentRequest(request)) return;
@@ -209,7 +210,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
         // the host's result and open its link, without replaying a mutation.
         await reloadSharedPages({ afterMutation: true });
         if (!currentRequest(request)) return;
-        const existing = activeSharedPageFor(sharedPagesSnapshot(), spaceId, path);
+        const existing = activeSharedPageFor(sharedPagesSnapshot(), workFolderId, path);
         if (existing) {
           await openFor(existing, request);
           return;
@@ -230,7 +231,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
       showToast({ text: fileSharing.previewDisabled, tone: "info" });
       return;
     }
-    if (!window.confirm(foldPublicationsSettings.stopSharingConfirm)) return;
+    if (!window.confirm(publicationsSettings.stopSharingConfirm)) return;
     close();
     try {
       await api(`/api/settings/publications/${publication.publicationId}/revoke`, { method: "POST", body: {} });
@@ -244,7 +245,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
 
   async function copyLink(value: string) {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyToClipboard({ text: value });
       showToast({ text: fileSharing.linkCopied, tone: "success" });
     } catch (caught) {
       showToast({ text: errorText(caught), tone: "error" });
@@ -280,11 +281,11 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
           {link ? <input className="file-share-link" type="text" readOnly value={link} aria-label="Page link" spellCheck={false} onFocus={(event) => event.currentTarget.select()} /> : null}
           {!link && !linkUnavailable ? <p className="file-share-loading"><Loader2 className="spin" size={12} /></p> : null}
           {linkUnavailable ? <p>{fileSharing.linkInSettings}</p> : null}
-          <p className="file-share-meaning">{foldPublicationsSettings.linkMeaning}</p>
+          <p className="file-share-meaning">{publicationsSettings.linkMeaning}</p>
           <div className="file-share-actions">
             {link ? (
               <button className="ui-control compact no-margin" type="button" onClick={() => void copyLink(link)}>
-                <Copy size={14} />{foldPublicationsSettings.copyLink}
+                <Copy size={14} />{publicationsSettings.copyLink}
               </button>
             ) : null}
             {linkUnavailable && onOpenSettings ? (
@@ -293,7 +294,7 @@ export function FileShareControl({ spaceId, path, fileName, fixtureMode = false,
               </button>
             ) : null}
             <button className="ui-control compact no-margin danger" type="button" onClick={() => void stopSharing(open)}>
-              {foldPublicationsSettings.stopSharing}
+              {publicationsSettings.stopSharing}
             </button>
           </div>
         </div>

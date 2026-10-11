@@ -68,7 +68,7 @@ const localEventMultiplexer = createLocalEventMultiplexer((subscriptions, receiv
 });
 
 export function createEventSource(path: string): LocalEventStream {
-  if (/^\/api\/(?:management\/control-events|management\/conversations\/[^/]+\/events|spaces\/[^/]+\/(?:file-events|conversations\/[^/]+\/events))$/.test(path)) {
+  if (/^\/api\/(?:work-fold-agent\/control-events|work-fold-agent\/conversations\/[^/]+\/events|work-folders\/[^/]+\/(?:file-events|conversations\/[^/]+\/events))$/.test(path)) {
     return localEventMultiplexer.subscribe(path);
   }
   return createDirectEventSource(path).source;

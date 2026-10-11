@@ -16,7 +16,7 @@ export type NativeFileMenuCommand =
   | "delete";
 
 export interface NativeFileMenuRequest {
-  spaceId: string;
+  workFolderId: string;
   path: string;
   kind: "file" | "folder";
   capabilities: {
@@ -29,7 +29,7 @@ export interface NativeFileMenuRequest {
     /** The file type can be shared as a page; `shared` says it already is. */
     share: boolean;
     shared: boolean;
-    /** A plain folder inside this Folder that can get its own Worker (optional; older renderers omit it). */
+    /** A plain folder inside this work-folder that can become its own work-folder (optional; older renderers omit it). */
     worker?: boolean;
   };
   point: { x: number; y: number };
@@ -39,25 +39,25 @@ export type NativeFileMenuItem =
   | { type: "separator" }
   | { type: "item"; label: string; command: NativeFileMenuCommand; icon?: "work-fold" };
 
-const requestKeys = new Set(["spaceId", "path", "kind", "capabilities", "point"]);
+const requestKeys = new Set(["workFolderId", "path", "kind", "capabilities", "point"]);
 const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete", "share", "shared", "worker"]);
 const optionalCapabilityKeys = new Set(["worker"]);
 const pointKeys = new Set(["x", "y"]);
 
 export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuRequest {
   if (!isRecord(value) || !hasOnlyKeys(value, requestKeys)) throw new Error("The native file menu request is invalid.");
-  const spaceId = typeof value.spaceId === "string" ? value.spaceId.trim() : "";
-  if (typeof value.path !== "string") throw new Error("A safe relative Space path is required.");
+  const workFolderId = typeof value.workFolderId === "string" ? value.workFolderId.trim() : "";
+  if (typeof value.path !== "string") throw new Error("A safe relative work-folder path is required.");
   const path = value.path;
   const kind = value.kind;
   const capabilities = value.capabilities;
   const point = value.point;
-  if (!spaceId || spaceId.length > 512) throw new Error("A valid Space id is required.");
+  if (!workFolderId || workFolderId.length > 512) throw new Error("A valid work-folder id is required.");
   if (path.length > 4096 || path.includes("\0") || isAbsolute(path) || /(^|[\\/])\.\.([\\/]|$)/.test(path)) {
-    throw new Error("A safe relative Space path is required.");
+    throw new Error("A safe relative work-folder path is required.");
   }
-  if (kind !== "file" && kind !== "folder") throw new Error("A valid Space entry kind is required.");
-  if (!path && kind !== "folder") throw new Error("The Space root must be a folder.");
+  if (kind !== "file" && kind !== "folder") throw new Error("A valid work-folder entry kind is required.");
+  if (!path && kind !== "folder") throw new Error("The work-folder root must be a folder.");
   if (!isRecord(capabilities) || !hasOnlyKeys(capabilities, capabilityKeys)) throw new Error("Native file menu capabilities are invalid.");
   if (!isRecord(point) || !hasOnlyKeys(point, pointKeys)) throw new Error("The native file menu position is invalid.");
   for (const key of capabilityKeys) {
@@ -66,7 +66,7 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
   }
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error("The native file menu position is invalid.");
   return {
-    spaceId,
+    workFolderId,
     path,
     kind,
     capabilities: {

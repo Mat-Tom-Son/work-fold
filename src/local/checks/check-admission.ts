@@ -1,4 +1,5 @@
-import { loadCheckTextSnapshots } from "./check-text.js";
+import { loadCheckTextSnapshots, modelCheckLimits } from "./check-text.js";
+import { modelReviewTextLimits } from "./model-review-sensor.js";
 import { randomUUID } from "node:crypto";
 
 import type { WorkFoldCheckDeclaration } from "../../shared/checks.js";
@@ -99,10 +100,16 @@ export async function verifyWorkFoldCheckEvidence(
     if (declaration.sensor.id !== "work-fold.text-review" || evidence.identity.checkId !== declaration.id
       || evidence.identity.path !== evidence.path || !Number.isSafeInteger(evidence.start) || evidence.start < 0
       || !Number.isSafeInteger(evidence.end) || typeof evidence.quote !== "string" || !evidence.quote.trim()
-      || evidence.quote.length > 2000 || evidence.end - evidence.start !== evidence.quote.length
+      || evidence.quote.length > modelReviewTextLimits.quote || evidence.end - evidence.start !== evidence.quote.length
       || !Array.isArray(evidence.context)) return false;
     try {
-      const resolution = await resolveWorkFoldCheckTargets(root, declaration.targets);
+      const resolution = await resolveWorkFoldCheckTargets(root, declaration.targets, {
+        limits: {
+          maxFiles: modelCheckLimits.maximumFiles,
+          maxFileBytes: modelCheckLimits.maximumFileBytes,
+          maxTotalBytes: modelCheckLimits.maximumTotalBytes,
+        },
+      });
       const snapshots = await loadCheckTextSnapshots(root, resolution);
       if (snapshots.length !== evidence.context.length || new Set(evidence.context.map((input) => input.path)).size !== snapshots.length) return false;
       for (const snapshot of snapshots) {

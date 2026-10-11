@@ -3,8 +3,8 @@ import { applyAzureOpenAIDeployments, storedAzureOpenAIConnection } from "./azur
 import { resolvePiRuntime, type PiRuntimeProvider } from "./pi-runtime-config.js";
 
 /** Only these non-secret fields may leave Pi's credential store. */
-export async function getAzureOpenAIConnection(spaceRoot: string, provider?: PiRuntimeProvider): Promise<AzureOpenAIConnection> {
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
+export async function getAzureOpenAIConnection(workFolderRoot: string, provider?: PiRuntimeProvider): Promise<AzureOpenAIConnection> {
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
   const saved = await storedAzureOpenAIConnection(runtime.credentials);
   if (saved) return saved;
   const credential = await runtime.credentials.read(AZURE_OPENAI_PROVIDER);
@@ -26,13 +26,13 @@ export async function getAzureOpenAIConnection(spaceRoot: string, provider?: PiR
 }
 
 export async function saveAzureOpenAIConnection(
-  spaceRoot: string,
+  workFolderRoot: string,
   value: unknown,
   apiKey: string | undefined,
   provider?: PiRuntimeProvider,
 ): Promise<void> {
   const settings = normalizeAzureOpenAIConnection(value);
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
   const existing = await runtime.credentials.read(AZURE_OPENAI_PROVIDER);
   const key = apiKey?.trim() || (existing?.type === "api_key" ? existing.key : undefined)
     || (process.env.AZURE_OPENAI_API_KEY ? "$AZURE_OPENAI_API_KEY" : undefined);

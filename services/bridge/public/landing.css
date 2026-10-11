@@ -17,7 +17,7 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   /* Folder geometry: one screen size for every workflow. */
   --pad: 12px;
   --tab: 36px;
-  --bar: 54px;
+  --bar: 78px;
   --shot-w: min(1176px, calc(100vw - 2 * var(--gutter) - 2 * var(--pad)));
   color-scheme: dark;
   position: relative;
@@ -67,14 +67,17 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   radial-gradient(40% 34% at 56% 100%, rgba(32, 196, 160, .16), transparent 70%),
   radial-gradient(36% 30% at 86% 90%, rgba(255, 172, 30, .13), transparent 70%); }
 .landing-hero-copy { position: relative; z-index: 1; width: var(--width); margin: 0 auto; opacity: calc(1 - var(--fade, 0)); }
-.landing-shell h1 { font-family: "Poppins", "Inter Variable", system-ui, sans-serif; font-size: clamp(42px, 4.5vw, 64px); font-weight: 600; line-height: 1.04; letter-spacing: -.045em; }
-.landing-shell h1 span { display: inline-block; }
+.landing-shell h1 { font-family: "Poppins", "Inter Variable", system-ui, sans-serif; font-size: clamp(52px, 5.5vw, 80px); font-weight: 600; line-height: 1.04; letter-spacing: -.045em; }
+.landing-shell h1 span { display: block; }
 .landing-lede { max-width: 30em; margin-top: 22px !important; color: var(--text-2); font-size: clamp(17px, 1.45vw, 20px); line-height: 1.5; letter-spacing: -.008em; text-wrap: pretty; }
 .landing-download-group { max-width: 440px; margin-top: 28px; }
 .landing-download-label { color: var(--text-2); font-size: 14px; font-weight: 500; }
 .landing-downloads { margin-top: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.landing-download { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: 50px; padding: 0 8px; border-radius: 12px; background: var(--text); color: var(--ink) !important; font-size: 15px; font-weight: 600; letter-spacing: -.005em; text-decoration: none; white-space: nowrap; transition: background-color 160ms; }
+.landing-download { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: 60px; padding: 0 8px; border-radius: 12px; background: var(--text); color: var(--ink) !important; font-size: 15px; font-weight: 600; letter-spacing: -.005em; text-decoration: none; white-space: nowrap; transition: background-color 160ms; }
 .landing-download:hover { background: #fff; }
+.landing-download small { display: block; font-size: 10px; font-weight: 500; line-height: 1.4; opacity: .72; }
+.landing-download-preview { color: var(--text) !important; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .18); }
+.landing-download-preview:hover { background: rgba(255, 255, 255, .12); }
 .landing-note { margin-top: 16px !important; display: flex; flex-wrap: wrap; gap: 2px 0; color: var(--muted); font-size: 13px; }
 .landing-note span + span::before { content: "·"; margin: 0 10px; opacity: .7; }
 
@@ -83,17 +86,37 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .landing-stack > .landing-folder { position: relative; z-index: 1; }
 .landing-folder { --body: #e4e9da; --dot: #5c7c2e; width: calc(var(--shot-w) + 2 * var(--pad)); margin: 0 auto; }
 .landing-folder + .landing-folder { margin-top: clamp(40px, 7vh, 72px); }
-.landing-folder-research { --body: #e1e8d6; --dot: #5c7c2e; }
+.landing-folder-receipts { --body: #e1e8d6; --dot: #5c7c2e; }
 .landing-folder-orders { --body: #ecdcee; --dot: #953ea3; --tab-x: 1; }
-.landing-folder-writing { --body: #f6dcdd; --dot: #d11e2a; --tab-x: 2; }
-.landing-folder-files { --body: #f0e2d2; --dot: #af6400; --tab-x: 3; }
-.landing-folder-inbox { --body: #ecdcee; --dot: #9e3aab; }
+.landing-folder-job-search { --body: #dfe5ef; --dot: #41618f; --tab-x: 2; }
+.landing-folder-downloads { --body: #f0e2d2; --dot: #af6400; --tab-x: 3; }
+.landing-folder-tracker { --body: #d9e9e5; --dot: #287868; }
 .landing-folder-inner { position: relative; }
 .landing-tab { position: relative; width: fit-content; min-width: 168px; height: var(--tab); padding: 0 18px; display: flex; align-items: center; gap: 9px; border-radius: 12px 12px 0 0; background: var(--body); color: #1d2024; font-size: 14px; font-weight: 600; letter-spacing: -.005em; transition: filter 240ms; }
 .landing-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); }
 .landing-folder-body { position: relative; padding: 0 var(--pad) var(--pad); border-radius: 0 16px 16px 16px; background: var(--body); box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .7); }
 .landing-folder-bar { height: var(--bar); display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 4px 0 6px; color: #23262b; }
 .landing-folder-bar p { min-width: 0; font-size: 15px; font-weight: 500; line-height: 1.35; letter-spacing: -.008em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.landing-caption { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.landing-folder-bar .landing-request { position: relative; display: grid; overflow: visible; font-weight: 600; }
+.landing-request-measure, .landing-request-type { grid-area: 1 / 1; }
+.landing-request-measure { visibility: hidden; }
+.landing-folder-bar .landing-result { display: block; overflow: visible; color: #46494b; font-size: 13px; font-weight: 400; }
+/* One request, three moments: typed (with a caret), worked on, then the
+   result. The working line and the result share one row, so nothing moves. */
+.landing-caption > .landing-result, .landing-caption > .landing-working { grid-area: 2 / 1; }
+.landing-folder-bar .landing-working { display: none; overflow: visible; color: #46494b; font-size: 13px; font-weight: 500; }
+.motion-ok .landing-folder-bar .landing-working { display: block; opacity: 0; }
+.motion-ok :is(.landing-folder, .landing-scene)[data-work-stage="working"] .landing-working { opacity: 1; animation: landing-shimmer 1.2s ease-in-out infinite; }
+.motion-ok :is(.landing-stack .landing-folder, .landing-scene):not([data-work-stage="done"]) .landing-result { opacity: 0; translate: 0 4px; }
+.motion-ok :is(.landing-stack .landing-folder, .landing-scene)[data-work-stage="done"] .landing-result { transition: opacity 500ms ease 250ms, translate 500ms var(--ease) 250ms; }
+.motion-ok :is(.landing-folder, .landing-scene)[data-work-stage="asking"] .landing-request-type::after { content: ""; display: inline-block; width: 2px; height: 1.05em; margin-left: 2px; vertical-align: -.18em; background: currentColor; animation: landing-caret 900ms steps(1) infinite; }
+@keyframes landing-caret { 50% { opacity: 0; } }
+@keyframes landing-shimmer { 50% { opacity: .45; } }
+.landing-stack .landing-dot, .landing-scene > .landing-tab .landing-dot { background: #2b8750; }
+.motion-ok :is(.landing-folder, .landing-scene):is([data-work-stage="asking"], [data-work-stage="working"]) > * .landing-dot, .motion-ok :is(.landing-folder, .landing-scene):is([data-work-stage="asking"], [data-work-stage="working"]) > .landing-tab .landing-dot { background: var(--dot); animation: landing-working 1.5s ease-in-out infinite; }
+.motion-ok :is(.landing-folder, .landing-scene)[data-work-stage="ahead"] > * .landing-dot { background: var(--dot); }
+@keyframes landing-working { 50% { opacity: .4; box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot) 15%, transparent); } }
 .landing-zoom-button { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid rgba(29, 32, 36, .16); border-radius: 50%; background: rgba(255, 255, 255, .55); color: #2a2d31; cursor: pointer; transition: background-color 160ms, border-color 160ms; }
 .landing-zoom-button:hover { background: #fff; border-color: rgba(29, 32, 36, .3); }
 .landing-zoom-button .landing-icon { width: 16px; height: 16px; }
@@ -101,50 +124,220 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .landing-shot { overflow: hidden; border-radius: 10px; box-shadow: 0 0 0 1px rgba(29, 32, 36, .1); background: #e8e9e4; }
 .landing-shot-media { position: relative; aspect-ratio: 1440 / 862; }
 .landing-shot-media img { width: 100%; height: 100%; cursor: zoom-in; }
-.landing-ring { position: absolute; left: 2.95%; top: 25%; width: 4.4%; aspect-ratio: 1; translate: -50% -50%; border-radius: 30%; box-shadow: 0 0 0 2px rgba(158, 58, 171, .9), 0 0 0 8px rgba(158, 58, 171, .16); pointer-events: none; }
+/* Before and after: the files the Worker started from lie over the finished
+   screen. As the work lands they file away to the left, toward the sidebar
+   where the result lives, and the finished folder shows through. Sizes follow
+   the screen (container units), so every width keeps the same composition. */
+.landing-before { display: none; }
+.motion-ok .landing-before { position: absolute; inset: 0; z-index: 1; display: block; container-type: size; pointer-events: none; background: color-mix(in srgb, var(--body) 42%, #fbfaf6); }
+.motion-ok .landing-folder[data-work-stage="done"] .landing-before { opacity: 0; transition: opacity 700ms ease 450ms; }
+/* A real before capture simply crossfades into the finished one. */
+.motion-ok .landing-folder[data-work-stage="done"] .landing-before-shot { transition: opacity 900ms ease 100ms; }
+.landing-before ul { position: absolute; inset: 0; }
+.landing-file {
+  position: absolute; left: var(--x); top: var(--y);
+  display: flex; flex-direction: column; align-items: center; gap: .45em; width: calc(var(--cell) * .96);
+  color: #26292d; font-size: clamp(10px, calc(var(--cell) * .094), 17px); font-weight: 500; line-height: 1.25; text-align: center;
+  transform: translate(-50%, -50%) rotate(var(--r));
+}
+/* Filed away, left to right, toward the sidebar where the result lives. */
+.motion-ok .landing-folder[data-work-stage="done"] .landing-file {
+  opacity: 0; transform: translate(-50%, -50%) translateX(-24cqw) scale(.55);
+  transition: transform 750ms var(--ease) calc(var(--i) * 280ms), opacity 500ms ease calc(150ms + var(--i) * 280ms);
+}
+/* Each file is drawn like its Finder icon: a page with a folded corner, a
+   hint of what is inside, and its type on a colored badge. */
+.landing-file-icon { --kind: #7b8189; position: relative; flex: none; width: 3.5em; height: 4.45em; background: #fff; clip-path: polygon(0 0, 72% 0, 100% 22%, 100% 100%, 0 100%); filter: drop-shadow(0 .15em .3em rgba(29, 32, 36, .25)); }
+.landing-file-icon::before { content: ""; position: absolute; inset: 22% 16% 30%; background: repeating-linear-gradient(to bottom, #c7cbd1 0 .14em, transparent .14em .42em); }
+.landing-file-icon::after { content: attr(data-ext); position: absolute; left: 50%; bottom: 10%; translate: -50% 0; padding: .12em .38em; border-radius: .25em; background: var(--kind); color: #fff; font-size: .62em; font-weight: 700; letter-spacing: .04em; }
+.landing-file-icon i { position: absolute; right: 0; top: 0; width: 28%; height: 22%; background: linear-gradient(225deg, transparent 50%, #dfe2e6 50%); }
+.landing-file-name { max-width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.landing-file-md .landing-file-icon { --kind: #4f6587; }
+.landing-file-txt .landing-file-icon { --kind: #7b8189; }
+/* Spreadsheets show a grid, web pages a browser bar, images a picture. */
+.landing-file-csv .landing-file-icon { --kind: #2f8a4a; }
+.landing-file-csv .landing-file-icon::before { inset: 22% 14% 32%; background: linear-gradient(#2f8a4a33, #2f8a4a33) 0 0 / 100% 22% no-repeat, repeating-linear-gradient(to right, #9fc8ad 0 1px, transparent 1px 33%), repeating-linear-gradient(to bottom, #9fc8ad 0 1px, transparent 1px 22%); box-shadow: inset 0 0 0 1px #9fc8ad; }
+.landing-file-html .landing-file-icon { --kind: #d0602b; }
+.landing-file-html .landing-file-icon::before { inset: 22% 14% 32%; background: linear-gradient(#f0c9b3, #f0c9b3) 0 0 / 100% 20% no-repeat, linear-gradient(#e6e8eb, #e6e8eb) 0 45% / 70% 14% no-repeat, linear-gradient(#e6e8eb, #e6e8eb) 0 75% / 90% 14% no-repeat; box-shadow: inset 0 0 0 1px #e3c0ab; }
+.landing-file-svg .landing-file-icon { --kind: #8b5cc4; }
+.landing-file-svg .landing-file-icon::before { inset: 22% 14% 32%; background: radial-gradient(circle at 72% 30%, #ffd36b 0 12%, transparent 13%), linear-gradient(160deg, transparent 52%, #7c9b5a 52%) bottom / 100% 60% no-repeat, linear-gradient(200deg, transparent 45%, #93b26c 45%) bottom / 100% 70% no-repeat, linear-gradient(#cfe0f3, #e9f1fa); }
+/* Office documents, photos and archives, for starting files of those types. */
+.landing-file-pdf .landing-file-icon { --kind: #d93025; }
+.landing-file-docx .landing-file-icon { --kind: #2b65c9; }
+.landing-file-xlsx .landing-file-icon { --kind: #1e7a45; }
+.landing-file-xlsx .landing-file-icon::before { inset: 22% 14% 32%; background: linear-gradient(#1e7a4533, #1e7a4533) 0 0 / 100% 22% no-repeat, repeating-linear-gradient(to right, #9fc8ad 0 1px, transparent 1px 33%), repeating-linear-gradient(to bottom, #9fc8ad 0 1px, transparent 1px 22%); box-shadow: inset 0 0 0 1px #9fc8ad; }
+:is(.landing-file-jpg, .landing-file-jpeg, .landing-file-png, .landing-file-heic) .landing-file-icon { --kind: #8b5cc4; }
+:is(.landing-file-jpg, .landing-file-jpeg, .landing-file-png, .landing-file-heic) .landing-file-icon::before { inset: 14% 12% 30%; background: radial-gradient(circle at 72% 30%, #ffd36b 0 12%, transparent 13%), linear-gradient(160deg, transparent 52%, #7c9b5a 52%) bottom / 100% 60% no-repeat, linear-gradient(200deg, transparent 45%, #93b26c 45%) bottom / 100% 70% no-repeat, linear-gradient(#cfe0f3, #e9f1fa); }
+.landing-file-zip .landing-file-icon { --kind: #6b6f75; }
+.landing-file-zip .landing-file-icon::before { inset: 0 auto 34% 42%; width: 16%; background: repeating-linear-gradient(to bottom, #8a8f96 0 .2em, #dfe2e6 .2em .4em); }
+:is(.landing-file-pkg, .landing-file-dmg) .landing-file-icon { --kind: #a06a2c; }
+:is(.landing-file-pkg, .landing-file-dmg) .landing-file-icon::before { inset: 26% 20% 36%; border-radius: .2em; background: linear-gradient(#c89a5f, #c89a5f) 50% 0 / 18% 100% no-repeat, #e7c899; }
+/* A receipt is a narrow slip with a torn edge. */
+.landing-file-receipt .landing-file-icon { width: 2.7em; clip-path: polygon(0 0, 100% 0, 100% 92%, 90% 100%, 80% 92%, 70% 100%, 60% 92%, 50% 100%, 40% 92%, 30% 100%, 20% 92%, 10% 100%, 0 92%); }
+.landing-file-receipt .landing-file-icon::before { inset: 14% 14% 34%; background: linear-gradient(#9aa0a6, #9aa0a6) 0 0 / 60% .16em no-repeat, repeating-linear-gradient(to bottom, transparent 0 .34em, #c7cbd1 .34em .48em); }
+.landing-file-receipt .landing-file-icon i { display: none; }
+/* Two documents read as two pages, larger, with their names beneath. */
+.landing-before-pages .landing-file { width: 20cqw; gap: .7em; font-size: clamp(11px, 1.35cqw, 17px); font-weight: 600; }
+.landing-before-pages .landing-file-icon { width: 9em; height: 11.5em; }
+.landing-before-pages .landing-file-icon::before { inset: 16% 13% 26%; background: linear-gradient(#5c6066, #5c6066) 0 0 / 55% .3em no-repeat, repeating-linear-gradient(to bottom, transparent 0 .62em, #d3d6db .62em .82em); }
+.landing-before-pages .landing-file-icon::after { font-size: .7em; }
+/* Narrow screens keep the scatter as icons; the names would be too small to read. */
+@container (max-width: 560px) {
+  .landing-before:not(.landing-before-pages) .landing-file { font-size: 10px; }
+  .landing-before:not(.landing-before-pages) .landing-file-name { display: none; }
+}
+
+/* Which moment the screen shows, in the window's own empty title bar. */
+.landing-folder-bar .landing-status { display: none; }
+.motion-ok .landing-status { flex: none; display: grid; height: 34px; border-radius: 999px; font-size: 14px; font-weight: 600; letter-spacing: -.005em; pointer-events: none; }
+.landing-status span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 14px; border-radius: inherit; transition: opacity 300ms ease, scale 400ms var(--ease); }
+.landing-status-before { background: rgba(255, 255, 255, .7); color: #2a2d31; box-shadow: inset 0 0 0 1px rgba(29, 32, 36, .18); }
+.landing-status-after { opacity: 0; scale: .9; background: color-mix(in srgb, var(--dot) 90%, #000); color: #fff; }
+.landing-status svg { width: 15px; height: 15px; }
+.landing-folder[data-work-stage="done"] .landing-status-before { opacity: 0; transition-delay: 450ms; }
+.landing-folder[data-work-stage="done"] .landing-status-after { opacity: 1; scale: 1; transition-delay: 450ms; }
+/* What the Worker added, outlined in the finished sidebar. */
+.landing-added { position: absolute; z-index: 0; border-radius: 8px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--dot) 85%, transparent); background: color-mix(in srgb, var(--dot) 9%, transparent); pointer-events: none; }
+.motion-ok .landing-added { opacity: 0; }
+.motion-ok .landing-folder[data-work-stage="done"] .landing-added { opacity: 1; transition: opacity 500ms ease 1100ms; animation: landing-added 1.4s var(--ease) 1100ms 1 both; }
+@keyframes landing-added { 0% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--dot) 85%, transparent), 0 0 0 0 color-mix(in srgb, var(--dot) 40%, transparent); } 60% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--dot) 85%, transparent), 0 0 0 10px transparent; } }
+
+/* The release capture's app control is 44 × 44 at (7, 198). */
+.landing-ring { position: absolute; left: calc(29 / 1440 * 100%); top: calc(220 / 862 * 100%); width: calc(52 / 1440 * 100%); aspect-ratio: 1; translate: -50% -50%; border-radius: 30%; box-shadow: 0 0 0 2px rgba(40, 120, 104, .9), 0 0 0 8px rgba(40, 120, 104, .16); pointer-events: none; }
 
 /* Chapters after the stack: a heading row, then the visual. */
 .landing-chapter { position: relative; z-index: 1; width: var(--width); margin: 0 auto; padding-top: clamp(88px, 12vh, 144px); }
-.landing-chapter-head { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: end; gap: 16px 56px; margin-bottom: clamp(32px, 5vh, 52px); }
+/* Chapter heads: one centered block over the visual, the way a chapter opens. */
+.landing-chapter-head { display: grid; justify-items: center; gap: 18px; margin-bottom: clamp(40px, 6vh, 64px); text-align: center; }
 .landing-shell h2 { font-family: "Poppins", "Inter Variable", system-ui, sans-serif; font-size: clamp(32px, 3.6vw, 52px); font-weight: 600; line-height: 1.04; letter-spacing: -.04em; text-wrap: balance; }
-.landing-chapter-head p { max-width: 34em; color: var(--text-2); font-size: clamp(16px, 1.35vw, 19px); line-height: 1.5; text-wrap: pretty; }
+.landing-chapter-head p { max-width: 36em; color: var(--text-2); font-size: clamp(16px, 1.35vw, 19px); line-height: 1.5; text-wrap: balance; }
 /* The app chapter shares the folders' width so every screen keeps one UI scale. */
 .landing-chapter.landing-app { width: calc(var(--shot-w) + 2 * var(--pad)); }
 
-/* Browser and computer use: Chrome behind, the Mac app in front, and the
-   Worker's own step trail between them as the proof of who did the work. */
+/* Browser and computer use: a drawn desktop where the Job search Worker fills
+   in a sample application in Chrome, stops before Submit, and adds the
+   interview to Calendar. Markup shows the finished moment; data attributes set
+   by the timeline rewind and replay it. Sizes follow the stage (container
+   units), with floors so text stays readable on small screens. */
 .landing-chapter.landing-hands { width: calc(var(--shot-w) + 2 * var(--pad)); }
-.landing-text-link { display: inline-flex; align-items: center; gap: 9px; margin-top: 16px; color: var(--text); font-size: 15px; font-weight: 600; text-decoration: none; }
+.landing-text-link { display: inline-flex; align-items: center; gap: 9px; margin-top: 2px; color: var(--text); font-size: 15px; font-weight: 600; text-decoration: none; }
 .landing-text-link span { border-bottom: 1px solid rgba(255, 255, 255, .28); transition: border-color 160ms; }
 .landing-text-link:hover span { border-color: currentColor; }
-.landing-handoff { position: relative; aspect-ratio: 1153 / 700; }
-.landing-window { position: absolute; margin: 0; overflow: hidden; border-radius: 12px; background: #16181b; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 40px 90px -40px rgba(0, 0, 0, .9); }
-.landing-window img { width: 100%; height: 100%; object-fit: cover; }
-.landing-window-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: none; cursor: zoom-in; }
-.landing-shell .landing-window-open:focus-visible { outline-offset: -3px; }
-/* A keyboard-focused window comes to the front so nothing covers it. */
-.landing-window:has(.landing-window-open:focus-visible) { z-index: 5; }
-/* Chrome keeps its price clear of Numbers; the step trail sits in front, at
-   the same UI scale as the folders, over Numbers' empty lower half and clear
-   of its table. */
-.landing-window-chrome { left: 0; top: 0; width: 58%; aspect-ratio: 1280 / 800; }
-.landing-window-app { right: 0; top: 35.7%; z-index: 2; width: 58%; aspect-ratio: 1280 / 800; }
-.landing-window-steps { left: 28%; bottom: 0; z-index: 3; width: 53%; overflow: visible; background: none; box-shadow: none; }
-.landing-window-tab { --body: #e6ddd3; width: fit-content; height: 34px; padding: 0 16px; display: flex; align-items: center; gap: 8px; border-radius: 12px 12px 0 0; background: var(--body); color: #1d2024; font-size: 13px; font-weight: 600; letter-spacing: -.005em; }
-.landing-window-tab .landing-dot { --dot: #8a5a3c; }
-.landing-window-shot img { height: auto; aspect-ratio: 1560 / 518; }
-.landing-window-shot { overflow: hidden; border: 8px solid #e6ddd3; border-radius: 0 12px 12px 12px; background: #faf7f1; box-shadow: 0 30px 70px -28px rgba(0, 0, 0, .8); }
-.landing-window.is-pending { display: grid; place-items: center; padding: 24px; background: #121417; box-shadow: 0 0 0 1px rgba(255, 255, 255, .06), 0 40px 90px -40px rgba(0, 0, 0, .9); }
-.landing-window.is-pending::before { content: ""; position: absolute; inset: 8px; border: 1px dashed rgba(255, 255, 255, .2); border-radius: 8px; }
-.landing-window-slot { position: relative; display: grid; gap: 6px; max-width: 30ch; text-align: center; }
-.landing-window-slot span { color: #e7b45a; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
-.landing-window-slot strong { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
-.landing-window-slot p { color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.landing-scene { --body: #dfe5ef; --dot: #41618f; }
+/* The windows stand on the page itself, like the folders do. */
+.scene-shot { position: relative; }
+.scene-stage { position: relative; container-type: inline-size; aspect-ratio: 1153 / 700; color: #1f2328; font-family: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.scene-window { position: absolute; overflow: hidden; border-radius: 1cqw; background: #fff; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 3.5cqw 8cqw -3.5cqw rgba(0, 0, 0, .9); transition: filter 450ms var(--ease), transform 450ms var(--ease); }
+.scene-chrome { left: 0; top: 5%; width: 61%; height: 95%; }
+.scene-steps { left: 59%; top: 0; z-index: 2; width: 41%; height: 53%; background: #faf9f6; }
+.scene-calendar { left: 62%; top: 57%; z-index: 1; width: 38%; height: 43%; }
+/* The window the Worker is using comes forward; the others wait in the dark. */
+.motion-ok .scene-stage:is([data-focus="chrome"], [data-focus="steps"], [data-focus="calendar"], [data-focus="mail"]) .scene-window { filter: brightness(.55) saturate(.8); }
+.motion-ok .scene-stage[data-focus="chrome"] .scene-chrome,
+.motion-ok .scene-stage[data-focus="calendar"] .scene-calendar { z-index: 3; filter: none; transform: translateY(-.4cqw); }
+/* The Worker's own window stays readable throughout: it narrates the work. */
+.motion-ok .scene-stage .scene-window.scene-steps { filter: none; }
+.scene-lights { display: flex; gap: .45cqw; }
+.scene-lights i { width: .85cqw; height: .85cqw; border-radius: 50%; background: #ff5f57; }
+.scene-lights i:nth-child(2) { background: #febc2e; }
+.scene-lights i:nth-child(3) { background: #28c840; }
+
+/* Chrome: the Worker's tab group, the address, then the sample form. */
+.scene-tabs { height: 3.3cqw; display: flex; align-items: flex-end; gap: .7cqw; padding: 0 1.1cqw; background: #dee1e6; }
+.scene-tabs .scene-lights { align-self: center; margin-right: .6cqw; }
+.scene-group { align-self: center; padding: .15cqw .6cqw; border-radius: .45cqw; background: #1a73e8; color: #fff; font-size: max(8px, .78cqw); font-weight: 600; }
+.scene-tab { display: flex; align-items: center; gap: .5cqw; padding: .55cqw 1.3cqw; border-radius: .8cqw .8cqw 0 0; background: #fff; font-size: max(8px, .85cqw); box-shadow: inset 0 2px 0 #1a73e8; }
+.scene-tab b { width: .9cqw; height: .9cqw; border-radius: .25cqw; background: #3d6b4f; }
+.scene-toolbar { height: 3.1cqw; display: flex; align-items: center; gap: 1cqw; padding: 0 1.1cqw; border-bottom: 1px solid #e3e5e8; }
+.scene-arrows { color: #9aa0a6; font-size: 1.3cqw; letter-spacing: .3cqw; }
+.scene-url { flex: 1; height: 2.1cqw; display: flex; align-items: center; padding: 0 1.1cqw; border-radius: 1.05cqw; background: #f1f3f4; color: #3c4043; font-size: max(8px, .92cqw); white-space: nowrap; overflow: hidden; }
+.scene-page { padding: 2cqw 3cqw; transition: opacity 350ms ease; }
+.motion-ok .scene-stage[data-page="blank"] .scene-page { opacity: 0; transition: none; }
+.scene-brand { color: #3d6b4f; font-size: max(8px, .82cqw); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.scene-heading { margin-top: .35cqw !important; font-size: max(13px, 1.85cqw); font-weight: 650; letter-spacing: -.02em; }
+.scene-meta { margin-top: .25cqw !important; color: #5f6368; font-size: max(8.5px, .88cqw); }
+.scene-form { margin-top: 1.5cqw; display: grid; gap: 1cqw; }
+.scene-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.2cqw; }
+.scene-field { display: grid; gap: .3cqw; min-width: 0; }
+.scene-label { color: #3c4043; font-size: max(8px, .8cqw); font-weight: 600; }
+.scene-input { display: block; min-height: 2.5cqw; padding: .5cqw .8cqw; border: 1px solid #c9ced6; border-radius: .5cqw; background: #fff; font-size: max(9px, .95cqw); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: box-shadow 200ms ease, border-color 200ms ease; }
+.scene-letter { height: 6.4cqw; white-space: normal; }
+/* Chrome's own focus ring marks the field being filled, with a caret. */
+.scene-field[data-focus] .scene-input, .scene-submit[data-focus] .scene-button { border-color: #1a73e8; box-shadow: 0 0 0 .2cqw rgba(26, 115, 232, .35); }
+.motion-ok .scene-field[data-focus] .scene-value::after { content: ""; display: inline-block; width: 1px; height: 1.1em; margin-left: 1px; vertical-align: -.2em; background: #1f2328; animation: landing-caret 900ms steps(1) infinite; }
+.scene-upload { display: flex; align-items: center; gap: .6cqw; position: relative; border-style: dashed; color: #5f6368; }
+.scene-upload-file { display: none; align-items: center; gap: .45cqw; color: #1f2328; font-weight: 500; }
+.scene-upload-file::before { content: ""; width: .85cqw; height: 1.05cqw; border-radius: .12cqw; background: #d93025; clip-path: polygon(0 0, 68% 0, 100% 26%, 100% 100%, 0 100%); }
+.scene-upload-file::after { content: "✓"; color: #188038; font-weight: 700; }
+.scene-upload-bar { position: absolute; left: 0; bottom: 0; height: .25cqw; width: calc(var(--upload, 0) * 100%); background: #1a73e8; opacity: 0; }
+.scene-field-resume[data-upload="uploading"] .scene-upload-bar { opacity: 1; }
+.scene-field-resume[data-upload="attached"] .scene-upload { border-style: solid; }
+.scene-field-resume[data-upload="attached"] .scene-upload-empty { display: none; }
+.scene-field-resume[data-upload="attached"] .scene-upload-file { display: inline-flex; }
+.scene-submit { display: flex; align-items: center; gap: 1.2cqw; margin-top: .2cqw; }
+.scene-button { padding: .65cqw 1.4cqw; border: 1px solid transparent; border-radius: .6cqw; background: #3d6b4f; color: #fff; font-size: max(9px, .92cqw); font-weight: 600; transition: box-shadow 200ms ease; }
+.scene-held { padding: .3cqw .9cqw; border: 1px solid #efd59c; border-radius: 999px; background: #fff6e0; color: #7a5300; font-size: max(8.5px, .84cqw); font-weight: 600; transition: opacity 350ms ease, translate 350ms var(--ease); }
+.motion-ok .scene-stage[data-held="no"] .scene-held { opacity: 0; translate: -.6cqw 0; transition: none; }
+
+/* work-fold: the Worker's steps, newest at the bottom, in the app's words. */
+.scene-steps-head { height: 3.1cqw; display: flex; align-items: center; gap: .6cqw; padding: 0 1.2cqw; background: var(--body); color: #1d2024; font-size: max(8.5px, .9cqw); font-weight: 600; }
+.scene-steps-head .landing-dot { width: .7cqw; height: .7cqw; background: var(--dot); }
+/* The conversation: your request, the steps as they run, then the reply.
+   Newest at the bottom; earlier lines scroll up out of view. */
+.scene-chat { position: absolute; inset: 3.1cqw 0 0; display: flex; flex-direction: column; justify-content: flex-end; gap: .8cqw; padding: .8cqw 1.2cqw 1.1cqw; overflow: hidden; }
+.scene-ask { flex: none; align-self: flex-end; display: grid; max-width: 88%; padding: .6cqw .9cqw; border-radius: .9cqw .9cqw .25cqw .9cqw; background: #e3e9f2; color: #1d2024; font-size: max(9px, .9cqw); font-weight: 500; line-height: 1.4; }
+.scene-ask > span { grid-area: 1 / 1; }
+.scene-ask .landing-request-measure { visibility: hidden; }
+.motion-ok .landing-scene[data-work-stage="ahead"] .scene-ask { opacity: 0; }
+.scene-step-list { flex: none; display: flex; flex-direction: column; gap: .42cqw; }
+.scene-step-list li { flex: none; display: flex; align-items: center; gap: .55cqw; color: #4a4d52; font-size: max(8.5px, .86cqw); white-space: nowrap; }
+.scene-step-list li::before { content: ""; flex: none; width: .5cqw; height: .5cqw; border-radius: 50%; background: #a3a8ae; }
+.scene-step-list li[data-state="ahead"] { display: none; }
+.scene-step-list li[data-state="active"] { color: #1d2024; font-weight: 600; }
+.scene-step-list li[data-state="active"]::before { background: var(--dot); animation: landing-working 1.2s ease-in-out infinite; }
+.scene-step-list li:not([data-state="active"]) .scene-now, .scene-step-list li[data-state="active"] .scene-was { display: none; }
+.scene-step-list .scene-reply { display: block; margin-top: .3cqw; padding: .6cqw .8cqw; border-radius: .6cqw; background: #eef1f6; color: #1d2024; font-size: max(8.5px, .86cqw); line-height: 1.4; white-space: normal; }
+.scene-step-list .scene-reply::before { display: none; }
+.scene-step-list .scene-reply[data-state="ahead"] { display: none; }
+/* A new request about an email starts the Worker's next piece of work. */
+.scene-step-list .scene-event { display: flex; align-items: center; gap: .7cqw; margin: .5cqw 0 .2cqw; color: #6b6f75; font-size: max(8px, .78cqw); font-weight: 600; white-space: nowrap; }
+.scene-step-list .scene-event::before, .scene-step-list .scene-event::after { content: ""; flex: 1; width: auto; height: 1px; border-radius: 0; background: #dcdfe3; animation: none; }
+.scene-step-list .scene-event[data-state="ahead"] { display: none; }
+
+/* Calendar: the working week and the interview the Worker adds on Wednesday. */
+.scene-cal-bar { height: 2.9cqw; display: flex; align-items: center; gap: 1cqw; padding: 0 1.1cqw; border-bottom: 1px solid #e6e6e6; background: #f6f6f6; font-size: max(8.5px, .95cqw); }
+.scene-cal-grid { position: absolute; inset: 2.9cqw 0 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.scene-cal-day { position: relative; padding: .5cqw .45cqw; border-left: 1px solid #ececec; background: repeating-linear-gradient(to bottom, transparent 0 calc(12% - 1px), #f2f2f2 calc(12% - 1px) 12%) 0 2.4cqw / 100% calc(100% - 2.4cqw) no-repeat; }
+.scene-cal-day:first-child { border-left: 0; }
+.scene-cal-day.is-target { background-color: color-mix(in srgb, var(--dot) 6%, transparent); }
+.scene-cal-date { color: #6b6f75; font-size: max(7.5px, .74cqw); }
+.scene-cal-date b { color: #1d2024; font-weight: 700; }
+.scene-cal-busy { position: absolute; left: .35cqw; right: .35cqw; top: 22%; height: 36%; padding: .3cqw .35cqw; border-left: .22cqw solid #8aa4c8; border-radius: .3cqw; background: #e8eef7; color: #4a5a70; font-size: max(7px, .7cqw); font-style: normal; overflow: hidden; }
+.scene-cal-event { position: absolute; left: .35cqw; right: .35cqw; top: 34%; padding: .35cqw .4cqw; border-radius: .35cqw; background: var(--dot); color: #fff; font-size: max(7px, .7cqw); font-style: normal; font-weight: 600; line-height: 1.25; transition: opacity 400ms ease, transform 500ms var(--ease); }
+.motion-ok .scene-stage[data-event="no"] .scene-cal-event { opacity: 0; transform: translateY(-.8cqw) scale(.94); transition: none; }
+.motion-ok .landing-scene[data-work-stage="done"] .scene-cal-event { box-shadow: 0 0 0 .2cqw color-mix(in srgb, var(--dot) 35%, transparent); }
+.scene-cal-event b { display: block; font-weight: 700; opacity: .85; }
+
+/* A Mail banner, top right like the system's own, while the email is handled. */
+.scene-notice { position: absolute; right: 1.5%; top: 4%; z-index: 5; width: 31%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .9cqw; align-items: start; padding: 1.1cqw 1.2cqw; border-radius: 1.3cqw; background: rgba(244, 244, 246, .96); color: #1d2024; box-shadow: 0 0 0 1px rgba(0, 0, 0, .08), 0 1.8cqw 4.5cqw -1.2cqw rgba(0, 0, 0, .65); opacity: 0; transform: translateX(4cqw); pointer-events: none; transition: opacity 400ms ease, transform 550ms var(--ease); }
+.scene-stage[data-mail="yes"] .scene-notice { opacity: 1; transform: none; }
+.scene-notice-icon { position: relative; width: 2.6cqw; height: 2.6cqw; border-radius: .65cqw; background: linear-gradient(#5ac8fa, #1a73e8); }
+.scene-notice-icon::before { content: ""; position: absolute; inset: 30% 20%; border-radius: .15cqw; background: #fff; }
+.scene-notice-icon::after { content: ""; position: absolute; left: 20%; right: 20%; top: 30%; height: 22%; background: linear-gradient(to bottom right, transparent 48%, #a9c7f5 50%, transparent 54%) left / 50% 100% no-repeat, linear-gradient(to bottom left, transparent 48%, #a9c7f5 50%, transparent 54%) right / 50% 100% no-repeat; }
+.scene-notice-text { display: grid; gap: .15cqw; font-size: max(8.5px, .86cqw); line-height: 1.35; }
+.scene-notice-text b { font-size: max(9px, .92cqw); }
+.scene-notice-text span:first-of-type { font-weight: 600; }
+.scene-notice-text span:last-of-type { color: #55595f; }
+.scene-notice-app { color: #8a8f96; font-size: max(7.5px, .72cqw); white-space: nowrap; }
+
 
 /* Web access: copy and a hierarchy rail on the left; on the right the real
    web client steps down the same order, from your phone to the work-folder. */
-.landing-web { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 40px 56px; align-items: start; }
+.landing-web { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 40px 56px; align-items: start; }
+/* Three lines: "Let your computer / keep working. / Take it with you." */
+.landing-web h2 { font-size: clamp(32px, 2.9vw, 42px); }
 .landing-web-copy p { max-width: 30em; margin-top: 20px !important; color: var(--text-2); font-size: clamp(16px, 1.35vw, 19px); line-height: 1.5; text-wrap: pretty; }
+.landing-web-copy p.landing-alpha { margin-top: 12px !important; color: var(--muted); font-size: 13px; }
 .landing-devices { position: relative; padding-bottom: 8px; }
 .landing-browser { overflow: hidden; border-radius: 14px; background: #1a1c20; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 40px 90px -40px rgba(0, 0, 0, .9); }
 .landing-browser-bar { height: 40px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid rgba(255, 255, 255, .07); }
@@ -167,14 +360,9 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 .landing-route-note { color: var(--muted); font-size: 14px; }
 
 /* Closing */
-.landing-end { width: var(--width); margin: 0 auto; padding: clamp(104px, 14vh, 168px) 0 clamp(64px, 9vh, 104px); display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 48px 56px; align-items: start; scroll-margin-top: var(--nav); }
-.landing-end h2 { max-width: 10em; }
-.landing-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 40px; padding-top: 8px !important; }
-.landing-facts li { padding-top: 16px; border-top: 1px solid var(--line); }
-.landing-facts h3 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
-.landing-facts p { margin-top: 6px !important; color: var(--text-2); font-size: 14px; line-height: 1.5; }
-.landing-facts a { text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, .35); }
-.landing-facts a:hover { text-decoration-color: currentColor; }
+/* Closing: the download buttons alone, centered like the chapter heads. */
+.landing-end { width: var(--width); margin: 0 auto; padding: clamp(104px, 14vh, 168px) 0 clamp(64px, 9vh, 104px); display: grid; justify-items: center; scroll-margin-top: var(--nav); }
+.landing-end .landing-download-group { width: min(100%, 520px); max-width: none; margin-top: 0; text-align: center; }
 .landing-footer { width: var(--width); margin: 0 auto; padding: 24px 0 40px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; color: var(--muted); font-size: 13px; }
 .landing-footer nav { display: flex; flex-wrap: wrap; gap: 6px 22px; }
 .landing-footer a { text-decoration: none; }
@@ -195,6 +383,9 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
 @media (min-width: 900px) and (min-height: 640px) {
   .landing-shell { --stick: calc(var(--nav) + 18px); --shot-w: min(1176px, calc(100vw - 2 * var(--gutter) - 2 * var(--pad)), calc((100svh - var(--stick) - 18px - var(--tab) - var(--bar) - var(--pad)) * 1440 / 862)); }
   .motion-ok .landing-stack .landing-folder { position: sticky; top: var(--stick); }
+  /* Each folder holds still for a while before the next one files in, so its
+     request and result can be read while scrolling. */
+  .motion-ok .landing-stack > .landing-folder + .landing-folder { margin-top: 55vh; }
   .motion-ok.is-measuring .landing-stack .landing-folder { position: relative; top: auto; }
   .motion-ok .landing-stack .landing-tab { margin-left: calc(var(--tab-x, 0) * 184px); }
   .motion-ok .landing-stack .landing-folder[data-state="filed"] .landing-tab { filter: brightness(.6) saturate(.7); }
@@ -204,11 +395,11 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .motion-ok .landing-hero { min-height: 100svh; display: flex; align-items: center; padding: var(--nav) 0 0; }
   .motion-ok .landing-hero-copy { width: min(500px, 37vw); margin-left: max(var(--gutter), calc((100% - 1200px) / 2)); }
   .motion-ok .landing-hero .landing-lede { font-size: clamp(16px, 1.3vw, 19px); }
-  .motion-ok .landing-stack .landing-folder-research .landing-folder-inner { transform-origin: 0 0; transform: translate3d(var(--tx, 0), var(--ty, 0), 0) scale(var(--sc, 1)); }
+  .motion-ok .landing-stack .landing-folder-receipts .landing-folder-inner { transform-origin: 0 0; transform: translate3d(var(--tx, 0), var(--ty, 0), 0) scale(var(--sc, 1)); }
   /* Native timelines keep the scroll compensation and reveal on the same
      compositor frame. A linear translate cancels the folder's natural scroll
      until it sticks; the separate eased transform opens it into the stack. */
-  .motion-ok.css-scroll .landing-folder-research .landing-folder-inner {
+  .motion-ok.css-scroll .landing-folder-receipts .landing-folder-inner {
     animation-name: landing-folder-reveal, landing-folder-track;
     animation-duration: auto;
     animation-timing-function: cubic-bezier(.42, 0, .58, 1), linear;
@@ -235,16 +426,11 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .landing-shell:not(.motion-ok) .landing-stack > * { grid-column: 1 / -1; }
   .landing-shell:not(.motion-ok) .landing-stack > .landing-hero { grid-column: 1; }
   .landing-shell:not(.motion-ok) .landing-hero-copy { width: auto; }
-  .landing-shell:not(.motion-ok) .landing-stack > .landing-folder-research { grid-column: 2; width: auto; margin-top: var(--nav); }
+  .landing-shell:not(.motion-ok) .landing-stack > .landing-folder-receipts { grid-column: 2; width: auto; margin-top: var(--nav); }
 }
 
-/* The inbox starts on the sidebar where the app lives and pulls back to the window. */
+/* The tracker starts on the sidebar where the app lives and pulls back to the window. */
 .motion-ok .landing-app .landing-shot-media { transform-origin: 0 18%; transform: scale(calc(1 + (1 - var(--reveal, 1)) * .8)); }
-@media (min-width: 900px) {
-  .motion-ok .landing-window-chrome { transform: translate3d(calc((1 - var(--hand, 1)) * -5%), calc((1 - var(--hand, 1)) * 36px), 0); }
-  .motion-ok .landing-window-app { transform: translate3d(calc((1 - var(--hand, 1)) * 9%), calc((1 - var(--hand, 1)) * 72px), 0); }
-  .motion-ok .landing-window-steps { transform: translate3d(0, calc((1 - var(--hand, 1)) * 96px), 0); }
-}
 @media (min-width: 900px) {
   /* The copy and rail stay beside the devices while they pass. The phone and
      the plan drift against the conversation, and the device crossing the
@@ -278,24 +464,31 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
    timelines exist. Separate translate/scale keep any transform untouched. */
 @supports (animation-timeline: view()) {
   @media (max-width: 899px) {
-    .motion-ok :is(.landing-stack > .landing-folder:not(:first-of-type), .landing-app .landing-folder, .landing-window, .landing-devices > *) {
+    .motion-ok:not(.mobile-stack) .landing-stack > .landing-folder:not(:first-of-type),
+    .motion-ok :is(.landing-app .landing-folder, .landing-scene, .landing-devices > *) {
       animation: landing-enter linear both;
       animation-timeline: view();
       animation-range: entry 0% cover 28%;
     }
   }
 }
+/* A fitting mobile frame uses the same filing motion, with four compact tabs.
+   The class is absent on short screens and when reduced motion is requested. */
+@media (max-width: 899px) {
+  .motion-ok.mobile-stack { --stick: calc(var(--nav) + 12px); }
+  .motion-ok.mobile-stack .landing-stack > .landing-folder { position: sticky; top: var(--stick); }
+  .motion-ok.mobile-stack .landing-stack > .landing-folder + .landing-folder { margin-top: 40vh; }
+  .motion-ok.mobile-stack.is-measuring .landing-stack > .landing-folder { position: relative; top: auto; }
+  .motion-ok.mobile-stack .landing-stack .landing-tab { width: 25%; min-width: 0; margin-left: calc(var(--tab-x, 0) * 25%); padding: 0 7px; gap: 5px; font-size: clamp(10px, 2.6vw, 13px); line-height: 1.1; }
+  .motion-ok.mobile-stack .landing-stack .landing-dot { width: 6px; height: 6px; }
+  .motion-ok.mobile-stack .landing-stack .landing-folder-bar { height: var(--mobile-bar, auto); min-height: var(--bar); }
+  .motion-ok.mobile-stack .landing-stack .landing-folder[data-state="filed"] .landing-tab { filter: brightness(.6) saturate(.7); }
+  .motion-ok.mobile-stack .landing-stack .landing-folder-body { box-shadow: 0 -18px 42px -22px rgba(0, 0, 0, .75), 0 30px 70px -30px rgba(0, 0, 0, .7); }
+}
 @keyframes landing-enter { from { opacity: .25; translate: 0 36px; scale: .965; } }
 @keyframes landing-fade { from { opacity: 0; } }
 
 @media (max-width: 899px) {
-  .landing-chapter-head, .landing-end { grid-template-columns: minmax(0, 1fr); }
-  .landing-handoff { aspect-ratio: auto; display: grid; gap: 14px; }
-  .landing-window { position: relative; inset: auto; width: 100%; }
-  .landing-window-steps { width: 100%; }
-  /* Smaller screens keep Numbers' title, toolbar and table, not its empty sheet. */
-  .landing-window-app { aspect-ratio: 2560 / 820; }
-  .landing-window-app img { object-position: top; }
   .landing-web { grid-template-columns: minmax(0, 1fr); }
   .landing-devices { display: grid; gap: 20px; padding: 0; }
   .landing-devices > .landing-phone { position: relative; width: min(64%, 280px); margin: 0 auto; }
@@ -332,17 +525,37 @@ html:has(.landing-shell) { scroll-padding-top: 96px; }
   .landing-folder-bar p { font-size: 14px; display: block; overflow: visible; }
   .landing-shot { border-radius: 7px; }
   /* Phones: each screen is cropped to the work itself, at nearly twice the
-     size; the full window is one tap away. The inbox crop keeps the sidebar
+     size; the full window is one tap away. The tracker crop keeps the sidebar
      where the Worker-built app lives. */
   .landing-shot-media { aspect-ratio: 830 / 640; overflow: hidden; }
-  .landing-shot-media img { position: absolute; left: calc(-590 / 830 * 100%); top: calc(-56 / 640 * 100%); width: calc(1440 / 830 * 100%); max-width: none; height: auto; }
-  .landing-folder-inbox .landing-shot-media img { left: calc(-10 / 830 * 100%); top: calc(-30 / 640 * 100%); }
-  .landing-folder-inbox .landing-ring { left: calc(32.5 / 830 * 100%); top: calc(185.5 / 640 * 100%); width: calc(63.4 / 830 * 100%); }
+  .landing-shot-media img { position: absolute; left: calc(-560 / 830 * 100%); top: calc(-56 / 640 * 100%); width: calc(1440 / 830 * 100%); max-width: none; height: auto; }
+  .landing-folder-tracker .landing-shot-media img { left: 0; top: calc(-30 / 640 * 100%); }
+  .landing-folder-tracker .landing-ring { left: calc(29 / 830 * 100%); top: calc(190 / 640 * 100%); width: calc(52 / 830 * 100%); }
   .motion-ok .landing-app .landing-shot-media { transform: none; }
+  /* Phones see the scene through a window-sized crop that pans to whichever
+     window the Worker is using: the form, then its steps, then Calendar. */
+  .scene-shot { aspect-ratio: 830 / 640; overflow: hidden; border-radius: 10px; }
+  .scene-stage { position: absolute; left: 0; top: 0; width: calc(1440 / 830 * 100%); transform: translate(-1%, -6%); transition: transform 700ms var(--ease); }
+  .scene-stage:is([data-focus="steps"], [data-focus="mail"]) { transform: translate(-42.4%, 0); }
+  .scene-stage[data-focus="calendar"] { transform: translate(-42.4%, -26%); }
+  /* Keep the held Submit button and the finished interview in the phone crop. */
+  .motion-ok .scene-stage[data-focus="chrome"][data-held="yes"] { transform: translate(-1%, -22%); }
+  .motion-ok .landing-scene[data-work-stage="done"] .scene-stage { transform: translate(-42.4%, -26%); }
+  /* Without the animated pan, each window needs its own readable place. */
+  .landing-shell:not(.motion-ok) .scene-shot { aspect-ratio: auto; overflow: visible; }
+  .landing-shell:not(.motion-ok) .scene-stage { position: relative; width: 100%; aspect-ratio: auto; transform: none; display: grid; gap: 16px; }
+  .landing-shell:not(.motion-ok) .scene-window { position: relative; inset: auto; width: 100%; height: auto; }
+  .landing-shell:not(.motion-ok) .scene-chat { position: relative; inset: auto; }
+  .landing-shell:not(.motion-ok) .scene-step-list li { white-space: normal; }
+  .landing-shell:not(.motion-ok) .scene-calendar { min-height: 180px; }
+  /* The crop leaves out the sidebar and the title bar. */
+  .landing-added { display: none; }
+  /* The caption wraps on phones; the badge lines up with its first line. */
+  .motion-ok .landing-status { align-self: flex-start; height: 28px; font-size: 12.5px; }
+  .landing-status span { padding: 0 10px; }
   .landing-route { padding: 10px 12px !important; gap: 6px; }
   .landing-route-node { font-size: 12.5px; }
   .landing-folder + .landing-folder { margin-top: 44px; }
-  .landing-facts { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .landing-footer { flex-direction: column; align-items: flex-start; }
 }
 

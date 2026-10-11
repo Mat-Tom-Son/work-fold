@@ -11,69 +11,52 @@ import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-wo
 import type { CapabilityRegistryService } from "../src/local/agent/capability-registry.js";
 import { RoutedPiExtensionUiBridge } from "../src/local/agent/extension-ui.js";
 import {
-  RegisteredSpaceRuntimeProvider,
-  RegisteredSpaceTrustAuthority,
-} from "../src/local/agent/registered-space-runtime.js";
+  RegisteredWorkFolderRuntimeProvider,
+  RegisteredWorkFolderTrustAuthority,
+} from "../src/local/agent/registered-work-folder-runtime.js";
 import { appendMessage, createConversation, readConversationSummary } from "../src/local/agent/chat-store.js";
 import { startLocalApi } from "../src/local/server.js";
 import { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
-import { WorkFoldTrashStore } from "../src/local/trash-store.js";
+import { WorkFoldRecentlyDeletedStore } from "../src/local/recently-deleted-store.js";
 
-test("local API covers Space files, the Library, and external restore points", async () => {
+test("local API covers work-folder files and external restore points", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-api-test-"));
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
   });
   try {
     assert.ok(api.kernel instanceof WorkFoldKernel, "startLocalApi must expose its compatible default kernel");
     assert.deepEqual(await json(`${api.origin}/api/bootstrap`), {
-      spaces: [],
+      workFolders: [],
       agent: { ready: true, configured: false, provider: null, model: null, piVersion: null, projectTrusted: false, error: null },
       appearance: { version: 2, revision: 0, customizations: {} },
     });
 
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "API Space" }),
-    }) as { space: { id: string } };
+      body: JSON.stringify({ name: "API work-folder" }),
+    }) as { workFolder: { id: string } };
 
     const files = new FormData();
     files.set("targetFolderPath", "");
     files.set("relativePaths", JSON.stringify(["Notes/readme.md"]));
     files.append("files", new Blob(["# Hello\n"]), "readme.md");
-    await ok(`${api.origin}/api/spaces/${created.space.id}/upload-local-files`, { method: "POST", body: files });
-    const preview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=Notes%2Freadme.md`) as { text: string };
+    await ok(`${api.origin}/api/work-folders/${created.workFolder.id}/upload-local-files`, { method: "POST", body: files });
+    const preview = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/file?path=Notes%2Freadme.md`) as { text: string };
     assert.equal(preview.text, "# Hello\n");
 
-    const resources = new FormData();
-    resources.set("targetFolderPath", "");
-    resources.set("relativePaths", JSON.stringify(["reference.txt"]));
-    resources.append("files", new Blob(["reference"]), "reference.txt");
-    const uploadedLibraryItem = await json(`${api.origin}/api/resources/upload`, { method: "POST", body: resources }) as { uploaded: Array<{ path: string }> };
-    assert.equal(uploadedLibraryItem.uploaded[0]?.path, "reference.txt");
-    const libraryTree = await json(`${api.origin}/api/resources/tree`) as { tree: Array<{ path: string }> };
-    assert.equal(libraryTree.tree[0]?.path, "reference.txt");
-    const copiedLibraryItem = await json(`${api.origin}/api/resources/copy-to-space`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId: created.space.id, paths: ["reference.txt"] }),
-    }) as { copied: string[] };
-    assert.deepEqual(copiedLibraryItem.copied, ["From Library/reference.txt"]);
-    const libraryPreview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
-    assert.equal(libraryPreview.text, "reference");
-
-    const checkpoint = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`, {
+    const checkpoint = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/history/checkpoints`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ label: "API snapshot" }),
     }) as { checkpoint: { checkpointId: string; fileCount: number }; created: boolean };
-    assert.equal(checkpoint.checkpoint.fileCount, 2);
+    assert.equal(checkpoint.checkpoint.fileCount, 1);
     assert.equal(checkpoint.created, true);
-    const duplicateCheckpoint = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`, {
+    const duplicateCheckpoint = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/history/checkpoints`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ label: "Same files" }),
@@ -86,8 +69,8 @@ test("local API covers Space files, the Library, and external restore points", a
   }
 });
 
-test("Assistant credentials require explicit removal before replacement", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-assistant-credential-api-"));
+test("agent credentials require explicit removal before replacement", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-ai-models-credential-api-"));
   const agentDir = join(sandbox, "agent");
   const authStorage = FileCredentialStore.inMemory({
     "credential-test": { type: "api_key", key: "test-key" },
@@ -110,7 +93,7 @@ test("Assistant credentials require explicit removal before replacement", async 
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -119,12 +102,12 @@ test("Assistant credentials require explicit removal before replacement", async 
     },
   });
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Credential Space" }),
-    }) as { space: { id: string } };
-    const before = await json(`${api.origin}/api/agent/models?spaceId=${created.space.id}`) as { models: Array<{ provider: string; authSource?: string; authType?: string }> };
+      body: JSON.stringify({ name: "Credential work-folder" }),
+    }) as { workFolder: { id: string } };
+    const before = await json(`${api.origin}/api/agent/models?workFolderId=${created.workFolder.id}`) as { models: Array<{ provider: string; authSource?: string; authType?: string }> };
     const configured = before.models.find((item) => item.provider === "credential-test");
     assert.equal(configured?.authSource, "stored");
     assert.equal(configured?.authType, "api_key");
@@ -132,7 +115,7 @@ test("Assistant credentials require explicit removal before replacement", async 
     const removed = await json(`${api.origin}/api/agent/auth`, {
       method: "DELETE",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId: created.space.id, provider: "credential-test" }),
+      body: JSON.stringify({ workFolderId: created.workFolder.id, provider: "credential-test" }),
     }) as { models: Array<{ provider: string; authConfigured: boolean; authSource?: string; authType?: string }> };
     const cleared = removed.models.find((item) => item.provider === "credential-test");
     assert.equal(cleared?.authConfigured, false);
@@ -145,64 +128,46 @@ test("Assistant credentials require explicit removal before replacement", async 
   }
 });
 
-test("uploads and Library copy-ins record additive restore points", async () => {
+test("uploads record additive restore points", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-additive-history-test-"));
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
   });
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Additive History Space" }),
-    }) as { space: { id: string } };
+      body: JSON.stringify({ name: "Additive History work-folder" }),
+    }) as { workFolder: { id: string } };
 
     const files = new FormData();
     files.set("targetFolderPath", "Dropped");
     files.set("relativePaths", JSON.stringify(["notes.md"]));
     files.append("files", new Blob(["dropped"]), "notes.md");
-    const uploaded = await json(`${api.origin}/api/spaces/${created.space.id}/upload-local-files`, {
+    const uploaded = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/upload-local-files`, {
       method: "POST",
       body: files,
     }) as { uploaded: Array<{ path: string }>; safetyCheckpointId: string | null };
     assert.equal(uploaded.uploaded[0]?.path, "Dropped/notes.md");
     assert.ok(uploaded.safetyCheckpointId, "uploads must record a restore point");
 
-    const resources = new FormData();
-    resources.set("targetFolderPath", "");
-    resources.set("relativePaths", JSON.stringify(["reference.txt"]));
-    resources.append("files", new Blob(["reference"]), "reference.txt");
-    await ok(`${api.origin}/api/resources/upload`, { method: "POST", body: resources });
-    const copied = await json(`${api.origin}/api/resources/copy-to-space`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId: created.space.id, paths: ["reference.txt"] }),
-    }) as { copied: string[]; safetyCheckpointId: string | null };
-    assert.deepEqual(copied.copied, ["From Library/reference.txt"]);
-    assert.ok(copied.safetyCheckpointId, "Library copy-ins must record a restore point");
-
-    const checkpoints = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`) as {
+    const checkpoints = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/history/checkpoints`) as {
       checkpoints: Array<{ checkpointId: string; reason: string; deleteOnRestore: string[] }>;
     };
     const uploadCheckpoint = checkpoints.checkpoints.find((item) => item.checkpointId === uploaded.safetyCheckpointId);
     assert.equal(uploadCheckpoint?.reason, "pre_upload");
     assert.deepEqual(uploadCheckpoint?.deleteOnRestore, ["Dropped/notes.md"]);
-    const copyCheckpoint = checkpoints.checkpoints.find((item) => item.checkpointId === copied.safetyCheckpointId);
-    assert.equal(copyCheckpoint?.reason, "pre_add");
-    assert.deepEqual(copyCheckpoint?.deleteOnRestore, ["From Library/reference.txt"]);
 
     const restored = await json(
-      `${api.origin}/api/spaces/${created.space.id}/history/checkpoints/${uploaded.safetyCheckpointId}/restore`,
+      `${api.origin}/api/work-folders/${created.workFolder.id}/history/checkpoints/${uploaded.safetyCheckpointId}/restore`,
       { method: "POST" },
     ) as { restored: true; deletedFiles: string[] };
     assert.deepEqual(restored.deletedFiles, ["Dropped/notes.md"]);
-    const missing = await fetch(`${api.origin}/api/spaces/${created.space.id}/file?path=Dropped%2Fnotes.md`);
+    const missing = await fetch(`${api.origin}/api/work-folders/${created.workFolder.id}/file?path=Dropped%2Fnotes.md`);
     assert.equal(missing.ok, false, "restoring the upload checkpoint must remove the uploaded file");
-    const libraryPreview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
-    assert.equal(libraryPreview.text, "reference", "restoring the upload checkpoint must not touch the Library copy");
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
@@ -214,7 +179,7 @@ test("conversation runtime snapshots expose model and context state without tran
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -223,16 +188,16 @@ test("conversation runtime snapshots expose model and context state without tran
     },
   });
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Runtime Space" }),
-    }) as { space: { id: string } };
-    const conversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, {
+      body: JSON.stringify({ name: "Runtime work-folder" }),
+    }) as { workFolder: { id: string } };
+    const conversation = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/conversations`, {
       method: "POST",
     }) as { conversation: { id: string } };
     const result = await json(
-      `${api.origin}/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}/runtime`,
+      `${api.origin}/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}/runtime`,
     ) as {
       runtime: {
         sessionId: string;
@@ -275,7 +240,7 @@ test("desktop linked folders require the exact one-shot picker grant", async () 
     loadEnv: false,
     localFolderGrantProvider: {
       consumeLocalFolderGrant(input) {
-        assert.deepEqual(input, { spaceRoot: linkedRoot, grantId: "grant-1" });
+        assert.deepEqual(input, { workFolderRoot: linkedRoot, grantId: "grant-1" });
         if (!available) return false;
         available = false;
         return true;
@@ -284,16 +249,16 @@ test("desktop linked folders require the exact one-shot picker grant", async () 
   });
   try {
     const headers = { "content-type": "application/json", "x-work-fold-session": "desktop-session" };
-    const first = await fetch(`${api.origin}/api/spaces/local-folder`, {
+    const first = await fetch(`${api.origin}/api/work-folders/local-folder`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ spaceRoot: linkedRoot, folderGrantId: "grant-1" }),
+      body: JSON.stringify({ workFolderRoot: linkedRoot, folderGrantId: "grant-1" }),
     });
     assert.equal(first.status, 201, await first.text());
-    const replay = await fetch(`${api.origin}/api/spaces/local-folder`, {
+    const replay = await fetch(`${api.origin}/api/work-folders/local-folder`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ spaceRoot: linkedRoot, folderGrantId: "grant-1" }),
+      body: JSON.stringify({ workFolderRoot: linkedRoot, folderGrantId: "grant-1" }),
     });
     assert.equal(replay.status, 403);
   } finally {
@@ -302,13 +267,13 @@ test("desktop linked folders require the exact one-shot picker grant", async () 
   }
 });
 
-test("registered Space authorization overrides Pi's independent project-trust decision", async () => {
+test("registered work-folder authorization overrides Pi's independent project-trust decision", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-default-trust-test-"));
   const agentDir = join(sandbox, "agent");
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -317,12 +282,12 @@ test("registered Space authorization overrides Pi's independent project-trust de
     },
   });
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Default Trust Space" }),
-    }) as { space: { id: string } };
-    const catalog = await json(`${api.origin}/api/spaces/${created.space.id}/agent/catalog`) as any;
+      body: JSON.stringify({ name: "Default Trust work-folder" }),
+    }) as { workFolder: { id: string } };
+    const catalog = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/agent/catalog`) as any;
     assert.deepEqual(catalog.projectTrust, {
       required: false,
       trusted: true,
@@ -363,29 +328,29 @@ test("capability catalog and package lifecycle preserve native Pi state and prov
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
   });
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Capability Space" }),
-    }) as { space: { id: string } };
-    const spaceId = created.space.id;
+      body: JSON.stringify({ name: "Capability work-folder" }),
+    }) as { workFolder: { id: string } };
+    const workFolderId = created.workFolder.id;
 
-    const initialCatalog = await json(`${api.origin}/api/spaces/${spaceId}/agent/catalog`) as any;
+    const initialCatalog = await json(`${api.origin}/api/work-folders/${workFolderId}/agent/catalog`) as any;
     assert.deepEqual(initialCatalog.projectTrust, { required: false, trusted: true, savedDecision: null, mutationTrusted: true });
-    assert.equal(initialCatalog.projectTrusted, true, "a Space with no gated resources must not be mislabeled untrusted");
+    assert.equal(initialCatalog.projectTrusted, true, "a work-folder with no gated resources must not be mislabeled untrusted");
 
     await ok(`${api.origin}/api/agent/packages/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId, source: packageRoot, scope: "project" }),
+      body: JSON.stringify({ workFolderId, source: packageRoot, scope: "project" }),
     });
 
-    const catalog = await json(`${api.origin}/api/spaces/${spaceId}/agent/catalog`) as any;
+    const catalog = await json(`${api.origin}/api/work-folders/${workFolderId}/agent/catalog`) as any;
     assert.deepEqual(catalog.projectTrust, { required: true, trusted: true, savedDecision: null, mutationTrusted: true });
     assert.deepEqual(catalog.trust, catalog.projectTrust);
     assert.equal(catalog.projectTrusted, true);
@@ -436,15 +401,15 @@ test("capability catalog and package lifecycle preserve native Pi state and prov
     await ok(`${api.origin}/api/agent/packages/update`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId, source: catalog.packages[0].source, scope: "project" }),
+      body: JSON.stringify({ workFolderId, source: catalog.packages[0].source, scope: "project" }),
     });
     const removal = await json(`${api.origin}/api/agent/packages/remove`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId, source: catalog.packages[0].source, scope: "project" }),
+      body: JSON.stringify({ workFolderId, source: catalog.packages[0].source, scope: "project" }),
     }) as { removed: boolean };
     assert.equal(removal.removed, true);
-    const after = await json(`${api.origin}/api/spaces/${spaceId}/agent/catalog`) as any;
+    const after = await json(`${api.origin}/api/work-folders/${workFolderId}/agent/catalog`) as any;
     assert.deepEqual(after.packages, []);
     assert.equal(after.skills.some((item: any) => item.name === "catalog-skill"), false);
     assert.equal(after.extensions.some((item: any) => item.name === "catalog"), false);
@@ -515,20 +480,20 @@ test("registry discovery installs through guarded capability mutations without s
     },
   };
   const piRuntimeProvider = { async resolveRuntime() { return { agentDir }; } };
-  const spaceTrustAuthority = new RegisteredSpaceTrustAuthority();
+  const workFolderTrustAuthority = new RegisteredWorkFolderTrustAuthority();
   const kernel = new WorkFoldKernel({
-    runtimeProvider: new RegisteredSpaceRuntimeProvider(piRuntimeProvider, spaceTrustAuthority),
+    runtimeProvider: new RegisteredWorkFolderRuntimeProvider(piRuntimeProvider, workFolderTrustAuthority),
   });
 
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     capabilityRegistry,
     kernel,
     piRuntimeProvider,
-    spaceTrustAuthority,
+    workFolderTrustAuthority,
   });
   try {
     const discovered = await json(`${api.origin}/api/agent/capabilities/discover?type=skill&sort=name&limit=10`) as any;
@@ -538,28 +503,28 @@ test("registry discovery installs through guarded capability mutations without s
     const details = await json(`${api.origin}/api/agent/capabilities/details?id=${encodeURIComponent(registryItem.id)}`) as any;
     assert.equal(details.item.installSource, packageRoot);
 
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Registry Space" }),
-    }) as { space: { id: string } };
-    const spaceId = created.space.id;
-    const createdConversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+      body: JSON.stringify({ name: "Registry work-folder" }),
+    }) as { workFolder: { id: string } };
+    const workFolderId = created.workFolder.id;
+    const createdConversation = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
 
-    const activeTurn = await fetch(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/messages`, {
+    const activeTurn = await fetch(`${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/hold" }),
     });
     assert.equal(activeTurn.status, 202, await activeTurn.text());
     const runningTasks = await kernel.getTasks({ kind: "system" });
-    assert.equal(runningTasks.tasks.some((task) => task.kind === "assistant_turn" && task.spaceId === spaceId && task.conversationId === conversationId), true);
+    assert.equal(runningTasks.tasks.some((task) => task.kind === "assistant_turn" && task.workFolderId === workFolderId && task.conversationId === conversationId), true);
 
     const blockedRegistryInstall = await fetch(`${api.origin}/api/agent/capabilities/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId, id: registryItem.id, scope: "global" }),
+      body: JSON.stringify({ workFolderId, id: registryItem.id, scope: "global" }),
     });
     assert.equal(blockedRegistryInstall.status, 409, await blockedRegistryInstall.text());
 
@@ -567,25 +532,25 @@ test("registry discovery installs through guarded capability mutations without s
       const blockedPackageMutation = await fetch(`${api.origin}/api/agent/packages/${action}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ spaceId, source: packageRoot, scope: "global" }),
+        body: JSON.stringify({ workFolderId, source: packageRoot, scope: "global" }),
       });
       assert.equal(blockedPackageMutation.status, 409, `${action}: ${await blockedPackageMutation.text()}`);
     }
 
     const skillImport = new FormData();
-    skillImport.set("spaceId", spaceId);
+    skillImport.set("workFolderId", workFolderId);
     skillImport.set("scope", "global");
     skillImport.append("files", new Blob(["---\nname: blocked-skill\ndescription: Blocked Skill\n---\nWait.\n"]), "SKILL.md");
     const blockedSkillImport = await fetch(`${api.origin}/api/agent/skills/import`, { method: "POST", body: skillImport });
     assert.equal(blockedSkillImport.status, 409, await blockedSkillImport.text());
 
     await waitForAsync(async () => {
-      const transcript = await json(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}`) as any;
+      const transcript = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}`) as any;
       return transcript.messages.some((message: any) => message.role === "assistant" && message.content === "Command completed.");
     });
     await waitForAsync(async () => (await kernel.getTasks({ kind: "system" })).tasks.length === 0);
     assert.deepEqual((await kernel.getTasks({ kind: "system" })).tasks, []);
-    const namedTranscript = await json(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}`) as any;
+    const namedTranscript = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}`) as any;
     assert.equal(
       namedTranscript.messages.filter((message: any) => (
         message.kind === "conversation_title"
@@ -593,23 +558,23 @@ test("registry discovery installs through guarded capability mutations without s
       )).length,
       1,
     );
-    const namedConversations = await json(`${api.origin}/api/spaces/${spaceId}/conversations`) as any;
+    const namedConversations = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations`) as any;
     assert.equal(namedConversations.conversations.find((item: any) => item.id === conversationId)?.title, "New Chat");
 
     const installed = await json(`${api.origin}/api/agent/capabilities/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId, id: registryItem.id, scope: "project" }),
+      body: JSON.stringify({ workFolderId, id: registryItem.id, scope: "project" }),
     }) as any;
     assert.equal(installed.installed.kind, "package");
     assert.equal(installed.installed.source, details.item.installSource, "installation must use the exact source returned by review");
     const installedBundle = await json(`${api.origin}/api/agent/capabilities/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId, id: bundleItem.id, scope: "project" }),
+      body: JSON.stringify({ workFolderId, id: bundleItem.id, scope: "project" }),
     }) as any;
     assert.equal(installedBundle.installed.kind, "skill");
-    const catalog = await json(`${api.origin}/api/spaces/${spaceId}/agent/catalog`) as any;
+    const catalog = await json(`${api.origin}/api/work-folders/${workFolderId}/agent/catalog`) as any;
     assert.equal(catalog.skills.some((skill: any) => skill.name === "registry-skill" && skill.scope === "project"), true);
     assert.equal(catalog.skills.some((skill: any) => skill.name === "bundled-skill" && skill.scope === "project"), true);
   } finally {
@@ -651,21 +616,21 @@ test("capability mutations and explicit Chat compaction are mutually exclusive",
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     kernel,
     piRuntimeProvider,
   });
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Compaction Space" }),
-    }) as { space: { id: string } };
-    const spaceId = created.space.id;
-    const createdConversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+      body: JSON.stringify({ name: "Compaction work-folder" }),
+    }) as { workFolder: { id: string } };
+    const workFolderId = created.workFolder.id;
+    const createdConversation = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
-    const compactUrl = `${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/compact`;
+    const compactUrl = `${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}/compact`;
 
     const compactBlock = blockNextRuntimeResolution();
     const compactPromise = fetch(compactUrl, {
@@ -675,15 +640,15 @@ test("capability mutations and explicit Chat compaction are mutually exclusive",
     });
     await compactBlock.entered;
     const compactingTasks = await kernel.getTasks({ kind: "system" });
-    assert.deepEqual(compactingTasks.tasks.map((task) => ({ kind: task.kind, spaceId: task.spaceId, conversationId: task.conversationId })), [{
+    assert.deepEqual(compactingTasks.tasks.map((task) => ({ kind: task.kind, workFolderId: task.workFolderId, conversationId: task.conversationId })), [{
       kind: "compaction",
-      spaceId,
+      workFolderId,
       conversationId,
     }]);
     const mutationDuringCompact = await fetch(`${api.origin}/api/agent/packages/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId, source: packageRoot, scope: "global" }),
+      body: JSON.stringify({ workFolderId, source: packageRoot, scope: "global" }),
     });
     assert.equal(mutationDuringCompact.status, 409, await mutationDuringCompact.text());
     compactBlock.release();
@@ -694,7 +659,7 @@ test("capability mutations and explicit Chat compaction are mutually exclusive",
     const mutationPromise = fetch(`${api.origin}/api/agent/packages/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceId, source: packageRoot, scope: "global" }),
+      body: JSON.stringify({ workFolderId, source: packageRoot, scope: "global" }),
     });
     await mutationBlock.entered;
     const compactDuringMutation = await fetch(compactUrl, {
@@ -712,41 +677,41 @@ test("capability mutations and explicit Chat compaction are mutually exclusive",
   }
 });
 
-test("extension UI events retain the portable Space id after its folder moves", async () => {
+test("extension UI events retain the portable work-folder id after its folder moves", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-moved-extension-routing-test-"));
-  const originalRoot = join(sandbox, "original-space");
-  const movedRoot = join(sandbox, "moved-space");
+  const originalRoot = join(sandbox, "original-work-folder");
+  const movedRoot = join(sandbox, "moved-work-folder");
   await mkdir(originalRoot, { recursive: true });
   const extensionUi = new RoutedPiExtensionUiBridge();
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     extensionUiBridge: extensionUi,
   });
   const streamController = new AbortController();
   try {
-    const original = await json(`${api.origin}/api/spaces/local-folder`, {
+    const original = await json(`${api.origin}/api/work-folders/local-folder`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceRoot: originalRoot }),
-    }) as { space: { id: string } };
-    const spaceId = original.space.id;
-    const createdConversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+      body: JSON.stringify({ workFolderRoot: originalRoot }),
+    }) as { workFolder: { id: string } };
+    const workFolderId = original.workFolder.id;
+    const createdConversation = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
 
     await rename(originalRoot, movedRoot);
-    const relinked = await json(`${api.origin}/api/spaces/local-folder`, {
+    const relinked = await json(`${api.origin}/api/work-folders/local-folder`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spaceRoot: movedRoot }),
-    }) as { space: { id: string; spaceRoot: string } };
-    assert.equal(relinked.space.id, spaceId);
-    assert.equal(relinked.space.spaceRoot, movedRoot);
+      body: JSON.stringify({ workFolderRoot: movedRoot }),
+    }) as { workFolder: { id: string; workFolderRoot: string } };
+    assert.equal(relinked.workFolder.id, workFolderId);
+    assert.equal(relinked.workFolder.workFolderRoot, movedRoot);
 
     const streamResponse = await fetch(
-      `${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/events`,
+      `${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}/events`,
       { signal: streamController.signal },
     );
     assert.equal(streamResponse.ok, true);
@@ -757,14 +722,14 @@ test("extension UI events retain the portable Space id after its folder moves", 
     await waitFor(() => streamEvents.some((event) => event.type === "turn_state"));
 
     extensionUi.publish({
-      id: "moved-space-notification",
+      id: "moved-work-folder-notification",
       method: "notify",
       message: "Portable route preserved.",
-      spaceRoot: movedRoot,
+      workFolderRoot: movedRoot,
       conversationId,
     });
-    await waitFor(() => streamEvents.some((event) => event.request?.id === "moved-space-notification"));
-    assert.equal(streamEvents.find((event) => event.request?.id === "moved-space-notification")?.request?.message, "Portable route preserved.");
+    await waitFor(() => streamEvents.some((event) => event.request?.id === "moved-work-folder-notification"));
+    assert.equal(streamEvents.find((event) => event.request?.id === "moved-work-folder-notification")?.request?.message, "Portable route preserved.");
 
     streamController.abort();
     await pump;
@@ -789,7 +754,7 @@ test("chat streams snapshot running state and survive a throwing desktop activit
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
     onAgentTurnActivity(activeTurns) {
@@ -799,17 +764,17 @@ test("chat streams snapshot running state and survive a throwing desktop activit
   });
   const streamController = new AbortController();
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Background Space" }),
-    }) as { space: { id: string } };
-    const createdConversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, {
+      body: JSON.stringify({ name: "Background work-folder" }),
+    }) as { workFolder: { id: string } };
+    const createdConversation = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/conversations`, {
       method: "POST",
     }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
     const streamResponse = await fetch(
-      `${api.origin}/api/spaces/${created.space.id}/conversations/${conversationId}/events`,
+      `${api.origin}/api/work-folders/${created.workFolder.id}/conversations/${conversationId}/events`,
       { signal: streamController.signal },
     );
     assert.equal(streamResponse.ok, true);
@@ -819,7 +784,7 @@ test("chat streams snapshot running state and survive a throwing desktop activit
     });
 
     await waitFor(() => streamEvents.some((event) => event.type === "turn_state" && event.running === false));
-    const firstPost = await fetch(`${api.origin}/api/spaces/${created.space.id}/conversations/${conversationId}/messages`, {
+    const firstPost = await fetch(`${api.origin}/api/work-folders/${created.workFolder.id}/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/complete" }),
@@ -831,7 +796,7 @@ test("chat streams snapshot running state and survive a throwing desktop activit
 
     // If the observer exception escaped changeTurnCount, the running key would
     // remain stranded and this second turn would return 409.
-    const secondPost = await fetch(`${api.origin}/api/spaces/${created.space.id}/conversations/${conversationId}/messages`, {
+    const secondPost = await fetch(`${api.origin}/api/work-folders/${created.workFolder.id}/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/complete" }),
@@ -869,11 +834,11 @@ test("provider HTTP 402 explains credit limits without leaking the body or retry
   await mkdir(join(agentDir, "extensions"), { recursive: true });
   await writeFile(join(agentDir, "extensions", "credit-provider.ts"), `export default function(pi){pi.registerProvider("credit-provider",{api:"openai-completions",baseUrl:"http://127.0.0.1:${port}/v1",apiKey:"test-key",models:[{id:"credit-model",name:"Credit Model",reasoning:false,input:["text"],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:4096,maxTokens:1024}]});}`);
   const settingsManager = SettingsManager.inMemory({ defaultProvider: "credit-provider", defaultModel: "credit-model", defaultThinkingLevel: "off", retry: { enabled: true, maxRetries: 1, baseDelayMs: 1, provider: { maxRetries: 0 } } });
-  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, piRuntimeProvider: { async resolveRuntime() { return { agentDir, settingsManager }; } } });
+  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), workFolderBase: join(sandbox, "content"), loadEnv: false, piRuntimeProvider: { async resolveRuntime() { return { agentDir, settingsManager }; } } });
   try {
-    const created = await json(`${api.origin}/api/spaces`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Credit Test" }) }) as { space: { id: string } };
-    const conversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
-    const url = `${api.origin}/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+    const created = await json(`${api.origin}/api/work-folders`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Credit Test" }) }) as { workFolder: { id: string } };
+    const conversation = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    const url = `${api.origin}/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`;
     assert.equal((await fetch(`${url}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "A bounded test request." }) })).status, 202);
     await waitForAsync(async () => {
       const transcript = await json(url) as any;
@@ -972,7 +937,7 @@ test("terminal provider failures persist partial output and leave the Chat resum
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -982,17 +947,17 @@ test("terminal provider failures persist partial output and leave the Chat resum
   });
 
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Durability Space" }),
-    }) as { space: { id: string } };
-    const spaceId = created.space.id;
-    const createdConversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, {
+      body: JSON.stringify({ name: "Durability work-folder" }),
+    }) as { workFolder: { id: string } };
+    const workFolderId = created.workFolder.id;
+    const createdConversation = await json(`${api.origin}/api/work-folders/${workFolderId}/conversations`, {
       method: "POST",
     }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
-    const conversationUrl = `${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}`;
+    const conversationUrl = `${api.origin}/api/work-folders/${workFolderId}/conversations/${conversationId}`;
     const messagesUrl = `${conversationUrl}/messages`;
 
     const failedTurn = await fetch(messagesUrl, {
@@ -1007,7 +972,7 @@ test("terminal provider failures persist partial output and leave the Chat resum
       return transcript.messages.some((message: any) => message.interruption?.reason === "provider_error")
         && !tasks.tasks.some((task) => (
           task.kind === "assistant_turn"
-          && task.spaceId === spaceId
+          && task.workFolderId === workFolderId
           && task.conversationId === conversationId
         ));
     });
@@ -1043,7 +1008,7 @@ test("terminal provider failures persist partial output and leave the Chat resum
         && message.content === "Durable Conversation Recovery"
       )) && !tasks.tasks.some((task) => (
         task.kind === "assistant_turn"
-        && task.spaceId === spaceId
+        && task.workFolderId === workFolderId
         && task.conversationId === conversationId
       ));
     });
@@ -1062,7 +1027,7 @@ test("terminal provider failures persist partial output and leave the Chat resum
         message.role === "assistant" && message.content === "Still titled safely."
       )) && !tasks.tasks.some((task) => (
         task.kind === "assistant_turn"
-        && task.spaceId === spaceId
+        && task.workFolderId === workFolderId
         && task.conversationId === conversationId
       ));
     });
@@ -1083,10 +1048,10 @@ test("terminal provider failures persist partial output and leave the Chat resum
   }
 });
 
-test("automatic titles and later manual renames persist for Folder and management Chats", async () => {
+test("automatic titles and later manual renames persist for work-folder and work-fold agent Chats", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-chat-title-settlement-test-"));
   const stateBase = join(sandbox, "state");
-  const spaceBase = join(sandbox, "content");
+  const workFolderBase = join(sandbox, "content");
   const agentDir = join(sandbox, "agent");
   let requestCount = 0;
   const providerServer = createServer(async (request, response) => {
@@ -1126,43 +1091,43 @@ test("automatic titles and later manual renames persist for Folder and managemen
     retry: { enabled: false },
   });
   const runtimeProvider = { async resolveRuntime() { return { agentDir, settingsManager }; } };
-  let api = await startLocalApi({ port: 0, stateBase, spaceBase, loadEnv: false, piRuntimeProvider: runtimeProvider });
+  let api = await startLocalApi({ port: 0, stateBase, workFolderBase, loadEnv: false, piRuntimeProvider: runtimeProvider });
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Title settlement" }),
-    }) as { space: { id: string } };
-    const folderConversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
-    const folderUrl = `${api.origin}/api/spaces/${created.space.id}/conversations/${folderConversation.conversation.id}`;
+    }) as { workFolder: { id: string } };
+    const folderConversation = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    const folderUrl = `${api.origin}/api/work-folders/${created.workFolder.id}/conversations/${folderConversation.conversation.id}`;
     const folderAccepted = await json(`${folderUrl}/messages`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Name this Folder Chat." }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Name this Worker Chat." }),
     }) as { taskId: string };
     await waitForAsync(async () => (await json(folderUrl) as { messages: Array<{ titleSource?: string; content: string }> }).messages
       .some((message) => message.titleSource === "generated" && message.content === "Generated conversation title"));
-    await waitForAsync(async () => (await api.actFacade.turnStatus({ space: created.space.id, taskId: folderAccepted.taskId })).task.state !== "running");
+    await waitForAsync(async () => (await api.actFacade.turnStatus({ workFolder: created.workFolder.id, taskId: folderAccepted.taskId })).task.state !== "running");
     const folderRenamed = await json(folderUrl, {
       method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Folder manual title" }),
     }) as { conversation: { title: string } };
     assert.equal(folderRenamed.conversation.title, "Folder manual title");
 
-    const managementAccepted = await json(`${api.origin}/api/management/messages`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Name this management Chat.", newConversation: true }),
+    const workFoldAgentAccepted = await json(`${api.origin}/api/work-fold-agent/messages`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Name this work-fold agent Chat.", newConversation: true }),
     }) as { conversationId: string; taskId: string };
-    const managementUrl = `${api.origin}/api/management/conversations/${managementAccepted.conversationId}`;
-    await waitForAsync(async () => (await json(managementUrl) as { messages: Array<{ titleSource?: string; content: string }> }).messages
+    const workFoldAgentUrl = `${api.origin}/api/work-fold-agent/conversations/${workFoldAgentAccepted.conversationId}`;
+    await waitForAsync(async () => (await json(workFoldAgentUrl) as { messages: Array<{ titleSource?: string; content: string }> }).messages
       .some((message) => message.titleSource === "generated" && message.content === "Generated conversation title"));
-    await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: managementAccepted.taskId })).task.state !== "running");
-    const managementRenamed = await json(`${managementUrl}/title`, {
+    await waitForAsync(async () => (await api.actFacade.agentTurnStatus({ taskId: workFoldAgentAccepted.taskId })).task.state !== "running");
+    const workFoldAgentRenamed = await json(`${workFoldAgentUrl}/title`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Management manual title" }),
     }) as { conversation: { title: string } };
-    assert.equal(managementRenamed.conversation.title, "Management manual title");
+    assert.equal(workFoldAgentRenamed.conversation.title, "Management manual title");
     assert.equal(requestCount, 4, "each first successful Chat turn makes one answer and one title request");
 
     await api.close();
-    api = await startLocalApi({ port: 0, stateBase, spaceBase, loadEnv: false, piRuntimeProvider: runtimeProvider });
-    const folderList = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`) as { conversations: Array<{ id: string; title: string }> };
+    api = await startLocalApi({ port: 0, stateBase, workFolderBase, loadEnv: false, piRuntimeProvider: runtimeProvider });
+    const folderList = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/conversations`) as { conversations: Array<{ id: string; title: string }> };
     assert.equal(folderList.conversations.find((item) => item.id === folderConversation.conversation.id)?.title, "Folder manual title");
-    const managementList = await json(`${api.origin}/api/management/conversations`) as { conversations: Array<{ id: string; title: string }> };
-    assert.equal(managementList.conversations.find((item) => item.id === managementAccepted.conversationId)?.title, "Management manual title");
+    const workFoldAgentList = await json(`${api.origin}/api/work-fold-agent/conversations`) as { conversations: Array<{ id: string; title: string }> };
+    assert.equal(workFoldAgentList.conversations.find((item) => item.id === workFoldAgentAccepted.conversationId)?.title, "Management manual title");
   } finally {
     await api.close();
     await new Promise<void>((resolve, reject) => providerServer.close((error) => error ? reject(error) : resolve()));
@@ -1170,7 +1135,7 @@ test("automatic titles and later manual renames persist for Folder and managemen
   }
 });
 
-test("Folder Chats delete only into Recently deleted, refuse while work is outstanding, and restore into their own Folder", async () => {
+test("Worker Chats delete only into Recently deleted, refuse while work is outstanding, and restore into their own work-folder", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-folder-chat-delete-test-"));
   const agentDir = join(sandbox, "agent");
   await mkdir(join(agentDir, "extensions"), { recursive: true });
@@ -1181,86 +1146,86 @@ test("Folder Chats delete only into Recently deleted, refuse while work is outst
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
     beforeAgentPrompt: async (event) => {
       await new Promise<void>((release) => held.push({ taskId: event.taskId, release }));
     },
   });
-  const addChat = async (spaceRoot: string, title: string) => {
-    const conversation = await createConversation(spaceRoot, title);
-    await appendMessage(spaceRoot, conversation.id, {
+  const addChat = async (workFolderRoot: string, title: string) => {
+    const conversation = await createConversation(workFolderRoot, title);
+    await appendMessage(workFolderRoot, conversation.id, {
       id: `message-${conversation.id}`, role: "user", content: `Notes for ${title}.`, createdAt: new Date().toISOString(),
     });
     return conversation.id;
   };
   try {
-    const { space } = await api.actFacade.createSpace({ name: "Chat deletion" });
-    const chatUrl = (conversationId: string) => `${api.origin}/api/spaces/${space.id}/conversations/${conversationId}`;
-    const listed = async () => (await json(`${api.origin}/api/spaces/${space.id}/conversations`) as { conversations: Array<{ id: string; title: string }> }).conversations;
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Chat deletion" });
+    const chatUrl = (conversationId: string) => `${api.origin}/api/work-folders/${workFolder.id}/conversations/${conversationId}`;
+    const listed = async () => (await json(`${api.origin}/api/work-folders/${workFolder.id}/conversations`) as { conversations: Array<{ id: string; title: string }> }).conversations;
 
     // A running turn and an open question both hold the Chat in place.
-    const sent = await api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold" });
+    const sent = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
     await waitFor(() => held.some((turn) => turn.taskId === sent.taskId));
     const whileRunning = await fetch(chatUrl(sent.conversationId), { method: "DELETE" });
     assert.equal(whileRunning.status, 409);
-    assert.match((await whileRunning.json() as { error: string }).error, /Wait for the current Assistant turn to finish/);
-    await api.actFacade.chatAsk({ space: space.id, taskId: sent.taskId, question: "Which quarter?", respondent: "person" });
+    assert.match((await whileRunning.json() as { error: string }).error, /Wait for the current turn to finish/);
+    await api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: sent.taskId, question: "Which quarter?", respondent: "person" });
     held.splice(0).forEach((turn) => turn.release());
-    await waitForAsync(async () => (await api.actFacade.turnStatus({ space: space.id, taskId: sent.taskId })).task.state !== "running");
+    await waitForAsync(async () => (await api.actFacade.turnStatus({ workFolder: workFolder.id, taskId: sent.taskId })).task.state !== "running");
     const whileWaiting = await fetch(chatUrl(sent.conversationId), { method: "DELETE" });
     assert.equal(whileWaiting.status, 409);
     assert.match((await whileWaiting.json() as { error: string }).error, /Finish or stop this Chat's outstanding work before deleting it/);
-    assert.ok(await readConversationSummary(space.spaceRoot, sent.conversationId), "a refused delete leaves the transcript in place");
+    assert.ok(await readConversationSummary(workFolder.workFolderRoot, sent.conversationId), "a refused delete leaves the transcript in place");
 
     const missing = await fetch(chatUrl("no-such-chat"), { method: "DELETE" });
     assert.equal(missing.status, 404);
 
     // An idle Chat moves into Recently deleted under its title.
-    const conversationId = await addChat(space.spaceRoot, "Quarterly notes");
+    const conversationId = await addChat(workFolder.workFolderRoot, "Quarterly notes");
     const removed = await json(chatUrl(conversationId), { method: "DELETE" }) as {
-      deleted: { conversationId: string; trash: { entryId: string; restoreBy: string } };
+      deleted: { conversationId: string; recentlyDeleted: { entryId: string; restoreBy: string } };
     };
     assert.equal(removed.deleted.conversationId, conversationId);
-    assert.ok(removed.deleted.trash.restoreBy);
-    assert.equal(await readConversationSummary(space.spaceRoot, conversationId), null);
+    assert.ok(removed.deleted.recentlyDeleted.restoreBy);
+    assert.equal(await readConversationSummary(workFolder.workFolderRoot, conversationId), null);
     assert.equal((await listed()).some((item) => item.id === conversationId), false);
-    const entry = (await api.actFacade.trashList()).entries.find((item) => item.id === removed.deleted.trash.entryId);
+    const entry = (await api.actFacade.recentlyDeletedList()).entries.find((item) => item.id === removed.deleted.recentlyDeleted.entryId);
     assert.equal(entry?.reason, "chats.delete");
     assert.equal(entry?.kind, "file");
     assert.equal(entry?.name, "Quarterly notes", "Recently deleted names a Chat by its title, never its transcript id");
-    assert.equal(entry?.spaceId, space.id);
-    assert.equal(entry?.spaceName, "Chat deletion");
+    assert.equal(entry?.workFolderId, workFolder.id);
+    assert.equal(entry?.workFolderName, "Chat deletion");
     assert.equal(entry?.originalPath, `.work-fold/conversations/${conversationId}.jsonl`);
     assert.equal(entry?.restorable, "in-place");
     const receipts = (await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8"))
       .trim().split("\n").map((line) => JSON.parse(line) as { command: string; outcome: string; detail?: string });
     assert.equal(receipts.find((receipt) => receipt.command === "chats.delete" && receipt.outcome === "ok")?.detail,
-      `space ${space.id}; conversation ${conversationId}; trash ${removed.deleted.trash.entryId}`);
+      `work-folder ${workFolder.id}; conversation ${conversationId}; trash ${removed.deleted.recentlyDeleted.entryId}`);
 
     // A restore never collision-renames a transcript into another identity.
-    await createConversation(space.spaceRoot, "Replacement", conversationId);
-    await assert.rejects(() => api.actFacade.trashRestore({ entry: removed.deleted.trash.entryId }), /identity already exists/);
-    await rm(join(space.spaceRoot, ".work-fold", "conversations", `${conversationId}.jsonl`));
-    const { restored } = await api.actFacade.trashRestore({ entry: removed.deleted.trash.entryId });
+    await createConversation(workFolder.workFolderRoot, "Replacement", conversationId);
+    await assert.rejects(() => api.actFacade.recentlyDeletedRestore({ entry: removed.deleted.recentlyDeleted.entryId }), /identity already exists/);
+    await rm(join(workFolder.workFolderRoot, ".work-fold", "conversations", `${conversationId}.jsonl`));
+    const { restored } = await api.actFacade.recentlyDeletedRestore({ entry: removed.deleted.recentlyDeleted.entryId });
     assert.equal(restored.kind, "file");
     if (restored.kind !== "file" && restored.kind !== "folder") throw new Error("expected a file restore");
-    assert.equal(restored.space.id, space.id);
+    assert.equal(restored.workFolder.id, workFolder.id);
     assert.equal(restored.path, `.work-fold/conversations/${conversationId}.jsonl`);
     assert.equal(restored.safetyCheckpointId, null, ".work-fold/ is outside History, so there is no restore point");
     assert.equal((await listed()).find((item) => item.id === conversationId)?.title, "Quarterly notes");
 
-    // A Chat whose Folder is gone has nowhere to go back to.
-    const orphanId = await addChat(space.spaceRoot, "Orphaned notes");
-    const orphan = await json(chatUrl(orphanId), { method: "DELETE" }) as { deleted: { trash: { entryId: string } } };
-    const folderWhileWaiting = await fetch(`${api.origin}/api/spaces/${space.id}`, { method: "DELETE" });
-    assert.equal(folderWhileWaiting.status, 409, "the earlier waiting Chat still owns unfinished work in this Folder");
-    await api.actFacade.manageStop({ taskId: sent.taskId });
-    await ok(`${api.origin}/api/spaces/${space.id}`, { method: "DELETE" });
-    const orphanEntry = (await api.actFacade.trashList()).entries.find((item) => item.id === orphan.deleted.trash.entryId);
+    // A Chat whose work-folder is gone has nowhere to go back to.
+    const orphanId = await addChat(workFolder.workFolderRoot, "Orphaned notes");
+    const orphan = await json(chatUrl(orphanId), { method: "DELETE" }) as { deleted: { recentlyDeleted: { entryId: string } } };
+    const folderWhileWaiting = await fetch(`${api.origin}/api/work-folders/${workFolder.id}`, { method: "DELETE" });
+    assert.equal(folderWhileWaiting.status, 409, "the earlier waiting Chat still owns unfinished work in this work-folder");
+    await api.actFacade.agentStop({ taskId: sent.taskId });
+    await ok(`${api.origin}/api/work-folders/${workFolder.id}`, { method: "DELETE" });
+    const orphanEntry = (await api.actFacade.recentlyDeletedList()).entries.find((item) => item.id === orphan.deleted.recentlyDeleted.entryId);
     assert.equal(orphanEntry?.restorable, "blocked");
-    await assert.rejects(() => api.actFacade.trashRestore({ entry: orphan.deleted.trash.entryId }), /no longer registered/);
+    await assert.rejects(() => api.actFacade.recentlyDeletedRestore({ entry: orphan.deleted.recentlyDeleted.entryId }), /no longer registered/);
   } finally {
     held.splice(0).forEach((turn) => turn.release());
     await api.close();
@@ -1268,31 +1233,31 @@ test("Folder Chats delete only into Recently deleted, refuse while work is outst
   }
 });
 
-test("restoring a Folder Chat reserves its identity against concurrent creation and CLI edits", async () => {
+test("restoring a Worker Chat reserves its identity against concurrent creation and CLI edits", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-chat-restore-fence-"));
-  const trash = await WorkFoldTrashStore.open({ rootPath: join(sandbox, "trash") });
-  const originalRestore = trash.restoreTree.bind(trash);
+  const recentlyDeleted = await WorkFoldRecentlyDeletedStore.open({ rootPath: join(sandbox, "recently-deleted") });
+  const originalRestore = recentlyDeleted.restoreTree.bind(recentlyDeleted);
   let releaseRestore!: () => void;
   let enteredRestore!: () => void;
   const restoreEntered = new Promise<void>((resolve) => { enteredRestore = resolve; });
   const restoreHeld = new Promise<void>((resolve) => { releaseRestore = resolve; });
-  trash.restoreTree = async (...args) => {
+  recentlyDeleted.restoreTree = async (...args) => {
     enteredRestore();
     await restoreHeld;
     return originalRestore(...args);
   };
   const api = await startLocalApi({
-    port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, trashStore: trash,
+    port: 0, stateBase: join(sandbox, "state"), workFolderBase: join(sandbox, "content"), loadEnv: false, recentlyDeletedStore: recentlyDeleted,
   });
   try {
-    const { space } = await api.actFacade.createSpace({ name: "Restore fence" });
-    const conversation = await createConversation(space.spaceRoot, "Saved chat");
-    await appendMessage(space.spaceRoot, conversation.id, {
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Restore fence" });
+    const conversation = await createConversation(workFolder.workFolderRoot, "Saved chat");
+    await appendMessage(workFolder.workFolderRoot, conversation.id, {
       id: "message-original", role: "user", content: "Keep this message.", createdAt: new Date().toISOString(),
     });
-    const url = `${api.origin}/api/spaces/${space.id}/conversations`;
-    const { deleted } = await json(`${url}/${conversation.id}`, { method: "DELETE" }) as { deleted: { trash: { entryId: string } } };
-    const restoring = api.actFacade.trashRestore({ entry: deleted.trash.entryId });
+    const url = `${api.origin}/api/work-folders/${workFolder.id}/conversations`;
+    const { deleted } = await json(`${url}/${conversation.id}`, { method: "DELETE" }) as { deleted: { recentlyDeleted: { entryId: string } } };
+    const restoring = api.actFacade.recentlyDeletedRestore({ entry: deleted.recentlyDeleted.entryId });
     await restoreEntered;
     try {
       const creating = await fetch(url, {
@@ -1300,10 +1265,10 @@ test("restoring a Folder Chat reserves its identity against concurrent creation 
       });
       assert.equal(creating.status, 409, "a restore must not race an optimistic Chat creation with the same id");
       for (const mutate of [
-        () => api.actFacade.chatRename({ space: space.id, conversationId: conversation.id, title: "Other title" }),
-        () => api.actFacade.chatSnooze({ space: space.id, conversationId: conversation.id, until: new Date(Date.now() + 60_000).toISOString() }),
-        () => api.actFacade.chatArchive({ space: space.id, conversationId: conversation.id }),
-        () => api.actFacade.chatResume({ space: space.id, conversationId: conversation.id }),
+        () => api.actFacade.chatRename({ workFolder: workFolder.id, conversationId: conversation.id, title: "Other title" }),
+        () => api.actFacade.chatSnooze({ workFolder: workFolder.id, conversationId: conversation.id, until: new Date(Date.now() + 60_000).toISOString() }),
+        () => api.actFacade.chatArchive({ workFolder: workFolder.id, conversationId: conversation.id }),
+        () => api.actFacade.chatResume({ workFolder: workFolder.id, conversationId: conversation.id }),
       ]) {
         await assert.rejects(mutate, (error: unknown) =>
           error instanceof Error && "code" in error && error.code === "conflict", "CLI edits share the identity reservation");
@@ -1312,8 +1277,8 @@ test("restoring a Folder Chat reserves its identity against concurrent creation 
       releaseRestore();
       await restoring;
     }
-    assert.equal((await readConversationSummary(space.spaceRoot, conversation.id))?.title, "Saved chat");
-    const renamed = await api.actFacade.chatRename({ space: space.id, conversationId: conversation.id, title: "Restored chat" });
+    assert.equal((await readConversationSummary(workFolder.workFolderRoot, conversation.id))?.title, "Saved chat");
+    const renamed = await api.actFacade.chatRename({ workFolder: workFolder.id, conversationId: conversation.id, title: "Restored chat" });
     assert.equal(renamed.conversation.title, "Restored chat", "restoring releases the fence after its final write");
   } finally {
     releaseRestore();
@@ -1322,28 +1287,28 @@ test("restoring a Folder Chat reserves its identity against concurrent creation 
   }
 });
 
-test("Assistant setup failures are sanitized, persisted, and survive an API restart", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-assistant-setup-failure-test-"));
+test("agent setup failures are sanitized, persisted, and survive an API restart", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-model-setup-failure-test-"));
   const stateBase = join(sandbox, "state");
-  const spaceBase = join(sandbox, "content");
+  const workFolderBase = join(sandbox, "content");
   const rawFailure = "No API key found. Read /Users/example/private/node_modules/provider/providers.md for setup details.";
   const piRuntimeProvider = {
     async resolveRuntime() {
       throw new Error(rawFailure);
     },
   };
-  const firstApi = await startLocalApi({ port: 0, stateBase, spaceBase, loadEnv: false, piRuntimeProvider });
+  const firstApi = await startLocalApi({ port: 0, stateBase, workFolderBase, loadEnv: false, piRuntimeProvider });
   let firstApiClosed = false;
   try {
-    const created = await json(`${firstApi.origin}/api/spaces`, {
+    const created = await json(`${firstApi.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Setup Failure Space" }),
-    }) as { space: { id: string } };
-    const conversation = await json(`${firstApi.origin}/api/spaces/${created.space.id}/conversations`, {
+      body: JSON.stringify({ name: "Setup Failure work-folder" }),
+    }) as { workFolder: { id: string } };
+    const conversation = await json(`${firstApi.origin}/api/work-folders/${created.workFolder.id}/conversations`, {
       method: "POST",
     }) as { conversation: { id: string } };
-    const conversationPath = `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+    const conversationPath = `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`;
     const accepted = await fetch(`${firstApi.origin}${conversationPath}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1363,7 +1328,7 @@ test("Assistant setup failures are sanitized, persisted, and survive an API rest
 
     await firstApi.close();
     firstApiClosed = true;
-    const restartedApi = await startLocalApi({ port: 0, stateBase, spaceBase, loadEnv: false, piRuntimeProvider });
+    const restartedApi = await startLocalApi({ port: 0, stateBase, workFolderBase, loadEnv: false, piRuntimeProvider });
     try {
       const afterRestart = await json(`${restartedApi.origin}${conversationPath}`) as any;
       const durableFailure = afterRestart.messages.find((message: any) => message.interruption?.reason === "setup_error");
@@ -1379,15 +1344,15 @@ test("Assistant setup failures are sanitized, persisted, and survive an API rest
   }
 });
 
-test("Assistant setup diagnostics are sanitized before reaching renderer event streams", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-assistant-setup-stream-test-"));
+test("agent setup diagnostics are sanitized before reaching renderer event streams", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-model-setup-stream-test-"));
   const agentDir = join(sandbox, "agent");
   const authStorage = FileCredentialStore.inMemory();
   const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -1397,15 +1362,15 @@ test("Assistant setup diagnostics are sanitized before reaching renderer event s
   });
   const streamController = new AbortController();
   try {
-    const created = await json(`${api.origin}/api/spaces`, {
+    const created = await json(`${api.origin}/api/work-folders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Setup Stream Space" }),
-    }) as { space: { id: string } };
-    const conversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, {
+      body: JSON.stringify({ name: "Setup Stream work-folder" }),
+    }) as { workFolder: { id: string } };
+    const conversation = await json(`${api.origin}/api/work-folders/${created.workFolder.id}/conversations`, {
       method: "POST",
     }) as { conversation: { id: string } };
-    const conversationUrl = `${api.origin}/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+    const conversationUrl = `${api.origin}/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`;
     const streamResponse = await fetch(`${conversationUrl}/events`, { signal: streamController.signal });
     assert.equal(streamResponse.ok, true);
     const streamEvents: TestStreamEvent[] = [];
@@ -1427,7 +1392,7 @@ test("Assistant setup diagnostics are sanitized before reaching renderer event s
     await waitFor(() => streamEvents.some((event) => event.type === "error"));
 
     const rendererEvents = JSON.stringify(streamEvents);
-    assert.match(rendererEvents, /Settings → AI Models|Assistant setup is needed/);
+    assert.match(rendererEvents, /Settings → AI Models|agent setup is needed/);
     assert.doesNotMatch(rendererEvents, /No models available|No API key|\/Users\/|node_modules|providers\.md|models\.md/);
     streamController.abort();
     await pump;

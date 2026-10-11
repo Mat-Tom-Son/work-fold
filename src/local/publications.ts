@@ -17,7 +17,7 @@ import {
   type WorkFoldPublicationMediaType,
 } from "../shared/publications.js";
 import { renderInertHtmlDocument } from "./publication-html.js";
-import { resolveSpacePath } from "./space.js";
+import { resolveWorkFolderPath } from "./work-folder.js";
 import { workFoldStateRoot } from "./state-paths.js";
 
 export const WORKFOLD_PUBLICATION_SCHEMA_VERSION = 1;
@@ -65,8 +65,8 @@ export type WorkFoldPublicationEffectiveState = WorkFoldPublicationState | "expi
 /**
  * Aggregate serve tallies for one publication. Serving is a read: it is
  * counted here — bounded, per-publication, no per-request journal — so the
- * Settings list and the glance can show "how much" without a receipt stream
- * (docs/fold-publishing.md: counted, never journaled per-request). Live
+ * Settings list and the overview can show "how much" without a receipt stream
+ * (docs/shared-pages.md: counted, never journaled per-request). Live
  * serves from this desktop only; snapshot serves happen at the relay while
  * this desktop sleeps and are visible in the relay's aggregate metrics.
  */
@@ -81,7 +81,7 @@ export interface WorkFoldPublicationServeCounters {
  * states: `not-available` records the precise desktop-side serve problem the
  * audience never sees, and `resting` records the relay's budget-exhaustion
  * notice. One bounded note per publication — set on transition, cleared by
- * the next successful serve — so the glance renders the page's problem as a
+ * the next successful serve — so the overview renders the page's problem as a
  * change item without inventing an event store.
  */
 export interface WorkFoldPublicationProblem {
@@ -95,7 +95,7 @@ export const WORKFOLD_PUBLICATION_PROBLEM_REASON_MAX_LENGTH = 200;
 export type WorkFoldPublicationRestingReason = "serve-rate" | "byte-budget";
 
 /**
- * The hosted-app exposure binding (docs/fold-publishing.md, rung 3): the
+ * The hosted-app exposure binding (docs/shared-pages.md, rung 3): the
  * `publish.viewer.expose` pins carried into the grant record — App Instance
  * id, exact Release digest at consecration, viewer entry, and the complete
  * viewer-readable surface. The serve path re-verifies the surface against
@@ -112,8 +112,8 @@ export interface WorkFoldPublicationRecord {
   schemaVersion: typeof WORKFOLD_PUBLICATION_SCHEMA_VERSION;
   publicationId: string;
   kind: WorkFoldPublicationKind;
-  spaceId: string;
-  /** Page slots only: the one designated Space-relative file. */
+  workFolderId: string;
+  /** Page slots only: the one designated work-folder-relative file. */
   relativePath?: string;
   /** Hosted-app slots only: the consecrated exposure binding. */
   app?: WorkFoldPublicationAppBinding;
@@ -140,7 +140,7 @@ export interface WorkFoldPublicationRecord {
 export interface WorkFoldPublicationView {
   publicationId: string;
   kind: WorkFoldPublicationKind;
-  spaceId: string;
+  workFolderId: string;
   /** Page slots only. */
   relativePath?: string;
   /** Hosted-app slots only. */
@@ -167,7 +167,7 @@ export interface WorkFoldPublicationView {
    * The desktop's own relay connection is layered on by the renderer.
    */
   health: WorkFoldPublicationHealth;
-  /** Share-link path on the viewer origin. The origin belongs to Remote access settings; the key is never here. */
+  /** Share-link path on the viewer origin. The origin belongs to Web Access settings; the key is never here. */
   viewerPath: string;
 }
 
@@ -185,7 +185,7 @@ export interface WorkFoldPublicationActContext {
 }
 
 export interface WorkFoldPublicationActivateInput {
-  spaceId: string;
+  workFolderId: string;
   relativePath: string;
   title: string;
   serveRatePerMinute?: number;
@@ -229,7 +229,7 @@ export type WorkFoldViewerAppServeResult =
   | { state: "not-available"; publicationId: string };
 
 export interface WorkFoldPublicationActivateAppInput {
-  spaceId: string;
+  workFolderId: string;
   title: string;
   app: WorkFoldPublicationAppBinding;
   serveRatePerMinute?: number;
@@ -238,8 +238,8 @@ export interface WorkFoldPublicationActivateAppInput {
 }
 
 /**
- * Publication keys are Remote access material: operating-system-encrypted
- * secure settings, never the publication store, never a Space folder. The
+ * Publication keys are Web Access material: operating-system-encrypted
+ * secure settings, never the publication store, never a work-folder. The
  * desktop wiring backs this with `desktop/src/settings.ts`.
  */
 export interface WorkFoldPublicationKeyStore {
@@ -300,9 +300,10 @@ export type WorkFoldPublicationErrorCode =
   | "JOURNAL_UNAVAILABLE"
   | "INPUT_INVALID"
   | "NOT_FOUND"
+  | "KEY_MISSING"
   | "ALREADY_SHARED"
   | "ALREADY_REVOKED"
-  | "SPACE_NOT_REGISTERED"
+  | "WORK_FOLDER_NOT_REGISTERED"
   | "SOURCE_INVALID"
   | "WIDEN_REFUSED"
   | "PUBLICATION_CAP"
@@ -330,13 +331,13 @@ export interface WorkFoldPublicationAppServing {
 }
 
 export interface WorkFoldPublicationServiceOptions {
-  /** Defaults to `fold/publications.json` under the work-fold state root — the location the glance reads. */
+  /** Defaults to `shared-pages/publications.json` under the work-fold state root — the location the overview reads. */
   path?: string;
   now?: () => Date;
   keys: WorkFoldPublicationKeyStore;
   receipts: WorkFoldPublicationReceiptWriter;
-  resolveSpaceRoot: (spaceId: string) => Promise<string | null>;
-  /** Absent while Remote access is unconfigured: every sync stays honestly pending. */
+  resolveWorkFolderRoot: (workFolderId: string) => Promise<string | null>;
+  /** Absent while Web Access is unconfigured: every sync stays honestly pending. */
   bridge?: WorkFoldPublicationBridgeSync | null;
   /** Hosted-app viewer serving (rung 3); absent app serves are `not-available`. */
   apps?: WorkFoldPublicationAppServing | null;
@@ -350,7 +351,7 @@ export interface WorkFoldPublicationServiceStatus {
 }
 
 export function workFoldPublicationsFile(stateRoot?: string): string {
-  return join(stateRoot ? resolve(stateRoot) : workFoldStateRoot(), "fold", "publications.json");
+  return join(stateRoot ? resolve(stateRoot) : workFoldStateRoot(), "shared-pages", "publications.json");
 }
 
 /**
@@ -454,12 +455,12 @@ interface ViewerAppPayload {
 }
 
 /**
- * The desktop authority behind "pages your fold serves"
- * (docs/fold-publishing.md, rung 2). It owns the machine-local publication
+ * The desktop authority behind shared pages (docs/shared-pages.md,
+ * rung 2). It owns the machine-local publication
  * grant records, the source binding and its identity checks, the bounded
  * closed-set renderer, the effect-time recheck before every serve, and the
  * revocation-first ordering. Records are machine-local application state:
- * nothing about a publication is ever written into the Space folder, and the
+ * nothing about a publication is ever written into the work-folder, and the
  * share link's key lives only in the injected secure key store. Every
  * mutation is journaled through the injected act-receipt writer before it
  * runs — a mutation that cannot be journaled is refused — and finishes with a
@@ -471,7 +472,7 @@ export class WorkFoldPublicationService {
   readonly #now: () => Date;
   readonly #keys: WorkFoldPublicationKeyStore;
   readonly #receipts: WorkFoldPublicationReceiptWriter;
-  readonly #resolveSpaceRoot: (spaceId: string) => Promise<string | null>;
+  readonly #resolveWorkFolderRoot: (workFolderId: string) => Promise<string | null>;
   readonly #bridge: WorkFoldPublicationBridgeSync | null;
   readonly #apps: WorkFoldPublicationAppServing | null;
   readonly #damageReason: string | null;
@@ -490,7 +491,7 @@ export class WorkFoldPublicationService {
     this.#now = options.now ?? (() => new Date());
     this.#keys = options.keys;
     this.#receipts = options.receipts;
-    this.#resolveSpaceRoot = options.resolveSpaceRoot;
+    this.#resolveWorkFolderRoot = options.resolveWorkFolderRoot;
     this.#bridge = options.bridge ?? null;
     this.#apps = options.apps ?? null;
     this.#file = file;
@@ -516,8 +517,8 @@ export class WorkFoldPublicationService {
 
   /**
    * Whether this desktop has an address to serve pages at
-   * (docs/fold-publishing.md: sharing with no enrolled address fails). No
-   * bridge lane at all means Remote access is unconfigured; a bridge that
+   * (docs/shared-pages.md: sharing with no enrolled address fails). No
+   * bridge lane at all means Web Access is unconfigured; a bridge that
    * cannot say is taken at its word, and an unreachable relay stays the
    * ordinary pending case rather than a refusal.
    */
@@ -549,22 +550,42 @@ export class WorkFoldPublicationService {
     });
   }
 
+  /** Reveal one existing share link on demand, serialized with revocation. */
+  async revealLink(publicationId: string): Promise<{ viewerPath: string; key: string }> {
+    return this.#mutate(async () => {
+      this.#assertOperational();
+      const record = this.#file.publications.find((candidate) => candidate.publicationId === publicationId);
+      if (!record || this.#effectiveState(record) !== "active") {
+        throw new WorkFoldPublicationError("NOT_FOUND", "This page is not shared right now.");
+      }
+      const key = await this.#keys.get(publicationId);
+      if (!key || !/^[A-Za-z0-9_-]{43}$/.test(key)) {
+        throw new WorkFoldPublicationError("KEY_MISSING", "The page key is missing from secure settings; stop sharing and share the page again.");
+      }
+      // Expiry can pass while the secure-settings read is pending.
+      if (this.#effectiveState(record) !== "active") {
+        throw new WorkFoldPublicationError("NOT_FOUND", "This page is not shared right now.");
+      }
+      return { viewerPath: this.#view(record).viewerPath, key };
+    });
+  }
+
   /**
-   * Active publications backed by this Space. Unregistering or deleting a
-   * Space is blocked until these are revoked; the removal flow names them.
+   * Active publications backed by this work-folder. Unregistering or deleting a
+   * work-folder is blocked until these are revoked; the removal flow names them.
    */
-  async activePublicationsForSpace(spaceId: string): Promise<WorkFoldPublicationView[]> {
+  async activePublicationsForWorkFolder(workFolderId: string): Promise<WorkFoldPublicationView[]> {
     return await this.#mutate(async () => {
-      // A damaged store cannot prove a Space is unpublished, so removal
+      // A damaged store cannot prove a work-folder is unpublished, so removal
       // callers see every stored claim fail closed.
       if (this.#damageReason !== null) {
         throw new WorkFoldPublicationError(
           "STORE_DAMAGED",
-          `work-fold cannot verify this Space's publications: ${this.#damageReason}`,
+          `work-fold cannot verify this work-folder's publications: ${this.#damageReason}`,
         );
       }
       return this.#file.publications
-        .filter((record) => record.spaceId === spaceId && this.#effectiveState(record) === "active")
+        .filter((record) => record.workFolderId === workFolderId && this.#effectiveState(record) === "active")
         .map((record) => this.#view(record));
     });
   }
@@ -594,8 +615,8 @@ export class WorkFoldPublicationService {
         "byte budget",
       );
       const expiresAt = normalizeExpiry(input.expiresAt, this.#now());
-      if (typeof input.spaceId !== "string" || !input.spaceId) {
-        throw new WorkFoldPublicationError("INPUT_INVALID", "A Space id is required to share a page.");
+      if (typeof input.workFolderId !== "string" || !input.workFolderId) {
+        throw new WorkFoldPublicationError("INPUT_INVALID", "A work-folder id is required to share a page.");
       }
       const active = this.#file.publications.filter((record) => this.#effectiveState(record) === "active");
       if (active.length >= WORKFOLD_PUBLICATION_ACTIVE_CAP) {
@@ -604,10 +625,10 @@ export class WorkFoldPublicationService {
           `${WORKFOLD_PUBLICATION_ACTIVE_CAP} pages are already shared; stop sharing one first.`,
         );
       }
-      const root = await this.#resolveSpaceRoot(input.spaceId);
-      if (!root) throw new WorkFoldPublicationError("SPACE_NOT_REGISTERED", "That Space is not registered on this machine.");
+      const root = await this.#resolveWorkFolderRoot(input.workFolderId);
+      if (!root) throw new WorkFoldPublicationError("WORK_FOLDER_NOT_REGISTERED", "That work-folder is not registered on this machine.");
       const source = await inspectSource(root, input.relativePath);
-      if (active.some((record) => record.kind === "page" && record.spaceId === input.spaceId
+      if (active.some((record) => record.kind === "page" && record.workFolderId === input.workFolderId
         && record.relativePath === source.relativePath)) {
         throw new WorkFoldPublicationError(
           "ALREADY_SHARED",
@@ -617,13 +638,13 @@ export class WorkFoldPublicationService {
 
       const publicationId = randomBytes(18).toString("base64url");
       const operationId = randomUUID();
-      await this.#journal(context, "pages activate", input.spaceId, async () => {
+      await this.#journal(context, "pages activate", input.workFolderId, async () => {
         const created = this.#now().toISOString();
         const record: WorkFoldPublicationRecord = {
           schemaVersion: WORKFOLD_PUBLICATION_SCHEMA_VERSION,
           publicationId,
           kind: "page",
-          spaceId: input.spaceId,
+          workFolderId: input.workFolderId,
           relativePath: source.relativePath,
           title,
           state: "active",
@@ -645,7 +666,7 @@ export class WorkFoldPublicationService {
         await this.#keys.set(publicationId, randomBytes(32).toString("base64url"));
         const synced = await this.#syncSlot(publicationId);
         return {
-          detail: `publicationId=${publicationId} source=${input.spaceId}:${source.relativePath} viewerPath=/p/${publicationId} `
+          detail: `publicationId=${publicationId} source=${input.workFolderId}:${source.relativePath} viewerPath=/p/${publicationId} `
             + `serveRatePerMinute=${serveRatePerMinute} byteBudgetPerDay=${byteBudgetPerDay} `
             + `snapshot=${input.snapshotEnabled === true ? "on" : "off"} bridgeSync=${synced ? "confirmed" : "pending"}`,
           undoRef: { kind: "publicationId", value: publicationId },
@@ -662,7 +683,7 @@ export class WorkFoldPublicationService {
   }
 
   /**
-   * Hosted-app exposure activation (docs/fold-publishing.md, rung 3), after
+   * Hosted-app exposure activation (docs/shared-pages.md, rung 3), after
    * its `publish.viewer.expose` decision: the same journal-first two-phase
    * shape as page activation — durable intent, key mint, bridge slot sync
    * with kind `app` — carrying the consecrated pins into the grant record.
@@ -687,8 +708,8 @@ export class WorkFoldPublicationService {
         "byte budget",
       );
       const expiresAt = normalizeExpiry(input.expiresAt, this.#now());
-      if (typeof input.spaceId !== "string" || !input.spaceId) {
-        throw new WorkFoldPublicationError("INPUT_INVALID", "A Space id is required to put an app at your address.");
+      if (typeof input.workFolderId !== "string" || !input.workFolderId) {
+        throw new WorkFoldPublicationError("INPUT_INVALID", "A work-folder id is required to put an app at your address.");
       }
       const app = normalizeAppBinding(input.app);
       const active = this.#file.publications.filter((record) => this.#effectiveState(record) === "active");
@@ -704,18 +725,18 @@ export class WorkFoldPublicationService {
           "This App Instance is already at your address; stop sharing it before exposing it again.",
         );
       }
-      const root = await this.#resolveSpaceRoot(input.spaceId);
-      if (!root) throw new WorkFoldPublicationError("SPACE_NOT_REGISTERED", "That Space is not registered on this machine.");
+      const root = await this.#resolveWorkFolderRoot(input.workFolderId);
+      if (!root) throw new WorkFoldPublicationError("WORK_FOLDER_NOT_REGISTERED", "That work-folder is not registered on this machine.");
 
       const publicationId = randomBytes(18).toString("base64url");
       const operationId = randomUUID();
-      await this.#journal(context, "pages activate-app", input.spaceId, async () => {
+      await this.#journal(context, "pages activate-app", input.workFolderId, async () => {
         const created = this.#now().toISOString();
         const record: WorkFoldPublicationRecord = {
           schemaVersion: WORKFOLD_PUBLICATION_SCHEMA_VERSION,
           publicationId,
           kind: "app",
-          spaceId: input.spaceId,
+          workFolderId: input.workFolderId,
           app,
           title,
           state: "active",
@@ -758,7 +779,7 @@ export class WorkFoldPublicationService {
       this.#assertOperational();
       assertActContext(context);
       const existing = this.#record(publicationId);
-      await this.#journal(context, "pages revoke", existing.spaceId, async () => {
+      await this.#journal(context, "pages revoke", existing.workFolderId, async () => {
         if (existing.state === "revoked") {
           return { detail: `publicationId=${publicationId} alreadyRevoked=true bridgeCleanup=${existing.bridgeCleanup ?? "ok"}` };
         }
@@ -807,7 +828,7 @@ export class WorkFoldPublicationService {
           "Raising a budget widens exposure; use pages widen for that.",
         );
       }
-      await this.#journal(context, "pages narrow-budgets", existing.spaceId, async () => {
+      await this.#journal(context, "pages narrow-budgets", existing.workFolderId, async () => {
         const draft = structuredClone(this.#file);
         const record = draftRecord(draft, publicationId);
         const previous = { serveRatePerMinute: record.serveRatePerMinute, byteBudgetPerDay: record.byteBudgetPerDay };
@@ -829,7 +850,7 @@ export class WorkFoldPublicationService {
   }
 
   /**
-   * Widening in place (docs/fold-publishing.md, amended 2026-09-24): raise
+   * Widening in place (docs/shared-pages.md, amended 2026-09-24): raise
    * the serve rate or the daily byte budget up to the ceilings, or turn the
    * sleep copy on, keeping the slot, the key, and the link unchanged. Like
    * every widening it runs on the call that asks for it and leaves a
@@ -871,7 +892,7 @@ export class WorkFoldPublicationService {
       }
       const snapshotEnabled = existing.snapshotEnabled || input.snapshotEnabled === true;
       const snapshotTurnedOn = snapshotEnabled && !existing.snapshotEnabled;
-      await this.#journal(context, "pages widen", existing.spaceId, async () => {
+      await this.#journal(context, "pages widen", existing.workFolderId, async () => {
         const draft = structuredClone(this.#file);
         const record = draftRecord(draft, publicationId);
         const previous = {
@@ -914,7 +935,7 @@ export class WorkFoldPublicationService {
       this.#assertOperational();
       assertActContext(context);
       const existing = this.#activeRecord(publicationId);
-      await this.#journal(context, "pages snapshot-off", existing.spaceId, async () => {
+      await this.#journal(context, "pages snapshot-off", existing.workFolderId, async () => {
         const draft = structuredClone(this.#file);
         const record = draftRecord(draft, publicationId);
         record.snapshotEnabled = false;
@@ -1157,8 +1178,8 @@ export class WorkFoldPublicationService {
       reason,
     });
     try {
-      const root = await this.#resolveSpaceRoot(record.spaceId);
-      if (!root) return unavailable("its Space is no longer registered on this machine");
+      const root = await this.#resolveWorkFolderRoot(record.workFolderId);
+      if (!root) return unavailable("its work-folder is no longer registered on this machine");
       let source: InspectedSource;
       try {
         source = await inspectSource(root, record.relativePath ?? "");
@@ -1199,7 +1220,7 @@ export class WorkFoldPublicationService {
     } catch {
       // Identity-check refusals, unreadable files, and render failures are
       // all one vague viewer state; the precise reason is the publisher's
-      // information and surfaces through the glance, not the audience.
+      // information and surfaces through the overview, not the audience.
       return unavailable("the designated file could not be read");
     }
   }
@@ -1284,13 +1305,13 @@ export class WorkFoldPublicationService {
   async #journal(
     context: WorkFoldPublicationActContext,
     command: string,
-    spaceId: string | undefined,
+    workFolderId: string | undefined,
     operation: () => Promise<{ detail: string; undoRef?: { kind: string; value: string } }>,
   ): Promise<void> {
     const base = {
       requestId: context.requestId,
       command,
-      ...(spaceId ? { spaceId } : {}),
+      ...(workFolderId ? { workFolderId } : {}),
       ...(context.surface !== undefined ? { surface: context.surface } : {}),
       ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
       ...(context.browserId !== undefined ? { browserId: context.browserId } : {}),
@@ -1388,7 +1409,7 @@ export class WorkFoldPublicationService {
     return {
       publicationId: record.publicationId,
       kind: record.kind,
-      spaceId: record.spaceId,
+      workFolderId: record.workFolderId,
       ...(record.relativePath !== undefined ? { relativePath: record.relativePath } : {}),
       ...(record.app ? { app: structuredClone(record.app) } : {}),
       title: record.title,
@@ -1454,25 +1475,25 @@ interface InspectedSource {
 }
 
 /**
- * One exact Space-relative file: containment, reserved-segment and
- * no-follow discipline via `resolveSpacePath`, a regular file at the end,
+ * One exact work-folder-relative file: containment, reserved-segment and
+ * no-follow discipline via `resolveWorkFolderPath`, a regular file at the end,
  * a closed-set type, and the pre-render size bound.
  */
-async function inspectSource(spaceRoot: string, relativePath: string): Promise<InspectedSource> {
+async function inspectSource(workFolderRoot: string, relativePath: string): Promise<InspectedSource> {
   if (typeof relativePath !== "string" || !relativePath.trim()) {
-    throw new WorkFoldPublicationError("SOURCE_INVALID", "A Space-relative file path is required.");
+    throw new WorkFoldPublicationError("SOURCE_INVALID", "A work-folder-relative file path is required.");
   }
   let path: string;
   try {
-    path = resolveSpacePath(spaceRoot, relativePath);
+    path = resolveWorkFolderPath(workFolderRoot, relativePath);
   } catch (error) {
     throw new WorkFoldPublicationError(
       "SOURCE_INVALID",
-      error instanceof Error ? error.message : "The designated file is outside this Space.",
+      error instanceof Error ? error.message : "The designated file is outside this work-folder.",
       { cause: error },
     );
   }
-  const normalized = relative(resolve(spaceRoot), path).split(sep).join("/");
+  const normalized = relative(resolve(workFolderRoot), path).split(sep).join("/");
   const extension = extensionOf(normalized);
   const mediaType = WORKFOLD_PUBLICATION_SOURCE_TYPES[extension];
   if (!mediaType) {
@@ -1744,7 +1765,7 @@ function normalizeRecord(entry: unknown): WorkFoldPublicationRecord | null {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
   const record = entry as Partial<WorkFoldPublicationRecord>;
   if (record.schemaVersion !== WORKFOLD_PUBLICATION_SCHEMA_VERSION) return null;
-  if (!stableId(record.publicationId) || !stableText(record.spaceId, 160)) return null;
+  if (!stableId(record.publicationId) || !stableText(record.workFolderId, 160)) return null;
   if (record.kind === "page") {
     if (!stableText(record.relativePath, 1_024) || record.app !== undefined) return null;
   } else if (record.kind === "app") {

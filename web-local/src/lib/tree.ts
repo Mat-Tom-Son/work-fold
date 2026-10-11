@@ -24,8 +24,8 @@ export function treeEntryMatchesSearch(entry: TreeEntry, normalizedQuery: string
   return entry.name.toLocaleLowerCase().includes(normalizedQuery) || entry.path.toLocaleLowerCase().includes(normalizedQuery);
 }
 
-export function spaceTreePathMissing(message: string): boolean {
-  return message.includes("ENOENT") || message.toLocaleLowerCase().includes("requested space tree path is not a folder");
+export function workFolderTreePathMissing(message: string): boolean {
+  return message.includes("ENOENT") || message.toLocaleLowerCase().includes("requested work-folder tree path is not a folder");
 }
 
 export function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null {
@@ -104,7 +104,7 @@ export function collectLoadedFolderPaths(entries: TreeEntry[], collapsedPaths: S
   const normalizedEventPaths = eventPaths?.map((path) => path.trim()).filter(Boolean) ?? [];
   const paths: string[] = [];
   const visit = (entry: TreeEntry) => {
-    // A nested Folder is a boundary with nothing to refresh beneath it.
+    // A nested work-folder is a boundary with nothing to refresh beneath it.
     if (entry.kind !== "folder" || entry.nestedFolder) return;
     const loaded = Boolean(entry.children?.length || (entry.hasChildren === false && !collapsedPaths.has(entry.path)));
     if (loaded && (!normalizedEventPaths.length || normalizedEventPaths.some((eventPath) => eventPathTouchesFolder(eventPath, entry.path)))) {
@@ -121,7 +121,7 @@ export function eventPathTouchesFolder(eventPath: string, folderPath: string): b
 }
 
 export function moveTreeEntry(entries: TreeEntry[], sourcePath: string, targetFolderPath: string): { entries: TreeEntry[]; movedPath: string; name: string } {
-  if (!canMoveSpacePath(sourcePath, targetFolderPath)) return { entries, movedPath: sourcePath, name: sourcePath };
+  if (!canMoveWorkFolderPath(sourcePath, targetFolderPath)) return { entries, movedPath: sourcePath, name: sourcePath };
   const sourceEntry = findTreeEntry(entries, sourcePath);
   if (!sourceEntry) return { entries, movedPath: sourcePath, name: sourcePath.split("/").pop() ?? sourcePath };
   if (targetFolderPath && !findTreeEntry(entries, targetFolderPath)) return { entries, movedPath: sourcePath, name: sourceEntry.name };
@@ -200,12 +200,7 @@ export function retargetMovedPath(path: string | null, sourcePath: string, moved
   if (path.startsWith(`${sourcePath}/`)) return `${movedPath}${path.slice(sourcePath.length)}`;
   return path;
 }
-
-export function retargetMovedPathSet(paths: Set<string>, sourcePath: string, movedPath: string): Set<string> {
-  return new Set([...paths].map((path) => retargetMovedPath(path, sourcePath, movedPath) ?? path));
-}
-
-export function canMoveSpacePath(sourcePath: string, targetFolderPath: string): boolean {
+export function canMoveWorkFolderPath(sourcePath: string, targetFolderPath: string): boolean {
   if (!sourcePath) return false;
   if (sourcePath === targetFolderPath || targetFolderPath.startsWith(`${sourcePath}/`)) return false;
   return parentFolderPath(sourcePath) !== targetFolderPath;
@@ -227,16 +222,6 @@ export function isInsideFolder(path: string, folderPath: string | null): boolean
   if (folderPath === "") return true;
   return path !== folderPath && path.startsWith(`${folderPath}/`);
 }
-
-export function ancestorFolderPaths(path: string): string[] {
-  const parts = path.split("/").filter(Boolean);
-  const ancestors: string[] = [];
-  for (let index = 1; index < parts.length; index += 1) {
-    ancestors.push(parts.slice(0, index).join("/"));
-  }
-  return ancestors;
-}
-
 export function collectFolderPaths(entries: TreeEntry[]): string[] {
   const paths: string[] = [];
   for (const entry of entries) {

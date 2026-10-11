@@ -20,6 +20,9 @@ release-note file alone does not mean a version was published.
 
 ## October 8, 2026
 
+[0.4.44](work-fold-0.4.44.md) improves native tool input contracts and gives
+Workers an ordinary `.worker/` place for working files.
+
 [0.4.43](work-fold-0.4.43.md) upgrades Pi to 1.1, integrates native codemode
 and MCP Service Connections, strengthens credential and model-call ownership,
 and fixes History preview sequencing and the other-folder Chats rows.
@@ -75,7 +78,22 @@ candidate with its failed source tag preserved.
 Settings, and file previews, adds native Open with, and makes Folder Chat
 deletion recoverable.
 
+## September 12, 2026
+
+[0.4.32](work-fold-0.4.32.md) restores saved chat titles from older versions
+and keeps automatic titles and manual renames across restarts.
+
+[0.4.31](work-fold-0.4.31.md) renames Spaces to Folders, their assistants to
+Workers, the management assistant to the work-fold agent, and Routings to
+Automations in the interface.
+
+[0.4.30](work-fold-0.4.30.md) gives Settings consistent navigation and compact
+controls, and keeps model choices and instruction drafts across page switches.
+
 ## September 11, 2026
+
+[0.4.29](work-fold-0.4.29.md) includes native Pi Extensions for computer
+control, Chrome, web research, documents, and MCP service connections.
 
 [0.4.28](work-fold-0.4.28.md) adds inline native Extension questions, optional
 local model-context inspection, session-lifetime fixes, and a simpler web
@@ -131,9 +149,11 @@ evidence, not a claim that 0.4.22 replacement and relaunch were verified.
 
 ## Older notes
 
-This directory preserves both work-fold and its predecessor Workspace records.
-Use each document's title, date, and product identity: a numerically higher
-legacy Workspace note is not a newer work-fold release. The old repositories
+Earlier work-fold notes: [0.1.0](work-fold-0.1.0.md), [0.1.1](work-fold-0.1.1.md), [0.1.4](work-fold-0.1.4.md), [0.2.0](work-fold-0.2.0.md), [0.2.1](work-fold-0.2.1.md), [0.2.2](work-fold-0.2.2.md), [0.2.4](work-fold-0.2.4.md), [0.3.0](work-fold-0.3.0.md), [0.3.1](work-fold-0.3.1.md), [0.3.2](work-fold-0.3.2.md), [0.3.3](work-fold-0.3.3.md), [0.3.4](work-fold-0.3.4.md), [0.3.5](work-fold-0.3.5.md), [0.3.6](work-fold-0.3.6.md), [0.3.7](work-fold-0.3.7.md), [0.3.8](work-fold-0.3.8.md), [0.3.9](work-fold-0.3.9.md), [0.3.10](work-fold-0.3.10.md), [0.3.11](work-fold-0.3.11.md), [0.3.12](work-fold-0.3.12.md), [0.3.13](work-fold-0.3.13.md), [0.3.14](work-fold-0.3.14.md), [0.3.15](work-fold-0.3.15.md), [0.3.16](work-fold-0.3.16.md), [0.3.17](work-fold-0.3.17.md).
+
+The predecessor Workspace product's notes live in [`workspace/`](workspace/):
+[0.2.8](workspace/0.2.8.md), [0.2.9](workspace/0.2.9.md), [0.2.10](workspace/0.2.10.md), [0.2.11](workspace/0.2.11.md), [0.4.0](workspace/0.4.0.md), [0.4.1](workspace/0.4.1.md), [0.4.2](workspace/0.4.2.md), [0.4.3](workspace/0.4.3.md), [0.4.4](workspace/0.4.4.md), [0.4.5](workspace/0.4.5.md), [0.4.6](workspace/0.4.6.md), [0.4.7](workspace/0.4.7.md), [0.4.8](workspace/0.4.8.md), [0.4.9](workspace/0.4.9.md), [0.4.10](workspace/0.4.10.md), [0.4.11](workspace/0.4.11.md), [0.4.12](workspace/0.4.12.md), [0.4.13](workspace/0.4.13.md), [0.4.14](workspace/0.4.14.md), [0.4.15](workspace/0.4.15.md), [0.5.0](workspace/0.5.0.md), [0.5.1](workspace/0.5.1.md), [0.5.2](workspace/0.5.2.md), [0.6.0](workspace/0.6.0.md), [0.7.0](workspace/0.7.0.md), [0.7.1](workspace/0.7.1.md), [0.8.0](workspace/0.8.0.md). A numerically higher legacy Workspace note is not a newer work-fold
+release. The old repositories
 and their tags remain frozen. Historical commands and paths in those records
 are not today's contributor instructions.
 

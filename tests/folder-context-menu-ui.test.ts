@@ -3,7 +3,7 @@ import { createRequire, registerHooks } from "node:module";
 import { createElement } from "react";
 import test from "node:test";
 import { createDomHarness } from "./support/dom.js";
-import type { SpaceSummary } from "../web-local/src/types.js";
+import type { WorkFolderSummary } from "../web-local/src/types.js";
 
 const iconNames = Object.keys(createRequire(import.meta.url)("@fluentui/react-icons")).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
 const assets = registerHooks({
@@ -14,26 +14,26 @@ const assets = registerHooks({
     return next(url, context);
   },
 });
-const { SpacePaneHeader } = await import("../web-local/src/components/panes/spaceChrome.js");
-const { spaceIdentityFor } = await import("../web-local/src/lib/space-identity.js");
+const { WorkFolderPaneHeader } = await import("../web-local/src/components/panes/workFolderChrome.js");
+const { workFolderIdentityFor } = await import("../web-local/src/lib/work-folder-identity.js");
 assets.deregister();
 
 test("the work-folder context menu consumes outside presses, preserves its actions, and restores normal pane input after dismissal", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
-  const space = { id: "menu-owner", name: "Workshop", spaceRoot: "/synthetic/workshop", location: { kind: "local", storage: "linked" } } as SpaceSummary;
+  const workFolder = { id: "menu-owner", name: "Workshop", workFolderRoot: "/synthetic/workshop", location: { kind: "local", storage: "linked" } } as WorkFolderSummary;
   let resizes = 0;
   let customizes = 0;
   await dom.render(createElement("div", { className: "app-shell" },
-    createElement(SpacePaneHeader, {
-      space, identity: spaceIdentityFor(space, {}), spaces: [space], spaceCustomizations: {},
-      onSwitchSpace: () => {}, onCreateSpace: () => {}, onOpenFolder: () => {}, onManageSpaces: () => {},
+    createElement(WorkFolderPaneHeader, {
+      workFolder, identity: workFolderIdentityFor(workFolder, {}), workFolders: [workFolder], workFolderCustomizations: {},
+      onSwitchWorkFolder: () => {}, onCreateWorkFolder: () => {}, onOpenFolder: () => {}, onManageWorkFolders: () => {},
       onNewChat: () => {}, onOpenAppearance: () => { customizes += 1; },
     }),
     createElement("button", { id: "resize", onPointerDown: () => { resizes += 1; } }, "Resize pane"),
   ));
-  const header = document.querySelector<HTMLElement>(".space-identity-header")!;
-  const trigger = document.querySelector<HTMLButtonElement>(".space-pane-switch-trigger")!;
+  const header = document.querySelector<HTMLElement>(".work-folder-identity-header")!;
+  const trigger = document.querySelector<HTMLButtonElement>(".work-folder-pane-switch-trigger")!;
   const open = async () => {
     await dom.act(() => header.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 80 })));
     await dom.waitFor(() => document.activeElement?.getAttribute("role") === "menuitem");

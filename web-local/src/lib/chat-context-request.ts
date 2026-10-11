@@ -3,31 +3,22 @@ import type { RestrictedAppChangeDraft } from "./restricted-apps";
 
 export function chatContextRequestForTab(
   request: ChatContextPathRequest | null,
-  spaceId: string,
+  workFolderId: string,
   surfaceTabId: string,
 ): ChatContextPathRequest | null {
-  return request?.spaceId === spaceId && request.surfaceTabId === surfaceTabId
+  return request?.workFolderId === workFolderId && request.surfaceTabId === surfaceTabId
     ? request
     : null;
 }
 
 export function chatDraftRequestForTab(
   request: ChatDraftRequest | null,
-  spaceId: string,
+  workFolderId: string,
   surfaceTabId: string,
 ): ChatDraftRequest | null {
-  return request?.spaceId === spaceId && request.surfaceTabId === surfaceTabId
+  return request?.workFolderId === workFolderId && request.surfaceTabId === surfaceTabId
     ? request
     : null;
-}
-
-/**
- * Starter text for building a Space app with the Assistant, in plain words:
- * The native proposal tool installs a completed local preview immediately;
- * the person finishes the sentence with what the app should do.
- */
-export function appBuildDraft(spaceName: string): string {
-  return `Build a new app for this work-folder (${spaceName}). When it's ready, install a local preview for me to try.\n\nWhat it should do: `;
 }
 
 export function appChangeDraft(change: RestrictedAppChangeDraft): string {

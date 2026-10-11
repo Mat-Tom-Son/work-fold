@@ -2,7 +2,8 @@ ObjC.import("Foundation");
 ObjC.import("stdlib");
 
 var ACT_UNAVAILABLE_MESSAGE = "Open work-fold to run this command. Act commands need the work-fold app running.";
-var ACT_MAX_MESSAGE_FILE_BYTES = 262144;
+var ACT_MAX_MESSAGE_FILE_BYTES = 16777216;
+var MAX_WAIT_SECONDS = 2592000;
 
 function run(rawArguments) {
   const argumentsList = Array.from(rawArguments);
@@ -30,17 +31,17 @@ function run(rawArguments) {
     createDirectory(`${cliRoot}/responses`);
 
     const timeoutValue = environmentValue("WORKFOLD_CLI_TIMEOUT_MS");
-    const timeoutMs = timeoutValue ? Number(timeoutValue) : 120000;
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600000) {
-      throw new Error("WORKFOLD_CLI_TIMEOUT_MS must be an integer between 100 and 600000.");
+    const timeoutMs = timeoutValue ? Number(timeoutValue) : 1800000;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) {
+      throw new Error("WORKFOLD_CLI_TIMEOUT_MS must be an integer of at least 100.");
     }
 
     const context = { fileManager, appPath, cliRoot, timeoutMs };
 
     if (isActCommand(argumentsList)) {
-      // Every act family (Chats, files, History, Library, Spaces, tools,
-      // apps, routings, pages) rides the separately versioned act lane and
-      // requires the per-launch token the running app minted.
+      // Every act family other than the content-free reads rides the
+      // separately versioned act lane and requires the per-launch token the
+      // running app minted.
       const actToken = readActToken(cliRoot);
       if (!actToken) {
         writeHandle($.NSFileHandle.fileHandleWithStandardError, `work-fold: ${ACT_UNAVAILABLE_MESSAGE}\n`);
@@ -70,31 +71,33 @@ function run(rawArguments) {
 
 /** Leading positionals decide the lane; content-bearing act reads (status, result, search) are act-lane too. */
 function isActCommand(argumentsList) {
+  // Help for any family is content-free and works without the app running.
+  if (argumentsList.includes("--help") || argumentsList.includes("-h")) return false;
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0] || "";
-  const actGroups = ["chat", "chats", "files", "manage", "history", "search", "library", "tools", "apps", "routings", "pages", "trash", "requests"];
+  const actGroups = ["chat", "chats", "files", "agent", "history", "search", "tools", "apps", "automations", "pages", "recently-deleted", "requests"];
   if (actGroups.includes(group)) return true;
   if (group === "checks") return positional[1] !== "status";
-  return group === "spaces" && positional[1] !== "list";
+  return group === "work-folders" && positional[1] !== "list";
 }
 
 function parseWaitCommand(argumentsList) {
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0];
-  if ((group !== "chat" && group !== "manage" && group !== "checks") || positional[1] !== "wait") return null;
+  if ((group !== "chat" && group !== "agent" && group !== "checks") || positional[1] !== "wait") return null;
   const json = argumentsList.includes("--json");
-  let space = "";
+  let workFolder = "";
   let task = "";
-  let timeoutSeconds = 600;
+  let timeoutSeconds = 3600;
   for (let index = 0; index < argumentsList.length; index += 1) {
     const token = argumentsList[index];
-    if (token === "--space") { space = argumentsList[index + 1] || ""; index += 1; }
+    if (token === "--work-folder") { workFolder = argumentsList[index + 1] || ""; index += 1; }
     else if (token === "--task") { task = argumentsList[index + 1] || ""; index += 1; }
     else if (token === "--timeout") {
       timeoutSeconds = Number(argumentsList[index + 1]);
       index += 1;
-      if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 3600) {
-        throw usageFailure("--timeout must be an integer between 1 and 3600 seconds.");
+      if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_WAIT_SECONDS) {
+        throw usageFailure(`--timeout must be an integer between 1 and ${MAX_WAIT_SECONDS} seconds.`);
       }
     } else if (token === group || token === "wait" || token === "--json") {
       // command tokens
@@ -102,10 +105,10 @@ function parseWaitCommand(argumentsList) {
       throw usageFailure(`Unknown option for ${group} wait: ${token}`);
     }
   }
-  if ((group === "chat" || group === "checks") && !space) throw usageFailure("Act commands require an explicit --space <id-or-name>.");
-  if (group === "manage" && space) throw usageFailure("The management scope does not take --space.");
+  if ((group === "chat" || group === "checks") && !workFolder) throw usageFailure("Act commands require an explicit --work-folder <id-or-name>.");
+  if (group === "agent" && workFolder) throw usageFailure("The work-fold agent sits above work-folders, so 'agent wait' takes no --work-folder.");
   if (!task) throw usageFailure(`Provide --task <id> from ${group === "checks" ? "checks run" : `${group} send`}.`);
-  return { group, space, task, timeoutSeconds, json };
+  return { group, workFolder, task, timeoutSeconds, json };
 }
 
 function runWaitLoop(context, plan, actToken) {
@@ -115,7 +118,7 @@ function runWaitLoop(context, plan, actToken) {
   // terminal state (then the result is printed), or the task is waiting on
   // an answer (then the status document with its `waiting` field is
   // printed, exit 0). A parent never sits on a child's question.
-  const scopeArgv = plan.group === "chat" || plan.group === "checks" ? ["--space", plan.space] : [];
+  const scopeArgv = plan.group === "chat" || plan.group === "checks" ? ["--work-folder", plan.workFolder] : [];
   const statusArgv = [plan.group, plan.group === "checks" ? "task" : "status"].concat(scopeArgv, ["--task", plan.task, "--json"]);
   const deadline = Date.now() + plan.timeoutSeconds * 1000;
   for (;;) {

@@ -14,13 +14,6 @@ export function isOfficeDocumentPath(path: string): boolean {
 export function isOfficeLockFileName(name: string): boolean {
   return name.startsWith("~$") || /^\.~lock\..+#$/.test(name);
 }
-
-export function officeLockFileExplanation(lockName: string): string {
-  const libreOffice = lockName.match(/^\.~lock\.(.+)#$/);
-  const documentHint = libreOffice ? `"${libreOffice[1]}"` : `a document whose name ends with "${lockName.slice(2)}"`;
-  return `"${lockName}" is a temporary Office owner file, not a document. It means ${documentHint} is or recently was open.`;
-}
-
 export async function officeDocumentLockPresent(absolutePath: string): Promise<boolean> {
   if (!isOfficeDocumentPath(absolutePath)) return false;
   const directory = dirname(absolutePath);

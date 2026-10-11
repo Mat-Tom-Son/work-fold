@@ -3,14 +3,14 @@ import { readQuestionDraft, writeQuestionDraft, clearQuestionDraft } from "../..
 import type { WorkQuestionView, WorkRequestView } from "../../../../src/shared/request-presentation";
 import { useWorkRequest } from "../../hooks/useWorkRequest";
 
-export async function openWorkFile(spaceId: string, path: string): Promise<void> {
-  if (window.workFoldDesktop?.management?.openResultFile) {
-    await window.workFoldDesktop.management.openResultFile(spaceId, path);
-  } else window.dispatchEvent(new window.CustomEvent("work-fold:open-result-file", { detail: { spaceId, path } }));
+export async function openWorkFile(workFolderId: string, path: string): Promise<void> {
+  if (window.workFoldDesktop?.workFoldAgent?.openResultFile) {
+    await window.workFoldDesktop.workFoldAgent.openResultFile(workFolderId, path);
+  } else window.dispatchEvent(new window.CustomEvent("work-fold:open-result-file", { detail: { workFolderId, path } }));
 }
 
 export function ConnectedWorkRequest({ path, onOpenFile, showResultSummary = true, showResultFiles = true, showStop = true }: {
-  path: string; onOpenFile?: (spaceId: string, path: string) => void; showResultSummary?: boolean; showResultFiles?: boolean; showStop?: boolean;
+  path: string; onOpenFile?: (workFolderId: string, path: string) => void; showResultSummary?: boolean; showResultFiles?: boolean; showStop?: boolean;
 }) {
   const state = useWorkRequest(path);
   return <WorkRequest {...state} onOpenFile={onOpenFile} showResultSummary={showResultSummary} showResultFiles={showResultFiles} showStop={showStop} />;
@@ -20,7 +20,7 @@ export function WorkRequest({ work, error, busy, act, refresh, onOpenFile = open
   work: WorkRequestView | null; error: string | null; busy: boolean;
   act: (action: "answer" | "stop" | "continue", body?: Record<string, unknown>) => Promise<boolean>;
   refresh: () => Promise<void>;
-  onOpenFile?: (spaceId: string, path: string) => void | Promise<void>;
+  onOpenFile?: (workFolderId: string, path: string) => void | Promise<void>;
   showStop?: boolean; showResultSummary?: boolean; showProgress?: boolean; showResultFiles?: boolean;
 }) {
   const [fileError, setFileError] = useState<string | null>(null);
@@ -40,14 +40,14 @@ export function WorkRequest({ work, error, busy, act, refresh, onOpenFile = open
       {work.questions.map((question) => <WorkQuestion key={question.id} question={question} busy={busy} answer={(text) => act("answer", { questionId: question.id, answer: text })} />)}
       {work.questionCount > work.questions.length ? <p className="work-detail">{work.questionCount - work.questions.length} more questions follow these answers.</p> : null}
       {work.children.length ? <details className="work-details">
-        <summary>Work across {work.children.length === 1 ? "another Assistant" : `${work.children.length} Assistants`}</summary>
+        <summary>Work across {work.children.length === 1 ? "another Worker" : `${work.children.length} Workers`}</summary>
         <ul>{work.children.map((child) => <li key={child.requestId}><span>{child.title}</span><span>{child.label}</span></li>)}</ul>
       </details> : null}
       {work.result ? <div className="work-result">
         {showResultSummary ? <p className="work-result-summary">{work.result.summary}</p> : null}
-        {showResultFiles && work.result.files.length ? <ul className="work-result-files" aria-label="Result Files">{work.result.files.map((file) => <li key={`${file.spaceId}:${file.path}`}>
-          <button type="button" className="work-file-button" onClick={() => { setFileError(null); void Promise.resolve().then(() => onOpenFile(file.spaceId, file.path)).catch((caught) => setFileError(caught instanceof Error ? caught.message : "Could not open this file.")); }} title={`${file.spaceName} · ${file.path}`}>
-            <span>{file.path.split("/").at(-1)}</span><small>{file.spaceName} · Open file</small>
+        {showResultFiles && work.result.files.length ? <ul className="work-result-files" aria-label="Result Files">{work.result.files.map((file) => <li key={`${file.workFolderId}:${file.path}`}>
+          <button type="button" className="work-file-button" onClick={() => { setFileError(null); void Promise.resolve().then(() => onOpenFile(file.workFolderId, file.path)).catch((caught) => setFileError(caught instanceof Error ? caught.message : "Could not open this file.")); }} title={`${file.workFolderName} · ${file.path}`}>
+            <span>{file.path.split("/").at(-1)}</span><small>{file.workFolderName} · Open file</small>
           </button>
         </li>)}</ul> : null}
       </div> : null}

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Braces, Check, Copy, RefreshCw, Search, X } from "lucide-react";
 import type { ModelContextInspection as ModelContextInspectionRecord, ModelContextInspectionState, ModelContextInspectionSummary, ModelContextSnapshot } from "../../../../src/shared/model-context-inspection";
-import { workFoldModelContextLimits } from "../../../../src/shared/fold-limits";
+import { workFoldModelContextLimits } from "../../../../src/shared/work-fold-limits";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
+import { copyToClipboard } from "../../lib/clipboard";
 
 interface InspectorProps {
-  spaceId?: string;
+  workFolderId?: string;
   conversationId?: string;
   scopeLabel?: string;
   fixtureMode?: boolean;
@@ -19,16 +20,9 @@ export function ModelContextInspector(props: InspectorProps) {
     if (window.workFoldDiagnostics) void window.workFoldDiagnostics.close();
     else props.onClose();
   }, [props.onClose]);
-  return <ContextInspector key={JSON.stringify([props.spaceId ?? null, props.conversationId ?? null, props.fixtureMode ?? false])} {...props} onClose={onClose} />;
+  return <ContextInspector key={JSON.stringify([props.workFolderId ?? null, props.conversationId ?? null, props.fixtureMode ?? false])} {...props} onClose={onClose} />;
 }
-
-export function InspectContextButton({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
-  return <button className={`inspect-context-trigger${compact ? " compact" : ""}`} type="button" onClick={onClick} aria-label="Inspect context" title="Inspect model context">
-    <Braces size={14} aria-hidden="true" />{compact ? null : <span>Inspect context</span>}
-  </button>;
-}
-
-function ContextInspector({ spaceId, conversationId, scopeLabel = "All model requests on this desktop", fixtureMode = false, onClose }: InspectorProps) {
+function ContextInspector({ workFolderId, conversationId, scopeLabel = "All model requests on this desktop", fixtureMode = false, onClose }: InspectorProps) {
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalDialog({ onClose, initialFocusRef: closeRef });
@@ -52,9 +46,9 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
   const generation = useRef(0);
   const detailGeneration = useRef(0);
   const controllers = useRef(new Set<AbortController>());
-  const fixture = useRef(createModelContextFixture(spaceId, conversationId));
+  const fixture = useRef(createModelContextFixture(workFolderId, conversationId));
   const params = new URLSearchParams();
-  if (spaceId) params.set("spaceId", spaceId);
+  if (workFolderId) params.set("workFolderId", workFolderId);
   if (conversationId) params.set("conversationId", conversationId);
   const filter = params.size ? `?${params}` : "";
 
@@ -176,7 +170,7 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
   async function copyJson() {
     const current = copyGeneration.current;
     try {
-      await navigator.clipboard.writeText(json);
+      await copyToClipboard({ text: json });
       if (mounted.current && current === copyGeneration.current) setCopied(true);
     } catch { if (mounted.current && current === copyGeneration.current) setError("Couldn’t copy. You can select and copy the displayed text."); }
   }
@@ -200,7 +194,7 @@ function ContextInspector({ spaceId, conversationId, scopeLabel = "All model req
       {!state || !state.records.length ? <div className="model-context-empty" role="status">
         <Braces size={26} aria-hidden="true" />
         <h3>{loading ? "Loading captures…" : state?.enabled ? "No requests captured here yet" : "Recording is off"}</h3>
-        <p>{loading ? "Reading saved diagnostics." : state?.enabled ? "Use the Assistant, then refresh. Opening this inspector does not call a model." : "Turn on recording to inspect future model requests. Earlier context is not reconstructed."}</p>
+        <p>{loading ? "Reading saved diagnostics." : state?.enabled ? "Send a Chat message, then refresh. Opening this inspector does not call a model." : "Turn on recording to inspect future model requests. Earlier context is not reconstructed."}</p>
       </div> : <div className="model-context-workspace">
         <label className="model-context-request-picker">Request
           <select value={selectedId ?? ""} onChange={(event) => { setSelectedId(event.target.value); setSample(0); setError(null); }}>
@@ -257,16 +251,16 @@ function HighlightedJson({ text, matches, queryLength }: { text: string; matches
   return <>{matches.map((start) => { const before = text.slice(end, start); end = start + queryLength; return <span key={start}>{before}<mark>{text.slice(start, end)}</mark></span>; })}{text.slice(end)}</>;
 }
 function formatBytes(bytes: number): string { return bytes >= 1024 * 1024 ? `${Math.round(bytes / (1024 * 1024))} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`; }
-function purposeLabel(purpose: string): string { return ({ assistant: "Assistant", chat: "Chat", title: "Chat title", check: "Check", app_inference: "App inference", compaction: "Context compaction" } as Record<string, string>)[purpose] ?? purpose.replace(/[_-]/g, " "); }
+function purposeLabel(purpose: string): string { return ({ assistant: "Chat turn", chat: "Chat", title: "Chat title", check: "Check", app_inference: "App inference", compaction: "Context compaction" } as Record<string, string>)[purpose] ?? purpose.replace(/[_-]/g, " "); }
 function statusLabel(status: ModelContextInspectionSummary["status"]): string { return status === "response_received" ? "Response started" : status === "dispatch_error" ? "Dispatch error" : "Captured"; }
 function requestLabel(record: ModelContextInspectionSummary): string { return `${new Date(record.createdAt).toLocaleTimeString()} · ${purposeLabel(record.owner.purpose)} · ${record.model}`; }
 
 /** Inert fixture: no capture APIs, model requests, or recording changes on the host. */
-export function createModelContextFixture(_spaceId?: string, conversationId = "fixture-chat") {
+export function createModelContextFixture(_workFolderId?: string, conversationId = "fixture-chat") {
   const now = new Date("2026-09-11T20:30:00Z").getTime();
   const snapshot = (value: ModelContextSnapshot["value"]): ModelContextSnapshot => ({ capturedAt: now, value, truncated: false, omissions: ["Image bytes omitted; image metadata retained."], bytes: 2400 });
   const record: ModelContextInspectionRecord = {
-    id: "fixture-context-one", owner: { spaceRoot: "/example/Space", conversationId, sessionId: "fixture-session", purpose: "chat" },
+    id: "fixture-context-one", owner: { workFolderRoot: "/example/work-folder", conversationId, sessionId: "fixture-session", purpose: "chat" },
     provider: "example", model: "Vision model", api: "example", createdAt: now, status: "response_received", stage: "provider_payload", payloadSamples: 1, truncated: false, bytes: 4800,
     assembled: snapshot({ systemPrompt: "Verify the requested result using the available tools.", messages: [{ role: "user", content: "Check the report’s layout." }, { role: "toolResult", toolName: "read", content: [{ type: "text", text: "Page 1 of 3, revision 7. Remaining pages have not been inspected." }, { type: "image", mimeType: "image/png", bytes: 18742, data: "[image bytes omitted]" }] }], tools: [{ name: "read", description: "Read text or images" }] }),
     payloads: [snapshot({ model: "Vision model", input: [{ role: "user", content: "Check the report’s layout." }, { role: "tool", content: [{ type: "text", text: "Page 1 of 3, revision 7." }, { type: "image", mimeType: "image/png", bytes: 18742, data: "[image bytes omitted]" }] }] })],

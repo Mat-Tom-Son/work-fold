@@ -193,9 +193,9 @@ body {
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pop-text-muted); flex: none; align-self: center; }
 
 /* Conversation details expand in place. */
-.fold-section { display: flex; flex-direction: column; }
-.fold-section-conversation { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.fold-strip {
+.agent-section { display: flex; flex-direction: column; }
+.agent-section-conversation { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.agent-strip {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -213,17 +213,17 @@ body {
   text-align: left;
   cursor: pointer;
 }
-.fold-strip:hover { color: var(--pop-text); background: var(--pop-surface-2); }
-.fold-strip-chevron { width: 12px; height: 12px; stroke-width: 2; flex: none; transition: transform 120ms ease; }
-.fold-strip[aria-expanded="true"] .fold-strip-chevron { transform: rotate(90deg); }
+.agent-strip:hover { color: var(--pop-text); background: var(--pop-surface-2); }
+.agent-strip-chevron { width: 12px; height: 12px; stroke-width: 2; flex: none; transition: transform 120ms ease; }
+.agent-strip[aria-expanded="true"] .agent-strip-chevron { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) {
-  .fold-strip-chevron { transition: none; }
+  .agent-strip-chevron { transition: none; }
 }
 
-.fold-drawer { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
-.fold-drawer:focus { outline: none; }
+.agent-drawer { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
+.agent-drawer:focus { outline: none; }
 /* The active request gets one quiet live line, leaving the popover to the Chat. */
-.fold-tail { padding: 5px 4px 0; }
+.agent-tail { padding: 5px 4px 0; }
 /* An inline narrator entry inside the conversation (handed-off trail or
    settled result), separated like a message. */
 .popover-entry { display: flex; flex-direction: column; gap: 8px; padding: 4px; }
@@ -396,7 +396,7 @@ textarea:focus { outline: none; }
 }
 .composer-thinking:disabled { opacity: 0.55; cursor: default; }
 
-/* The @ menu (2026-10-01): Folder Workers in their nested order, above the box. */
+/* The @ menu (2026-10-01): work-folder Workers in their nested order, above the box. */
 .composer-input { position: relative; }
 .popover-mention-menu {
   position: absolute;
@@ -479,7 +479,7 @@ button.primary:not(:disabled):hover { filter: brightness(1.06); }
 button.primary:not(:disabled):active { filter: brightness(0.92); }
 
 /* The live tail's status lines are readable output — let them be copied. */
-.fold-tail { user-select: text; }
+.agent-tail { user-select: text; }
 
 .drop-overlay {
   position: fixed;
@@ -503,39 +503,39 @@ button.primary:not(:disabled):active { filter: brightness(0.92); }
 
 [hidden] { display: none !important; }
 .popover-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px; }
-.fold-chat-empty { margin: auto; padding: 20px 10px; text-align: center; }
-.fold-chat-empty p { margin: 0 0 5px; font-size: 15px; font-weight: 550; }
-.fold-chat-empty span, .fold-history-empty { color: var(--pop-text-muted); font-size: 12px; }
-.fold-chat-history { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 12px; }
-.fold-history-heading { display: flex; align-items: center; gap: 8px; }
-.fold-history-heading h1 { margin: 0; font-size: 16px; font-weight: 650; }
-.fold-history-heading > span { margin-left: auto; color: var(--pop-text-muted); font-size: 11px; }
-.fold-back { display: grid; place-items: center; padding: 6px; border: none; background: none; }
-.fold-back svg { width: 16px; height: 16px; }
-.fold-chat-search { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--pop-border); border-radius: 8px; background: var(--pop-surface); }
-.fold-chat-search:focus-within { outline: 2px solid var(--pop-accent); outline-offset: -1px; }
-.fold-chat-search svg { width: 15px; height: 15px; color: var(--pop-text-muted); flex: none; }
-.fold-chat-search input { width: 100%; min-width: 0; outline: none; border: none; background: none; color: var(--pop-text); font: inherit; }
-.fold-chat-list { flex: 1; min-height: 0; overflow-y: auto; }
-.fold-chat-group + .fold-chat-group { margin-top: 12px; }
-.fold-chat-group h2 { margin: 0; padding: 7px 10px 3px; color: var(--pop-text-muted); font-size: 10px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
-.fold-chat-row { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 11px 10px; border: none; border-radius: 7px; background: none; text-align: left; transition: background 120ms ease; }
-.fold-chat-row:hover, .fold-chat-row[aria-current] { background: var(--pop-surface-2); }
-.fold-chat-row > span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
-.fold-chat-row small { display: flex; gap: 10px; font-size: 11px; color: var(--pop-text-muted); }
-.fold-chat-row em { font-style: normal; color: var(--pop-accent); }
-.fold-history-empty { padding: 8px 10px; }
-.fold-background-work { display: flex; align-items: center; gap: 7px; padding: 6px; background: none; border: none; color: var(--pop-text-muted); text-align: left; font-size: 11px; }
-.fold-background-work > span:not(.spinner) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.fold-background-work > svg { width: 14px; height: 14px; flex: none; }
-@media (prefers-reduced-motion: reduce) { .fold-chat-row { transition: none; } }
+.agent-chat-empty { margin: auto; padding: 20px 10px; text-align: center; }
+.agent-chat-empty p { margin: 0 0 5px; font-size: 15px; font-weight: 550; }
+.agent-chat-empty span, .agent-history-empty { color: var(--pop-text-muted); font-size: 12px; }
+.agent-chat-history { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 12px; }
+.agent-history-heading { display: flex; align-items: center; gap: 8px; }
+.agent-history-heading h1 { margin: 0; font-size: 16px; font-weight: 650; }
+.agent-history-heading > span { margin-left: auto; color: var(--pop-text-muted); font-size: 11px; }
+.agent-back { display: grid; place-items: center; padding: 6px; border: none; background: none; }
+.agent-back svg { width: 16px; height: 16px; }
+.agent-chat-search { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--pop-border); border-radius: 8px; background: var(--pop-surface); }
+.agent-chat-search:focus-within { outline: 2px solid var(--pop-accent); outline-offset: -1px; }
+.agent-chat-search svg { width: 15px; height: 15px; color: var(--pop-text-muted); flex: none; }
+.agent-chat-search input { width: 100%; min-width: 0; outline: none; border: none; background: none; color: var(--pop-text); font: inherit; }
+.agent-chat-list { flex: 1; min-height: 0; overflow-y: auto; }
+.agent-chat-group + .agent-chat-group { margin-top: 12px; }
+.agent-chat-group h2 { margin: 0; padding: 7px 10px 3px; color: var(--pop-text-muted); font-size: 10px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+.agent-chat-row { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 11px 10px; border: none; border-radius: 7px; background: none; text-align: left; transition: background 120ms ease; }
+.agent-chat-row:hover, .agent-chat-row[aria-current] { background: var(--pop-surface-2); }
+.agent-chat-row > span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.agent-chat-row small { display: flex; gap: 10px; font-size: 11px; color: var(--pop-text-muted); }
+.agent-chat-row em { font-style: normal; color: var(--pop-accent); }
+.agent-history-empty { padding: 8px 10px; }
+.agent-background-work { display: flex; align-items: center; gap: 7px; padding: 6px; background: none; border: none; color: var(--pop-text-muted); text-align: left; font-size: 11px; }
+.agent-background-work > span:not(.spinner) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.agent-background-work > svg { width: 14px; height: 14px; flex: none; }
+@media (prefers-reduced-motion: reduce) { .agent-chat-row { transition: none; } }
 
-.fold-chat-item { display: flex; flex-wrap: wrap; align-items: center; }
-.fold-chat-item > .fold-chat-row { flex: 1; min-width: 0; width: auto; }
-.fold-chat-options { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 5px; border: 0; border-radius: 6px; background: transparent; color: var(--pop-text-muted); }
-.fold-chat-options:hover, .fold-chat-options[aria-expanded="true"] { background: var(--pop-surface-2); }
-.fold-chat-options svg { width: 18px; height: 18px; }
-.fold-chat-actions { flex-basis: 100%; display: flex; gap: 6px; padding: 4px 10px 10px; }
-.fold-chat-actions button { border: 0; border-radius: 5px; padding: 6px 9px; background: var(--pop-surface-2); font-size: 12px; }
-.fold-chat-actions form { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
-.fold-chat-actions input { flex: 1 1 100%; min-width: 0; padding: 7px; border: 1px solid var(--pop-border); border-radius: 5px; background: var(--pop-surface-2); color: inherit; }
+.agent-chat-item { display: flex; flex-wrap: wrap; align-items: center; }
+.agent-chat-item > .agent-chat-row { flex: 1; min-width: 0; width: auto; }
+.agent-chat-options { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 5px; border: 0; border-radius: 6px; background: transparent; color: var(--pop-text-muted); }
+.agent-chat-options:hover, .agent-chat-options[aria-expanded="true"] { background: var(--pop-surface-2); }
+.agent-chat-options svg { width: 18px; height: 18px; }
+.agent-chat-actions { flex-basis: 100%; display: flex; gap: 6px; padding: 4px 10px 10px; }
+.agent-chat-actions button { border: 0; border-radius: 5px; padding: 6px 9px; background: var(--pop-surface-2); font-size: 12px; }
+.agent-chat-actions form { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.agent-chat-actions input { flex: 1 1 100%; min-width: 0; padding: 7px; border: 1px solid var(--pop-border); border-radius: 5px; background: var(--pop-surface-2); color: inherit; }

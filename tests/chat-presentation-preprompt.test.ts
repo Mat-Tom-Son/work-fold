@@ -15,7 +15,7 @@ test("a reused Chat stopped before prompting cannot inherit the prior turn's fin
   const root = await mkdtemp(join(tmpdir(), "work-fold-preprompt-presentation-"));
   // Matching lengths deliberately defeat range-only validation. The previous
   // answer is unrelated content, despite occupying the same UTF-16 interval.
-  const stoppedText = "The Assistant was stopped before it completed a response.";
+  const stoppedText = "The agent was stopped before it completed a response.";
   const previousText = "x".repeat(stoppedText.length);
   let requests = 0;
   const provider = createServer((request, response) => {
@@ -49,7 +49,7 @@ test("a reused Chat stopped before prompting cannot inherit the prior turn's fin
   const settingsManager = SettingsManager.inMemory({ defaultProvider: "fixture", defaultModel: "fixture", defaultThinkingLevel: "off" });
   let prompted = 0;
   const api = await startLocalApi({
-    port: 0, stateBase: join(root, "state"), spaceBase: join(root, "content"), loadEnv: false,
+    port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "content"), loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir, credentials: authStorage, modelRuntime, settingsManager }; } },
     beforeAgentPrompt() {
       if (++prompted === 2) throw Object.assign(new Error("Stopped before prompt"), { name: "PiTurnCancelledError" });
@@ -62,15 +62,15 @@ test("a reused Chat stopped before prompting cannot inherit the prior turn's fin
     configureWorkFoldStateRoot(undefined);
     await rm(root, { recursive: true, force: true });
   });
-  const { space } = await api.actFacade.createSpace({ name: "Presentation fixture" });
-  const { conversation } = await api.actFacade.createConversation({ space: space.id });
-  await markConversationTitleAttempted(space.spaceRoot, conversation.id);
-  await writeFile(join(space.spaceRoot, "note.txt"), "before\n");
+  const { workFolder } = await api.actFacade.createWorkFolder({ name: "Presentation fixture" });
+  const { conversation } = await api.actFacade.createConversation({ workFolder: workFolder.id });
+  await markConversationTitleAttempted(workFolder.workFolderRoot, conversation.id);
+  await writeFile(join(workFolder.workFolderRoot, "note.txt"), "before\n");
   for (const expected of ["succeeded", "aborted"]) {
-    const sent = await api.actFacade.sendMessage({ space: space.id, conversationId: conversation.id, content: "Update the file." });
+    const sent = await api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: conversation.id, content: "Update the file." });
     let settled = false;
     for (let attempt = 0; attempt < 1_000; attempt += 1) {
-      const { task } = await api.actFacade.turnStatus({ space: space.id, taskId: sent.taskId });
+      const { task } = await api.actFacade.turnStatus({ workFolder: workFolder.id, taskId: sent.taskId });
       if (task.state !== "running" && task.state !== "accepted") {
         assert.equal(task.state, expected);
         settled = true;
@@ -80,7 +80,7 @@ test("a reused Chat stopped before prompting cannot inherit the prior turn's fin
     }
     assert.equal(settled, true, "the admitted turn must settle");
   }
-  const replies = (await readConversation(space.spaceRoot, conversation.id)).filter((message) => message.role === "assistant");
+  const replies = (await readConversation(workFolder.workFolderRoot, conversation.id)).filter((message) => message.role === "assistant");
   assert.equal(replies.length, 2);
   assert.equal(replies[0]!.content, previousText);
   assert.deepEqual(replies[0]!.assistantPresentation?.segments.map((segment) => segment.kind), ["final"]);

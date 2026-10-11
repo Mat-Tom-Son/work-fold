@@ -8,8 +8,8 @@ import test, { after, before } from "node:test";
 
 import {
   defaultAgentSdkDir,
-  spaceSessionDir,
-  spaceStorageKey,
+  workFolderSessionDir,
+  workFolderStorageKey,
 } from "../src/local/agent/agent-data-dir.js";
 import {
   RestrictedAppFileBroker,
@@ -20,13 +20,13 @@ import { listConversations } from "../src/local/agent/chat-store.js";
 import { createLocalDevelopmentApiOptions } from "../src/local/server-dev-options.js";
 import {
   configureWorkFoldStateRoot,
-  spaceManifestFile,
+  workFolderManifestFile,
 } from "../src/local/state-paths.js";
 import {
-  listSpaces,
-  registerLinkedSpace,
-  scanSpaceTree,
-} from "../src/local/space.js";
+  listWorkFolders,
+  registerLinkedWorkFolder,
+  scanWorkFolderTree,
+} from "../src/local/work-folder.js";
 import { workFoldDesktopStateOverride } from "../desktop/src/user-data-path.js";
 
 let sandbox = "";
@@ -44,17 +44,17 @@ after(async () => {
 });
 
 test("legacy app state and linked-folder metadata remain undiscovered and byte-preserved", async () => {
-  const linkedRoot = join(sandbox, "linked-space");
-  const legacyStateRoot = join(sandbox, "Space");
+  const linkedRoot = join(sandbox, "linked-work-folder");
+  const legacyStateRoot = join(sandbox, "work-folder");
   const legacyMetadataRoot = join(linkedRoot, ".workspace");
   const legacyConversationRoot = join(legacyMetadataRoot, "conversations");
   await mkdir(legacyStateRoot, { recursive: true });
   await mkdir(legacyConversationRoot, { recursive: true });
   await writeFile(join(linkedRoot, "ordinary.txt"), "ordinary content\n", "utf8");
 
-  const legacyId = legacyUnsaltedSpaceId(linkedRoot);
-  const legacyRegistryPath = join(legacyStateRoot, "space-registry.json");
-  const legacyManifestPath = join(legacyMetadataRoot, "space.json");
+  const legacyId = legacyUnsaltedWorkFolderId(linkedRoot);
+  const legacyRegistryPath = join(legacyStateRoot, "work-folder-registry.json");
+  const legacyManifestPath = join(legacyMetadataRoot, "work-folder.json");
   const legacyConversationPath = join(legacyConversationRoot, "chat-legacy.jsonl");
   const legacyRegistryBytes = Buffer.from(`{\n  "version": 1,\n  "spaces": [{"id":"${legacyId}","name":"Legacy","rootPath":${JSON.stringify(linkedRoot)}}],\n  "pendingRemovals": []\n}\n`);
   const legacyManifestBytes = Buffer.from(`${JSON.stringify({
@@ -75,16 +75,16 @@ test("legacy app state and linked-folder metadata remain undiscovered and byte-p
     legacyConversationPath,
   ]);
 
-  assert.deepEqual(await listSpaces(), [], "the new profile must not discover the old registry");
+  assert.deepEqual(await listWorkFolders(), [], "the new profile must not discover the old registry");
   assert.deepEqual(await listConversations(linkedRoot), [], "the new Chat store must not discover .workspace transcripts");
 
-  const registered = await registerLinkedSpace(linkedRoot);
-  const newManifest = JSON.parse(await readFile(spaceManifestFile(linkedRoot), "utf8")) as { id: string };
+  const registered = await registerLinkedWorkFolder(linkedRoot);
+  const newManifest = JSON.parse(await readFile(workFolderManifestFile(linkedRoot), "utf8")) as { id: string };
   assert.equal(registered.id, newManifest.id);
   assert.notEqual(registered.id, legacyId, "the clean product identity must not reuse the exact legacy path-derived id");
-  assert.deepEqual((await listSpaces()).map((space) => space.id), [registered.id]);
-  assert.deepEqual((await scanSpaceTree(linkedRoot)).entries.map((entry) => entry.path), ["ordinary.txt"]);
-  assert.equal(existsSync(join(linkedRoot, ".work-fold", "space.json")), true);
+  assert.deepEqual((await listWorkFolders()).map((workFolder) => workFolder.id), [registered.id]);
+  assert.deepEqual((await scanWorkFolderTree(linkedRoot)).entries.map((entry) => entry.path), ["ordinary.txt"]);
+  assert.equal(existsSync(join(linkedRoot, ".work-fold", "work-folder.json")), true);
 
   assert.deepEqual(await snapshots([
     legacyRegistryPath,
@@ -94,18 +94,18 @@ test("legacy app state and linked-folder metadata remain undiscovered and byte-p
 });
 
 test("legacy Pi sessions remain intact beside the work-fold session namespace", async () => {
-  const spaceRoot = join(sandbox, "session-space");
+  const workFolderRoot = join(sandbox, "session-work-folder");
   const agentRoot = join(sandbox, "pi-agent");
-  const spaceKey = spaceStorageKey(spaceRoot);
-  const legacySessionRoot = join(agentRoot, "sessions", spaceKey);
+  const workFolderKey = workFolderStorageKey(workFolderRoot);
+  const legacySessionRoot = join(agentRoot, "sessions", workFolderKey);
   const legacySessionPath = join(legacySessionRoot, "session.jsonl");
   await mkdir(legacySessionRoot, { recursive: true });
   const legacyBytes = Buffer.from([0, 255, 17, 34, 51, 68, 85]);
   await writeFile(legacySessionPath, legacyBytes);
   const before = await snapshots([legacySessionPath]);
 
-  const newSessionRoot = spaceSessionDir(spaceRoot, agentRoot);
-  assert.equal(newSessionRoot, join(agentRoot, "sessions", "work-fold", spaceKey));
+  const newSessionRoot = workFolderSessionDir(workFolderRoot, agentRoot);
+  assert.equal(newSessionRoot, join(agentRoot, "sessions", "work-fold", workFolderKey));
   assert.notEqual(newSessionRoot, legacySessionRoot);
   await mkdir(newSessionRoot, { recursive: true });
   await writeFile(join(newSessionRoot, "session.jsonl"), "new work-fold session\n", "utf8");
@@ -139,7 +139,7 @@ test("legacy product environment variables cannot select work-fold state", () =>
 });
 
 test("restricted app public file APIs deny Windows-case variants of reserved metadata", async () => {
-  const root = join(sandbox, "restricted-app-space");
+  const root = join(sandbox, "restricted-app-work-folder");
   await mkdir(root, { recursive: true });
   const broker = new RestrictedAppFileBroker();
   const authority = restrictedAppContext(root);
@@ -169,7 +169,7 @@ test("restricted app public file APIs deny Windows-case variants of reserved met
   }
 });
 
-function legacyUnsaltedSpaceId(rootPath: string): string {
+function legacyUnsaltedWorkFolderId(rootPath: string): string {
   const resolved = resolve(rootPath);
   const normalized = process.platform === "win32" ? resolved.toLocaleLowerCase() : resolved;
   return `ws-${createHash("sha256").update(normalized).digest("hex").slice(0, 16)}`;
@@ -183,9 +183,9 @@ async function snapshots(paths: string[]): Promise<Array<{ path: string; bytes: 
   })));
 }
 
-function restrictedAppContext(spaceRoot: string, root = "."): RestrictedAppFileContext {
+function restrictedAppContext(workFolderRoot: string, root = "."): RestrictedAppFileContext {
   return {
-    spaceRoot,
+    workFolderRoot,
     declarations: [{ id: "files", target: "directory", access: "read-write" }],
     grants: [{ id: "selected-files", declarationId: "files", root, access: "read-write" }],
   };

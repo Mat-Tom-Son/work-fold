@@ -3,7 +3,7 @@ import { posix, win32 } from "node:path";
 /**
  * Pure pieces of "Open with": the app-picker dialog options and the launch
  * plan for the app the person chose. The main process owns validation of the
- * Space file, shows the dialog, and executes the plan without a shell.
+ * work-folder file, shows the dialog, and executes the plan without a shell.
  */
 
 export interface OpenWithDialogOptions {
@@ -23,7 +23,7 @@ export async function openFileWithPickedApp(platform: NodeJS.Platform, dependenc
   launch: (plan: OpenWithLaunchPlan) => Promise<void>;
 }): Promise<{ opened: boolean; canceled: boolean; appName: string | null }> {
   // Fail before showing a picker for an unavailable file. Recheck after the
-  // dialog: the Folder or its files may have changed while it was open.
+  // dialog: the work-folder or its files may have changed while it was open.
   await dependencies.resolveFile();
   const appPath = await dependencies.pickApp();
   if (!appPath) return { opened: false, canceled: true, appName: null };

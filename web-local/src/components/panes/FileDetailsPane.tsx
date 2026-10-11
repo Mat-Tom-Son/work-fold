@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { AppWindow, CirclePlus, ExternalLink, FolderOpen, History, Loader2, PencilLine } from "lucide-react";
 import { api, errorText } from "../../lib/api";
-import { spaceRawFileObjectUrl } from "../../lib/raw-file";
+import { workFolderRawFileObjectUrl } from "../../lib/raw-file";
 import { nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { fileExtension } from "../../lib/tree";
-import type { TreeEntry, SpaceSummary } from "../../types";
+import type { TreeEntry, WorkFolderSummary } from "../../types";
 import { EmptyInline } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
 import { MarkdownMessage } from "../chat/messages";
@@ -17,8 +17,8 @@ const pdfViewerParameters = "#toolbar=0&navpanes=0&view=FitH";
 
 type FilePreview = { kind: "text" | "image" | "pdf" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number };
 
-export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
-  space: SpaceSummary;
+export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
+  workFolder: WorkFolderSummary;
   path: string;
   entry: TreeEntry | null;
   fixtureMode?: boolean;
@@ -37,10 +37,10 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOp
   // `undefined` while the preview is still being read; `null` when none exists.
   const [preview, setPreview] = useState<FilePreview | null | undefined>(undefined);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  // Which file content the preview reflects: Space, path, and modified time.
+  // Which file content the preview reflects: work-folder, path, and modified time.
   // A new modified time refreshes the preview in place; a new path clears it.
   const [contentKey, setContentKey] = useState<string | null>(null);
-  const fileKey = `${space.id}\0${path}`;
+  const fileKey = `${workFolder.id}\0${path}`;
   const [shownFileKey, setShownFileKey] = useState(fileKey);
   if (shownFileKey !== fileKey) {
     setShownFileKey(fileKey);
@@ -52,23 +52,23 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOp
     let cancelled = false;
     setLoading(true); setMissing(false); setInfo(null);
     if (fixtureMode) {
-      setInfo(entry ? { name: entry.name, path: entry.path, kind: entry.kind, sizeBytes: entry.sizeBytes ?? 0, createdAt: space.createdAt, modifiedAt: entry.updatedAt ?? space.updatedAt, mimeType: "application/octet-stream" } : null);
+      setInfo(entry ? { name: entry.name, path: entry.path, kind: entry.kind, sizeBytes: entry.sizeBytes ?? 0, createdAt: workFolder.createdAt, modifiedAt: entry.updatedAt ?? workFolder.updatedAt, mimeType: "application/octet-stream" } : null);
       setLoading(false);
       return () => { cancelled = true; };
     }
-    void api<{ name: string; path: string; kind: "file" | "folder"; sizeBytes: number; createdAt: string; modifiedAt: string; mimeType: string }>(`/api/spaces/${space.id}/file-info?path=${encodeURIComponent(path)}`)
+    void api<{ name: string; path: string; kind: "file" | "folder"; sizeBytes: number; createdAt: string; modifiedAt: string; mimeType: string }>(`/api/work-folders/${workFolder.id}/file-info?path=${encodeURIComponent(path)}`)
       .then((result) => { if (!cancelled) { setInfo(result); setContentKey(`${fileKey}\0${result.modifiedAt}`); } })
       .catch((caught) => { if (!cancelled) { const message = errorText(caught); const gone = message.includes("not found") || message.includes("ENOENT") || message.includes("no longer"); setMissing(gone); if (!gone) setContentKey(`${fileKey}\0`); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [entry, fixtureMode, path, space.id]);
+  }, [entry, fixtureMode, path, workFolder.id]);
   // The tab shows the file itself, not a card about it: bounded text, common
   // image types, and PDFs render inline; everything else keeps the actions.
   useEffect(() => {
     if (fixtureMode) { setPreview(null); return; }
     if (!contentKey) return;
     let cancelled = false;
-    void api<{ preview: FilePreview }>(`/api/spaces/${space.id}/file-preview?path=${encodeURIComponent(path)}`)
+    void api<{ preview: FilePreview }>(`/api/work-folders/${workFolder.id}/file-preview?path=${encodeURIComponent(path)}`)
       .then((result) => { if (!cancelled) setPreview(result.preview); })
       .catch(() => { if (!cancelled) setPreview(null); });
     return () => { cancelled = true; };
@@ -79,7 +79,7 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOp
     setObjectUrl(null);
     const controller = new AbortController();
     let created: string | null = null;
-    void spaceRawFileObjectUrl(space.id, path, controller.signal)
+    void workFolderRawFileObjectUrl(workFolder.id, path, controller.signal)
       .then((url) => {
         if (controller.signal.aborted) { URL.revokeObjectURL(url); return; }
         created = url;
@@ -102,7 +102,7 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOp
   ].filter(Boolean).join(" · ");
   const markdown = [".md", ".markdown"].includes(fileExtension(path));
   const revealLabel = revealInFileManagerLabel();
-  if (missing) return <section className="file-details-pane file-details-empty"><EmptyInline text="This file is no longer in the Space" /></section>;
+  if (missing) return <section className="file-details-pane file-details-empty"><EmptyInline text="This file is no longer in the work-folder" /></section>;
   return (
     <section className="file-details-pane" aria-label={`File details for ${fileName}`}>
       <header className="file-details-header">
@@ -118,7 +118,7 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, canOp
         <div className="file-details-actions">
           <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => void onOpenLocal(path, openLabel.office ? "open-native" : "open")}><ExternalLink size={14} />{openLabel.text}</button>
           {canOpenWith ? <button className="ui-control compact no-margin" type="button" onClick={() => void onOpenLocal(path, "open-with")}><AppWindow size={14} />Open with</button> : null}
-          {isShareablePath(path) ? <FileShareControl spaceId={space.id} path={path} fileName={fileName} fixtureMode={fixtureMode} shareRequestId={shareRequestId} onOpenSettings={onOpenSettings} /> : null}
+          {isShareablePath(path) ? <FileShareControl workFolderId={workFolder.id} path={path} fileName={fileName} fixtureMode={fixtureMode} shareRequestId={shareRequestId} onOpenSettings={onOpenSettings} /> : null}
           <button className="ui-control ui-control--icon" type="button" title={revealLabel} aria-label={revealLabel} onClick={() => void onOpenLocal(path, "reveal")}><FolderOpen size={15} /></button>
           <button className="ui-control ui-control--icon" type="button" title="Attach to Chat" aria-label="Attach to Chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={15} /></button>
           <button className="ui-control ui-control--icon" type="button" title="Version History" aria-label="Version History" onClick={() => onShowVersionHistory(path)}><History size={15} /></button>

@@ -9,7 +9,7 @@ import { createIncludedMcpSetup, loadIncludedMcpConfig, includedNativeMcpOptions
 import { DefaultResourceLoader, createAgentSession, SessionManager, SettingsManager, FileCredentialStore, ModelRuntime, createEventBus, createCodemodeExtension, createToolSearchExtension } from '@earendil-works/pi-coding-agent';
 
 const root=await mkdtemp(join(tmpdir(),'work-fold-mcp-setup-'));
-const agentDir=join(root,'pi'),aDir=join(root,'space-a'),bDir=join(root,'space-b');
+const agentDir=join(root,'pi'),aDir=join(root,'work-folder-a'),bDir=join(root,'work-folder-b');
 await Promise.all([agentDir,aDir,bDir].map(p=>mkdir(p,{recursive:true})));
 process.env.PI_CODING_AGENT_DIR=join(root,'ambient');
 const authHeaders:string[]=[];let origin='';let authorization:URL|undefined;let mutateBeforeToken=false;let tokenSeen=0;let fenced=0;let tokenFenceSeen=0;
@@ -46,11 +46,11 @@ try{
  await writeFile(join(root,'mcp.json'),JSON.stringify({mcpServers:{ambient:{command:'should-not-run'}}}));
  const definition={url:origin+'/mcp',exposure:'direct' as const};
  await a.saveServer({scope:'global',name:'same',definition});await a.saveServer({scope:'project',name:'same',definition});await b.saveServer({scope:'project',name:'same',definition});
- await a.saveBearer({scope:'global',name:'same',token:'global-token'});await a.saveBearer({scope:'project',name:'same',token:'space-a-token'});await b.saveBearer({scope:'project',name:'same',token:'space-b-token'});
+ await a.saveBearer({scope:'global',name:'same',token:'global-token'});await a.saveBearer({scope:'project',name:'same',token:'work-folder-a-token'});await b.saveBearer({scope:'project',name:'same',token:'work-folder-b-token'});
  const globalConfig=await loadIncludedMcpConfig({agentDir});const aConfig=await loadIncludedMcpConfig({agentDir,cwd:aDir});const bConfig=await loadIncludedMcpConfig({agentDir,cwd:bDir});
  assert.equal(new Set([globalConfig,aConfig,bConfig].map(c=>c.servers.find(s=>s.name==='same')!.source)).size,3);assert.ok(!aConfig.servers.some(s=>s.name==='ambient'));
- const status=await a.list({inspectCredentials:true});assert.ok(status.every(s=>s.credential==='present'));assert.doesNotMatch(JSON.stringify(status),/global-token|space-a-token|space-b-token/);
- assert.doesNotMatch(await readFile(join(agentDir,'mcp.json'),'utf8'),/global-token/);assert.doesNotMatch(await readFile(join(aDir,'.pi','mcp.json'),'utf8'),/space-a-token/);
+ const status=await a.list({inspectCredentials:true});assert.ok(status.every(s=>s.credential==='present'));assert.doesNotMatch(JSON.stringify(status),/global-token|work-folder-a-token|work-folder-b-token/);
+ assert.doesNotMatch(await readFile(join(agentDir,'mcp.json'),'utf8'),/global-token/);assert.doesNotMatch(await readFile(join(aDir,'.pi','mcp.json'),'utf8'),/work-folder-a-token/);
  console.log('PASS global/project/sibling credential names are independent and absent from config/status');
  async function native(cwd:string,_config:any) {
    const events=createEventBus(); const mcpOptions=await includedNativeMcpOptions({agentDir,cwd},credentials,'session');
@@ -63,7 +63,7 @@ try{
    for(let n=0;n<100&&!session.getActiveToolNames().includes('mcp__same__ping');n++) await pause();
    assert.ok(session.getActiveToolNames().includes('mcp__same__ping'));
  }
- await native(aDir,aConfig);await native(bDir,bConfig);assert.ok(authHeaders.includes('Bearer space-a-token'));assert.ok(authHeaders.includes('Bearer space-b-token'));assert.ok(!authHeaders.includes('Bearer global-token'));console.log('PASS actual included wrapper and native HTTP transport use the owning Space token');
+ await native(aDir,aConfig);await native(bDir,bConfig);assert.ok(authHeaders.includes('Bearer work-folder-a-token'));assert.ok(authHeaders.includes('Bearer work-folder-b-token'));assert.ok(!authHeaders.includes('Bearer global-token'));console.log('PASS actual included wrapper and native HTTP transport use the owning work-folder token');
  const checked=await a.probe({scope:'project',name:'same'});assert.equal(checked.state,'ready');assert.equal(checked.tools,1);
  await a.saveServer({scope:'project',name:'empty',definition:{url:origin+'/empty-mcp',exposure:"direct"}});assert.equal((await a.probe({scope:'project',name:'empty'})).state,'empty');
  await a.saveServer({scope:'project',name:'unreachable',definition:{url:origin+'/missing',exposure:"direct"}});assert.equal((await a.probe({scope:'project',name:'unreachable'})).state,'error');

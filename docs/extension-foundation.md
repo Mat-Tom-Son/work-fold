@@ -2,12 +2,12 @@
 
 Status: implemented in the development tree, 2026-09-11; public release
 acceptance is tracked separately. This extends
-[Assistant capabilities](assistant-capabilities.md). Pi remains the runtime,
+[Skills & Extensions](skills-and-extensions.md). Pi remains the runtime,
 package format, resource loader, and capability catalog.
 
 ## Product contract
 
-People ask for an outcome in a Chat. The Assistant finds the relevant tools,
+People ask for an outcome in a Chat. The agent finds the relevant tools,
 does the work, shows the result, and asks in that Chat when a decision is
 missing. Installation, successful loading, enabled scope, and readiness to
 perform a particular job are distinct facts. Missing setup is named precisely;
@@ -23,10 +23,10 @@ authority; host facilities cannot sandbox arbitrary shell access.
 **Skills & Extensions** owns discovery, installation, source, scope,
 configuration, diagnostics, update, enable/disable and removal. Since
 2026-09-25 it is a popup dialog opened by the rail's Add button and pinned to
-the Folder it was opened from. Its Installed view starts with an **Included
+the work-folder it was opened from. Its Installed view starts with an **Included
 with work-fold** strip holding the five included tools; **Everywhere** and
 **This folder only** remain the scope groups below it, side by side. Account and OS setup stays on a trusted local surface. Generated
-Space apps remain separate: they may request Assistant work through
+work-folder apps remain separate: they may request agent work through
 `assistant.request`, but receive no native desktop-control bridge.
 
 ## Responsibilities
@@ -70,7 +70,7 @@ retain session ownership. Stop cancels pending questions and rejects callbacks
 while that native prompt drains. Once it drains, a surviving transport may ask
 a new Chat-owned question; session disposal permanently cancels its UI access.
 Unattributed questions remain local to their Chat: paired web input
-requires the exact browser-owned management task and live browser grant.
+requires the exact browser-owned work-fold agent task and live browser grant.
 Legacy MCP stdio elicitation does not identify its originating `tools/call`;
 the host must not guess its task from whichever turn is currently running.
 
@@ -186,7 +186,7 @@ the same tool detail rather than a new navigation destination.
 Enable/disable persists through Pi's native filters, preserving unrelated
 package selections, manifest defaults, resource aliases and scopes. Desktop
 and `tools enable|disable --path <resource-path> --kind
-extensions|skills|prompts|themes --scope personal|space [--space <id>]` share
+extensions|skills|prompts|themes --scope everywhere|work-folder [--work-folder <id>]` share
 `capability.resource.enabled`: prepare, pin resource and settings identity,
 journal, recheck under the capability fence, execute once and return a receipt.
 Active affected work refuses the change instead of losing its session. Included
@@ -194,8 +194,8 @@ resources use that same path; their updates arrive with work-fold. Pi does not
 filter a package configured as one Extension file, so work-fold explains the
 limitation and offers removal rather than pretending its switch worked.
 
-MCP setup sessions bind the selected Space, authorized root and Pi agent
-directory. Native global `mcp.json` and the registered Space's `.pi/mcp.json`
+MCP setup sessions bind the selected work-folder, authorized root and Pi agent
+directory. Native global `mcp.json` and the registered work-folder's `.pi/mcp.json`
 merge through Pi; ambient other-app configuration is not imported.
 Bearer credentials use the encrypted desktop CredentialStore; OAuth state uses
 an encrypted native Pi backend with scope/endpoint-bound identities. Development
@@ -249,7 +249,7 @@ loading. Relevant suites include `extension-interactions`,
 
 Passing isolated fixtures does not certify the signed installed user journey
 or a model's judgment. Release acceptance still requires live model work in
-disposable Spaces, real desktop/companion setup and recovery, computer-use
+disposable work-folders, real desktop/companion setup and recovery, computer-use
 inspection, repository and desktop checks, and the normal signed/notarized
 candidate lane. Record that evidence for the exact candidate rather than
 inferring it from source or a previous build. Document acceptance must

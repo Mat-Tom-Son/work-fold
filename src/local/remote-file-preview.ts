@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { extname } from "node:path";
-import { getSpace, nestedRegisteredSpacePaths, resolveSpacePath } from "./space.js";
-import { isSpaceIgnored, readSpaceIgnoreState } from "./space-ignore.js";
+import { getWorkFolder, nestedRegisteredWorkFolderPaths, resolveWorkFolderPath } from "./work-folder.js";
+import { isWorkFolderIgnored, readWorkFolderIgnoreState } from "./work-folder-ignore.js";
 
 export const remoteFilePreviewLimits = Object.freeze({ textBytes: 256 * 1024, imageBytes: 1024 * 1024 });
 
 export type RemoteFilePreview = {
-  spaceId: string;
+  workFolderId: string;
   path: string;
   sizeBytes: number;
   modifiedAt: string;
@@ -24,9 +24,9 @@ const imageTypes: Record<string, string> = {
 };
 
 /** Explicit approved-browser read. This is not a publication or an app file grant. */
-export async function readRemoteFilePreview(spaceId: string, relativePath: string): Promise<RemoteFilePreview> {
-  const space = await getSpace(spaceId);
-  const currentPath = () => remoteVisiblePath(spaceId, relativePath, space.spaceRoot);
+export async function readRemoteFilePreview(workFolderId: string, relativePath: string): Promise<RemoteFilePreview> {
+  const workFolder = await getWorkFolder(workFolderId);
+  const currentPath = () => remoteVisiblePath(workFolderId, relativePath, workFolder.workFolderRoot);
   let handle;
   try {
     const path = await currentPath();
@@ -38,7 +38,7 @@ export async function readRemoteFilePreview(spaceId: string, relativePath: strin
     if (!sameFile(before, opened)) throw unavailable();
     const extension = extname(relativePath).toLowerCase();
     const mediaType = imageTypes[extension];
-    const base = { spaceId, path: relativePath, sizeBytes: opened.size, modifiedAt: opened.mtime.toISOString(), readAt: new Date().toISOString() };
+    const base = { workFolderId, path: relativePath, sizeBytes: opened.size, modifiedAt: opened.mtime.toISOString(), readAt: new Date().toISOString() };
     let result: RemoteFilePreview;
     if (mediaType && opened.size > remoteFilePreviewLimits.imageBytes) {
       result = { ...base, kind: "none", reason: "too-large" };
@@ -71,24 +71,24 @@ export async function readRemoteFilePreview(spaceId: string, relativePath: strin
 }
 
 /** Metadata-only admission for task result links. Opening the link performs a fresh bounded read. */
-export async function isRemoteFileVisible(spaceId: string, relativePath: string): Promise<boolean> {
+export async function isRemoteFileVisible(workFolderId: string, relativePath: string): Promise<boolean> {
   try {
-    const space = await getSpace(spaceId);
-    const path = await remoteVisiblePath(spaceId, relativePath, space.spaceRoot);
+    const workFolder = await getWorkFolder(workFolderId);
+    const path = await remoteVisiblePath(workFolderId, relativePath, workFolder.workFolderRoot);
     const file = await lstat(path);
-    return file.isFile() && !file.isSymbolicLink() && await remoteVisiblePath(spaceId, relativePath, space.spaceRoot) === path;
+    return file.isFile() && !file.isSymbolicLink() && await remoteVisiblePath(workFolderId, relativePath, workFolder.workFolderRoot) === path;
   } catch { return false; }
 }
 
-async function remoteVisiblePath(spaceId: string, relativePath: string, expectedRoot: string): Promise<string> {
+async function remoteVisiblePath(workFolderId: string, relativePath: string, expectedRoot: string): Promise<string> {
   if (typeof relativePath !== "string" || !relativePath || relativePath.length > 2048
     || relativePath.includes("\\") || /[\u0000-\u001f\u007f]/u.test(relativePath)
     || relativePath.split("/").some((part) => !part || part === "." || part === "..")) throw unavailable();
-  const current = await getSpace(spaceId);
-  if (current.spaceRoot !== expectedRoot) throw unavailable();
-  const path = resolveSpacePath(expectedRoot, relativePath);
-  const [ignore, nested] = await Promise.all([readSpaceIgnoreState(expectedRoot), nestedRegisteredSpacePaths(expectedRoot)]);
-  if (isSpaceIgnored(relativePath, ignore.patterns) || nested.some((root) => relativePath === root || relativePath.startsWith(`${root}/`))) throw unavailable();
+  const current = await getWorkFolder(workFolderId);
+  if (current.workFolderRoot !== expectedRoot) throw unavailable();
+  const path = resolveWorkFolderPath(expectedRoot, relativePath);
+  const [ignore, nested] = await Promise.all([readWorkFolderIgnoreState(expectedRoot), nestedRegisteredWorkFolderPaths(expectedRoot)]);
+  if (isWorkFolderIgnored(relativePath, ignore.patterns) || nested.some((root) => relativePath === root || relativePath.startsWith(`${root}/`))) throw unavailable();
   return path;
 }
 
@@ -102,5 +102,5 @@ function looksBinary(bytes: Buffer): boolean {
   return bytes.length > 0 && controls / bytes.length > 0.1;
 }
 function unavailable(): Error & { statusCode: number } {
-  return Object.assign(new Error("This file is unavailable, changed, or is outside this Space's visible files."), { statusCode: 404 });
+  return Object.assign(new Error("This file is unavailable, changed, or is outside this work-folder's visible files."), { statusCode: 404 });
 }

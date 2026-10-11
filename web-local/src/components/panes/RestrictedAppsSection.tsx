@@ -56,12 +56,12 @@ import type {
   RestrictedAppReview,
   RestrictedAppStorageUsage,
   RestrictedAppDataRecovery,
-  SpaceSummary,
+  WorkFolderSummary,
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
 
 export function RestrictedAppsSection({
-  space,
+  workFolder,
   apps,
   totalApps = apps.length,
   filtered = false,
@@ -76,7 +76,7 @@ export function RestrictedAppsSection({
   onError,
   presentation = "section",
 }: {
-  space: SpaceSummary;
+  workFolder: WorkFolderSummary;
   apps: RestrictedAppInstalled[];
   totalApps?: number;
   filtered?: boolean;
@@ -85,9 +85,9 @@ export function RestrictedAppsSection({
   /** "page" omits the section's own heading and actions; the hosting page provides them. */
   presentation?: "section" | "page";
   onChangeApp?: (app: RestrictedAppInstalled) => Promise<void>;
-  onOpenBuildChat?: (spaceId: string, conversationId: string) => Promise<void>;
-  onOpenResultFile?: (spaceId: string, path: string) => Promise<void>;
-  onOpenAppStudio: (spaceId?: string, runtimeInstanceId?: string) => void;
+  onOpenBuildChat?: (workFolderId: string, conversationId: string) => Promise<void>;
+  onOpenResultFile?: (workFolderId: string, path: string) => Promise<void>;
+  onOpenAppStudio: (workFolderId?: string, runtimeInstanceId?: string) => void;
   onUpsertApp: (app: RestrictedAppInstalled) => void;
   onRemoveApp: (featureInstallationId: string) => void;
   onError: (message: string | null) => void;
@@ -97,8 +97,8 @@ export function RestrictedAppsSection({
   const [review, setReview] = useState<{ sourcePath: string; value: RestrictedAppReview } | null>(null);
   const [selectedInstallationId, setSelectedInstallationId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const spaceIdRef = useRef(space.id);
-  spaceIdRef.current = space.id;
+  const workFolderIdRef = useRef(workFolder.id);
+  workFolderIdRef.current = workFolder.id;
   const selectedApp = selectedInstallationId ? apps.find((app) => app.featureInstallationId === selectedInstallationId) ?? null : null;
 
   useEffect(() => {
@@ -107,80 +107,80 @@ export function RestrictedAppsSection({
     setReview(null);
     setSelectedInstallationId(null);
     setBusy(false);
-  }, [space.id]);
+  }, [workFolder.id]);
 
   async function inspect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const path = sourcePath.trim();
     if (!path) return;
-    const spaceId = space.id;
+    const workFolderId = workFolder.id;
     setBusy(true);
     try {
-      const value = fixtureMode ? fixtureReview() : await inspectRestrictedApp(spaceId, path);
-      if (spaceIdRef.current !== spaceId) return;
+      const value = fixtureMode ? fixtureReview() : await inspectRestrictedApp(workFolderId, path);
+      if (workFolderIdRef.current !== workFolderId) return;
       setSourceOpen(false);
       setReview({ sourcePath: path, value });
     } catch (caught) {
-      if (spaceIdRef.current === spaceId) onError(errorText(caught));
+      if (workFolderIdRef.current === workFolderId) onError(errorText(caught));
     } finally {
-      if (spaceIdRef.current === spaceId) setBusy(false);
+      if (workFolderIdRef.current === workFolderId) setBusy(false);
     }
   }
 
   async function changeApp(app: RestrictedAppInstalled) {
     if (!onChangeApp || busy) return;
     setBusy(true);
-    const spaceId = space.id;
+    const workFolderId = workFolder.id;
     try { await onChangeApp(app); }
-    catch (caught) { if (spaceIdRef.current === spaceId) onError(errorText(caught)); }
-    finally { if (spaceIdRef.current === spaceId) setBusy(false); }
+    catch (caught) { if (workFolderIdRef.current === workFolderId) onError(errorText(caught)); }
+    finally { if (workFolderIdRef.current === workFolderId) setBusy(false); }
   }
 
   async function install() {
     if (!review) return;
-    const spaceId = space.id;
+    const workFolderId = workFolder.id;
     setBusy(true);
     try {
       const app = fixtureMode
-        ? fixtureInstalled(spaceId, review.value)
-        : await installRestrictedApp(spaceId, review.sourcePath, review.value.digest);
-      if (spaceIdRef.current !== spaceId) return;
+        ? fixtureInstalled(workFolderId, review.value)
+        : await installRestrictedApp(workFolderId, review.sourcePath, review.value.digest);
+      if (workFolderIdRef.current !== workFolderId) return;
       onUpsertApp(app);
       setReview(null);
       setSourcePath("");
       setSelectedInstallationId(app.featureInstallationId);
       showToast({ text: `${app.manifest.title} preview added with network, file, notification, and scheduled execution off.`, tone: "success" });
     } catch (caught) {
-      if (spaceIdRef.current === spaceId) onError(errorText(caught));
+      if (workFolderIdRef.current === workFolderId) onError(errorText(caught));
     } finally {
-      if (spaceIdRef.current === spaceId) setBusy(false);
+      if (workFolderIdRef.current === workFolderId) setBusy(false);
     }
   }
 
   async function remove(app: RestrictedAppInstalled) {
     const confirmed = await requestConfirm({
       title: `Remove ${app.manifest.title} preview?`,
-      body: "Removes the preview, access, and connections; moves app data to Recently deleted. work-folder files remain.",
+      body: "Removes the preview, access, and connections; moves app data to Recently Deleted. work-folder files remain.",
       confirmLabel: "Remove Preview",
       tone: "danger",
     });
-    if (!confirmed || spaceIdRef.current !== app.spaceId) return;
+    if (!confirmed || workFolderIdRef.current !== app.workFolderId) return;
     setBusy(true);
     try {
-      const outcome = fixtureMode ? { removed: true, trash: null } : await removeRestrictedApp(app);
-      if (spaceIdRef.current !== app.spaceId) return;
+      const outcome = fixtureMode ? { removed: true, recentlyDeleted: null } : await removeRestrictedApp(app);
+      if (workFolderIdRef.current !== app.workFolderId) return;
       onRemoveApp(app.featureInstallationId);
       setSelectedInstallationId(null);
       showToast({
-        text: outcome.trash
-          ? `${app.manifest.title} preview removed. Its data is in Recently deleted.`
+        text: outcome.recentlyDeleted
+          ? `${app.manifest.title} preview removed. Its data is in Recently Deleted.`
           : `${app.manifest.title} preview removed.`,
         tone: "success",
       });
     } catch (caught) {
-      if (spaceIdRef.current === app.spaceId) onError(errorText(caught));
+      if (workFolderIdRef.current === app.workFolderId) onError(errorText(caught));
     } finally {
-      if (spaceIdRef.current === app.spaceId) setBusy(false);
+      if (workFolderIdRef.current === app.workFolderId) setBusy(false);
     }
   }
 
@@ -190,7 +190,7 @@ export function RestrictedAppsSection({
         <div>
           <div className="restricted-apps-title-line"><h3 id="restricted-apps-title">Apps in This work-folder</h3><span>{filtered ? `${apps.length}/${totalApps}` : apps.length}</span></div>
         </div>
-        <div className="restricted-apps-heading-actions"><button className="ui-control ui-control--quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(space.id)}>App Studio</button></div>
+        <div className="restricted-apps-heading-actions"><button className="ui-control ui-control--quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(workFolder.id)}>App Studio</button></div>
       </div> : null}
       {loading && !apps.length ? <div className="restricted-apps-loading"><ArrowSync16Regular className="spin" />Loading apps</div> : null}
       {apps.length ? (
@@ -201,7 +201,7 @@ export function RestrictedAppsSection({
               <div className="restricted-app-card-copy">
                 <div className="restricted-app-card-title"><strong>{app.manifest.title}</strong><span>{app.runtimeInstanceKind === "development" ? "Local Preview" : "Installed App Feature"}</span></div>
                 {app.manifest.description ? <p>{app.manifest.description}</p> : null}
-                <div className="restricted-app-card-meta"><span>{app.runtimeInstanceKind === "development" ? "Previewing in this Space" : "Installed in this Space · Data on this device"}</span><span>{app.packageName} {app.version}</span></div>
+                <div className="restricted-app-card-meta"><span>{app.runtimeInstanceKind === "development" ? "Previewing in this work-folder" : "Installed in this work-folder · Data on this device"}</span><span>{app.packageName} {app.version}</span></div>
                 <small>{app.manifest.tools.length} {app.manifest.tools.length === 1 ? "action" : "actions"} · {app.networkGrants.length}/{app.manifest.permissions.network.length} network · {app.fileGrants.length}/{app.manifest.permissions.files.length} files · {app.notificationGrants.length}/{app.manifest.permissions.notifications.length} notifications{app.manifest.automations.length ? ` · ${app.automations.filter((automation) => automation.enabled).length}/${app.manifest.automations.length} automations on` : ""}</small>
               </div>
               <div className="restricted-app-card-actions"><span className={access.enabled ? "professional-status-badge enabled" : "professional-status-badge"}>{access.label}</span>{onChangeApp ? <button className="ui-control ui-control--quiet" type="button" disabled={busy || fixtureMode} onClick={() => void changeApp(app)}>Change This App</button> : null}<button className="ui-control" type="button" disabled={busy} onClick={() => setSelectedInstallationId(app.featureInstallationId)}>{access.total ? "Review Access" : "Details"}</button></div>
@@ -213,7 +213,7 @@ export function RestrictedAppsSection({
 
       {sourceOpen ? <RestrictedAppSourceDialog sourcePath={sourcePath} busy={busy} onSourcePathChange={setSourcePath} onSubmit={inspect} onClose={() => { if (!busy) setSourceOpen(false); }} /> : null}
       {review ? <RestrictedAppReviewDialog review={review.value} sourcePath={review.sourcePath} updating={apps.some((app) => app.runtimeInstanceKind === "development" && app.manifest.id === review.value.manifest.id)} busy={busy} onInstall={() => void install()} onClose={() => { if (!busy) setReview(null); }} /> : null}
-      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenResultFile={onOpenResultFile} onOpenAppStudio={(runtimeInstanceId) => { setSelectedInstallationId(null); onOpenAppStudio(selectedApp.sourceSpaceId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedInstallationId(null); }} /> : null}
+      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenResultFile={onOpenResultFile} onOpenAppStudio={(runtimeInstanceId) => { setSelectedInstallationId(null); onOpenAppStudio(selectedApp.sourceWorkFolderId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedInstallationId(null); }} /> : null}
     </section>
   );
 }
@@ -248,7 +248,7 @@ function RestrictedAppSourceDialog({ sourcePath, busy, onSourcePathChange, onSub
       <div className="modal-title"><div><h2 id="restricted-app-source-title">Add Local Preview Package</h2></div><button className="ui-control ui-control--icon" type="button" disabled={busy} onClick={onClose} aria-label="Close local preview setup"><Dismiss20Regular /></button></div>
       <form onSubmit={onSubmit}>
         <div className="capability-dialog-body restricted-app-source-body">
-          <label><strong>Package path in this Space</strong><input ref={inputRef} value={sourcePath} onChange={(event) => onSourcePathChange(event.target.value)} placeholder="apps/connected-inbox" aria-label="Space-relative app package folder" autoComplete="off" spellCheck={false} /></label>
+          <label><strong>Package path in this work-folder</strong><input ref={inputRef} value={sourcePath} onChange={(event) => onSourcePathChange(event.target.value)} placeholder="apps/connected-inbox" aria-label="work-folder-relative app package folder" autoComplete="off" spellCheck={false} /></label>
         </div>
         <div className="capability-dialog-footer"><button className="ui-control" type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="ui-control ui-control--primary" type="submit" disabled={busy || !sourcePath.trim()}>{busy ? <ArrowSync16Regular className="spin" /> : null}Review app</button></div>
       </form>
@@ -318,13 +318,13 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
       {review.manifest.permissions.files.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} {permission.target === "directory" ? "the whole work-folder" : "a file you choose"}</strong><span>{permission.target === "directory" ? "On when added; limit it to one folder in Apps." : "Off until you choose a file in Apps."}</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
     {review.manifest.permissions.checks?.length ? <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Check Results" summary={`${review.manifest.permissions.checks.length} choices requested`} state="included">
-      <div className="restricted-app-authority-items">{review.manifest.permissions.checks.map((permission) => <article key={permission.id}><strong>{permission.title}</strong><span>Reads status and findings from this Space's Check; when the Space has more than one, choose it in Apps.</span></article>)}</div>
+      <div className="restricted-app-authority-items">{review.manifest.permissions.checks.map((permission) => <article key={permission.id}><strong>{permission.title}</strong><span>Reads status and findings from this work-folder's Check; when the work-folder has more than one, choose it in Apps.</span></article>)}</div>
     </ReviewAuthorityGroup> : null}
     <ReviewAuthorityGroup icon={<Alert20Regular />} title="Notifications" summary={review.manifest.permissions.notifications.length ? `${review.manifest.permissions.notifications.length} fixed ${review.manifest.permissions.notifications.length === 1 ? "notification" : "notifications"} declared` : "None requested"} state={review.manifest.permissions.notifications.length ? "on" : "included"}>
       {review.manifest.permissions.notifications.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.notifications.map((permission) => <article key={permission.id}><strong>work-fold · {review.manifest.title} — {permission.title}</strong><span>{permission.description}</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
     <ReviewAuthorityGroup icon={<Clock20Regular />} title="Automations" summary={review.manifest.automations.length ? `${review.manifest.automations.length} ${review.manifest.automations.length === 1 ? "schedule" : "schedules"} declared` : "None declared"} state={review.manifest.automations.length ? "on" : "included"}>
-      {review.manifest.automations.length ? <div className="restricted-app-authority-items">{review.manifest.automations.map((automation) => <article key={automation.id}><strong>{automation.title}</strong><span>{automation.description || `Runs the ${automation.handler} handler.`}</span><small>{formatAutomationSchedule(automation)} · Power: {automationPowerSummary(review.manifest, automation)}</small></article>)}</div> : null}
+      {review.manifest.automations.length ? <div className="restricted-app-authority-items">{review.manifest.automations.map((automation) => <article key={automation.id}><strong>{automation.title}</strong><span>{automation.description || `Runs the ${automation.handler} handler.`}</span><small>{formatAppAutomationSchedule(automation)} · Power: {appAutomationPowerSummary(review.manifest, automation)}</small></article>)}</div> : null}
     </ReviewAuthorityGroup>
     <ReviewAuthorityGroup icon={<Globe20Regular />} title="At your address" summary={review.manifest.viewer ? (review.manifest.viewer.readable.length ? `Viewer entry plus ${review.manifest.viewer.readable.length} viewer-readable ${review.manifest.viewer.readable.length === 1 ? "collection" : "collections"} declared` : "Viewer entry declared — viewers can read no app data") : "None declared"} state={review.manifest.viewer ? "not-yet" : "included"}>
       {review.manifest.viewer ? <div className="restricted-app-authority-items"><article>
@@ -364,8 +364,8 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   fixtureMode: boolean;
   onAppChanged: (app: RestrictedAppInstalled) => void;
   onRemove: () => void;
-  onOpenBuildChat?: (spaceId: string, conversationId: string) => Promise<void>;
-  onOpenResultFile?: (spaceId: string, path: string) => Promise<void>;
+  onOpenBuildChat?: (workFolderId: string, conversationId: string) => Promise<void>;
+  onOpenResultFile?: (workFolderId: string, path: string) => Promise<void>;
   onOpenAppStudio: (runtimeInstanceId?: string) => void;
   onError: (message: string | null) => void;
   onClose: () => void;
@@ -375,10 +375,10 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   const [dataRecovery, setDataRecovery] = useState<RestrictedAppDataRecovery | null>(null);
   const [buildContext, setBuildContext] = useState<RestrictedAppBuildContext | null>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
-  const [automationRuns, setAutomationRuns] = useState<Record<string, RestrictedAppAutomationRunReceipt[]>>({});
-  const [automationRunLoading, setAutomationRunLoading] = useState<Record<string, boolean>>({});
-  const [automationRunErrors, setAutomationRunErrors] = useState<Record<string, string>>({});
-  const automationRunRequests = useRef(new Set<string>());
+  const [appAutomationRuns, setAppAutomationRuns] = useState<Record<string, RestrictedAppAutomationRunReceipt[]>>({});
+  const [appAutomationRunLoading, setAppAutomationRunLoading] = useState<Record<string, boolean>>({});
+  const [appAutomationRunErrors, setAppAutomationRunErrors] = useState<Record<string, string>>({});
+  const appAutomationRunRequests = useRef(new Set<string>());
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const dialogRef = useModalDialog({ onClose, blocked: busy || Boolean(actionBusy) });
@@ -400,24 +400,24 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     if (!fixtureMode) void getRestrictedAppBuildContext(app).then((value) => { if (!cancelled) setBuildContext(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); });
     if (!fixtureMode) void getRestrictedAppDataRecovery(app).then((value) => { if (!cancelled) setDataRecovery(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); });
     return () => { cancelled = true; };
-  }, [app.digest, app.manifest.id, app.spaceId, fixtureMode, onError]);
+  }, [app.digest, app.manifest.id, app.workFolderId, fixtureMode, onError]);
 
   async function openBuildChat() {
     if (!buildContext?.buildConversationId || !onOpenBuildChat) return;
     setActionBusy("build-chat");
     try {
-      await onOpenBuildChat(buildContext.sourceSpaceId, buildContext.buildConversationId);
+      await onOpenBuildChat(buildContext.sourceWorkFolderId, buildContext.buildConversationId);
       onClose();
     } catch (caught) { onError(errorText(caught)); }
     finally { setActionBusy(null); }
   }
 
   useEffect(() => {
-    automationRunRequests.current.clear();
-    setAutomationRuns({});
-    setAutomationRunLoading({});
-    setAutomationRunErrors({});
-  }, [app.digest, app.manifest.id, app.spaceId]);
+    appAutomationRunRequests.current.clear();
+    setAppAutomationRuns({});
+    setAppAutomationRunLoading({});
+    setAppAutomationRunErrors({});
+  }, [app.digest, app.manifest.id, app.workFolderId]);
 
   async function changeGrant(destination: RestrictedAppNetworkDestination, granted: boolean) {
     if (granted) {
@@ -496,7 +496,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     if (granted) {
       const confirmed = await requestConfirm({
         title: `Allow ${permission.access === "read-write" ? "changes to" : "reading"} ${root}?`,
-        body: `${app.manifest.title} will be limited to this ${permission.target} inside the Space. work-fold metadata, Pi configuration, links, and paths outside the Space remain blocked.`,
+        body: `${app.manifest.title} will be limited to this ${permission.target} inside the work-folder. work-fold metadata, Pi configuration, links, and paths outside the work-folder remain blocked.`,
         confirmLabel: "Allow file access",
       });
       if (!confirmed) return;
@@ -532,12 +532,12 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     finally { setActionBusy(null); }
   }
 
-  async function changeAutomation(automation: RestrictedAppAutomation, enabled: boolean) {
+  async function changeAppAutomation(automation: RestrictedAppAutomation, enabled: boolean) {
     const key = `automation:${automation.id}`;
     setActionBusy(key);
     try {
       const updated = fixtureMode
-        ? { ...app, automations: app.automations.map((state) => state.id === automation.id ? { ...state, enabled, nextRunAt: enabled ? nextAutomationRunAt(automation) : undefined } : state) }
+        ? { ...app, automations: app.automations.map((state) => state.id === automation.id ? { ...state, enabled, nextRunAt: enabled ? nextAppAutomationRunAt(automation) : undefined } : state) }
         : await setRestrictedAppAutomationEnabled(app, automation.id, enabled);
       onAppChanged(updated);
       showToast({ text: `${automation.title} ${enabled ? "enabled" : "disabled"}.`, tone: "success" });
@@ -545,36 +545,36 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     finally { setActionBusy(null); }
   }
 
-  async function runAutomation(automation: RestrictedAppAutomation) {
-    const key = `automation-run:${automation.id}`;
+  async function runAppAutomation(automation: RestrictedAppAutomation) {
+    const key = `app-automation-run:${automation.id}`;
     setActionBusy(key);
     try {
       const result = fixtureMode
-        ? fixtureAutomationRun(app, automation)
+        ? fixtureAppAutomationRun(app, automation)
         : await runRestrictedAppAutomationNow(app, automation.id);
       onAppChanged(result.app);
-      setAutomationRuns((current) => ({ ...current, [automation.id]: [result.run, ...(current[automation.id] ?? []).filter((run) => run.runId !== result.run.runId)].slice(0, 20) }));
-      setAutomationRunErrors((current) => ({ ...current, [automation.id]: "" }));
-      showToast({ text: automationRunToast(automation, result.run), tone: result.run.outcome === "success" ? "success" : "info" });
+      setAppAutomationRuns((current) => ({ ...current, [automation.id]: [result.run, ...(current[automation.id] ?? []).filter((run) => run.runId !== result.run.runId)].slice(0, 20) }));
+      setAppAutomationRunErrors((current) => ({ ...current, [automation.id]: "" }));
+      showToast({ text: appAutomationRunToast(automation, result.run), tone: result.run.outcome === "success" ? "success" : "info" });
     } catch (caught) { onError(errorText(caught)); }
     finally { setActionBusy(null); }
   }
 
-  async function loadAutomationRuns(automation: RestrictedAppAutomation) {
-    if (Object.prototype.hasOwnProperty.call(automationRuns, automation.id) || automationRunRequests.current.has(automation.id)) return;
-    automationRunRequests.current.add(automation.id);
-    setAutomationRunLoading((current) => ({ ...current, [automation.id]: true }));
-    setAutomationRunErrors((current) => ({ ...current, [automation.id]: "" }));
+  async function loadAppAutomationRuns(automation: RestrictedAppAutomation) {
+    if (Object.prototype.hasOwnProperty.call(appAutomationRuns, automation.id) || appAutomationRunRequests.current.has(automation.id)) return;
+    appAutomationRunRequests.current.add(automation.id);
+    setAppAutomationRunLoading((current) => ({ ...current, [automation.id]: true }));
+    setAppAutomationRunErrors((current) => ({ ...current, [automation.id]: "" }));
     try {
       const runs = fixtureMode
-        ? fixtureAutomationRuns(automation)
+        ? fixtureAppAutomationRuns(automation)
         : await listRestrictedAppAutomationRuns(app, automation.id);
-      setAutomationRuns((current) => ({ ...current, [automation.id]: runs }));
+      setAppAutomationRuns((current) => ({ ...current, [automation.id]: runs }));
     } catch (caught) {
-      setAutomationRunErrors((current) => ({ ...current, [automation.id]: errorText(caught) }));
+      setAppAutomationRunErrors((current) => ({ ...current, [automation.id]: errorText(caught) }));
     } finally {
-      automationRunRequests.current.delete(automation.id);
-      setAutomationRunLoading((current) => ({ ...current, [automation.id]: false }));
+      appAutomationRunRequests.current.delete(automation.id);
+      setAppAutomationRunLoading((current) => ({ ...current, [automation.id]: false }));
     }
   }
 
@@ -633,10 +633,10 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
 
   return <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
     <section ref={dialogRef} tabIndex={-1} className="capability-dialog restricted-app-details-dialog" role="dialog" aria-modal="true" aria-labelledby="restricted-app-details-title" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-title"><div><h2 id="restricted-app-details-title">{app.manifest.title}</h2><p>{app.runtimeInstanceKind === "development" ? "Local Preview" : "Feature in installed App"} · This folder · Restricted runtime</p></div><button className="ui-control ui-control--icon" type="button" disabled={busy || Boolean(actionBusy)} onClick={onClose} aria-label="Close app details"><Dismiss20Regular /></button></div>
+      <div className="modal-title"><div><h2 id="restricted-app-details-title">{app.manifest.title}</h2><p>{app.runtimeInstanceKind === "development" ? "Local Preview" : "Feature in installed App"} · This work-folder · Restricted runtime</p></div><button className="ui-control ui-control--icon" type="button" disabled={busy || Boolean(actionBusy)} onClick={onClose} aria-label="Close app details"><Dismiss20Regular /></button></div>
       <div className="capability-dialog-body">
         <p className="capability-details-summary">{app.manifest.description}</p>
-        {app.manifest.assistantActions?.length ? <RestrictedAppAssistantTasks key={`${app.featureInstallationId}:${app.digest}`} app={app} disabled={busy || Boolean(actionBusy) || fixtureMode} onOpenFile={async (spaceId, path) => { await onOpenResultFile(spaceId, path); onClose(); }} onOpenChat={onOpenBuildChat ? async (spaceId, conversationId) => { await onOpenBuildChat(spaceId, conversationId); onClose(); } : undefined} /> : null}
+        {app.manifest.assistantActions?.length ? <RestrictedAppAssistantTasks key={`${app.featureInstallationId}:${app.digest}`} app={app} disabled={busy || Boolean(actionBusy) || fixtureMode} onOpenFile={async (workFolderId, path) => { await onOpenResultFile(workFolderId, path); onClose(); }} onOpenChat={onOpenBuildChat ? async (workFolderId, conversationId) => { await onOpenBuildChat(workFolderId, conversationId); onClose(); } : undefined} /> : null}
         {/* `assistant.infer` needs no grant beyond installation, so its
             disclosure is after the fact and belongs here, under the app
             (docs/receipts-not-gates.md, F22). */}
@@ -695,19 +695,19 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
         </section> : null}
         {app.manifest.automations.length ? <section className="restricted-app-connections" aria-labelledby="restricted-app-automations-title">
           <div className="restricted-app-connections-heading"><div><Clock20Regular aria-hidden="true" /><h3 id="restricted-app-automations-title">Automations</h3></div></div>
-          {app.manifest.automations.map((automation) => <AutomationCard
+          {app.manifest.automations.map((automation) => <AppAutomationCard
             key={automation.id}
             app={app}
             automation={automation}
             state={app.automations.find((item) => item.id === automation.id)}
-            runs={automationRuns[automation.id]}
-            runsLoading={Boolean(automationRunLoading[automation.id])}
-            runsError={automationRunErrors[automation.id]}
+            runs={appAutomationRuns[automation.id]}
+            runsLoading={Boolean(appAutomationRunLoading[automation.id])}
+            runsError={appAutomationRunErrors[automation.id]}
             busy={Boolean(actionBusy)}
             activeBusyKey={actionBusy}
-            onEnabledChange={(enabled) => void changeAutomation(automation, enabled)}
-            onRun={() => void runAutomation(automation)}
-            onLoadRuns={() => void loadAutomationRuns(automation)}
+            onEnabledChange={(enabled) => void changeAppAutomation(automation, enabled)}
+            onRun={() => void runAppAutomation(automation)}
+            onLoadRuns={() => void loadAppAutomationRuns(automation)}
           />)}
         </section> : null}
         <section className="restricted-app-lifecycle"><div><h3>App Data</h3><p>{storageUsage ? `${formatBytes(storageUsage.usageBytes)} · Saved on this computer` : "Checking usage…"}</p></div><div className="restricted-app-lifecycle-actions">
@@ -725,7 +725,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   </div>;
 }
 
-function AutomationCard({ app, automation, state, runs, runsLoading, runsError, busy, activeBusyKey, onEnabledChange, onRun, onLoadRuns }: {
+function AppAutomationCard({ app, automation, state, runs, runsLoading, runsError, busy, activeBusyKey, onEnabledChange, onRun, onLoadRuns }: {
   app: RestrictedAppInstalled;
   automation: RestrictedAppAutomation;
   state?: RestrictedAppInstalled["automations"][number];
@@ -746,15 +746,15 @@ function AutomationCard({ app, automation, state, runs, runsLoading, runsError, 
     <div className="restricted-app-destination-heading"><div><strong>{automation.title}</strong><span>{automation.description || `Runs the ${automation.handler} worker handler.`}</span></div><code>{automation.id}</code></div>
     <div className="restricted-app-destination-states">
       <span className={enabled ? "enabled" : ""}>Schedule: <strong>{enabled ? "On" : "Off"}</strong></span>
-      <span>Frequency: <strong>{formatAutomationSchedule(automation)}</strong></span>
+      <span>Frequency: <strong>{formatAppAutomationSchedule(automation)}</strong></span>
       <span>Next: <strong>{enabled ? state?.nextRunAt ? formatTimestamp(state.nextRunAt) : "Pending" : "Not scheduled"}</strong></span>
       <span>Last run: <strong>{state?.lastRunAt ? formatTimestamp(state.lastRunAt) : "Not Run Yet"}</strong></span>
     </div>
-    <p className="restricted-app-oauth-note"><strong>Power subset:</strong> {automationPowerSummary(app.manifest, automation)} · {automationGrantedPowerSummary(app, automation)}</p>
+    <p className="restricted-app-oauth-note"><strong>Power subset:</strong> {appAutomationPowerSummary(app.manifest, automation)} · {appAutomationGrantedPowerSummary(app, automation)}</p>
     <p className="restricted-app-oauth-note">Worker handler <code>{automation.handler}</code> · {automation.catchUp === "latest" ? "Latest missed occurrence runs after resume" : "Missed occurrences are not run"} · Overlapping runs are skipped.</p>
     {state?.lastError ? <p className="restricted-app-oauth-note"><strong>Last error:</strong> {state.lastError}</p> : null}
     <div className="restricted-app-destination-actions">
-      <button className="ui-control" type="button" disabled={busy} onClick={onRun}>{activeBusyKey === `automation-run:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}Run Now</button>
+      <button className="ui-control" type="button" disabled={busy} onClick={onRun}>{activeBusyKey === `app-automation-run:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}Run Now</button>
       <button className={enabled ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={busy} onClick={() => onEnabledChange(!enabled)}>{activeBusyKey === `automation:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}{enabled ? "Disable" : "Enable"}</button>
     </div>
     {notificationNote ? <p className="restricted-app-oauth-note">{notificationNote}</p> : null}
@@ -763,7 +763,7 @@ function AutomationCard({ app, automation, state, runs, runsLoading, runsError, 
       {runsLoading ? <p><ArrowSync16Regular className="spin" /> Loading run history…</p> : null}
       {runsError ? <p role="alert">Run history could not be loaded: {runsError}</p> : null}
       {!runsLoading && !runsError && runs ? runs.length ? <dl className="capability-review-facts">{runs.slice(0, 10).map((run) => {
-        return <div key={run.receiptId}><dt>{restrictedAppAutomationOutcomeLabel(run)}</dt><dd>{formatAutomationReason(run.reason)} · Scheduled {formatTimestamp(run.scheduledAt)} · Started {formatTimestamp(run.startedAt)} · Finished {formatTimestamp(run.finishedAt)}{run.featureRevisionDigest !== app.artifactDigest ? " · Earlier revision" : ""}{run.error ? ` · ${run.error}` : ""}</dd></div>;
+        return <div key={run.receiptId}><dt>{restrictedAppAutomationOutcomeLabel(run)}</dt><dd>{formatAppAutomationReason(run.reason)} · Scheduled {formatTimestamp(run.scheduledAt)} · Started {formatTimestamp(run.startedAt)} · Finished {formatTimestamp(run.finishedAt)}{run.featureRevisionDigest !== app.artifactDigest ? " · Earlier revision" : ""}{run.error ? ` · ${run.error}` : ""}</dd></div>;
       })}</dl> : <p>No recorded runs.</p> : null}
     </details>
   </article>;
@@ -778,17 +778,17 @@ function FilePermissionCard({ permission, grant, busy, active, onChange }: {
 }) {
   const [root, setRoot] = useState(grant?.root ?? "");
   useEffect(() => setRoot(grant?.root ?? ""), [grant?.root, permission.target]);
-  const wholeSpace = grant?.root === ".";
+  const wholeWorkFolder = grant?.root === ".";
   const rootChanged = Boolean(grant) && root.trim() !== "" && root.trim() !== grant?.root;
   return <article className="restricted-app-destination-card">
-    <div className="restricted-app-destination-heading"><div><strong>{permission.access === "read-write" ? "Read and write" : "Read"} one {permission.target}</strong><span>{grant ? wholeSpace ? "Whole folder" : `Granted: ${grant.root}` : "Choose a path inside this folder"}</span></div><code>{permission.id}</code></div>
-    <div className="restricted-app-credential-fields"><label><span>Space-relative path</span><input value={root} disabled={busy} onChange={(event) => setRoot(event.target.value)} placeholder={permission.target === "directory" ? "data (or . for the whole Space)" : "data/report.json"} /></label></div>
+    <div className="restricted-app-destination-heading"><div><strong>{permission.access === "read-write" ? "Read and write" : "Read"} one {permission.target}</strong><span>{grant ? wholeWorkFolder ? "Whole work-folder" : `Granted: ${grant.root}` : "Choose a path inside this work-folder"}</span></div><code>{permission.id}</code></div>
+    <div className="restricted-app-credential-fields"><label><span>work-folder-relative path</span><input value={root} disabled={busy} onChange={(event) => setRoot(event.target.value)} placeholder={permission.target === "directory" ? "data (or . for the whole work-folder)" : "data/report.json"} /></label></div>
     <div className="restricted-app-destination-actions">
       {/* An editable path needs a way to apply it: a granted folder can be
           narrowed or moved, and a granted single file can be pointed at a
           different file. Without this the field would accept an edit the
           neighbouring Revoke button silently discards. */}
-      {grant && rootChanged ? <button className="ui-control" type="button" disabled={busy} onClick={() => onChange(root.trim(), true)}>{active ? <ArrowSync16Regular className="spin" /> : null}{permission.target === "directory" ? wholeSpace ? "Limit to folder" : "Change folder" : "Change file"}</button> : null}
+      {grant && rootChanged ? <button className="ui-control" type="button" disabled={busy} onClick={() => onChange(root.trim(), true)}>{active ? <ArrowSync16Regular className="spin" /> : null}{permission.target === "directory" ? wholeWorkFolder ? "Limit to folder" : "Change folder" : "Change file"}</button> : null}
       <button className={grant ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={busy || (!grant && !root.trim())} onClick={() => onChange(grant?.root ?? root.trim(), !grant)}>{active && !rootChanged ? <ArrowSync16Regular className="spin" /> : null}{grant ? "Revoke access" : "Allow access"}</button>
     </div>
   </article>;
@@ -922,12 +922,12 @@ function upsertConnectionStatus(items: RestrictedAppConnectionStatus[], status: 
   return items.some((item) => item.destinationId === status.destinationId) ? items.map((item) => item.destinationId === status.destinationId ? status : item) : [...items, status];
 }
 
-function formatAutomationSchedule(automation: RestrictedAppAutomation): string {
+function formatAppAutomationSchedule(automation: RestrictedAppAutomation): string {
   const minutes = automation.trigger.intervalMinutes;
   return `Every ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
-function automationPowerSummary(manifest: RestrictedAppReview["manifest"], automation: RestrictedAppAutomation): string {
+function appAutomationPowerSummary(manifest: RestrictedAppReview["manifest"], automation: RestrictedAppAutomation): string {
   const network = automation.permissions.network.map((id) => {
     const destination = manifest.permissions.network.find((item) => item.id === id);
     return destination ? `network ${id} (${destinationLabel(destination)})` : `network ${id}`;
@@ -943,7 +943,7 @@ function automationPowerSummary(manifest: RestrictedAppReview["manifest"], autom
   return [...network, ...files, ...notifications].join("; ") || "no network, file, or notification powers";
 }
 
-function automationGrantedPowerSummary(app: RestrictedAppInstalled, automation: RestrictedAppAutomation): string {
+function appAutomationGrantedPowerSummary(app: RestrictedAppInstalled, automation: RestrictedAppAutomation): string {
   const total = automation.permissions.network.length + automation.permissions.files.length + automation.permissions.notifications.length;
   if (!total) return "no separate grants required";
   const granted = automation.permissions.network.filter((id) => app.networkGrants.includes(id)).length
@@ -952,15 +952,15 @@ function automationGrantedPowerSummary(app: RestrictedAppInstalled, automation: 
   return `${granted} of ${total} currently allowed`;
 }
 
-function nextAutomationRunAt(automation: RestrictedAppAutomation): string {
+function nextAppAutomationRunAt(automation: RestrictedAppAutomation): string {
   return new Date(Date.now() + automation.trigger.intervalMinutes * 60_000).toISOString();
 }
 
-function formatAutomationReason(reason: RestrictedAppAutomationRunReceipt["reason"]): string {
+function formatAppAutomationReason(reason: RestrictedAppAutomationRunReceipt["reason"]): string {
   return reason === "manual" ? "Manual run" : reason === "resume" ? "Resume catch-up" : "Scheduled run";
 }
 
-function automationRunToast(automation: RestrictedAppAutomation, run: RestrictedAppAutomationRunReceipt): string {
+function appAutomationRunToast(automation: RestrictedAppAutomation, run: RestrictedAppAutomationRunReceipt): string {
   if (run.outcome === "success") return `${automation.title} completed.`;
   if (run.outcome === "failure") return `${automation.title} finished with an error.`;
   if (run.outcome === "interrupted") return `${automation.title} was interrupted; completion is unknown.`;
@@ -971,13 +971,13 @@ function shortDigest(digest: string): string { return `${digest.slice(0, 12)}…
 function formatBytes(bytes: number): string { return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
 function formatTimestamp(value: string): string { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value : date.toLocaleString(); }
 
-function fixtureAutomationRun(app: RestrictedAppInstalled, automation: RestrictedAppAutomation): { app: RestrictedAppInstalled; run: RestrictedAppAutomationRunReceipt } {
+function fixtureAppAutomationRun(app: RestrictedAppInstalled, automation: RestrictedAppAutomation): { app: RestrictedAppInstalled; run: RestrictedAppAutomationRunReceipt } {
   const now = new Date().toISOString();
   const run: RestrictedAppAutomationRunReceipt = {
     receiptId: `receipt-fixture-${automation.id}-${Date.now()}`,
     verification: "captured",
     runId: `fixture-${automation.id}-${Date.now()}`,
-    automationId: automation.id,
+    appAutomationId: automation.id,
     reason: "manual",
     scheduledAt: now,
     startedAt: now,
@@ -990,7 +990,7 @@ function fixtureAutomationRun(app: RestrictedAppInstalled, automation: Restricte
     id: automation.id,
     enabled: previous?.enabled ?? false,
     lastRunAt: now,
-    ...(previous?.enabled ? { nextRunAt: nextAutomationRunAt(automation) } : {}),
+    ...(previous?.enabled ? { nextRunAt: nextAppAutomationRunAt(automation) } : {}),
   };
   const automations = app.automations.some((item) => item.id === automation.id)
     ? app.automations.map((item) => item.id === automation.id ? state : item)
@@ -998,13 +998,13 @@ function fixtureAutomationRun(app: RestrictedAppInstalled, automation: Restricte
   return { app: { ...app, automations }, run };
 }
 
-function fixtureAutomationRuns(automation: RestrictedAppAutomation): RestrictedAppAutomationRunReceipt[] {
+function fixtureAppAutomationRuns(automation: RestrictedAppAutomation): RestrictedAppAutomationRunReceipt[] {
   const finishedAt = new Date(Date.now() - 10 * 60_000).toISOString();
   return [{
     receiptId: `receipt-fixture-scheduled-${automation.id}`,
     verification: "captured",
     runId: `fixture-scheduled-${automation.id}`,
-    automationId: automation.id,
+    appAutomationId: automation.id,
     reason: "scheduled",
     scheduledAt: new Date(Date.now() - 10 * 60_000 - 2_000).toISOString(),
     startedAt: new Date(Date.now() - 10 * 60_000 - 1_000).toISOString(),
@@ -1019,21 +1019,21 @@ function fixtureReview(): RestrictedAppReview {
     packageName: "connected-inbox",
     version: "0.1.0",
     digest: "a".repeat(64),
-    artifactDigest: `space-artifact-v1:sha256:${"b".repeat(64)}`,
+    artifactDigest: `work-folder-artifact-v1:sha256:${"b".repeat(64)}`,
     fileCount: 4,
     totalBytes: 4096,
     manifest: {
       version: 2,
       id: "connected-inbox",
       title: "Connected inbox",
-      description: "Messages associated with this Space.",
+      description: "Messages associated with this work-folder.",
       runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" },
       ui: { icon: "mail" },
       tools: [{ name: "inbox_search", description: "Search messages in the connected inbox.", action: "search", inputSchema: { type: "object" }, resultSchema: { type: "object" } }],
       automations: [{
         id: "refresh-inbox",
         title: "Refresh inbox",
-        description: "Checks for new messages associated with this Space.",
+        description: "Checks for new messages associated with this work-folder.",
         handler: "refresh-inbox",
         trigger: { kind: "interval", intervalMinutes: 30 },
         permissions: { network: ["mail-api"], files: ["export-folder"], notifications: ["new-messages"] },
@@ -1051,7 +1051,7 @@ function fixtureReview(): RestrictedAppReview {
             {
               kind: "oauth2-pkce",
               issuer: "https://identity.example.com",
-              clientId: "space-connected-inbox",
+              clientId: "work-folder-connected-inbox",
               scopes: ["mail.read", "mail.send"],
               discovery: "pinned",
               authorizationEndpoint: "https://identity.example.com/oauth/authorize",
@@ -1067,13 +1067,13 @@ function fixtureReview(): RestrictedAppReview {
   };
 }
 
-function fixtureInstalled(spaceId: string, review: RestrictedAppReview): RestrictedAppInstalled {
+function fixtureInstalled(workFolderId: string, review: RestrictedAppReview): RestrictedAppInstalled {
   const now = new Date().toISOString();
-  const suffix = spaceId.toLowerCase().replace(/[^a-z0-9-]/g, "-") || "fixture";
+  const suffix = workFolderId.toLowerCase().replace(/[^a-z0-9-]/g, "-") || "fixture";
   return {
     ...review,
-    spaceId: spaceId,
-    sourceSpaceId: spaceId,
+    workFolderId: workFolderId,
+    sourceWorkFolderId: workFolderId,
     projectId: `project_${suffix}`,
     tenantId: "tenant_fixture",
     principalId: "principal_fixture-human",

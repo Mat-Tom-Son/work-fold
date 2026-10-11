@@ -1,6 +1,6 @@
-// Run with Playwright CLI run-code against the inert local Spaces fixture on port 4319.
+// Run with Playwright CLI run-code against the inert local work-folders fixture on port 4319.
 async (page) => {
-  if (page.url() !== 'http://127.0.0.1:4319/?fixture=spaces') throw new Error('Expected the isolated fixture');
+  if (page.url() !== 'http://127.0.0.1:4319/?fixture=work-folders') throw new Error('Expected the isolated fixture');
   await page.reload();
   await page.getByRole('button', { name: 'Quote board', exact: true }).click();
   const app = page.locator('iframe[title="Quote board"]').contentFrame().locator('iframe[title="App content"]').contentFrame();

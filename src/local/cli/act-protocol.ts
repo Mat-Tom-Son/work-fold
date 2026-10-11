@@ -29,15 +29,15 @@ import {
  * keeps every verb it already had. The one surface that does change is the
  * shim-side wait loop, which learns to settle on a task that is waiting on an
  * answer; a shim that has not learned it still sees a terminal turn state and
- * prints the Assistant's question, which is honest rather than wrong.
+ * prints the agent's question, which is honest rather than wrong.
  */
 export const WORKFOLD_CLI_ACT_PROTOCOL_VERSION = 3 as const;
 
 /** Bound for `payload.messageFile` text (UTF-8 bytes), kept out of argv. */
-export const WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES = 256 * 1024;
+export const WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
 
 /** File-level bound for a serialized act request (JSON-escape headroom). */
-export const WORKFOLD_CLI_MAX_ACT_REQUEST_BYTES = 2 * 1024 * 1024;
+export const WORKFOLD_CLI_MAX_ACT_REQUEST_BYTES = 128 * 1024 * 1024;
 
 export interface WorkFoldCliActRequestPayload {
   /** UTF-8 text supplied through `--message-file`, embedded by the shim. */

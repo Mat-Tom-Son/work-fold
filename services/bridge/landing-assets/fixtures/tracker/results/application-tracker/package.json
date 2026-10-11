@@ -1,0 +1,7 @@
+{
+  "name": "application-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "agentApp": "agent-app.json"
+}

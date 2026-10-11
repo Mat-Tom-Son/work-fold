@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 
-import { SpaceAutomationsPane, folderAutomationRoleSentence } from "../web-local/src/components/panes/SpaceAutomationsPane.js";
-import { buildFixtureFolderAutomations } from "../web-local/src/fixtures/space-fixture.js";
-import type { FolderAutomationView } from "../src/shared/routing-presentation.js";
+import { WorkFolderAutomationsPane, folderAutomationRoleSentence } from "../web-local/src/components/panes/WorkFolderAutomationsPane.js";
+import { buildFixtureFolderAutomations } from "../web-local/src/fixtures/work-folder-fixture.js";
+import type { FolderAutomationView } from "../src/shared/automation-presentation.js";
 import { createDomHarness } from "./support/dom.js";
 
 const home = {
   id: "fixture-home",
   name: "Home projects",
-  spaceRoot: "/tmp/Home projects",
+  workFolderRoot: "/tmp/Home projects",
   location: { kind: "local" as const, storage: "linked" as const },
   createdAt: "2026-07-10T18:30:00.000Z",
   updatedAt: "2026-07-10T18:30:00.000Z",
@@ -24,7 +24,7 @@ function buttonsIn(row: Element): string[] {
   return [...row.querySelectorAll("button")].map((button) => button.textContent?.trim() ?? "");
 }
 
-test("role sentences use the Folder's own terms", () => {
+test("role sentences use the work-folder's own terms", () => {
   assert.equal(folderAutomationRoleSentence(["watches", "copies-from"]), "Watches this work-folder · Copies files from here");
   assert.equal(folderAutomationRoleSentence(["copies-to", "chats-here", "checks-here"]), "Copies files here · Starts a Chat here · Runs a Check here");
 });
@@ -41,8 +41,8 @@ test("the preview renders Home projects' two automations from fixture data with 
   assert.equal(fixture["fixture-trip"]?.length, 1, "Japan trip has one");
   assert.deepEqual(fixture["fixture-trip"]?.[0]?.roles, ["copies-to"]);
 
-  await dom.render(createElement(SpaceAutomationsPane, {
-    space: home,
+  await dom.render(createElement(WorkFolderAutomationsPane, {
+    workFolder: home,
     automations: fixture["fixture-home"],
     active: true,
     fixtureMode: true,
@@ -75,7 +75,7 @@ test("the preview renders Home projects' two automations from fixture data with 
   assert.doesNotMatch(dom.container.textContent ?? "", /Delete|Edit|…/);
 });
 
-test("Turn off posts the Folder-scoped act and refreshes; an emptied list says so once", async (t) => {
+test("Turn off posts the work-folder-scoped act and refreshes; an emptied list says so once", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   const originalFetch = globalThis.fetch;
@@ -87,7 +87,7 @@ test("Turn off posts the Folder-scoped act and refreshes; an emptied list says s
   t.after(() => { globalThis.fetch = originalFetch; });
   let refreshes = 0;
   const running: FolderAutomationView = {
-    routingId: "routing-kitchen-to-trip",
+    automationId: "automation-kitchen-to-trip",
     title: "Kitchen to trip",
     state: "running",
     triggerSummary: "Manual only",
@@ -96,21 +96,21 @@ test("Turn off posts the Folder-scoped act and refreshes; an emptied list says s
     roles: ["copies-from"],
   };
   const props = {
-    space: home,
+    workFolder: home,
     active: false,
     onRefresh: async () => { refreshes += 1; },
     onOpenAllAutomations: () => {},
   };
-  await dom.render(createElement(SpaceAutomationsPane, { ...props, automations: [running] }));
+  await dom.render(createElement(WorkFolderAutomationsPane, { ...props, automations: [running] }));
   const row = dom.container.querySelector(".folder-automation-row")!;
   assert.deepEqual(buttonsIn(row), ["Turn Off"], "Run now shows only while On");
   assert.match(row.textContent ?? "", /Running/);
   assert.match(row.textContent ?? "", /· Failed/);
   await dom.act(async () => { (row.querySelector("button") as HTMLButtonElement).click(); });
   await dom.waitFor(() => refreshes > 0);
-  assert.deepEqual(calls, [{ url: "/api/spaces/fixture-home/automations/routing-kitchen-to-trip/disable", method: "POST" }]);
+  assert.deepEqual(calls, [{ url: "/api/work-folders/fixture-home/automations/automation-kitchen-to-trip/disable", method: "POST" }]);
 
-  await dom.render(createElement(SpaceAutomationsPane, { ...props, automations: [] }));
+  await dom.render(createElement(WorkFolderAutomationsPane, { ...props, automations: [] }));
   assert.equal(dom.container.querySelector(".folder-automations-empty")?.textContent, "No automations touch this work-folder.");
   assert.equal(dom.container.querySelectorAll(".folder-automations-empty").length, 1);
 });

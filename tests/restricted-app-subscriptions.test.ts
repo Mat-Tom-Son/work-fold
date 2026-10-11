@@ -14,7 +14,8 @@ import {
   type RestrictedAppTaskPorts,
   type RestrictedAppTaskScope,
 } from "../src/local/agent/restricted-app-tasks.js";
-import type { RestrictedAppAssistantAction } from "../src/local/agent/restricted-app-manifest.js";
+import { restrictedAppFilePermissionLimit, type RestrictedAppAssistantAction } from "../src/local/agent/restricted-app-manifest.js";
+import { restrictedAppCheckLimits } from "../src/shared/restricted-app-checks.js";
 import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js";
 import { WorkFoldCheckService } from "../src/local/checks/check-service.js";
 import { WorkFoldCheckStore } from "../src/local/checks/check-store.js";
@@ -37,7 +38,7 @@ const action: RestrictedAppAssistantAction = {
 
 function scopeFor(featureInstallationId: string): RestrictedAppTaskScope {
   return {
-    spaceId: "space-one",
+    workFolderId: "work-folder-one",
     appId: "quotes",
     featureInstallationId,
     digest: "a".repeat(64),
@@ -56,7 +57,7 @@ test("a task journal change names the installations whose ids moved, and nothing
       turns.set(record.id, {
         schema: "work-fold.turn.v1", turnId: `turn-${record.id}`, requestId: restrictedAppTaskTurnRequestId(record),
         requestDigest: "d".repeat(64), userMessageId: `message-${record.id}`, userMessageCreatedAt: now.toISOString(),
-        spaceId: record.scope.spaceId, conversationId: record.conversationId, actorKind: "system", status: "running",
+        workFolderId: record.scope.workFolderId, conversationId: record.conversationId, actorKind: "system", status: "running",
         userMessagePersisted: true, acceptedAt: now.toISOString(), updatedAt: now.toISOString(), assistantText: "",
       });
     },
@@ -77,7 +78,7 @@ test("a task journal change names the installations whose ids moved, and nothing
   const other = await service.request(second, { requestId: randomUUID(), requestedAt: now.toISOString(), actionId: action.id, input: { quote: "South" } });
 
   assert.equal(plainCalls, changes.length, "existing zero-argument listeners keep firing");
-  assert.deepEqual(changes.at(-1), [{ spaceId: "space-one", appId: "quotes", featureInstallationId: "feature-two", taskIds: [other.id], receiptIds: [] }]);
+  assert.deepEqual(changes.at(-1), [{ workFolderId: "work-folder-one", appId: "quotes", featureInstallationId: "feature-two", taskIds: [other.id], receiptIds: [] }]);
   assert.ok(!changes.flat().some((item) => item.featureInstallationId === "feature-two" && item.taskIds.includes(one.id)),
     "one installation's activity never names another's task");
 
@@ -109,7 +110,7 @@ test("an inference receipt marks only its terminal line as something an app can 
   service.on("changed", (change: { receipt: { id: string; featureInstallationId: string }; terminal: boolean }) => {
     seen.push({ terminal: change.terminal, id: change.receipt.id, featureInstallationId: change.receipt.featureInstallationId });
   });
-  const scope = { spaceId: "space-one", appId: "quotes", featureInstallationId: "feature-one", digest: "a".repeat(64) };
+  const scope = { workFolderId: "work-folder-one", appId: "quotes", featureInstallationId: "feature-one", digest: "a".repeat(64) };
   const result = await service.infer(scope, "view", { instructions: "Echo", input: "north" });
 
   assert.deepEqual(seen.map((item) => item.terminal), [false, true], "the accepted line is a half-fact; only the settled line is news");
@@ -120,9 +121,9 @@ test("an inference receipt marks only its terminal line as something an app can 
 test("a Check settle and a disable each tell the host once, and a failing listener never fails the operation", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-check-hint-"));
   t.after(() => rm(sandbox, { recursive: true, force: true }));
-  const spaceRoot = join(sandbox, "Space");
+  const workFolderRoot = join(sandbox, "work-folder");
   const machine = join(sandbox, "machine");
-  await mkdir(join(spaceRoot, "Delivery"), { recursive: true });
+  await mkdir(join(workFolderRoot, "Delivery"), { recursive: true });
   await mkdir(machine, { recursive: true });
   const proposalPath = join(sandbox, "handoff.work-fold-check.json");
   await writeFile(proposalPath, JSON.stringify({
@@ -140,48 +141,48 @@ test("a Check settle and a disable each tell the host once, and a failing listen
     },
   }));
 
-  const changed: Array<{ spaceId: string; checkIds: string[] }> = [];
+  const changed: Array<{ workFolderId: string; checkIds: string[] }> = [];
   let listenerThrows = false;
   const service = new WorkFoldCheckService({
     kernel: new WorkFoldKernel(),
-    storeFactory: (spaceId) => WorkFoldCheckStore.create(spaceId, { path: join(machine, `${spaceId}.json`) }),
-    listSpaces: async () => [{
-      id: "space-delivery", name: "space-delivery", spaceRoot,
+    storeFactory: (workFolderId) => WorkFoldCheckStore.create(workFolderId, { path: join(machine, `${workFolderId}.json`) }),
+    listWorkFolders: async () => [{
+      id: "work-folder-delivery", name: "work-folder-delivery", workFolderRoot,
       location: { kind: "local" as const, storage: "linked" as const },
       createdAt: "2026-08-01T00:00:00.000Z", updatedAt: "2026-08-01T00:00:00.000Z",
     }],
     onResultChanged: (event) => {
-      changed.push({ spaceId: event.spaceId, checkIds: [...event.checkIds] });
+      changed.push({ workFolderId: event.workFolderId, checkIds: [...event.checkIds] });
       if (listenerThrows) throw new Error("a view listener exploded");
     },
   });
   t.after(() => service.close());
-  const space = { id: "space-delivery", spaceRoot };
+  const workFolder = { id: "work-folder-delivery", workFolderRoot };
 
-  const enabled = await service.enable({ space, proposalPath, actor: "human" });
+  const enabled = await service.enable({ workFolder, proposalPath, actor: "human" });
   assert.deepEqual(changed, [], "enabling a Check is not a result change");
-  await service.status(space);
+  await service.status(workFolder);
   assert.deepEqual(changed, [], "a read never produces a hint");
 
   listenerThrows = true;
-  const accepted = await service.run({ space, checkId: enabled.declaration.id, actor: { kind: "cli", spaceId: space.id } });
+  const accepted = await service.run({ workFolder, checkId: enabled.declaration.id, actor: { kind: "cli", workFolderId: workFolder.id } });
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    const status = await service.taskStatus(space.id, accepted.taskId);
+    const status = await service.taskStatus(workFolder.id, accepted.taskId);
     if (status.state !== "accepted" && status.state !== "running") break;
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
-  assert.equal((await service.taskStatus(space.id, accepted.taskId)).state, "succeeded",
+  assert.equal((await service.taskStatus(workFolder.id, accepted.taskId)).state, "succeeded",
     "a listener that throws never fails the Check run");
-  assert.deepEqual(changed, [{ spaceId: "space-delivery", checkIds: [enabled.declaration.id] }],
+  assert.deepEqual(changed, [{ workFolderId: "work-folder-delivery", checkIds: [enabled.declaration.id] }],
     "one settled run is exactly one hint");
 
   listenerThrows = false;
   changed.length = 0;
-  assert.equal(await service.disable(space, enabled.declaration.id), true);
-  assert.deepEqual(changed, [{ spaceId: "space-delivery", checkIds: [enabled.declaration.id] }]);
+  assert.equal(await service.disable(workFolder, enabled.declaration.id), true);
+  assert.deepEqual(changed, [{ workFolderId: "work-folder-delivery", checkIds: [enabled.declaration.id] }]);
   changed.length = 0;
-  assert.equal(await service.disable(space, enabled.declaration.id), false);
+  assert.equal(await service.disable(workFolder, enabled.declaration.id), false);
   assert.deepEqual(changed, [], "disabling what is already gone changes nothing");
 });
 
@@ -194,7 +195,7 @@ test("the host pushes the three hints on their own channels, to the mounts each 
   // unwrapped exactly as `storage.onChanged` does.
   assert.match(preload, /"tasks\.onChanged", "checks\.onChanged", "files\.onChanged",/);
   assert.match(preload, /tasks: Object\.freeze\(\{\s*\n\s*onChanged:/);
-  for (const [name, message] of [["tasks", "Assistant task"], ["checks", "Check"], ["files", "File"]] as const) {
+  for (const [name, message] of [["tasks", "Task"], ["checks", "Check"], ["files", "File"]] as const) {
     assert.ok(preload.includes(`throw new TypeError("${message} listener must be a function.")`), `${name} type-checks its listener`);
     // A preload-side TypeError crosses the bridge as a plain Error, so the
     // app world re-checks and throws its own TypeError before delegating.
@@ -225,9 +226,9 @@ test("the host pushes the three hints on their own channels, to the mounts each 
 
   // A granted-root walk starts only for a mount that actually subscribed.
   // `files.onChanged` registers inside the preload, so the host cannot see it
-  // without being told; a directory grant binds to the whole Space, so an open
+  // without being told; a directory grant binds to the whole work-folder, so an open
   // view that never subscribed would otherwise cost a recursive metadata scan
-  // of that Space every poll interval for the life of the view.
+  // of that work-folder every poll interval for the life of the view.
   for (const source of [host, preload]) {
     assert.ok(source.includes('"work-fold:restricted-app:files-subscribe"'), "both sides name the subscription channel");
   }
@@ -247,7 +248,7 @@ test("the host pushes the three hints on their own channels, to the mounts each 
 
   // The wires that make the hints reachable at all.
   assert.match(host, /publishAssistantActivity\(event: RestrictedAppAssistantActivity\): void/);
-  assert.match(host, /publishCheckResultsChanged\(event: \{ spaceId: string; checkIds: readonly string\[\] \}\): void/);
+  assert.match(host, /publishCheckResultsChanged\(event: \{ workFolderId: string; checkIds: readonly string\[\] \}\): void/);
   assert.match(main, /onAppAssistantActivity: \(activity\) => host\.restrictedAppHost\.publishAssistantActivity\(activity\)/);
   assert.match(main, /onResultChanged: \(event\) => restrictedRuntime\.publishCheckResultsChanged\(event\)/);
 
@@ -261,7 +262,7 @@ test("the published hint bounds are the ones the preload and the host enforce", 
   assert.equal(restrictedAppSubscriptionLimits.receiptIds, 64);
   assert.ok(preload.includes("boundedIdList(candidate.taskIds, 64)"));
   assert.ok(preload.includes("boundedIdList(candidate.receiptIds, 64)"));
-  assert.ok(preload.includes("boundedIdList(candidate.permissionIds, 8)"), "Check permissions are capped at 8 by the manifest");
-  assert.ok(preload.includes("boundedIdList(candidate.permissionIds, 16)"), "file permissions are capped at 16 by the manifest");
+  assert.ok(preload.includes(`boundedIdList(candidate.permissionIds, ${restrictedAppCheckLimits.permissions})`), "Check permission ids are capped by the manifest's Check-slot count");
+  assert.ok(preload.includes(`boundedIdList(candidate.permissionIds, ${restrictedAppFilePermissionLimit})`), "file permission ids are capped by the manifest's file-permission count");
   assert.match(host, /restrictedAppSubscriptionLimits\.fileMinHintIntervalMs\s*\n?\s*:\s*restrictedAppSubscriptionLimits\.minHintIntervalMs/);
 });

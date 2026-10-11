@@ -11,9 +11,9 @@ export const WORKFOLD_CLI_PROTOCOL_VERSION = 1 as const;
 
 /** Accepted shape for per-launch act tokens carried by act-lane requests. */
 export const WORKFOLD_CLI_ACT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
-export const WORKFOLD_CLI_MAX_ARG_COUNT = 128;
-export const WORKFOLD_CLI_MAX_ARG_LENGTH = 8 * 1024;
-export const WORKFOLD_CLI_MAX_ARGV_LENGTH = 64 * 1024;
+export const WORKFOLD_CLI_MAX_ARG_COUNT = 16_384;
+export const WORKFOLD_CLI_MAX_ARG_LENGTH = 4 * 1024 * 1024;
+export const WORKFOLD_CLI_MAX_ARGV_LENGTH = 16 * 1024 * 1024;
 
 export const WorkFoldCliExitCode = {
   success: 0,
@@ -30,7 +30,7 @@ export const WorkFoldCliExitCode = {
 export type WorkFoldCliExitCode = typeof WorkFoldCliExitCode[keyof typeof WorkFoldCliExitCode];
 export type WorkFoldCliErrorCode = Exclude<keyof typeof WorkFoldCliExitCode, "success">;
 export type WorkFoldCliOutputMode = "human" | "json";
-export type WorkFoldCliCommandName = "help" | "version" | "context" | "spaces.list" | "tasks.list" | "capabilities.list" | "checks.status";
+export type WorkFoldCliCommandName = "help" | "version" | "context" | "work-folders.list" | "tasks.list" | "capabilities.list" | "checks.status";
 
 export type WorkFoldCliJson =
   | null
@@ -63,7 +63,7 @@ export interface WorkFoldCliResponseV1 {
 export interface WorkFoldCliParsedCommand {
   name: WorkFoldCliCommandName;
   output: WorkFoldCliOutputMode;
-  space?: string;
+  workFolder?: string;
   topic?: string;
 }
 
@@ -72,18 +72,18 @@ export interface WorkFoldCliActor {
   cwd: string;
 }
 
-export interface WorkFoldCliSpaceSummary {
+export interface WorkFoldCliWorkFolderSummary {
   id: string;
   name: string;
-  spaceRoot?: string;
+  workFolderRoot?: string;
   active?: boolean;
-  /** The registered Space whose folder contains this one; absent for a top-level Space. */
-  parentSpaceId?: string;
+  /** The registered work-folder whose folder contains this one; absent for a top-level work-folder. */
+  parentWorkFolderId?: string;
 }
 
 export interface WorkFoldCliContextSnapshot {
   cwd: string;
-  space: WorkFoldCliSpaceSummary | null;
+  workFolder: WorkFoldCliWorkFolderSummary | null;
   selectedPath?: string | null;
   activeSurface?: string | null;
 }
@@ -92,7 +92,7 @@ export interface WorkFoldCliTaskSummary {
   id: string;
   label: string;
   status: string;
-  spaceId?: string;
+  workFolderId?: string;
   updatedAt?: string;
 }
 
@@ -100,7 +100,7 @@ export interface WorkFoldCliCapabilitySummary {
   id: string;
   name: string;
   kind: "skill" | "extension" | "tool" | "package" | "other";
-  scope: "personal" | "space" | string;
+  scope: "everywhere" | "work-folder" | string;
   status?: string;
   source?: string;
 }
@@ -119,7 +119,7 @@ export interface WorkFoldCliCheckStatusSummary {
   kind: "work-fold.checks.experimental";
   version: 1;
   available: boolean;
-  spaceId: string;
+  workFolderId: string;
   state: WorkFoldCliCheckAggregateState;
   configured: number;
   proposed: number;
@@ -140,11 +140,11 @@ export interface WorkFoldCliCheckStatusSummary {
  * desktop code into the reusable control plane.
  */
 export interface WorkFoldCliKernel {
-  getContext(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliContextSnapshot>;
-  listSpaces(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliSpaceSummary[]>;
-  listTasks(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliTaskSummary[]>;
-  listCapabilities(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliCapabilitySummary[]>;
-  getChecksStatus?(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliCheckStatusSummary>;
+  getContext(actor: WorkFoldCliActor, options: { workFolder?: string }): Promise<WorkFoldCliContextSnapshot>;
+  listWorkFolders(actor: WorkFoldCliActor, options: { workFolder?: string }): Promise<WorkFoldCliWorkFolderSummary[]>;
+  listTasks(actor: WorkFoldCliActor, options: { workFolder?: string }): Promise<WorkFoldCliTaskSummary[]>;
+  listCapabilities(actor: WorkFoldCliActor, options: { workFolder?: string }): Promise<WorkFoldCliCapabilitySummary[]>;
+  getChecksStatus?(actor: WorkFoldCliActor, options: { workFolder?: string }): Promise<WorkFoldCliCheckStatusSummary>;
 }
 
 export class WorkFoldCliError extends Error {

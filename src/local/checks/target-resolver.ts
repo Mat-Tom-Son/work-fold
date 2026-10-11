@@ -3,15 +3,20 @@ import { lstat, opendir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type { WorkFoldCheckTarget, WorkFoldCheckTargetRole } from "../../shared/checks.js";
-import { isReservedSpacePathSegment } from "../space-path-policy.js";
+import { isReservedWorkFolderPathSegment } from "../work-folder-path-policy.js";
 
+/**
+ * Ceilings that only stop a runaway walk. Resolution reads metadata, never
+ * file contents, so it carries no byte ceiling of its own; every caller that
+ * goes on to read bytes passes the read budget it actually needs.
+ */
 export const workFoldCheckTargetHardLimits = Object.freeze({
-  maxSelectors: 64,
-  maxVisitedEntries: 10_000,
-  maxDepth: 32,
-  maxFiles: 512,
-  maxFileBytes: 64 * 1024 * 1024,
-  maxTotalBytes: 256 * 1024 * 1024,
+  maxSelectors: 1_024,
+  maxVisitedEntries: 10_000_000,
+  maxDepth: 1_024,
+  maxFiles: 1_000_000,
+  maxFileBytes: Number.MAX_SAFE_INTEGER,
+  maxTotalBytes: Number.MAX_SAFE_INTEGER,
 });
 
 export interface WorkFoldCheckTargetLimits {
@@ -24,7 +29,7 @@ export interface WorkFoldCheckTargetLimits {
 }
 
 export interface WorkFoldCheckResolvedFile {
-  /** Canonical Space-relative path, using `/` separators. */
+  /** Canonical work-folder-relative path, using `/` separators. */
   path: string;
   /** Internal filesystem path for the runner. Never expose this through a content-free projection. */
   absolutePath: string;
@@ -173,17 +178,17 @@ export async function resolveWorkFoldCheckTargets(
 
 async function prepareRoot(root: string): Promise<PreparedRoot> {
   if (typeof root !== "string" || !root.trim() || !isAbsolute(root)) {
-    throw new WorkFoldCheckTargetResolutionError("INVALID_ROOT", "The Check resolver requires an absolute Space root.");
+    throw new WorkFoldCheckTargetResolutionError("INVALID_ROOT", "The Check resolver requires an absolute work-folder root.");
   }
   const lexicalRoot = resolve(root);
-  const info = await checkedLstat(lexicalRoot, "The Space root is unavailable.", "INVALID_ROOT");
+  const info = await checkedLstat(lexicalRoot, "The work-folder root is unavailable.", "INVALID_ROOT");
   if (info.isSymbolicLink()) {
-    throw new WorkFoldCheckTargetResolutionError("SYMLINK", "A Space root used for Checks cannot be a symbolic link or junction.");
+    throw new WorkFoldCheckTargetResolutionError("SYMLINK", "A work-folder root used for Checks cannot be a symbolic link or junction.");
   }
   if (!info.isDirectory()) {
-    throw new WorkFoldCheckTargetResolutionError("INVALID_ROOT", "The Check resolver Space root must be a directory.");
+    throw new WorkFoldCheckTargetResolutionError("INVALID_ROOT", "The Check resolver work-folder root must be a directory.");
   }
-  const canonicalRoot = await checkedRealpath(lexicalRoot, "The Space root could not be canonicalized.");
+  const canonicalRoot = await checkedRealpath(lexicalRoot, "The work-folder root could not be canonicalized.");
   return { lexicalRoot, canonicalRoot };
 }
 
@@ -271,7 +276,7 @@ async function visitTree(
     if (info.isSymbolicLink()) {
       throw new WorkFoldCheckTargetResolutionError("SYMLINK", `Check target trees cannot contain symbolic links or junctions: ${path}`, { targetPath: path });
     }
-    if (isReservedSpacePathSegment(entry.name)) continue;
+    if (isReservedWorkFolderPathSegment(entry.name)) continue;
     if (info.isDirectory()) {
       if (!recursive) continue;
       const canonical = await checkedRealpath(absolutePath, `work-fold could not canonicalize Check target directory: ${path}`, path);
@@ -356,16 +361,16 @@ function addFile(
 
 function safeTargetPath(value: unknown): string {
   if (typeof value !== "string" || !value || value.length > 512 || value.includes("\0") || value.includes("\\")) {
-    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets must use bounded Space-relative paths.");
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets must use bounded work-folder-relative paths.");
   }
   if (value === "." || isAbsolute(value) || value.startsWith("/") || /^[A-Za-z]:/.test(value)) {
-    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets cannot select the Space root or an absolute path.", { targetPath: value });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets cannot select the work-folder root or an absolute path.", { targetPath: value });
   }
   const segments = value.split("/");
   if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
-    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets must be normalized paths beneath the Space root.", { targetPath: value });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets must be normalized paths beneath the work-folder root.", { targetPath: value });
   }
-  if (segments.some(isReservedSpacePathSegment)) {
+  if (segments.some(isReservedWorkFolderPathSegment)) {
     throw new WorkFoldCheckTargetResolutionError("RESERVED_PATH", "Check targets cannot select .work-fold, .workspace, or .pi material.", { targetPath: value });
   }
   if (segments.some(isUnsafeWindowsPathSegment)) {
@@ -433,13 +438,13 @@ function roleOrder(role: WorkFoldCheckTargetRole): number {
 
 function assertLexicallyInside(root: string, candidate: string, targetPath: string): void {
   if (!pathContains(root, candidate)) {
-    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check target path escapes its Space.", { targetPath });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check target path escapes its work-folder.", { targetPath });
   }
 }
 
 function assertCanonicalInside(root: string, candidate: string, targetPath: string): void {
   if (!pathContains(root, candidate)) {
-    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check target resolves outside its Space.", { targetPath });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check target resolves outside its work-folder.", { targetPath });
   }
 }
 

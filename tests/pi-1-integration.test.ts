@@ -142,7 +142,7 @@ test("real codemode calls image and classifier models, returns file evidence and
     text(await models.classify(judge, {state:{note:'review'}, questions:{ready:{type:'bool',instructions:'Ready?',criteria:{true:'ready',false:'not ready'}}}}));
     text(await tools.write({path:'native-evidence.txt', content:'codemode wrote this'}));
   ` }, { id: "code-1" })), fauxAssistantMessage("The native calls completed.")]);
-  assert.equal(await client.prompt("Run native model operations.", { managementTaskId: "accepted-native-turn" }), "The native calls completed.");
+  assert.equal(await client.prompt("Run native model operations.", { workFoldAgentTaskId: "accepted-native-turn" }), "The native calls completed.");
   assert.equal(images, 1); assert.equal(classifications, 1);
   assert.equal(await readFile(join(root, "native-evidence.txt"), "utf8"), "codemode wrote this");
   assert.ok(events.some(event => event.type === "tool" && event.toolName === "write" && event.phase === "complete" && Number.isFinite(event.durationMs)));
@@ -184,7 +184,7 @@ test("native cache warming stays inside an accepted turn, records usage and is o
     settingsManager: settings, modelContextInspector: inspector, preferredModel: { provider: "fixture-warm", id: "chat" } }) });
   t.after(() => client.stop());
   await client.prompt("Seed the cache.");
-  assert.equal(await client.prompt("Wait for a warm request.", { managementTaskId: "warm-owner" }), "The turn finished.");
+  assert.equal(await client.prompt("Wait for a warm request.", { workFoldAgentTaskId: "warm-owner" }), "The turn finished.");
   const entries = (await readFile((await client.getState()).sessionFile!, "utf8")).trim().split("\n").map(line => JSON.parse(line));
   assert.ok(entries.some(entry => entry.type === "usage" && entry.kind === "cache_warm"));
   const captures = inspector.list().filter(record => record.owner.purpose === "cache_warm");

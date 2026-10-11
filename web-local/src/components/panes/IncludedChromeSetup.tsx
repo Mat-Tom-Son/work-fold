@@ -4,13 +4,13 @@ import type { IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
 import { chromeConnectionReadiness } from "../../lib/included-tool-readiness";
 
-type Props = { spaceId: string; enabled: boolean; onStatusChange?: (status: IncludedToolStatus | null) => void };
+type Props = { workFolderId: string; enabled: boolean; onStatusChange?: (status: IncludedToolStatus | null) => void };
 
 export function IncludedChromeSetup(props: Props) {
-  return <ChromeSetupSession key={props.spaceId} {...props} />;
+  return <ChromeSetupSession key={props.workFolderId} {...props} />;
 }
 
-function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
+function ChromeSetupSession({ workFolderId, enabled, onStatusChange }: Props) {
   const [status, setStatus] = useState<IncludedToolStatus | null>(null);
   const [action, setAction] = useState<ChromeSetupAction | null>(null);
   const [error, setError] = useState<{ source: "read" | "action"; message: string } | null>(null);
@@ -35,7 +35,7 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
     readRequest.current = controller;
     const owner = ++revision.current;
     try {
-      const { tools } = await api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(spaceId)}`, { signal: controller.signal });
+      const { tools } = await api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?workFolderId=${encodeURIComponent(workFolderId)}`, { signal: controller.signal });
       if (alive.current && !controller.signal.aborted && owner === revision.current) {
         publish(tools.find((tool) => tool.id === "chrome") ?? null);
         setError((current) => current?.source === "read" ? null : current);
@@ -59,7 +59,7 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
       window.removeEventListener("focus", returned);
       document.removeEventListener("visibilitychange", returned);
     };
-  }, [spaceId]);
+  }, [workFolderId]);
 
   // Only an explicitly opened setup observes the handshake for a short time.
   // These reads do not launch Chrome, enroll a profile, or own its connection.
@@ -86,7 +86,7 @@ function ChromeSetupSession({ spaceId, enabled, onStatusChange }: Props) {
     let accepted = false;
     try {
       const result = await api<{ status: IncludedToolStatus }>("/api/agent/included-tools/setup", {
-        method: "POST", signal: controller.signal, body: { spaceId, id: "chrome", action: nextAction },
+        method: "POST", signal: controller.signal, body: { workFolderId, id: "chrome", action: nextAction },
       });
       if (!alive.current || controller.signal.aborted) return;
       accepted = true;

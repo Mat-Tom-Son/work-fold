@@ -95,19 +95,19 @@ test("inspector rejects foreign renderers, child frames, navigation and broader 
   let prevented = false;
   window.webContents.emit("will-navigate", { preventDefault() { prevented = true; } }, "https://example.com");
   assert.equal(prevented, true);
-  await assert.rejects(inspector.request(event, { path: "/api/spaces", body: { enabled: true } }), /Invalid diagnostic path/);
+  await assert.rejects(inspector.request(event, { path: "/api/work-folders", body: { enabled: true } }), /Invalid diagnostic path/);
   assert.equal(requests, 0);
   inspector.closeFrom(event);
   assert.throws(() => inspector.assertSender(event), /own trusted main frame/);
 });
 
 test("diagnostic request broker accepts only scoped reads and explicit recording controls", () => {
-  assert.deepEqual(parseModelContextDiagnosticRequest({ path: "/api/model-context/record_1-abc?spaceId=one&conversationId=two" }), {
-    path: "/api/model-context/record_1-abc?spaceId=one&conversationId=two", method: "GET",
+  assert.deepEqual(parseModelContextDiagnosticRequest({ path: "/api/model-context/record_1-abc?workFolderId=one&conversationId=two" }), {
+    path: "/api/model-context/record_1-abc?workFolderId=one&conversationId=two", method: "GET",
   });
   for (const input of [
-    { path: "https://example.com/api/model-context" }, { path: "/api/model-context/../spaces" },
-    { path: "/api/model-context/%2e%2e" }, { path: "/api/model-context?spaceId=x&spaceId=y" },
+    { path: "https://example.com/api/model-context" }, { path: "/api/model-context/../work-folders" },
+    { path: "/api/model-context/%2e%2e" }, { path: "/api/model-context?workFolderId=x&workFolderId=y" },
     { path: "/api/model-context?conversationId=y" }, { path: "/api/model-context?url=https://example.com" },
     { path: "/api/model-context", headers: {} }, { path: "/api/model-context", method: "DELETE" },
     { path: "/api/model-context/record", body: { clear: true } },
@@ -123,7 +123,7 @@ test("focused inspector owns close and refresh menu commands and shortcuts", asy
     createWindow: () => window as unknown as BrowserWindow, request: async () => { throw new Error("No capture request expected."); },
   });
   await inspector.open();
-  assert.equal(inspector.handleMenuCommand("reload-space-state"), true);
+  assert.equal(inspector.handleMenuCommand("reload-work-folder-state"), true);
   assert.equal(window.reloads, 1);
   assert.equal(inspector.handleMenuCommand("open-settings"), false);
   let prevented = false;

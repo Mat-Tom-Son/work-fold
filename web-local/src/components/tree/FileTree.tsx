@@ -2,19 +2,19 @@ import type React from "react";
 import { ArrowRight, ChevronRight, Loader2, Share2 } from "lucide-react";
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
-import { hasNativeFiles, hasSpacePathDrag } from "../../lib/file-actions";
+import { hasNativeFiles, hasWorkFolderPathDrag } from "../../lib/file-actions";
 import { desktopFileDragHint } from "../../lib/platform";
 import { isInsideFolder, parentFolderPath, treeEntryNeedsLazyChildren } from "../../lib/tree";
-import { spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
-import type { ChatActivityStatus, SpaceSummary, TreeEntry } from "../../types";
+import { workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
+import type { ChatActivityStatus, WorkFolderSummary, TreeEntry } from "../../types";
 import { fileSharing } from "../../ui-contract";
 import { ActivityDot } from "../chrome/ActivityDot";
-import { EmptyInline, SpaceIconGlyph } from "../chrome/common";
+import { EmptyInline, WorkFolderIconGlyph } from "../chrome/common";
 
-/** A Folder registered inside this one, as Files shows it (2026-10-01). */
+/** A work-folder registered inside this one, as Files shows it (2026-10-01). */
 export interface NestedFolderView {
-  space: SpaceSummary;
-  identity: SpaceIdentity;
+  workFolder: WorkFolderSummary;
+  identity: WorkFolderIdentity;
   status?: ChatActivityStatus | null;
 }
 
@@ -48,16 +48,16 @@ export function FileTree({
   onOpenNestedFolder,
 }: {
   entries: TreeEntry[];
-  /** Child Folders keyed by their path here; each row opens that Folder instead of expanding. */
+  /** Child work-folders keyed by their path here; each row opens that work-folder instead of expanding. */
   nestedFolders?: ReadonlyMap<string, NestedFolderView>;
-  onOpenNestedFolder?: (space: SpaceSummary) => void;
+  onOpenNestedFolder?: (workFolder: WorkFolderSummary) => void;
   collapsedPaths: Set<string>;
   loadingFolderPaths: Set<string>;
   selectedPath?: string | null;
   movingTreePath: string | null;
   dropTargetFolderPath: string | null;
   checkAttentionPaths?: ReadonlySet<string>;
-  /** Files in this Folder shared as a page; folders never carry the mark. */
+  /** Files in this work-folder shared as a page; folders never carry the mark. */
   sharedPaths?: ReadonlySet<string>;
   searchQuery?: string;
   emptyText?: string;
@@ -95,7 +95,7 @@ export function FileTree({
     if (entry.nestedFolder && (event.key === "Enter" || event.key === " " || event.key === "ArrowRight")) {
       event.preventDefault();
       const nested = nestedFolders?.get(entry.path);
-      if (nested) onOpenNestedFolder?.(nested.space);
+      if (nested) onOpenNestedFolder?.(nested.workFolder);
       return;
     }
     if (entry.nestedFolder && event.key === "ArrowLeft") {
@@ -169,7 +169,7 @@ export function FileTree({
         if (entry.nestedFolder) {
           const nested = nestedFolders?.get(entry.path);
           const statusLabel = nested?.status === "running" ? ", Worker is working" : nested?.status === "attention" ? ", new reply" : "";
-          const label = nested ? `Open ${nested.space.name}${statusLabel}` : `${entry.name}, another work-folder`;
+          const label = nested ? `Open ${nested.workFolder.name}${statusLabel}` : `${entry.name}, another work-folder`;
           return (
             <div className="file-tree-item" key={entry.path}>
               <button
@@ -181,12 +181,12 @@ export function FileTree({
                 title={label}
                 data-tree-row="true"
                 data-tree-path={entry.path}
-                style={nested ? spaceIdentityStyle(nested.identity) : undefined}
-                onClick={() => nested && onOpenNestedFolder?.(nested.space)}
+                style={nested ? workFolderIdentityStyle(nested.identity) : undefined}
+                onClick={() => nested && onOpenNestedFolder?.(nested.workFolder)}
                 onKeyDown={(event) => handleTreeRowKeyDown(event, entry)}
                 onContextMenu={(event) => event.preventDefault()}
                 onDragOver={(event) => {
-                  if (!hasNativeFiles(event) && !hasSpacePathDrag(event)) return;
+                  if (!hasNativeFiles(event) && !hasWorkFolderPathDrag(event)) return;
                   event.stopPropagation();
                   onUpdateDropTarget(event, parentFolderPath(entry.path));
                 }}
@@ -197,7 +197,7 @@ export function FileTree({
               >
                 <span className="folder-chevron nested-folder-spacer" aria-hidden="true" />
                 <span className="nested-folder-icon" aria-hidden="true">
-                  {nested ? <SpaceIconGlyph icon={nested.identity.Icon} size={12} filled /> : null}
+                  {nested ? <WorkFolderIconGlyph icon={nested.identity.Icon} size={12} filled /> : null}
                 </span>
                 <HighlightedFileName name={entry.name} query={searchQuery} />
                 {nested?.status ? <ActivityDot status={nested.status} /> : null}
@@ -250,12 +250,12 @@ export function FileTree({
               }}
               onDragEnd={onDragEndEntry}
               onDragEnter={(event) => {
-                if (!hasNativeFiles(event) && !hasSpacePathDrag(event)) return;
+                if (!hasNativeFiles(event) && !hasWorkFolderPathDrag(event)) return;
                 event.stopPropagation();
                 onUpdateDropTarget(event, parentDropTarget);
               }}
               onDragOver={(event) => {
-                if (!hasNativeFiles(event) && !hasSpacePathDrag(event)) return;
+                if (!hasNativeFiles(event) && !hasWorkFolderPathDrag(event)) return;
                 event.stopPropagation();
                 onUpdateDropTarget(event, parentDropTarget);
               }}

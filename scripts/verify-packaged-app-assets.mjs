@@ -48,7 +48,7 @@ const executablePath = packagedPlatform === "win32"
 assertPath(executablePath, `${identity.productName} executable`);
 assertPath(asarPath, "app.asar");
 assertPath(join(resourcesDir, "web-local", "index.html"), "renderer index");
-assertPath(join(resourcesDir, "web-local", "popover.html"), "management popover renderer");
+assertPath(join(resourcesDir, "web-local", "popover.html"), "work-fold agent popover renderer");
 assertPath(join(resourcesDir, "assets", "icon.png"), "desktop icon");
 assertPath(join(resourcesDir, "assets", "iconTemplate.png"), "menu-bar template icon");
 assertPath(join(resourcesDir, "assets", "iconTemplate@2x.png"), "menu-bar template icon (2x)");
@@ -155,7 +155,7 @@ if (existsSync(asarPath)) {
     "/dist/desktop/desktop/src/preload.cjs",
     "/dist/desktop/desktop/src/model-context-preload.cjs",
     "/dist/desktop/desktop/src/model-context-window.js",
-    "/dist/desktop/desktop/src/management-popover-preload.cjs",
+    "/dist/desktop/desktop/src/work-fold-agent-popover-preload.cjs",
     "/dist/desktop/desktop/src/restricted-app-host.js",
     "/dist/desktop/desktop/src/restricted-app-preload.cjs",
     "/node_modules/@earendil-works/pi-coding-agent/package.json",

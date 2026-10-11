@@ -25,7 +25,7 @@ export async function applyAzureOpenAIDeployments(auth: CredentialStore, registr
   }
   if (!settings) return;
   const models = await Promise.all(settings.deployments.map(async (id) => {
-    // Use Pi's existing CLI metadata/fallback policy. Deployment routing must be
+    // Use Pi's existing CLI metadata/fallback policy. Deployment automation must be
     // exact even when the CLI's fuzzy matcher suggests a different catalog id.
     const resolved = await resolveCliModel({ cliProvider: AZURE_OPENAI_PROVIDER, cliModel: id, modelRuntime: registry });
     if (!resolved.model) throw new Error(resolved.error ?? "Azure OpenAI is unavailable in Pi.");

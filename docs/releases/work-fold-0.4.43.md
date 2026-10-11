@@ -27,7 +27,7 @@ application suite, and real OpenRouter acceptance with GPT-4.1 Mini and
 GPT-5 Mini. Live tests covered native tools and MCP, codemode state across
 restart and compaction, reasoning, background work, Stop and recovery, the
 work-fold agent, and a bounded text Check with admitted file evidence.
-The detailed trace is recorded in [Pi 1.1 integration](../pi-1.1-integration.md).
+The detailed trace is recorded in [Pi 1.1 integration](../archive/pi-1.1-integration.md).
 
 This release uses exact-commit local verification, Developer ID signing,
 Apple notarization, and strict artifact checks.

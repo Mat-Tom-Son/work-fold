@@ -4,12 +4,12 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost, desktopMain, desktopPreload, tooltipOverlay, restrictedAppPreload] = await Promise.all([
+const [capabilities, apps, chat, workFolderApp, workFolderChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost, desktopMain, desktopPreload, tooltipOverlay, restrictedAppPreload] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
   read("web-local/src/App.tsx"),
-  read("web-local/src/components/panes/spaceChrome.tsx"),
+  read("web-local/src/components/panes/workFolderChrome.tsx"),
   read("web-local/src/components/panes/RestrictedAppViewport.tsx"),
   read("web-local/src/styles.css"),
   read("web-local/src/styles.css"),
@@ -21,7 +21,7 @@ const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, profes
   read("desktop/src/restricted-app-preload.cts"),
 ]);
 
-test("Apps product hierarchy starts with the Assistant and keeps local preview loading advanced", () => {
+test("Apps product hierarchy starts with the agent and keeps local preview loading advanced", () => {
   assert.match(apps, /Apps in This work-folder/);
   // Building an app is a plain ask in a Chat; there is no button for it (2026-09-25).
   assert.doesNotMatch(apps, /Build with worker|onBuildApp/);
@@ -40,7 +40,7 @@ test("adding an app shows its declarations and enabled powers with narrowing in 
   assert.match(apps, /On when added/);
   assert.doesNotMatch(apps, /Off when added|access off|approve|Reviewed|Unrestricted|staged/);
   assert.match(apps, /Starts a Chat in this work-folder/);
-  // The reviewed viewer declaration (docs/fold-publishing.md, rung 3) is part
+  // The reviewed viewer declaration (docs/shared-pages.md, rung 3) is part
   // of review copy and the install decision: the group shows the viewer entry
   // and the complete viewer-readable surface, states that exposure is its own
   // later decision, and keeps the viewer read-only. The copy says "at your
@@ -51,7 +51,7 @@ test("adding an app shows its declarations and enabled powers with narrowing in 
   assert.match(apps, /title="At your address"[\s\S]*?state=\{review\.manifest\.viewer \? "not-yet" : "included"\}/);
   assert.match(apps, /\{state === "on" \? "On when added" : state === "included" \? "Included" : "Not shared yet"\}/);
   // A single-file permission is not on when added, and a Check slot binds only
-  // when the Space has exactly one Check, so neither claims "On when added".
+  // when the work-folder has exactly one Check, so neither claims "On when added".
   assert.match(apps, /state=\{review\.manifest\.permissions\.files\.some\(\(item\) => item\.target === "directory"\) \? "on" : "included"\}/);
   assert.match(apps, /title="Check Results"[\s\S]*?state="included"/);
   assert.match(apps, /Serve \{review\.manifest\.viewer\.entry\} to anyone holding this app's link/);
@@ -69,7 +69,7 @@ test("adding an app shows its declarations and enabled powers with narrowing in 
   assert.match(apps, /<dt>Extra parameters<\/dt>/);
 });
 
-test("Assistant tools owns access, connection, and lifecycle management without credential-erasure jargon", () => {
+test("Skills & Extensions owns access, connection, and lifecycle management without credential-erasure jargon", () => {
   const access = apps.indexOf("Access & Connections");
   const runtime = apps.indexOf("Package & Runtime");
   const lifecycle = apps.indexOf("Lifecycle");
@@ -82,13 +82,13 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Automations/);
   assert.match(apps, /Local app data/);
   assert.match(apps, /App access overview/);
-  assert.match(apps, /onEnabledChange=\{\(enabled\) => void changeAutomation\(automation, enabled\)\}/);
-  assert.match(apps, /"Whole folder"/);
+  assert.match(apps, /onEnabledChange=\{\(enabled\) => void changeAppAutomation\(automation, enabled\)\}/);
+  assert.match(apps, /"Whole work-folder"/);
   assert.match(apps, /Limit to folder/);
   // Removing a preview takes its data with it, and F20 makes that recoverable:
   // the confirm and the toast both say so rather than implying finality.
-  assert.match(apps, /moves app data to Recently deleted\./);
-  assert.match(apps, /preview removed\. Its data is in Recently deleted\./);
+  assert.match(apps, /moves app data to Recently Deleted\./);
+  assert.match(apps, /preview removed\. Its data is in Recently Deleted\./);
   // An editable path needs a control that applies it, for a file as for a folder.
   assert.match(apps, /grant && rootChanged \?/);
   assert.match(apps, /"Change file"/);
@@ -109,19 +109,19 @@ test("automation confirmations render above the capability dialog that requested
   assert.ok(confirmationLayer > capabilityLayer, `confirmation layer ${confirmationLayer} must exceed capability layer ${capabilityLayer}`);
 });
 
-test("notification clicks target their exact Space and stopped native views remount", () => {
-  assert.match(spaceApp, /desktop\.onOpenRequest/);
-  assert.match(spaceApp, /resolveRestrictedAppOpenRequest\(request, spaces\)/);
-  assert.match(spaceApp, /onSwitchSpace\(target\.space\)/);
-  assert.match(spaceApp, /setActiveMode\(target\.mode\)/);
+test("notification clicks target their exact work-folder and stopped native views remount", () => {
+  assert.match(workFolderApp, /desktop\.onOpenRequest/);
+  assert.match(workFolderApp, /resolveRestrictedAppOpenRequest\(request, workFolders\)/);
+  assert.match(workFolderApp, /onSwitchWorkFolder\(target\.workFolder\)/);
+  assert.match(workFolderApp, /setActiveMode\(target\.mode\)/);
   assert.match(viewport, /event\.state === "stopped"/);
   assert.match(viewport, /mountIdRef\.current = crypto\.randomUUID\(\)/);
   assert.match(viewport, /setGeneration\(\(value\) => value \+ 1\)/);
   assert.match(viewport, /disposed \|\| mountId !== mountIdRef\.current/);
 });
 
-test("the Space menu occludes native restricted-app views from the first animation frame", () => {
-  assert.match(spaceChrome, /data-native-view-occluder="true"/);
+test("the work-folder menu occludes native restricted-app views from the first animation frame", () => {
+  assert.match(workFolderChrome, /data-native-view-occluder="true"/);
   assert.match(viewport, /const explicitOccluder = candidate\.dataset\.nativeViewOccluder === "true"/);
   assert.match(viewport, /\(!explicitOccluder && Number\(style\.opacity\) === 0\)/);
   assert.match(viewport, /style\.display === "none" \|\| style\.visibility === "hidden"/);
@@ -129,12 +129,12 @@ test("the Space menu occludes native restricted-app views from the first animati
 
 test("rail controls omit hover tooltips without blanking restricted app views", () => {
   assert.doesNotMatch(viewport, /railTooltipOcclusionLeadMs|railTooltipTarget|data-rail-tooltip/);
-  assert.doesNotMatch(spaceChrome, /useNativeRailTooltips|data-rail-tooltip/);
-  assert.match(spaceChrome, /aria-label=\{item\.ariaLabel\}/);
+  assert.doesNotMatch(workFolderChrome, /useNativeRailTooltips|data-rail-tooltip/);
+  assert.match(workFolderChrome, /aria-label=\{item\.ariaLabel\}/);
 });
 
 test("contributed app canvases share built-in spacing and native rounded corners", () => {
-  assert.match(professionalSurfaces, /\.space-mode-pane > \.restricted-app-view\s*\{[^}]*height:\s*auto;[^}]*margin:\s*12px;/s);
+  assert.match(professionalSurfaces, /\.work-folder-mode-pane > \.restricted-app-view\s*\{[^}]*height:\s*auto;[^}]*margin:\s*12px;/s);
   assert.match(viewport, /resolveRestrictedAppCornerRadius\(app\.manifest\.ui\.cornerRadius\)/);
   assert.match(viewport, /style=\{\{ borderRadius: cornerRadius \}\}/);
   assert.match(viewport, /rail\.right \+ restrictedAppRailGuard/);
@@ -145,36 +145,36 @@ test("contributed app canvases share built-in spacing and native rounded corners
 test("owning Chat shows the added-app receipt with a retry for failures and opens the installed interactive app", () => {
   assert.match(chat, /restricted_app_proposal/);
   assert.match(chat, /restricted_app_proposal_settled/);
-  assert.match(chat, /data\.proposal\?\.spaceId === space\.id/);
+  assert.match(chat, /data\.proposal\?\.workFolderId === workFolder\.id/);
   assert.match(chat, /data\.proposal\.conversationId === conversationId/);
   assert.match(chat, /settled\.status === "installed" \|\| settled\.status === "failed"/);
   assert.match(chat, /function RestrictedAppAddedNotice/);
-  assert.match(chat, /Added \{title\} to this folder\./);
+  assert.match(chat, /Added \{title\} to this work-folder\./);
   assert.match(chat, /Still needs you:/);
   assert.match(chat, />Open App</);
   assert.match(chat, />Try Again</);
   assert.doesNotMatch(chat, /installDisabled=\{running\}|closeLabel="Decline"|RestrictedAppReviewDialog/);
-  assert.match(chat, /installRestrictedAppProposal\(space\.id, proposal\.conversationId, proposal\.id\)/);
-  assert.match(spaceApp, /restrictedAppsState\.upsertApp\(app\)/);
-  assert.match(spaceApp, /setActiveMode\(restrictedAppRailMode\(targetSpace\.id, app\.manifest\.id, app\.featureInstallationId\)\)/);
-  assert.match(spaceApp, /<RestrictedAppViewport[^>]+app=\{activeRestrictedApp\} placement="navigator"/);
-  assert.match(spaceApp, /tabs\.openRestrictedAppSurfaceTab/);
-  assert.doesNotMatch(spaceApp, /surface\.execution === "restricted-app"/);
+  assert.match(chat, /installRestrictedAppProposal\(workFolder\.id, proposal\.conversationId, proposal\.id\)/);
+  assert.match(workFolderApp, /restrictedAppsState\.upsertApp\(app\)/);
+  assert.match(workFolderApp, /setActiveMode\(restrictedAppRailMode\(targetWorkFolder\.id, app\.manifest\.id, app\.featureInstallationId\)\)/);
+  assert.match(workFolderApp, /<RestrictedAppViewport[^>]+app=\{activeRestrictedApp\} placement="navigator"/);
+  assert.match(workFolderApp, /tabs\.openRestrictedAppSurfaceTab/);
+  assert.doesNotMatch(workFolderApp, /surface\.execution === "restricted-app"/);
 });
 
 async function read(relativePath: string): Promise<string> {
   return readFile(join(root, relativePath), "utf8");
 }
 
-test("the worker bridge can request Assistant work while it holds an operation lease, within the raised envelope", () => {
-  assert.match(desktopHost, /Assistant requests need an active app view or a running worker operation\./);
-  assert.doesNotMatch(desktopHost, /Assistant requests require an active app view\./);
-  // The envelope carries the JSON-escaping allowance over the published 64 KiB
+test("the worker bridge can request agent work while it holds an operation lease, within the raised envelope", () => {
+  assert.match(desktopHost, /Worker requests need an active app view or a running worker operation\./);
+  assert.doesNotMatch(desktopHost, /Worker requests require an active app view\./);
+  // The envelope carries the JSON-escaping allowance over the published 4 MiB
   // input bound, so the service — not the transport — reports a limit hit.
   assert.match(desktopHost, /const maxAssistantEnvelopeBytes = restrictedAppAssistantEnvelopeBytes;/);
-  assert.match(desktopHost, /jsonEnvelope\(value, maxAssistantEnvelopeBytes, "Assistant request"\)/);
+  assert.match(desktopHost, /jsonEnvelope\(value, maxAssistantEnvelopeBytes, "Worker request"\)/);
   assert.match(restrictedAppPreload, /\{ operation: "request", request \}, maximumAssistantEnvelopeBytes/);
-  assert.match(restrictedAppPreload, /nestedPositiveInteger\(limits, "assistant", "inputBytes", 64 \* 1024\) \* 6/);
+  assert.match(restrictedAppPreload, /nestedPositiveInteger\(limits, "assistant", "inputBytes", 4 \* 1024 \* 1024\) \* 6/);
   assert.match(desktopMain, /listChecks,/);
 });
 
@@ -185,7 +185,7 @@ test("bounded inference reaches app views and workers over its own channel, and 
     read("src/local/agent/restricted-app-viewer.ts"),
   ]);
   // One channel, registered and removed with the others, admitted through the
-  // same owned-power rule as an Assistant request.
+  // same owned-power rule as an Worker request.
   assert.match(desktopHost, /const assistantInferChannel = "work-fold:restricted-app:assistant-infer";/);
   assert.match(desktopHost, /ipcMain\.handle\(assistantInferChannel/);
   assert.match(desktopHost, /ipcMain\.removeHandler\(assistantInferChannel\);/);
@@ -201,7 +201,7 @@ test("bounded inference reaches app views and workers over its own channel, and 
   assert.match(smoke, /inferDenied: true/);
   assert.match(smoke, /if \(surface === "worker"\) await new Promise\(\(resolve\) => setTimeout\(resolve, 6_000\)\);/);
 
-  // Disclosure is after the fact, so the Apps tab is the reader: the journaled
+  // Disclosure is after the fact, so Settings → Apps is the reader: the journaled
   // receipts reach a surface, with the effective model and its usage.
   const receipts = await read("web-local/src/components/panes/RestrictedAppInferenceReceipts.tsx");
   const client = await read("web-local/src/lib/restricted-apps.ts");
@@ -213,10 +213,10 @@ test("bounded inference reaches app views and workers over its own channel, and 
   }
 
   // Viewers and the app-builder guide keep the boundary the record draws.
-  assert.match(viewer, /Assistant actions are mutations executed with the person's runtime; they are not viewer-reachable\./);
+  assert.match(viewer, /Worker actions are mutations executed with the person's runtime; they are not viewer-reachable\./);
   assert.doesNotMatch(viewer, /assistant\.infer|INFER_/);
   assert.match(piClient, /assistant\.infer\(\{ instructions, input, outputSchema\?, maxOutputBytes\? \}\)/);
-  assert.match(piClient, /from an app view or a worker/);
+  assert.match(piClient, /from an app view or from the app's worker module/);
   assert.match(piClient, /INFER_BUSY/);
   assert.match(piClient, /assistantActions \(up to 8|The optional top-level assistantActions array/);
   assert.match(piClient, /permissions\.checks declares Check-result slots/);
@@ -224,13 +224,17 @@ test("bounded inference reaches app views and workers over its own channel, and 
 
 test("host-bridge wait time never counts against the worker invocation deadline", async () => {
   const inference = await read("src/shared/restricted-app-inference.ts");
-  // A real model call is essentially never under the five-second invocation
-  // deadline. Inference has no fixed wall-clock budget. If the
-  // deadline counted host-lane wait time, a worker awaiting `assistant.infer`
+  // The invocation deadline is a ten-minute hang guard, not a compute budget,
+  // and inference has no fixed wall-clock budget at all. If the deadline
+  // counted host-lane wait time, a worker awaiting a long `assistant.infer`
   // would have its renderer forcefully crashed and the action would fail with
   // APP_TIMEOUT — so the clock stops while a host call is in flight.
   assert.doesNotMatch(inference, /timeoutMs:/);
-  assert.match(desktopHost, /const defaultInvocationTimeoutMs = 5_000;/);
+  assert.match(desktopHost, /const defaultInvocationTimeoutMs = 10 \* 60_000;/);
+  assert.doesNotMatch(desktopHost, /120 s budget|five-second invocation/, "no stale deadline wording survives");
+  // A second action or automation queues for the worker's one operation slot instead of being refused.
+  assert.doesNotMatch(desktopHost, /already handling (an action|work)/);
+  assert.match(desktopHost, /async #claimWorker\(/);
   assert.match(desktopHost, /hostCalls: \{ inFlight: number; idleSince: number \};/);
   assert.match(desktopHost, /async #throughHostLane<T>\(/);
 

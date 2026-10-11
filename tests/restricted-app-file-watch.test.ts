@@ -14,7 +14,7 @@ import { restrictedAppSubscriptionLimits } from "../src/shared/restricted-app-ta
 
 const limits: RestrictedAppFileWatchLimits = { ...restrictedAppSubscriptionLimits };
 
-async function space(t: TestContext): Promise<string> {
+async function workFolder(t: TestContext): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "work-fold-app-file-watch-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "exports"), { recursive: true });
@@ -27,9 +27,9 @@ function directoryTarget(root = "exports"): RestrictedAppFileWatchTarget {
 }
 
 test("a granted folder is observed as metadata only, with reserved trees and links invisible", async (t) => {
-  const root = await space(t);
+  const root = await workFolder(t);
   await mkdir(join(root, "exports", ".work-fold"), { recursive: true });
-  await writeFile(join(root, "exports", ".work-fold", "space.json"), "{}");
+  await writeFile(join(root, "exports", ".work-fold", "work-folder.json"), "{}");
   await mkdir(join(root, "exports", ".pi"), { recursive: true });
   await writeFile(join(root, "exports", ".pi", "config.json"), "{}");
   await mkdir(join(root, "exports", ".workspace"), { recursive: true });
@@ -45,7 +45,7 @@ test("a granted folder is observed as metadata only, with reserved trees and lin
 });
 
 test("the first observation rebaselines silently; a create, a change and a delete each fire once", async (t) => {
-  const root = await space(t);
+  const root = await workFolder(t);
   const watch = new RestrictedAppFileWatch();
   const observe = async (now: number) => watch.observe(await observeRestrictedAppGrantRoot(root, directoryTarget(), limits), now, limits);
 
@@ -67,7 +67,7 @@ test("the first observation rebaselines silently; a create, a change and a delet
 });
 
 test("a flapping file stays quiet until it holds still, and the cooldown caps the rate", async (t) => {
-  const root = await space(t);
+  const root = await workFolder(t);
   const watch = new RestrictedAppFileWatch();
   const observe = async (now: number) => watch.observe(await observeRestrictedAppGrantRoot(root, directoryTarget(), limits), now, limits);
   assert.equal(await observe(0), null);
@@ -86,7 +86,7 @@ test("a flapping file stays quiet until it holds still, and the cooldown caps th
 });
 
 test("a bound reached truncates rather than failing, and change detection still works", async (t) => {
-  const root = await space(t);
+  const root = await workFolder(t);
   for (let index = 0; index < 6; index += 1) await writeFile(join(root, "exports", `bulk-${index}.csv`), "x\n");
   const tight: RestrictedAppFileWatchLimits = { ...limits, fileMaxFiles: 3 };
   const snapshot = await observeRestrictedAppGrantRoot(root, directoryTarget(), tight);
@@ -110,7 +110,7 @@ test("a bound reached truncates rather than failing, and change detection still 
 });
 
 test("an exact-file grant watches that one path and nothing beside it", async (t) => {
-  const root = await space(t);
+  const root = await workFolder(t);
   const target: RestrictedAppFileWatchTarget = {
     grant: { id: "ledger", declarationId: "ledger", root: "exports/first.csv", access: "read" },
     target: "file",
@@ -129,7 +129,7 @@ test("an exact-file grant watches that one path and nothing beside it", async (t
 });
 
 test("a missing or moved root fails the watch, which then emits nothing until it rebaselines", async (t) => {
-  const root = await space(t);
+  const root = await workFolder(t);
   const watch = new RestrictedAppFileWatch();
   assert.equal(watch.observe(await observeRestrictedAppGrantRoot(root, directoryTarget(), limits), 0, limits), null);
 
@@ -146,12 +146,12 @@ test("a missing or moved root fails the watch, which then emits nothing until it
 
   await assert.rejects(
     observeRestrictedAppGrantRoot(root, { grant: { id: "away", declarationId: "away", root: "../elsewhere", access: "read" }, target: "directory" }, limits),
-    /inside its Space/,
+    /inside its work-folder/,
   );
 });
 
 test("a suspend-and-wake cycle never delivers what changed while the machine slept", async (t) => {
-  const root = await space(t);
+  const root = await workFolder(t);
   const watch = new RestrictedAppFileWatch();
   const observe = async (now: number) => watch.observe(await observeRestrictedAppGrantRoot(root, directoryTarget(), limits), now, limits);
   assert.equal(await observe(0), null);

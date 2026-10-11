@@ -1,6 +1,6 @@
 /**
- * The shared, dependency-free half of "pages your fold serves"
- * (docs/fold-publishing.md, rung 2): the closed source set, the budget
+ * The shared, dependency-free half of shared pages
+ * (docs/shared-pages.md, rung 2): the closed source set, the budget
  * ceilings, and the publisher-facing page state. The desktop publication
  * service (`src/local/publications.ts`) enforces these; the renderer reads
  * the same values so the file tab and Settings → Shared pages never offer
@@ -48,12 +48,12 @@ export const WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH = 80;
 
 /**
  * The one refusal for a share with no enrolled address
- * (docs/fold-publishing.md: sharing with no address fails). Setting up web
+ * (docs/shared-pages.md: sharing with no address fails). Setting up web
  * access is a person-only prerequisite; nothing waits behind it.
  */
 export const WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE = "Set up web access before sharing a page.";
 
-/** True when a Space-relative path names a file type a page can be made from. */
+/** True when a work-folder-relative path names a file type a page can be made from. */
 export function isWorkFoldPublicationSourcePath(path: string): boolean {
   const name = path.replace(/\\/g, "/").split("/").at(-1) ?? "";
   const dot = name.lastIndexOf(".");

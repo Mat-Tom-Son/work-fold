@@ -51,7 +51,7 @@ test("staging rejects unavailable files and unsafe paths; a later deletion remai
   assert.match(buildTurnContextMessage({ contextAttachments: loaded }), /Attachment note: File not found: notes.txt/);
 });
 
-test("referencing Folder files preserves image vision and never inlines a renamed text file", async (t) => {
+test("referencing work-folder files preserves image vision and never inlines a renamed text file", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-image-references-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "screenshot.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));

@@ -53,8 +53,8 @@ async function build() {
 <key>LSUIElement</key><true/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSScreenCaptureUsageDescription</key><string>Let work-fold observe the windows you ask your Assistant to work with.</string>
-<key>NSAccessibilityUsageDescription</key><string>Let work-fold interact with the applications you ask your Assistant to use.</string>
+<key>NSScreenCaptureUsageDescription</key><string>Let work-fold observe the windows you ask your agent to work with.</string>
+<key>NSAccessibilityUsageDescription</key><string>Let work-fold interact with the applications you ask your agent to use.</string>
 </dict></plist>
 `);
     await copyFile(join(root, "desktop", "assets", "icon.icns"), join(resources, "icon.icns"));

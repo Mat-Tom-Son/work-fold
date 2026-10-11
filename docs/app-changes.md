@@ -1,18 +1,18 @@
 # Changing an installed app
 
-Implemented in work-fold 0.4.23. An app's details (in Settings → Apps since
-2026-09-25; the Apps tab before that) have **Change this app**, which creates a working copy and opens an unsent Chat draft
-in the App Project's source Space. The person adds the requested change and sends
+Implemented in work-fold 0.4.23. An app's entry in Settings → Apps has
+**Change this app**, which creates a working copy and opens an unsent Chat draft
+in the App Project's source work-folder. The person adds the requested change and sends
 it. This does not invoke a model, install code, or grant authority by itself.
 
 ## Exact source and provenance
 
 The host reads and verifies the installed package snapshot, including every
 file and the manifest, against its installed digest. It copies those bytes into
-a fresh visible `<app-id>-change-<request-id>` folder in the source Space and
+a fresh visible `<app-id>-change-<request-id>` folder in the source work-folder and
 records the addition in History. It never substitutes the original mutable
 source folder or executes build scripts. Runtime data, grants, credentials,
-target Space files, and conversations are not copied.
+target work-folder files, and conversations are not copied.
 
 The machine-local proposal registry retains a change receipt with the exact
 base revision, original installation/runtime/release identity, source working
@@ -31,33 +31,38 @@ an exact existing copy can finish History/receipt preparation; a changed copy is
 preserved and requires a fresh change request. A History failure removes only
 the newly created copy if it still matches the expected bytes. Linked paths,
 corrupt provenance, and mismatched request identities fail closed. The registry
-holds at most 1,000 change receipts; reaching the limit refuses new changes rather
-than forgetting predecessor guards. Removing the source registration removes
+never refuses a change for count. Past 10,000 change records it prunes the
+oldest ready ones, so a working copy that old proposes as an ordinary Local
+preview again; a change still being prepared is never dropped. Removing the source registration removes
 its machine-local change records, never the ordinary working files. Removing a
 target retains the source working copy's predecessor guard and provenance.
 
 ## Preview and update
 
-The Assistant edits the copy and submits its package using `propose_space_app`.
+The Worker edits the copy and submits its package using `propose_work-folder_app`,
+which installs it as the source's Local preview in the same call
+([Receipts, not gates](receipts-not-gates.md), F21).
 The proposal host recognizes its source path and pins the source preview's
-installation identity and digest. An absent preview is pinned as absent. Review
-cannot overwrite a different/newer/reinstalled preview that appeared after the
-edit began. A successfully reviewed change advances its working copy's own
+installation identity and digest. An absent preview is pinned as absent.
+Installation cannot overwrite a different/newer/reinstalled preview that appeared
+after the edit began. A successfully installed change advances its working copy's own
 predecessor so that further edits can be proposed from the same folder.
 If the source already has a different reviewed preview when starting from an
 installed Release, preparation asks the person to review that work in App Studio
 first; it does not silently replace it with a copy of an older installed version.
 
-Preview installation still uses the existing digest-pinned, reviewed domain
-path. Changed code preserves eligible installation/data identity and resets its
-external powers. A release-backed target continues using its existing Release
-until the person prepares, publishes locally, and reviews an update through
-App Studio. The target's identity is retained only in machine-local provenance;
-the source Assistant never receives the target's private context or cross-Space
-control merely because the person started an edit there.
+Preview installation still uses the existing digest-pinned domain path. Changed
+code preserves eligible installation/data identity and carries the person's
+granted or revoked choices, automation states, run receipts, and connections
+whose destination declaration is byte-identical. A release-backed target
+continues using its existing Release until the person prepares, publishes
+locally, and activates an update through App Studio. The target's identity is
+retained only in machine-local provenance; the source work-folder's Worker never
+receives the target's private context or cross-work-folder control merely
+because the person started an edit there.
 
 App details offers **Open build Chat** when retained provenance identifies one;
-opening it verifies that the Chat still exists in the source Space and sends
+opening it verifies that the Chat still exists in the source work-folder and sends
 nothing. The source folder is supporting detail under **Package & runtime**.
 **Review updates** opens the source Project's App Studio with the exact live
 installation selected. This link follows the intended target through subsequent
@@ -66,10 +71,10 @@ rechecks Project and installation identities and drops stale target links after
 uninstall. Opening App Studio never prepares, publishes, or activates a Release;
 subsequent manual target choices remain intact during refreshes.
 
-A Release can also be installed in its own source Space alongside that Project's
+A Release can also be installed in its own source work-folder alongside that Project's
 Local preview. **Change this app** still pins the installed Feature and the
-separate preview predecessor. Reviewing the changed preview preserves the
-installed Release until its App Studio update is approved. The two installations
+separate preview predecessor. Installing the changed preview leaves the
+installed Release in place until its App Studio update is activated. The two installations
 keep separate data, grants, connections, jobs and tabs; the rail adds **Preview**
 only where needed to distinguish them. Removing a preview leaves the installed
 Release running, and a new preview starts with fresh data and authority.

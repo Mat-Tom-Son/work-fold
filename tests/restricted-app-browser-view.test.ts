@@ -7,15 +7,16 @@ import test from "node:test";
 import { RestrictedAppService, type RestrictedAppInstalled } from "../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage, type RestrictedAppStorageOwner } from "../src/local/agent/restricted-app-storage.js";
 import { restrictedAppTaskAuthorityDigest } from "../src/local/agent/restricted-app-tasks.js";
+import { RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES } from "../src/local/agent/restricted-app-viewer.js";
 import { startLocalApi } from "../src/local/server.js";
 import type { RestrictedAppActionExecution } from "../src/local/agent/restricted-app-service.js";
 
-const scopeFor = (app: RestrictedAppInstalled) => ({ spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) });
+const scopeFor = (app: RestrictedAppInstalled) => ({ workFolderId: app.workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) });
 const ownerFor = (app: RestrictedAppInstalled): RestrictedAppStorageOwner => ({ ownerClass: "instance", tenantId: app.tenantId, runtimeInstanceId: app.runtimeInstanceId, featureInstallationId: app.featureInstallationId, dataNamespaceId: app.dataNamespaceId });
 
 test("private browser views use reviewed bytes and selected data without creating public exposure", async () => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-browser-app-"));
-  const source = join(root, "space", "app");
+  const source = join(root, "work-folder", "app");
   const rootPath = join(root, "state");
   const storage = new FileRestrictedAppStorage(join(root, "data"));
   const service = await RestrictedAppService.create({ rootPath, storage });
@@ -25,8 +26,9 @@ test("private browser views use reviewed bytes and selected data without creatin
     await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "web-view-qa", title: "Quote board", runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "web.html", readable: ["quotes/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><p>Desktop UI</p>");
     await writeFile(join(source, "web.html"), "<!doctype html><p>Reviewed web view</p>");
-    await writeFile(join(source, "too-large.txt"), "x".repeat(1024 * 1024 + 1));
-    const input = { spaceId: "space-one", spaceRoot: join(root, "space"), sourcePath: "app" };
+    // A browser view reads assets under the same per-asset bound as a published viewer.
+    await writeFile(join(source, "too-large.txt"), Buffer.alloc(RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES + 1, 0x78));
+    const input = { workFolderId: "work-folder-one", workFolderRoot: join(root, "work-folder"), sourcePath: "app" };
     const review = await service.inspect(input);
     let app = await service.install({ ...input, expectedDigest: review.digest });
     const scope = scopeFor(app);
@@ -51,7 +53,7 @@ test("private browser views use reviewed bytes and selected data without creatin
       const result = await service.readBrowserView(scope, { kind: "asset", path });
       assert.ok(result.state === "served" && !result.result.ok);
     }
-    await assert.rejects(service.readBrowserView({ ...scope, spaceId: "space-other" }, { kind: "entry" }));
+    await assert.rejects(service.readBrowserView({ ...scope, workFolderId: "work-folder-other" }, { kind: "entry" }));
     await assert.rejects(service.readBrowserView({ ...scope, digest: "0".repeat(64) }, { kind: "entry" }));
     let releaseRead!: () => void;
     let markReading!: () => void;
@@ -61,50 +63,50 @@ test("private browser views use reviewed bytes and selected data without creatin
     storage.get = async (owner, key) => { markReading(); await gate; return get(owner, key); };
     const pending = service.readBrowserView(scope, { kind: "data.get", key: "quotes/north" });
     await reading;
-    const clearing = service.clearStorage(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
+    const clearing = service.clearStorage(app.workFolderId, app.manifest.id, app.digest, app.featureInstallationId);
     releaseRead();
     await assert.rejects(pending, /changed/, "a queued authority change fences the pending read before delivery");
     await clearing;
     storage.get = get;
     await assert.rejects(service.readBrowserView(scope, { kind: "entry" }), /changed/);
-    app = (await service.list(app.spaceId))[0]!;
+    app = (await service.list(app.workFolderId))[0]!;
     const current = scopeFor(app);
     await writeFile(join(source, "web.html"), "Unreviewed edit");
     const stillReviewed = await service.readBrowserView(current, { kind: "entry" });
     assert.deepEqual(stillReviewed, entry, "source edits do not replace installed bytes");
     await writeFile(join(rootPath, "staged", app.digest, "web.html"), "Tampered staged bytes");
     assert.equal((await service.readBrowserView(current, { kind: "entry" })).state, "not-available");
-    await service.remove({ spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
+    await service.remove({ workFolderId: app.workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
     await assert.rejects(service.readBrowserView(current, { kind: "entry" }));
   } finally { await service.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test("approved-browser app operations project exact identities and refuse foreign or extra scope", async () => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-browser-app-api-"));
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "spaces"), loadEnv: false });
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "work-folders"), loadEnv: false });
   const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "request-one" };
   try {
-    const { space } = await api.actFacade.createSpace({ name: "Web app" });
-    const { space: other } = await api.actFacade.createSpace({ name: "Other Space" });
-    const source = join(space.spaceRoot, "app");
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Web app" });
+    const { workFolder: other } = await api.actFacade.createWorkFolder({ name: "Other work-folder" });
+    const source = join(workFolder.workFolderRoot, "app");
     await mkdir(source);
     await writeFile(join(source, "package.json"), JSON.stringify({ name: "browser-api-qa", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
     await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "browser-api-qa", title: "Browser API QA", runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["public/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><h1>Installed app</h1>");
-    const installedPreview = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app" });
-    const catalog = await api.remoteFacade.execute("apps.list", { spaceId: space.id }, principal) as { apps: Array<Record<string, any>> };
+    const installedPreview = await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app" });
+    const catalog = await api.remoteFacade.execute("apps.list", { workFolderId: workFolder.id }, principal) as { apps: Array<Record<string, any>> };
     assert.equal(catalog.apps.length, 1);
     assert.ok(!JSON.stringify(catalog).includes(root));
     const app = catalog.apps[0]!;
     assert.equal(app.webView, true);
-    const scope = { spaceId: app.spaceId, appId: app.appId, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: app.authorityDigest };
+    const scope = { workFolderId: app.workFolderId, appId: app.appId, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: app.authorityDigest };
     const result = await api.remoteFacade.execute("apps.read", { ...scope, call: { kind: "entry" } }, principal) as { state: string };
     assert.equal(result.state, "served");
-    for (const value of [{ ...scope, spaceId: other.id }, { ...scope, owner: "foreign" }, { ...scope, authorityDigest: "0".repeat(64) }, { ...scope, featureInstallationId: "replacement" }]) {
+    for (const value of [{ ...scope, workFolderId: other.id }, { ...scope, owner: "foreign" }, { ...scope, authorityDigest: "0".repeat(64) }, { ...scope, featureInstallationId: "replacement" }]) {
       await assert.rejects(api.remoteFacade.execute("apps.read", { ...value, call: { kind: "entry" } }, principal));
     }
-    await assert.rejects(api.remoteFacade.execute("apps.list", { spaceId: space.id }, { ...principal, grantId: "" }));
-    await assert.rejects(api.remoteFacade.execute("apps.list", { spaceId: space.id, includeCredentials: true }, principal));
+    await assert.rejects(api.remoteFacade.execute("apps.list", { workFolderId: workFolder.id }, { ...principal, grantId: "" }));
+    await assert.rejects(api.remoteFacade.execute("apps.list", { workFolderId: workFolder.id, includeCredentials: true }, principal));
     const denied = await api.remoteFacade.execute("apps.read", { ...scope, call: { kind: "actions.invoke", action: "anything" } }, principal) as { result: { ok: boolean } };
     assert.equal(denied.result.ok, false);
   } finally { await api.close(); await rm(root, { recursive: true, force: true }); }
@@ -117,13 +119,13 @@ test("approved-browser actions use the installed worker service, live grant auth
     async invoke(_app, action, input, execution) { assert.ok(execution); execution.assertCurrent(); calls.push({ action, input, execution }); return { saved: true }; },
     async stop() {}, async close() {},
   } });
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "spaces"), loadEnv: false, restrictedAppService: service });
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "work-folders"), loadEnv: false, restrictedAppService: service });
   const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "transport-request" };
   let allowed = true;
   const authority = { assertCurrent() { if (!allowed) throw new Error("Revoked"); } };
   try {
-    const { space } = await api.actFacade.createSpace({ name: "Action QA" });
-    const source = join(space.spaceRoot, "app"); await mkdir(source);
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Action QA" });
+    const source = join(workFolder.workFolderRoot, "app"); await mkdir(source);
     await writeFile(join(source, "package.json"), JSON.stringify({ name: "browser-action-qa", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
     await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "browser-action-qa", title: "Action QA", runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" }, ui: {},
       tools: [{ name: "save", description: "Save a quote", action: "save", inputSchema: { type: "object", properties: { quote: { type: "string" } }, required: ["quote"], additionalProperties: false },
@@ -131,8 +133,8 @@ test("approved-browser actions use the installed worker service, live grant auth
       permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["public/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><h1>Installed app</h1>");
     await writeFile(join(source, "worker.js"), "export async function handleAction() { return { saved: true }; }");
-    const installedPreview = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app" });
-    const app = (await service.list(space.id))[0]!; const scope = scopeFor(app);
+    const installedPreview = await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app" });
+    const app = (await service.list(workFolder.id))[0]!; const scope = scopeFor(app);
     const request = { requestId: randomUUID(), requestedAt: new Date().toISOString(), action: "save", input: { quote: "North: $42" } };
     await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal), /live paired browser/);
     await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request, browserId: "other" }, principal, authority));
@@ -167,7 +169,7 @@ test("approved-browser actions use the installed worker service, live grant auth
     const after = await api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: second.requestId }, principal, authority) as { action: { status: string } };
     assert.ok(["cancelled", "succeeded"].includes(after.action.status), after.action.status);
     assert.equal(calls.length, 2, "and never dispatched again after revocation");
-    await service.remove({ spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
+    await service.remove({ workFolderId: app.workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
     await assert.rejects(api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: request.requestId }, principal, authority));
     assert.throws(() => calls[0]!.execution.assertCurrent(), /authority|installed|changed/i);
   } finally { await api.close(); await rm(root, { recursive: true, force: true }); }
@@ -178,23 +180,23 @@ test("a fold app-install result follows the executed review's exact installation
   const agentDir = join(root, "agent"); await mkdir(join(agentDir, "extensions"), { recursive: true });
   await writeFile(join(agentDir, "extensions", "done.ts"), 'export default function(pi) { pi.registerCommand("done", { description: "Finish a test", handler: async () => {} }); }');
   let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "spaces"), loadEnv: false,
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "work-folders"), loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } }, beforeAgentPrompt: async () => gate });
   const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "request-install" };
   try {
-    const { space } = await api.actFacade.createSpace({ name: "App result" });
-    const source = join(space.spaceRoot, "app"); await mkdir(source);
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "App result" });
+    const source = join(workFolder.workFolderRoot, "app"); await mkdir(source);
     await writeFile(join(source, "package.json"), JSON.stringify({ name: "app-result-qa", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
     await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "app-result-qa", title: "Quote board", runtime: { kind: "sandboxed-web", entry: "index.html" },
       ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["quotes/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><h1>Quote board</h1>");
     const parent = await api.remoteFacade.execute("management.send", { content: "/done", newConversation: true }, principal) as { taskId: string; conversationId: string };
-    const installedPreview = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app", parentTaskId: parent.taskId });
+    const installedPreview = await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app", parentTaskId: parent.taskId });
     const view = async (who = principal) => await api.remoteFacade.execute("management.summary", { conversationId: parent.conversationId }, who) as { latestRequest: { actions?: Array<{ apps?: unknown[] }> } };
-    const apps = (await api.remoteFacade.execute("apps.list", { spaceId: space.id }, principal) as { apps: Array<Record<string, any>> }).apps;
+    const apps = (await api.remoteFacade.execute("apps.list", { workFolderId: workFolder.id }, principal) as { apps: Array<Record<string, any>> }).apps;
     assert.equal(installedPreview.app.featureInstallationId, apps[0]!.featureInstallationId, "the install result names the exact installation");
     const result = (await view()).latestRequest.actions![0]!.apps;
-    assert.deepEqual(result, [{ spaceId: space.id, appId: apps[0]!.appId, featureInstallationId: apps[0]!.featureInstallationId,
+    assert.deepEqual(result, [{ workFolderId: workFolder.id, appId: apps[0]!.appId, featureInstallationId: apps[0]!.featureInstallationId,
       digest: apps[0]!.digest, title: "Quote board", version: "1.0.0" }]);
     assert.equal((await view({ ...principal, grantId: "another-grant" })).latestRequest.actions, undefined);
     assert.equal(JSON.stringify(result).includes(root), false);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { IncludedMcpServer, IncludedMcpOAuthJob } from "../../../../src/local/agent/included-mcp-setup";
 import { api, errorText } from "../../lib/api";
 
-export function IncludedMcpSetup({ spaceId, enabled }: { spaceId: string; enabled: boolean }) {
+export function IncludedMcpSetup({ workFolderId, enabled }: { workFolderId: string; enabled: boolean }) {
   const [opened, setOpened] = useState(false);
   const [servers, setServers] = useState<IncludedMcpServer[]>([]);
   const [busy, setBusy] = useState(false);
@@ -25,18 +25,18 @@ export function IncludedMcpSetup({ spaceId, enabled }: { spaceId: string; enable
     alive.current = true; setOpened(false);
     let ownedId: string | null = null;
     let cancelled = false;
-    void api<{ sessionId: string; servers: IncludedMcpServer[] }>("/api/agent/mcp-setup", { method: "POST", body: { spaceId, operation: "open" } }).then((result) => {
+    void api<{ sessionId: string; servers: IncludedMcpServer[] }>("/api/agent/mcp-setup", { method: "POST", body: { workFolderId, operation: "open" } }).then((result) => {
       ownedId = result.sessionId;
       if (cancelled) { void close(ownedId); return; }
       session.current = ownedId; setServers(result.servers); setOpened(true);
     }).catch((caught) => { if (!cancelled) setError(errorText(caught)); });
-    const close = (sessionId: string) => api("/api/agent/mcp-setup", { method: "POST", body: { spaceId, sessionId, operation: "close" } }).catch(() => undefined);
+    const close = (sessionId: string) => api("/api/agent/mcp-setup", { method: "POST", body: { workFolderId, sessionId, operation: "close" } }).catch(() => undefined);
     return () => { cancelled = true; alive.current = false; session.current = null; if (ownedId) void close(ownedId); };
-  }, [spaceId]);
+  }, [workFolderId]);
 
   async function operation(action: string, fields: Record<string, unknown> = {}) {
     if (!session.current) throw new Error("Wait for connection setup to open, then try again.");
-    return api<{ servers?: IncludedMcpServer[]; job?: IncludedMcpOAuthJob; probe?: { state: string; detail: string } }>("/api/agent/mcp-setup", { method: "POST", body: { ...fields, spaceId, sessionId: session.current, operation: action } });
+    return api<{ servers?: IncludedMcpServer[]; job?: IncludedMcpOAuthJob; probe?: { state: string; detail: string } }>("/api/agent/mcp-setup", { method: "POST", body: { ...fields, workFolderId, sessionId: session.current, operation: action } });
   }
   async function act(action: string, fields: Record<string, unknown> = {}) {
     if (busyRef.current) return;

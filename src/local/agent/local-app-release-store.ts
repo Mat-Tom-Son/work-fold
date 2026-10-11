@@ -31,15 +31,6 @@ import {
 } from "./app-platform-release.js";
 
 export const localAppReleaseStoreFileName = "release.json" as const;
-
-/**
- * Closure bytes count decoded artifact bytes. Their canonical on-disk base64
- * form can require four bytes for every three, while the fixed allowance
- * covers the bounded manifest, references, paths, and JSON structure.
- */
-export const localAppReleaseStoreDefaultMaximumBytes =
-  Math.ceil(appReleaseDefaultLimits.closureBytes * 4 / 3) + 16 * 1024 * 1024;
-
 /**
  * Release history is durable but not allowed to consume an effectively
  * unbounded user-data volume. Four GiB accommodates many ordinary App versions

@@ -148,14 +148,14 @@ test("packaged asset verification requires external CLI shims", async () => {
 });
 
 test("management dogfood launches the dev app with the agent-facing CLI on PATH", async () => {
-  const script = await read("scripts/management-dogfood.sh");
+  const script = await read("scripts/work-fold-agent-dogfood.sh");
   assert.match(script, /PATH="\$BIN:\$PATH" "\$BIN\/app-wrapper\.sh"/);
   assert.match(script, /while \[ ! -f "\$DEVSTATE\/cli\/act-token\.json" \]/);
   assert.match(script, /out\/management-dogfood\/bin/);
   assert.doesNotMatch(script, /python3/);
 });
 
-test("desktop Assistant shells inherit the exact running profile in development and packaged builds", async () => {
+test("desktop agent shells inherit the exact running profile in development and packaged builds", async () => {
   const main = await read("desktop/src/main.ts");
   const start = main.indexOf("function configureCliEnvironment(): void {");
   const end = main.indexOf("\n}\n\nfunction createFolderGrant", start);
@@ -168,7 +168,7 @@ test("desktop Assistant shells inherit the exact running profile in development 
     "state binding must happen before the packaged-only executable and PATH setup",
   );
   // The login-shell environment is adopted before the CLI PATH pin so the
-  // packaged `work-fold` executable stays first on PATH for Assistant shells.
+  // packaged `work-fold` executable stays first on PATH for agent shells.
   assert.match(main, /configureWorkFoldStateRoot\(app\.getPath\("userData"\)\);\s+await ensureLoginShellEnvironment\(\);\s+configureCliEnvironment\(\);/);
   assert.match(main, /desktopHostPromise = \(async \(\) => \{\s+await ensureLoginShellEnvironment\(\);/);
 });
@@ -188,16 +188,16 @@ test("packaged Remote access enrollment carries no shared client credential", as
 });
 
 /**
- * Shared act-lane contract both platform shims must keep: routing that never
+ * Shared act-lane contract both platform shims must keep: automation that never
  * lets a content-bearing act command fall through to protocol v1 — every
- * ledger family plus the two read-lane exceptions (`spaces list`,
+ * ledger family plus the two read-lane exceptions (`work-folders list`,
  * `checks status`) — the per-launch token file, the bounded message payload
  * rewrite, the shim-side wait loop, and the fail-fast unavailable path.
  */
 function assertActLaneShimContract(shim: string): void {
   const routedFamilies = [
-    "chat", "chats", "files", "manage", "checks", "spaces", "history", "search",
-    "library", "tools", "apps", "routings", "pages", "trash", "requests",
+    "chat", "chats", "files", "agent", "checks", "work-folders", "history", "search",
+    "tools", "apps", "automations", "pages", "recently-deleted", "requests",
   ];
   for (const routed of [...routedFamilies, "list", "status", "wait", "task", "result"]) {
     assert.match(shim, new RegExp(`["']${routed}["']`), `act routing must reference ${routed}`);
@@ -216,7 +216,7 @@ function assertActLaneShimContract(shim: string): void {
   assert.match(shim, /messageFile/);
   assert.match(shim, /--message-file/);
   assert.match(shim, /--message-from-payload/);
-  assert.match(shim, /262144/);
+  assert.match(shim, /16777216/, "the --message-file payload bound matches WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES");
   assert.match(shim, /Open work-fold to run this command/);
   assert.match(shim, /exit\s*\(?6\)?/);
   assert.match(shim, /--task/);

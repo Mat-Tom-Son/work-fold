@@ -27,7 +27,7 @@ type ReceiptEntry = Omit<WorkFoldCliActReceiptV3, "v" | "at">;
  */
 interface HeldTurn {
   taskId: string;
-  spaceId: string;
+  workFolderId: string;
   release: () => void;
 }
 
@@ -37,7 +37,7 @@ async function directVerbHarness(prefix: string): Promise<{
   records: ReceiptEntry[];
   execute: (argv: string[]) => ReturnType<typeof executeWorkFoldCliActRequest>;
   lastOk: () => ReceiptEntry;
-  /** Space ids (the management scope id included) whose turns wait at the prompt gate until released. */
+  /** work-folder ids (the work-fold agent scope id included) whose turns wait at the prompt gate until released. */
   held: Set<string>;
   release: (taskId: string) => Promise<void>;
   close: () => Promise<void>;
@@ -61,11 +61,11 @@ async function directVerbHarness(prefix: string): Promise<{
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
     // An enrolled address whose relay is unreachable: shares proceed and
-    // stay honestly pending (docs/fold-publishing.md).
+    // stay honestly pending (docs/shared-pages.md).
     publicationBridge: {
       async upsertSlot() { throw new Error("relay unreachable"); },
       async deleteSlot() {},
@@ -74,8 +74,8 @@ async function directVerbHarness(prefix: string): Promise<{
       async addressConfigured() { return true; },
     },
     beforeAgentPrompt: async (event) => {
-      if (draining || !held.has(event.spaceId)) return;
-      await new Promise<void>((release) => pending.push({ taskId: event.taskId, spaceId: event.spaceId, release }));
+      if (draining || !held.has(event.workFolderId)) return;
+      await new Promise<void>((release) => pending.push({ taskId: event.taskId, workFolderId: event.workFolderId, release }));
     },
   });
   const records: ReceiptEntry[] = [];
@@ -84,7 +84,7 @@ async function directVerbHarness(prefix: string): Promise<{
     {
       version: "test",
       getActFacade: () => ({ facade: api.actFacade, token }),
-      resolveLineageParent: (taskId) => api.resolveManagementLineageParent(taskId),
+      resolveLineageParent: (taskId) => api.resolveWorkFoldAgentLineageParent(taskId),
       receipts: {
         hasAccepted: async () => false,
         append: async (record) => {
@@ -118,10 +118,10 @@ async function directVerbHarness(prefix: string): Promise<{
   };
 }
 
-async function settledTask(api: LocalApiHandle, spaceId: string, taskId: string): Promise<void> {
+async function settledTask(api: LocalApiHandle, workFolderId: string, taskId: string): Promise<void> {
   const deadline = Date.now() + 15_000;
   for (;;) {
-    const status = await api.actFacade.turnStatus({ space: spaceId, taskId });
+    const status = await api.actFacade.turnStatus({ workFolder: workFolderId, taskId });
     if (status.task.state !== "running") return;
     if (Date.now() > deadline) throw new Error(`Timed out waiting for turn ${taskId} to settle.`);
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -139,10 +139,10 @@ function errorCodeOf(stderr: string): string | undefined {
 test("pages share shares the page on the first call with receipts and no decision id", async () => {
   const h = await directVerbHarness("pages");
   try {
-    const space = await h.api.actFacade.createSpace({ name: "Fold Space" });
-    await writeFile(join(space.space.spaceRoot, "weekly.md"), "# Weekly\n\nAll clear.\n", "utf8");
+    const workFolder = await h.api.actFacade.createWorkFolder({ name: "Fold work-folder" });
+    await writeFile(join(workFolder.workFolder.workFolderRoot, "weekly.md"), "# Weekly\n\nAll clear.\n", "utf8");
 
-    const shared = await h.execute(["pages", "share", "--space", space.space.id, "--path", "./weekly.md", "--title", "Weekly report", "--json"]);
+    const shared = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "./weekly.md", "--title", "Weekly report", "--json"]);
     assert.equal(shared.exitCode, 0, shared.stderr);
     const sharedJson = JSON.parse(shared.stdout) as {
       ok: boolean;
@@ -159,7 +159,7 @@ test("pages share shares the page on the first call with receipts and no decisio
     assert.equal(sharedJson.data.staged, undefined, "no pending record exists");
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
     assert.equal((h.lastOk() as { decisionId?: unknown }).decisionId, undefined, "receipts carry no decision id");
-    assert.equal(h.lastOk().spaceId, space.space.id);
+    assert.equal(h.lastOk().workFolderId, workFolder.workFolder.id);
     assert.match(h.lastOk().detail ?? "", /^publish\.viewer\.expose; source weekly\.md; publication /);
     assert.deepEqual(h.lastOk().undoRef, { kind: "publicationId", value: sharedJson.data.publication.publicationId });
     const live = await h.api.publications.list();
@@ -197,7 +197,7 @@ test("pages share shares the page on the first call with receipts and no decisio
     // A second identical call refuses: the page is already shared. The
     // refusal is journaled as an error under a fresh request id.
     h.records.length = 0;
-    const again = await h.execute(["pages", "share", "--space", space.space.id, "--path", "weekly.md", "--title", "Weekly report", "--json"]);
+    const again = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "weekly.md", "--title", "Weekly report", "--json"]);
     assert.notEqual(again.exitCode, 0);
     assert.equal(errorCodeOf(again.stderr), "conflict");
     assert.match(again.stderr, /already shared/);
@@ -206,24 +206,24 @@ test("pages share shares the page on the first call with receipts and no decisio
 
     // Sources the publication service could not serve refuse before anything
     // is exposed.
-    await writeFile(join(space.space.spaceRoot, "tool.exe"), "bytes", "utf8");
-    const badType = await h.execute(["pages", "share", "--space", space.space.id, "--path", "tool.exe", "--title", "Nope", "--json"]);
+    await writeFile(join(workFolder.workFolder.workFolderRoot, "tool.exe"), "bytes", "utf8");
+    const badType = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "tool.exe", "--title", "Nope", "--json"]);
     assert.equal(errorCodeOf(badType.stderr), "usage");
-    const missing = await h.execute(["pages", "share", "--space", space.space.id, "--path", "ghost.md", "--title", "Nope", "--json"]);
+    const missing = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "ghost.md", "--title", "Nope", "--json"]);
     assert.equal(errorCodeOf(missing.stderr), "notFound");
     assert.equal((await h.api.publications.list()).length, 1);
 
     // The human form names the address and where the link lives.
-    await writeFile(join(space.space.spaceRoot, "notes.md"), "# Notes\n", "utf8");
-    const human = await h.execute(["pages", "share", "--space", space.space.id, "--path", "notes.md", "--title", "Notes"]);
+    await writeFile(join(workFolder.workFolder.workFolderRoot, "notes.md"), "# Notes\n", "utf8");
+    const human = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "notes.md", "--title", "Notes"]);
     assert.equal(human.exitCode, 0, human.stderr);
-    assert.match(human.stdout, /^Sharing "Notes" \(notes\.md\) from Fold Space \[[^\]]+\] at \/p\/[^.]+\. Reveal the link in Settings → Shared pages\.\n$/);
+    assert.match(human.stdout, /^Sharing "Notes" \(notes\.md\) from Fold work-folder \[[^\]]+\] at \/p\/[^.]+\. Reveal the link in Settings → Shared pages\.\n$/);
 
     // The pending-decision family, permanent deletion, and the retired holding
-    // spellings of the routing and outward-exposure verbs are unknown commands.
+    // spellings of the automation and outward-exposure verbs are unknown commands.
     for (const argv of [
       ["staged", "list"], ["staged", "show"], ["files", "destroy"],
-      ["routings", "stage"], ["pages", "stage"],
+      ["automations", "stage"], ["pages", "stage"],
     ]) {
       h.records.length = 0;
       const unknown = await h.execute(argv);
@@ -236,50 +236,50 @@ test("pages share shares the page on the first call with receipts and no decisio
   }
 });
 
-test("spaces delete deletes a managed folder on the first call, refuses a linked registration, and executes nothing for an inactive parent", async () => {
-  const h = await directVerbHarness("spaces");
+test("work-folders delete deletes a managed folder on the first call, refuses a linked registration, and executes nothing for an inactive parent", async () => {
+  const h = await directVerbHarness("work-folders");
   try {
-    const managed = await h.api.actFacade.createSpace({ name: "Managed" });
-    await writeFile(join(managed.space.spaceRoot, "note.md"), "gone soon", "utf8");
-    const deleted = await h.execute(["spaces", "delete", "--space", managed.space.id, "--json"]);
+    const managed = await h.api.actFacade.createWorkFolder({ name: "Managed" });
+    await writeFile(join(managed.workFolder.workFolderRoot, "note.md"), "gone soon", "utf8");
+    const deleted = await h.execute(["work-folders", "delete", "--work-folder", managed.workFolder.id, "--json"]);
     assert.equal(deleted.exitCode, 0, deleted.stderr);
     const deletedJson = JSON.parse(deleted.stdout) as { data: { removed: boolean; storage: string; cleanupPending: boolean; staged?: unknown } };
     assert.equal(deletedJson.data.removed, true);
     assert.equal(deletedJson.data.storage, "managed");
     assert.equal(deletedJson.data.staged, undefined);
-    assert.equal(existsSync(managed.space.spaceRoot), false, "the managed folder is deleted on the first call");
+    assert.equal(existsSync(managed.workFolder.workFolderRoot), false, "the managed folder is deleted on the first call");
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
     // The folder is moved, not erased: the receipt names the Recently deleted
     // item that puts it back (docs/receipts-not-gates.md, F20).
-    const keptSpace = (await h.api.trash.list()).entries;
-    assert.equal(keptSpace.length, 1);
-    assert.equal(keptSpace[0]?.kind, "space");
-    assert.equal(h.lastOk().detail, `space.delete-folder; trash ${keptSpace[0]!.id}`);
-    assert.deepEqual(h.lastOk().undoRef, { kind: "trash-entry", value: keptSpace[0]!.id });
-    assert.equal(h.lastOk().spaceId, managed.space.id);
+    const keptWorkFolder = (await h.api.recentlyDeleted.list()).entries;
+    assert.equal(keptWorkFolder.length, 1);
+    assert.equal(keptWorkFolder[0]?.kind, "work-folder");
+    assert.equal(h.lastOk().detail, `work-folder.delete-folder; recently-deleted ${keptWorkFolder[0]!.id}`);
+    assert.deepEqual(h.lastOk().undoRef, { kind: "recently-deleted-entry", value: keptWorkFolder[0]!.id });
+    assert.equal(h.lastOk().workFolderId, managed.workFolder.id);
 
     // A linked registration is never deletable through this verb.
     const linkedRoot = join(h.sandbox, "linked-folder");
     await mkdir(linkedRoot, { recursive: true });
-    const linked = await h.api.actFacade.registerSpace({ spaceRoot: linkedRoot });
+    const linked = await h.api.actFacade.registerWorkFolder({ workFolderRoot: linkedRoot });
     h.records.length = 0;
-    const refused = await h.execute(["spaces", "delete", "--space", linked.space.id, "--json"]);
+    const refused = await h.execute(["work-folders", "delete", "--work-folder", linked.workFolder.id, "--json"]);
     assert.notEqual(refused.exitCode, 0);
     assert.equal(errorCodeOf(refused.stderr), "conflict");
-    assert.match(refused.stderr, /Only a managed Space's folder can be deleted/);
+    assert.match(refused.stderr, /Only a managed work-folder's folder can be deleted/);
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "error"]);
     assert.equal(existsSync(linkedRoot), true);
 
-    // An inactive management parent is refused before anything is accepted,
+    // An inactive work-fold agent parent is refused before anything is accepted,
     // and nothing executes.
-    const other = await h.api.actFacade.createSpace({ name: "Other" });
+    const other = await h.api.actFacade.createWorkFolder({ name: "Other" });
     h.records.length = 0;
-    const orphan = await h.execute(["spaces", "delete", "--space", other.space.id, "--parent-task", "task-inactive", "--json"]);
+    const orphan = await h.execute(["work-folders", "delete", "--work-folder", other.workFolder.id, "--parent-task", "task-inactive", "--json"]);
     assert.notEqual(orphan.exitCode, 0);
     assert.equal(errorCodeOf(orphan.stderr), "conflict");
     assert.match(orphan.stderr, /no longer active/);
     assert.deepEqual(h.records.map((record) => record.outcome), ["rejected"]);
-    assert.equal(existsSync(other.space.spaceRoot), true, "a refused act changes nothing");
+    assert.equal(existsSync(other.workFolder.workFolderRoot), true, "a refused act changes nothing");
   } finally {
     await h.close();
   }
@@ -288,7 +288,7 @@ test("spaces delete deletes a managed folder on the first call, refuses a linked
 /**
  * A file permission that names a single file is granted from the act lane by
  * naming that file (docs/receipts-not-gates.md, F21). The folder permission
- * beside it keeps binding to the whole Space and takes no file at all.
+ * beside it keeps binding to the whole work-folder and takes no file at all.
  */
 async function writeSingleFilePackage(root: string): Promise<void> {
   await mkdir(root, { recursive: true });
@@ -324,37 +324,37 @@ async function writeSingleFilePackage(root: string): Promise<void> {
 test("apps grant --kind files --path binds a single-file permission to that exact file", async () => {
   const h = await directVerbHarness("grants");
   try {
-    const space = await h.api.actFacade.createSpace({ name: "Ledger Space" });
-    await writeSingleFilePackage(join(space.space.spaceRoot, "apps", "ledger-demo"));
-    const installed = await h.execute(["apps", "install-preview", "--space", space.space.id, "--package", "apps/ledger-demo", "--json"]);
+    const workFolder = await h.api.actFacade.createWorkFolder({ name: "Ledger work-folder" });
+    await writeSingleFilePackage(join(workFolder.workFolder.workFolderRoot, "apps", "ledger-demo"));
+    const installed = await h.execute(["apps", "install-preview", "--work-folder", workFolder.workFolder.id, "--package", "apps/ledger-demo", "--json"]);
     assert.equal(installed.exitCode, 0, installed.stderr);
     const installedJson = JSON.parse(installed.stdout) as {
       data: {
         app: { appId: string; digest: string };
-        granted: { wholeSpaceFolders: number };
+        granted: { wholeWorkFolderFolders: number };
         needs: { files: string[] };
       };
     };
     const digest = installedJson.data.app.digest;
-    assert.equal(installedJson.data.granted.wholeSpaceFolders, 1, "the folder permission is on from install");
+    assert.equal(installedJson.data.granted.wholeWorkFolderFolders, 1, "the folder permission is on from install");
     assert.deepEqual(
       installedJson.data.needs.files,
       ["ledger"],
       "the single-file permission is what installation leaves open",
     );
 
-    await mkdir(join(space.space.spaceRoot, "books"), { recursive: true });
-    await writeFile(join(space.space.spaceRoot, "books", "ledger.csv"), "date,amount\n", "utf8");
+    await mkdir(join(workFolder.workFolder.workFolderRoot, "books"), { recursive: true });
+    await writeFile(join(workFolder.workFolder.workFolderRoot, "books", "ledger.csv"), "date,amount\n", "utf8");
 
-    const grantArgv = ["apps", "grant", "--space", space.space.id, "--app", "ledger-demo", "--digest", digest, "--kind", "files"];
+    const grantArgv = ["apps", "grant", "--work-folder", workFolder.workFolder.id, "--app", "ledger-demo", "--digest", digest, "--kind", "files"];
 
-    // Nothing but an existing ordinary file inside the Space can be named, and
+    // Nothing but an existing ordinary file inside the work-folder can be named, and
     // reserved metadata is not a file endpoint.
     for (const [path, code] of [
       ["ghost.csv", "notFound"],
       ["books", "notFound"],
       ["../outside.csv", "usage"],
-      [".work-fold/space.json", "usage"],
+      [".work-fold/work-folder.json", "usage"],
       [".pi/config.json", "usage"],
       [".workspace/legacy.json", "usage"],
     ] as const) {
@@ -370,20 +370,20 @@ test("apps grant --kind files --path binds a single-file permission to that exac
     assert.match(unnamed.stderr, /needs one file/);
     const folderWithPath = await h.execute([...grantArgv, "--declaration", "exports", "--path", "books/ledger.csv", "--json"]);
     assert.equal(errorCodeOf(folderWithPath.stderr), "usage");
-    assert.match(folderWithPath.stderr, /covers the whole Space/);
+    assert.match(folderWithPath.stderr, /covers the whole work-folder/);
 
     // A file is not part of the network or notification shapes, and revoking
     // names a declaration rather than a root: both are usage errors at parse
     // time, before anything is journaled.
     h.records.length = 0;
     const networkWithPath = await h.execute([
-      "apps", "grant", "--space", space.space.id, "--app", "ledger-demo", "--digest", digest,
+      "apps", "grant", "--work-folder", workFolder.workFolder.id, "--app", "ledger-demo", "--digest", digest,
       "--kind", "network", "--declaration", "mail-api", "--path", "books/ledger.csv", "--json",
     ]);
     assert.equal(errorCodeOf(networkWithPath.stderr), "usage");
     assert.match(networkWithPath.stderr, /--path can be used only with 'apps grant --kind files'/);
     const revokeWithPath = await h.execute([
-      "apps", "revoke", "--space", space.space.id, "--app", "ledger-demo", "--digest", digest,
+      "apps", "revoke", "--work-folder", workFolder.workFolder.id, "--app", "ledger-demo", "--digest", digest,
       "--kind", "files", "--declaration", "ledger", "--path", "books/ledger.csv", "--json",
     ]);
     assert.equal(errorCodeOf(revokeWithPath.stderr), "usage");
@@ -398,7 +398,7 @@ test("apps grant --kind files --path binds a single-file permission to that exac
     assert.equal(grantedJson.data.granted, true);
     assert.equal(grantedJson.data.grantKind, "files");
     assert.equal(grantedJson.data.declaration, "ledger");
-    assert.equal(grantedJson.data.root, "books/ledger.csv", "the root is the canonical Space-relative file");
+    assert.equal(grantedJson.data.root, "books/ledger.csv", "the root is the canonical work-folder-relative file");
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
     assert.equal(h.lastOk().detail, "app.grant.files; app ledger-demo; declaration ledger; root books/ledger.csv");
     assert.deepEqual(h.lastOk().undoRef, { kind: "declaration", value: "ledger" });
@@ -407,12 +407,12 @@ test("apps grant --kind files --path binds a single-file permission to that exac
     // file changes nothing.
     const human = await h.execute([...grantArgv, "--declaration", "ledger", "--path", "books/ledger.csv"]);
     assert.equal(human.exitCode, 0, human.stderr);
-    assert.match(human.stdout, /^Granted files ledger to ledger-demo in Ledger Space \[[^\]]+\]\. It covers books\/ledger\.csv and nothing else\.\n$/);
+    assert.match(human.stdout, /^Granted files ledger to ledger-demo in Ledger work-folder \[[^\]]+\]\. It covers books\/ledger\.csv and nothing else\.\n$/);
 
-    // Revoking takes the file grant away; the whole-Space folder grant is
+    // Revoking takes the file grant away; the whole-work-folder grant is
     // untouched and still reports its own root.
     const revoked = await h.execute([
-      "apps", "revoke", "--space", space.space.id, "--app", "ledger-demo", "--digest", digest,
+      "apps", "revoke", "--work-folder", workFolder.workFolder.id, "--app", "ledger-demo", "--digest", digest,
       "--kind", "files", "--declaration", "ledger", "--json",
     ]);
     assert.equal(revoked.exitCode, 0, revoked.stderr);
@@ -428,21 +428,21 @@ test("apps grant --kind files --path binds a single-file permission to that exac
 test("chat report, ask, answer, and handoff run through the act lane with content-free receipts, and requests show reads them back", async () => {
   const h = await directVerbHarness("collaboration");
   try {
-    const drafts = await h.api.actFacade.createSpace({ name: "Drafts" });
-    const reviews = await h.api.actFacade.createSpace({ name: "Reviews" });
-    await writeFile(join(drafts.space.spaceRoot, "draft.md"), "# Draft\n", "utf8");
+    const drafts = await h.api.actFacade.createWorkFolder({ name: "Drafts" });
+    const reviews = await h.api.actFacade.createWorkFolder({ name: "Reviews" });
+    await writeFile(join(drafts.workFolder.workFolderRoot, "draft.md"), "# Draft\n", "utf8");
     await writeFile(join(h.sandbox, "details.json"), JSON.stringify({ pages: 3, sections: ["intro"] }), "utf8");
-    h.held.add(drafts.space.id);
+    h.held.add(drafts.workFolder.id);
 
-    // A Space turn that is its own root, held open at the prompt gate so the
+    // A work-folder turn that is its own root, held open at the prompt gate so the
     // verbs below run inside "its own running turn".
-    const own = await h.api.actFacade.sendMessage({ space: drafts.space.id, newConversation: true, content: "/hold" });
+    const own = await h.api.actFacade.sendMessage({ workFolder: drafts.workFolder.id, newConversation: true, content: "/hold" });
     const rootId = h.api.requests.byTaskId(own.taskId)!.requestId;
 
     // Report: the envelope comes back whole; the receipt records the outcome
     // and file count and never the summary or data.
     const reported = await h.execute([
-      "chat", "report", "--space", drafts.space.id, "--task", own.taskId,
+      "chat", "report", "--work-folder", drafts.workFolder.id, "--task", own.taskId,
       "--summary", "Drafted draft.md from the brief.", "--data", "@details.json", "--file", "draft.md", "--outcome", "partial", "--json",
     ]);
     assert.equal(reported.exitCode, 0, reported.stderr);
@@ -459,14 +459,14 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
     assert.equal(h.lastOk().detail, "report partial; 1 file");
     assert.equal(h.lastOk().taskId, own.taskId);
-    assert.equal(h.lastOk().spaceId, drafts.space.id);
+    assert.equal(h.lastOk().workFolderId, drafts.workFolder.id);
     assert.equal(h.lastOk().undoRef, undefined, "a report is a record, not a mutation");
     assert.doesNotMatch(JSON.stringify(h.records), /Drafted|pages/, "receipts never carry the summary or the data");
 
-    // A file outside the Space, a reserved folder, and a missing file are
+    // A file outside the work-folder, a reserved folder, and a missing file are
     // each refused before anything is recorded.
-    for (const [file, code] of [["../outside.md", "usage"], [".work-fold/space.json", "usage"], ["ghost.md", "notFound"]] as const) {
-      const refused = await h.execute(["chat", "report", "--space", drafts.space.id, "--task", own.taskId, "--summary", "Nope.", "--file", file, "--json"]);
+    for (const [file, code] of [["../outside.md", "usage"], [".work-fold/work-folder.json", "usage"], ["ghost.md", "notFound"]] as const) {
+      const refused = await h.execute(["chat", "report", "--work-folder", drafts.workFolder.id, "--task", own.taskId, "--summary", "Nope.", "--file", file, "--json"]);
       assert.equal(errorCodeOf(refused.stderr), code, `${file} → ${code}: ${refused.stderr}`);
     }
     assert.equal(h.api.requests.get(rootId)!.results.length, 1);
@@ -474,7 +474,7 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
     // Ask: the task is waiting while its turn still runs, and the status
     // document says so; the receipt names the question, never its text.
     h.records.length = 0;
-    const asked = await h.execute(["chat", "ask", "--space", drafts.space.id, "--task", own.taskId, "--question", "Which quarter?", "--json"]);
+    const asked = await h.execute(["chat", "ask", "--work-folder", drafts.workFolder.id, "--task", own.taskId, "--question", "Which quarter?", "--json"]);
     assert.equal(asked.exitCode, 0, asked.stderr);
     const askedJson = JSON.parse(asked.stdout) as { data: { question: { questionId: string; respondent: string }; redirectedToPerson: boolean; request: { state: string } } };
     assert.equal(askedJson.data.question.respondent, "person");
@@ -482,55 +482,55 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
     assert.equal(h.lastOk().detail, `question ${askedJson.data.question.questionId} to person`);
     assert.doesNotMatch(JSON.stringify(h.records), /quarter/i);
-    const status = await h.execute(["chat", "status", "--space", drafts.space.id, "--task", own.taskId, "--json"]);
+    const status = await h.execute(["chat", "status", "--work-folder", drafts.workFolder.id, "--task", own.taskId, "--json"]);
     const statusJson = JSON.parse(status.stdout) as { data: { task: { state: string }; waiting: { questionId: string; question: string } | null; request: { state: string } } };
     assert.equal(statusJson.data.task.state, "running");
     assert.equal(statusJson.data.waiting?.questionId, askedJson.data.question.questionId);
     assert.equal(statusJson.data.waiting?.question, "Which quarter?");
-    const humanStatus = await h.execute(["chat", "status", "--space", drafts.space.id, "--task", own.taskId]);
+    const humanStatus = await h.execute(["chat", "status", "--work-folder", drafts.workFolder.id, "--task", own.taskId]);
     assert.match(humanStatus.stdout, /^Task [^ ]+ — waiting on you since /, humanStatus.stderr);
     assert.match(humanStatus.stdout, /Question q-[^:]+: Which quarter\?/);
-    assert.match(humanStatus.stdout, new RegExp(`Answer it with: work-fold chat answer --space ${drafts.space.id} --question ${askedJson.data.question.questionId}`));
+    assert.match(humanStatus.stdout, new RegExp(`Answer it with: work-fold chat answer --work-folder ${drafts.workFolder.id} --question ${askedJson.data.question.questionId}`));
 
     // Handoff: copies with a restore point in the destination, a new Chat
     // there under this request, and the receipt names the destination.
     h.records.length = 0;
     const handed = await h.execute([
-      "chat", "handoff", "--space", drafts.space.id, "--task", own.taskId, "--to-space", reviews.space.id,
+      "chat", "handoff", "--work-folder", drafts.workFolder.id, "--task", own.taskId, "--to-work-folder", reviews.workFolder.id,
       "--message", "/hold", "--file", "draft.md", "--json",
     ]);
     assert.equal(handed.exitCode, 0, handed.stderr);
     const handedJson = JSON.parse(handed.stdout) as { data: { taskId: string; conversationId: string; copied: string[]; checkpointId: string; request: { rootId: string; depth: number } } };
     assert.deepEqual(handedJson.data.copied, ["draft.md"]);
     assert.ok(handedJson.data.checkpointId);
-    // The child really is under this root, but a Space-scoped verb hands back
+    // The child really is under this root, but a work-folder-scoped verb hands back
     // an opaque handle instead of the root's id: `requests show` reads a
-    // request by id, and the graph above a Space is not a Space's to read.
+    // request by id, and the graph above a work-folder is not a work-folder's to read.
     assert.equal(h.api.requests.byTaskId(handedJson.data.taskId)!.rootId, rootId);
     assert.match(handedJson.data.request.rootId, /^parent-[0-9a-f]{16}$/);
     assert.equal(handedJson.data.request.depth, 1);
-    assert.equal(existsSync(join(reviews.space.spaceRoot, "draft.md")), true);
+    assert.equal(existsSync(join(reviews.workFolder.workFolderRoot, "draft.md")), true);
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
-    assert.equal(h.lastOk().detail, `handoff to ${reviews.space.id}; 1 file`);
-    assert.equal(h.lastOk().spaceId, reviews.space.id, "the receipt names the Space the effect landed in");
+    assert.equal(h.lastOk().detail, `handoff to ${reviews.workFolder.id}; 1 file`);
+    assert.equal(h.lastOk().workFolderId, reviews.workFolder.id, "the receipt names the work-folder the effect landed in");
     assert.equal(h.lastOk().checkpointId, handedJson.data.checkpointId);
     assert.deepEqual(h.lastOk().undoRef, { kind: "checkpoint", value: handedJson.data.checkpointId });
     assert.equal(h.lastOk().taskId, handedJson.data.taskId);
-    await settledTask(h.api, reviews.space.id, handedJson.data.taskId);
+    await settledTask(h.api, reviews.workFolder.id, handedJson.data.taskId);
 
     // The asking turn ends; the question stays open; an answer from the
-    // wrong Space is refused by name, and the right one continues exactly
+    // wrong work-folder is refused by name, and the right one continues exactly
     // once — the second call executes nothing.
     await h.release(own.taskId);
-    await settledTask(h.api, drafts.space.id, own.taskId);
+    await settledTask(h.api, drafts.workFolder.id, own.taskId);
     h.records.length = 0;
-    const wrong = await h.execute(["chat", "answer", "--space", reviews.space.id, "--question", askedJson.data.question.questionId, "--answer", "Q3", "--json"]);
+    const wrong = await h.execute(["chat", "answer", "--work-folder", reviews.workFolder.id, "--question", askedJson.data.question.questionId, "--answer", "Q3", "--json"]);
     assert.equal(wrong.exitCode, 5);
     assert.equal(errorCodeOf(wrong.stderr), "conflict");
     assert.match(wrong.stderr, /belongs to Drafts/);
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "error"]);
     h.records.length = 0;
-    const answered = await h.execute(["chat", "answer", "--space", drafts.space.id, "--question", askedJson.data.question.questionId, "--answer", "/hold", "--json"]);
+    const answered = await h.execute(["chat", "answer", "--work-folder", drafts.workFolder.id, "--question", askedJson.data.question.questionId, "--answer", "/hold", "--json"]);
     assert.equal(answered.exitCode, 0, answered.stderr);
     const answeredJson = JSON.parse(answered.stdout) as { data: { question: { state: string; continuationTaskId: string }; continuation: { taskId: string; conversationId: string } } };
     assert.equal(answeredJson.data.question.state, "answered");
@@ -541,15 +541,15 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
     assert.equal(h.lastOk().taskId, answeredJson.data.continuation.taskId);
     assert.doesNotMatch(JSON.stringify(h.records), /hold/, "receipts never carry the answer text");
     await h.release(answeredJson.data.continuation.taskId);
-    await settledTask(h.api, drafts.space.id, answeredJson.data.continuation.taskId);
+    await settledTask(h.api, drafts.workFolder.id, answeredJson.data.continuation.taskId);
     h.records.length = 0;
-    const again = await h.execute(["chat", "answer", "--space", drafts.space.id, "--question", askedJson.data.question.questionId, "--answer", "/hold", "--json"]);
+    const again = await h.execute(["chat", "answer", "--work-folder", drafts.workFolder.id, "--question", askedJson.data.question.questionId, "--answer", "/hold", "--json"]);
     assert.equal(again.exitCode, 5);
     assert.match(again.stderr, /already has an answer/);
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "error"]);
     assert.equal(h.api.requests.get(rootId)!.turns.length, 2, "exactly one continuation turn");
 
-    // requests list|show read the record above Spaces; the human form clamps,
+    // requests list|show read the record above work-folders; the human form clamps,
     // the JSON form carries the envelope whole.
     const listed = await h.execute(["requests", "list", "--json"]);
     assert.equal(listed.exitCode, 0, listed.stderr);
@@ -558,18 +558,18 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
     const shown = await h.execute(["requests", "show", "--request", rootId, "--json"]);
     assert.equal(shown.exitCode, 0, shown.stderr);
     const shownJson = JSON.parse(shown.stdout) as {
-      data: { request: { state: string; questions: Array<{ text: string; answer: string | null }>; resultRecords: Array<{ envelope: { summary: string; data: unknown } }>; childRequests: Array<{ spaceName: string }> } };
+      data: { request: { state: string; questions: Array<{ text: string; answer: string | null }>; resultRecords: Array<{ envelope: { summary: string; data: unknown } }>; childRequests: Array<{ workFolderName: string }> } };
     };
     assert.equal(shownJson.data.request.questions[0]!.text, "Which quarter?");
     assert.equal(shownJson.data.request.questions[0]!.answer, "/hold");
     assert.equal(shownJson.data.request.resultRecords[0]!.envelope.summary, "Drafted draft.md from the brief.");
     assert.deepEqual(shownJson.data.request.resultRecords[0]!.envelope.data, { pages: 3, sections: ["intro"] });
-    assert.equal(shownJson.data.request.childRequests[0]!.spaceName, "Reviews");
+    assert.equal(shownJson.data.request.childRequests[0]!.workFolderName, "Reviews");
     const shownHuman = await h.execute(["requests", "show", "--request", rootId]);
     assert.match(shownHuman.stdout, /^Request req-[^ ]+ — cli, done — Drafts \[/);
     assert.match(shownHuman.stdout, /question q-[^ ]+ to you — answered: Which quarter\?/);
     assert.match(shownHuman.stdout, /result res-[^ ]+ from task [^ ]+ — partial, 1 file: Drafted draft\.md from the brief\./);
-    assert.match(shownHuman.stdout, /\n  Request req-[^ ]+ — space, done — Reviews \[/, "children are indented beneath the root");
+    assert.match(shownHuman.stdout, /\n  Request req-[^ ]+ — work-folder, done — Reviews \[/, "children are indented beneath the root");
     const missing = await h.execute(["requests", "show", "--request", "req-00000000000000-00000000", "--json"]);
     assert.equal(errorCodeOf(missing.stderr), "notFound");
   } finally {
@@ -579,21 +579,21 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
 
 
 test("management questions use the act lane and content-free receipts", async () => {
-  const h = await directVerbHarness("management-questions");
-  const scope = "work-fold-management"; h.held.add(scope);
+  const h = await directVerbHarness("agent-questions");
+  const scope = "work-fold-agent"; h.held.add(scope);
   try {
-    const sent = await h.api.actFacade.manageSend({ content: "/hold" });
-    const ask = await h.execute(["manage", "ask", "--task", sent.taskId, "--question", "Which private quarter?", "--json"]);
+    const sent = await h.api.actFacade.agentSend({ content: "/hold" });
+    const ask = await h.execute(["agent", "ask", "--task", sent.taskId, "--question", "Which private quarter?", "--json"]);
     assert.equal(ask.exitCode, 0, ask.stderr);
     const question = JSON.parse(ask.stdout).data.question;
     assert.doesNotMatch(JSON.stringify(h.records), /private quarter/);
     await h.release(sent.taskId);
-    for (let n = 0; n < 100 && (await h.api.actFacade.manageTurnStatus({ taskId: sent.taskId })).task.state === "running"; n++) await new Promise(r => setTimeout(r, 25));
-    const answer = await h.execute(["manage", "answer", "--question", question.questionId, "--answer", "/hold Q3", "--json"]);
+    for (let n = 0; n < 100 && (await h.api.actFacade.agentTurnStatus({ taskId: sent.taskId })).task.state === "running"; n++) await new Promise(r => setTimeout(r, 25));
+    const answer = await h.execute(["agent", "answer", "--question", question.questionId, "--answer", "/hold Q3", "--json"]);
     assert.equal(answer.exitCode, 0, answer.stderr);
     assert.equal(JSON.parse(answer.stdout).data.question.state, "answered");
     assert.doesNotMatch(JSON.stringify(h.records), /Q3/);
-    const invalid = await h.execute(["manage", "ask", "--space", "anything", "--task", sent.taskId, "--question", "No", "--json"]);
+    const invalid = await h.execute(["agent", "ask", "--work-folder", "anything", "--task", sent.taskId, "--question", "No", "--json"]);
     assert.notEqual(invalid.exitCode, 0);
   } finally { await h.close(); }
 });

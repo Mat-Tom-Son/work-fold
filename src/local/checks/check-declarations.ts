@@ -10,11 +10,11 @@ import {
   type WorkFoldCheckDeclaration,
   type WorkFoldCheckProposal,
 } from "../../shared/checks.js";
-import { spaceCheckDeclarationDir } from "../state-paths.js";
+import { workFolderCheckDeclarationDir } from "../state-paths.js";
 import { workFoldCheckDigest } from "./check-integrity.js";
 
-const maximumDeclarationBytes = 256 * 1024;
-const maximumDeclarations = 256;
+const maximumDeclarationBytes = 4 * 1024 * 1024;
+const maximumDeclarations = 10_000;
 const maximumDirectoryEntries = 4_096;
 
 export interface WorkFoldCheckDeclarationRecord {
@@ -28,8 +28,8 @@ export interface WorkFoldCheckDeclarationDiscovery {
   errors: Array<{ file: string; message: string }>;
 }
 
-export async function discoverWorkFoldCheckDeclarations(spaceRoot: string): Promise<WorkFoldCheckDeclarationDiscovery> {
-  const directory = spaceCheckDeclarationDir(spaceRoot);
+export async function discoverWorkFoldCheckDeclarations(workFolderRoot: string): Promise<WorkFoldCheckDeclarationDiscovery> {
+  const directory = workFolderCheckDeclarationDir(workFolderRoot);
   const directoryInfo = await lstat(directory).catch((error: unknown) => {
     if (isMissingFile(error)) return null;
     throw error;
@@ -54,7 +54,7 @@ export async function discoverWorkFoldCheckDeclarations(spaceRoot: string): Prom
   }
   entries.sort((left, right) => left.name.localeCompare(right.name, "en-US"));
   if (entries.length > maximumDeclarations) {
-    return { declarations: [], errors: [{ file: "checks", message: `The Space has more than ${maximumDeclarations} Check declarations.` }] };
+    return { declarations: [], errors: [{ file: "checks", message: `The work-folder has more than ${maximumDeclarations} Check declarations.` }] };
   }
   const declarations: WorkFoldCheckDeclarationRecord[] = [];
   const errors: WorkFoldCheckDeclarationDiscovery["errors"] = [];
@@ -79,11 +79,11 @@ export async function readWorkFoldCheckProposal(path: string): Promise<WorkFoldC
 }
 
 export async function writeWorkFoldCheckDeclaration(
-  spaceRoot: string,
+  workFolderRoot: string,
   proposal: WorkFoldCheckProposal,
 ): Promise<WorkFoldCheckDeclarationRecord> {
   const declaration = declarationFromWorkFoldCheckProposal(proposal);
-  const directory = spaceCheckDeclarationDir(spaceRoot);
+  const directory = workFolderCheckDeclarationDir(workFolderRoot);
   await ensureOrdinaryDirectory(directory);
   const path = join(directory, `${declaration.id}.json`);
   await writeNewAtomicJson(path, declaration);
@@ -95,7 +95,7 @@ async function ensureOrdinaryDirectory(path: string): Promise<void> {
   const info = await lstat(path);
   if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("Check declarations require a safe ordinary directory.");
   const parent = await lstat(dirname(path));
-  if (parent.isSymbolicLink() || !parent.isDirectory()) throw new Error("Check declarations require safe Space metadata.");
+  if (parent.isSymbolicLink() || !parent.isDirectory()) throw new Error("Check declarations require safe work-folder metadata.");
 }
 
 async function readBoundedOrdinaryFile(path: string): Promise<string> {

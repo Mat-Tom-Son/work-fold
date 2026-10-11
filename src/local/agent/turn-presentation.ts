@@ -1,6 +1,6 @@
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { containsReservedSpacePathSegment } from "../space-path-policy.js";
+import { containsReservedWorkFolderPathSegment } from "../work-folder-path-policy.js";
 import {
   maxAssistantPresentationSegments,
   maxChatToolEditDiffBytes,
@@ -54,12 +54,12 @@ export function parseAssistantPresentation(value: unknown, content: string): Ass
 }
 
 /** Conservative admission: ambiguous native path spellings simply keep generic tool activity. */
-export function localEditPath(spaceRoot: string, value: unknown): string | undefined {
+export function localEditPath(workFolderRoot: string, value: unknown): string | undefined {
   if (typeof value !== "string" || !value.length || value.length > 4_096
     || /[\u0000-\u001f\u007f\\]/u.test(value) || /^[~@]|^[A-Za-z][A-Za-z\d+.-]*:/u.test(value)
-    || /[\u00a0\u2000-\u200a\u202f\u205f\u3000]/u.test(value) || containsReservedSpacePathSegment(value)) return undefined;
+    || /[\u00a0\u2000-\u200a\u202f\u205f\u3000]/u.test(value) || containsReservedWorkFolderPathSegment(value)) return undefined;
   try {
-    const root = resolve(spaceRoot);
+    const root = resolve(workFolderRoot);
     const target = resolve(root, value);
     const path = relative(root, target).split(sep).join("/");
     if (!isPortableEditPath(path) || lstatSync(root).isSymbolicLink()) return undefined;
@@ -78,14 +78,15 @@ export function localEditPath(spaceRoot: string, value: unknown): string | undef
   }
 }
 
-/** Child Folder transcripts travel independently, even after their registration is removed. */
+/** Child work-folder transcripts travel independently, even after their registration is removed. */
 function hasPortableFolderIdentity(path: string): boolean {
   for (const entry of readdirSync(path)) {
     if (entry.toLowerCase() !== ".work-fold") continue;
     const metadata = join(path, entry);
     // Never follow a purported identity's symlink just to decide presentation scope.
     if (lstatSync(metadata).isSymbolicLink()) return true;
-    if (readdirSync(metadata).some((name) => name.toLowerCase() === "space.json")) return true;
+    // `space.json` is the name a folder from before 2026-10-10 still carries until it is opened.
+    if (readdirSync(metadata).some((name) => ["work-folder.json", "space.json"].includes(name.toLowerCase()))) return true;
   }
   return false;
 }
@@ -125,7 +126,7 @@ export function parseChatToolEdit(value: unknown): ChatToolEdit | undefined {
 function isPortableEditPath(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 4_096
     && !isAbsolute(value) && !/[\u0000-\u001f\u007f\\:]/u.test(value)
-    && !containsReservedSpacePathSegment(value)
+    && !containsReservedWorkFolderPathSegment(value)
     && value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 

@@ -65,11 +65,11 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
 export type IncludedSetupAction = ChromeSetupAction | "start-check" | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave";
 export interface IncludedSetupResult { status: IncludedToolStatus }
 
-/** Trusted local setup only. Secrets and permission prompts never enter an Assistant turn. */
+/** Trusted local setup only. Secrets and permission prompts never enter a turn. */
 export async function setupIncludedTool(cwd: string, id: IncludedToolId, action: IncludedSetupAction, input: { secret?: string }, provider?: PiRuntimeProvider, signal?: AbortSignal): Promise<IncludedSetupResult> {
   const runtime = await resolvePiRuntime(cwd, provider, { requestProjectTrust: false });
   const config = runtime.config.includedTools;
-  if (!config) throw new Error("Included Assistant tools are unavailable in this host.");
+  if (!config) throw new Error("Included tools are unavailable in this host.");
   if (id === "chrome") {
     if (!["connect-chrome", "disconnect-chrome", "change-chrome-profile", "check"].includes(action)) throw new Error("Unknown Chrome setup action.");
     const service = config.chromeConnection;

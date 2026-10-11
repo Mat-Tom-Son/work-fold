@@ -39,7 +39,7 @@ app.setPath('userData', join(output, 'electron-profile'));
   const agentDir = join(output, 'agent'), stateRoot = join(output, 'catalog-state');
   const authStorage = FileCredentialStore.inMemory(), modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
   const provider = { resolveRuntime: async () => ({ agentDir, credentials: authStorage, modelRuntime, settingsManager: SettingsManager.inMemory(), projectTrust: { override: true }, includedTools: { rootPath: root, stateRoot, helperAppPath: join(output, 'Missing Computer.app') } }) };
-  for (const name of ['space-a', 'space-b']) {
+  for (const name of ['work-folder-a', 'work-folder-b']) {
     const cwd = join(output, name); await fs.mkdir(cwd, { recursive: true });
     const catalog = await loadAgentSkillCatalog(cwd, provider);
     assert.deepEqual(catalog.diagnostics.filter(item => item.type === 'error' || item.type === 'collision'), []);

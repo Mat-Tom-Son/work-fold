@@ -11,7 +11,7 @@ const read = async (relativePath: string) => await readFile(join(repositoryRoot,
  * docs/receipts-not-gates.md acceptance, last bullet: no user-facing copy
  * contains "staged", "approve", "policy", "Reviewed", or "Unrestricted"
  * outside history notes. This sweep pins the surfaces that speak to a person:
- * the public documents, the fold's materialized instructions, the desktop's
+ * the public documents, the work-fold agent's materialized instructions, the desktop's
  * copy contract, and the remote client's shipped modules.
  *
  * "Reviewed" and "Unrestricted" are matched case-sensitively because they are
@@ -30,6 +30,8 @@ const surviving: Array<[string, string]> = [
   ["approvalSignature", "pairingSignature"],
   ["acceptApproval", "acceptPairing"],
   ['"approved"', '"paired"'],
+  // A real sample input in the landing demo, not a product approval control.
+  ['"approved-order.md"', '"order-brief.md"'],
 ];
 
 function speakableSource(text: string): string {
@@ -52,15 +54,15 @@ test("public documents promise receipts and undo instead of gates", async () => 
   const security = await read("SECURITY.md");
   assert.match(security, /\*\*Receipts, not gates\.\*\*/);
   assert.match(security, /Destruction is reversible\./);
-  assert.match(security, /`work-fold trash list\|restore`/);
+  assert.match(security, /`work-fold recently-deleted list\|restore`/);
   assert.match(security, /The only human-only surfaces establish identity or secrets/);
 
   const privacy = await read("PRIVACY.md");
-  assert.match(privacy, /Recently deleted items under the application-data `trash\/` directory/);
+  assert.match(privacy, /Recently deleted items under the application-data `recently-deleted\/` directory/);
   assert.match(privacy, /runs at once and leaves a receipt; nothing waits for a further click/);
 });
 
-test("shared Skills and the fold's materialized instructions stay gate-free", async () => {
+test("shared Skills and the work-fold agent's materialized instructions stay gate-free", async () => {
   for (const skill of [".agents/skills/ship-macos-release/SKILL.md"]) {
     const text = await read(skill);
     assert.doesNotMatch(text, retiredGateWords, `${skill} still carries gate vocabulary`);
@@ -68,7 +70,7 @@ test("shared Skills and the fold's materialized instructions stay gate-free", as
   }
 
   // Both materialized resources live in this one module.
-  const instructions = speakableSource(await read("src/local/management-instructions.ts"));
+  const instructions = speakableSource(await read("src/local/work-fold-agent-instructions.ts"));
   assert.doesNotMatch(instructions, retiredGateWords);
   assert.doesNotMatch(instructions, retiredAuthorityNames);
   assert.match(instructions, /## Receipts, not gates/);
@@ -78,12 +80,12 @@ test("shared Skills and the fold's materialized instructions stay gate-free", as
   assert.match(instructions, /Never busy-wait, sleep, or poll in a loop/);
   assert.doesNotMatch(instructions, /\bpoll(ing)? (until|every)\b|\bsleep \d/i);
 
-  // The Space Assistant's operations guide (F26) is taught text too.
-  const guide = speakableSource(await read("src/local/agent/space-operations-guide.ts"));
+  // The Worker's operations guide (F26) is taught text too.
+  const guide = speakableSource(await read("src/local/agent/work-folder-operations-guide.ts"));
   assert.doesNotMatch(guide, retiredGateWords);
   assert.doesNotMatch(guide, retiredAuthorityNames);
 
-  // The prompt an app's Assistant request dispatches is taught text as well,
+  // The prompt an app's Worker request dispatches is taught text as well,
   // and so is the app-building guide the proposal tool hands the model.
   const taskPrompt = speakableSource(await read("src/local/agent/restricted-app-tasks.ts"));
   assert.doesNotMatch(taskPrompt, retiredGateWords);
