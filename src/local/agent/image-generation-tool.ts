@@ -10,6 +10,14 @@ import { dirname, extname, isAbsolute, join, normalize, relative, sep } from "no
 import type { AssistantImages, ImageApi, ImageModel, ImagesContext } from "@earendil-works/pi-ai";
 import { resizeImage, type ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 
+import {
+  directImageDefaultBaseUrls,
+  directImageModels,
+  generateDirectImage,
+  isDirectImageModel,
+  type DirectImageModel,
+} from "./direct-image-models.js";
+
 export type ImageShape = "wide" | "square" | "tall";
 
 /** Aspect ratios each shape asks for; a wide image suits a work-folder banner. */
@@ -33,7 +41,21 @@ const typeExtensions: Record<string, string> = { "image/png": ".png", "image/jpe
 const reservedFolders = new Set([".work-fold", ".pi", ".git", ".workspace"]);
 const maxPromptCharacters = 32_000;
 
-export type ImageModelSource = Pick<ModelRuntime, "getAvailableOfType" | "generateImages">;
+export type ImageModelSource = Pick<ModelRuntime, "getAvailableOfType" | "generateImages" | "hasConfiguredAuth" | "getAuth" | "getModels">;
+/** A model from Pi's image catalog, or one work-fold reaches directly with the provider's own credential. */
+export type ChosenImageModel = ImageModel<ImageApi> | DirectImageModel;
+
+/**
+ * Every image model a session can use: Pi's connected image models, then the
+ * direct ones for each connected provider Pi has no image models for.
+ */
+export async function listImageModels(source: ImageModelSource): Promise<ChosenImageModel[]> {
+  // Routers pick a model per request; a named image model keeps results predictable.
+  const native = (await source.getAvailableOfType("image")).filter((model) => !/^openrouter\/auto/.test(model.id));
+  const nativeProviders = new Set(native.map((model) => model.provider));
+  const direct = directImageModels.filter((model) => !nativeProviders.has(model.provider) && source.hasConfiguredAuth(model.provider));
+  return [...native, ...direct];
+}
 
 export interface GeneratedImage {
   path: string;
@@ -50,9 +72,8 @@ export interface GeneratedImage {
 export async function chooseImageModel(
   source: ImageModelSource,
   requested?: { provider: string; id: string },
-): Promise<ImageModel<ImageApi>> {
-  // Routers pick a model per request; a named image model keeps results predictable.
-  const available = (await source.getAvailableOfType("image")).filter((model) => !/^openrouter\/auto/.test(model.id));
+): Promise<ChosenImageModel> {
+  const available = await listImageModels(source);
   if (requested) {
     const named = available.find((model) => model.provider === requested.provider && model.id === requested.id);
     if (!named) {
@@ -109,14 +130,16 @@ export async function generateImageFile(input: {
   const model = await chooseImageModel(input.source, input.model);
   const context: ImagesContext = { input: [{ type: "text", text: prompt }] };
   const aspectRatio = imageShapeAspectRatios[shape];
-  const result: AssistantImages = await input.source.generateImages(model, context, {
-    ...(input.signal ? { signal: input.signal } : {}),
-    // OpenRouter takes the shape as an image option on the request; providers
-    // that do not understand it still return an image, just in their default shape.
-    ...(model.api === "openrouter-images"
-      ? { onPayload: (params: unknown) => ({ ...(params as Record<string, unknown>), image_config: { aspect_ratio: aspectRatio } }) }
-      : {}),
-  });
+  const result: AssistantImages = isDirectImageModel(model)
+    ? await generateWithProviderCredential(input.source, model, prompt, shape, input.signal)
+    : await input.source.generateImages(model, context, {
+      ...(input.signal ? { signal: input.signal } : {}),
+      // OpenRouter takes the shape as an image option on the request; providers
+      // that do not understand it still return an image, just in their default shape.
+      ...(model.api === "openrouter-images"
+        ? { onPayload: (params: unknown) => ({ ...(params as Record<string, unknown>), image_config: { aspect_ratio: aspectRatio } }) }
+        : {}),
+    });
   if (result.stopReason !== "stop") {
     throw new Error(result.errorMessage?.trim() || `${model.name} stopped before finishing the image (${result.stopReason}).`);
   }
@@ -141,6 +164,31 @@ export async function generateImageFile(input: {
     ...(typeof cost === "number" && cost > 0 ? { cost } : {}),
     ...(input.includePreview && preview ? { preview: { data: preview.data, mimeType: preview.mimeType } } : {}),
   };
+}
+
+async function generateWithProviderCredential(
+  source: ImageModelSource,
+  model: DirectImageModel,
+  prompt: string,
+  shape: ImageShape,
+  signal?: AbortSignal,
+): Promise<AssistantImages> {
+  const resolved = await source.getAuth(model.provider);
+  const apiKey = resolved?.auth.apiKey;
+  if (!apiKey) {
+    throw new Error(`${model.name} needs an API key for ${model.provider === "openai" ? "OpenAI" : "Google"}. Connect one in Settings → AI Models.`);
+  }
+  // The provider's own endpoint, as its chat models use it, so a configured proxy or region carries over.
+  const baseUrl = resolved.auth.baseUrl ?? source.getModels(model.provider)[0]?.baseUrl ?? directImageDefaultBaseUrls[model.provider];
+  return generateDirectImage({
+    model,
+    prompt,
+    shape,
+    apiKey,
+    baseUrl,
+    ...(resolved.auth.headers ? { headers: resolved.auth.headers as Record<string, string> } : {}),
+    ...(signal ? { signal } : {}),
+  });
 }
 
 export function createImageGenerationTool(input: { root: string; models: ImageModelSource }): ToolDefinition<any> {

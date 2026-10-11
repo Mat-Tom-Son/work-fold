@@ -30,6 +30,25 @@ OpenRouter, whose catalog lists dozens of image models (Google's Nano Banana
 line, OpenAI's GPT Image, FLUX, Recraft, Seedream, and more). Any provider that
 registers an image API with Pi and lists image models works the same way.
 
+Pi lists no image models for OpenAI or Google yet, so work-fold reaches them
+directly (`src/local/agent/direct-image-models.ts`). It uses the API key Pi
+already holds for that provider (`ModelRuntime.getAuth`) and the same base URL
+as the provider's chat models, and never changes the provider's chat models.
+These models are listed only for a connected provider:
+
+- **OpenAI** (Images API, `POST /images/generations`): `gpt-image-2`,
+  `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-1-mini`, and
+  `gpt-image-1`. A wide picture is 2048×864 (1536×1024 for GPT Image 1 models,
+  which take only fixed sizes).
+- **Google** (Gemini Interactions API, `POST /interactions`):
+  `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image`,
+  `gemini-nano-banana-2.1`, and `gemini-2.5-flash-image`. Wide is 16:9, which
+  every Nano Banana model accepts.
+
+When Pi lists image models for a provider, work-fold uses Pi's and drops its own
+for that provider. A ChatGPT account sign-in (`openai-codex`) is a different
+provider and has no image models here.
+
 With no model named, work-fold uses the first connected model from a short
 preference list: Gemini 3.1 Flash Image, GPT Image 2, Gemini 2.5 Flash Image,
 GPT Image 1 Mini, then FLUX.2 Pro, matched with or without a vendor prefix so a
