@@ -4,6 +4,10 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## October 11, 2026
+
+[0.4.51](work-fold-0.4.51.md) adds the work-fold agent panel to the main window, a sidebar toggle, and Files sorting, and renames the code, CLI, and saved data to the interface's words with a one-time migration.
+
 ## October 9, 2026
 
 [0.4.50](work-fold-0.4.50.md) fixes ChatGPT account sign-in and separates saved provider connections from a model picker spanning every connected provider, with guided Pi setup and cleaner Settings controls.
