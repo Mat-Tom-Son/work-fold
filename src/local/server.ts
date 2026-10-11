@@ -14368,7 +14368,8 @@ function restrictedAppErrorStatus(error: unknown): number | null {
     case "INPUT_INVALID": return 400;
     case "ACTION_UNKNOWN": return 404;
     case "NETWORK_DENIED":
-    case "FILE_DENIED": return 403;
+    case "FILE_DENIED":
+    case "TAB_DENIED": return 403;
     case "AUTH_REQUIRED":
     case "AUTHORITY_STALE":
     case "REVISION_CHANGED": return 409;

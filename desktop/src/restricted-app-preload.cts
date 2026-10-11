@@ -139,6 +139,16 @@ const networkRequest = (request: unknown) => {
   }
   return invokeHost(networkChannel, request, maximumNetworkEnvelopeBytes, "NETWORK_FAILED");
 };
+const tabRequest = async (command: Record<string, unknown>): Promise<void> => {
+  const response = await ipcRenderer.invoke(tabCommandChannel, command) as { ok?: unknown; error?: { code?: unknown; message?: unknown } } | undefined;
+  if (response?.ok === true) return;
+  const error = new Error(typeof response?.error?.message === "string" ? response.error.message : "The tab request failed.");
+  Object.defineProperty(error, "code", {
+    value: typeof response?.error?.code === "string" ? response.error.code : "APP_UNAVAILABLE",
+    enumerable: true,
+  });
+  throw error;
+};
 const storageRequest = (operation: string, fields: Record<string, unknown> = {}) => invokeHost(storageChannel, { operation, ...fields }, maximumStorageEnvelopeBytes, "STORAGE_FAILED");
 const fileRequest = (operation: string, request: unknown) => invokeHost(filesChannel, { operation, request }, maximumFileEnvelopeBytes, "FILE_FAILED");
 const notificationRequest = (request: unknown) => invokeHost(notificationsChannel, request, 4 * 1024, "NOTIFICATION_FAILED");
@@ -315,9 +325,9 @@ const appBridge = Object.freeze({
     },
   }),
   tabs: Object.freeze({
-    open: (tab: { tabId: string; title: string; route: string; state?: unknown }) => ipcRenderer.invoke(tabCommandChannel, { type: "open", ...tab }),
-    update: (tab: { title: string; route: string; state?: unknown }) => ipcRenderer.invoke(tabCommandChannel, { type: "update", ...tab }),
-    close: () => ipcRenderer.invoke(tabCommandChannel, { type: "close" }),
+    open: (tab: { tabId: string; title: string; route: string; state?: unknown }) => tabRequest({ type: "open", ...tab }),
+    update: (tab: { title: string; route: string; state?: unknown }) => tabRequest({ type: "update", ...tab }),
+    close: () => tabRequest({ type: "close" }),
   }),
 });
 
@@ -393,8 +403,21 @@ if (argumentValue("mode") === "ui") {
       event.stopImmediatePropagation();
     }
   };
+  // A file dragged or pasted in from the computer is not the app's to read:
+  // stop it here, before any app listener sees `files`. An app's own drag and
+  // drop of text or elements still reaches it.
+  const carriesFiles = (transfer: DataTransfer | null | undefined) => Boolean(transfer
+    && (transfer.types.includes("Files") || transfer.files.length > 0));
   window.addEventListener("dragover", (event) => event.preventDefault(), true);
-  window.addEventListener("drop", (event) => event.preventDefault(), true);
+  window.addEventListener("drop", (event) => {
+    event.preventDefault();
+    if (carriesFiles(event.dataTransfer)) event.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("paste", (event) => {
+    if (!carriesFiles(event.clipboardData)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
   window.addEventListener("click", blockFileAccess, true);
   window.addEventListener("keydown", blockFileAccess, true);
   window.addEventListener("DOMContentLoaded", () => {

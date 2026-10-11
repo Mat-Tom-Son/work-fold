@@ -102,8 +102,8 @@ HTML, scripts, styles, event handlers, arbitrary URLs, and custom React componen
 
 ## Lifecycle and current boundary
 
-Opening a rail destination opens its first view in a normal work-folder-bound tab. Additional navigator views open or reactivate deterministic tabs, and installed view tabs are restored with the rest of the local shell state. Removing the Extension or removing its work-folder leaves an already-restored tab in an explicit unavailable state rather than running stale code.
+Opening a rail destination shows the surface's views in the left pane; it never opens a tab by itself (2026-10-11). Clicking a view there opens or reactivates its deterministic work-folder-bound tab, and installed view tabs are restored with the rest of the local shell state. Removing the Extension or removing its work-folder leaves an already-restored tab in an explicit unavailable state rather than running stale code.
 
 Version 1 is intentionally read-only and manifest-backed. The package's Extension tools can still call connected systems when invoked by the agent because the owning Pi Extension is full trust. Do not encode credentials or remote account data in `surface.json`.
 
-Agent-generated executable UI belongs in the restricted package lane, not in this Pi Extension format. Restricted apps use reviewed HTML/CSS/JavaScript in a sandboxed visible renderer, can render arbitrary buttons and forms, call granted targets through the host broker, and open persistent work-folder-owned tabs. `surface.json` remains intentionally static and Pi-only.
+Agent-generated executable UI belongs in the restricted package lane, not in this Pi Extension format. Restricted apps use reviewed HTML/CSS/JavaScript in a sandboxed visible renderer, can render arbitrary buttons and forms, call granted targets through the host broker, and open work-folder-owned tabs from a click in their left-pane view. `surface.json` remains intentionally static and Pi-only.

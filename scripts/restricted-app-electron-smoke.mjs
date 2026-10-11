@@ -341,6 +341,28 @@ async function runSmoke() {
     assert.deepEqual(queuedSecond, queuedFirst, "a queued action runs on the same worker once the slot frees");
     await mark("queued-action-complete");
 
+    // One warm worker serves the installation's tool calls and automations in
+    // turn. Each operation brings its own grants: an automation that reuses a
+    // worker a tool call started gets only the subset it declared, and the
+    // tool call after it gets the app's grants back.
+    const scopedAutomation = {
+      ...descriptor,
+      networkGrants: descriptor.networkGrants.filter((id) => id === "principal-probe"),
+      notificationGrants: descriptor.notificationGrants.filter((id) => id === "automation-update"),
+    };
+    const warm = await host.invoke(descriptor, "grants-probe", {});
+    assert.deepEqual(networkOwners.at(-1)?.networkGrants, descriptor.networkGrants, "a tool call carries the app's network grants");
+    await host.runAppAutomation(scopedAutomation, appAutomationEvent("2026-07-13T00:00:45.000Z", "manual", {
+      principalId: descriptor.principalId,
+      kind: "human",
+      realm: "local",
+    }));
+    assert.deepEqual(networkOwners.at(-1)?.networkGrants, ["principal-probe"], "an automation on a warm worker keeps to its declared subset");
+    const after = await host.invoke(descriptor, "grants-probe", {});
+    assert.equal(after.token, warm.token, "the same worker served all three operations");
+    assert.deepEqual(networkOwners.at(-1)?.networkGrants, descriptor.networkGrants, "the next tool call gets the app's grants back");
+    await mark("operation-grants-complete");
+
     await mark("app-automation-start");
     await host.runAppAutomation(descriptor, appAutomationEvent("2026-07-13T00:00:00.000Z", "manual", {
       principalId: descriptor.principalId,
@@ -426,9 +448,25 @@ async function runSmoke() {
       theme: "dark",
     });
     await waitFor(
-      () => tabCommands.length === 1,
+      async () => Boolean(await storage.get(storageOwner, "ui-ready")),
       "the visible restricted app did not finish its startup bridge calls",
     );
+    assert.deepEqual(await storage.get(storageOwner, "ui-ready"), { unpromptedTabDenied: true }, "an app cannot open a tab without the person's press");
+    assert.equal(tabCommands.length, 0);
+    const appContents = parent.contentView.children[0].webContents;
+    await appContents.executeJavaScript(`(() => {
+      const withFile = new DataTransfer();
+      withFile.items.add(new File(["private"], "private.txt", { type: "text/plain" }));
+      document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: withFile }));
+      document.body.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: withFile }));
+      const text = new DataTransfer();
+      text.setData("text/plain", "row-2");
+      document.body.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: text }));
+    })()`);
+    assert.deepEqual(await appContents.executeJavaScript("globalThis.smokeTransfers()"), ["drop:0:row-2"], "dropped and pasted files never reach the app; its own text drops still do");
+    await clickInView(appContents, 40, 40);
+    await waitFor(() => tabCommands.length === 1, "a press in the left-pane view did not open the app's tab");
+    await waitFor(async () => (await storage.get(storageOwner, "second-tab-denied")) === true, "one press must open at most one tab");
     assert.equal(hits, 0, "the visible restricted app must not reach loopback directly");
     assert.deepEqual(tabCommands.map((command) => ({ type: command.type, workFolderId: command.workFolderId, appId: command.appId, digest: command.digest, featureInstallationId: command.featureInstallationId, tab: command.tab })), [{
       type: "open",
@@ -657,7 +695,9 @@ async function runSmoke() {
       mountId, placement: "navigator", route: "/", state: { escapeUrl }, sequence: 3,
       bounds: { x: 0, y: 0, width: 320, height: 500 }, active: true, occluded: false, theme: "dark",
     });
-    await waitFor(() => tabCommands.length === 2, "the sibling installation did not create its own view");
+    await waitFor(async () => Boolean(await storage.get(peerOwner, "ui-ready")), "the sibling installation did not create its own view");
+    await clickInView(parent.contentView.children[0].webContents, 40, 40);
+    await waitFor(() => tabCommands.length === 2, "the sibling installation did not open its own tab");
     assert.equal(originalContents.isDestroyed(), true);
     assert.equal(tabCommands[1].featureInstallationId, peer.featureInstallationId);
     assert.equal(await storage.get(peerOwner, "visible"), "visible-ui");
@@ -936,7 +976,24 @@ const stored = await bridge.storage.get("visible");
 await bridge.files.write({ grantId: "exports", path: "smoke.txt", encoding: "utf8", data: "host-brokered", mode: "create" });
 const file = await bridge.files.read({ grantId: "exports", path: "smoke.txt", encoding: "utf8" });
 document.querySelector("#app").textContent = context.theme + ":" + String(directFetchBlocked);
-await bridge.tabs.open({ tabId: "smoke-tab", title: "Sandbox ready", route: "/ready", state: { directFetchBlocked, stored, file: file.data } });
+// Tabs open only from a person's press in the left-pane view.
+let unpromptedTabDenied = false;
+try { await bridge.tabs.open({ tabId: "unprompted", title: "Unprompted", route: "/" }); }
+catch (error) { unpromptedTabDenied = error instanceof Error && error.code === "TAB_DENIED"; }
+const transfers = [];
+document.addEventListener("drop", (event) => { transfers.push("drop:" + event.dataTransfer.files.length + ":" + event.dataTransfer.getData("text/plain")); });
+document.addEventListener("paste", (event) => { transfers.push("paste:" + event.clipboardData.files.length); });
+globalThis.smokeTransfers = () => transfers.slice();
+const opener = document.createElement("button");
+opener.textContent = "Open";
+opener.style.cssText = "position:fixed;left:0;top:0;width:200px;height:120px";
+opener.addEventListener("click", () => {
+  void bridge.tabs.open({ tabId: "smoke-tab", title: "Sandbox ready", route: "/ready", state: { directFetchBlocked, stored, file: file.data } })
+    .then(() => bridge.tabs.open({ tabId: "second-tab", title: "Second", route: "/" }))
+    .catch((error) => bridge.storage.set("second-tab-denied", error instanceof Error && error.code === "TAB_DENIED"));
+});
+document.body.append(opener);
+await bridge.storage.set("ui-ready", { unpromptedTabDenied });
 `, "utf8"),
     writeFile(join(root, "worker.js"), `
 let workerTopLevelStorageDenied = false;
@@ -979,6 +1036,11 @@ export async function handleAction(action, input) {
     return { workerTasksHints, workerFilesHints, workerChecksHints };
   }
   if (action === "instance") return { token: workerInstanceToken, value: await globalThis.workFoldRestrictedApp.storage.get("instance-value") };
+  if (action === "grants-probe") {
+    try { await globalThis.workFoldRestrictedApp.request({ destinationId: "principal-probe", method: "GET", path: "/probe" }); }
+    catch {}
+    return { token: workerInstanceToken };
+  }
   if (action === "signal") { await globalThis.workFoldRestrictedApp.storage.set("automation", { peerSignal: true }); return true; }
   if (action === "notification") {
     let checkDenied = false;
@@ -1049,6 +1111,7 @@ export async function handleAutomation(event) {
   }
   try { await globalThis.workFoldRestrictedApp.request({ destinationId: "principal-probe", method: "GET", path: "/probe" }); }
   catch {}
+  if (event.scheduledAt === "2026-07-13T00:00:45.000Z") return;
   if (event.scheduledAt === "2026-07-13T00:00:30.000Z") {
     await new Promise((resolve) => setTimeout(resolve, 200));
     await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "suspend-probe" });
@@ -1107,6 +1170,11 @@ function smokeManifest(loopbackPort) {
         name: "instance", description: "Read this installation's private test value.", action: "instance",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         resultSchema: { type: "object", properties: { token: { type: "string", maxLength: 100 }, value: { type: "string", maxLength: 100 } }, required: ["token", "value"], additionalProperties: false },
+      },
+      {
+        name: "grants-probe", description: "Reach the network broker so the smoke can read this operation's grants.", action: "grants-probe",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        resultSchema: { type: "object", properties: { token: { type: "string", maxLength: 100 } }, required: ["token"], additionalProperties: false },
       },
       {
         name: "probe",
@@ -1195,6 +1263,11 @@ function smokeManifest(loopbackPort) {
     // viewer-scope denial probe below.
     viewer: { entry: "viewer.html", readable: ["viewer-public/"] },
   };
+}
+
+async function clickInView(contents, x, y) {
+  contents.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
+  contents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
 }
 
 function appAutomationEvent(scheduledAt, reason, effectivePrincipal) {

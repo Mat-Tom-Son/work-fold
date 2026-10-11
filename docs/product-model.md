@@ -565,6 +565,11 @@ Owner decisions, recorded here in dated form; the body of this document and
   (⌘B and ⌘J), and the panel keeps its width.
 - Files has a sort control beside its search: Name, Date modified, Size, or
   Kind, with folders first; choosing the current option again reverses it.
+- An app or Extension rail button shows its left pane and never opens a tab by
+  itself. A tab comes from a click inside that pane, the way a file in Files
+  opens its preview: an Extension surface lists its views there, and an app's
+  left-pane view may open one tab per press of the person's mouse or keyboard.
+  Built-in **Automations** still opens its work-folder's tab directly.
 
 
 ### 2026-10-01 work-folders inside work-folders

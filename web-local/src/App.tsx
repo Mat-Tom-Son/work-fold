@@ -1495,14 +1495,8 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     // Automations opens its work-folder's own tab and leaves the navigator pane as it was.
     if (mode === "automations") { tabs.openWorkFolderAutomationsSurfaceTab(workFolder); return; }
     setActiveMode(mode);
-    if (mode.startsWith("app:restricted:")) return;
-    const surfaceKey = extensionSurfaceIdForMode(mode);
-    if (!surfaceKey) return;
-    const surface = resolveSurfaceForKey(surfaces, surfaceKey);
-    const firstView = surface?.views[0];
-    if (!surface || !firstView) return;
-    const activeMatches = activeTab?.kind === "extension" && surfaceMatchesTab(surface, activeTab);
-    if (!activeMatches) tabs.openExtensionSurfaceTab(workFolder, surface, firstView);
+    // Apps and Extension surfaces show their left pane and never open a tab by
+    // themselves; a tab comes from a click inside that pane, like a file.
   }
 
   function openInstalledRestrictedApp(targetWorkFolder: WorkFolderSummary, app: RestrictedAppInstalled): void {

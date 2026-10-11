@@ -79,6 +79,9 @@ import { resolveRestrictedAppCornerRadius } from "../../src/shared/restricted-ap
 export const restrictedAppProtocol = "agent-app";
 const networkChannel = "work-fold:restricted-app:network";
 const tabCommandChannel = "work-fold:restricted-app:tabs";
+/** Chromium's own transient user activation lasts five seconds. */
+const tabOpenInputWindowMs = 5_000;
+const userInputTypes = new Set(["mouseDown", "mouseUp", "rawKeyDown", "keyDown", "touchEnd", "gestureTap"]);
 const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
@@ -254,6 +257,8 @@ interface RestrictedAppUiInstance {
   active: boolean;
   occluded: boolean;
   crashed: boolean;
+  /** When the person last pressed a key or button in this view (main-process input, which page code cannot fake). */
+  lastUserInputAt: number;
   abortController: AbortController;
   destroyPromise?: Promise<void>;
 }
@@ -377,7 +382,16 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     ipcMain.handle(assistantInferChannel, (event, value) => this.#handleAssistantInference(event, value));
     ipcMain.handle(filesChannel, (event, value) => this.#handleFiles(event, value));
     ipcMain.handle(notificationsChannel, (event, value) => this.#handleNotification(event, value));
-    ipcMain.handle(tabCommandChannel, (event, value) => this.#handleTabCommand(event, value));
+    ipcMain.handle(tabCommandChannel, async (event, value) => {
+      // Answered as an envelope like the other lanes, so the app keeps the code.
+      try {
+        await this.#handleTabCommand(event, value);
+        return { ok: true };
+      } catch (error) {
+        const code = error instanceof RestrictedAppError ? error.code : "INPUT_INVALID";
+        return { ok: false, error: { code, message: errorMessage(error).slice(0, maxErrorTextLength) } };
+      }
+    });
     ipcMain.on(filesSubscriptionChannel, (event, value) => this.#handleFilesSubscription(event, value));
   }
 
@@ -584,6 +598,12 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       try { assertClaimable(); }
       catch (error) { this.#scheduleWorkerIdle(instance); throw error; }
       instance.pendingOperation = operation;
+      // A warm worker is shared by every operation of this installation, one
+      // at a time, and each brings its own grants: a tool call the app's, an
+      // automation only the subset it declared. Every effect reads
+      // `instance.app`, so it must be this operation's descriptor, not the
+      // one the worker happened to launch with.
+      instance.app = structuredClone(app);
       return instance;
     }
   }
@@ -724,6 +744,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       active: request.active,
       occluded: request.occluded,
       crashed: false,
+      lastUserInputAt: 0,
       abortController: new AbortController(),
     };
     try {
@@ -1025,6 +1046,10 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     contents.on("will-navigate", (event, url) => {
       if (!sameUiDocument(instance, url)) event.preventDefault();
     });
+    // Real presses only: these arrive from the window, never from page code.
+    contents.on("input-event", (_event, input) => {
+      if (userInputTypes.has(input.type)) instance.lastUserInputAt = Date.now();
+    });
     contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.session.on("will-download", (event) => event.preventDefault());
     contents.on("render-process-gone", () => {
@@ -1108,6 +1133,18 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (!instance) throw new RestrictedAppError("APP_UNAVAILABLE", "The tab request did not come from an installed app's main frame.");
     this.#assertEffectAuthorized(instance);
     const command = parseTabCommand(value, instance);
+    if (command.type === "open") {
+      // Rail buttons open the app's left-pane view, never a tab. A tab opens
+      // only when the person clicks something in that view, the way a file in
+      // Files opens its preview, and one press opens at most one tab.
+      if (instance.placement !== "navigator") {
+        throw new RestrictedAppError("TAB_DENIED", "Only the app's left-pane view can open a tab.");
+      }
+      if (Date.now() - instance.lastUserInputAt > tabOpenInputWindowMs) {
+        throw new RestrictedAppError("TAB_DENIED", "An app can open a tab only right after the person clicks or presses a key in its left-pane view.");
+      }
+      instance.lastUserInputAt = 0;
+    }
     this.#onTabCommand?.(command);
   }
 
