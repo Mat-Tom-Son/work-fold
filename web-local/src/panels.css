@@ -183,3 +183,21 @@
 :root[data-theme] .app-shell .window-chrome-agent-controls .window-chrome-button:disabled {
   opacity: 0.45;
 }
+
+/* An app's rail dot: the same still green "new, waiting to be seen" dot the
+   Chats use. The app sets and clears it (workFoldRestrictedApp.attention). */
+.app-shell .work-folder-rail-app {
+  position: relative;
+}
+
+.app-shell .work-folder-rail-attention {
+  position: absolute;
+  top: 5px;
+  left: calc(50% + 9px);
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #318568;
+  box-shadow: 0 0 0 2px var(--ui-canvas, #f4f5f1);
+  pointer-events: none;
+}

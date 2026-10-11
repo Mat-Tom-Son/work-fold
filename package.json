@@ -36,7 +36,7 @@
     "local:build": "vite build --config vite.local.config.ts",
     "desktop:icons": "node scripts/generate-desktop-icons.mjs && node scripts/generate-dmg-background.mjs",
     "desktop:check": "tsc --noEmit -p tsconfig.desktop.json",
-    "desktop:compile": "node scripts/clean-desktop-dist.mjs && tsc -p tsconfig.desktop.json",
+    "desktop:compile": "node scripts/clean-desktop-dist.mjs && tsc -p tsconfig.desktop.json && node scripts/stage-restricted-app-kit.mjs",
     "desktop:prepare": "npm run desktop:computer-helper && npm run desktop:chrome-native-host && npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:preload:smoke && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
     "desktop:package": "npm run desktop:prepare && electron-forge package && node scripts/verify-packaged-app-assets.mjs --package-dir out/work-fold-win32-x64",
     "desktop:package:smoke": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win --x64 --dir --publish never && npm run desktop:verify:packaged-assets -- --package-dir out/builder/win-unpacked",

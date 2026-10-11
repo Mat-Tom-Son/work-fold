@@ -4,6 +4,7 @@ const networkChannel = "work-fold:restricted-app:network";
 const tabCommandChannel = "work-fold:restricted-app:tabs";
 const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
+const attentionChannel = "work-fold:restricted-app:attention";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
 const tasksChangedChannel = "work-fold:restricted-app:tasks-changed";
 const checksChangedChannel = "work-fold:restricted-app:checks-changed";
@@ -149,6 +150,7 @@ const tabRequest = async (command: Record<string, unknown>): Promise<void> => {
   });
   throw error;
 };
+const attentionRequest = (count: unknown) => invokeHost(attentionChannel, { count }, 1_024, "APP_ERROR");
 const storageRequest = (operation: string, fields: Record<string, unknown> = {}) => invokeHost(storageChannel, { operation, ...fields }, maximumStorageEnvelopeBytes, "STORAGE_FAILED");
 const fileRequest = (operation: string, request: unknown) => invokeHost(filesChannel, { operation, request }, maximumFileEnvelopeBytes, "FILE_FAILED");
 const notificationRequest = (request: unknown) => invokeHost(notificationsChannel, request, 4 * 1024, "NOTIFICATION_FAILED");
@@ -323,6 +325,10 @@ const appBridge = Object.freeze({
       contextListeners.add(listener);
       return () => contextListeners.delete(listener);
     },
+  }),
+  attention: Object.freeze({
+    set: (value: { count: number }) => attentionRequest(value?.count),
+    clear: () => attentionRequest(0),
   }),
   tabs: Object.freeze({
     open: (tab: { tabId: string; title: string; route: string; state?: unknown }) => tabRequest({ type: "open", ...tab }),
