@@ -751,3 +751,17 @@ test("with the real observer, files added while closed are caught up and the sna
   const workFoldEntries = await readdir(join(root, ".work-fold"));
   assert.ok(!workFoldEntries.some((entry) => /automation|snapshot/i.test(entry)), "nothing automation-shaped enters the work-folder");
 });
+
+test("Turn on takes its first look before returning, so a file dropped right after is a change", async (t) => {
+  const harness = await createHarness(t);
+  harness.folder.write("Screenshots/already-there.png");
+  await harness.enable(screenshotsAutomation(automationId));
+  // No poll in between: the person drops a file the moment Turn on returns.
+  harness.folder.write("Screenshots/just-dropped.png");
+  await harness.poll();
+  await harness.poll(5_000);
+  await harness.settledRuns(1);
+  const [accepted] = await harness.acceptedRuns();
+  assert.deepEqual((accepted?.cause as { changedPaths?: string[] } | undefined)?.changedPaths, ["Screenshots/just-dropped.png"],
+    "only the new file, and the one already there before Turn on never launches work");
+});
