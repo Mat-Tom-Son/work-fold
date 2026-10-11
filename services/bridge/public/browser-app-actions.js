@@ -17,6 +17,8 @@ export function createBrowserAppActions({ element, execute, active }) {
   const live = (record) => record.status === "pending" || record.status === "running";
   const titleFor = (record) => String(record.title).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
   const current = (version) => version === generation && app && active();
+  // The desktop's plain message for a result the relay cannot carry.
+  const tooLarge = (caught) => caught?.code === "RESPONSE_TOO_LARGE" && typeof caught.message === "string" && caught.message.length > 0;
   function reset() {
     generation++; clearInterval(timer); app = null; refreshing = false; busy = false;
     records = []; detail = null; error = ""; fingerprint = "";
@@ -39,7 +41,7 @@ export function createBrowserAppActions({ element, execute, active }) {
     const version = generation; busy = true; error = ""; render();
     for (const control of element.querySelectorAll("button")) control.disabled = true;
     try { await run(); }
-    catch { if (current(version)) error = "Couldn't complete the request. Refresh its status before trying again."; }
+    catch (caught) { if (current(version)) error = tooLarge(caught) ? caught.message : "Couldn't complete the request. Refresh its status before trying again."; }
     finally { if (current(version)) { busy = false; render(); for (const control of element.querySelectorAll("button")) control.disabled = false; } }
   }
   async function show(requestId) {
@@ -64,7 +66,7 @@ export function createBrowserAppActions({ element, execute, active }) {
         }
       }
       error = ""; render();
-    } catch { if (current(version)) { error = "Action status unavailable. Refresh to try again."; render(); } }
+    } catch (caught) { if (current(version)) { error = tooLarge(caught) ? caught.message : "Action status unavailable. Refresh to try again."; render(); } }
     finally { if (version === generation) refreshing = false; }
   }
   function render() {

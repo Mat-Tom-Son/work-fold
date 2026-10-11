@@ -1912,7 +1912,10 @@ async function receiveRemoteEvent(event) {
     assertResponseEnvelope(event.envelope, event.operationId, pending.requestId, event.type);
     const payload = await decryptResponse(event.envelope);
     state.pendingOperations.delete(event.operationId);
-    event.envelope.header.ok ? pending.resolve(payload.result) : pending.reject(new Error(payload.error || "The desktop could not complete this request."));
+    // A typed refusal (for example RESPONSE_TOO_LARGE) keeps its code so a
+    // view can show the desktop's message instead of a generic failure.
+    event.envelope.header.ok ? pending.resolve(payload.result) : pending.reject(Object.assign(new Error(payload.error || "The desktop could not complete this request."),
+      typeof payload.code === "string" && /^[A-Z_]{1,64}$/.test(payload.code) ? { code: payload.code } : {}));
   }
 }
 

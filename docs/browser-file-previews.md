@@ -35,7 +35,10 @@ UTF-8 previews read at most 256 KiB; a larger text file displays a truncation
 notice without splitting its final code point. Markdown uses the client's inert
 renderer; HTML and SVG remain escaped text. PNG, JPEG, GIF, WebP, BMP and AVIF
 images are limited to 1 MiB. Binary, oversized and undecodable files have honest
-unavailable states. `previewDigest` hashes the bytes read, not necessarily the
+unavailable states. Both bounds fit inside the relay's response limit; should
+an encoded preview ever exceed it, the desktop answers "This file is too large
+to open in the browser" instead of sending it (see
+[transport limits](browser-apps.md#transport-limits)). `previewDigest` hashes the bytes read, not necessarily the
 whole file. Relative path, size and timestamps describe that read, rather than
 asserting the file will remain unchanged.
 

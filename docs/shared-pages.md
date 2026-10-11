@@ -368,6 +368,14 @@ a silent drop. The minute-interval bridge metrics record gains aggregate
 viewer counters with the existing rule intact: no ids, addresses, tokens,
 ciphertext, or content.
 
+The paired-browser lane keeps its own envelope bounds, separate from the
+viewer plane's: about 2.1 MiB of JSON per browser request (2 MiB × 1.4
+ciphertext characters; a message with uploads may use 12 MiB × 1.4) and about
+3.15 MiB per desktop response (3 MiB × 1.4). The desktop checks each response
+first and answers a larger one with a typed `RESPONSE_TOO_LARGE` refusal
+instead of sending it. See
+[transport limits](browser-apps.md#transport-limits).
+
 ### The mutation ledger
 
 Every publishing mutation answers the five questions from the

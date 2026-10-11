@@ -235,7 +235,10 @@ The browser-action foundation keeps exact requests and bounded results in a
 private machine-local journal, separate from content-free receipt summaries.
 Requests are limited to 4 MiB and results to 4 MiB; the journal prunes terminal
 records older than a day on new admission and keeps itself under a byte ceiling
-by pruning the oldest settled records.
+by pruning the oldest settled records. Through the relay, a paired browser
+sends at most 2 MiB per action call and receives about 3 MiB per response; the
+desktop refuses a larger response with a message instead of sending it (see
+[transport limits](docs/browser-apps.md#transport-limits)).
 Only the requesting paired browser and exact app authority can retrieve a
 result. A request runs the installed worker with its existing grants as soon as
 the desktop accepts it; it does not publish data or start a model. Only the

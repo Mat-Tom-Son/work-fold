@@ -192,3 +192,56 @@ test("a late result cannot revive a disconnected view and reconnect never replay
     assert.equal(runs, 1, "reopening only reads the accepted action's status");
   } finally { controller.destroy(); f.close(); }
 });
+
+test("content the relay cannot carry shows the desktop's message, and action calls are bounded by what the relay carries", async () => {
+  const f = documentFixture();
+  const tooLarge = (message: string) => Object.assign(new Error(message), { code: "RESPONSE_TOO_LARGE" });
+  const assetMessage = "This part of the app is too large to open in the browser. Open the app on your desktop.";
+  const resultMessage = "This result is too large to show in the browser. Open the app on your desktop to see it.";
+  let entryTooLarge = false;
+  const requests: any[] = [];
+  const controller = createBrowserAppView({ online: () => true,
+    read: async (_app: unknown, call: any) => {
+      if (call.kind === "entry" && !entryTooLarge) return entry;
+      throw tooLarge(assetMessage);
+    },
+    actions: async (_scope: any, operation: string, input: any) => {
+      if (operation === "request") { requests.push(input.request); return { action: { id: "receipt-one", requestId: input.request.requestId, title: "Save quote", status: "succeeded" } }; }
+      if (operation === "list") return { actions: requests.map((request) => ({ id: "receipt-one", requestId: request.requestId, title: "Save quote", status: "succeeded" })) };
+      throw tooLarge(resultMessage);
+    },
+  });
+  try {
+    await controller.open({ ...app, actions: true }); await flush();
+    const frame = document.querySelector("iframe")!; const messages: any[] = [];
+    frame.contentWindow!.postMessage = (message: any) => { messages.push(message); };
+    const send = (data: unknown) => window.dispatchEvent(new f.dom.window.MessageEvent("message", { data, source: frame.contentWindow as any }));
+    send({ type: "work-fold.browser-app.ready" }); const channel = messages[0].channel;
+    send({ type: "work-fold.browser-app.loaded", channel });
+
+    send({ type: "work-fold.browser-app.call", channel, callId: 1, call: { kind: "asset", path: "large.png" } });
+    await flush(); await flush();
+    assert.deepEqual({ code: messages.at(-1).code, message: messages.at(-1).message }, { code: "RESPONSE_TOO_LARGE", message: assetMessage });
+    assert.equal(document.querySelectorAll("iframe").length, 1, "one refused asset leaves the app running");
+
+    // Larger than the earlier 20 KiB cap, well within what the relay carries.
+    send({ type: "work-fold.browser-app.call", channel, callId: 2, call: { kind: "actions.request", request: { requestId: "request-one", action: "save", input: { note: "x".repeat(1024 * 1024) } } } });
+    await flush(); await flush();
+    assert.equal(requests.length, 1);
+    assert.equal(messages.at(-1).ok, true);
+    // Measured in UTF-8 bytes: three-byte characters push this past 2 MiB though the string is shorter.
+    send({ type: "work-fold.browser-app.call", channel, callId: 3, call: { kind: "actions.request", request: { requestId: "request-two", action: "save", input: { note: "€".repeat(750_000) } } } });
+    assert.equal(messages.at(-1).code, "REQUEST_TOO_LARGE");
+    assert.equal(requests.length, 1, "an oversized call never reaches the desktop");
+
+    const region = document.querySelector(".browser-app-actions")!;
+    const view = [...region.querySelectorAll("button")].find((button) => button.textContent === "View");
+    assert.ok(view); view.click(); await flush(); await flush();
+    assert.match(region.textContent!, /too large to show in the browser/, "the trusted parent shows the desktop's message for a result it cannot carry");
+
+    entryTooLarge = true;
+    document.querySelector<HTMLButtonElement>("[data-refresh]")!.click(); await flush(); await flush();
+    assert.equal(document.querySelectorAll("iframe").length, 0);
+    assert.equal(document.querySelector(".browser-app-content")!.textContent, assetMessage);
+  } finally { controller.destroy(); f.close(); }
+});

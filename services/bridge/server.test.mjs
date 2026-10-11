@@ -7,6 +7,7 @@ import { newDb } from "pg-mem";
 import WebSocket from "ws";
 
 import { BridgeDatabase, canonicalizeJson } from "./database.mjs";
+import { maximumActionCallBytes } from "./public/browser-app.js";
 import { shouldSubmitComposerKey } from "./public/composer.js";
 import { canDeleteChat, removeDeletedChat } from "./public/chat-delete.js";
 import { renderMarkdown } from "./public/markdown.js";
@@ -1575,6 +1576,57 @@ test("the work-fold agent's overview and app operations pass the management allo
     body: { envelope: browserOperationEnvelope(fixture) },
   });
   assert.equal(unauthenticated.response.status, 401);
+});
+
+test("paired-browser envelopes stop at the documented relay bounds that the desktop and client check first", async (context) => {
+  // docs/browser-apps.md "Transport limits": the desktop refuses a response
+  // over this many characters (desktop/src/remote-access.ts) and the client
+  // keeps an app action call small enough to fit a routine request.
+  const responseLimit = Math.floor(3 * 1024 * 1024 * 1.4);
+  const routineRequestLimit = Math.floor(2 * 1024 * 1024 * 1.4);
+  assert.equal(responseLimit, 4_404_019);
+  const scope = { workFolderId: "w".repeat(200), appId: "a".repeat(160), featureInstallationId: "f".repeat(160), digest: "d".repeat(64), authorityDigest: "e".repeat(64) };
+  const largestCallPlaintext = Buffer.byteLength(JSON.stringify({ input: { ...scope, request: {} } })) + maximumActionCallBytes;
+  assert.ok(Math.ceil(((largestCallPlaintext + 16) * 4) / 3) <= routineRequestLimit, "a maximum app action call fits one routine request envelope");
+
+  const service = await testService(context);
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const fixture = await pairedAccountFixture(context, baseUrl, { slug: "relay-bounds-test", password: "a relay bounds password", browserId: "browser-relay-bounds" });
+  const post = async (operation, ciphertextLength) => {
+    const header = { type: "work-fold.remote-request.v1", accountId: fixture.account.id, deviceId: fixture.account.id, grantId: fixture.certificate.grantId,
+      generation: fixture.account.grantGeneration, requestId: randomUUID(), operation, createdAt: new Date().toISOString() };
+    const envelope = { header, iv: randomBytes(12).toString("base64url"), ciphertext: "A".repeat(ciphertextLength), signature: "" };
+    envelope.signature = signText(fixture.browserKeys.signing.privateKey, envelopeText(envelope));
+    const result = await jsonRequest(`${baseUrl}/api/operations?slug=relay-bounds-test`, {
+      method: "POST", headers: { origin: baseUrl, cookie: fixture.cookie, "x-work-fold-csrf": fixture.csrfToken }, body: { envelope } });
+    return { header, result };
+  };
+  assert.equal((await post("apps.actions.request", routineRequestLimit + 1)).result.response.status, 413);
+  const request = await post("apps.read", routineRequestLimit);
+  assert.equal(request.result.response.status, 202);
+  const delivered = await fixture.messages.next("operation.request");
+  const respond = (ciphertextLength) => {
+    const envelope = {
+      header: { type: "work-fold.remote-response.v1", accountId: fixture.account.id, deviceId: fixture.account.id, grantId: fixture.certificate.grantId,
+        operationId: delivered.operation.id, requestId: request.header.requestId, generation: fixture.account.grantGeneration, sequence: 1, ok: true,
+        eventKind: "operation.complete", createdAt: new Date().toISOString() },
+      iv: randomBytes(12).toString("base64url"), ciphertext: "A".repeat(ciphertextLength), signature: "",
+    };
+    envelope.signature = signText(fixture.deviceKeys.signing.privateKey, envelopeText(envelope));
+    fixture.socket.send(JSON.stringify({ type: "operation.complete", envelope }));
+  };
+  respond(responseLimit + 1);
+  assert.match((await fixture.messages.next("protocol.error")).error, /envelope is invalid/, "one character over the bound is refused");
+  respond(responseLimit);
+  const settled = await waitFor(async () => {
+    const result = await jsonRequest(`${baseUrl}/api/operations/${delivered.operation.id}?slug=relay-bounds-test`, { headers: { cookie: fixture.cookie } });
+    return result.body.operation?.state === "done" ? result : null;
+  });
+  assert.equal(settled.body.events.at(-1).envelope.ciphertext.length, responseLimit, "a response at the bound reaches the browser");
+
+  // A refusal's code reaches the view that asked, so it can show the desktop's message.
+  const applicationSource = await readFile(new URL("./public/app.js", import.meta.url), "utf8");
+  assert.match(applicationSource, /payload\.code/);
 });
 
 test("the viewer plane serves live pages, charges budgets, keeps snapshots, and honors revocation", async (context) => {
