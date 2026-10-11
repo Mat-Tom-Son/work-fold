@@ -457,7 +457,8 @@ whose declaration is byte-identical. Removing or updating an app stops its UI
 views and worker before changing installed bytes.
 
 App Studio is a separate work-folder-bound work tab for moving reviewed previews into
-the local release-backed lane. The shipped lifecycle is:
+the local release-backed lane. Settings → Apps opens it from each work-folder's
+group heading and from an app's details. The shipped lifecycle is:
 
 1. Declare or edit one App Project's machine-local title, description, and icon.
    The Project record stays in work-fold application data; no portable Project

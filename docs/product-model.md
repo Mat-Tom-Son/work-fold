@@ -330,12 +330,13 @@ as the desktop runtime. The accepted identities, authority rules, implementation
 order, and private hosted milestone are defined in
 [App platform foundation](app-platform-foundation.md).
 
-In the shipped local path, the existing Chat-bound or advanced direct preview
+In the shipped local path, a Chat-bound or `work-fold apps install-preview` preview
 is explicitly a **Local preview** in the source work-folder's Development Instance.
 App Studio separately declares Project presentation, prepares, publishes, and
 deletes unused Releases, installs one into a chosen registered work-folder, and
 manages update, rollback, uninstall, retained data, and purge. App Studio is a work-folder-bound work
-tab reached from an app's details in Settings → Apps, not a fifth top-level rail destination.
+tab reached from each work-folder's group heading in Settings → Apps and from an
+app's details there, not a fifth top-level rail destination.
 
 ## Shared semantic layer
 
