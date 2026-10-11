@@ -45,8 +45,7 @@ export function WorkFolderAutomationsNavigator({
                   aria-label={copy.open(automation.title)}
                   onClick={() => onOpen(automation)}
                 >
-                  <span className={`automation-health ${stateClass(automation.state)}`}>{copy.states[automation.state]}</span>
-                  <span><strong>{automation.title}</strong><small>{lastRunText(automation)}</small></span>
+                  <span><strong>{automation.title}</strong><small><span className={`automation-health ${stateClass(automation.state)}`}>{copy.states[automation.state]}</span> · {lastRunText(automation)}</small></span>
                   <ChevronRight16Regular aria-hidden="true" />
                 </button>
               );

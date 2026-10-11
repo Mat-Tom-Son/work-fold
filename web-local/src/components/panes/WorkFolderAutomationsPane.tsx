@@ -101,7 +101,7 @@ export function WorkFolderAutomationsPane({
           {automations.map((automation) => (
             <li className="folder-automation-row" key={automation.automationId}>
               <div className="folder-automation-heading">
-                <strong>{automation.title}</strong>
+                {automationId ? null : <strong>{automation.title}</strong>}
                 <span className={`automation-health ${stateClass(automation.state)}`}>{copy.states[automation.state]}</span>
               </div>
               <p className="folder-automation-trigger">{automation.triggerSummary}</p>
