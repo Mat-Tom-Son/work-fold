@@ -58,6 +58,7 @@ import { boundedLiveTurnPresentation } from "./turn-live-presentation.js";
 import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry, type ChatLiveTurnPresentation } from "../../shared/chat-presentation.js";
 import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
+import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -745,7 +746,7 @@ export class PiConversationClient extends EventEmitter {
       this.appToolTitles = restrictedAppToolTitles(restrictedApps);
       const customTools = [
         ...(this.hostCapabilities?.restrictedAppProposals
-          ? [createRestrictedAppProposalTool({
+          ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
             workFolderId: this.hostCapabilities.workFolderId,
             workFolderRoot: options.cwd,
             conversationId: this.conversationId,
@@ -1491,7 +1492,9 @@ export function createRestrictedAppProposalTool(input: {
     description: "Add a completed work-folder app package from the current work-folder. work-fold inspects and hashes the folder, adds it as this work-folder's local preview immediately with every declared destination, access to the whole work-folder, notification category, and automation on, and records a receipt. Secrets are never stored by this tool.",
     promptSnippet: "Add a work-folder app from a package folder in this work-folder",
     promptGuidelines: [
-      "When the user asks you to create or update a work-fold side-rail app, write the complete restricted app package inside the current work-folder, then call propose_work-folder_app with its work-folder-relative folder.",
+      "When the user asks you to create or update a work-fold side-rail app, write the complete restricted app package inside the current work-folder, then call propose_work-folder_app with its work-folder-relative folder. For a new app, start with start_work-folder_app, which writes a working package that already follows these rules, and build from it.",
+      "Make the app look like work-fold: link /__work-fold/kit.css and put class wf-app on <body> for the shell's font, colors, and controls: wf-button (with wf-button-primary, wf-button-quiet, wf-button-danger), wf-input, wf-select, wf-textarea, wf-field, wf-toolbar, wf-list with wf-row, wf-row-title, and wf-row-meta, wf-card, wf-badge, wf-empty, wf-divider, wf-spinner, wf-title, wf-heading, and wf-muted. For anything custom, use the --wf-* variables work-fold puts into every view: --wf-font, --wf-font-size, --wf-canvas, --wf-surface, --wf-surface-subtle, --wf-surface-hover, --wf-text, --wf-text-muted, --wf-text-subtle, --wf-border, --wf-border-strong, --wf-accent, --wf-on-accent, --wf-accent-soft, --wf-accent-text, --wf-focus, --wf-success, --wf-danger, --wf-attention, --wf-radius-sm, --wf-radius-md, --wf-radius-lg, and --wf-shadow. They follow light and dark and the work-folder's accent live, so never hard-code the shell's colors.",
+      "globalThis.workFoldRestrictedApp.attention.set({count}) puts a dot on the app's rail button to say something new is waiting, and attention.clear() removes it. Call it from the view or from the worker during an automation run, and clear it once the person has seen what was new.",
       `The package must contain package.json with an agentApp path and already-built local assets; work-fold never runs npm or installs dependencies. agent-app.json version 2 has id, title, optional description, runtime {kind:'sandboxed-web',entry,worker?}, ui {icon?,cornerRadius?}, tools, automations, and permissions {network,files,notifications?}. cornerRadius is an optional whole number from 0 through 24; omission uses work-fold's rounded 12px canvas and 0 deliberately requests square corners. Each automation has id, title, optional description, handler, trigger {kind:'interval',intervalMinutes:${restrictedAppAutomationIntervalMinutes.minimum}..${restrictedAppAutomationIntervalMinutes.maximum}}, explicit network/file/notification permission-id subsets, catchUp:'none'|'latest', and overlap:'skip'. A notification is {id,title,description} with static single-line copy and must be referenced by an automation. A file permission is {id,target:'file'|'directory',access:'read'|'read-write'}. A network permission has id, target ({kind:'public-https',origin} or {kind:'loopback-http',host:'127.0.0.1'|'::1',port}), explicit GET/POST/PUT/PATCH/DELETE methods, auth, and an optional requestHeaders array naming up to 16 extra lowercase request headers beyond the always-allowed accept/content-type/if-modified-since/if-none-match; routing, hop-by-hop, and credential header names are rejected. Public auth supports none, api-key {header}, bearer, basic, or oauth2-pkce {issuer,clientId,scopes,discovery?,authorizationEndpoint?,tokenEndpoint?,authorizationParameters?}; loopback is anonymous only. Never put a secret in the package.`,
       "OAuth discovery is 'oauth-authorization-server' (RFC 8414, the default), 'openid-configuration' (providers that publish only an OIDC document), or 'pinned' with an exact authorizationEndpoint and tokenEndpoint and no query string. Use pinned only when a provider publishes neither document or its metadata issuer does not match the URL you declare, and note that pinned endpoints must use the issuer's exact host — subdomains and sibling hosts are refused, so a provider that serves authorization and tokens from different hosts must be reached through discovery, because only a document served from the issuer's own well-known path can vouch for another host. authorizationParameters is up to eight {name,value} pairs of reviewed static text for provider dialects — Google needs access_type=offline (add prompt=consent to force a refresh token on re-authorization), some providers need audience or resource. Names the authorization request owns (response_type, client_id, redirect_uri, scope, state, code_challenge, code_challenge_method, grant_type, code, client_secret, request, request_uri, response_mode and similar) are rejected at review. work-fold always sends PKCE S256 and never sends a client secret, so a provider that under-advertises those in its metadata still connects.",
       "Call globalThis.workFoldRestrictedApp.limits.get() to read the host's runtime bounds synchronously and design to them instead of failing into them: network.maxRequestBytes/maxResponseBytes/timeoutMs, storage.quotaBytes/maxKeys/maxValueBytes, files.maxReadBytes/maxWriteBytes, automations.minimumIntervalMinutes/maximumIntervalMinutes, assistant.summaryBytes/dataBytes/resultFiles, and subscriptions.minHintIntervalMs/filePollIntervalMs/fileDebounceMs/fileMinHintIntervalMs/fileMaxFiles. Page network reads under the response limit and handle NETWORK_RESPONSE_TOO_LARGE by requesting a smaller range. App storage is small and is the wrong place for bulk data: request a read-write directory permission and write large or long-lived records as ordinary work-folder files, which the person and the Worker can also read with normal tools.",
@@ -1532,6 +1535,41 @@ export function createRestrictedAppProposalTool(input: {
         sourcePath,
       }, signal);
       return { content: [{ type: "text", text: restrictedAppProposalResultText(result) }], details: result };
+    },
+  };
+}
+
+export function createRestrictedAppStarterTool(input: { workFolderRoot: string }): ToolDefinition<any> {
+  return {
+    name: "start_work-folder_app",
+    label: "Start a work-folder app",
+    description: "Write a small, working work-fold app package into a new folder in this work-folder: a left-pane home with a list, click-to-open tabs, app storage, work-fold's look (kit.css and --wf-* variables), and the rail dot cleared once seen. Edit it into the app the person wants, then call propose_work-folder_app with the same folder.",
+    promptSnippet: "Start a new work-folder app package from a working template",
+    parameters: {
+      type: "object",
+      properties: {
+        folder: { type: "string", minLength: 1, description: "New or empty folder for the package, relative to the work-folder root, for example apps/reading-list." },
+        id: { type: "string", minLength: 1, maxLength: 64, description: "App id: lowercase letters, numbers, and hyphens." },
+        title: { type: "string", minLength: 1, maxLength: 80, description: "Short human-readable app name." },
+        description: { type: "string", minLength: 1, maxLength: 280, description: "One sentence saying what the app does." },
+        icon: { type: "string", minLength: 1, maxLength: 64, description: "Icon name from work-fold's catalog, for example apps, checklist, mail, calendar, or table." },
+      },
+      required: ["folder", "id", "title", "description", "icon"],
+      additionalProperties: false,
+    } as any,
+    executionMode: "sequential",
+    async execute(_toolCallId, params) {
+      const value = params as Record<string, unknown>;
+      const text = (key: string) => (typeof value[key] === "string" ? value[key] as string : "");
+      const files = restrictedAppStarterFiles({ id: text("id"), title: text("title"), description: text("description"), icon: text("icon") });
+      const folder = await writeRestrictedAppStarter(input.workFolderRoot, text("folder"), files);
+      return {
+        content: [{
+          type: "text",
+          text: `Wrote a starter app in ${folder}: ${Object.keys(files).join(", ")}. It runs as is. Edit app.js, styles.css, and agent-app.json into the app the person asked for, keep the left pane as its home, then call propose_work-folder_app with sourcePath ${folder}.`,
+        }],
+        details: { folder, files: Object.keys(files) },
+      };
     },
   };
 }

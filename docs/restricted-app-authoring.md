@@ -32,7 +32,9 @@ shows the native Pi Extension lane and is intentionally not a sandbox example.
 The normal product path begins in a Chat belonging to the target work-folder:
 
 1. Ask a Worker to build the app. It writes a complete package into an
-   ordinary visible folder inside that work-folder.
+   ordinary visible folder inside that work-folder, usually starting from the
+   `start_work-folder_app` tool, which writes a small working app that already
+   follows the rules below (2026-10-11).
 2. The agent calls the host-owned `propose_work-folder_app` tool with only the
    work-folder-relative package folder.
 3. work-fold inspects the package without running JavaScript, computes its
@@ -330,7 +332,7 @@ a header reviewed for one destination grants nothing to another.
 
 For a private browser view, add the reviewed `viewer.entry` and `viewer.readable`
 declaration in the manifest template above and use `workFoldViewerApp` in that entry. Paired
-browsers can open it from work-folders without publishing a share link; source-work-folder
+browsers open it from a Chat's result link without publishing a share link; source-work-folder
 previews are supported too. Keep the web entry responsive and self-contained,
 and obtain packaged assets through `asset()`/`assetUrl()` instead of relative
 URLs in the blob document. Declared worker actions can use the separate private
@@ -357,7 +359,13 @@ if (actions) {
 request ids after reopening; use `get(requestId)` for a result and
 `cancel(requestId)` to stop a request. Poll conservatively while visible.
 `createRequest` works in opaque frames where `crypto.randomUUID` may be absent.
-Inputs are schema-checked and limited to 4 MiB, results to 4 MiB. The normal
+Inputs are schema-checked and limited to 4 MiB, results to 4 MiB, on the
+desktop. A paired browser reaches the desktop through a relay that carries
+less: an action call (request id, action and input) of at most 2 MiB of UTF-8
+JSON, a result of about 3 MiB of JSON, and an asset from `asset()` of about
+2.3 MiB. Larger ones fail with the code `REQUEST_TOO_LARGE` or
+`RESPONSE_TOO_LARGE` and a plain message, and the app keeps running; see
+[transport limits](browser-apps.md#transport-limits). The normal
 worker executes with existing installed grants, not browser-chosen owners or
 new permissions. There is no app-facing shell or grant API.
 If a request times out, check its status or list existing requests before
@@ -429,6 +437,51 @@ periods, underscores, colons, and hyphens. Routes must begin with one `/` and
 remain origin-relative. State is JSON-compatible and limited to 64 KiB. The
 app never supplies a work-folder id, digest, or shell tab id. Opening an existing
 app-local id activates or retargets its work-folder-owned tab.
+
+### Looking like work-fold
+
+work-fold puts its own look into every app view as CSS custom properties
+(2026-10-11): `--wf-font`, `--wf-font-size`, `--wf-canvas`, `--wf-surface`,
+`--wf-surface-subtle`, `--wf-surface-hover`, `--wf-text`, `--wf-text-muted`,
+`--wf-text-subtle`, `--wf-border`, `--wf-border-strong`, `--wf-accent`,
+`--wf-on-accent`, `--wf-accent-soft`, `--wf-accent-text`, `--wf-focus`,
+`--wf-success`, `--wf-danger`, `--wf-attention`, `--wf-radius-sm`,
+`--wf-radius-md`, `--wf-radius-lg`, `--wf-shadow`, plus `--wf-theme` and
+`--wf-color-scheme`. The trusted renderer reads them from its own live styles,
+so they follow light and dark, the work-folder's accent, and the person's
+appearance choices, and they change in place when any of those change. They
+are variables only: an app that never uses them looks exactly as before.
+`--wf-font` names Inter, which the view loads from its own origin.
+
+For ready-made controls, opt in to the kit:
+
+```html
+<link rel="stylesheet" href="/__work-fold/kit.css">
+<body class="wf-app">
+```
+
+The kit styles `wf-button` (with `wf-button-primary`, `wf-button-quiet`, and
+`wf-button-danger`), `wf-input`, `wf-select`, `wf-textarea`, `wf-field`,
+`wf-toolbar`, `wf-list` with `wf-row`, `wf-row-title`, and `wf-row-meta`,
+`wf-card`, `wf-badge` (with `wf-badge-accent`, `-success`, `-danger`, and
+`-attention`), `wf-empty`, `wf-divider`, `wf-spinner`, `wf-title`,
+`wf-heading`, `wf-muted`, and `wf-small`. Every kit selector uses `:where()`, so
+it carries no specificity and the app's own rules always win. `/__work-fold/`
+is host-owned: package files under that path are never served.
+
+### The rail dot
+
+```js
+await bridge.attention.set({ count: 3 }); // a dot on the app's rail button
+await bridge.attention.clear();
+```
+
+An app may put a dot on its own rail button to say something new is waiting,
+the same still green dot the Chats use for an unseen reply. A mounted view
+(shown or not) or the worker during an operation may set it; the count, a
+whole number up to 9,999, is read out to assistive technology. The app owns
+clearing it, usually once the person has seen what was new. Stopping or
+removing the app clears it.
 
 ### Brokered network requests
 

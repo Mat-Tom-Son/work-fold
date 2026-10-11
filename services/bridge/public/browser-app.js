@@ -1,4 +1,13 @@
 import { createBrowserAppActions } from "./browser-app-actions.js";
+
+/**
+ * The relay carries at most 2 MiB × 1.4 characters of encrypted request
+ * (`maximumRoutineEnvelopeBytes` in services/bridge/server.mjs), about 2.1 MiB
+ * of JSON. A 2 MiB call plus its app scope always fits (docs/browser-apps.md).
+ */
+export const maximumActionCallBytes = 2 * 1024 * 1024;
+/** The desktop's typed refusal for a response the relay could not carry. */
+export const responseTooLargeCode = "RESPONSE_TOO_LARGE";
 /** Private app views use paired-browser authority, never a public share link. */
 export function createBrowserAppView({ read, online, resolve = async (app) => app, actions }) {
   const dialog = document.createElement("dialog");
@@ -30,7 +39,13 @@ export function createBrowserAppView({ read, online, resolve = async (app) => ap
   async function call(value, expectedGeneration) {
     let result;
     try { result = await read(selected, value); }
-    catch (error) { if (generation === expectedGeneration) unavailable("This app could not be reached. Refresh to try again."); throw error; }
+    catch (error) {
+      // Too large for the relay: the app keeps running and hears the
+      // desktop's message, and a refused entry shows that message.
+      if (error?.code === responseTooLargeCode) throw error;
+      if (generation === expectedGeneration) unavailable("This app could not be reached. Refresh to try again.");
+      throw error;
+    }
     if (generation !== expectedGeneration || !dialog.open || !online()) throw new Error("This app view is no longer active.");
     if (result?.state !== "served") {
       unavailable("This app changed or is unavailable. Refresh to try again.");
@@ -50,7 +65,7 @@ export function createBrowserAppView({ read, online, resolve = async (app) => ap
       const target = selected;
       const fresh = await resolve({ ...target });
       if (current !== generation) return;
-      if (!fresh || fresh.workFolderId !== target.workFolderId || fresh.featureInstallationId !== target.featureInstallationId || fresh.appId !== target.appId) throw new Error("This app is no longer installed. Open Apps again.");
+      if (!fresh || fresh.workFolderId !== target.workFolderId || fresh.featureInstallationId !== target.featureInstallationId || fresh.appId !== target.appId) throw new Error("This app is no longer installed. Check Settings → Apps on your desktop.");
       selected = { ...target, ...fresh }; label();
       dialog.querySelector("footer span").textContent = selected.actions && actions ? "Actions run on your desktop" : "Read-only view";
       if (!selected.webView) return unavailable("This app has no web view yet. Open it on your desktop.");
@@ -102,9 +117,16 @@ export function createBrowserAppView({ read, online, resolve = async (app) => ap
     const respond = (payload) => { if (current === generation && dialog.open && online()) target.postMessage({ type: "work-fold.browser-app.result", channel, callId: data.callId, ...payload }, "*"); };
     const kinds = ["asset", "data.get", "data.keys"];
     const actionCall = selected.actions && actions && ["actions.request", "actions.get", "actions.list", "actions.cancel"].includes(data.call?.kind);
-    let valid = false;
-    try { valid = (kinds.includes(data.call?.kind) || actionCall) && JSON.stringify(data.call).length <= (actionCall ? 20 * 1024 : 1024); } catch {}
-    if (!valid) return respond({ ok: false, code: "APP_DENIED", message: actionCall ? "This action request is invalid or too large." : "That operation is unavailable in this app view." });
+    let json;
+    try { json = JSON.stringify(data.call); } catch {}
+    // Action input crosses the relay as UTF-8, so measure it in bytes.
+    const size = typeof json !== "string" ? Infinity : actionCall ? new TextEncoder().encode(json).length : json.length;
+    if (actionCall && Number.isFinite(size) && size > maximumActionCallBytes) {
+      return respond({ ok: false, code: "REQUEST_TOO_LARGE", message: "This request is too large to send from the browser (2 MB at most)." });
+    }
+    if (!((kinds.includes(data.call?.kind) || actionCall) && size <= (actionCall ? maximumActionCallBytes : 1024))) {
+      return respond({ ok: false, code: "APP_DENIED", message: actionCall ? "This action request is invalid." : "That operation is unavailable in this app view." });
+    }
     if (inFlight >= 4 || document.visibilityState === "hidden") return respond({ ok: false, code: "APP_BUSY", message: "The app is busy or inactive. Try again." });
     inFlight++;
     void (actionCall ? actionPanel.call(data.call) : call(data.call, current)).then((result) => respond({ ok: true, result })).catch((error) => {

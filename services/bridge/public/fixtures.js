@@ -49,8 +49,12 @@ export function buildFixture(name, { running = false } = {}) {
       ["assistant", "One file per book, with three headings:\n\n### Ideas to keep\nA few sentences in your own words.\n\n### Passages to return to\nThe quote and its page number.\n\n### What this changes\nOne thing you might think about or do differently.\n\nAdd to it as you read. You don’t need to fill every section."],
     ]))],
   ]);
+  // The app result's revision differs from the installed fixture app, so
+  // opening it shows "Updated since this task".
   fixtureThreads.get("chat-2").summary.latestRequest = { phase: "succeeded",
-    actions: [{ command: "files.add", workFolderId: "work-folder-1", workFolderName: "Launch plan", copied: ["reports/q3-summary.md"] }] };
+    actions: [{ command: "files.add", workFolderId: "work-folder-1", workFolderName: "Launch plan", copied: ["reports/q3-summary.md"] },
+      { command: "apps.install-preview", workFolderId: "work-folder-1", workFolderName: "Launch plan", apps: [{ workFolderId: "work-folder-1",
+        workFolderName: "Launch plan", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "b".repeat(64), title: "Quote board", version: "1.0.0" }] }] };
   if (running) {
     const report = fixtureThreads.get("chat-2");
     Object.assign(report, {

@@ -174,7 +174,12 @@ read-only view, including a Development preview. The declaration alone does
 not publish anything. That browser host uses two opaque frames and the same
 selected-data read implementation behind an exact-installation adapter; it
 exposes no native runtime, write, network, file, Check or Worker authority.
-See [work-folder apps in paired browsers](browser-apps.md).
+What reaches a paired browser is bounded by the relay, not by the desktop's
+larger limits: about 3 MiB of JSON per response (an asset of about 2.3 MiB)
+and an app action call of at most 2 MiB. The desktop answers a larger response
+with a `RESPONSE_TOO_LARGE` refusal and a plain message instead of sending it.
+See [work-folder apps in paired browsers](browser-apps.md) and its
+[transport limits](browser-apps.md#transport-limits).
 
 The trusted work-fold renderer owns only a placeholder rectangle and app
 identity. Electron main verifies the installed Runtime Instance, Feature
@@ -188,7 +193,10 @@ navigation, workers, frames, service workers, and file selection denied. A
 file dragged or pasted in from the computer is stopped before any app listener
 can read it (2026-10-11); an app's own drag and drop of text or elements still
 reaches it. Its CSP permits only reviewed same-origin scripts, styles, images,
-and fonts. Native
+and fonts. The host injects the shell's look as `--wf-*` CSS variables
+(validated against an allowlist, unsafe values dropped) and serves its kit
+stylesheet and Inter font on the app's own origin under the host-owned
+`/__work-fold/` path, so the policy is unchanged (2026-10-11). Native
 view bounds and visibility follow the owning DOM placeholder; inactive tabs,
 hidden windows, minimization, and modal occlusion detach the native view while
 leaving its renderer alive.
@@ -227,7 +235,10 @@ The `work-fold.restricted-app-bridge` preload exposes only the frozen
   Check revision in the owning work-folder, only in an active visible desktop view; and
 - `notifications.show({ permissionId })` selects reviewed static copy, only
   during an enabled automation invocation whose permission subset includes a
-  separately granted category; and
+  separately granted category;
+- `attention.set({ count })` and `attention.clear()` put or remove a dot on the
+  app's rail button, from a mounted view or a worker holding an operation
+  (2026-10-11); the shell keeps the current set across a window reload; and
 - `limits.get()` returns the host's effective network, storage, file,
   automation, inference, Worker request, and change-hint bounds synchronously.
 

@@ -767,6 +767,8 @@ export interface RestrictedAppViewRequest {
   active: boolean;
   occluded: boolean;
   theme: AppTheme;
+  /** The shell's look as `--wf-*` values, read from this placeholder's own styles. */
+  appearance?: Record<string, string>;
 }
 
 export interface RestrictedAppProposal {
