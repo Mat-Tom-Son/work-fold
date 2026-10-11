@@ -191,6 +191,15 @@ export interface WorkFoldAutomationHopPorts {
   check(step: WorkFoldAutomationCheckStep, context: WorkFoldAutomationHopContext): Promise<WorkFoldAutomationCheckHopResult>;
   /** Reads one checkpoint's manifest from the named work-folder's History; null when missing. */
   checkpointManifest(workFolderId: string, checkpointId: string): Promise<WorkFoldAutomationCheckpointManifest | null>;
+  /**
+   * Why a step's named model cannot run, in plain words, or null when it can:
+   * it must exist and its provider must be connected. Checked when an
+   * automation is enabled, so an unattended run never meets it first.
+   */
+  modelProblem?(
+    model: { provider: string; id: string },
+    scope: { workFolder: string } | { workFoldAgent: true },
+  ): Promise<string | null>;
 }
 
 /**
@@ -404,6 +413,11 @@ export class WorkFoldAutomationService {
     if (declaration.trigger.kind === "files-changed") {
       if (!this.#observeFiles) throw new Error("folder-change triggers are unavailable in this runtime.");
       await this.#observeFiles(declaration.trigger);
+    }
+    for (const step of declaration.steps) {
+      if ((step.kind !== "chat" && step.kind !== "agent") || !step.model || !this.#ports.modelProblem) continue;
+      const problem = await this.#ports.modelProblem(step.model, step.kind === "chat" ? { workFolder: step.workFolder } : { workFoldAgent: true });
+      if (problem) throw new Error(`Step "${step.id}": ${problem}`);
     }
     const record = await this.#store.enable(input);
     const automationId = record.declaration.id;

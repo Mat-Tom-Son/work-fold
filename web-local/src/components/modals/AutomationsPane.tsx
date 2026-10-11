@@ -28,6 +28,7 @@ export type AutomationStepView =
     kind: "chat";
     workFolder: AutomationWorkFolderRef;
     message: string;
+    model?: { provider: string; id: string };
   }
   | {
     id: string;
@@ -50,6 +51,7 @@ export type AutomationStepView =
     id: string;
     kind: "agent";
     message: string;
+    model?: { provider: string; id: string };
   };
 
 export interface AutomationSummaryView {
@@ -772,6 +774,7 @@ function AutomationStep({ step }: { step: AutomationStepView }) {
       <li>
         <div className="automation-step-heading"><strong>Worker</strong><span>{workFolderLabel(step.workFolder)}</span></div>
         <blockquote>{step.message}</blockquote>
+        {step.model ? <p className="automation-step-model">Uses {step.model.id} ({step.model.provider}) for this step</p> : null}
       </li>
     );
   }
@@ -788,6 +791,7 @@ function AutomationStep({ step }: { step: AutomationStepView }) {
       <li>
         <div className="automation-step-heading"><strong>Message work-fold agent</strong><span>Starts a new chat</span></div>
         <blockquote>{step.message}</blockquote>
+        {step.model ? <p className="automation-step-model">Uses {step.model.id} ({step.model.provider}) for this step</p> : null}
       </li>
     );
   }

@@ -354,7 +354,7 @@ test("Automation help's complete authoring example passes the real proposal vali
   );
   const help = workFoldCliHelp("work-fold", "automations");
   assert.match(help, /never a backlog of missed events/);
-  assert.match(help, /Debounce: 1–3600 seconds\. Cooldown: 0–10080 minutes\. 64 runs may/);
+  assert.match(help, /Debounce: 1–3600 seconds\. Cooldown: 0–10080 minutes\. Up to 64 runs may/);
   assert.doesNotMatch(help, /Up to 16 steps/);
   assert.doesNotMatch(help, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
 });

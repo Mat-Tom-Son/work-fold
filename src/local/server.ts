@@ -574,7 +574,7 @@ export interface WorkFoldAutomationSettingsFacade {
       createdAt: string;
       workFolders: WorkFoldAutomationSettingsWorkFolderRef[];
       steps: Array<
-        | { id: string; kind: "chat"; workFolder: WorkFoldAutomationSettingsWorkFolderRef; message: string }
+        | { id: string; kind: "chat"; workFolder: WorkFoldAutomationSettingsWorkFolderRef; message: string; model?: { provider: string; id: string } }
         | {
           id: string;
           kind: "files";
@@ -584,7 +584,7 @@ export interface WorkFoldAutomationSettingsFacade {
           source: ReturnType<typeof toActAutomationFilesSource>;
         }
         | { id: string; kind: "check"; workFolder: WorkFoldAutomationSettingsWorkFolderRef; checkId?: string }
-        | { id: string; kind: "agent"; message: string }
+        | { id: string; kind: "agent"; message: string; model?: { provider: string; id: string } }
       >;
       completedAt?: string;
     };
@@ -8092,6 +8092,14 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const projections = await runActOperation(() => state.automations.listAutomations());
       return { automations: projections.map(toActAutomationSummary) };
     },
+    async automationsModels() {
+      const models = await listPiModels(workFoldAgentScopeForRoutes(state).rootPath, state.runtimeProvider);
+      return {
+        models: models.filter((model) => model.configured)
+          .map((model) => ({ provider: model.provider, providerName: model.providerName, id: model.id, name: model.name, seesImages: model.input.includes("image") }))
+          .sort((a, b) => a.providerName.localeCompare(b.providerName) || a.name.localeCompare(b.name)),
+      };
+    },
     async automationsShow(input) {
       const automationId = input.automation.trim();
       const projection = await runActOperation(() => state.automations.getAutomation(automationId));
@@ -8106,7 +8114,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         automation: {
           ...toActAutomationSummary(projection),
           steps: projection.declaration.steps.map((step) => step.kind === "chat"
-            ? { id: step.id, kind: "chat" as const, workFolderId: step.workFolder, ...named(step.workFolder), message: step.message }
+            ? { id: step.id, kind: "chat" as const, workFolderId: step.workFolder, ...named(step.workFolder), message: step.message, ...(step.model ? { model: step.model } : {}) }
             : step.kind === "files"
               ? {
                 id: step.id,
@@ -8120,7 +8128,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
               }
               : step.kind === "check"
                 ? { id: step.id, kind: "check" as const, workFolderId: step.workFolder, ...named(step.workFolder), ...(step.check ? { checkId: step.check } : {}) }
-                : { id: step.id, kind: "agent" as const, message: step.message }),
+                : { id: step.id, kind: "agent" as const, message: step.message, ...(step.model ? { model: step.model } : {}) }),
           grants: projection.grants.map((grant) => ({
             digest: grant.digest,
             requestId: grant.requestId,
@@ -10052,7 +10060,7 @@ function createWorkFoldAutomationSettingsFacade(state: LocalApiState): WorkFoldA
           createdAt: projection.declaration.createdAt,
           workFolders,
           steps: projection.declaration.steps.map((step) => step.kind === "chat"
-            ? { id: step.id, kind: "chat" as const, workFolder: named(step.workFolder), message: step.message }
+            ? { id: step.id, kind: "chat" as const, workFolder: named(step.workFolder), message: step.message, ...(step.model ? { model: step.model } : {}) }
             : step.kind === "files"
               ? {
                 id: step.id,
@@ -10069,7 +10077,7 @@ function createWorkFoldAutomationSettingsFacade(state: LocalApiState): WorkFoldA
                   workFolder: named(step.workFolder),
                   ...(step.check ? { checkId: step.check } : {}),
                 }
-                : { id: step.id, kind: "agent" as const, message: step.message }),
+                : { id: step.id, kind: "agent" as const, message: step.message, ...(step.model ? { model: step.model } : {}) }),
           ...(projection.atOccurrence?.finishedAt
             ? { completedAt: projection.atOccurrence.finishedAt }
             : projection.atOccurrence?.consumedAt
@@ -13363,6 +13371,9 @@ function createAutomationHopPorts(state: LocalApiState): WorkFoldAutomationHopPo
     async chat(step, message, context) {
       const workFolder = await getWorkFolder(step.workFolder);
       const conversation = await createConversation(workFolder.workFolderRoot);
+      // A step's own model applies to this new Chat only: Pi records it in the
+      // session without touching the work-folder's or anyone's defaults.
+      if (step.model) await (await getClient(state, workFolder.id, workFolder.workFolderRoot, conversation.id)).setModel(step.model.provider, step.model.id);
       const checkpoints: { pre?: string; post?: string } = {};
       const observer = (event: TurnCheckpointEvent): void => {
         if (event.workFolderId !== workFolder.id || event.conversationId !== conversation.id) return;
@@ -13395,12 +13406,13 @@ function createAutomationHopPorts(state: LocalApiState): WorkFoldAutomationHopPo
     // management thread: standing behavior must not entangle a conversation
     // someone is in the middle of, and turn-conflict rejection stays exact.
     // The acceptance shape is byte-for-byte the one `agent send` uses.
-    async workFoldAgent(_step, message, context) {
+    async workFoldAgent(step, message, context) {
       if (state.workFoldAgentInstructionsError) {
         throw new Error("The work-fold agent is unavailable because work-fold could not prepare its instructions.");
       }
       const scope = workFoldAgentScopeForRoutes(state);
       const conversation = await createConversation(scope.rootPath);
+      if (step.model) await (await getClient(state, scope.id, scope.rootPath, conversation.id)).setModel(step.model.provider, step.model.id);
       const { taskId } = await acceptConversationTurn(state, { id: scope.id, workFolderRoot: scope.rootPath }, conversation.id, {
         content: message,
         contextPaths: [],
@@ -13416,6 +13428,13 @@ function createAutomationHopPorts(state: LocalApiState): WorkFoldAutomationHopPo
         result: await completedRequestEnvelope(state, taskId),
         ...(settled.error !== undefined ? { error: settled.error } : {}),
       };
+    },
+    async modelProblem(model, scope) {
+      const root = "workFolder" in scope ? (await getWorkFolder(scope.workFolder)).workFolderRoot : workFoldAgentScopeForRoutes(state).rootPath;
+      const known = (await listPiModels(root, state.runtimeProvider)).find((item) => item.provider === model.provider && item.id === model.id);
+      if (!known) return `work-fold does not know the model ${model.id} from ${model.provider}. Choose one Settings → AI Models lists.`;
+      if (!known.configured) return `${known.name} needs ${known.providerName} connected in Settings → AI Models first.`;
+      return null;
     },
     async checkRunFindings(workFolderId, taskId) {
       const workFolder = await getWorkFolder(workFolderId).catch(() => null);

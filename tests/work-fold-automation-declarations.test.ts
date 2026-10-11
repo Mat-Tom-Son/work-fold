@@ -542,3 +542,26 @@ test("version 5 lets a folder-change trigger catch up, and older versions keep t
   assert.equal(version3.version, 3);
   assert.equal("ifMissed" in version3.automation.trigger, false);
 });
+
+test("a chat or agent step may name its own model, and only as a provider and id", () => {
+  const base = { kind: "work-fold.automation", version: 4, id: "automation-step-models", title: "Sort screenshots", createdBy: "assistant", createdAt: "2026-07-01T00:00:00.000Z", trigger: { kind: "manual" } };
+  const parsed = normalizeWorkFoldAutomationDeclaration({ ...base, steps: [
+    { id: "sort", kind: "chat", workFolder: "space-0000000000000001", message: "Sort.", model: { provider: " anthropic ", id: "claude-sonnet-4-5" } },
+    { id: "tell", kind: "agent", message: "Done.", model: { provider: "openai", id: "gpt-5" } },
+    { id: "plain", kind: "chat", workFolder: "space-0000000000000001", message: "Plain." },
+  ] });
+  assert.deepEqual(parsed.steps.map((step) => "model" in step ? step.model : undefined), [
+    { provider: "anthropic", id: "claude-sonnet-4-5" },
+    { provider: "openai", id: "gpt-5" },
+    undefined,
+  ]);
+  const withModel = (model: unknown) => normalizeWorkFoldAutomationDeclaration({ ...base, steps: [{ id: "sort", kind: "chat", workFolder: "space-0000000000000001", message: "Sort.", model }] });
+  assert.throws(() => withModel("claude"), /model must be a JSON object/);
+  assert.throws(() => withModel({ provider: "anthropic" }), /model/);
+  assert.throws(() => withModel({ provider: "anthropic", id: "x", thinking: "high" }), /unsupported field: thinking/);
+  assert.throws(() => withModel({ provider: "", id: "x" }), /provider/);
+  assert.throws(() => withModel({ provider: "anthropic", id: "x\ny" }), /model id/);
+  // An older folder-change declaration may name a model too.
+  const v3 = normalizeWorkFoldAutomationDeclaration({ ...base, version: 3, steps: [{ id: "sort", kind: "chat", workFolder: "space-0000000000000001", message: "Sort.", model: { provider: "anthropic", id: "claude-sonnet-4-5" } }] });
+  assert.deepEqual((v3.steps[0] as { model?: unknown }).model, { provider: "anthropic", id: "claude-sonnet-4-5" });
+});
