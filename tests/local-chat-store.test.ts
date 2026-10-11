@@ -452,6 +452,25 @@ test("an app's request keeps its app marker, and logs without one still load", a
   assert.equal(messages.get("bad-id")?.appId, undefined);
 });
 
+test("saved work trails keep an app tool's readable title and drop an unusable one alone", async (t) => {
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "work-fold-chat-store-tool-title-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
+  const appTool = `app_${"1a2b3c4d".repeat(2)}_search`;
+  await appendMessage(workFolderRoot, "chat-tool-title", {
+    id: "reply", role: "assistant", content: "Found 3.", createdAt: "2026-10-11T12:00:00.000Z",
+    workTrail: [
+      { kind: "tool", text: "Inbox: Search finished", toolName: appTool, toolTitle: "Inbox: Search", phase: "complete" },
+      { kind: "tool", text: "Read finished", toolName: "read", toolTitle: "x".repeat(201), detail: "notes.md", phase: "complete" },
+    ],
+  });
+  const [reply] = await readConversation(workFolderRoot, "chat-tool-title");
+  assert.equal(reply?.workTrail?.length, 2, "an unusable title never drops the trail");
+  assert.equal(reply?.workTrail?.[0]?.toolTitle, "Inbox: Search");
+  assert.equal(reply?.workTrail?.[0]?.toolName, appTool, "the registered name stays the identity");
+  assert.equal(reply?.workTrail?.[1]?.toolTitle, undefined);
+  assert.equal(reply?.workTrail?.[1]?.detail, "notes.md");
+});
+
 test("chat store persists archive and snooze state as append-only lifecycle events", async (t) => {
   const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-lifecycle-"));
   t.after(() => rm(workFolderRoot, { recursive: true, force: true }));

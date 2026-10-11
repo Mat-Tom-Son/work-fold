@@ -139,7 +139,7 @@ function ToolStep({
       <FluentGlyph icon={toolIcon(key)} size={16} filled={false} className="work-step-icon" />
       <div className="work-step-body">
         <div className="work-step-line">
-          <span className={`work-step-verb${shimmer}`}>{toolVerb(key, active)}</span>
+          <span className={`work-step-verb${shimmer}`}>{toolVerb(key, active, toolTitle(entry))}</span>
           {target ? (resolved && onOpenWorkFolderFile ? (
             <button type="button" className={`work-step-target file${shimmer}`} title={resolved} onClick={() => onOpenWorkFolderFile(resolved)}>
               {display}
@@ -342,10 +342,27 @@ function humanizeTool(key: string): string {
   return key.replace(/[_-]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-export function toolVerb(key: string, active: boolean): string {
+/** An app's tool is registered as `app_<16 hex>_<name>`; the hash is never shown. */
+const appToolName = /^app_[0-9a-f]{16}_(.+)$/i;
+
+/**
+ * The name a step shows for a tool without its own verb. An app's tool says
+ * which app it belongs to ("Inbox: Search"); a step saved before titles were
+ * recorded falls back to the tool's own name, marked as an app's.
+ */
+export function toolTitle(entry: RuntimePreviewEntry): string {
+  const title = entry.toolTitle?.trim();
+  if (title) return title;
+  const key = toolKey(entry);
+  const app = appToolName.exec(key)?.[1]?.replace(/[_-]+/g, " ").trim();
+  if (app) return `${app.charAt(0).toUpperCase()}${app.slice(1)} (app)`;
+  return humanizeTool(key);
+}
+
+export function toolVerb(key: string, active: boolean, title = humanizeTool(key)): string {
   const verbs = toolVerbs[key];
   if (verbs) return active ? verbs.running : verbs.done;
-  return `${active ? "Using" : "Used"} ${humanizeTool(key)}`;
+  return `${active ? "Using" : "Used"} ${title}`;
 }
 
 /** One finished tool call as a sentence fragment: "Read Character Map.md". */
@@ -353,7 +370,7 @@ export function toolStepLabel(entry: RuntimePreviewEntry): string {
   const key = toolKey(entry);
   const target = entry.detail?.trim() ?? "";
   const display = commandTools.has(key) ? target : targetFileName(target);
-  return `${toolVerb(key, false)} ${display}`.trim();
+  return `${toolVerb(key, false, toolTitle(entry))} ${display}`.trim();
 }
 
 /**
@@ -372,12 +389,14 @@ export function workStepsSummary(entries: RuntimePreviewEntry[]): string {
   if (tools.length === 1 && tools[0]) return toolStepLabel(tools[0]);
   const order: string[] = [];
   const touched = new Map<string, Set<string>>();
+  const titles = new Map<string, string>();
   for (const tool of tools) {
     const key = toolKey(tool);
     let targets = touched.get(key);
     if (!targets) {
       targets = new Set();
       touched.set(key, targets);
+      titles.set(key, toolTitle(tool));
       order.push(key);
     }
     targets.add(commandTools.has(key) ? tool.id : tool.detail?.trim() || tool.id);
@@ -385,7 +404,7 @@ export function workStepsSummary(entries: RuntimePreviewEntry[]): string {
   return order.map((key, index) => {
     const verbs = toolVerbs[key];
     const count = touched.get(key)?.size ?? 1;
-    const phrase = verbs ? (count > 1 ? verbs.many : verbs.one) : `Used ${humanizeTool(key)}`;
+    const phrase = verbs ? (count > 1 ? verbs.many : verbs.one) : `Used ${titles.get(key) ?? humanizeTool(key)}`;
     return index === 0 ? phrase : `${phrase.charAt(0).toLowerCase()}${phrase.slice(1)}`;
   }).join(", ");
 }

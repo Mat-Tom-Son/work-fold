@@ -265,7 +265,12 @@ Feature Installation id, and resolved CLI actions retain that pin through
 execution. A stale removal reports nothing removed; other stale controls refuse
 to operate on a same-byte reinstall. Worker-facing tool names include a hash of the
 installation and complete tool name, keeping sibling actions distinct even when
-long displayed name suffixes are truncated.
+long displayed name suffixes are truncated. That name is never shown: a Chat's
+steps, live and saved, name the app and the tool instead — `Used Inbox:
+Search messages`, with `(preview)` after a local preview's title — through
+an optional `toolTitle` on the saved work-trail entry (2026-10-11). A step
+saved before that falls back to the tool's own name marked as an app's
+(`Used Search messages (app)`).
 
 ## Worker host
 

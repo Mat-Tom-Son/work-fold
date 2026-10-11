@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createRestrictedAppTools } from "../src/local/agent/pi-client.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { PiConversationClient, createRestrictedAppTools, restrictedAppToolTitles, type PiChatEvent } from "../src/local/agent/pi-client.js";
+import { appendMessage, readConversation } from "../src/local/agent/chat-store.js";
 import { parseAppPlatformArtifactDigest } from "../src/local/agent/app-platform-artifact.js";
 import {
   parseAuthorityStamp,
@@ -100,4 +105,40 @@ test("app tools distinguish sibling installations of identical bytes and remain 
   longNames.manifest.tools = ["a", "b"].map((suffix) => ({ ...installed.manifest.tools[0]!, name: "x".repeat(60) + suffix }));
   const longTools = createRestrictedAppTools({ workFolderId: "work-folder-one", apps: [longNames], service: { invoke: async () => ({ count: 0 }) } });
   assert.notEqual(longTools[0]!.name, longTools[1]!.name, "truncated display suffixes must not collide");
+});
+
+test("an app tool's steps carry the app and tool names instead of the registered hash", async (t) => {
+  const other = structuredClone(installed);
+  other.featureInstallationId = parseFeatureInstallationId("feature-installation_other");
+  other.runtimeInstanceKind = "app";
+  const tools = createRestrictedAppTools({ workFolderId: "work-folder-one", apps: [installed, other], service: { invoke: async () => ({ count: 0 }) } });
+  const titles = restrictedAppToolTitles([installed, other]);
+  assert.deepEqual([...titles.keys()], tools.map((tool) => tool.name), "every registered app tool has a title");
+  assert.equal(titles.get(tools[0]!.name), "Connected inbox (preview): Inbox search");
+  assert.equal(titles.get(tools[1]!.name), "Connected inbox: Inbox search");
+
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-tool-steps-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const client = new PiConversationClient("app-tool-steps", root);
+  // Set as the session does when it registers the app's tools.
+  (client as unknown as { appToolTitles: Map<string, string> }).appToolTitles = titles;
+  const events: PiChatEvent[] = [];
+  client.on("event", (event) => events.push(event));
+  const native = (event: unknown) => (client as unknown as { handleSessionEvent(event: unknown): void }).handleSessionEvent(event);
+  const name = tools[1]!.name;
+  native({ type: "tool_execution_start", toolCallId: "app-1", toolName: name, args: { query: "invoices" } });
+  native({ type: "tool_execution_end", toolCallId: "app-1", toolName: name, isError: false, result: { content: [{ type: "text", text: "{}" }] } });
+  native({ type: "tool_execution_start", toolCallId: "read-1", toolName: "read", args: { path: "notes.md" } });
+  const tool = events.filter((event) => event.type === "tool");
+  assert.deepEqual(tool.map((event) => event.message), ["Connected inbox: Inbox search running", "Connected inbox: Inbox search finished", "Read running"]);
+  assert.deepEqual(tool.map((event) => event.toolTitle), ["Connected inbox: Inbox search", "Connected inbox: Inbox search", undefined]);
+  assert.ok(tool.every((event) => !/App [0-9a-f]{16}/i.test(event.message ?? "")), "no step message shows the hash");
+  assert.equal(client.getTurnLivePresentation()?.workTrail[0]?.toolTitle, "Connected inbox: Inbox search");
+
+  const trail = client.getTurnWorkTrail();
+  assert.equal(trail[0]?.toolName, name, "the registered name stays the identity");
+  assert.equal(trail[0]?.toolTitle, "Connected inbox: Inbox search");
+  assert.equal(trail[1]?.toolTitle, undefined, "built-in tools keep their own verbs");
+  await appendMessage(root, "saved", { id: "reply", role: "assistant", createdAt: "2026-10-11T12:00:00.000Z", content: "Found it.", workTrail: trail });
+  assert.equal((await readConversation(root, "saved"))[0]?.workTrail?.[0]?.toolTitle, "Connected inbox: Inbox search", "the saved work trail keeps it");
 });

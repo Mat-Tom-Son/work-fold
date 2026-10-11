@@ -4,7 +4,7 @@ import { appendFile, mkdir, open, readFile, readdir, rename, stat, unlink, write
 import { join } from "node:path";
 
 import { workFolderConversationDir, workFolderStateDir } from "../state-paths.js";
-import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
+import { maxChatToolTitleLength, maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
 import { parseAssistantPresentation, parseChatToolEdit } from "./turn-presentation.js";
 import {
   normalizeConversationTitle,
@@ -68,6 +68,7 @@ export interface ChatMessageInterruptionActivity {
   message: string;
   detail?: string;
   toolName?: string;
+  toolTitle?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
 
@@ -554,6 +555,11 @@ function isAppSourceTitle(value: unknown): value is string {
     && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(value);
 }
 
+function isChatToolTitle(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxChatToolTitleLength
+    && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(value);
+}
+
 function isRemoteProvenanceId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 160 && /^[A-Za-z0-9._:-]+$/.test(value);
 }
@@ -595,6 +601,7 @@ function isChatMessageInterruptionActivity(value: unknown): value is ChatMessage
   return typeof record.message === "string"
     && (record.detail === undefined || typeof record.detail === "string")
     && (record.toolName === undefined || typeof record.toolName === "string")
+    && (record.toolTitle === undefined || typeof record.toolTitle === "string")
     && (
       record.phase === undefined
       || record.phase === "queued"
@@ -622,6 +629,8 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
       text: entry.text,
       ...(entry.detail === undefined ? {} : { detail: entry.detail }),
       ...(entry.toolName === undefined ? {} : { toolName: entry.toolName }),
+      // A newer field: an unreadable title is dropped, never the whole trail.
+      ...(isChatToolTitle(entry.toolTitle) ? { toolTitle: entry.toolTitle } : {}),
       ...(entry.phase === undefined ? {} : { phase: entry.phase }),
       ...(entry.order === undefined ? {} : { order: entry.order }),
       ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),

@@ -131,6 +131,7 @@ export interface ChatMessageInterruptionActivity {
   message: string;
   detail?: string;
   toolName?: string;
+  toolTitle?: string;
   phase?: AgentActivityPhase;
 }
 
@@ -927,6 +928,8 @@ export interface ChatStreamEvent {
   message?: string;
   text?: string;
   toolName?: string;
+  /** Readable name for a tool whose registered name is not, such as an app's. */
+  toolTitle?: string;
   toolCallId?: string;
   phase?: AgentActivityPhase;
   thinkingPhase?: "start" | "delta" | "end";

@@ -451,6 +451,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
           text: event.message?.trim() || event.toolName?.trim() || "Tool",
           ...(event.detail?.trim() ? { detail: event.detail.trim() } : {}),
           ...(event.toolName?.trim() ? { toolName: event.toolName.trim() } : {}),
+          ...(event.toolTitle?.trim() ? { toolTitle: event.toolTitle.trim() } : {}),
           ...(event.order !== undefined ? { order: event.order } : {}),
           ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
           ...(event.edit ? { edit: event.edit } : {}),
