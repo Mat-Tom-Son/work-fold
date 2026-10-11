@@ -174,7 +174,12 @@ read-only view, including a Development preview. The declaration alone does
 not publish anything. That browser host uses two opaque frames and the same
 selected-data read implementation behind an exact-installation adapter; it
 exposes no native runtime, write, network, file, Check or Worker authority.
-See [work-folder apps in paired browsers](browser-apps.md).
+What reaches a paired browser is bounded by the relay, not by the desktop's
+larger limits: about 3 MiB of JSON per response (an asset of about 2.3 MiB)
+and an app action call of at most 2 MiB. The desktop answers a larger response
+with a `RESPONSE_TOO_LARGE` refusal and a plain message instead of sending it.
+See [work-folder apps in paired browsers](browser-apps.md) and its
+[transport limits](browser-apps.md#transport-limits).
 
 The trusted work-fold renderer owns only a placeholder rectangle and app
 identity. Electron main verifies the installed Runtime Instance, Feature

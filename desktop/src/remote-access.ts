@@ -27,6 +27,16 @@ import type { RemoteAccessSettings, RemoteBrowserGrantSettings, SecureSettingsSt
 const reconnectDelaysMs = [500, 1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
 const maximumRememberedResponses = 256;
 const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1.4);
+/**
+ * The relay's bound on one device response envelope: base64url ciphertext of
+ * at most 3 MiB × 1.4 characters (`maximumResponseEnvelopeBytes` in
+ * services/bridge/server.mjs), which is about 3.15 MiB of response JSON. The
+ * relay treats a larger frame as a protocol error and closes the device
+ * socket after a few, so the desktop checks first (docs/browser-apps.md).
+ */
+export const maximumRemoteResponseCiphertextCharacters = Math.floor(3 * 1024 * 1024 * 1.4);
+/** The typed refusal a paired browser receives instead of an oversized response. */
+export const remoteResponseTooLargeCode = "RESPONSE_TOO_LARGE";
 const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.delete", "management.send", "management.request",
@@ -774,6 +784,13 @@ export class RemoteAccessClient {
     payload: unknown,
     type: "operation.event" | "operation.complete",
   ): RemoteEnvelope {
+    let plaintext = JSON.stringify(payload);
+    const fits = remoteResponseCiphertextCharacters(plaintext) <= maximumRemoteResponseCiphertextCharacters;
+    if (!fits) {
+      // The relay would refuse this frame, and repeated refusals close the
+      // device socket. Answer with a small typed refusal instead.
+      plaintext = JSON.stringify({ error: remoteResponseTooLargeMessage(operation.operation), code: remoteResponseTooLargeCode });
+    }
     const header = {
       type: "work-fold.remote-response.v1",
       accountId: settings.accountId,
@@ -783,11 +800,11 @@ export class RemoteAccessClient {
       requestId: operation.requestId,
       generation: grant.generation,
       sequence,
-      ok,
+      ok: ok && fits,
       eventKind: type,
       createdAt: new Date().toISOString(),
     };
-    const envelope = encryptEnvelope(settings.deviceEncryptionPrivateJwk, grant.encryptionPublicJwk, grant.id, header, payload);
+    const envelope = encryptEnvelope(settings.deviceEncryptionPrivateJwk, grant.encryptionPublicJwk, grant.id, header, plaintext);
     envelope.signature = signP1363(settings.deviceSigningPrivateJwk, signedEnvelopeText(envelope));
     this.send({ type, envelope });
     return envelope;
@@ -1238,12 +1255,36 @@ function operationName(value: unknown): WorkFoldRemoteOperation {
   return value as WorkFoldRemoteOperation;
 }
 
-function encryptEnvelope(privateJwk: JsonWebKey, publicJwk: JsonWebKey, grantId: string, header: Record<string, unknown>, payload: unknown): RemoteEnvelope {
+/**
+ * The base64url ciphertext length of a response whose JSON is `plaintext`:
+ * AES-GCM keeps the plaintext length and appends a 16-byte tag.
+ */
+function remoteResponseCiphertextCharacters(plaintext: string): number {
+  return Math.ceil(((Buffer.byteLength(plaintext, "utf8") + 16) * 4) / 3);
+}
+
+function remoteResponseTooLargeMessage(operation: string): string {
+  switch (operation) {
+    case "work-folders.filePreview":
+      return "This file is too large to open in the browser. Open it on your desktop.";
+    case "apps.read":
+      return "This part of the app is too large to open in the browser. Open the app on your desktop.";
+    case "apps.actions.request":
+    case "apps.actions.get":
+    case "apps.actions.list":
+    case "apps.actions.cancel":
+      return "This result is too large to show in the browser. Open the app on your desktop to see it.";
+    default:
+      return "This is too large to show in the browser. Open work-fold on your desktop to see it.";
+  }
+}
+
+function encryptEnvelope(privateJwk: JsonWebKey, publicJwk: JsonWebKey, grantId: string, header: Record<string, unknown>, plaintext: string): RemoteEnvelope {
   const key = transportKey(privateJwk, publicJwk, grantId);
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   cipher.setAAD(Buffer.from(canonicalize(header)));
-  const encrypted = Buffer.concat([cipher.update(JSON.stringify(payload)), cipher.final(), cipher.getAuthTag()]);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final(), cipher.getAuthTag()]);
   return { header, iv: iv.toString("base64url"), ciphertext: encrypted.toString("base64url"), signature: "" };
 }
 

@@ -330,7 +330,7 @@ a header reviewed for one destination grants nothing to another.
 
 For a private browser view, add the reviewed `viewer.entry` and `viewer.readable`
 declaration in the manifest template above and use `workFoldViewerApp` in that entry. Paired
-browsers can open it from work-folders without publishing a share link; source-work-folder
+browsers open it from a Chat's result link without publishing a share link; source-work-folder
 previews are supported too. Keep the web entry responsive and self-contained,
 and obtain packaged assets through `asset()`/`assetUrl()` instead of relative
 URLs in the blob document. Declared worker actions can use the separate private
@@ -357,7 +357,13 @@ if (actions) {
 request ids after reopening; use `get(requestId)` for a result and
 `cancel(requestId)` to stop a request. Poll conservatively while visible.
 `createRequest` works in opaque frames where `crypto.randomUUID` may be absent.
-Inputs are schema-checked and limited to 4 MiB, results to 4 MiB. The normal
+Inputs are schema-checked and limited to 4 MiB, results to 4 MiB, on the
+desktop. A paired browser reaches the desktop through a relay that carries
+less: an action call (request id, action and input) of at most 2 MiB of UTF-8
+JSON, a result of about 3 MiB of JSON, and an asset from `asset()` of about
+2.3 MiB. Larger ones fail with the code `REQUEST_TOO_LARGE` or
+`RESPONSE_TOO_LARGE` and a plain message, and the app keeps running; see
+[transport limits](browser-apps.md#transport-limits). The normal
 worker executes with existing installed grants, not browser-chosen owners or
 new permissions. There is no app-facing shell or grant API.
 If a request times out, check its status or list existing requests before

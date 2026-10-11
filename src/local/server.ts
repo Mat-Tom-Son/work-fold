@@ -5349,9 +5349,11 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           const workFolderId = remoteStableId(input.workFolderId, "work-folder id", 512);
           await getWorkFolder(workFolderId);
           const apps = await state.restrictedApps.list(workFolderId);
-          await getWorkFolder(workFolderId);
+          // The current name, so an app view opened from an older result link
+          // shows the work-folder as it is called now.
+          const { name: workFolderName } = await getWorkFolder(workFolderId);
           return { apps: apps.slice(0, 64).map((app) => ({
-            workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
+            workFolderId, workFolderName, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
             digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority),
             title: app.manifest.title, version: app.version, preview: app.runtimeInstanceKind === "development",
             webView: Boolean(app.manifest.viewer),
@@ -7282,7 +7284,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           ? state.restrictedApps.activateLocalAppInstall(operation.operationId)
           : state.restrictedApps.activateLocalAppUpdate(operation.operationId));
         await recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.activate", workFolder,
-          apps: result.apps.map(workFoldAgentAppResultRef) });
+          apps: result.apps.map((app) => ({ ...workFoldAgentAppResultRef(app), ...(app.workFolderId === target.id ? { workFolderName: target.name } : {}) })) });
         return {
           workFolder: toActWorkFolderRef(workFolder),
           operationId: operation.operationId,
@@ -8902,7 +8904,11 @@ async function recordFacadeAction(
     ...(input.checkpointId !== undefined ? { checkpointId: input.checkpointId } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),
     ...(input.copied ? { copied: input.copied } : {}),
-    ...(input.apps ? { apps: input.apps.slice(0, 64) } : {}),
+    // Each app result names its own work-folder so a result link can label
+    // it; an installation in the act's work-folder takes that name.
+    ...(input.apps ? { apps: input.apps.slice(0, 64).map((app) => app.workFolderName === undefined && input.workFolder && app.workFolderId === input.workFolder.id
+      ? { ...app, workFolderName: input.workFolder.name }
+      : app) } : {}),
   });
 }
 

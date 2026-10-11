@@ -53,7 +53,12 @@ client treats the relay as its authority. Device protocol errors are finite and
 terminal, unknown typed frames are ignored for version skew, and displaced
 device generations are fenced. Browser event streams tolerate ordinary Node
 backpressure and drop a slow client only after an explicit 8 MiB queued-byte
-bound.
+bound. Envelope ciphertext is bounded at 12 MiB × 1.4 characters for a
+message with uploads, 2 MiB × 1.4 for every other browser request, and
+3 MiB × 1.4 for each desktop response. The desktop and the web client check
+these first, so an oversized result arrives as a typed `RESPONSE_TOO_LARGE`
+refusal rather than a device protocol error; see
+[transport limits](../../docs/browser-apps.md#transport-limits).
 
 The browser can open and rename bounded saved work-fold agent Chats, invoke that one
 canonical management agent, and attach at most six files (6 MB each, 8 MB
