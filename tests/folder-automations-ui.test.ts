@@ -114,3 +114,15 @@ test("Turn off posts the work-folder-scoped act and refreshes; an emptied list s
   assert.equal(dom.container.querySelector(".folder-automations-empty")?.textContent, "No automations touch this work-folder.");
   assert.equal(dom.container.querySelectorAll(".folder-automations-empty").length, 1);
 });
+
+test("an automation's own tab shows just that automation, and says so when it no longer touches the work-folder", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  const fixture = buildFixtureFolderAutomations()["fixture-home"]!;
+  const props = { workFolder: home, automations: fixture, active: false, fixtureMode: true, onRefresh: async () => {}, onOpenAllAutomations: () => {} };
+  await dom.render(createElement(WorkFolderAutomationsPane, { ...props, automationId: fixture[0]!.automationId }));
+  assert.equal(dom.container.querySelector("h1")?.textContent, fixture[0]!.title);
+  assert.equal(dom.container.querySelectorAll(".folder-automation-row").length, 1);
+  await dom.render(createElement(WorkFolderAutomationsPane, { ...props, automationId: "removed-automation" }));
+  assert.equal(dom.container.querySelector(".folder-automations-empty")?.textContent, "This automation no longer touches this work-folder.");
+});

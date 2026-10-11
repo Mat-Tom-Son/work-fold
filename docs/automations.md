@@ -464,9 +464,13 @@ automation's trigger or step names that work-folder; the renderer reads
 window regains focus, and caches the list per work-folder. Actions in Settings or
 a work-folder's Automations tab refresh the cached work-folder views immediately, so
 the rail does not wait for a window switch to show a newly enabled proposal
-or remove a deleted declaration. The entry opens one
-work-folder-owned **Automations** tab (`work-folder-automations`) under the
-work-folder-bound-tab rules. Each row carries the title, one state word (On, Off,
+or remove a deleted declaration. *Amended 2026-10-11 (owner decision):* like
+Files, the entry shows a list of those automations in the left pane (title,
+state, last run) and never opens a tab by itself; clicking an automation opens
+its own work-folder-owned tab (`work-folder-automation`, one per automation)
+under the work-folder-bound-tab rules. Earlier saved `work-folder-automations`
+tabs still restore. The pane falls back to Files once nothing in the
+work-folder is automated. Each tab carries the title, one state word (On, Off,
 Running, Suspended, or Done), the trigger summary Settings shows, what the
 automation does in this work-folder (Watches this work-folder, Copies files here,
 Copies files from here, Starts a Chat here, Runs a Check here), and the last

@@ -174,6 +174,12 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
+  function openWorkFolderAutomationSurfaceTab(targetWorkFolder: WorkFolderSummary, automation: { automationId: string; title: string }): void {
+    const tab = workFolderAutomationSurfaceTab(targetWorkFolder, automation);
+    setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
+    setActiveSurfaceTabId(tab.id);
+  }
+
   function openExtensionSurfaceTab(
     targetWorkFolder: WorkFolderSummary,
     surface: CapabilitySurface,
@@ -297,6 +303,7 @@ export function useSurfaceTabs({
     openAppStudioSurfaceTab,
     openChecksSurfaceTab,
     openWorkFolderAutomationsSurfaceTab,
+    openWorkFolderAutomationSurfaceTab,
     openExtensionSurfaceTab,
     openRestrictedAppSurfaceTab,
     updateRestrictedAppSurfaceTab,
@@ -427,6 +434,16 @@ function normalizeStoredSurfaceTab(value: unknown): WorkFolderSurfaceTab | null 
       kind: "checks",
       workFolderId: record.workFolderId,
       title: "Checks",
+    };
+  }
+  if (record.kind === "work-folder-automation") {
+    if (typeof record.automationId !== "string" || !record.automationId || record.automationId.length > 200) return null;
+    return {
+      id: `work-folder-automation:${record.workFolderId}:${record.automationId}`,
+      kind: "work-folder-automation",
+      workFolderId: record.workFolderId,
+      automationId: record.automationId,
+      title: record.title,
     };
   }
   if (record.kind === "work-folder-automations") {
@@ -605,6 +622,17 @@ export function spaceAutomationsSurfaceTab(workFolder: WorkFolderSummary): WorkF
     kind: "work-folder-automations",
     workFolderId: workFolder.id,
     title: "Automations",
+  };
+}
+
+/** One automation that touches this work-folder, opened from the Automations list in the left pane. */
+export function workFolderAutomationSurfaceTab(workFolder: WorkFolderSummary, automation: { automationId: string; title: string }): WorkFolderSurfaceTab {
+  return {
+    id: `work-folder-automation:${workFolder.id}:${automation.automationId}`,
+    kind: "work-folder-automation",
+    workFolderId: workFolder.id,
+    automationId: automation.automationId,
+    title: automation.title,
   };
 }
 

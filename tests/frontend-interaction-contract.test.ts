@@ -345,17 +345,20 @@ async function read(relativePath: string): Promise<string> {
   return readFile(join(root, relativePath), "utf8");
 }
 
-test("the work-folder-owned Automations rail entry sits after History, shows only when an automation touches the work-folder, and opens its tab", () => {
+test("the work-folder-owned Automations rail entry sits after History, shows only when an automation touches the work-folder, and lists them in the left pane", () => {
   // docs/automations.md, F15 as amended 2026-09-24: Settings → Automations
   // stays the management home; the work-folder view is a read-mostly window.
   assert.match(workFolderChrome, /\{primaryItems\.map[\s\S]*?\)\)\}\s*\{automations \? \(/);
   assert.match(workFolderChrome, /\{automations \? \([\s\S]*?onClick=\{\(\) => onModeChange\("automations"\)\}[\s\S]*?Flash24Filled[\s\S]*?<span className="work-folder-rail-label">Automations<\/span>[\s\S]*?\) : null\}\s*\{surfaces\.length \|\| apps\.length \? <span className="work-folder-rail-app-divider"/);
   assert.match(app, /const folderAutomations = useFolderAutomations\(workFolder\.id, Boolean\(fixture\)\);/);
-  assert.match(app, /automations=\{hasFolderAutomations \? \{ active: activeTab\?\.kind === "work-folder-automations" && activeTab\.workFolderId === workFolder\.id \} : null\}/);
-  assert.match(app, /if \(mode === "automations"\) \{ tabs\.openWorkFolderAutomationsSurfaceTab\(workFolder\); return; \}\s*setActiveMode\(mode\);/);
-  assert.match(app, /tab\.kind === "work-folder-automations" \? \(\s*<WorkFolderAutomationsPane[\s\S]*?onOpenAllAutomations=\{\(\) => onOpenSettings\("automations"\)\}/);
-  // The mode opens a tab and is never persisted as the navigator mode.
-  assert.match(app, /return \(\["files", "chats", "history"\] as WorkFolderRailMode\[\]\)\.includes/);
+  assert.match(app, /automations=\{hasFolderAutomations \? \{ active: !sidebarCollapsed && activeMode === "automations" \} : null\}/);
+  // 2026-10-11: like Files, the rail button shows a list in the left pane and
+  // never opens a tab itself; clicking an automation opens its own tab.
+  assert.doesNotMatch(app, /openWorkFolderAutomationsSurfaceTab\(workFolder\)/);
+  assert.match(app, /\{activeMode === "automations" \? <WorkFolderAutomationsNavigator automations=\{folderAutomations\.byWorkFolder\[workFolder\.id\]\}[\s\S]*?onOpen=\{\(automation\) => tabs\.openWorkFolderAutomationSurfaceTab\(workFolder, automation\)\}/);
+  assert.match(app, /tab\.kind === "work-folder-automations" \|\| tab\.kind === "work-folder-automation" \? \(\s*<WorkFolderAutomationsPane[\s\S]*?automationId: tab\.automationId[\s\S]*?onOpenAllAutomations=\{\(\) => onOpenSettings\("automations"\)\}/);
+  assert.match(app, /return \(\["files", "chats", "history", "automations"\] as WorkFolderRailMode\[\]\)\.includes/);
+  assert.match(app, /if \(folderAutomationsLoaded && !hasFolderAutomations\) setActiveMode\("files"\);/, "the pane falls back to Files when nothing is automated here");
 });
 
  test("Keyboard Shortcuts shares Settings navigation and the rail has no shortcuts button", () => {

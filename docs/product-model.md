@@ -570,7 +570,9 @@ Owner decisions, recorded here in dated form; the body of this document and
   itself. A tab comes from a click inside that pane, the way a file in Files
   opens its preview: an Extension surface lists its views there, and an app's
   left-pane view may open one tab per press of the person's mouse or keyboard.
-  Built-in **Automations** still opens its work-folder's tab directly.
+  Built-in **Automations** follows the same rule: its rail button lists the
+  automations that touch the work-folder in the left pane, and clicking one
+  opens its own tab.
 - Apps look like work-fold: their views receive the shell's colors, font, and
   radii, following the theme and the work-folder's accent, plus an opt-in kit
   of matching controls. An app may show the same still green dot the Chats use
