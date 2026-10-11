@@ -229,6 +229,21 @@ Steps execute strictly in declaration order. Four kinds:
   can put the work-fold agent on a cadence deliberately. An agent hop records no History
   checkpoints and is never a created-files source.
 
+*Amended 2026-10-11 (owner decision):* a `chat` or `agent` step may name its
+own model, `"model": {"provider": "<provider>", "id": "<model id>"}`, in any
+declaration version. It applies only to the new Chat that step starts: the
+host sets it on that session before the first turn, so the Chat's later
+answers and continuations keep it, and no work-folder's, the work-fold
+agent's, or Pi's default model changes. A step without one uses the
+work-folder's (or the work-fold agent's) model as before. Enabling refuses a
+step whose model work-fold does not know or whose provider is not connected,
+naming the step, so an unattended run never meets that first. `work-fold
+automations models` lists the connected models and whether each accepts
+images, so an automation that looks at screenshots, photos, or scans can name
+one that sees them. The work-fold agent is told to check this and to ask the
+person when the choice matters. Settings → Automations and `automations show`
+say which model a step uses.
+
 ### Placeholders and the created-files handoff
 
 Every step parameter is a literal in the declaration; there is no
