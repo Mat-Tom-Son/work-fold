@@ -564,8 +564,10 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
 /**
  * "Share at your address" for an eligible installed app (docs/shared-pages.md,
  * rung 3). The click shares and says so, like sharing a file; the link is
- * revealed in Settings → Shared Pages, where Stop Sharing undoes it. Once the
- * app is shared, the button opens Shared Pages instead of sharing again.
+ * revealed in Settings → Shared Pages, where Stop Sharing undoes it. The next
+ * step stays in the dialog, because the dialog keeps everything behind it —
+ * toasts included — out of reach: once shared, the button opens Shared Pages;
+ * with no address, it opens Web Access.
  */
 function ShareAppAtAddressButton({ app, disabled, fixtureMode, onOpenSharedPages, onOpenWebAccess, onError }: {
   app: RestrictedAppInstalled;
@@ -577,7 +579,9 @@ function ShareAppAtAddressButton({ app, disabled, fixtureMode, onOpenSharedPages
 }) {
   const publications = useSharedPages(fixtureMode);
   const [sharing, setSharing] = useState(false);
-  const shared = activeSharedAppFor(publications, app.featureInstallationId);
+  const [justShared, setJustShared] = useState(false);
+  const [needsAddress, setNeedsAddress] = useState(false);
+  const shared = justShared || Boolean(activeSharedAppFor(publications, app.featureInstallationId));
 
   async function share() {
     if (fixtureMode) {
@@ -587,19 +591,14 @@ function ShareAppAtAddressButton({ app, disabled, fixtureMode, onOpenSharedPages
     setSharing(true);
     try {
       const result = await shareRestrictedAppAtAddress(app);
+      setJustShared(true);
+      setNeedsAddress(false);
       void reloadSharedPages({ afterMutation: true });
-      showToast({
-        text: appSharing.sharedToast(result.publication.title),
-        tone: "success",
-        ...(onOpenSharedPages ? { actionLabel: appSharing.openSharedPages, onAction: onOpenSharedPages } : {}),
-      });
+      showToast({ text: appSharing.sharedToast(result.publication.title), tone: "success" });
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === "NO_ADDRESS") {
-        showToast({
-          text: appSharing.noAddress,
-          tone: "info",
-          ...(onOpenWebAccess ? { actionLabel: appSharing.webAccess, onAction: onOpenWebAccess } : {}),
-        });
+        setNeedsAddress(true);
+        showToast({ text: appSharing.noAddress, tone: "info" });
       } else {
         void reloadSharedPages({ afterMutation: true });
         onError(errorText(caught));
@@ -613,6 +612,9 @@ function ShareAppAtAddressButton({ app, disabled, fixtureMode, onOpenSharedPages
     return onOpenSharedPages
       ? <button className="ui-control ui-control--quiet" type="button" disabled={disabled} title={appSharing.shared} onClick={onOpenSharedPages}><Globe20Regular />{appSharing.openSharedPages}</button>
       : <span className="professional-status-badge enabled">{appSharing.shared}</span>;
+  }
+  if (needsAddress && onOpenWebAccess) {
+    return <button className="ui-control" type="button" disabled={disabled} title={appSharing.noAddress} onClick={onOpenWebAccess}><Globe20Regular />{appSharing.webAccess}</button>;
   }
   return <button className="ui-control" type="button" disabled={disabled || sharing} onClick={() => void share()}>{sharing ? <ArrowSync16Regular className="spin" /> : <Globe20Regular />}{appSharing.share}</button>;
 }
