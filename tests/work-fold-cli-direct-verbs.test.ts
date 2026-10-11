@@ -425,6 +425,52 @@ test("apps grant --kind files --path binds a single-file permission to that exac
   }
 });
 
+/**
+ * `apps install-preview` installs inside the same call that records the
+ * review, so "replaced" has to be read from what was installed before the
+ * call: a first add and a re-add of the installed revision replace nothing,
+ * and only a changed revision of the same app id is a replacement — one that
+ * carries the person's narrowing forward rather than resetting it.
+ */
+test("apps install-preview reports a replacement only when a different revision of the same app was installed", async () => {
+  const h = await directVerbHarness("replaces");
+  try {
+    const workFolder = await h.api.actFacade.createWorkFolder({ name: "Replacement work-folder" });
+    const packageRoot = join(workFolder.workFolder.workFolderRoot, "apps", "ledger-demo");
+    await writeSingleFilePackage(packageRoot);
+    const install = async () => {
+      const result = await h.execute(["apps", "install-preview", "--work-folder", workFolder.workFolder.id, "--package", "apps/ledger-demo", "--json"]);
+      assert.equal(result.exitCode, 0, result.stderr);
+      return (JSON.parse(result.stdout) as { data: { replacesInstalled: boolean; app: { digest: string } } }).data;
+    };
+
+    const first = await install();
+    assert.equal(first.replacesInstalled, false, "a first add replaces nothing");
+    const again = await install();
+    assert.equal(again.replacesInstalled, false, "re-adding the installed revision changes nothing");
+    assert.equal(again.app.digest, first.app.digest);
+
+    // The person narrows the preview, then the package changes.
+    const revoked = await h.execute(["apps", "revoke", "--work-folder", workFolder.workFolder.id, "--app", "ledger-demo",
+      "--digest", first.app.digest, "--kind", "files", "--declaration", "exports", "--json"]);
+    assert.equal(revoked.exitCode, 0, revoked.stderr);
+    await writeFile(join(packageRoot, "app.js"), "export const revision = 2;\n", "utf8");
+    const changed = await install();
+    assert.notEqual(changed.app.digest, first.app.digest);
+    assert.equal(changed.replacesInstalled, true, "a changed revision of the same app id is a replacement");
+    const human = await h.execute(["apps", "install-preview", "--work-folder", workFolder.workFolder.id, "--package", "apps/ledger-demo"]);
+    assert.doesNotMatch(human.stdout, /replaced the previous installation/, "the now-installed revision is not reported as a replacement");
+
+    const listed = await (await fetch(`${h.api.origin}/api/work-folders/${workFolder.workFolder.id}/restricted-apps`)).json() as {
+      apps: Array<{ digest: string; fileGrants: Array<{ declarationId: string }> }>;
+    };
+    assert.deepEqual(listed.apps.map((app) => app.digest), [changed.app.digest], "the replacement is the one preview");
+    assert.deepEqual(listed.apps[0]!.fileGrants, [], "the revoked folder permission stayed revoked across the replacement");
+  } finally {
+    await h.close();
+  }
+});
+
 test("chat report, ask, answer, and handoff run through the act lane with content-free receipts, and requests show reads them back", async () => {
   const h = await directVerbHarness("collaboration");
   try {

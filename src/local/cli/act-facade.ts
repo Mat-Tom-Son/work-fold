@@ -1356,7 +1356,13 @@ export interface WorkFoldActFacade {
     title: string;
     packageName: string;
     version: string;
-    /** True when an app with the same manifest id was already installed: the install replaced it and reset every grant, connection, and automation. */
+    /**
+     * True when a Local preview of the same app id at a different revision was
+     * already in the work-folder: the install replaced it, carrying forward
+     * grants and automation states by declaration id, run receipts, and
+     * connections whose destination declaration is byte-identical
+     * (`carryForwardInstallation`). Re-adding the installed revision is false.
+     */
     replacesInstalled: boolean;
     app: WorkFoldActInstalledAppRef;
   }>;

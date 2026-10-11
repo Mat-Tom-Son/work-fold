@@ -7599,6 +7599,11 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const workFolder = await resolveWorkFolder(input.workFolder);
       const packagePath = input.packagePath.trim();
       if (!packagePath) throw new WorkFoldCliError("usage", "Provide --package <work-folder-path>.");
+      // `propose` installs in the same call, so what the package replaces is
+      // read before it runs: the Local preview of each app id, by revision.
+      const previewsBefore = new Map((await runActOperation(() => state.restrictedApps.list(workFolder.id)))
+        .filter((app) => app.runtimeInstanceKind === "development")
+        .map((app) => [app.manifest.id, app.digest]));
       // The host inspects the package and owns every review field and the
       // digest — the same review record the Chat proposal path creates, under
       // an act-lane marker instead of a conversation — and installs it at
@@ -7618,8 +7623,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         }
         return result.proposal;
       });
-      const replacesInstalled = (await runActOperation(() => state.restrictedApps.list(workFolder.id)))
-        .some((app) => app.manifest.id === proposal.review.manifest.id);
+      // Re-adding the revision already installed changes nothing, so only a
+      // different revision of the same app id is a replacement.
+      const previousDigest = previewsBefore.get(proposal.review.manifest.id);
+      const replacesInstalled = previousDigest !== undefined && previousDigest !== proposal.review.digest;
       const context: PreparedActOutcome<RestrictedAppInstalled> = {};
       await runPreparedAct({
         kind: "app.review.install",
