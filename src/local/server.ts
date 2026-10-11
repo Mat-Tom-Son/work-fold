@@ -5,7 +5,7 @@ import { createIncludedMcpSetup } from "./agent/included-mcp-setup.js";
 import { prepareResourceEnable, resourceEnableAdapter } from "./agent/resource-enable-act.js";
 import { listIncludedToolStatus, setupIncludedTool, shutdownIncludedToolHost, type IncludedSetupAction } from "./agent/included-tool-setup.js";
 import { includedToolDefinitions, type IncludedToolId } from "../shared/included-tools.js";
-import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, type RestrictedAppAssistantActivity } from "./agent/restricted-app-tasks.js";
+import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskChatTitle, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, type RestrictedAppAssistantActivity } from "./agent/restricted-app-tasks.js";
 import { RestrictedAppInferenceService, RestrictedAppInferenceError, type RestrictedAppInferenceActivity } from "./agent/restricted-app-inference.js";
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
 import { ModelContextInspector } from "./agent/model-context-inspector.js";
@@ -1077,10 +1077,12 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       }),
       dispatch: async (receipt, app) => {
         const workFolder = await getWorkFolder(receipt.scope.workFolderId);
-        await createConversation(workFolder.workFolderRoot, receipt.title, receipt.conversationId);
+        await createConversation(workFolder.workFolderRoot, restrictedAppTaskChatTitle(app.title, receipt.title), receipt.conversationId);
         await acceptConversationTurn(state, workFolder, receipt.conversationId, {
           content: restrictedAppTaskPrompt(receipt, app.title), contextPaths: [], selectedPath: null, actorKind: "system",
           requestId: restrictedAppTaskTurnRequestId(receipt), userMessageId: `message-app-${receipt.id}`,
+          // The message is the app's, not the person's; the Chat says so.
+          appSource: { appId: receipt.scope.appId, title: app.title },
           // An app-requested task is its own root request, owned by the app
           // installation that asked (docs/collaboration-contract.md, F25).
           request: {
@@ -3829,6 +3831,8 @@ async function acceptConversationTurn(
     continuedFromWorkFoldAgentTaskId?: string;
     /** Remote provenance is persisted with the message and work-fold agent request. */
     remotePrincipal?: WorkFoldRemotePrincipal;
+    /** An app's `assistant.request`: persisted on the message so the Chat shows who asked. */
+    appSource?: { appId: string; title: string };
     /** Stable caller identity. Replays with the same input return the original acceptance. */
     requestId?: string;
     /** Stable optimistic message identity supplied by renderer clients. */
@@ -3962,6 +3966,10 @@ async function acceptConversationTurn(
       remotePrincipalId: input.remotePrincipal.browserId,
       remoteGrantId: input.remotePrincipal.grantId,
       remoteRequestId: input.remotePrincipal.requestId,
+    } : input.appSource ? {
+      source: "app" as const,
+      appId: input.appSource.appId,
+      appTitle: input.appSource.title,
     } : {}),
   };
   let answeredQuestionIds: string[] = [];

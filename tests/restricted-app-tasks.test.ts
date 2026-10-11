@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { RestrictedAppTaskService, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, restrictedAppTaskAuthorityDigest, type RestrictedAppTaskPorts, type RestrictedAppTaskReceipt, type RestrictedAppTaskScope } from "../src/local/agent/restricted-app-tasks.js";
+import { RestrictedAppTaskService, restrictedAppTaskChatTitle, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, restrictedAppTaskAuthorityDigest, type RestrictedAppTaskPorts, type RestrictedAppTaskReceipt, type RestrictedAppTaskScope } from "../src/local/agent/restricted-app-tasks.js";
 import type { RestrictedAppAssistantAction } from "../src/local/agent/restricted-app-manifest.js";
 import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js";
 import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks.js";
@@ -70,6 +70,22 @@ test("the dispatched Chat is told the app's name, not the action's label", async
     restrictedAppTaskPrompt(receipt),
     /This request came from an app installed in this work-folder\./,
   );
+});
+
+test("an app request's Chat is titled with the app's name, so equal action titles stay apart", () => {
+  assert.equal(restrictedAppTaskChatTitle("Quote board", "Compare quotes"), "Quote board · Compare quotes");
+  assert.notEqual(
+    restrictedAppTaskChatTitle("Quote board", "Compare quotes"),
+    restrictedAppTaskChatTitle("Supplier inbox", "Compare quotes"),
+    "two apps with the same action title get different Chat titles",
+  );
+  // The app's name is the short part; the whole title fits the 80-character Chat title.
+  const long = restrictedAppTaskChatTitle("A very long app name that keeps going and going", "Compare every supplier quote received this week against the budget");
+  assert.ok(long.length <= 80, long);
+  assert.match(long, /^A very long app name th… · Compare every supplier/);
+  assert.match(long, /…$/);
+  assert.equal(restrictedAppTaskChatTitle("  Quote\n board ", " Compare   quotes "), "Quote board · Compare quotes", "whitespace collapses to one line");
+  assert.equal(restrictedAppTaskChatTitle(undefined, "Compare quotes"), "Compare quotes", "without an app name the action title stands alone");
 });
 
 test("app Worker requests are journaled then dispatched once into their own Chat, and replay returns the same record", async (t) => {

@@ -647,7 +647,9 @@ See [Invalidation hints](#invalidation-hints).
 Installation is the grant for both AI lanes
 ([Receipts, not gates](receipts-not-gates.md), F22). `assistant.request`
 journals a declared `assistantActions` entry and starts a fresh ordinary Chat
-in the owning work-folder in the same call; `assistant.infer` asks the work-folder's
+in the owning work-folder in the same call — titled with your app's title and the
+action's (`Inbox · Compare quotes`), its message labelled as coming from your
+app; `assistant.infer` asks the work-folder's
 configured model one bounded question with no tools, no files, and no
 transcript:
 

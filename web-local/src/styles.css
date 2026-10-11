@@ -5067,6 +5067,41 @@ to {
   background: var(--work-folder-accent-solid, var(--work-folder-custom-color, var(--work-fold-blue-600)));
 }
 
+/* A request an installed app made: on the asking side of the Chat, but quiet
+   and labelled with the app's name rather than drawn as the person's bubble. */
+
+.message.app-request {
+  align-self: flex-end;
+  width: fit-content;
+  max-width: min(88%, 590px);
+}
+
+.message.app-request .message-sender {
+  margin: 0 0 4px;
+  color: var(--ui-text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.message.app-request .message-surface {
+  width: fit-content;
+  margin-left: auto;
+  padding: 12px 15px;
+  border: 1px solid var(--ui-border);
+  border-radius: 7px;
+  color: var(--ui-text);
+  background: var(--ui-surface-subtle);
+}
+
+.message.app-request .message-body {
+  color: var(--ui-text);
+}
+
+.message.app-request .message-footer {
+  margin: 5px 0 0;
+}
+
 /* A draft queued behind the running turn: shaped like the user bubble it is
    about to become, visibly not yet sent (dashed, dimmed), with its cancel. */
 
@@ -20570,11 +20605,11 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell .message.user .message-footer {
+:root[data-theme] .app-shell :is(.message.user, .message.app-request) .message-footer {
   justify-content: flex-end;
 }
 
-:root[data-theme] .app-shell .message.user .message-footer-meta {
+:root[data-theme] .app-shell :is(.message.user, .message.app-request) .message-footer-meta {
   flex-direction: row-reverse;
   gap: 8px;
 }

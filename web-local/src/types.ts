@@ -112,6 +112,10 @@ export interface ChatMessage {
   requestId?: string;
   /** Sent into an already-running turn; the agent saw it after its current step. */
   delivery?: "steer";
+  /** `app`: an installed app asked for this (`assistant.request`), not the person. */
+  source?: "remote_web" | "app";
+  appId?: string;
+  appTitle?: string;
 }
 
 export interface ChatMessageInterruption {
