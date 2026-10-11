@@ -277,8 +277,25 @@ test("the local API persists native edit evidence and successful or interrupted 
   const stateRoot = join(h.root, "state");
   const turnStore = await WorkFoldTurnStore.create({ stateRoot });
   const options = { port: 0, stateBase: stateRoot, workFolderBase: join(h.root, "work-folders"), loadEnv: false, piRuntimeProvider: h.provider, turnStore };
+  // The harness closes the API before the mock provider and before removing
+  // the root its Pi sessions and state live in. Closing alone stops a turn
+  // waiting on the provider but not one still preparing, which would go on to
+  // wait on the held reply, so a failed test stops every running turn first.
   let api = await startLocalApi(options);
-  t.after(async () => { await api.close(); });
+  let apiClosed: Promise<void> | undefined;
+  const closeApi = () => apiClosed ??= api.close();
+  h.cleanup(async () => {
+    if (apiClosed) return apiClosed;
+    try {
+      for (const task of (await api.kernel.getTasks({ kind: "renderer" })).tasks) {
+        if (task.kind === "assistant_turn" && task.conversationId) {
+          await json(api.origin, `/api/work-folders/${task.workFolderId}/conversations/${task.conversationId}/abort`, {});
+        }
+      }
+    } finally {
+      await closeApi();
+    }
+  });
   const created = await json(api.origin, "/api/work-folders", { name: "Presentation work-folder" });
   await writeFile(join(created.workFolder.workFolderRoot, "notes.txt"), "before\n");
   const conversation = await json(api.origin, `/api/work-folders/${created.workFolder.id}/conversations`, {});
@@ -300,8 +317,9 @@ test("the local API persists native edit evidence and successful or interrupted 
   assert.equal(stopped.content, "The partial reply is still in progress.");
   assert.equal(stopped.interruption?.reason, "cancelled");
   assert.deepEqual(stopped.assistantPresentation?.segments.map((segment) => segment.kind), ["progress"]);
-  await api.close();
+  await closeApi();
   api = await startLocalApi(options);
+  apiClosed = undefined;
   const reopened = (await json(api.origin, base)).messages as ChatMessage[];
   assert.deepEqual(reopened.find((message) => message.id === completed.id), completed);
   assert.deepEqual(reopened.find((message) => message.id === stopped.id), stopped);
@@ -376,6 +394,7 @@ async function harness(t: TestContext, respond: (payload: any, send: Send, respo
     await writeFile(join(agentDir, "extensions", "fixture.ts"), extension);
   }
   const requests: any[] = [];
+  const cleanups: Array<() => unknown> = [];
   const server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => { body += chunk; });
@@ -398,13 +417,44 @@ async function harness(t: TestContext, respond: (payload: any, send: Send, respo
   const client = new PiConversationClient("native-presentation", workFolderRoot, provider);
   const events: PiChatEvent[] = [];
   client.on("event", (event: PiChatEvent) => events.push(event));
+  // One hook, because node:test skips the remaining after hooks once one
+  // throws. Test cleanups (a local API driving a held turn) run first, newest
+  // first, then the harness client and mock provider close, and only then is
+  // the directory they all write into removed. Each step is bounded and runs
+  // even after an earlier one failed, so a failing test still exits.
   t.after(async () => {
-    await client.stop();
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(root, { recursive: true, force: true });
+    const failures: unknown[] = [];
+    const step = async (label: string, run: () => unknown) => {
+      try { await within(Promise.resolve().then(run), label); } catch (error) {
+        failures.push(error);
+        // node:test reports only the body's error once the body failed.
+        t.diagnostic(`Teardown: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    for (const cleanup of cleanups.reverse()) await step("A test cleanup", cleanup);
+    await step("The harness client stop", () => client.stop());
+    await step("The mock provider close", () => {
+      server.closeAllConnections();
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+    await step("The temporary directory removal", () => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+    if (failures.length) throw new AggregateError(failures, "The presentation harness did not tear down cleanly.");
   });
-  return { root, workFolderRoot, client, events, requests, provider };
+  return { root, workFolderRoot, client, events, requests, provider, cleanup: (run: () => unknown) => { cleanups.push(run); } };
+}
+
+async function within<T>(work: Promise<T>, label: string, timeoutMs = 15_000): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not finish within ${timeoutMs} ms.`)), timeoutMs);
+  });
+  // A failure after the deadline is already reported as the timeout.
+  work.catch(() => undefined);
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function toolCall(id: string, name: string, args: Record<string, unknown>, index = 0) {
