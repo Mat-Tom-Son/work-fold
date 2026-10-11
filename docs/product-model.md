@@ -554,6 +554,27 @@ Owner decisions, recorded here in dated form; the body of this document and
 - With four or more tabs open, tabs narrow but keep their work-folder icon and a
   normal close button.
 
+### 2026-10-11 Set up for me
+
+- Right after a work-folder is added (Use existing folder or Create new
+  work-folder), the top of its left pane offers a card with two choices:
+  **Set up for me** and **Just the look**. Its **×** dismisses the card for
+  that work-folder for good; there is no "Not now". The card never runs
+  anything by itself.
+- Both choices stay in the work-folder header's right-click menu, after
+  **Customize work-folder**, and in the command palette.
+- Each choice starts a new Chat with one message, and the included
+  `set-up-work-folder` Skill does the rest. **Set up for me** looks the folder
+  over, organizes it when that helps (moves and renames only, never deletes;
+  a deliberate structure stays; projects, app-managed folders, and hidden
+  files are left as they are), writes the work-folder's Worker instructions,
+  and sets a generated banner, an icon, and a color. **Just the look** reads
+  the folder and sets only the banner, icon, and color; it never touches a
+  file. A Chat's own reply says what changed and how to undo it.
+- The Skill is listed under **Everywhere** as Included with work-fold. It can
+  be turned off but not removed, and typing a request such as "set up this
+  folder" in any Chat uses it too.
+
 ### 2026-10-11 window strip, agent panel, and Files sort
 
 - The window's top strip carries two controls and no labels. Beside the

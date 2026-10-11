@@ -1,5 +1,6 @@
 import { useWorkFolderIdentityResolver } from "../../lib/work-folder-appearance-context";
 import { restrictedAppRailMode, restrictedAppRailLabel } from "../../lib/restricted-app-navigation";
+import type { WorkFolderSetUpMode } from "../../lib/work-folder-setup";
 import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Blocks } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -14,6 +15,8 @@ import {
   Folder16Regular,
   FolderOpen16Regular,
   PaintBrush16Regular,
+  ImageSparkle16Regular,
+  Wand16Regular,
   Apps24Regular,
   ChatMultiple24Filled,
   ChatMultiple24Regular,
@@ -219,6 +222,7 @@ function WorkFolderPaneHeader({
   onNewChat,
   onOpenAppearance,
   onRevealFolder,
+  onSetUp,
   folderStatuses = {},
 }: {
   workFolder: WorkFolderSummary;
@@ -238,6 +242,8 @@ function WorkFolderPaneHeader({
   onNewChat?: () => void;
   onOpenAppearance?: () => void;
   onRevealFolder?: () => void;
+  /** Set up for me, or Just the look (2026-10-11). */
+  onSetUp?: (mode: WorkFolderSetUpMode) => void;
 }) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -362,7 +368,7 @@ function WorkFolderPaneHeader({
         style={workFolderIdentityStyle(identity)}
         aria-label={switcherEnabled ? undefined : `Current work-folder: ${workFolder.name}. ${detail}`}
         onContextMenu={(event) => {
-          if (!onNewChat && !onOpenAppearance && !onRevealFolder) return;
+          if (!onNewChat && !onOpenAppearance && !onRevealFolder && !onSetUp) return;
           event.preventDefault();
           setSwitcherOpen(false);
           setContextMenu({ x: event.clientX, y: event.clientY });
@@ -474,6 +480,7 @@ function WorkFolderPaneHeader({
           onNewChat={onNewChat}
           onOpenAppearance={onOpenAppearance}
           onRevealFolder={onRevealFolder}
+          onSetUp={onSetUp}
           onManageWorkFolders={onManageWorkFolders}
         />
       ) : null}
@@ -482,7 +489,7 @@ function WorkFolderPaneHeader({
 }
 
 /** The work-folder header's right-click menu: the things a person does with this work-folder most. */
-function FolderContextMenu({ anchor, x, y, onClose, onNewChat, onOpenAppearance, onRevealFolder, onManageWorkFolders }: {
+function FolderContextMenu({ anchor, x, y, onClose, onNewChat, onOpenAppearance, onRevealFolder, onSetUp, onManageWorkFolders }: {
   anchor: HTMLElement | null;
   x: number;
   y: number;
@@ -490,6 +497,7 @@ function FolderContextMenu({ anchor, x, y, onClose, onNewChat, onOpenAppearance,
   onNewChat?: () => void;
   onOpenAppearance?: () => void;
   onRevealFolder?: () => void;
+  onSetUp?: (mode: WorkFolderSetUpMode) => void;
   onManageWorkFolders: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -525,13 +533,15 @@ function FolderContextMenu({ anchor, x, y, onClose, onNewChat, onOpenAppearance,
   }
 
   const run = (action: () => void) => { onClose(); action(); };
-  const style: CSSProperties = { left: Math.max(8, Math.min(x, window.innerWidth - 226)), top: Math.max(8, Math.min(y, window.innerHeight - 196)) };
+  const style: CSSProperties = { left: Math.max(8, Math.min(x, window.innerWidth - 226)), top: Math.max(8, Math.min(y, window.innerHeight - (onSetUp ? 264 : 196))) };
   return createPortal(
     <Fragment>
       <div className="context-menu-backdrop folder-context-menu-backdrop" aria-hidden="true" onContextMenu={(event) => event.preventDefault()} />
       <div ref={menuRef} className="context-menu folder-context-menu" style={style} role="menu" aria-label="work-folder actions" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onClose(); }}>
         {onNewChat ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onNewChat)}><ChatAdd16Regular aria-hidden="true" />New Chat</button> : null}
         {onOpenAppearance ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onOpenAppearance)}><PaintBrush16Regular aria-hidden="true" />Customize work-folder</button> : null}
+        {onSetUp ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onSetUp("full"))}><Wand16Regular aria-hidden="true" />Set up for me</button> : null}
+        {onSetUp ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onSetUp("look"))}><ImageSparkle16Regular aria-hidden="true" />Just the look</button> : null}
         {onRevealFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onRevealFolder)}><FolderOpen16Regular aria-hidden="true" />{revealInFileManagerLabel()}</button> : null}
         <div className="context-menu-separator" role="separator" />
         <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onManageWorkFolders)}><Folder16Regular aria-hidden="true" />Manage work-folders</button>

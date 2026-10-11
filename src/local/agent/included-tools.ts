@@ -38,13 +38,17 @@ export async function resolveIncludedResources(cwd: string, runtime: ResolvedPiR
   if (!config) return [];
   const paths = includedToolDefinitions.map((item) => join(config.rootPath, item.id, "index.ts"));
   const skillRoot = join(config.rootPath, "documents", "skills");
+  // Skills work-fold itself ships, such as Set up for me, belong to no single included tool.
+  const bundledSkillRoot = join(config.rootPath, "skills");
+  const bundledSkills = existsSync(bundledSkillRoot) ? [bundledSkillRoot] : [];
   const global = runtime.settingsManager.getGlobalSettings();
-  const settings = SettingsManager.inMemory({ extensions: [...paths, ...(global.extensions ?? [])], skills: [skillRoot, ...(global.skills ?? [])] }, { projectTrusted: false });
+  const settings = SettingsManager.inMemory({ extensions: [...paths, ...(global.extensions ?? [])], skills: [skillRoot, ...bundledSkills, ...(global.skills ?? [])] }, { projectTrusted: false });
   const manager = new DefaultPackageManager({ cwd, agentDir: runtime.agentDir, settingsManager: settings });
   const native = await manager.resolve(async () => "skip");
   return [
     ...native.extensions.filter((item) => paths.includes(item.path)).map((item) => ({ ...item, kind: "extensions" as const, included: includedToolDefinitions.find((definition) => join(config.rootPath, definition.id, "index.ts") === item.path), metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
     ...native.skills.filter((item) => item.path.startsWith(`${skillRoot}/`)).map((item) => ({ ...item, kind: "skills" as const, included: includedToolDefinitions.find((definition) => definition.id === "documents"), metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
+    ...native.skills.filter((item) => bundledSkills.length > 0 && item.path.startsWith(`${bundledSkillRoot}/`)).map((item) => ({ ...item, kind: "skills" as const, bundled: true as const, metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
   ];
 }
 

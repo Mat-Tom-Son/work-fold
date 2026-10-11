@@ -177,7 +177,7 @@ export async function buildPiResourceCatalog(
   const activeTools = new Set(session.getActiveToolNames());
   const resources = await resolveNativeResources(session.sessionManager.getCwd(), runtime);
   const sourceFor = (source: SourceInfo) => {
-    const included = resources.find((item) => item.included && (item.path === source.path));
+    const included = resources.find((item) => (item.included || item.bundled) && (item.path === source.path));
     return included ? { ...catalogSource(source), ...included.metadata, path: included.path } : catalogSource(source);
   };
 
