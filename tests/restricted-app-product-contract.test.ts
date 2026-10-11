@@ -36,6 +36,12 @@ test("Apps product hierarchy starts with the agent; Settings → Apps has no man
   assert.doesNotMatch(apps, /\bwebsite\b/i, "the word website never appears in app copy");
 });
 
+test("Restore… accepts any export work-fold makes, checked against the host's shared bound", () => {
+  assert.match(apps, /import \{ restrictedAppDataRestoreBytes \} from "\.\.\/\.\.\/\.\.\/\.\.\/src\/shared\/restricted-app-storage-limits";/);
+  assert.match(apps, /file\.size > restrictedAppDataRestoreBytes/);
+  assert.doesNotMatch(apps, /6 \* 1024 \* 1024|6 MiB/);
+});
+
 test("app details show each destination's OAuth request in full", () => {
   assert.match(apps, /<OAuthDeclarationDetails auth=\{oauth\} \/>/);
   assert.match(apps, /<dt>Issuer<\/dt>/);

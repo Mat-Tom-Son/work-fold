@@ -16,6 +16,7 @@ import { turnFileChanges } from "./agent/turn-file-changes.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { workRequestLabel, type WorkRequestView } from "../shared/request-presentation.js";
 import { childFolderPaths } from "../shared/folder-nesting.js";
+import { restrictedAppDataRestoreBytes } from "../shared/restricted-app-storage-limits.js";
 import {
   automationTriggerSummary,
   type FolderAutomationState,
@@ -2253,7 +2254,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const workFolder = await getWorkFolder(restrictedDataMatch[1]);
     const appId = restrictedDataMatch[2];
     if (method === "POST") {
-      const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest: string; expectedRevision: number; backup?: unknown; recoveryId?: string }>(state, req, 6 * 1024 * 1024);
+      // A restore carries a whole export, so its bound is the export's own
+      // (every export work-fold makes restores), above the general body cap.
+      const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest: string; expectedRevision: number; backup?: unknown; recoveryId?: string }>(
+        state, req, restrictedAppDataRestoreBytes, { exceedDefaultLimit: true },
+      );
       if (!body || typeof body !== "object" || Array.isArray(body)) throw badRequest("A backup or recovery point is required.");
       const usage = await runRestrictedAppMutation(state, workFolder.id, () => state.restrictedApps.restoreStorage({
         workFolderId: workFolder.id, appId, featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest, expectedRevision: body.expectedRevision,
@@ -14307,8 +14312,13 @@ function broadcast(state: LocalApiState, key: string, event: unknown): void {
   if (!streams.size) state.chatStreams.delete(key);
 }
 
-async function readJsonBody<T>(state: LocalApiState, req: IncomingMessage, maximumBytes?: number): Promise<T> {
-  const bytes = await readBody(state, req, maximumBytes);
+async function readJsonBody<T>(
+  state: LocalApiState,
+  req: IncomingMessage,
+  maximumBytes?: number,
+  options: { exceedDefaultLimit?: boolean } = {},
+): Promise<T> {
+  const bytes = await readBody(state, req, maximumBytes, options);
   if (!bytes.length) return {} as T;
   try { return JSON.parse(bytes.toString("utf8")) as T; } catch { throw badRequest("Request body must be valid JSON."); }
 }
@@ -14346,8 +14356,18 @@ async function readMultipartBody(state: LocalApiState, req: IncomingMessage): Pr
   return { fields, files };
 }
 
-async function readBody(state: LocalApiState, req: IncomingMessage, maximumBytes = state.maxBodyBytes): Promise<Buffer> {
-  const limit = Math.min(maximumBytes, state.maxBodyBytes);
+/**
+ * A route's own bound applies under the general body cap, except where the
+ * route names a larger contract of its own (`exceedDefaultLimit`), such as an
+ * app-data restore that must accept every export work-fold produces.
+ */
+async function readBody(
+  state: LocalApiState,
+  req: IncomingMessage,
+  maximumBytes = state.maxBodyBytes,
+  options: { exceedDefaultLimit?: boolean } = {},
+): Promise<Buffer> {
+  const limit = options.exceedDefaultLimit ? maximumBytes : Math.min(maximumBytes, state.maxBodyBytes);
   const declared = Number(req.headers["content-length"] ?? 0);
   if (Number.isFinite(declared) && declared > limit) throw tooLarge("Request body is too large.");
   const chunks: Buffer[] = [];

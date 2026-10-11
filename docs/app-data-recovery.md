@@ -14,9 +14,13 @@ digest, export time, completeness flag, SHA-256 integrity digest, and one
 complete data snapshot. The snapshot records its owner class, Tenant, Runtime
 Instance, Feature Installation, Data Namespace, storage revision, byte usage,
 and entries. Its limits match storage: 65,536 keys, 16 MiB per value, and
-256 MiB of data. The restore request itself is still read with a 6 MiB body
-ceiling, so a larger backup exports but cannot yet be restored through that
-route. This is a data export, not an app
+256 MiB of data. The restore request is read up to the size of the largest
+export — the storage file's own 264 MiB bound, which covers the 256 MiB quota
+and its framing, plus the envelope and request fields — so every export
+work-fold makes can be restored; this bound sits above the local API's general
+request-body cap, which still applies to every other route. Settings → Apps
+checks a chosen file against the same shared bound before reading it. This is
+a data export, not an app
 package, work-folder backup, connection export, or migration format. Host credentials,
 grants, schedules, Chats and separately selected work-folder files are absent. Data
 the app itself stored remains part of the export.

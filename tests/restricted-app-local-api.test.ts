@@ -501,6 +501,70 @@ test("restricted app API keeps review, install, grants, connections, invocation,
   }
 });
 
+/**
+ * An export can be as large as the app's storage file, so a restore takes a
+ * body as large as the export — above the local API's general body cap, which
+ * this test sets deliberately small — while every other route keeps that cap
+ * and a restore past its own bound is refused before any of it is read
+ * (docs/app-data-recovery.md).
+ */
+test("app data restore accepts an export larger than the general body cap and refuses one past the export bound", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-restore-size-"));
+  const storage = new FileRestrictedAppStorage(join(sandbox, "state", "restricted-apps", "data"));
+  const service = await RestrictedAppService.create({ rootPath: join(sandbox, "state", "restricted-apps"), runtimeHost: new RuntimeHost(), storage });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    workFolderBase: join(sandbox, "work-folders"),
+    loadEnv: false,
+    restrictedAppService: service,
+    maxBodyBytes: 1024 * 1024,
+  });
+  try {
+    const { workFolder } = await request<{ workFolder: { id: string; workFolderRoot: string } }>(api.origin, "/api/work-folders", { method: "POST", body: { name: "Restore size" } });
+    await writePackage(join(workFolder.workFolderRoot, "tools", "mail-app"));
+    const review = await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "tools/mail-app" });
+    const app = await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "tools/mail-app", expectedDigest: review.digest });
+    const owner = { ownerClass: "instance" as const, tenantId: app.tenantId, runtimeInstanceId: app.runtimeInstanceId,
+      featureInstallationId: app.featureInstallationId, dataNamespaceId: app.dataNamespaceId };
+    const large = "x".repeat(7 * 1024 * 1024);
+    await storage.set(owner, "archive", large);
+    const pin = { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest };
+    const itemUrl = `/api/work-folders/${workFolder.id}/restricted-apps/mail-app`;
+    const exported = await request<{ backup: RestrictedAppDataBackup }>(api.origin, `${itemUrl}/storage/export?${new URLSearchParams(pin)}`);
+    await storage.set(owner, "archive", "replaced");
+    const revision = (await storage.usage(owner)).revision;
+
+    const body = JSON.stringify({ ...pin, expectedRevision: revision, backup: exported.backup });
+    assert.ok(Buffer.byteLength(body) > 6 * 1024 * 1024, "the restore body is past the former 6 MiB ceiling and the general cap");
+    const restored = await fetch(`${api.origin}${itemUrl}/storage/restore`, { method: "POST", headers: { "content-type": "application/json" }, body });
+    assert.equal(restored.status, 200, await restored.clone().text());
+    assert.equal(await storage.get(owner, "archive"), large);
+
+    // The general cap still holds for every other route.
+    const capped = await fetch(`${api.origin}/api/work-folders`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "x".repeat(2 * 1024 * 1024) }) });
+    assert.equal(capped.status, 413);
+    await capped.body?.cancel();
+
+    // A declared body past the export bound is refused before it is read.
+    const { request: httpRequest } = await import("node:http");
+    const { restrictedAppDataRestoreBytes } = await import("../src/shared/restricted-app-storage-limits.js");
+    const status = await new Promise<number>((resolvePromise, rejectPromise) => {
+      const outgoing = httpRequest(`${api.origin}${itemUrl}/storage/restore`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-length": String(restrictedAppDataRestoreBytes + 1) },
+      }, (response) => { response.resume(); resolvePromise(response.statusCode ?? 0); outgoing.destroy(); });
+      outgoing.on("error", rejectPromise);
+      outgoing.write("{");
+    });
+    assert.equal(status, 413);
+  } finally {
+    await api.close();
+    await service.close().catch(() => undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("machine-wide automation ledgers feed the overview and the restore fence, and a files grant binds to the whole work-folder", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-ledgers-"));
   const runtime = new RuntimeHost();

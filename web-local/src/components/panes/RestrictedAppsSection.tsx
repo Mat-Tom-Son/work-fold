@@ -54,6 +54,7 @@ import type {
   WorkFolderSummary,
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
+import { restrictedAppDataRestoreBytes } from "../../../../src/shared/restricted-app-storage-limits";
 
 export function RestrictedAppsSection({
   workFolder,
@@ -415,7 +416,8 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     const recoveryId = dataRecovery?.id;
     setActionBusy("restore-data");
     try {
-      if (file && file.size > 6 * 1024 * 1024) throw new Error("Choose an app backup smaller than 6 MiB.");
+      // The host's own bound: every export work-fold makes fits.
+      if (file && file.size > restrictedAppDataRestoreBytes) throw new Error("This file is larger than any app data export work-fold makes.");
       const backup: unknown = file ? JSON.parse(await file.text()) : undefined;
       const confirmed = await requestConfirm({
         title: file ? `Restore ${app.manifest.title} data?` : "Undo the last data change?",
