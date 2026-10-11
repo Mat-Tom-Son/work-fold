@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../../lib/api";
 import { notifyFolderAutomationsChanged } from "../../hooks/useFolderAutomations";
 import {
+  automationCatchUpSentence,
   formatAutomationDateTime as formatDateTime,
   automationTriggerSummary as triggerSummary,
+  type AutomationCatchUpReason,
   type AutomationOutcome,
   type AutomationTriggerView,
 } from "../../../../src/shared/automation-presentation";
@@ -57,7 +59,16 @@ export interface AutomationSummaryView {
   title: string;
   health: AutomationHealthState;
   trigger: AutomationsPaneTriggerView;
-  fileWatch?: { state: "starting" | "watching" | "paused" | "error"; detail?: string; lastObservedAt?: string; lastTriggeredAt?: string };
+  fileWatch?: {
+    state: "starting" | "watching" | "paused" | "error";
+    detail?: string;
+    lastObservedAt?: string;
+    lastTriggeredAt?: string;
+    /** A catch-up found and waiting for the folder to settle, its cooldown, or other automation work. */
+    catchingUp?: { reason: AutomationCatchUpReason; count: number };
+    lastCatchUpAt?: string;
+    notice?: string;
+  };
   stepCount: number;
   /** Every work-folder the trigger or a step names; drives the work-folder filter. */
   workFolders?: AutomationWorkFolderRef[];
@@ -70,6 +81,8 @@ export interface AutomationSummaryView {
     startedAt: string;
     finishedAt?: string;
   };
+  /** The newest run that caught up on files changed while work-fold could not watch. */
+  lastCatchUp?: { runId: string; at: string; count: number; reason: AutomationCatchUpReason };
   suspension?: {
     at: string;
     reason?: string;
@@ -545,7 +558,23 @@ export function AutomationsPane() {
                   <h5>Watched folder</h5>
                   <p>{detail.trigger.watch.path}{detail.trigger.watch.recursive ? " and subfolders" : ""} · {detail.trigger.watch.extensions.join(", ")}</p>
                   <p>Observer: {detail.fileWatch?.state ?? "off"}{detail.fileWatch?.detail ? ` · ${detail.fileWatch.detail}` : ""}</p>
-                  <p>Changes during automation work, sleep, or restart are not replayed.</p>
+                  {detail.trigger.ifMissed === "run" ? <>
+                    <p className="automation-catch-up">
+                      Catches up after work-fold was closed: files added or changed while work-fold was closed, the computer was asleep, or this automation was off start one run when work-fold is back.
+                    </p>
+                    {detail.fileWatch?.catchingUp ? (
+                      <p className="automation-catch-up-pending">
+                        {automationCatchUpSentence(detail.fileWatch.catchingUp.count, detail.fileWatch.catchingUp.reason, true)}.
+                      </p>
+                    ) : null}
+                    <p className="automation-catch-up-last">
+                      Last catch-up: {detail.lastCatchUp
+                        ? `${formatDateTime(detail.lastCatchUp.at)} · ${automationCatchUpSentence(detail.lastCatchUp.count, detail.lastCatchUp.reason)}`
+                        : "none yet"}
+                    </p>
+                    {detail.fileWatch?.notice ? <p className="automation-catch-up-notice">{detail.fileWatch.notice}</p> : null}
+                    <p>Changes made while an automation is running are not replayed.</p>
+                  </> : <p>Changes during automation work, sleep, or restart are not replayed.</p>}
                 </section> : null}
                 <dl className="automation-facts">
                   <div><dt>Next</dt><dd>{detail.nextScheduledAt ? formatDateTime(detail.nextScheduledAt) : "—"}</dd></div>

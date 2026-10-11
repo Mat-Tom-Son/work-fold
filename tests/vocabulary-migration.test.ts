@@ -164,3 +164,26 @@ test("value mapping leaves human text and opaque ids alone", () => {
     { kind: "work-folder", title: "space", id: "space-0123456789abcdef", entry: "trash-20261007211827-a472add1", scope: "everywhere" },
   );
 });
+
+test("an Automation's saved folder snapshots are keyed by file paths and never rewritten", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-vocabulary-snapshots-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const snapshot = JSON.stringify({
+    kind: "work-fold.automation-folder-snapshot",
+    v: 1,
+    automationId: "automation-12345678",
+    snapshot: { entries: { routingId: "1:2:3:4:5", "Screenshots/space.png": "1:2:3:4:6" } },
+  });
+  const snapshotPath = join(root, "automations", "folder-snapshots", "automation-12345678.json");
+  await put(snapshotPath, snapshot);
+  await put(join(root, "automations", "receipts.jsonl"), `${JSON.stringify({ scope: "run", routingId: "routing-1" })}\n`);
+
+  await migrateVocabularyState(root);
+
+  assert.equal(await readFile(snapshotPath, "utf8"), snapshot);
+  assert.match(
+    await readFile(join(root, "automations", "receipts.jsonl"), "utf8"),
+    /"automationId":"automation-1"/,
+    "app records beside it still migrate",
+  );
+});

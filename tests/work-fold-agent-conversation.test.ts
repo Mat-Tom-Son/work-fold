@@ -159,6 +159,9 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     assert.match(workFoldAgentContext, /work-fold\.automation-proposal/);
     assert.match(workFoldAgentContext, /Use version 1 for manual, interval, and on-settled triggers/);
     assert.match(workFoldAgentContext, /Use version 3 for a folder-change trigger/);
+    // The 2026-10-11 opt-in catch-up: version 5, one run, never a backlog.
+    assert.match(workFoldAgentContext, /use version 5 and add `"ifMissed":"run"` to the trigger/);
+    assert.match(workFoldAgentContext, /one run, never a backlog/);
     assert.match(workFoldAgentContext, /<name>\.work-fold-automation\.json` directly in your own working folder/);
     assert.match(workFoldAgentContext, /appears in Settings → Automations under \*\*Ready to turn on\*\*/);
     assert.match(workFoldAgentContext, /do not enable it yourself unless they ask you to/);

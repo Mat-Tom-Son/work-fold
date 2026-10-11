@@ -66,6 +66,19 @@ test("the shared trigger summary is the one Settings and the work-folder view pr
     automationTriggerSummary({ kind: "on-settled", source: { kind: "check-run", workFolderId: home, workFolderName: "Home projects" } }),
     "After a Check settles in Home projects",
   );
+  const folderTrigger = {
+    kind: "files-changed" as const,
+    workFolderId: home,
+    watch: { kind: "tree" as const, path: "Screenshots", recursive: false, extensions: [".png"] },
+    debounceSeconds: 5,
+    cooldownMinutes: 1,
+  };
+  assert.equal(automationTriggerSummary(folderTrigger), "When Screenshots changes · wait 5s · 1 minute cooldown");
+  assert.equal(automationTriggerSummary({ ...folderTrigger, ifMissed: "skip" }), "When Screenshots changes · wait 5s · 1 minute cooldown");
+  assert.equal(
+    automationTriggerSummary({ ...folderTrigger, ifMissed: "run" }),
+    "When Screenshots changes · wait 5s · 1 minute cooldown · catches up after work-fold was closed",
+  );
 });
 
 test("GET /api/work-folders/:id/automations lists only automations naming the work-folder; its acts are the Settings acts and refuse unrelated automations", async (t) => {

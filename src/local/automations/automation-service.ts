@@ -1,6 +1,16 @@
 import type { WorkFoldResultEnvelope } from "../requests/request-records.js";
-import { WorkFoldAutomationFileWatch, type WorkFoldAutomationFileObserver, type WorkFoldAutomationFileWatchStatus } from "./automation-file-observer.js";
+import {
+  WorkFoldAutomationFileWatch,
+  type WorkFoldAutomationCatchUpReason,
+  type WorkFoldAutomationFileObserver,
+  type WorkFoldAutomationFileSnapshot,
+  type WorkFoldAutomationFileWatchStatus,
+} from "./automation-file-observer.js";
+import { WorkFoldAutomationFileSnapshots, workFoldAutomationFileWatchKey } from "./automation-file-snapshots.js";
 import { randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+
+import { automationCatchUpGap } from "../../shared/automation-presentation.js";
 
 import { workFoldAutomationMaxConcurrentRuns } from "../../shared/work-fold-limits.js";
 import {
@@ -17,9 +27,11 @@ import {
   scrubWorkFoldAutomationMessageText,
   workFoldAutomationDigest,
   workFoldAutomationMessagePlaceholders,
+  workFoldAutomationTriggerCatchesUp,
   type WorkFoldAutomationChatStep,
   type WorkFoldAutomationCheckStep,
   type WorkFoldAutomationDeclaration,
+  type WorkFoldAutomationFilesChangedTrigger,
   type WorkFoldAutomationFilesStep,
   type WorkFoldAutomationAgentStep,
   type WorkFoldAutomationPlaceholder,
@@ -245,6 +257,11 @@ export interface WorkFoldAutomationServiceOptions {
   observeFiles?: WorkFoldAutomationFileObserver;
   /** Tests can drive observation explicitly. Production scans every two seconds. */
   filePollIntervalMs?: number;
+  /**
+   * Saved snapshots for folder-change triggers that declare `"ifMissed":
+   * "run"`. Defaults to `folder-snapshots/` beside the automation store.
+   */
+  fileSnapshots?: WorkFoldAutomationFileSnapshots;
 }
 
 export interface WorkFoldAutomationProjection extends WorkFoldAutomationRecord {
@@ -285,9 +302,12 @@ const causeMapGuard = 256;
 export class WorkFoldAutomationService {
   readonly #fileWatches = new Map<string, WorkFoldAutomationFileWatch>();
   readonly #observeFiles?: WorkFoldAutomationFileObserver;
+  readonly #fileSnapshots: WorkFoldAutomationFileSnapshots;
   #filePollTimer?: ReturnType<typeof setInterval>;
   #filePollBusy = false;
   #fileEpoch = 0;
+  #fileHoldChain: Promise<void> = Promise.resolve();
+  readonly #fileLoads = new WeakMap<WorkFoldAutomationFileWatch, Promise<void>>();
   readonly #store: WorkFoldAutomationStore;
   readonly #receipts: WorkFoldAutomationReceipts;
   readonly #ports: WorkFoldAutomationHopPorts;
@@ -308,6 +328,8 @@ export class WorkFoldAutomationService {
 
   private constructor(options: WorkFoldAutomationServiceOptions) {
     this.#observeFiles = options.observeFiles;
+    this.#fileSnapshots = options.fileSnapshots
+      ?? new WorkFoldAutomationFileSnapshots({ directory: join(dirname(options.store.path), "folder-snapshots") });
     this.#store = options.store;
     this.#receipts = options.store.receipts;
     this.#ports = options.ports;
@@ -399,9 +421,25 @@ export class WorkFoldAutomationService {
     }
     const record = await this.#store.enable(input);
     const automationId = record.declaration.id;
+    const trigger = record.declaration.trigger;
+    const previous = current?.declaration.trigger;
+    // A declaration that no longer catches up stops keeping its folder
+    // snapshot; a changed selector simply never matches the saved one.
+    if (previous && workFoldAutomationTriggerCatchesUp(previous) && !workFoldAutomationTriggerCatchesUp(trigger)) {
+      await this.#fileSnapshots.remove(automationId).catch(() => undefined);
+    }
+    // Replacing a declaration that is already on, over the same folder, keeps
+    // watching without a gap: nothing was missed, so there is nothing to
+    // catch up and no fresh baseline to take.
+    const inherited = current?.health === "enabled"
+      && previous?.kind === "files-changed"
+      && trigger.kind === "files-changed"
+      && workFoldAutomationFileWatchKey(previous) === workFoldAutomationFileWatchKey(trigger)
+      ? this.#fileWatches.get(automationId)
+      : undefined;
     this.stopRun(automationId);
     this.#disarm(automationId);
-    this.#arm(record);
+    this.#arm(record, "off", inherited);
     return record;
   }
 
@@ -441,6 +479,9 @@ export class WorkFoldAutomationService {
     }
     const record = await this.#store.delete(automationId, receiptContext);
     this.#disarm(automationId);
+    if (workFoldAutomationTriggerCatchesUp(record.declaration.trigger)) {
+      await this.#fileSnapshots.remove(automationId).catch(() => undefined);
+    }
     return record;
   }
 
@@ -525,6 +566,12 @@ export class WorkFoldAutomationService {
       const stopped = this.stopRun(automationId);
       if (stopped) stoppedRunIds.push(stopped.runId);
       this.#disarm(automationId);
+      // The saved snapshot describes a folder that is no longer registered;
+      // leaving suspension starts from a fresh look.
+      const trigger = record.declaration.trigger;
+      if (workFoldAutomationTriggerCatchesUp(trigger) && trigger.workFolder === workFolderId) {
+        await this.#fileSnapshots.remove(automationId).catch(() => undefined);
+      }
     }
     return { suspendedAutomationIds: suspended.map((record) => record.declaration.id), stoppedRunIds };
   }
@@ -547,7 +594,7 @@ export class WorkFoldAutomationService {
 
   /** Sleep/quit suspension: aborts active runs, which settle `interrupted`. */
   suspend(): void {
-    this.#resetFileWatches(true);
+    this.#resetFileWatches(true, "asleep");
     this.#suspensionDesired = true;
     this.#suspensionGeneration += 1;
     this.#automation.suspend();
@@ -583,7 +630,7 @@ export class WorkFoldAutomationService {
         await this.#completeMissedSkips(await this.#store.list());
         for (const record of await this.#store.list()) {
           if (record.health !== "enabled") continue;
-          this.#arm(record);
+          this.#arm(record, "closed");
         }
       }
     }
@@ -671,7 +718,7 @@ export class WorkFoldAutomationService {
     const active = [...this.#activeRuns.values()].find((run) => run.automationId === record.declaration.id);
     return {
       ...record,
-      ...(this.#fileWatches.has(record.declaration.id) ? { fileWatch: structuredClone(this.#fileWatches.get(record.declaration.id)!.status) } : {}),
+      ...(this.#fileWatches.has(record.declaration.id) ? { fileWatch: this.#fileWatches.get(record.declaration.id)!.view() } : {}),
       ...(next !== undefined ? { nextScheduledAt: next } : {}),
       ...(active !== undefined ? { activeRunId: active.runId } : {}),
     };
@@ -681,10 +728,25 @@ export class WorkFoldAutomationService {
     return { ownerId: workFoldAutomationSchedulerOwnerId, jobId: automationId };
   }
 
-  #arm(record: WorkFoldAutomationRecord): void {
+  /**
+   * `gap` names why a catch-up comparison is due for a folder-change trigger
+   * that declares `"ifMissed": "run"`: work-fold was closed (startup) or the
+   * automation was off (enable). An inherited watch carries on without one.
+   */
+  #arm(
+    record: WorkFoldAutomationRecord,
+    gap: WorkFoldAutomationCatchUpReason = "closed",
+    inherited?: WorkFoldAutomationFileWatch,
+  ): void {
     const automationId = record.declaration.id;
     const trigger = record.declaration.trigger;
-    if (trigger.kind === "files-changed") this.#fileWatches.set(automationId, new WorkFoldAutomationFileWatch());
+    if (trigger.kind === "files-changed") {
+      const catchUp = workFoldAutomationTriggerCatchesUp(trigger);
+      const watch = inherited ?? new WorkFoldAutomationFileWatch(catchUp ? { catchUp: gap } : {});
+      watch.catchUp = catchUp;
+      if (!catchUp) watch.pendingComparison = undefined;
+      this.#fileWatches.set(automationId, watch);
+    }
     this.#armed.set(automationId, {
       digest: record.digest,
       title: record.declaration.title,
@@ -759,23 +821,34 @@ export class WorkFoldAutomationService {
     if (this.#automation.has(key)) this.#automation.unregister(key);
   }
 
-  #resetFileWatches(paused = false): void {
+  #resetFileWatches(paused = false, gap?: WorkFoldAutomationCatchUpReason): void {
     this.#fileEpoch += 1;
-    for (const watch of this.#fileWatches.values()) watch.reset(paused);
+    for (const watch of this.#fileWatches.values()) {
+      watch.reset(paused);
+      if (gap !== undefined) watch.expectGap(gap);
+    }
   }
 
   async pollFileChanges(): Promise<void> {
     if (this.#closed || this.#suspensionDesired || this.#activeRuns.size || this.#filePollBusy || !this.#observeFiles) return;
     this.#filePollBusy = true;
     const epoch = this.#fileEpoch;
+    const stale = () => epoch !== this.#fileEpoch || this.#closed || this.#suspensionDesired || this.#activeRuns.size > 0;
     try {
       for (const [automationId, watch] of this.#fileWatches) {
         const armed = this.#armed.get(automationId);
         if (armed?.trigger.kind !== "files-changed") continue;
         try {
+          if (watch.catchUp && watch.pendingComparison !== undefined) {
+            await this.#loadFileWatch(automationId, watch, armed.trigger);
+            if (stale()) return;
+          }
           const snapshot = await this.#observeFiles(armed.trigger);
-          if (epoch !== this.#fileEpoch || this.#closed || this.#suspensionDesired || this.#activeRuns.size) return;
+          if (stale()) return;
           const observed = watch.observe(snapshot, this.#now().getTime(), armed.trigger);
+          // Saving is queued before the admission, so a run this firing starts
+          // marks the saved snapshot as running only after it is written.
+          const saving = this.#saveFileWatch(automationId, watch, armed.trigger, watch.baseline);
           if (observed !== null) {
             const admission = this.#dispatchAdmission(automationId, {
               kind: "files-changed",
@@ -783,15 +856,106 @@ export class WorkFoldAutomationService {
               snapshotDigest: snapshot.digest,
               changedCount: observed.changedCount,
               changedPaths: observed.changedPaths,
+              ...(observed.catchUp ? { catchUp: observed.catchUp } : {}),
             });
             void admission.result.catch(() => undefined);
           }
+          await saving;
         } catch (error) {
           if (epoch !== this.#fileEpoch) return;
           watch.fail(error);
         }
       }
     } finally { this.#filePollBusy = false; }
+  }
+
+  /** Reads the saved state once per watch; concurrent callers share the read. */
+  async #loadFileWatch(
+    automationId: string,
+    watch: WorkFoldAutomationFileWatch,
+    trigger: WorkFoldAutomationFilesChangedTrigger,
+  ): Promise<void> {
+    if (watch.saved !== undefined) return;
+    let loading = this.#fileLoads.get(watch);
+    if (!loading) {
+      loading = this.#fileSnapshots.read(automationId, workFoldAutomationFileWatchKey(trigger))
+        .then((read) => { watch.load(read, this.#now().getTime()); })
+        .finally(() => { this.#fileLoads.delete(watch); });
+      this.#fileLoads.set(watch, loading);
+    }
+    await loading;
+  }
+
+  /**
+   * Saves what an opted-in watch has accounted for whenever it differs from
+   * the saved state, or clears the running marker once the post-run look
+   * matches it. In-memory state follows the queue order, so the saved files
+   * always end in the order these calls were made. A failed save is shown,
+   * never fatal: the older saved state stays, and a running marker stays with
+   * it.
+   */
+  #saveFileWatch(
+    automationId: string,
+    watch: WorkFoldAutomationFileWatch,
+    trigger: WorkFoldAutomationFilesChangedTrigger,
+    snapshot: WorkFoldAutomationFileSnapshot | undefined,
+  ): Promise<void> {
+    if (!watch.catchUp || !snapshot || this.#fileWatches.get(automationId) !== watch) return Promise.resolve();
+    const desired = watch.stateToSave(snapshot, this.#now().getTime());
+    const saved = watch.saved;
+    const unchanged = saved !== undefined && saved !== null && sameSavedFileState(saved, desired);
+    if (unchanged && !watch.dirty) return Promise.resolve();
+    const operation = unchanged
+      ? this.#fileSnapshots.clearRunning(automationId)
+      : this.#fileSnapshots.save(automationId, workFoldAutomationFileWatchKey(trigger), desired);
+    if (!unchanged) watch.saved = desired;
+    watch.dirty = false;
+    return operation.catch((error: unknown) => {
+      watch.status = {
+        ...watch.status,
+        notice: `work-fold could not save this folder's snapshot, so it may not catch up after work-fold is closed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    });
+  }
+
+  /**
+   * Runs as an automation run begins, after observation paused and before its
+   * first step. A due catch-up comparison is made now, while the folder still
+   * shows only what changed during the gap, and what it owes is saved to fire
+   * after the run. Then every opted-in saved snapshot is marked running: until
+   * the post-run look is saved, it may predate this run's own edits, so a
+   * quit, sleep, or Turn off in between never compares against it.
+   */
+  async #holdFileWatchesForRun(): Promise<void> {
+    const hold = this.#fileHoldChain.then(async () => {
+      for (const [automationId, watch] of [...this.#fileWatches]) {
+        const armed = this.#armed.get(automationId);
+        if (!watch.catchUp || armed?.trigger.kind !== "files-changed") continue;
+        const current = () => this.#fileWatches.get(automationId) === watch;
+        if (watch.pendingComparison !== undefined && !watch.dirty && this.#observeFiles) {
+          try {
+            await this.#loadFileWatch(automationId, watch, armed.trigger);
+            if (current() && watch.saved && !watch.dirty && watch.pendingComparison !== undefined) {
+              const snapshot = await this.#observeFiles(armed.trigger);
+              if (current()) {
+                watch.compareBeforeRun(snapshot, this.#now().getTime());
+                await this.#saveFileWatch(automationId, watch, armed.trigger, snapshot);
+              }
+            }
+          } catch {
+            // The folder could not be read: the comparison stays due and the
+            // running mark below turns it into a fresh look after the run.
+          }
+        }
+        if (!current() || watch.dirty) continue;
+        watch.dirty = true;
+        await this.#fileSnapshots.markRunning(automationId, this.#now().toISOString()).catch(() => undefined);
+      }
+    });
+    this.#fileHoldChain = hold.catch(() => undefined);
+    await hold;
   }
 
   #onSettle(record: WorkFoldSettleRecord): void {
@@ -945,6 +1109,8 @@ export class WorkFoldAutomationService {
     this.#resetFileWatches(true);
     this.#activeRuns.set(runId, active);
     try {
+      // Best-effort bookkeeping for folder catch-up; it never fails a run.
+      await this.#holdFileWatchesForRun().catch(() => undefined);
       const summary = await this.#executeHops(record.declaration, active, cause);
       if (summary.kind === "succeeded") {
         await this.#receipts.append({
@@ -1560,6 +1726,17 @@ function settleCause(record: WorkFoldSettleRecord): WorkFoldAutomationRunCause {
   };
 }
 
+function sameSavedFileState(
+  left: { snapshot: { digest: string }; lastTriggeredAt?: string; owed?: { reason: string; paths: string[] } },
+  right: { snapshot: { digest: string }; lastTriggeredAt?: string; owed?: { reason: string; paths: string[] } },
+): boolean {
+  if (left.snapshot.digest !== right.snapshot.digest || left.lastTriggeredAt !== right.lastTriggeredAt) return false;
+  if (!left.owed || !right.owed) return !left.owed && !right.owed;
+  return left.owed.reason === right.owed.reason
+    && left.owed.paths.length === right.owed.paths.length
+    && left.owed.paths.every((path, index) => path === right.owed!.paths[index]);
+}
+
 function compareAutomationStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -1613,6 +1790,13 @@ function causeSummary(cause: WorkFoldAutomationRunCause, declaration: WorkFoldAu
       return `Caught-up run for the ${cause.slotAt} slot.`;
     case "files-changed": {
       const watched = declaration.trigger.kind === "files-changed" ? declaration.trigger.watch.path : "the watched folder";
+      if (cause.catchUp) {
+        const { count, reason } = cause.catchUp;
+        const more = cause.changedCount - count;
+        return `Caught up on ${count} ${count === 1 ? "file" : "files"} under "${watched}" in work-folder ${cause.workFolderId}`
+          + ` that changed ${automationCatchUpGap(reason)}.`
+          + (more > 0 ? ` ${more} more ${more === 1 ? "file" : "files"} changed after that.` : "");
+      }
       return `${cause.changedCount} file(s) changed under "${watched}" in work-folder ${cause.workFolderId}.`;
     }
     default:

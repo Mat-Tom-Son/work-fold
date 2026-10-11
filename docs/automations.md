@@ -31,11 +31,25 @@ the `agent` step (`"kind": "agent"`), and the limits lift widened the
 interval, one-time, folder-change, observer, and concurrency bounds to the
 values under [Bounds](#bounds).
 
-The declaration contract accepts versions 1, 2, 3, and 4. Version 2 added a
+**Amended 2026-10-11 (owner decision):** a folder-change trigger may opt into
+catching up after work-fold was closed. Until now a fresh enable, restart,
+wake, or recovered observer error always took a new baseline without firing,
+so files that landed while work-fold was closed or asleep were never
+processed — which defeats "watch my Screenshots folder; when new screenshots
+land, have the Worker look at them, rename them, and file them." Version 5
+adds `"ifMissed": "run"` to the trigger: the automation keeps a machine-local
+metadata snapshot of the watched files and, after a gap, starts **one** run
+for what was added or changed in it. The default is unchanged, the observer
+still pauses during automation runs and takes a fresh baseline afterward, and
+a catch-up is a single coalesced run, never a backlog or an event log. See
+[Catching up after a gap](#catching-up-after-a-gap-version-5).
+
+The declaration contract accepts versions 1 through 5. Version 2 added a
 bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
 observation, shipped in September 2026; version 4 adds the closed placeholder
 set and the `agent` step (then named `fold`), shipped with the
-receipts-not-gates build.
+receipts-not-gates build; version 5 adds the optional `ifMissed` field on a
+folder-change trigger (2026-10-11).
 **Settings → Automations** is the desktop management surface. The
 store schema is version 3; version-1 and version-2 records load and are
 rewritten as version 3 on the next mutation, converting the grants an older
@@ -95,9 +109,84 @@ on its own and runs only through run-now below.
 
 **work-folder changes (version 3)** use `{"kind":"files-changed","workFolder":"<work-folder id>","watch":{"kind":"tree","path":"Incoming","recursive":true,"extensions":[".md",".txt"]},"debounceSeconds":5,"cooldownMinutes":1}`. The exact named folder must exist at enablement. The host observes matching ordinary files every two seconds, within 50,000 files, 200,000 visited entries, and depth 256; it reads metadata only, so no byte bound applies. Metadata identities include size, nanosecond modification/change times, and inode; file contents are not read or sent anywhere by the observer. Symlinks and overlap with separately registered work-folders fail closed. The extension list and recursion are explicit; reserved metadata stays excluded.
 
-A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 1–3600 seconds, with 0–10080 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source work-folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → Automations.
+By default (no `ifMissed`, or `"ifMissed": "skip"`), a fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 1–3600 seconds, with 0–10080 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source work-folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → Automations.
 
-All folder observers pause while any automation executes and establish fresh baselines afterward. This deliberately absorbs automation-generated edits and prevents cross-automation file loops. Changes made during that pause, while asleep, or while quit are **not replayed**. This is an awake-app convenience trigger, not a durable filesystem event bus. Keep a complete cross-work-folder sequence in one automation: wait for A's Chat, copy its created files, then run B's Chat or Check. There is no transcript relay or ambient context injection. Stop, disable, removal, shutdown, journaling, non-overlap, and FIFO limits use the existing executor paths.
+All folder observers pause while any automation executes and establish fresh baselines afterward. This deliberately absorbs automation-generated edits and prevents cross-automation file loops. Changes made during that pause are **never replayed**. Changes made while asleep or quit are not replayed either, unless the trigger opts into one catch-up (below). Either way this is an awake-app convenience trigger, not a durable filesystem event bus. Keep a complete cross-work-folder sequence in one automation: wait for A's Chat, copy its created files, then run B's Chat or Check. There is no transcript relay or ambient context injection. Stop, disable, removal, shutdown, journaling, non-overlap, and FIFO limits use the existing executor paths.
+
+#### Catching up after a gap (version 5)
+
+`{"kind":"files-changed", …, "ifMissed":"run"}` (declaration version 5) asks
+for one catch-up after work-fold could not watch the folder. `ifMissed` is
+optional; leaving it out, or `"skip"`, keeps the fresh-baseline behavior
+above. Declarations of versions 1–4 normalize exactly as before, so their
+digests do not change, and a version 3 or 4 declaration that names
+`ifMissed` is refused with a message naming version 5.
+
+- **What is kept.** For an opted-in automation only, work-fold saves the
+  snapshot its observer has accounted for — the same metadata it already
+  reads (relative path → device, inode, size, and modification and change
+  times), never file contents — plus the time it last started a run and any
+  catch-up still owed. It lives at
+  `automations/folder-snapshots/<automation id>.json` under the state root,
+  machine-local, never inside a work-folder, and bounded by the observer's
+  50,000-file scan. The record is rewritten only when that accounted-for
+  state changes: the first look, a firing, the look after an automation run,
+  or a catch-up found or spent. Turning the automation off keeps it, so Turn
+  on can catch up; deleting the automation, removing its watched
+  work-folder, or dropping `ifMissed` removes it, and a changed folder,
+  recursion, or extension list is never compared with it.
+- **When work-fold compares.** At the first look after a gap: launch
+  ("while work-fold was closed"), wake ("while the computer was asleep"),
+  Turn on ("while this automation was off"), and recovery from an observer
+  error ("while the folder could not be watched"). Replacing a declaration
+  that is already on, over the same folder, is not a gap. If an automation
+  run is about to start before that first look, work-fold makes the
+  comparison just before the run's first step, so the run's own edits are
+  never part of it.
+- **What counts.** A file is caught up when it is new or its size or
+  modification time differs from the saved snapshot. Removed files never
+  start a catch-up, and device, inode, or change-time differences alone do
+  not either: a remount, a sync client, or opening a file can change those
+  without changing the file.
+- **At most once.** What the comparison finds is owed as one set, saved with
+  the snapshot so a quit before it fires does not lose it. It fires as one
+  run once the folder has been stable for the declared debounce and the
+  cooldown since the last run — which survives a restart — has passed.
+  Later live changes that settle in the same window join that run, and any
+  later gap merges into the same set; nothing ever queues. The run lists the
+  owed paths that still exist plus any coalesced live changes in
+  `{{trigger.changedFiles}}`, and afterward observing continues from the new
+  state.
+- **No self-trigger.** The observer still pauses during every automation run
+  and saves the fresh look it takes afterward, which is what keeps a run's own
+  edits from starting another run, across restarts too. While a run is in
+  progress the saved snapshot carries a small `<automation id>.running`
+  marker; if work-fold quits, sleeps, or turns the automation off before the
+  post-run look is saved, the next look cannot tell that run's edits apart
+  from anyone else's, so it takes a fresh look instead of catching up, and
+  Settings says so. A catch-up already found before that run still fires.
+  Turning an automation back on catches up on whatever changed while it was
+  off, including files another automation wrote meanwhile — a person's
+  explicit Turn on, once, never a chain.
+- **Same receipts.** A catch-up is an ordinary `files-changed` run with the
+  same journal-first accepted and terminal receipts. Its cause adds
+  `catchUp: {"reason": "closed"|"asleep"|"off"|"unavailable", "count": n}`,
+  where `count` of `changedCount` paths changed during the gap.
+  `{{trigger.summary}}` reads, for example, `Caught up on 3 files under
+  "Screenshots" in work-folder space-… that changed while work-fold was
+  closed.`
+- **Visible.** Settings → Automations and the work-folder's Automations view
+  add "catches up after work-fold was closed" to the trigger summary. The
+  watched-folder section says what catches up, shows a catch-up that is still
+  waiting ("Catching up on 2 files that changed while the computer was
+  asleep"), the last catch-up from the receipts, and any reason one could not
+  happen. Run history labels the run "Caught up on 3 files that changed while
+  work-fold was closed". `automations show` states it on the trigger line.
+
+Revocation, Stop, Turn off, the 50,000-file, 200,000-entry, and depth-256
+observer bounds, symlink refusal, and nested-work-folder refusal apply to a
+catch-up exactly as to a live change: a catch-up is admitted through the same
+dispatch and launch-boundary recheck.
 
 **Admitted on-settled sources** (both durable and already receipted):
 
@@ -256,8 +345,8 @@ a Worker already received.
 
 | Placeholder | Filled in from | Declaration rule |
 |---|---|---|
-| `{{trigger.summary}}` | The run's own cause, in one sentence | Valid with every trigger |
-| `{{trigger.changedFiles}}` | The changed paths the folder observer recorded | Requires a folder-change trigger |
+| `{{trigger.summary}}` | The run's own cause, in one sentence (a catch-up says so) | Valid with every trigger |
+| `{{trigger.changedFiles}}` | The changed paths the folder observer recorded, including a catch-up's | Requires a folder-change trigger |
 | `{{trigger.findings}}` | The settled Check run's active findings, read back from the host | Requires a Check-run `on-settled` trigger |
 | `{{steps.<id>.createdFiles}}` | The manifest diff of that chat hop's own pre/post checkpoints | Must name an earlier `chat` step in the same automation |
 
@@ -304,6 +393,7 @@ names the destination work-folder and the delivered file count.
 | Inert automation proposal | Ordinary file in the work-fold agent's working folder | Reviewable and revisable without authority; never placed in the folder of a work-folder it names |
 | Enabled declaration, exact-digest grant, cadence/occurrence claim, health state | work-fold application state (`automations/` under the state root) | References multiple work-folders; must never travel with any folder |
 | Automation-run and hop receipts | work-fold application state, append-only journal with rotation | Contains work-folder names, paths, and ids across work-folders |
+| Saved folder snapshot and running marker (`"ifMissed": "run"` only) | work-fold application state (`automations/folder-snapshots/`), one file per automation | File metadata from a work-folder, kept so a catch-up has something to compare with; never portable and never file contents |
 | Effects inside work-folders | Ordinary work-folder records: a new Chat transcript, copied files, a History restore point | The only portable traces are single-work-folder, ordinary, and restorable |
 
 ## The executor
@@ -529,7 +619,8 @@ machine-wide count, step-count, or exact-path-count quota.
 | One-time missed policy | `run` or `skip` | One bounded catch-up or one recorded non-run |
 | One-time occurrence | One scheduled/resume claim ever; completed retained until Delete | Durable completed health and deterministic occurrence id |
 | work-folder-change debounce / cooldown | 1–3600 seconds / 0–10080 minutes | `src/local/automations/automation-declarations.ts` |
-| work-folder observer | Metadata only, no byte bound; 50,000 files, 200,000 visited entries, depth 256 | `src/local/automations/automation-file-observer.ts` |
+| work-folder observer | Metadata only, no byte bound; 50,000 files, 200,000 visited entries, depth 256 | `workFoldAutomationFileObserverBounds` in `src/local/automations/automation-file-observer.ts` |
+| Folder catch-up (`"ifMissed": "run"`) | One coalesced run per gap, never a backlog; the saved snapshot and owed set hold at most the observer's 50,000 files, and a read admits at most 256 MiB | `src/local/automations/automation-file-snapshots.ts` |
 | Changed paths recorded per run cause | 10,000 (the count stays exact) | `workFoldAutomationDeclarationBounds` |
 | Concurrent automation runs | 64, FIFO, machine-wide | `workFoldAutomationMaxConcurrentRuns`; a generous default, not a cap |
 | Tree selector resolution | The Check target resolver's hard limits; tighten-only | `src/local/checks/target-resolver.ts` |
@@ -559,6 +650,7 @@ The plan items shipped as follows:
 12. Receipts-not-gates: direct `automations enable`, version-4 placeholders and the `fold` step (now `agent`), raised defaults — `src/local/automations/`, `src/local/server.ts`; `tests/work-fold-automation-*.test.ts`, `tests/automations-settings-api.test.ts`, `tests/automations-settings-ui.test.ts`.
 13. Pending proposals in Settings and the work-folder filter (2026-09-24) — `src/local/automations/automation-proposal-scan.ts`, the `automationSettings` facade in `src/local/server.ts`, `work-fold:automations:proposals` and `work-fold:automations:enable-proposal` in `desktop/src/`, `web-local/src/components/modals/AutomationsPane.tsx`; `tests/work-fold-automation-proposal-scan.test.ts`, `tests/automations-settings-api.test.ts`, `tests/automations-settings-ui.test.ts`.
 14. work-folder-owned Automations view (2026-09-24, F15 amended) — `src/shared/automation-presentation.ts` (the one trigger summary Settings, the work-folder tab, and the route share), `workFoldAutomationWorkFolderRoles` in `src/local/automations/automation-declarations.ts`, `forWorkFolder`/`requireWorkFolderAutomation` on the `automationSettings` facade and the `/api/work-folders/:id/automations` routes in `src/local/server.ts`, `web-local/src/components/panes/WorkFolderAutomationsPane.tsx`, `web-local/src/hooks/useFolderAutomations.ts`; `tests/folder-automations.test.ts`, `tests/use-surface-tabs.test.ts`, `tests/frontend-interaction-contract.test.ts`.
+15. Folder catch-up, version 5 (2026-10-11) — `ifMissed` in `src/local/automations/automation-declarations.ts`, the catch-up comparison and owed set in `src/local/automations/automation-file-observer.ts`, saved snapshots and running markers in `src/local/automations/automation-file-snapshots.ts`, load/save and the pre-run comparison in `src/local/automations/automation-service.ts`, the catch-up cause and `lastCatchUp` in `src/local/server.ts`, the catch-up phrases in `src/shared/automation-presentation.ts`, and `web-local/src/components/modals/AutomationsPane.tsx`; `tests/work-fold-automation-folder-catch-up.test.ts`, `tests/work-fold-automation-declarations.test.ts`, `tests/automations-settings-api.test.ts`, `tests/automations-settings-ui.test.ts`, `tests/work-fold-cli-automations-show.test.ts`, `tests/vocabulary-migration.test.ts`.
 
 ## Deliberately not in this design
 
@@ -566,7 +658,7 @@ The plan items shipped as follows:
   behavior across automations is excluded structurally, not merely bounded.
 - **Worker-turn, compaction, and work-fold agent request triggers**, for the
   reasons recorded under Triggers.
-- **Ambient or durable file watching.** Version 3 admits only the explicitly reviewed bounded folder observation described above; it never watches an unselected work-folder or replays offline events.
+- **Ambient or durable file watching.** Version 3 admits only the explicitly reviewed bounded folder observation described above; it never watches an unselected work-folder or replays offline events. Version 5's opt-in catch-up compares one saved metadata snapshot with the folder and starts at most one coalesced run per gap; it is not an event log, never queues missed events, and never replays edits made while an automation was running.
 - **Expressions, conditions, branching, retries, or free templating.**
   Version 4 admits only the closed, host-filled placeholder set; nothing
   evaluates model output, and there is no step-output piping beyond it and
@@ -604,9 +696,12 @@ The plan items shipped as follows:
 
 ## Authoring guidance
 
-`work-fold help automations` includes a complete version-4 folder-change proposal
-with file-copy, Chat, Check, and agent steps and two placeholders. The work-fold agent is instructed to consult it
-before authoring. The example is checked against the real proposal validator;
+`work-fold help automations` includes a complete version-5 folder-change proposal
+that catches up (`"ifMissed": "run"`), with file-copy, Chat, Check, and agent
+steps and two placeholders. The work-fold agent is instructed to consult it
+before authoring, to offer the catch-up when a person wants files that arrive
+while work-fold is closed handled too, and to leave it out otherwise. The
+example is checked against the real proposal validator;
 it documents the nested `automation` envelope, additive copies, observer pauses,
 and the distinction between a completed Check run and clear findings.
 

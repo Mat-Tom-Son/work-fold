@@ -10,7 +10,7 @@ import { RestrictedAppInferenceService, RestrictedAppInferenceError, type Restri
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
 import { ModelContextInspector } from "./agent/model-context-inspector.js";
 import { type NativeResourceKind } from "./agent/resource-lifecycle.js";
-import { observeWorkFoldAutomationFiles } from "./automations/automation-file-observer.js";
+import { observeWorkFoldAutomationFiles, workFoldAutomationFileObserverBounds } from "./automations/automation-file-observer.js";
 import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-preview.js";
 import { turnFileChanges } from "./agent/turn-file-changes.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -18,7 +18,10 @@ import { workRequestLabel, type WorkRequestView } from "../shared/request-presen
 import { childFolderPaths } from "../shared/folder-nesting.js";
 import { restrictedAppDataRestoreBytes } from "../shared/restricted-app-storage-limits.js";
 import {
+  automationCatchUpReasons,
+  automationCatchUpSentence,
   automationTriggerSummary,
+  type AutomationCatchUpReason,
   type FolderAutomationState,
   type FolderAutomationsResponse,
   type FolderAutomationView,
@@ -533,6 +536,8 @@ export interface WorkFoldAutomationSettingsSummary {
   lastScheduledAt?: string;
   activeRun?: { runId: string; startedAt: string };
   lastRun?: Omit<WorkFoldAutomationSettingsRunView, "hops" | "cause" | "detail">;
+  /** The newest run that caught up on files changed while work-fold could not watch (`"ifMissed": "run"`). */
+  lastCatchUp?: { runId: string; at: string; count: number; reason: AutomationCatchUpReason };
   suspension?: { at: string; reason?: string; missingWorkFolders?: WorkFoldAutomationSettingsWorkFolderRef[] };
 }
 
@@ -9616,7 +9621,16 @@ function toActAppAutomationRunRef(run: RestrictedAppAutomationRunReceipt): WorkF
 }
 
 function toActAutomationTriggerRef(trigger: WorkFoldAutomationDeclaration["trigger"]): WorkFoldActAutomationTriggerRef {
-  if (trigger.kind === "files-changed") return { kind: trigger.kind, workFolderId: trigger.workFolder, watch: structuredClone(trigger.watch), debounceSeconds: trigger.debounceSeconds, cooldownMinutes: trigger.cooldownMinutes };
+  if (trigger.kind === "files-changed") {
+    return {
+      kind: trigger.kind,
+      workFolderId: trigger.workFolder,
+      watch: structuredClone(trigger.watch),
+      debounceSeconds: trigger.debounceSeconds,
+      cooldownMinutes: trigger.cooldownMinutes,
+      ...(trigger.ifMissed !== undefined ? { ifMissed: trigger.ifMissed } : {}),
+    };
+  }
   if (trigger.kind === "interval") return { kind: "interval", intervalMinutes: trigger.intervalMinutes };
   if (trigger.kind === "at") return { kind: "at", at: trigger.at, ifMissed: trigger.ifMissed };
   if (trigger.kind === "on-settled") {
@@ -9864,14 +9878,18 @@ function projectAutomationReceiptCause(value: unknown): unknown {
   if ((cause.kind === "scheduled" || cause.kind === "resume") && automationReceiptTimestamp(cause.slotAt)) {
     return { kind: cause.kind, slotAt: automationReceiptTimestamp(cause.slotAt)! };
   }
-  if (cause.kind === "files-changed" && typeof cause.snapshotDigest === "string" && /^[a-f0-9]{64}$/.test(cause.snapshotDigest) && Number.isSafeInteger(cause.changedCount) && (cause.changedCount as number) > 0 && (cause.changedCount as number) <= 1024 && automationReceiptText(cause.workFolderId)) {
+  // A live change and a catch-up both list at most the observer's files on
+  // each side of the comparison, so the true count never exceeds twice that.
+  if (cause.kind === "files-changed" && typeof cause.snapshotDigest === "string" && /^[a-f0-9]{64}$/.test(cause.snapshotDigest) && Number.isSafeInteger(cause.changedCount) && (cause.changedCount as number) > 0 && (cause.changedCount as number) <= 2 * workFoldAutomationFileObserverBounds.maxFiles && automationReceiptText(cause.workFolderId)) {
     const changedPaths = automationReceiptTextList(cause.changedPaths);
+    const catchUp = automationReceiptCatchUp(cause.catchUp, cause.changedCount as number);
     return {
       kind: cause.kind,
       workFolderId: automationReceiptText(cause.workFolderId),
       snapshotDigest: cause.snapshotDigest,
       changedCount: cause.changedCount,
       ...(changedPaths?.length ? { changedPaths } : {}),
+      ...(catchUp ? { catchUp } : {}),
     };
   }
   if (cause.kind === "run-now") {
@@ -9929,6 +9947,15 @@ function automationReceiptTimestamp(value: unknown): string | undefined {
   return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : undefined;
 }
 
+/** A recorded catch-up, or undefined when the field is absent or not the closed shape. */
+function automationReceiptCatchUp(value: unknown, changedCount: number): { reason: AutomationCatchUpReason; count: number } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const { reason, count } = value as Record<string, unknown>;
+  if (typeof reason !== "string" || !(automationCatchUpReasons as readonly string[]).includes(reason)) return undefined;
+  if (!Number.isSafeInteger(count) || (count as number) < 1 || (count as number) > changedCount) return undefined;
+  return { reason: reason as AutomationCatchUpReason, count: count as number };
+}
+
 function automationReceiptTextList(value: unknown): string[] | undefined {
   if (!Array.isArray(value) || value.length > automationReceiptListLimit) return undefined;
   const values = value.map(automationReceiptText);
@@ -9940,17 +9967,17 @@ function createWorkFoldAutomationSettingsFacade(state: LocalApiState): WorkFoldA
     async list() {
       const projections = await runActOperation(() => state.automations.listAutomations());
       const receiptProjection = await readAutomationReceiptProjectionsByAutomation();
-      const historyByAutomation = new Map<string, WorkFoldAutomationSettingsRunView[]>();
+      const historyByAutomation = new Map<string, WorkFoldAutomationSettingsHistory>();
       for (const projection of projections) {
         const history = await automationSettingsHistoryFromProjection(
           projection.declaration.id,
           receiptProjection,
         );
-        historyByAutomation.set(projection.declaration.id, history.runs);
+        historyByAutomation.set(projection.declaration.id, history);
       }
       return {
         automations: await Promise.all(projections.map(async (projection) =>
-          await automationSettingsSummary(projection, historyByAutomation.get(projection.declaration.id) ?? []))),
+          await automationSettingsSummary(projection, historyByAutomation.get(projection.declaration.id) ?? { runs: [] }))),
         status: state.automations.status(),
       };
     },
@@ -10017,13 +10044,13 @@ function createWorkFoldAutomationSettingsFacade(state: LocalApiState): WorkFoldA
         requestId: result.requestId,
         enabled: true as const,
         alreadyEnabled: result.value.alreadyEnabled,
-        automation: await automationSettingsSummary(projection, history.runs),
+        automation: await automationSettingsSummary(projection, history),
       };
     },
     async show(automationId) {
       const projection = await requireSettingsAutomation(state, automationId);
       const history = await automationSettingsHistory(projection.declaration.id);
-      const summary = await automationSettingsSummary(projection, history.runs);
+      const summary = await automationSettingsSummary(projection, history);
       const workFolders = summary.workFolders;
       const byId = new Map(workFolders.map((workFolder) => [workFolder.workFolderId, workFolder]));
       const named = (workFolderId: string): WorkFoldAutomationSettingsWorkFolderRef => byId.get(workFolderId) ?? { workFolderId };
@@ -10192,7 +10219,7 @@ function createWorkFoldAutomationSettingsFacade(state: LocalApiState): WorkFoldA
       const automations: FolderAutomationView[] = [];
       for (const projection of projections) {
         const history = await automationSettingsHistoryFromProjection(projection.declaration.id, receiptProjection);
-        const summary = await automationSettingsSummary(projection, history.runs);
+        const summary = await automationSettingsSummary(projection, history);
         automations.push(folderAutomationView(projection, summary, workFolderId));
       }
       return { automations };
@@ -10262,8 +10289,9 @@ async function automationSettingsWorkFolderRefs(workFolderIds: string[]): Promis
 
 async function automationSettingsSummary(
   projection: WorkFoldAutomationProjection,
-  runs: WorkFoldAutomationSettingsRunView[],
+  history: Pick<WorkFoldAutomationSettingsHistory, "runs" | "lastCatchUp">,
 ): Promise<WorkFoldAutomationSettingsSummary> {
+  const runs = history.runs;
   const lastRun = runs[0];
   const active = projection.activeRunId ? runs.find((run) => run.runId === projection.activeRunId) : undefined;
   const missingWorkFolders = projection.suspension
@@ -10290,6 +10318,7 @@ async function automationSettingsSummary(
         },
       }
       : {}),
+    ...(history.lastCatchUp ? { lastCatchUp: history.lastCatchUp } : {}),
     ...(projection.suspension
       ? {
         suspension: {
@@ -10302,11 +10331,14 @@ async function automationSettingsSummary(
   };
 }
 
-async function automationSettingsHistory(automationId: string): Promise<{
+type WorkFoldAutomationSettingsHistory = {
   runs: WorkFoldAutomationSettingsRunView[];
   truncated: boolean;
   damagedLineCount: number;
-}> {
+  lastCatchUp?: WorkFoldAutomationSettingsSummary["lastCatchUp"];
+};
+
+async function automationSettingsHistory(automationId: string): Promise<WorkFoldAutomationSettingsHistory> {
   const projected = await readAutomationReceiptProjection(automationId);
   return await automationSettingsHistoryFromProjection(automationId, projected);
 }
@@ -10314,11 +10346,7 @@ async function automationSettingsHistory(automationId: string): Promise<{
 async function automationSettingsHistoryFromProjection(
   automationId: string,
   projection: Awaited<ReturnType<typeof readAutomationReceiptProjection>>,
-): Promise<{
-  runs: WorkFoldAutomationSettingsRunView[];
-  truncated: boolean;
-  damagedLineCount: number;
-}> {
+): Promise<WorkFoldAutomationSettingsHistory> {
   const projected = {
     ...projection,
     receipts: projection.receipts.filter((receipt) => receipt.automationId === automationId),
@@ -10332,8 +10360,15 @@ async function automationSettingsHistoryFromProjection(
   const workFolders = await automationSettingsWorkFolderRefs([...workFolderIds]);
   const workFolderNames = new Map(workFolders.filter((workFolder) => workFolder.workFolderName).map((workFolder) => [workFolder.workFolderId, workFolder.workFolderName!]));
   const runs = new Map<string, WorkFoldAutomationSettingsRunView & { hopsById: Map<string, WorkFoldAutomationSettingsRunView["hops"][number]> }>();
+  let lastCatchUp: WorkFoldAutomationSettingsHistory["lastCatchUp"];
   for (const receipt of [...projected.receipts].reverse()) {
     if (!receipt.runId || (receipt.scope !== "run" && receipt.scope !== "hop")) continue;
+    if (receipt.scope === "run" && receipt.outcome === "accepted") {
+      const caughtUp = automationSettingsCatchUp(receipt.cause);
+      if (caughtUp && (!lastCatchUp || Date.parse(receipt.at) > Date.parse(lastCatchUp.at))) {
+        lastCatchUp = { runId: receipt.runId, at: receipt.at, ...caughtUp };
+      }
+    }
     let run = runs.get(receipt.runId);
     if (!run) {
       run = {
@@ -10378,7 +10413,14 @@ async function automationSettingsHistoryFromProjection(
       .map(({ hopsById: _hopsById, ...run }) => run),
     truncated: projected.truncated || runs.size > 50,
     damagedLineCount: projected.damagedLineCount,
+    ...(lastCatchUp ? { lastCatchUp } : {}),
   };
+}
+
+function automationSettingsCatchUp(value: unknown): { count: number; reason: AutomationCatchUpReason } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const cause = value as Record<string, unknown>;
+  return cause.kind === "files-changed" ? automationReceiptCatchUp(cause.catchUp, Number(cause.changedCount)) : undefined;
 }
 
 function isAutomationSettingsOutcome(value: string): value is WorkFoldAutomationSettingsOutcome {
@@ -10394,7 +10436,10 @@ function isAutomationSettingsOutcome(value: string): value is WorkFoldAutomation
 function automationSettingsCause(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const cause = value as Record<string, unknown>;
-  if (cause.kind === "files-changed") return `Folder changed · ${cause.changedCount} file(s)`;
+  if (cause.kind === "files-changed") {
+    const catchUp = automationReceiptCatchUp(cause.catchUp, Number(cause.changedCount));
+    return catchUp ? automationCatchUpSentence(catchUp.count, catchUp.reason) : `Folder changed · ${cause.changedCount} file(s)`;
+  }
   if (cause.kind === "run-now") return "Run Now";
   if ((cause.kind === "scheduled" || cause.kind === "resume") && typeof cause.slotAt === "string") {
     return cause.kind === "resume" ? `Caught up from ${cause.slotAt}` : `Scheduled for ${cause.slotAt}`;
