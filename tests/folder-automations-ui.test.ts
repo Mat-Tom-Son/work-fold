@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 
-import { WorkFolderAutomationsPane, folderAutomationRoleSentence } from "../web-local/src/components/panes/WorkFolderAutomationsPane.js";
+import { WorkFolderAutomationsPane, folderAutomationRoleSentence, lastRunText } from "../web-local/src/components/panes/WorkFolderAutomationsPane.js";
 import { buildFixtureFolderAutomations } from "../web-local/src/fixtures/work-folder-fixture.js";
 import type { FolderAutomationView } from "../src/shared/automation-presentation.js";
 import { createDomHarness } from "./support/dom.js";
@@ -125,4 +125,19 @@ test("an automation's own tab shows just that automation, and says so when it no
   assert.equal(dom.container.querySelectorAll(".folder-automation-row").length, 1);
   await dom.render(createElement(WorkFolderAutomationsPane, { ...props, automationId: "removed-automation" }));
   assert.equal(dom.container.querySelector(".folder-automations-empty")?.textContent, "This automation no longer touches this work-folder.");
+});
+
+test("a last run its Worker reported as partly done says so", () => {
+  const view = (lastRun: FolderAutomationView["lastRun"]): FolderAutomationView => ({
+    automationId: "automation-sort-screenshots",
+    title: "Sort screenshots",
+    state: "on",
+    triggerSummary: "When files change",
+    nextRunAt: null,
+    lastRun,
+    roles: ["chats-here"],
+  });
+  assert.match(lastRunText(view({ at: "2026-10-11T12:00:00.000Z", outcome: "succeeded", partial: true })), /· Partly done$/);
+  assert.doesNotMatch(lastRunText(view({ at: "2026-10-11T12:00:00.000Z", outcome: "succeeded" })), /·/);
+  assert.match(lastRunText(view({ at: "2026-10-11T12:00:00.000Z", outcome: "failed" })), /· Failed$/);
 });

@@ -3650,6 +3650,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         hopKind?: unknown;
         placeholders?: unknown;
         detail?: unknown;
+        partial?: unknown;
       }>;
       if (!receipts.length) return "No automation receipts recorded.\n";
       const shown = receipts.slice(-50);
@@ -3664,7 +3665,8 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
             .join(", ")} (see --json for the text)`
           : "";
         const detail = typeof entry.detail === "string" && entry.detail ? ` — ${terminalText(entry.detail)}` : "";
-        return `- ${terminalText(entry.at)} [${terminalText(entry.automationId)}] ${scope}: ${terminalText(entry.outcome)}${filled}${detail}`;
+        const partly = entry.partial === true ? " (partly done)" : "";
+        return `- ${terminalText(entry.at)} [${terminalText(entry.automationId)}] ${scope}: ${terminalText(entry.outcome)}${partly}${filled}${detail}`;
       });
       const omitted = receipts.length > shown.length ? `\n${receipts.length - shown.length} older receipt(s) in the --json result.` : "";
       const damaged = typeof record.damagedLineCount === "number" && record.damagedLineCount > 0

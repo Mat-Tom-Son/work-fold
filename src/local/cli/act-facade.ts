@@ -587,6 +587,8 @@ export interface WorkFoldActAutomationReceipt {
   title?: string;
   digest?: string;
   detail?: string;
+  /** A succeeded hop or run whose Worker reported finishing only partly. */
+  partial?: true;
   cause?: unknown;
   workFolderId?: string;
   fromWorkFolderId?: string;

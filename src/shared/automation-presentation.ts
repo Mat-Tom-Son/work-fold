@@ -97,7 +97,8 @@ export interface FolderAutomationView {
   state: FolderAutomationState;
   triggerSummary: string;
   nextRunAt: string | null;
-  lastRun: { at: string; outcome: AutomationOutcome } | null;
+  /** `partial`: it succeeded, but a step's Worker reported finishing only partly. */
+  lastRun: { at: string; outcome: AutomationOutcome; partial?: true } | null;
   roles: FolderAutomationRole[];
 }
 

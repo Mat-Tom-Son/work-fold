@@ -80,6 +80,7 @@ export interface AutomationSummaryView {
     outcome: AutomationsPaneOutcome;
     startedAt: string;
     finishedAt?: string;
+    partial?: true;
   };
   /** The newest run that caught up on files changed while work-fold could not watch. */
   lastCatchUp?: { runId: string; at: string; count: number; reason: AutomationCatchUpReason };
@@ -102,6 +103,7 @@ export interface AutomationHistoryHopView {
   hopId: string;
   kind: "chat" | "files" | "check" | "agent";
   outcome: AutomationsPaneOutcome;
+  partial?: true;
   workFolderName?: string;
   detail?: string;
   evidence?: Array<{ label: string; value: string }>;
@@ -114,6 +116,7 @@ export interface AutomationHistoryRunView {
   finishedAt?: string;
   cause?: string;
   detail?: string;
+  partial?: true;
   hops: AutomationHistoryHopView[];
 }
 
@@ -578,7 +581,7 @@ export function AutomationsPane() {
                 </section> : null}
                 <dl className="automation-facts">
                   <div><dt>Next</dt><dd>{detail.nextScheduledAt ? formatDateTime(detail.nextScheduledAt) : "—"}</dd></div>
-                  <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not Run Yet"}</dd></div>
+                  <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome, detail.lastRun.partial)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not Run Yet"}</dd></div>
                 </dl>
 
                 <section className="automation-detail-section" aria-labelledby="automation-steps-title">
@@ -807,8 +810,8 @@ function AutomationRun({ run }: { run: AutomationHistoryRunView }) {
   return (
     <details className="automation-run">
       <summary>
-        <span className={`automation-run-dot ${run.outcome}`} aria-hidden="true" />
-        <strong>{outcomeLabel(run.outcome)}</strong>
+        <span className={`automation-run-dot ${run.partial ? "partial" : run.outcome}`} aria-hidden="true" />
+        <strong>{outcomeLabel(run.outcome, run.partial)}</strong>
         <span>{formatDateTime(run.startedAt)}</span>
       </summary>
       <div className="automation-run-detail">
@@ -818,7 +821,7 @@ function AutomationRun({ run }: { run: AutomationHistoryRunView }) {
           <ol>
             {run.hops.map((hop) => (
               <li key={hop.hopId}>
-                <div><strong>{hopLabel(hop.kind)}</strong><span>{outcomeLabel(hop.outcome)}{hop.workFolderName ? ` · ${hop.workFolderName}` : ""}</span></div>
+                <div><strong>{hopLabel(hop.kind)}</strong><span>{outcomeLabel(hop.outcome, hop.partial)}{hop.workFolderName ? ` · ${hop.workFolderName}` : ""}</span></div>
                 {hop.detail ? <small>{hop.detail}</small> : null}
                 {hop.evidence?.map((item) => <small key={`${hop.hopId}:${item.label}:${item.value}`}>{item.label}: <code>{item.value}</code></small>)}
               </li>
@@ -842,7 +845,7 @@ function filesSourceSummary(source: Extract<AutomationStepView, { kind: "files" 
 
 function lastRunSummary(automation: AutomationSummaryView): string {
   if (!automation.lastRun) return automation.health === "completed" ? "Completed" : "Not Run Yet";
-  return `${outcomeLabel(automation.lastRun.outcome)} · ${formatDateTime(automation.lastRun.startedAt)}`;
+  return `${outcomeLabel(automation.lastRun.outcome, automation.lastRun.partial)} · ${formatDateTime(automation.lastRun.startedAt)}`;
 }
 
 function missingWorkFoldersMessage(workFolders: AutomationWorkFolderRef[] | undefined): string {
@@ -854,7 +857,9 @@ function workFolderLabel(workFolder: AutomationWorkFolderRef): string {
   return workFolder.workFolderName ?? workFolder.workFolderId;
 }
 
-function outcomeLabel(outcome: AutomationsPaneOutcome): string {
+/** A succeeded run or step whose Worker reported finishing only partly reads "Partly done". */
+function outcomeLabel(outcome: AutomationsPaneOutcome, partial?: true): string {
+  if (partial && outcome === "succeeded") return "Partly done";
   return ({
     accepted: "Started",
     succeeded: "Succeeded",
