@@ -132,6 +132,10 @@
   grid-template-columns: var(--work-folder-rail-width) minmax(320px, 1fr) var(--work-folder-resizer-width) minmax(280px, var(--agent-panel-width, 380px));
 }
 
+/* A closed panel stays mounted so its chat keeps its place. Hidden must win
+   over every display rule for the panel and its resizer, or the closed panel
+   still takes a grid cell and the layout wraps into a second row. */
+:root[data-theme] .app-shell .work-folder-layout > :is(.agent-panel, .agent-panel-resizer)[hidden],
 .app-shell .work-folder-layout > :is(.agent-panel, .agent-panel-resizer)[hidden] {
   display: none;
 }
