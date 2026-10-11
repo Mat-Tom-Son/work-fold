@@ -21,6 +21,32 @@ test("notification open requests target the exact owning work-folder even when a
   assert.notEqual(target?.workFolder.id, "ws-current");
 });
 
+test("a notification click opens the app's left pane at the destination the app named, and says so", () => {
+  const request = {
+    workFolderId: "ws-owner",
+    appId: "connected-inbox",
+    featureInstallationId: "feature-installation_original",
+    digest: "a".repeat(64),
+    permissionId: "new-mail",
+  };
+  const home = resolveRestrictedAppOpenRequest(request, workFolders);
+  assert.deepEqual(home?.target, {
+    mode: "app:restricted:ws-owner:connected-inbox:feature-installation_original",
+    route: "/",
+    openedFrom: { kind: "notification", permissionId: "new-mail" },
+  }, "with no destination named, the click opens the app's home");
+  const routed = resolveRestrictedAppOpenRequest({ ...request, route: "/threads/42?x=1", state: { threadId: "42" } }, workFolders);
+  assert.deepEqual(routed?.target, {
+    mode: home?.mode,
+    route: "/threads/42?x=1",
+    state: { threadId: "42" },
+    openedFrom: { kind: "notification", permissionId: "new-mail" },
+  });
+  // A destination that no longer parses still opens the app, at its home.
+  assert.deepEqual(resolveRestrictedAppOpenRequest({ ...request, route: "//elsewhere.example/x", state: { a: 1 } }, workFolders)?.target, home?.target);
+  assert.equal(resolveRestrictedAppOpenRequest({ ...request, permissionId: "Not a category" }, workFolders), null);
+});
+
 test("notification open requests do not invent a removed owning work-folder", () => {
   assert.equal(resolveRestrictedAppOpenRequest({
     workFolderId: "ws-removed",

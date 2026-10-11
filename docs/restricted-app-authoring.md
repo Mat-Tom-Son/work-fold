@@ -413,12 +413,35 @@ const unsubscribe = bridge.context.onChanged((next) => {
 
 Context contains host-owned `workFolderId`, `appId`, `digest`, and `mountId`,
 plus `placement` (`navigator` or `tab`), nullable `appTabId`, origin-relative
-`route`, JSON `state`, `theme` (`light` or `dark`), and `active`. Treat identity
+`route`, JSON `state`, `theme` (`light` or `dark`), `active`, and nullable
+`openedFrom`. Treat identity
 as descriptive; the host derives authority from the sending renderer, never
 from values supplied back by app code. One UI entry can branch on placement and
 route to render a compact left navigator and full work-tab views. The left
 navigator is the app's home: its rail button always shows it, and it should
 work on its own at 280-640px wide.
+
+### Opened from a notification
+
+The rail button opens the left pane at `/` with `openedFrom: null`. A click on
+one of the app's notifications opens the same left pane — never a tab — at the
+route and state the worker named in `notifications.show` (2026-10-11), with
+`openedFrom` set to `{ kind: "notification", permissionId }`. When the left
+pane is already open, the same three values arrive through
+`context.onChanged`. Render from the route and state rather than assuming `/`:
+
+```js
+function render(next) {
+  const match = /^\/threads\/([^/?#]+)/.exec(next.route);
+  if (match) showThread(decodeURIComponent(match[1]), { highlight: next.openedFrom?.kind === "notification" });
+  else showInbox();
+}
+render(bridge.context.get());
+bridge.context.onChanged(render);
+```
+
+`openedFrom` says how the view was opened, not who may do what: it grants
+nothing, and the app should treat it as a hint for what to show first.
 
 ### work-folder-owned tabs
 
@@ -806,6 +829,9 @@ export async function handleAutomation(event) {
   try {
     notification = await globalThis.workFoldRestrictedApp.notifications.show({
       permissionId: "refresh-finished",
+      // Where a click opens the app's left pane; optional.
+      route: "/records?filter=new",
+      state: { since: event.scheduledAt },
     });
   } catch (error) {
     notification = { status: "not-shown", code: error?.code || "NOTIFICATION_FAILED" };
@@ -848,7 +874,11 @@ granted category included in that job. A manual run of a disabled automation
 therefore cannot notify. The method returns a
 status of `shown`, `rate-limited`, or `unsupported`. The host supplies the
 reviewed title and description; the worker cannot add dynamic text, actions,
-or URLs. Notification failure should not discard already completed work. Use
+or URLs. It may name where a click opens the app: `route` is an
+origin-relative path inside the app of at most 2,048 characters (default
+`/`) and `state` is JSON of at most 64 KiB, checked exactly like a tab's; an
+invalid one is refused with `NOTIFICATION_DENIED` and nothing is shown. See
+[Opened from a notification](#opened-from-a-notification). Notification failure should not discard already completed work. Use
 copy such as “refresh finished” when the result may be either success or
 failure.
 

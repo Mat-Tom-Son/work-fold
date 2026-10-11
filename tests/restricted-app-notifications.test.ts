@@ -49,7 +49,7 @@ test("notification handles and click targets distinguish installations with the 
     assert.equal(sink.shown[1]!.handle.closed, false);
     sink.shown[1]!.callbacks.onClick();
     assert.deepEqual(opened, [{ workFolderId: release.workFolderId, appId: release.appId, digest: digestOne,
-      featureInstallationId: "feature-release", permissionId: "new-mail" }]);
+      featureInstallationId: "feature-release", permissionId: "new-mail", route: "/" }]);
   } finally { broker.dispose(); }
 });
 
@@ -85,7 +85,8 @@ test("notification broker renders only reviewed static copy during an enabled au
     body: "New messages are ready.",
   });
   sink.shown[0]?.callbacks.onClick();
-  assert.deepEqual(opened, [{ workFolderId: "ws-1111111111111111", appId: "connected-inbox", digest: digestOne, permissionId: "new-mail" }]);
+  assert.deepEqual(opened, [{ workFolderId: "ws-1111111111111111", appId: "connected-inbox", digest: digestOne, permissionId: "new-mail", route: "/" }],
+    "with no destination named, a click opens the app's left pane at its home");
   assert.equal(sink.shown[0]?.handle.closed, true, "clicking consumes and closes the current notification");
   sink.shown[0]?.callbacks.onClick();
   assert.equal(opened.length, 1, "a stale native click cannot reopen the app");
@@ -95,11 +96,63 @@ test("notification broker renders only reviewed static copy during an enabled au
 test("notification broker rejects dynamic payloads, missing grants, and disabled automation authority", () => {
   const sink = new Sink();
   const broker = new RestrictedAppNotificationBroker({ sink });
-  assert.throws(() => broker.show(context(), { permissionId: "new-mail", body: "injected" }, () => undefined), /only a valid permissionId/);
+  assert.throws(() => broker.show(context(), { permissionId: "new-mail", body: "injected" }, () => undefined), /only a valid permissionId, an optional route, and optional state/);
   assert.throws(() => broker.show(context({ grants: [] }), { permissionId: "new-mail" }, () => undefined), /not granted/);
   assert.throws(() => broker.show(context({ appAutomationEnabled: false }), { permissionId: "new-mail" }, () => undefined), /Enable this automation/);
   assert.equal(sink.shown.length, 0);
   broker.dispose();
+});
+
+/**
+ * The app may name where a click opens its left-pane view (2026-10-11): a
+ * route validated like a tab route and small JSON state validated like tab
+ * state. The copy the person sees stays the reviewed static copy.
+ */
+test("a notification carries the app's destination for a click, validated like a tab, and never its copy", () => {
+  const sink = new Sink();
+  const opened: unknown[] = [];
+  const broker = new RestrictedAppNotificationBroker({ sink });
+  try {
+    assert.deepEqual(broker.show(context(), {
+      permissionId: "new-mail",
+      route: "/threads/42?from=notification#latest",
+      state: { threadId: "42", unread: [1, 2] },
+    }, (request) => opened.push(request)), { status: "shown" });
+    assert.deepEqual(sink.shown[0]?.notification, {
+      workFolderId: "ws-1111111111111111",
+      appId: "connected-inbox",
+      digest: digestOne,
+      permissionId: "new-mail",
+      title: "work-fold · Connected inbox — New mail",
+      body: "New messages are ready.",
+    }, "the destination never reaches the notification's copy");
+    sink.shown[0]?.callbacks.onClick();
+    assert.deepEqual(opened, [{
+      workFolderId: "ws-1111111111111111",
+      appId: "connected-inbox",
+      digest: digestOne,
+      permissionId: "new-mail",
+      route: "/threads/42?from=notification#latest",
+      state: { threadId: "42", unread: [1, 2] },
+    }]);
+
+    const denied = (request: Record<string, unknown>, pattern: RegExp) => assert.throws(
+      () => broker.show(context({ invocationId: "denied" }), { permissionId: "sync-error", ...request }, () => undefined),
+      (error: unknown) => (error as { code?: string }).code === "NOTIFICATION_DENIED" && pattern.test((error as Error).message),
+    );
+    for (const route of ["https://example.com/x", "//example.com/x", "threads/42", "/a\\b", "/a\nb", `/${"a".repeat(2_048)}`, 42]) {
+      denied({ route }, /Notification route must be a path inside the app/);
+    }
+    denied({ state: { blob: "x".repeat(64 * 1024) } }, /Notification state must be JSON of at most 64 KiB/);
+    denied({ state: 10n }, /Notification state must be JSON/);
+    assert.equal(sink.shown.length, 1, "a refused destination shows nothing");
+    // The bounds themselves are reachable.
+    assert.equal(broker.show(context({ invocationId: "bounds" }), {
+      permissionId: "sync-error",
+      route: `/${"a".repeat(2_047)}`,
+      state: { blob: "x".repeat(64 * 1024 - 20) },
+    }, () => undefined).status, "shown");
+  } finally { broker.dispose(); }
 });
 
 const categories = ["new-mail", "sync-error", "export-ready"] as const;

@@ -88,6 +88,7 @@ interface WorkFoldRestrictedAppViewRequest {
   occluded: boolean;
   theme: "light" | "dark";
   appearance?: Record<string, string>;
+  openedFrom?: { kind: "notification"; permissionId: string };
 }
 
 interface WorkFoldRestrictedAppAttention {
@@ -121,6 +122,9 @@ interface WorkFoldRestrictedAppOwner {
   featureInstallationId: string;
   digest: string;
   permissionId: string;
+  /** Where the clicked notification opens the app's left-pane view; "/" when the app named none. */
+  route?: string;
+  state?: unknown;
 }
 
 declare global {

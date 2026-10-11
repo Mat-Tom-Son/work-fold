@@ -68,7 +68,7 @@ import { workFoldAgentDraftEvent, type WorkFoldAgentDraftDetail } from "./lib/ag
 import { defaultFileSort, fileSortStorageKey, normalizeFileSort, sortFileTree, type FileSort } from "./lib/file-sort";
 import { FileSortMenu } from "./components/tree/FileSortMenu";
 import { isMacOS, workFolderEntryNativePath } from "./lib/platform";
-import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRailLabel } from "./lib/restricted-app-navigation";
+import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRailLabel, type RestrictedAppNavigatorTarget } from "./lib/restricted-app-navigation";
 import { getLocalAppStudio, getLocalAppWorkFolderRemovalImpact, prepareRestrictedAppChange } from "./lib/restricted-apps";
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, removeTreeEntries } from "./lib/tree";
 import { normalizeWorkFolderCustomizations } from "./lib/work-folder-customization";
@@ -361,6 +361,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
 }) {
   const initialStoredModeRef = useRef(fixture ? null : localStorage.getItem("work-fold.work-folder.mode"));
   const [activeMode, setActiveMode] = useState<WorkFolderRailMode>(() => fixture ? "files" : normalizeMode(initialStoredModeRef.current));
+  // Where a notification click opened an app's left-pane view. The rail
+  // button, or leaving that app, returns it to its home ("/").
+  const [restrictedAppNavigatorTarget, setRestrictedAppNavigatorTarget] = useState<RestrictedAppNavigatorTarget | null>(null);
   const legacyCustomizationsRef = useRef<WorkFolderCustomizationMap>(fixture ? {} : readStoredJsonValue(
     workFolderCustomizationStorageKey,
     (value) => normalizeWorkFolderCustomizations(value, undefined, supportedWorkFolderIconNames),
@@ -713,9 +716,16 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       const target = resolveRestrictedAppOpenRequest(request, workFolders);
       if (!target) return;
       if (target.workFolder.id !== workFolder.id) onSwitchWorkFolder(target.workFolder);
+      // A notification click opens the app's left pane, never a tab
+      // (2026-10-11), at the route and state the app named for it.
+      setSidebarHidden(false);
+      setRestrictedAppNavigatorTarget(target.target);
       setActiveMode(target.mode);
     });
   }, [onSwitchWorkFolder, workFolder.id, workFolders]);
+  useEffect(() => {
+    if (restrictedAppNavigatorTarget && restrictedAppNavigatorTarget.mode !== activeMode) setRestrictedAppNavigatorTarget(null);
+  }, [activeMode, restrictedAppNavigatorTarget]);
   useEffect(() => {
     // A temporarily missing or moved folder is not the same thing as an
     // explicit work-folder removal. Keep appearance keyed by the portable work-folder id
@@ -1505,6 +1515,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   function selectRailMode(mode: WorkFolderRailMode): void {
     // Every rail destination brings a hidden navigation pane back.
     setSidebarHidden(false);
+    // The rail button opens an app at its home, even when a notification
+    // had opened it somewhere else.
+    setRestrictedAppNavigatorTarget(null);
     setActiveMode(mode);
     // Apps and Extension surfaces show their left pane and never open a tab by
     // themselves; a tab comes from a click inside that pane, like a file.
@@ -1513,6 +1526,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   function openInstalledRestrictedApp(targetWorkFolder: WorkFolderSummary, app: RestrictedAppInstalled): void {
     restrictedAppsState.upsertApp(app);
     if (targetWorkFolder.id !== workFolder.id) onSwitchWorkFolder(targetWorkFolder);
+    setRestrictedAppNavigatorTarget(null);
     setActiveMode(restrictedAppRailMode(targetWorkFolder.id, app.manifest.id, app.featureInstallationId));
   }
 
@@ -1648,7 +1662,16 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       {activeMode === "automations" ? <WorkFolderAutomationsNavigator automations={folderAutomations.byWorkFolder[workFolder.id]} activeAutomationId={activeTab?.kind === "work-folder-automation" && activeTab.workFolderId === workFolder.id ? activeTab.automationId : null} onOpen={(automation) => tabs.openWorkFolderAutomationSurfaceTab(workFolder, automation)} onOpenAllAutomations={() => onOpenSettings("automations")} /> : null}
       {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={workFolder} fixtureItems={fixture?.checkpoints[workFolder.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workFolder, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(workFolder, activeSurface, view)} /> : null}
-      {activeRestrictedApp ? <RestrictedAppViewport key={`${activeRestrictedApp.featureInstallationId}:${activeRestrictedApp.digest}`} app={activeRestrictedApp} placement="navigator" route="/" active /> : null}
+      {activeRestrictedApp ? <RestrictedAppViewport
+        key={`${activeRestrictedApp.featureInstallationId}:${activeRestrictedApp.digest}`}
+        app={activeRestrictedApp} placement="navigator"
+        route={restrictedAppNavigatorTarget?.mode === activeMode ? restrictedAppNavigatorTarget.route : "/"}
+        {...(restrictedAppNavigatorTarget?.mode === activeMode ? {
+          ...(restrictedAppNavigatorTarget.state !== undefined ? { state: restrictedAppNavigatorTarget.state } : {}),
+          openedFrom: restrictedAppNavigatorTarget.openedFrom,
+        } : {})}
+        active
+      /> : null}
     </section>
     <button className="work-folder-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="work-folder-file-panel work-folder-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkFolderSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="work-folder-chat-panel">

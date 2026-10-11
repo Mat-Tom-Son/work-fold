@@ -129,6 +129,7 @@ async function runSmoke() {
     const tabCommands = [];
     const attentionStates = [];
     const shownNotifications = [];
+    const notificationOpens = [];
     const notificationBroker = new RestrictedAppNotificationBroker({
       sink: {
         isSupported: () => true,
@@ -189,6 +190,7 @@ async function runSmoke() {
       preloadPath: join(rootDir, "dist", "desktop", "desktop", "src", "restricted-app-preload.cjs"),
       kitRoot: join(rootDir, "dist", "desktop", "restricted-app-kit"),
       notifications: notificationBroker,
+      onNotificationOpen: (request) => notificationOpens.push(request),
       onTabCommand: (command) => tabCommands.push(command),
       onAttention: (state) => attentionStates.push(state),
       // The production hang guard is ten minutes; the smoke shortens it so the
@@ -396,6 +398,19 @@ async function runSmoke() {
       title: "work-fold · Restricted Electron smoke — Automation update",
       body: "New sandboxed app data is ready.",
     }]);
+    // The app names where a click opens its left pane; the copy stays the
+    // reviewed static copy, and a route that leaves the app is refused.
+    assert.equal(await storage.get(storageOwner, "notification-route-denied"), true, "a notification route outside the app is refused");
+    shownNotifications[0].callbacks.onClick();
+    assert.deepEqual(notificationOpens, [{
+      workFolderId: descriptor.workFolderId,
+      appId: descriptor.manifest.id,
+      featureInstallationId: descriptor.featureInstallationId,
+      digest: descriptor.digest,
+      permissionId: "automation-update",
+      route: "/updates/7?from=smoke",
+      state: { batch: 7 },
+    }], "a click opens the exact installation at the route and state the app named");
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 350));
     assert.equal(shownNotifications.length, 1, "notification calls after handleAutomation returns are denied");
     assert.equal(await storage.get(storageOwner, "worker-storage-events"), 0);
@@ -456,6 +471,8 @@ async function runSmoke() {
       "the visible restricted app did not finish its startup bridge calls",
     );
     assert.deepEqual(await storage.get(storageOwner, "ui-ready"), { unpromptedTabDenied: true, attentionInvalid: true }, "an app cannot open a tab without the person's press");
+    assert.deepEqual(await storage.get(storageOwner, "initial-navigation"), { route: "/", openedFrom: null, batch: null },
+      "a view the person opened from the rail reports no notification origin");
     assert.equal(tabCommands.length, 0);
     const appContents = parent.contentView.children[0].webContents;
     await appContents.executeJavaScript(`(() => {
@@ -499,6 +516,24 @@ async function runSmoke() {
       appearance: { "--wf-accent": "#654321" },
     });
     await waitFor(async () => { const look = await readLook(); return look.accent === "#654321" && look.theme === "light"; }, "a theme change did not reach the app view");
+    // A notification click while the left pane is open moves it in place:
+    // context.onChanged carries the route, state, and where it came from.
+    host.layoutUi(parent.webContents.id, {
+      mountId, placement: "navigator", route: "/updates/7?from=smoke", state: { escapeUrl, batch: 7 }, sequence: 2,
+      bounds: { x: 0, y: 0, width: 320, height: 500 }, active: true, occluded: false, theme: "light",
+      openedFrom: { kind: "notification", permissionId: "automation-update" },
+    });
+    await waitFor(async () => Boolean(await storage.get(storageOwner, "opened-from-notification")), "an open left pane did not learn a notification opened it");
+    assert.deepEqual(await storage.get(storageOwner, "opened-from-notification"), {
+      route: "/updates/7?from=smoke",
+      openedFrom: { kind: "notification", permissionId: "automation-update" },
+      batch: 7,
+    });
+    assert.throws(() => host.layoutUi(parent.webContents.id, {
+      mountId, placement: "tab", appTabId: "smoke-tab", route: "/", sequence: 3,
+      bounds: { x: 0, y: 0, width: 320, height: 500 }, active: true, occluded: false, theme: "light",
+      openedFrom: { kind: "notification", permissionId: "automation-update" },
+    }), /Only the left-pane view opens from a notification/, "a notification never opens a tab");
     assert.deepEqual(attentionStates.map(({ appId, featureInstallationId, count }) => ({ appId, featureInstallationId, count })),
       [{ appId: descriptor.manifest.id, featureInstallationId: descriptor.featureInstallationId, count: 3 }], "the app's rail dot reaches the shell once; an invalid count is refused");
     assert.deepEqual(host.attentionStates().map((state) => state.count), [3]);
@@ -536,7 +571,7 @@ async function runSmoke() {
       placement: "navigator",
       route: "/",
       state: { escapeUrl },
-      sequence: 2,
+      sequence: 3,
       bounds: { x: 0, y: 0, width: 320, height: 500 },
       active: true,
       occluded: false,
@@ -674,7 +709,7 @@ async function runSmoke() {
       placement: "navigator",
       route: "/",
       state: { escapeUrl },
-      sequence: 3,
+      sequence: 4,
       bounds: { x: 0, y: 0, width: 320, height: 500 },
       active: false,
       occluded: true,
@@ -727,10 +762,16 @@ async function runSmoke() {
     const peerUi = { ...peer, fileGrants: descriptor.fileGrants.map((grant) => ({ ...grant, root: "peer-exports" })), networkGrants: descriptor.networkGrants };
     host.syncAuthority([authorityOf(descriptor), authorityOf(peerUi)]);
     await host.mountUi(peerUi, parent.webContents, parent, {
-      mountId, placement: "navigator", route: "/", state: { escapeUrl }, sequence: 4,
+      mountId, placement: "navigator", route: "/updates/7?from=smoke", state: { escapeUrl, batch: 7 }, sequence: 4,
       bounds: { x: 0, y: 0, width: 320, height: 500 }, active: true, occluded: false, theme: "dark",
+      openedFrom: { kind: "notification", permissionId: "automation-update" },
     });
     await waitFor(async () => Boolean(await storage.get(peerOwner, "ui-ready")), "the sibling installation did not create its own view");
+    assert.deepEqual(await storage.get(peerOwner, "initial-navigation"), {
+      route: "/updates/7?from=smoke",
+      openedFrom: { kind: "notification", permissionId: "automation-update" },
+      batch: 7,
+    }, "a left pane mounted by a notification click reads its destination and origin from its first context");
     await clickInView(parent.contentView.children[0].webContents, 40, 40);
     await waitFor(() => tabCommands.length === 2, "the sibling installation did not open its own tab");
     assert.equal(originalContents.isDestroyed(), true);
@@ -928,6 +969,7 @@ async function writeSmokePackage(root, loopbackPort) {
 const bridge = globalThis.workFoldRestrictedApp;
 const context = bridge.context.get();
 let currentActive = context.active;
+await bridge.storage.set("initial-navigation", { route: context.route, openedFrom: context.openedFrom, batch: context.state?.batch ?? null });
 let automationStorageEventCount = 0;
 bridge.storage.onChanged(async (event) => {
   if (event.reset) {
@@ -966,6 +1008,9 @@ for (const register of [bridge.tasks.onChanged, bridge.checks.onChanged, bridge.
 await bridge.storage.set("ui-hint-listener-type-checked", hintListenerTypeChecked);
 bridge.context.onChanged(async (next) => {
   currentActive = next.active;
+  if (next.openedFrom) {
+    await bridge.storage.set("opened-from-notification", { route: next.route, openedFrom: next.openedFrom, batch: next.state?.batch ?? null });
+  }
   if (next.active) return;
   let fileDenied = false;
   let networkDenied = false;
@@ -1164,7 +1209,13 @@ export async function handleAutomation(event) {
   } else {
     await globalThis.workFoldRestrictedApp.storage.set("automation", event);
   }
-  await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" });
+  if (event.scheduledAt === "2026-07-13T00:00:00.000Z") {
+    let notificationRouteDenied = false;
+    try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update", route: "//elsewhere.example/escape" }); }
+    catch (error) { notificationRouteDenied = error?.code === "NOTIFICATION_DENIED"; }
+    await globalThis.workFoldRestrictedApp.storage.set("notification-route-denied", notificationRouteDenied);
+  }
+  await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update", route: "/updates/7?from=smoke", state: { batch: 7 } });
   await new Promise((resolve) => setTimeout(resolve, 120));
   await globalThis.workFoldRestrictedApp.storage.set("worker-storage-events", workerStorageEvents);
   await globalThis.workFoldRestrictedApp.storage.set("worker-checks-hints", workerChecksHints);

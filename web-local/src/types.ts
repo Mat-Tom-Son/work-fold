@@ -773,6 +773,8 @@ export interface RestrictedAppViewRequest {
   theme: AppTheme;
   /** The shell's look as `--wf-*` values, read from this placeholder's own styles. */
   appearance?: Record<string, string>;
+  /** Left-pane views only: the notification click that opened it here. */
+  openedFrom?: { kind: "notification"; permissionId: string };
 }
 
 export interface RestrictedAppProposal {
