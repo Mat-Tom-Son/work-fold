@@ -1,15 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { registerHooks } from "node:module";
+import { createRequire, registerHooks } from "node:module";
+
+// The shared chat draws Fluent icons; Node cannot import that package by name, so stand them in.
+const iconNames = Object.keys(createRequire(import.meta.url)("@fluentui/react-icons")).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
 import { createElement } from "react";
 import { createDomHarness } from "./support/dom.js";
 
 test("management history renames the selected chat and handles deletion failure and success", async (t) => {
   const dom = await createDomHarness();
   const originalFetch = globalThis.fetch;
-  const assets = registerHooks({ load(url, context, next) {
-    return url.endsWith(".png") ? { format: "module", source: `export default ${JSON.stringify(url)};`, shortCircuit: true } : next(url, context);
-  } });
+  const assets = registerHooks({
+    resolve(specifier, context, next) {
+      return specifier === "@fluentui/react-icons" ? { url: "test:agent-icons", shortCircuit: true } : next(specifier, context);
+    },
+    load(url, context, next) {
+      if (url === "test:agent-icons") return { format: "module", source: iconNames.map((name) => `export const ${name}=${name === "bundleIcon" ? "(filled)=>filled" : "()=>null"};`).join("\n"), shortCircuit: true };
+      return url.endsWith(".png") ? { format: "module", source: `export default ${JSON.stringify(url)};`, shortCircuit: true } : next(url, context);
+    },
+  });
   t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; assets.deregister(); });
   Object.assign(window, { workFoldDesktop: { api: {}, workFoldAgent: { hide() {}, onStaged: () => () => {} } } });
   let chats = [{ id: "one", title: "New Chat", updatedAt: new Date().toISOString(), requestState: "done" }];

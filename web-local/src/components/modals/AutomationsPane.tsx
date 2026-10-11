@@ -1,3 +1,4 @@
+import { openWorkFoldAgentDraft } from "../../lib/agent-draft";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { errorText } from "../../lib/api";
@@ -359,16 +360,12 @@ export function AutomationsPane() {
   }
 
   async function openAutomationDraft(existing: AutomationDetailView): Promise<void> {
-    const openDraft = window.workFoldDesktop?.agent?.openWorkFoldAgentDraft;
-    if (!openDraft || drafting) {
-      setActionError("Open the work-fold agent in the desktop app to draft an automation.");
-      return;
-    }
+    if (drafting) return;
     setDrafting(true);
     setActionError(null);
     try {
       const draft = `Review the automation “${existing.title}” (id: ${existing.automationId}). Its current trigger is: ${triggerSummary(existing.trigger)}. Preserve it until I give a clear instruction to change it.`;
-      await openDraft(draft);
+      await openWorkFoldAgentDraft(draft);
     } catch (caught) {
       setActionError(errorText(caught));
     } finally {

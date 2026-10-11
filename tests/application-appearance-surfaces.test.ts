@@ -9,8 +9,8 @@ import test from "node:test";
 import { applicationAppearanceVariables, applicationPalettes, defaultApplicationAppearance } from "../src/shared/application-appearance.js";
 import { accentIdentityFromHex, resolveWorkFolderAppearance, wcagContrast } from "../src/shared/work-folder-appearance.js";
 
-const desktopSheets = ["brand.css", "styles.css", "application-appearance.css"];
-const popoverSheets = ["brand.css", "popover/popover.css", "application-appearance.css"];
+const desktopSheets = ["brand.css", "styles.css", "components/chat/work-steps.css", "application-appearance.css"];
+const popoverSheets = ["brand.css", "popover/popover.css", "popover/popover-document.css", "components/chat/work-steps.css", "application-appearance.css"];
 const exec = promisify(execFile);
 
 test("actual desktop and popover CSS honor appearance roles, reading, density and accessibility", { timeout: 60_000 }, async (t) => {

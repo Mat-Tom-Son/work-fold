@@ -1,3 +1,4 @@
+import { openWorkFoldAgentDraft } from "../../lib/agent-draft";
 import type { CheckCorrectionRecord } from "../../../../src/local/checks/check-corrections";
 import type { WorkFoldCheckRunRecord } from "../../../../src/local/checks/check-types";
 import { CheckSetup } from "./CheckSetup";
@@ -207,8 +208,7 @@ export function ChecksPane({
       ? `Help me change ${JSON.stringify(check.title)} in work-folder ${JSON.stringify(workFolder.name)} (${workFolderId}). Keep the current Check unchanged while we review a new proposal. Check reference: ${check.id}.`
       : `Help me set up a Check in work-folder ${JSON.stringify(workFolder.name)} (${workFolderId}).`;
     try {
-      if (!window.workFoldDesktop?.agent?.openWorkFoldAgentDraft) throw new Error("Open the work-fold agent in the desktop app and ask it to set up a Check for this work-folder.");
-      await window.workFoldDesktop.agent.openWorkFoldAgentDraft(draft);
+      await openWorkFoldAgentDraft(draft);
     } catch (caught) { setError(errorText(caught)); }
   }
 

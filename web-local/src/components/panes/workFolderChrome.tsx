@@ -59,6 +59,7 @@ import { combineActivityStatuses, descendantFolders, folderAncestors, folderTree
 
 function WorkFolderModeRail({
   activeMode,
+  paneHidden = false,
   workFolder,
   surfaces,
   apps,
@@ -69,6 +70,8 @@ function WorkFolderModeRail({
   automations = null,
 }: {
   activeMode: WorkFolderRailMode;
+  /** The navigation pane is hidden, so no destination reads as selected. */
+  paneHidden?: boolean;
   workFolder: WorkFolderSummary;
   surfaces: CapabilitySurface[];
   apps: RestrictedAppInstalled[];
@@ -84,9 +87,10 @@ function WorkFolderModeRail({
   accountControl: ReactNode;
   updateControl?: ReactNode;
 }) {
-  const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
-  const ChatsIcon = activeMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
-  const HistoryIcon = activeMode === "history" ? History24Filled : History24Regular;
+  const shownMode: WorkFolderRailMode | null = paneHidden ? null : activeMode;
+  const FilesIcon = shownMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
+  const ChatsIcon = shownMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
+  const HistoryIcon = shownMode === "history" ? History24Filled : History24Regular;
   const primaryItems: Array<{ mode: WorkFolderRailMode; label: string; ariaLabel: string; icon: ReactNode }> = [
     { mode: "files", label: "Files", ariaLabel: "Files", icon: <FilesIcon className="fluent-rail-icon" /> },
     { mode: "chats", label: "Chats", ariaLabel: "Chats", icon: <ChatsIcon className="fluent-rail-icon" /> },
@@ -100,13 +104,13 @@ function WorkFolderModeRail({
           <button
             className={[
               "work-folder-rail-button",
-              activeMode === item.mode ? "active" : "",
+              shownMode === item.mode ? "active" : "",
             ].filter(Boolean).join(" ")}
             type="button"
             key={item.mode}
             onClick={() => onModeChange(item.mode)}
             aria-label={item.ariaLabel}
-            aria-current={activeMode === item.mode ? "page" : undefined}
+            aria-current={shownMode === item.mode ? "page" : undefined}
           >
             <span className="work-folder-rail-icon" aria-hidden="true">{item.icon}</span>
             <span className="work-folder-rail-label">{item.label}</span>
@@ -129,20 +133,20 @@ function WorkFolderModeRail({
         {surfaces.length || apps.length ? <span className="work-folder-rail-app-divider" aria-hidden="true" /> : null}
         {surfaces.map((surface) => {
           const mode = `app:${surface.key}` as const;
-          const SurfaceIcon = activeMode === mode ? Apps24Filled : Apps24Regular;
+          const SurfaceIcon = shownMode === mode ? Apps24Filled : Apps24Regular;
           const contributedIcon = surface.icon ? workFolderIconOptionFor(surface.icon) : null;
           return (
             <button
-              className={["work-folder-rail-button", "work-folder-rail-app", activeMode === mode ? "active" : ""].filter(Boolean).join(" ")}
+              className={["work-folder-rail-button", "work-folder-rail-app", shownMode === mode ? "active" : ""].filter(Boolean).join(" ")}
               type="button"
               key={surface.key}
               onClick={() => onModeChange(mode)}
               aria-label={surface.title}
-              aria-current={activeMode === mode ? "page" : undefined}
+              aria-current={shownMode === mode ? "page" : undefined}
             >
               <span className="work-folder-rail-icon" aria-hidden="true">
                 {contributedIcon
-                  ? <WorkFolderIconGlyph icon={contributedIcon.Icon} size={24} filled={activeMode === mode} className="fluent-rail-icon" />
+                  ? <WorkFolderIconGlyph icon={contributedIcon.Icon} size={24} filled={shownMode === mode} className="fluent-rail-icon" />
                   : <SurfaceIcon className="fluent-rail-icon" />}
               </span>
               <span className="work-folder-rail-label">{surface.title}</span>
@@ -152,20 +156,20 @@ function WorkFolderModeRail({
         {apps.map((app) => {
           const mode = restrictedAppRailMode(workFolder.id, app.manifest.id, app.featureInstallationId);
           const label = restrictedAppRailLabel(app, apps);
-          const AppIcon = activeMode === mode ? Apps24Filled : Apps24Regular;
+          const AppIcon = shownMode === mode ? Apps24Filled : Apps24Regular;
           const contributedIcon = app.manifest.ui.icon ? workFolderIconOptionFor(app.manifest.ui.icon) : null;
           return (
             <button
-              className={["work-folder-rail-button", "work-folder-rail-app", activeMode === mode ? "active" : ""].filter(Boolean).join(" ")}
+              className={["work-folder-rail-button", "work-folder-rail-app", shownMode === mode ? "active" : ""].filter(Boolean).join(" ")}
               type="button"
               key={app.featureInstallationId}
               onClick={() => onModeChange(mode)}
               aria-label={label}
-              aria-current={activeMode === mode ? "page" : undefined}
+              aria-current={shownMode === mode ? "page" : undefined}
             >
               <span className="work-folder-rail-icon" aria-hidden="true">
                 {contributedIcon
-                  ? <WorkFolderIconGlyph icon={contributedIcon.Icon} size={24} filled={activeMode === mode} className="fluent-rail-icon" />
+                  ? <WorkFolderIconGlyph icon={contributedIcon.Icon} size={24} filled={shownMode === mode} className="fluent-rail-icon" />
                   : <AppIcon className="fluent-rail-icon" />}
               </span>
               <span className="work-folder-rail-label">{label}</span>

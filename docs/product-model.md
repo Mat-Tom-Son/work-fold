@@ -36,7 +36,7 @@ in their original locations. work-folder registration creates no scratch files.
 | **Feature** | One stable reviewed contribution to an App Project. | A Feature id names a slot; only an exact reviewed revision identifies executable bytes. |
 | **Release** | An immutable content-addressed snapshot of reviewed Features and App presentation. | Preparing, publishing, and installing it are separate local acts; a display version is not executable identity. |
 | **App Instance** | One published Release installed into a chosen work-folder with its own runtime, data, grants, connections, jobs, and receipts. | It is distinct from the source-bound Development preview and does not live in or own the work-folder's folder. |
-| **work-fold agent** | The agent above all work-folders: one conversation scope, its menu-bar/tray popover, and the Web Access client under one name. | It is not a work-folder, a second Worker, or a renamed contract; "work-fold agent" stays the technical term. |
+| **work-fold agent** | The agent above all work-folders: one conversation scope, shown in the menu-bar/tray popover, the main window's agent panel, and the Web Access client under one name. | It is not a work-folder, a second Worker, or a renamed contract; "work-fold agent" stays the technical term. |
 | **Automation** | A declared, inert-until-enabled set of deterministic steps that move work between work-folders on a reviewed trigger. | It is executed by app code, never by a Worker conversation, and nothing automation-shaped is written into any work-folder. The technical contract remains `automation`. |
 | **Viewer** | Someone reading one published page or app through a share link while the desktop is online. | A viewer is not a paired browser, never touches the management lane, and is never a Principal. |
 | **Recently deleted** | The machine-local holding place for anything work-fold removed that History could not restore — files, folders, a managed work-folder's folder, app storage and retained-data exports — kept for a retention window and restorable from Settings or the CLI. | It is not a work-folder, not portable, not a backup, and never empties on a verb; only retention purges it. |
@@ -549,6 +549,22 @@ Owner decisions, recorded here in dated form; the body of this document and
   disclosure by default; they stay visible on demand and unchanged in meaning.
 - With four or more tabs open, tabs narrow but keep their work-folder icon and a
   normal close button.
+
+### 2026-10-11 window strip, agent panel, and Files sort
+
+- The window's top strip carries two controls and no labels. Beside the
+  window buttons, a sidebar toggle hides the navigation pane (Files, Chats,
+  History) while the rail stays; every rail destination except **Add** and
+  **Settings** brings the pane back. At the far right, the menu-bar mark
+  opens the **work-fold agent** in a panel beside the work area. It is not a
+  work-folder and not a tab: it has no files or History of its own, and it
+  stays where it is when you switch work-folders. While it is open, icon-only
+  **Chats** and **New Chat** sit beside the mark. The panel and the menu-bar
+  popover are one component showing one conversation, including each turn's
+  thinking and tool steps as they happen. The View menu toggles both
+  (⌘B and ⌘J), and the panel keeps its width.
+- Files has a sort control beside its search: Name, Date modified, Size, or
+  Kind, with folders first; choosing the current option again reverses it.
 
 
 ### 2026-10-01 work-folders inside work-folders

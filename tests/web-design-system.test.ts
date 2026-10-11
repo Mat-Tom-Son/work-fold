@@ -55,7 +55,7 @@ test("Files is the first primary surface and work-folder actions live in the per
   assert.match(workFolderChromeSource, /<span>Use existing folder<\/span>/);
   assert.match(workFolderChromeSource, /<span>Create new work-folder<\/span>/);
   assert.match(workFolderChromeSource, /<span>Manage work-folders<\/span>/);
-  assert.match(workFolderChromeSource, /aria-current=\{activeMode === item\.mode \? "page" : undefined\}/, "the active icon-only destination must be announced");
+  assert.match(workFolderChromeSource, /aria-current=\{shownMode === item\.mode \? "page" : undefined\}/, "the active icon-only destination must be announced");
   assert.match(workFolderChromeSource, /aria-label=\{item\.ariaLabel\}/, "icon-only destinations need accessible names");
   assert.doesNotMatch(workFolderChromeSource, /<span>work-folder<\/span>|work-folder-rail-work-folder-caret/);
   assert.doesNotMatch(primaryItems, /ChevronRight20Regular/);

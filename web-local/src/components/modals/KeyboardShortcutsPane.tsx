@@ -49,6 +49,13 @@ export function KeyboardShortcutsPane() {
       ],
     },
     {
+      title: "Layout",
+      rows: [
+        { keys: [modifier, "B"], action: "Show or hide the sidebar." },
+        { keys: [modifier, "J"], action: "Open or close the work-fold agent." },
+      ],
+    },
+    {
       title: "Help",
       rows: [
         { keys: [modifier, "K"], action: "Command palette." },

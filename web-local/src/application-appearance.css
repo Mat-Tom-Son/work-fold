@@ -139,7 +139,7 @@
 :root[data-appearance-palette] .app-shell .chat-panel .message-body .message-code-block pre { color: var(--ui-text); background: var(--ui-canvas); }
 :root[data-appearance-palette] .app-shell .chat-panel .message-body .message-code-block pre code { color: inherit; background: transparent; }
 :root[data-appearance-palette] .app-shell .composer textarea,
-:root[data-appearance-palette] .popover .composer textarea {
+:root[data-appearance-palette] .popover .agent-composer textarea {
   font-family: var(--work-fold-ui-font);
   font-size: var(--work-fold-reading-size);
   line-height: var(--work-fold-reading-leading);

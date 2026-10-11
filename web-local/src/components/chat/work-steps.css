@@ -1,0 +1,379 @@
+/* The steps a Worker or the work-fold agent takes in one turn (RuntimeContextPreview
+   in components/chat/activity.tsx). Shared by the main window and the menu-bar popover. */
+
+.work-steps {
+  min-width: 0;
+  margin: 0 0 14px;
+  color: #667386;
+  font-size: 0.86rem;
+}
+
+.work-steps-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+
+.work-steps-summary:hover .work-steps-label,
+.work-steps-summary:focus-visible .work-steps-label {
+  color: #253044;
+}
+
+.work-steps-summary:focus-visible,
+.work-step-toggle:focus-visible,
+.work-step-target.file:focus-visible {
+  outline: 2px solid var(--work-folder-custom-color, #356fa3);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.work-steps-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-steps-icon,
+.work-step-icon {
+  flex: 0 0 auto;
+  color: #8792a3;
+}
+
+.work-steps-chevron {
+  flex: 0 0 auto;
+  color: #9aa4b2;
+  transition: transform 0.2s var(--work-fold-ease-smooth);
+}
+
+.work-steps.open .work-steps-chevron {
+  transform: rotate(90deg);
+}
+
+.work-steps-rows {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.32s var(--work-fold-ease-smooth), opacity 0.25s ease;
+}
+
+.work-steps.settled .work-steps-rows {
+  margin-top: 4px;
+}
+
+.work-steps.settled:not(.open) .work-steps-rows {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.work-steps-list {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.work-step {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 9px;
+  align-items: start;
+  min-width: 0;
+  padding: 4px 0;
+  animation: work-step-enter 0.18s var(--work-fold-ease-smooth) both;
+}
+
+:root[data-appearance-chat-steps="current"] .work-steps.running .work-step:not(:last-child) {
+  display: none;
+}
+
+.work-step-icon {
+  margin-top: 2px;
+}
+
+.work-step-body {
+  min-width: 0;
+}
+
+.work-step-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.work-step-toggle {
+  cursor: pointer;
+}
+
+.work-step-toggle:hover .work-step-verb,
+.work-step-toggle:focus-visible .work-step-verb {
+  color: #253044;
+}
+
+.work-step-verb {
+  flex: 0 0 auto;
+  color: #475569;
+  font-weight: 600;
+}
+
+.work-step.thinking .work-step-verb {
+  color: #526072;
+}
+
+.work-step-target {
+  min-width: 0;
+  overflow: hidden;
+  color: #8792a3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-step-target.file {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: #6d8db0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.work-step-target.file:hover,
+.work-step-target.file:focus-visible {
+  text-decoration: underline;
+}
+
+.work-step-target.command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.work-step-timer {
+  flex: 0 0 auto;
+  color: #8792a3;
+  font-variant-numeric: tabular-nums;
+}
+
+.work-step-status {
+  flex: 0 0 auto;
+  color: #a94444;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.work-step.error .work-step-verb {
+  color: #a94444;
+}
+
+.work-step-thought {
+  min-width: 0;
+  margin: 5px 0 3px;
+  color: #667386;
+  font-size: 0.83rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.work-step-thought > :first-child {
+  margin-top: 0;
+}
+
+.work-step-thought > :last-child {
+  margin-bottom: 0;
+}
+
+.work-step-thought p,
+.work-step-thought ul,
+.work-step-thought ol {
+  margin: 0 0 0.6em;
+}
+
+.work-step-thought h1,
+.work-step-thought h2,
+.work-step-thought h3,
+.work-step-thought h4,
+.work-step-thought h5,
+.work-step-thought h6 {
+  margin: 0.8em 0 0.3em;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+}
+
+.work-step-thought pre {
+  margin: 0.45em 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(37, 48, 68, 0.06);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.work-step-thought code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.work-step-thought.live {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-height: 7.6em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 34%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 34%);
+}
+
+.work-steps .work-step-shimmer {
+  color: transparent !important;
+  background: linear-gradient(90deg, #5b6b80 0%, #5b6b80 38%, #cdd4de 50%, #5b6b80 62%, #5b6b80 100%);
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: work-step-shimmer 1.7s linear infinite;
+}
+
+@keyframes work-step-shimmer {
+
+from {
+  background-position: 130% 0;
+}
+
+to {
+  background-position: -130% 0;
+}
+}
+
+@keyframes work-step-enter {
+
+from {
+  opacity: 0;
+  transform: translateY(2px);
+}
+}
+
+@media (prefers-reduced-motion: reduce) {
+.work-steps .work-step-shimmer {
+  color: #5b6b80 !important;
+  background: none;
+  animation: none;
+}
+}
+
+.work-step-progress p:first-child {
+  margin-top: 0;
+}
+
+.work-step-progress p:last-child {
+  margin-bottom: 0;
+}
+
+.work-step-progress pre,
+.work-step-edit pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre;
+  font-family: var(--work-fold-monospace-font, ui-monospace, monospace);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.work-step-edit {
+  margin-top: 5px;
+}
+
+.work-step-edit summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.work-step-edit summary:focus-visible {
+  outline: 2px solid var(--work-folder-custom-color, #356fa3);
+  outline-offset: 2px;
+}
+
+.work-step-evidence-note {
+  margin: 6px 0;
+  font-size: 0.78rem;
+  color: inherit;
+}
+
+.work-step-edit pre {
+  padding: 8px;
+  border: 1px solid var(--work-fold-chat-border);
+  border-radius: 4px;
+}
+
+.work-step-edit .added {
+  background: color-mix(in srgb, #278044 12%, transparent);
+}
+
+.work-step-edit .removed {
+  background: color-mix(in srgb, #c33e3e 12%, transparent);
+}
+
+:root[data-theme="dark"] .work-steps {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .work-steps-summary,
+:root[data-theme="dark"] .work-step-verb,
+:root[data-theme="dark"] .work-step.thinking .work-step-verb {
+  color: #c4cedb;
+}
+
+:root[data-theme="dark"] .work-steps-summary:hover .work-steps-label,
+:root[data-theme="dark"] .work-steps-summary:focus-visible .work-steps-label,
+:root[data-theme="dark"] .work-step-toggle:hover .work-step-verb,
+:root[data-theme="dark"] .work-step-toggle:focus-visible .work-step-verb {
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .work-steps-icon,
+:root[data-theme="dark"] .work-step-icon,
+:root[data-theme="dark"] .work-steps-chevron,
+:root[data-theme="dark"] .work-step-target,
+:root[data-theme="dark"] .work-step-timer {
+  color: #7f8b9c;
+}
+
+:root[data-theme="dark"] .work-step-target.file {
+  color: #8fb0d6;
+}
+
+:root[data-theme="dark"] .work-step-thought {
+  color: #9aa8b9;
+}
+
+:root[data-theme="dark"] .work-step-thought pre {
+  background: rgba(226, 232, 240, 0.08);
+}
+
+:root[data-theme="dark"] .work-steps .work-step-shimmer {
+  background-image: linear-gradient(90deg, #8b98ab 0%, #8b98ab 38%, #e2e8f0 50%, #8b98ab 62%, #8b98ab 100%);
+}
+
+:root[data-theme="dark"] .work-step.error .work-step-verb,
+:root[data-theme="dark"] .work-step-status {
+  color: #f0a1a1;
+}

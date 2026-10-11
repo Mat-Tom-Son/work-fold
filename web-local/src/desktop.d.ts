@@ -45,7 +45,10 @@ type WorkFoldDesktopMenuCommand =
   | "open-skills"
   | "open-extensions"
   | "open-command-palette"
-  | "open-keyboard-shortcuts";
+  | "open-keyboard-shortcuts"
+  | "close-tab"
+  | "toggle-sidebar"
+  | "toggle-agent-panel";
 
 type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
@@ -147,6 +150,8 @@ declare global {
         onOpenFolder: (listener: () => void) => () => void;
       };
       agent: {
+        /** The local path of a file dropped on the work-fold agent panel. */
+        getPathForFile?: (file: File) => string;
         openWorkFoldAgentDraft?: (text: string) => Promise<boolean>;
         openChecks?: (workFolderId: string) => Promise<boolean>;
         onOpenSettings: (listener: (scope?: "agent") => void) => () => void;

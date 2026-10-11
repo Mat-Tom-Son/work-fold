@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron") as typeof import("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron") as typeof import("electron");
 
 function argumentValue(name: string): string {
   const prefix = `--work-fold-${name}=`;
@@ -89,6 +89,14 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     },
   },
   agent: {
+    // A file dropped on the work-fold agent panel becomes a path reference, as in the popover.
+    getPathForFile: (file: File): string => {
+      try {
+        return webUtils.getPathForFile(file) ?? "";
+      } catch {
+        return "";
+      }
+    },
     openWorkFoldAgentDraft: (text: string) => ipcRenderer.invoke("work-fold:agent:open-agent-draft", text),
     openChecks: (workFolderId: string) => ipcRenderer.invoke("work-fold:agent:open-checks", workFolderId),
     onOpenSettings: (callback: (scope?: "agent") => void) => {
