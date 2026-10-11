@@ -3,9 +3,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createServer, type IncomingMessage } from "node:http";
+import type { AddressInfo } from "node:net";
 import { deflateSync } from "node:zlib";
 
-import { chooseImageModel, createImageGenerationTool, generateImageFile, resolveImagePath, type ImageModelSource } from "../src/local/agent/image-generation-tool.js";
+import { chooseImageModel, createImageGenerationTool, generateImageFile, listImageModels, resolveImagePath, type ImageModelSource } from "../src/local/agent/image-generation-tool.js";
+import { openAIImageSize } from "../src/local/agent/direct-image-models.js";
 import { parseWorkFoldCliActArgv } from "../src/local/cli/act-commands.js";
 import { WorkFoldCliError } from "../src/local/cli/protocol.js";
 import { startLocalApi } from "../src/local/server.js";
@@ -38,10 +41,18 @@ function png(width: number, height: number, rgb: [number, number, number] = [47,
 type FakeModel = { provider: string; id: string; name: string; api: string; type: "image"; output: string[] };
 const model = (provider: string, id: string, api = "openrouter-images"): FakeModel => ({ provider, id, name: id, api, type: "image", output: ["image"] });
 
-function fakeSource(models: FakeModel[], reply: (payload: Record<string, unknown>) => unknown): ImageModelSource & { calls: Array<{ id: string; payload: Record<string, unknown> }> } {
+function fakeSource(
+  models: FakeModel[],
+  reply: (payload: Record<string, unknown>) => unknown,
+  providers: { connected?: string[]; baseUrl?: (provider: string) => string } = {},
+): ImageModelSource & { calls: Array<{ id: string; payload: Record<string, unknown> }> } {
   const calls: Array<{ id: string; payload: Record<string, unknown> }> = [];
+  const connected = new Set(providers.connected ?? []);
   return {
     calls,
+    hasConfiguredAuth: (provider: string) => connected.has(provider),
+    getAuth: async (provider: string) => (connected.has(provider) ? { auth: { apiKey: `key-${provider}` } } : undefined),
+    getModels: (provider: string) => (providers.baseUrl ? [{ baseUrl: providers.baseUrl(provider) }] : []),
     async getAvailableOfType() { return models as never; },
     async generateImages(chosen: never, _context: never, options?: { onPayload?: (params: unknown, model: unknown) => unknown }) {
       const base = { model: (chosen as FakeModel).id };
@@ -177,4 +188,65 @@ test("the CLI takes a proposal or named parts, never both", () => {
   assert.equal(parseWorkFoldCliActArgv(["work-folders", "appearance", "apply", "--work-folder", "Receipts", "--proposal", "look.json"]).proposalPath, "look.json");
   assert.throws(() => parseWorkFoldCliActArgv(["work-folders", "appearance", "apply", "--work-folder", "Receipts", "--proposal", "look.json", "--color", "#112233"]), /not both/);
   assert.throws(() => parseWorkFoldCliActArgv(["work-folders", "appearance", "apply", "--work-folder", "Receipts"]), /--proposal <path>, or at least one of/);
+});
+
+async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) chunks.push(chunk as Buffer);
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+test("OpenAI and Google image models work straight from their own APIs with the key Pi already holds", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-direct-images-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const picture = png(64, 27).toString("base64");
+  const seen: Array<{ path: string; auth: string | undefined; body: Record<string, unknown> }> = [];
+  let refuse = false;
+  const server = createServer(async (request, response) => {
+    const payload = await body(request);
+    seen.push({ path: request.url ?? "", auth: (request.headers.authorization ?? request.headers["x-goog-api-key"]) as string | undefined, body: payload });
+    response.setHeader("content-type", "application/json");
+    if (refuse) { response.statusCode = 403; response.end(JSON.stringify({ error: { message: "Your organization must be verified to use this model." } })); return; }
+    if (request.url === "/openai/images/generations") { response.end(JSON.stringify({ data: [{ b64_json: picture }] })); return; }
+    if (request.url === "/google/interactions") {
+      response.end(JSON.stringify({ steps: [{ type: "model_output", content: [{ type: "text", text: "Here is your banner." }, { type: "image", data: picture }] }] }));
+      return;
+    }
+    response.statusCode = 404; response.end("{}");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const both = fakeSource([], () => { throw new Error("Pi's image API is not used for direct models"); }, { connected: ["openai", "google"], baseUrl: (provider) => `${origin}/${provider}` });
+
+  // Connected providers bring their own image models; Nano Banana 2 is preferred.
+  const listed = await listImageModels(both);
+  assert.ok(listed.some((model) => model.provider === "openai" && model.id === "gpt-image-2"));
+  assert.equal((await chooseImageModel(both)).id, "gemini-3.1-flash-image");
+
+  const fromGoogle = await generateImageFile({ root, source: both, prompt: "Sage tile, no text", path: "banner.png", shape: "wide" });
+  assert.equal(fromGoogle.model.provider, "google");
+  assert.deepEqual(await readFile(join(root, "banner.png")), Buffer.from(picture, "base64"));
+  assert.equal(seen[0]!.path, "/google/interactions");
+  assert.equal(seen[0]!.auth, "key-google");
+  assert.deepEqual(seen[0]!.body.response_format, { type: "image", mime_type: "image/png", aspect_ratio: "16:9" });
+
+  const fromOpenAI = await generateImageFile({ root, source: both, prompt: "A receipt icon", path: "icon.png", shape: "wide", model: { provider: "openai", id: "gpt-image-2" } });
+  assert.equal(fromOpenAI.model.name, "GPT Image 2");
+  assert.equal(seen[1]!.path, "/openai/images/generations");
+  assert.equal(seen[1]!.auth, "Bearer key-openai");
+  assert.equal(seen[1]!.body.size, "2048x864");
+  assert.equal(openAIImageSize("gpt-image-1-mini", "wide"), "1536x1024", "GPT Image 1 takes only its fixed sizes");
+
+  refuse = true;
+  await assert.rejects(
+    () => generateImageFile({ root, source: both, prompt: "x", path: "x.png", model: { provider: "openai", id: "gpt-image-2" } }),
+    /GPT Image 2 refused the request: Your organization must be verified/,
+  );
+
+  // A provider whose image models Pi lists itself is reached only through Pi.
+  const native = fakeSource([model("openai", "gpt-image-2", "openai-images")], () => null, { connected: ["openai"] });
+  assert.deepEqual((await listImageModels(native)).map((item) => `${item.provider}/${item.id}`), ["openai/gpt-image-2"]);
+  // Nothing connected, nothing listed.
+  assert.deepEqual(await listImageModels(fakeSource([], () => null)), []);
 });
