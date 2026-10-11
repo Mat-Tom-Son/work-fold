@@ -49,7 +49,7 @@ trigger; it is not an open-ended Worker scheduler or an app automation.
 - Prefer Pi's built-in tools, resource loader, auth storage, model registry, package manager, skills, and extensions over app-specific replacements.
 - [Extensions and computer work](docs/extension-foundation.md) records the shared integration design and inclusion requirements. Native Pi UI callbacks are transient, Chat-scoped interactions; never claim durable F27 continuation for a suspended callback, auto-answer an Extension's confirmation, or expose setup secrets through the paired-web answer adapter. Included capabilities must use a supported path available to other Extensions too.
 - Keep agent-created restricted apps in their separate reviewed-web lane. They use `agent-app.json`, digest-pinned installation, sandboxed Electron hosts, and narrow host brokers; they must never be installed through Pi's package manager or merged into Pi's loaded Extension catalog.
-- Do not bundle proprietary tools, instructions, source libraries, or account integrations.
+- Do not bundle proprietary tools, instructions, or source libraries.
 - Do not describe a desktop-synchronized folder as native cloud integration. Google Drive currently works through Google Drive for desktop; direct Drive APIs and native provider OAuth are future adapter work.
 
 ## Product rails
