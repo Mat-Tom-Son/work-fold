@@ -8,7 +8,7 @@ import {
   type WorkFolderAppearanceState,
 } from "../../src/shared/work-folder-appearance";
 
-import { productName, workFolderCustomizationStorageKey, workFolderPathDragType } from "./constants";
+import { productName, workFolderCustomizationStorageKey, workFolderPathDragType, sidebarCollapsedStorageKey, agentPanelStorageKey } from "./constants";
 import { copyToClipboard } from "./lib/clipboard";
 import { deleteFolderConfirm } from "./ui-contract";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
@@ -59,7 +59,11 @@ import { appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
 import { canOpenDirectly, hasNativeFiles, hasWorkFolderPathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { chatDisplayTitle, formatItemCount } from "./lib/format";
-import { readStoredJsonValue, writeStoredJsonValue } from "./lib/storage";
+import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./lib/storage";
+import { WindowChromeControls } from "./components/chrome/WindowChromeControls";
+import { WorkFoldAgentChat } from "./popover/PopoverApp";
+import { defaultFileSort, fileSortStorageKey, normalizeFileSort, sortFileTree, type FileSort } from "./lib/file-sort";
+import { FileSortMenu } from "./components/tree/FileSortMenu";
 import { isMacOS, workFolderEntryNativePath } from "./lib/platform";
 import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRailLabel } from "./lib/restricted-app-navigation";
 import { getLocalAppStudio, getLocalAppWorkFolderRemovalImpact, prepareRestrictedAppChange } from "./lib/restricted-apps";
@@ -78,7 +82,7 @@ const fixtureRequested = new URLSearchParams(window.location.search).get("fixtur
 const supportedWorkFolderIconNames = new Set(workFolderIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])]));
 
 interface DroppedUploadFile { file: File; relativePath: string }
-type DesktopActionCommand = "new-chat" | "reload-work-folder-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-work-folder" | "app-change-chat" | "open-app-build-chat" | "open-app-result-file" | "open-app-studio";
+type DesktopActionCommand = "toggle-sidebar" | "toggle-agent-panel" | "new-chat" | "reload-work-folder-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-work-folder" | "app-change-chat" | "open-app-build-chat" | "open-app-result-file" | "open-app-studio";
 /** A cross-cutting request handled by the open work-folder view; app navigation from Settings carries the app or Chat it names. */
 type DesktopAction = { id: number; command: DesktopActionCommand | "open-checks"; workFolderId?: string; app?: RestrictedAppInstalled; conversationId?: string; runtimeInstanceId?: string; path?: string };
 interface PendingDelete {
@@ -244,7 +248,7 @@ export function App() {
       else if (command === "open-settings") openSettings();
       else if (command === "open-about") openSettings("about");
       else if (command === "open-keyboard-shortcuts") openKeyboardShortcuts();
-      else if (command === "new-chat" || command === "reload-work-folder-state" || command === "open-capabilities" || command === "open-skills" || command === "open-extensions" || command === "open-command-palette" || command === "close-tab") {
+      else if (command === "new-chat" || command === "reload-work-folder-state" || command === "open-capabilities" || command === "open-skills" || command === "open-extensions" || command === "open-command-palette" || command === "close-tab" || command === "toggle-sidebar" || command === "toggle-agent-panel") {
         setDesktopAction({ id: Date.now(), command });
       }
     });
@@ -421,9 +425,69 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const activeWorkFolderIdRef = useRef(workFolder.id);
   activeWorkFolderIdRef.current = workFolder.id;
   const tree = useWorkFolderTree(workFolder, onError, fixture?.trees[workFolder.id]);
+  const [fileSort, setFileSort] = useState<FileSort>(() => readStoredJsonValue(fileSortStorageKey, normalizeFileSort, defaultFileSort));
+  const sortedFileEntries = useMemo(() => sortFileTree(tree.visibleEntries, fileSort), [tree.visibleEntries, fileSort]);
+  function changeFileSort(next: FileSort): void {
+    setFileSort(next);
+    writeStoredJsonValue(fileSortStorageKey, next);
+  }
   const selectedPathRef = useRef(tree.selectedPath);
   selectedPathRef.current = tree.selectedPath;
   const paneResize = usePaneResize(Boolean(fixture));
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readStoredValue(sidebarCollapsedStorageKey) === "true");
+  const sidebarCollapsedRef = useRef(sidebarCollapsed);
+  sidebarCollapsedRef.current = sidebarCollapsed;
+  function setSidebarHidden(hidden: boolean): void {
+    sidebarCollapsedRef.current = hidden;
+    setSidebarCollapsed(hidden);
+    writeStoredValue(sidebarCollapsedStorageKey, hidden ? "true" : null);
+  }
+  // The work-fold agent panel: open state and width survive restarts, and the
+  // chat stays mounted once opened so a closed panel keeps its draft and stream.
+  const [agentPanel, setAgentPanel] = useState(() => readStoredJsonValue(agentPanelStorageKey, normalizeAgentPanelState, defaultAgentPanelState));
+  const agentPanelOpen = agentPanel.open;
+  const [agentPanelMounted, setAgentPanelMounted] = useState(agentPanel.open);
+  const [agentControlsTarget, setAgentControlsTarget] = useState<HTMLDivElement | null>(null);
+  const [agentPanelResizing, setAgentPanelResizing] = useState(false);
+  function updateAgentPanel(update: (current: AgentPanelState) => AgentPanelState): void {
+    setAgentPanel((current) => {
+      const next = update(current);
+      writeStoredJsonValue(agentPanelStorageKey, next);
+      return next;
+    });
+  }
+  function toggleAgentPanel(): void {
+    setAgentPanelMounted(true);
+    updateAgentPanel((current) => ({ ...current, open: !current.open }));
+  }
+  function startAgentPanelResize(event: import("react").PointerEvent<HTMLButtonElement>): void {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    setAgentPanelResizing(true);
+    const move = (moveEvent: PointerEvent) => {
+      const width = clampAgentPanelWidth(window.innerWidth - moveEvent.clientX - 12);
+      setAgentPanel((current) => ({ ...current, width }));
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      setAgentPanelResizing(false);
+      setAgentPanel((current) => { writeStoredJsonValue(agentPanelStorageKey, current); return current; });
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  }
+  function resizeAgentPanelWithKeys(event: import("react").KeyboardEvent<HTMLButtonElement>): void {
+    const step = event.shiftKey ? 48 : 16;
+    const delta = event.key === "ArrowLeft" ? step : event.key === "ArrowRight" ? -step : 0;
+    if (event.key === "Home" || event.key === "End" || delta) {
+      event.preventDefault();
+      updateAgentPanel((current) => ({ ...current, width: event.key === "Home" ? agentPanelMinWidth : event.key === "End" ? clampAgentPanelWidth(Number.POSITIVE_INFINITY) : clampAgentPanelWidth(current.width + delta) }));
+    }
+  }
   const tabs = useSurfaceTabs({
     workFolder,
     workFolders,
@@ -675,8 +739,22 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     }
     else if (desktopAction.command === "open-app-studio" && desktopAction.workFolderId) openAppStudio(desktopAction.workFolderId, desktopAction.runtimeInstanceId);
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
+    else if (desktopAction.command === "toggle-sidebar") setSidebarHidden(!sidebarCollapsedRef.current);
+    else if (desktopAction.command === "toggle-agent-panel") toggleAgentPanel();
     else if (desktopAction.command === "close-tab" && tabs.activeSurfaceTabId) tabs.closeSurfaceTab(tabs.activeSurfaceTabId);
   }, [desktopAction?.id, openCommandPalette]);
+  // The desktop View menu owns Cmd/Ctrl+B and Cmd/Ctrl+J; a browser gets the same keys here.
+  useEffect(() => {
+    if (window.workFoldDesktop) return;
+    function keydown(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || document.querySelector('[role="dialog"]')) return;
+      const key = event.key.toLowerCase();
+      if (key === "b") { event.preventDefault(); setSidebarHidden(!sidebarCollapsedRef.current); }
+      else if (key === "j") { event.preventDefault(); toggleAgentPanel(); }
+    }
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, []);
   // Tab-strip keyboard reach without focusing the tablist: Ctrl+Tab cycles,
   // Cmd/Ctrl+1..9 jumps (9 is the last tab), Cmd/Ctrl+T opens a new Chat tab,
   // and Ctrl+W covers close on platforms whose menu does not own it.
@@ -1390,6 +1468,8 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   }
 
   function selectRailMode(mode: WorkFolderRailMode): void {
+    // Every rail destination brings a hidden navigation pane back.
+    setSidebarHidden(false);
     // Automations opens its work-folder's own tab and leaves the navigator pane as it was.
     if (mode === "automations") { tabs.openWorkFolderAutomationsSurfaceTab(workFolder); return; }
     setActiveMode(mode);
@@ -1436,7 +1516,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     ...collectLoadedFileEntries(tree.tree).flatMap((entry) => {
       const matchTargets = [entry.name, entry.path];
       return [
-        { id: `reveal-file:${workFolder.id}:${entry.path}`, groupId: "files" as const, groupLabel: "Files", label: `Reveal in Files: ${entry.name}`, detail: entry.path, matchTargets, minQueryLength: 2, run: () => { setActiveMode("files"); tree.setSelectedPath(entry.path); tabs.openFileSurfaceTab(workFolder, entry.path); } },
+        { id: `reveal-file:${workFolder.id}:${entry.path}`, groupId: "files" as const, groupLabel: "Files", label: `Reveal in Files: ${entry.name}`, detail: entry.path, matchTargets, minQueryLength: 2, run: () => { selectRailMode("files"); tree.setSelectedPath(entry.path); tabs.openFileSurfaceTab(workFolder, entry.path); } },
         { id: `attach-file:${workFolder.id}:${entry.path}`, groupId: "files" as const, groupLabel: "Files", label: `Attach to Chat: ${entry.name}`, detail: entry.path, matchTargets, minQueryLength: 2, run: () => attachToChat(entry.path) },
       ];
     }),
@@ -1444,17 +1524,19 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     ...(!fixture ? [{ id: "action:save-restore-point", groupId: "actions" as const, groupLabel: "Actions", label: "Save Restore Point", keywords: ["history", "checkpoint", "backup"], defaultVisible: true, run: () => { void saveRestorePoint(); } }] : []),
     // Files has no toolbar buttons (2026-10-01): its actions live in the
     // right-click menu and here, so the keyboard reaches them too.
-    { id: "action:files-new-subfolder", groupId: "files", groupLabel: "Files", label: "New Folder in Files", keywords: ["mkdir", "directory", "subfolder"], run: () => { setActiveMode("files"); requestNewFolder(); } },
-    { id: "action:files-add", groupId: "files", groupLabel: "Files", label: "Add Files", keywords: ["upload", "import", "drop"], run: () => { setActiveMode("files"); chooseUpload(""); } },
+    { id: "action:files-new-subfolder", groupId: "files", groupLabel: "Files", label: "New Folder in Files", keywords: ["mkdir", "directory", "subfolder"], run: () => { selectRailMode("files"); requestNewFolder(); } },
+    { id: "action:files-add", groupId: "files", groupLabel: "Files", label: "Add Files", keywords: ["upload", "import", "drop"], run: () => { selectRailMode("files"); chooseUpload(""); } },
     { id: "action:files-refresh", groupId: "files", groupLabel: "Files", label: "Refresh Files", keywords: ["reload", "rescan"], run: () => { void tree.refresh(false); } },
     { id: "action:new-work-folder", groupId: "actions", groupLabel: "Actions", label: "Create new work-folder", defaultVisible: true, run: onCreateWorkFolder },
     { id: "action:open-folder", groupId: "actions", groupLabel: "Actions", label: "Use existing folder", defaultVisible: true, run: onOpenFolder },
     { id: "action:settings", groupId: "actions", groupLabel: "Actions", label: "Settings", defaultVisible: true, run: onOpenSettings },
+    { id: "action:toggle-sidebar", groupId: "actions", groupLabel: "Actions", label: sidebarCollapsed ? "Show sidebar" : "Hide sidebar", keywords: ["navigation", "pane", "files", "collapse"], run: () => setSidebarHidden(!sidebarCollapsed) },
+    { id: "action:toggle-agent-panel", groupId: "actions", groupLabel: "Actions", label: agentPanelOpen ? "Close work-fold agent" : "Open work-fold agent", keywords: ["agent", "chat", "panel"], run: toggleAgentPanel },
     { id: "action:shortcuts", groupId: "actions", groupLabel: "Actions", label: "Shortcut Keys", run: onOpenShortcuts },
     ...(["light", "dark", "system"] as AppThemePreference[]).map((preference) => ({ id: `theme:${preference}`, groupId: "actions" as const, groupLabel: "Actions", label: preference === "system" ? "Use device theme" : `Use ${preference} theme`, detail: themePreference === preference ? "Current" : undefined, keywords: ["appearance", "color", "mode"], run: () => onThemePreferenceChange(preference) })),
-  ], [checks.status, conversationGroups, fixture, restrictedApps, surfaces, themePreference, tree.selectedPath, tree.tree, workFolders, workFolder.id]);
+  ], [agentPanelOpen, checks.status, conversationGroups, fixture, restrictedApps, sidebarCollapsed, surfaces, themePreference, tree.selectedPath, tree.tree, workFolders, workFolder.id]);
 
-  const layoutStyle = { ...(workFolderIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--work-folder-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
+  const layoutStyle = { ...(workFolderIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--work-folder-sidebar-width": `${paneResize.sidebarWidth}px` } : {}), "--agent-panel-width": `${agentPanel.width}px` } as CSSProperties;
 
   function leaveManageFolders(): void {
     selectRailMode(modeBeforeManagingRef.current);
@@ -1470,8 +1552,10 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     leaveManageFolders();
   }
 
-  return <main className={paneResize.sidebarResizing ? "work-folder-layout resizing" : "work-folder-layout"} ref={paneResize.workFolderLayoutRef} style={layoutStyle}>
-    <WorkFolderModeRail activeMode={activeMode} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: activeTab?.kind === "work-folder-automations" && activeTab.workFolderId === workFolder.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+  const layoutClassName = ["work-folder-layout", paneResize.sidebarResizing || agentPanelResizing ? "resizing" : "", sidebarCollapsed ? "sidebar-collapsed" : "", agentPanelOpen ? "agent-panel-open" : ""].filter(Boolean).join(" ");
+  return <main className={layoutClassName} ref={paneResize.workFolderLayoutRef} style={layoutStyle}>
+    <WindowChromeControls sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarHidden(!sidebarCollapsed)} agentPanelOpen={agentPanelOpen} onToggleAgentPanel={toggleAgentPanel} agentControlsRef={setAgentControlsTarget} />
+    <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: activeTab?.kind === "work-folder-automations" && activeTab.workFolderId === workFolder.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`work-folder-mode-pane work-folder-mode-pane-${activeMode}`} id="work-folder-file-panel" onKeyDown={activeMode === "work-folders" ? leaveManageFoldersOnEscape : undefined}>
       <WorkFolderPaneHeader workFolder={workFolder} identity={identity} workFolders={workFolders} workFolderCustomizations={customizations} folderStatuses={folderStatuses} onSwitchWorkFolder={onSwitchWorkFolder} onCreateWorkFolder={onCreateWorkFolder} onOpenFolder={onOpenFolder} onManageWorkFolders={() => setActiveMode("work-folders")} managingWorkFolders={activeMode === "work-folders"} onNewChat={() => openChat(workFolder, null)} onOpenAppearance={() => openWorkFolderAppearance(workFolder)} {...(!fixture && typeof window.workFoldDesktop?.workFolder.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
       {activeMode === "work-folders" ? <WorkFoldersPane workFolder={workFolder} workFolders={workFolders} identities={customizations} onCreate={onCreateWorkFolder} onOpenFolder={onOpenFolder} onCustomize={openWorkFolderAppearance} onRemove={(target) => void removeWorkFolder(target)} onDone={leaveManageFolders} /> : null}
@@ -1506,6 +1590,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
             />
             {tree.query ? <button type="button" onClick={() => tree.setQuery("")} aria-label="Clear file search" title="Clear file search"><X size={14} /></button> : null}
           </label>
+          <FileSortMenu sort={fileSort} onChange={changeFileSort} />
           {tree.query ? <span className="file-tree-search-count">{tree.searchHydrating ? "Searching" : formatItemCount(tree.matchCount, "match", "matches")}</span> : null}
           {tree.treeTruncated ? <span className="file-tree-truncated" title="This work-folder holds more items than Files lists at once. Open a folder to see its contents, or search by name or contents.">Partial list</span> : null}
           <ChecksToolbarButton status={checks.status} loading={checks.loading} unavailable={checks.unavailable} onClick={() => tabs.openChecksSurfaceTab(workFolder)} />
@@ -1522,7 +1607,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><span className="file-tree-refresh-pill delayed-loading"><Loader2 className="spin" size={13} />Updating files</span></div> : null}
-      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try again</button></div> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
+      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try again</button></div> : <FileTree entries={sortedFileEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -1619,6 +1704,12 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         );
       }) : <WorkFolderSurfaceEmptyState workFolder={workFolder} identity={identity} onNewChat={() => openChat(workFolder, null)} />}
     </aside>
+    {agentPanelMounted ? <>
+      <button className="work-folder-resizer agent-panel-resizer" type="button" role="separator" aria-label="Resize the work-fold agent panel" aria-controls="work-fold-agent-panel" aria-orientation="vertical" aria-valuemin={agentPanelMinWidth} aria-valuenow={agentPanel.width} hidden={!agentPanelOpen} onPointerDown={startAgentPanelResize} onDoubleClick={() => updateAgentPanel((current) => ({ ...current, width: defaultAgentPanelState.width }))} onKeyDown={resizeAgentPanelWithKeys}><span className="sr-only">Resize the work-fold agent panel</span></button>
+      <aside className="agent-panel" id="work-fold-agent-panel" aria-label="work-fold agent" hidden={!agentPanelOpen}>
+        <WorkFoldAgentChat host="panel" fixtureMode={Boolean(fixture)} visible={agentPanelOpen} controlsTarget={agentPanelOpen ? agentControlsTarget : null} onOpenModelSettings={() => onOpenSettings("ai-models", "agent", true)} />
+      </aside>
+    </> : null}
     {appearanceWorkFolder ? <WorkFolderAppearanceModal
       key={appearanceWorkFolder.id}
       workFolder={appearanceWorkFolder}
@@ -1648,6 +1739,24 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     {skillsExtensionsView ? <SkillsExtensionsModal workFolder={workFolder} status={agent} initialView={skillsExtensionsView} fixtureMode={Boolean(fixture)} onError={onError} onCatalogChanged={(catalog) => updateSurfaceCatalog(workFolder.id, catalog)} onClose={() => setSkillsExtensionsView(null)} /> : null}
     {commandPaletteOpen ? <CommandPaletteHost commands={commands} onClose={closeCommandPalette} /> : null}
   </main>;
+}
+
+interface AgentPanelState { open: boolean; width: number }
+const agentPanelMinWidth = 300;
+const defaultAgentPanelState: AgentPanelState = { open: false, width: 380 };
+
+function clampAgentPanelWidth(width: number): number {
+  const max = Math.max(agentPanelMinWidth, Math.round(window.innerWidth * 0.5));
+  return Math.round(Math.min(max, Math.max(agentPanelMinWidth, width)));
+}
+
+function normalizeAgentPanelState(value: unknown): AgentPanelState {
+  if (!value || typeof value !== "object") return defaultAgentPanelState;
+  const { open, width } = value as Partial<Record<keyof AgentPanelState, unknown>>;
+  return {
+    open: open === true,
+    width: typeof width === "number" && Number.isFinite(width) ? Math.max(agentPanelMinWidth, Math.round(width)) : defaultAgentPanelState.width,
+  };
 }
 
 function WorkFolderSurfaceEmptyState({ workFolder, identity, onNewChat }: { workFolder: WorkFolderSummary; identity: ReturnType<typeof workFolderIdentityFor>; onNewChat: () => void }) {

@@ -16,7 +16,7 @@ const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes
   Promise.all([read("web-local/src/components/panes/workFolderPanes.tsx"), read("web-local/src/components/panes/AiModelsPane.tsx")]).then((sources) => sources.join("\n")),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
   read("web-local/src/components/panes/workFolderChrome.tsx"),
-  read("web-local/src/styles.css"),
+  Promise.all([read("web-local/src/styles.css"), read("web-local/src/components/chat/work-steps.css")]).then((sources) => sources.join("\n")),
   read("web-local/src/lib/work-folder-identity.ts"),
   read("web-local/src/lib/model-display.ts"),
   read("desktop/src/main.ts"),

@@ -14,6 +14,10 @@ export const workFolderFileRefreshDelayMs = 160;
 export const loadedTreeRefreshConcurrency = 4;
 export const workFolderPathDragType = "application/x-work-fold-work-folder-path";
 export const workFolderSidebarWidthPreferenceKey = "work-fold.work-folder.sidebar-width";
+/** Whether the navigation pane (Files, Chats, History) is hidden; the rail stays. */
+export const sidebarCollapsedStorageKey = "work-fold.layout.sidebar-collapsed";
+/** The work-fold agent panel beside the work area: open state and width. */
+export const agentPanelStorageKey = "work-fold.layout.agent-panel.v1";
 export const workFolderSidebarPreferredMinWidth = 280;
 export const workFolderSidebarPreferredMaxWidth = 640;
 export const workFolderChatPreferredMinWidth = 430;

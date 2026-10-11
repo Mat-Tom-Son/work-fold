@@ -1506,7 +1506,9 @@ type RendererMenuCommand =
   | "open-skills"
   | "open-extensions"
   | "open-command-palette"
-  | "open-keyboard-shortcuts";
+  | "open-keyboard-shortcuts"
+  | "toggle-sidebar"
+  | "toggle-agent-panel";
 
 type ApplicationMenuId = "file" | "edit" | "view" | "help";
 
@@ -1592,6 +1594,9 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
   if (menuId === "view") {
     return [
       { label: "Command Palette...", accelerator: "CommandOrControl+K", click: () => sendRendererMenuCommand("open-command-palette") },
+      { type: "separator" },
+      { id: "toggle-sidebar", label: "Toggle Sidebar", accelerator: "CommandOrControl+B", enabled: rendererMenuState.workFolderOpen, click: () => sendRendererMenuCommand("toggle-sidebar") },
+      { id: "toggle-agent-panel", label: "Toggle work-fold agent", accelerator: "CommandOrControl+J", enabled: rendererMenuState.workFolderOpen, click: () => sendRendererMenuCommand("toggle-agent-panel") },
       { type: "separator" },
       { role: "resetZoom" },
       { role: "zoomIn" },
@@ -1717,6 +1722,8 @@ function updateApplicationMenuState(value: unknown): void {
   setMenuItemEnabled(menu, "new-chat", rendererMenuState.workFolderOpen);
   setMenuItemEnabled(menu, "refresh-work-folder", rendererMenuState.workFolderOpen);
   setMenuItemEnabled(menu, "open-capabilities", rendererMenuState.workFolderOpen);
+  setMenuItemEnabled(menu, "toggle-sidebar", rendererMenuState.workFolderOpen);
+  setMenuItemEnabled(menu, "toggle-agent-panel", rendererMenuState.workFolderOpen);
 }
 
 function setMenuItemEnabled(menu: Menu | null, id: string, enabled: boolean): void {

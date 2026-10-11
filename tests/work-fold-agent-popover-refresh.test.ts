@@ -60,7 +60,7 @@ test("the popover accounts for every attachment outcome", async () => {
   assert.match(popover, /no recorded placement — see the reply below/);
 });
 
-test("the work-fold agent uses ordinary chat geometry and one compact live line", async () => {
+test("the work-fold agent streams its steps and keeps one compact line for delegated work", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
   // The working line follows the always-visible transcript while a request is
   // active without taking a second status panel's worth of vertical work-folder.
@@ -68,7 +68,9 @@ test("the work-fold agent uses ordinary chat geometry and one compact live line"
   const drawerEnd = popover.indexOf('className="agent-tail"');
   assert.ok(drawerStart >= 0 && drawerEnd > drawerStart, "the conversation drawer precedes the live tail");
   assert.match(popover, /\{request && activePhases\.has\(request\.phase\) \? \(\s*<div className="agent-tail">/);
-  assert.match(popover, /\{activity \|\| "Thinking…"\}/);
+  // The agent's own turn shows its thinking and tool steps the way a Worker's Chat does.
+  assert.match(popover, /<RuntimeContextPreview entries=\{liveSteps\} running=\{request\?\.phase === "working"\} replyStarted=\{Boolean\(streamingAssistant\)\}/);
+  assert.match(popover, /<RuntimeContextPreview entries=\{savedWorkTrailPreviews\(message as ChatMessage\)\}/);
   assert.match(popover, /<span className="working-elapsed">\{elapsedLabel\}<\/span>/);
   assert.match(popover, /Working in \{request\.children\.filter\(\(child\) => child\.state === "running"\)\.length === 1 \? "a work-folder" : "work-folders"\}…/);
   assert.match(popover, /className="working-line" role="status" aria-live="polite"/);
@@ -103,7 +105,7 @@ test("the popover renders the live agent response and reconciles the durable tra
   assert.match(popover, /window\.requestAnimationFrame\(flushStreamingAssistant\)/);
   assert.match(popover, /className="popover-message assistant streaming" aria-label="work-fold is replying"/);
   assert.match(popover, /<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\}>\{streamingAssistant\}<\/ReactMarkdown>/);
-  assert.match(popover, /if \(!summary\.latestRequest \|\| !activePhases\.has\(summary\.latestRequest\.phase\)\) replaceStreamingAssistant\(""\);/);
+  assert.match(popover, /if \(!summary\.latestRequest \|\| !activePhases\.has\(summary\.latestRequest\.phase\)\) \{\s*replaceStreamingAssistant\(""\);/);
 });
 
 test("the compact popover leaves the overview to the main window and approved web clients", async () => {
@@ -145,12 +147,12 @@ test("the popover composer behaves like every other work-fold composer", async (
   // refetch that changes nothing keeps the old array identity.
   assert.match(popover, /transcriptPinnedRef/);
   assert.match(popover, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*?transcript\.scrollTop = transcript\.scrollHeight/);
-  assert.match(popover, /\[messages, phase, streamingAssistant, activity, conversationId\]/);
+  assert.match(popover, /\[messages, phase, streamingAssistant, activity, liveSteps, conversationId\]/);
   assert.match(popover, /sameTranscript\(current, next\) \? current : next/);
   // Staged chips render outside the composer conditional so a mid-turn drop
   // is confirmed on screen instead of surfacing after the turn settles.
   const chips = popover.indexOf('className="chips"');
-  const composer = popover.indexOf('className="composer"');
+  const composer = popover.indexOf('className="agent-composer"');
   assert.ok(chips >= 0 && composer > chips, "the chips list renders before (outside) the composer section");
   // The whole surface becomes the drop target only during an actual drag;
   // there is no permanent instructional row in the composer.

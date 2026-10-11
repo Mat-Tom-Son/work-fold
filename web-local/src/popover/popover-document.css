@@ -1,0 +1,18 @@
+/* The popover window's own document; the main window never loads this. */
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--pop-text);
+  background: var(--pop-bg);
+  overflow: hidden;
+  user-select: none;
+}
+
+:root[data-window-material="vibrancy"] body { background: transparent; }

@@ -38,24 +38,13 @@
   }
 }
 
-* { box-sizing: border-box; }
+@keyframes pop-spin { to { transform: rotate(360deg); } }
 
-html, body, #root { height: 100%; }
+/* Every rule below applies only inside the popover's root, so the same
+   component can also render inside the main window. `:scope` is that root. */
+@scope (.popover) {
 
-body {
-  margin: 0;
-  font-family: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--pop-text);
-  background: var(--pop-bg);
-  overflow: hidden;
-  user-select: none;
-}
-
-:root[data-window-material="vibrancy"] body { background: transparent; }
-
-.popover {
+:scope {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -69,7 +58,7 @@ body {
 
 /* Stable, inert capture surface for product screenshots. Production popovers
    still fill their native BrowserWindow exactly as before. */
-.popover-fixture {
+:scope.popover-fixture {
   width: 400px;
   height: 560px;
 }
@@ -103,7 +92,7 @@ body {
 .popover-new-chat:not(:disabled):hover { background: var(--pop-surface-2); color: var(--pop-text); }
 .popover-new-chat svg { width: 14px; height: 14px; stroke-width: 1.9; flex: none; }
 
-.popover-loading {
+:scope.popover-loading {
   place-content: center;
   place-items: center;
   gap: 14px;
@@ -114,9 +103,9 @@ body {
   height: auto;
   width: calc(var(--work-fold-lockup-mark) * 0.96);
 }
-.popover-loading p { margin: 0; }
+:scope.popover-loading p { margin: 0; }
 
-.banner {
+.agent-banner {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -128,8 +117,8 @@ body {
   font-size: 12px;
   user-select: text;
 }
-.banner-text { flex: 1; }
-.banner-dismiss {
+.agent-banner-text { flex: 1; }
+.agent-banner-dismiss {
   flex: none;
   margin: -4px -6px -4px 0;
   padding: 4px 6px;
@@ -137,8 +126,8 @@ body {
   background: none;
   color: var(--pop-warning-text);
 }
-.banner-dismiss svg { width: 13px; height: 13px; display: block; }
-.banner-dismiss:hover { color: var(--pop-text); }
+.agent-banner-dismiss svg { width: 13px; height: 13px; display: block; }
+.agent-banner-dismiss:hover { color: var(--pop-text); }
 
 .card {
   background: var(--pop-surface);
@@ -179,7 +168,6 @@ body {
   animation: pop-spin 0.9s linear infinite;
 }
 
-@keyframes pop-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
@@ -273,7 +261,7 @@ body {
   color: inherit;
 }
 
-.composer { margin-top: auto; }
+.agent-composer { margin-top: auto; }
 .composer-field {
   display: flex;
   align-items: stretch;
@@ -539,3 +527,5 @@ button.primary:not(:disabled):active { filter: brightness(0.92); }
 .agent-chat-actions button { border: 0; border-radius: 5px; padding: 6px 9px; background: var(--pop-surface-2); font-size: 12px; }
 .agent-chat-actions form { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
 .agent-chat-actions input { flex: 1 1 100%; min-width: 0; padding: 7px; border: 1px solid var(--pop-border); border-radius: 5px; background: var(--pop-surface-2); color: inherit; }
+
+}

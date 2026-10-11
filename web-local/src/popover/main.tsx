@@ -8,6 +8,8 @@ import "@fontsource/poppins/600.css";
 import "@fontsource/poppins/700.css";
 import "../brand.css";
 import "./popover.css";
+import "./popover-document.css";
+import "../components/chat/work-steps.css";
 import "../../../services/bridge/public/work-request.css";
 import "../../../services/bridge/public/extension-questions.css";
 import "../components/chat/model-context-inspector.css";
