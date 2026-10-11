@@ -63,6 +63,7 @@ function WorkFolderModeRail({
   workFolder,
   surfaces,
   apps,
+  appAttention,
   onModeChange,
   onOpenSkillsExtensions,
   accountControl,
@@ -75,6 +76,8 @@ function WorkFolderModeRail({
   workFolder: WorkFolderSummary;
   surfaces: CapabilitySurface[];
   apps: RestrictedAppInstalled[];
+  /** How many new things an app named for its rail dot; 0 shows none. */
+  appAttention?: (app: RestrictedAppInstalled) => number;
   onModeChange: (mode: WorkFolderRailMode) => void;
   /**
    * A work-folder's own Automations entry (docs/automations.md, F15 as
@@ -156,6 +159,7 @@ function WorkFolderModeRail({
         {apps.map((app) => {
           const mode = restrictedAppRailMode(workFolder.id, app.manifest.id, app.featureInstallationId);
           const label = restrictedAppRailLabel(app, apps);
+          const attention = appAttention?.(app) ?? 0;
           const AppIcon = shownMode === mode ? Apps24Filled : Apps24Regular;
           const contributedIcon = app.manifest.ui.icon ? workFolderIconOptionFor(app.manifest.ui.icon) : null;
           return (
@@ -164,9 +168,10 @@ function WorkFolderModeRail({
               type="button"
               key={app.featureInstallationId}
               onClick={() => onModeChange(mode)}
-              aria-label={label}
+              aria-label={attention ? `${label}, ${attention} new` : label}
               aria-current={shownMode === mode ? "page" : undefined}
             >
+              {attention ? <span className="work-folder-rail-attention" aria-hidden="true" /> : null}
               <span className="work-folder-rail-icon" aria-hidden="true">
                 {contributedIcon
                   ? <WorkFolderIconGlyph icon={contributedIcon.Icon} size={24} filled={shownMode === mode} className="fluent-rail-icon" />

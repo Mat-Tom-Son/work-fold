@@ -570,6 +570,10 @@ Owner decisions, recorded here in dated form; the body of this document and
   opens its preview: an Extension surface lists its views there, and an app's
   left-pane view may open one tab per press of the person's mouse or keyboard.
   Built-in **Automations** still opens its work-folder's tab directly.
+- Apps look like work-fold: their views receive the shell's colors, font, and
+  radii, following the theme and the work-folder's accent, plus an opt-in kit
+  of matching controls. An app may show the same still green dot the Chats use
+  on its rail button when something new is waiting, and clears it itself.
 
 
 ### 2026-10-01 work-folders inside work-folders

@@ -87,6 +87,14 @@ interface WorkFoldRestrictedAppViewRequest {
   active: boolean;
   occluded: boolean;
   theme: "light" | "dark";
+  appearance?: Record<string, string>;
+}
+
+interface WorkFoldRestrictedAppAttention {
+  workFolderId: string;
+  appId: string;
+  featureInstallationId: string;
+  count: number;
 }
 
 interface WorkFoldRestrictedAppTabCommand {
@@ -187,6 +195,8 @@ declare global {
         onTabCommand: (listener: (command: WorkFoldRestrictedAppTabCommand) => void) => () => void;
         onViewState: (listener: (state: WorkFoldRestrictedAppViewState) => void) => () => void;
         onOpenRequest: (listener: (owner: WorkFoldRestrictedAppOwner) => void) => () => void;
+        attentionStates?: () => Promise<WorkFoldRestrictedAppAttention[]>;
+        onAttention?: (listener: (state: WorkFoldRestrictedAppAttention) => void) => () => void;
       };
       window: {
         material: "mica" | "vibrancy" | "none";

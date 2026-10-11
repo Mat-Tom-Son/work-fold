@@ -1,3 +1,4 @@
+import { currentAppearance } from "../../lib/restricted-app-appearance";
 import { ArrowClockwise20Regular, Apps24Regular } from "@fluentui/react-icons";
 import { Loader2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -74,6 +75,8 @@ export function RestrictedAppViewport({
     const mutationObserver = new MutationObserver(schedule);
     resizeObserver.observe(element);
     mutationObserver.observe(document.body, { attributes: true, childList: true, subtree: true });
+    // Appearance choices (palette, contrast) live on the root element.
+    mutationObserver.observe(document.documentElement, { attributes: true });
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
     document.addEventListener("visibilitychange", schedule);
@@ -158,6 +161,7 @@ function viewRequest(
     active,
     occluded: !active || bounds.width < 1 || bounds.height < 1 || nativeViewOccluded(element, elementBounds),
     theme: currentTheme(),
+    appearance: currentAppearance(element, currentTheme()),
   };
 }
 
