@@ -106,7 +106,8 @@ test("generate_image saves the model's picture, asks OpenRouter for the shape, a
   // The tool's own result: plain words, the file, and the preview only for a model that sees images.
   const tool = createImageGenerationTool({ root, models: source });
   const seeing = await tool.execute("call-1", { prompt: "A square receipt icon, no text", path: "icon.png", shape: "square" }, undefined, undefined, { model: { input: ["text", "image"] } } as never);
-  assert.match((seeing.content[0] as { text: string }).text, /^Saved the image to icon\.png \(42×18\) with google\/gemini-3\.1-flash-image \(openrouter\)\. It cost about \$0\.0034\./);
+  assert.match((seeing.content[0] as { text: string }).text, /^Made the image \(42×18\) with google\/gemini-3\.1-flash-image \(openrouter\)\. Saved it to icon\.png in this folder\. It cost about \$0\.0034\./);
+  assert.doesNotMatch((seeing.content[0] as { text: string }).text, /shows in the Chat/, "without a store, nothing claims the Chat shows it");
   assert.equal(seeing.content.length, 2);
   assert.deepEqual(source.calls[1]!.payload.image_config, { aspect_ratio: "1:1" });
   const blind = await tool.execute("call-2", { prompt: "Another", path: "other.png" }, undefined, undefined, { model: { input: ["text"] } } as never);
@@ -114,11 +115,12 @@ test("generate_image saves the model's picture, asks OpenRouter for the shape, a
 
   // A temporary picture (a banner about to be applied) never lands in the folder.
   const temporary = await generateImageFile({ root, source, prompt: "A banner", path: "nested/banner.png", shape: "wide", temporary: true });
-  assert.ok(temporary.path.startsWith(join(tmpdir(), "work-fold-images")), temporary.path);
-  assert.ok(temporary.path.endsWith("/banner.png"), "only the file name is kept");
-  assert.deepEqual(await readFile(temporary.path), picture);
+  assert.equal(temporary.path, undefined);
+  assert.ok(temporary.file.startsWith(join(tmpdir(), "work-fold-images")), temporary.file);
+  assert.ok(temporary.file.endsWith("/banner.png"), "only the file name is kept");
+  assert.deepEqual(await readFile(temporary.file), picture);
   await assert.rejects(() => readFile(join(root, "nested", "banner.png")), /ENOENT/);
-  await rm(dirname(temporary.path), { recursive: true, force: true });
+  await rm(dirname(temporary.file), { recursive: true, force: true });
 
   // Failures say what happened instead of writing anything.
   const refusing = fakeSource([model("openrouter", "google/gemini-3.1-flash-image")], () => ({ stopReason: "stop", output: [{ type: "text", text: "I can't draw that." }] }));

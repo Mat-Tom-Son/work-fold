@@ -5004,6 +5004,106 @@ to {
   border-radius: 8px;
 }
 
+/* Pictures a Worker made in the turn, under its reply (2026-10-11). */
+.generated-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.generated-image {
+  position: relative;
+  width: min(100%, 520px);
+  margin: 0;
+  overflow: hidden;
+  background: var(--ui-surface-subtle);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+}
+
+.generated-image[style] {
+  width: min(100%, 520px, calc(480px * var(--generated-image-ratio)));
+  aspect-ratio: var(--generated-image-ratio);
+}
+
+.generated-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 480px;
+  object-fit: contain;
+}
+
+.generated-image-loading {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+}
+
+.generated-image-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.generated-image:hover .generated-image-actions,
+.generated-image:focus-within .generated-image-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .generated-image-actions {
+    opacity: 1;
+  }
+}
+
+.generated-image-actions button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  color: #ffffff;
+  background: rgba(16, 20, 22, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.generated-image-actions button:hover:not(:disabled) {
+  background: rgba(16, 20, 22, 0.88);
+}
+
+.generated-image-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.generated-image-actions button:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+.generated-image-missing {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface-subtle);
+  border: 1px dashed var(--ui-border-strong);
+  border-radius: 6px;
+  font-size: 0.86rem;
+}
+
 .message-image-file {
   max-width: 100%;
   min-height: 34px;

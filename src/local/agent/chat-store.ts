@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { workFolderConversationDir, workFolderStateDir } from "../state-paths.js";
 import { maxChatToolTitleLength, maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
-import { parseAssistantPresentation, parseChatToolEdit } from "./turn-presentation.js";
+import { parseAssistantPresentation, parseChatToolEdit, parseChatToolImage } from "./turn-presentation.js";
 import {
   normalizeConversationTitle,
   untitledConversationTitle,
@@ -619,6 +619,7 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
   let editDiffBytes = 0;
   return entries.map((entry) => {
     const edit = entry.kind === "tool" && entry.toolName === "edit" && entry.phase === "complete" ? parseChatToolEdit(entry.edit) : undefined;
+    const image = entry.kind === "tool" && entry.toolName === "generate_image" && entry.phase === "complete" ? parseChatToolImage(entry.image) : undefined;
     const bytes = edit ? Buffer.byteLength(edit.diff, "utf8") : 0;
     const includeEdit = edit && editDiffBytes + bytes <= maxTurnToolEditDiffBytes;
     if (includeEdit) editDiffBytes += bytes;
@@ -635,6 +636,7 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
       ...(entry.order === undefined ? {} : { order: entry.order }),
       ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
       ...(includeEdit ? { edit } : {}),
+      ...(image ? { image } : {}),
     };
   });
 }

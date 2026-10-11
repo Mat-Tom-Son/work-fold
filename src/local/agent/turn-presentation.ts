@@ -7,6 +7,7 @@ import {
   type AssistantPresentation,
   type AssistantPresentationSegment,
   type ChatToolEdit,
+  type ChatToolImage,
 } from "../../shared/chat-presentation.js";
 
 export function turnPresentation(
@@ -109,6 +110,23 @@ export function projectNativeEdit(path: string, details: unknown, remainingBytes
     ...(Number.isSafeInteger(details.firstChangedLine) && (details.firstChangedLine as number) > 0 ? { firstChangedLine: details.firstChangedLine as number } : {}),
     truncated: end < bytes.length || prefix.length < details.diff.length,
   };
+}
+
+/** The picture a completed generate_image step made, from its tool details or a stored log. */
+export function parseChatToolImage(value: unknown): ChatToolImage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const id = record.id ?? record.imageId;
+  const name = record.name;
+  const mimeType = record.mimeType;
+  if (typeof id !== "string" || !/^[0-9a-f]{32}$/.test(id)) return undefined;
+  if (typeof name !== "string" || !name.trim() || name.length > 200 || /[\\/\u0000-\u001f]/.test(name)) return undefined;
+  if (typeof mimeType !== "string" || !/^image\/(png|jpeg|webp|gif)$/.test(mimeType)) return undefined;
+  const size = (value: unknown) => (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 100_000 ? value : undefined);
+  const path = typeof record.path === "string" && record.path && !record.path.startsWith("/") && !record.path.split("/").includes("..") && record.path.length <= 4096 ? record.path : undefined;
+  const width = size(record.width);
+  const height = size(record.height);
+  return { id, name, mimeType, ...(width ? { width } : {}), ...(height ? { height } : {}), ...(path ? { path } : {}) };
 }
 
 export function parseChatToolEdit(value: unknown): ChatToolEdit | undefined {

@@ -12,6 +12,7 @@ import { collectWorkFolderPathCandidates, findWorkFolderPathMentions, workFolder
 import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
 import { RuntimeContextPreview, type WorkFolderPathLinkResolver } from "./activity";
+import { GeneratedImages, turnGeneratedImages } from "./GeneratedImages";
 
 export type { WorkFolderPathLinkResolver };
 
@@ -58,6 +59,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     ? runtimePreviews
     : savedRuntimePreviews;
   const turnView = assistantTurnView(message.content, message.role === "assistant" ? message.assistantPresentation : undefined, visibleRuntimePreviews);
+  const generatedImages = message.role === "assistant" ? turnGeneratedImages(visibleRuntimePreviews) : [];
 
   useEffect(() => {
     if (message.role !== "assistant" || !resolveWorkFolderPathLinks || !onOpenWorkFolderFile) return;
@@ -99,6 +101,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           onOpenWorkFolderFile={message.role === "assistant" ? onOpenWorkFolderFile : undefined}
           key={workFolderLinkVersion}
         /> : null}
+        {generatedImages.length ? <GeneratedImages images={generatedImages} workFolderId={workFolderId} onOpenWorkFolderFile={onOpenWorkFolderFile} /> : null}
         {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
         {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
       </div>

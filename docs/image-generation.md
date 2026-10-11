@@ -1,9 +1,9 @@
 # Image generation
 
 Workers and the work-fold agent can make pictures with a connected image model:
-banners, illustrations, backgrounds, and anything else a person asks for. The
-picture is saved as an ordinary file in the folder the session works in, so it
-is visible in Files, captured by History, and removable like any other file.
+banners, illustrations, backgrounds, and anything else a person asks for. In a
+Worker Chat the picture shows under the reply, and it becomes a file in the
+folder only when the person adds it or asked the Worker to save it there.
 
 ## The tool
 
@@ -11,19 +11,46 @@ Every session has a native `generate_image` tool
 (`src/local/agent/image-generation-tool.ts`). It takes:
 
 - `prompt`: what the picture shows (subject, style, mood, colors);
-- `path`: where to save it, relative to the session's folder;
+- `path`: optional; where to save it, relative to the session's folder, when the
+  person asked for a file there;
 - `shape`: `wide` (about 21:9, for a work-folder banner), `square`, or `tall`;
 - `model`: an optional `{ provider, id }` naming one connected image model.
 
-The path must stay inside the folder and outside `.work-fold`, `.pi`, `.git`,
-and `.workspace`. With `temporary: true` the picture is saved instead in
-work-fold's temporary space outside the folder, keeping only the file name, and
-the result gives its absolute path: for a picture used once, such as a banner
-about to be applied, so nothing lands in the person's folder. The model decides the format, and the file extension follows
-it (asking for `banner.png` and receiving a JPEG saves `banner.jpg`). The
-result reports the path, dimensions, model, and cost when the provider reports
-one. When the session's own model can see images, a small copy comes back too,
-so the Worker can check its work.
+A path must stay inside the folder and outside `.work-fold`, `.pi`, `.git`,
+and `.workspace`. The model decides the format, and the file extension follows
+it (asking for `banner.png` and receiving a JPEG saves `banner.jpg`). Without a
+path the picture stays out of the folder; the older `temporary: true` option
+means the same. The result gives the picture's absolute file path (for example,
+to apply it as a banner), its dimensions, the model, and the cost when the
+provider reports one. When the session's own model can see images, a small copy
+comes back too, so the Worker can check its work.
+
+## In the Chat
+
+Every picture a Worker makes is kept in work-fold's own app state
+(`generated-images/` under the state root, `src/local/agent/generated-image-store.ts`),
+outside every work-folder, under a random id. The Chat log records only that id
+with the picture's name, type, and size on the finished `generate_image` step,
+never the bytes, so a Chat that travels with its folder shows "not on this
+computer" elsewhere instead of a broken image. A picture the Worker saved in the
+folder still loads from there.
+
+The pictures show under the Worker's reply whatever the Worker-steps setting
+is. Hovering one offers:
+
+- **Copy**, which puts the picture alone on the clipboard as PNG, so pasting
+  gives the picture rather than its name;
+- **Add to folder**, which writes it at the top of the work-folder under its
+  name (beside, never over, an existing file of that name) with the same
+  restore point as an upload;
+- **Show in Files**, in place of Add to folder, once the picture is in the
+  folder. It counts only while the file there is still this picture, compared by
+  content, so a different file that took its name is never shown in its place.
+
+The routes are `GET /api/generated-images/:id` (the bytes) and
+`GET`/`POST /api/work-folders/:workFolderId/generated-images/:id[/add]`.
+The work-fold agent's panel does not show pictures yet, so its tool keeps them
+in temporary space and does not say they appear in the Chat.
 
 ## Models and providers
 
@@ -81,4 +108,6 @@ Customize dialog keeps for an upload. It is a receipted act with one-step
 ## Privacy
 
 The prompt goes to the image model's provider under that provider's terms, like
-any other model request. Generated files stay in the work-folder.
+any other model request. Pictures shown in a Chat stay in work-fold's
+machine-local app state; only those the person adds, or asked the Worker to
+save, become files in the work-folder.

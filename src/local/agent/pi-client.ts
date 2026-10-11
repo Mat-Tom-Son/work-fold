@@ -53,13 +53,13 @@ import { appendWorkFolderOperationsGuide } from "./work-folder-operations-guide.
 import { appendToolFeedbackGuide } from "./tool-feedback-guide.js";
 import { workFolderTurnAssignmentMaxBytes, type PiWorkFolderTurnContext } from "./work-folder-turn-context.js";
 import type { WorkFoldDurableTurnUsage } from "./turn-store.js";
-import { localEditPath, projectNativeEdit, turnPresentation } from "./turn-presentation.js";
+import { localEditPath, parseChatToolImage, projectNativeEdit, turnPresentation } from "./turn-presentation.js";
 import { boundedLiveTurnPresentation } from "./turn-live-presentation.js";
-import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry, type ChatLiveTurnPresentation } from "../../shared/chat-presentation.js";
+import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatToolImage, type ChatWorkTrailEntry, type ChatLiveTurnPresentation } from "../../shared/chat-presentation.js";
 import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
-import { createImageGenerationTool } from "./image-generation-tool.js";
+import { createImageGenerationTool, type GeneratedImageSink } from "./image-generation-tool.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -97,6 +97,7 @@ export interface PiChatEvent {
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
   detail?: string;
   edit?: ChatToolEdit;
+  image?: ChatToolImage;
   raw?: unknown;
 }
 
@@ -168,6 +169,8 @@ export interface PiConversationClientOptions {
   operationsGuide?: string;
   /** The image model chosen in Settings → AI Models, read when a picture is made. */
   imageModel?: () => Promise<{ provider: string; id: string } | undefined>;
+  /** Keeps generated pictures so a Chat can show them inline. */
+  imageStore?: GeneratedImageSink;
 }
 
 export interface PiConversationState {
@@ -614,6 +617,7 @@ export class PiConversationClient extends EventEmitter {
       .map((entry) => ({
         ...entry,
         ...(entry.edit ? { edit: { ...entry.edit } } : {}),
+        ...(entry.image ? { image: { ...entry.image } } : {}),
         phase: entry.phase === "error" ? "error" : "complete",
       }));
   }
@@ -755,6 +759,7 @@ export class PiConversationClient extends EventEmitter {
           root: options.cwd,
           models: runtime.modelRuntime,
           ...(this.options.imageModel ? { preferredModel: this.options.imageModel } : {}),
+          ...(this.options.imageStore ? { store: this.options.imageStore } : {}),
         }),
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
@@ -1108,6 +1113,11 @@ export class PiConversationClient extends EventEmitter {
           this.turnEditDiffBytes += Buffer.byteLength(edit.diff, "utf8");
         }
       }
+      // A picture generate_image kept for the Chat: its id and size, never its bytes.
+      if (!raw.isError && event.toolName === "generate_image") {
+        const image = parseChatToolImage(raw.result?.details);
+        if (image) event.image = image;
+      }
     }
     const previous = this.turnActivities.get(toolCallId);
     if (event.phase === "streaming" || event.phase === "complete" || event.phase === "error") {
@@ -1133,6 +1143,7 @@ export class PiConversationClient extends EventEmitter {
       text: event.message ?? humanize(event.toolName ?? "Tool"),
       ...(event.detail ? { detail: event.detail } : {}),
       ...(event.edit ? { edit: { ...event.edit } } : {}),
+      ...(event.image ? { image: { ...event.image } } : {}),
       ...(event.toolName ? { toolName: event.toolName } : {}),
       ...(event.toolTitle ? { toolTitle: event.toolTitle } : {}),
       ...(event.phase ? { phase: event.phase } : {}),
