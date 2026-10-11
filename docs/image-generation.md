@@ -16,7 +16,10 @@ Every session has a native `generate_image` tool
 - `model`: an optional `{ provider, id }` naming one connected image model.
 
 The path must stay inside the folder and outside `.work-fold`, `.pi`, `.git`,
-and `.workspace`. The model decides the format, and the file extension follows
+and `.workspace`. With `temporary: true` the picture is saved instead in
+work-fold's temporary space outside the folder, keeping only the file name, and
+the result gives its absolute path: for a picture used once, such as a banner
+about to be applied, so nothing lands in the person's folder. The model decides the format, and the file extension follows
 it (asking for `banner.png` and receiving a JPEG saves `banner.jpg`). The
 result reports the path, dimensions, model, and cost when the provider reports
 one. When the session's own model can see images, a small copy comes back too,

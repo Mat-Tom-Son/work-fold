@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -111,6 +111,14 @@ test("generate_image saves the model's picture, asks OpenRouter for the shape, a
   assert.deepEqual(source.calls[1]!.payload.image_config, { aspect_ratio: "1:1" });
   const blind = await tool.execute("call-2", { prompt: "Another", path: "other.png" }, undefined, undefined, { model: { input: ["text"] } } as never);
   assert.equal(blind.content.length, 1, "no image block for a model that cannot see it");
+
+  // A temporary picture (a banner about to be applied) never lands in the folder.
+  const temporary = await generateImageFile({ root, source, prompt: "A banner", path: "nested/banner.png", shape: "wide", temporary: true });
+  assert.ok(temporary.path.startsWith(join(tmpdir(), "work-fold-images")), temporary.path);
+  assert.ok(temporary.path.endsWith("/banner.png"), "only the file name is kept");
+  assert.deepEqual(await readFile(temporary.path), picture);
+  await assert.rejects(() => readFile(join(root, "nested", "banner.png")), /ENOENT/);
+  await rm(dirname(temporary.path), { recursive: true, force: true });
 
   // Failures say what happened instead of writing anything.
   const refusing = fakeSource([model("openrouter", "google/gemini-3.1-flash-image")], () => ({ stopReason: "stop", output: [{ type: "text", text: "I can't draw that." }] }));
