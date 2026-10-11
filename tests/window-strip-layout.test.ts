@@ -38,3 +38,11 @@ test("the View menu toggles the sidebar and the agent panel", async () => {
   assert.match(main, /label: "Toggle Sidebar", accelerator: "CommandOrControl\+B"/);
   assert.match(main, /label: "Toggle work-fold agent", accelerator: "CommandOrControl\+J"/);
 });
+
+test("the agent panel draws one focus ring per box and never crushes the work area", async () => {
+  const css = await read("web-local/src/panels.css");
+  assert.match(css, /\.agent-panel :is\(\.agent-composer textarea, \.agent-chat-search input\):focus-visible \{\s*outline: none;/, "the window's field ring stays out of the panel's boxes");
+  assert.match(css, /\.agent-panel :is\(\.composer-field, \.agent-chat-search\):focus-within \{\s*outline: 2px solid var\(--ui-focus, var\(--ui-accent\)\);/);
+  assert.match(css, /\.work-folder-layout\.agent-panel-open \{\s*grid-template-columns: [^;]*minmax\(320px, 1fr\)[^;]*minmax\(280px, var\(--agent-panel-width, 380px\)\);/);
+  assert.match(css, /\.work-folder-layout\.agent-panel-open\.sidebar-collapsed \{\s*grid-template-columns: [^;]*minmax\(320px, 1fr\)/);
+});

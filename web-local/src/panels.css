@@ -122,12 +122,14 @@
 
 /* The work-fold agent panel, beside the work area on the right. */
 
+/* The work area keeps a usable minimum; in a narrow window the sidebar and
+   the panel give up width before it does. */
 .app-shell .work-folder-layout.agent-panel-open {
-  grid-template-columns: var(--work-folder-rail-width) minmax(280px, var(--work-folder-sidebar-width)) var(--work-folder-resizer-width) minmax(0, 1fr) var(--work-folder-resizer-width) var(--agent-panel-width, 380px);
+  grid-template-columns: var(--work-folder-rail-width) minmax(220px, var(--work-folder-sidebar-width)) var(--work-folder-resizer-width) minmax(320px, 1fr) var(--work-folder-resizer-width) minmax(280px, var(--agent-panel-width, 380px));
 }
 
 .app-shell .work-folder-layout.agent-panel-open.sidebar-collapsed {
-  grid-template-columns: var(--work-folder-rail-width) minmax(0, 1fr) var(--work-folder-resizer-width) var(--agent-panel-width, 380px);
+  grid-template-columns: var(--work-folder-rail-width) minmax(320px, 1fr) var(--work-folder-resizer-width) minmax(280px, var(--agent-panel-width, 380px));
 }
 
 .app-shell .work-folder-layout > :is(.agent-panel, .agent-panel-resizer)[hidden] {
@@ -161,6 +163,17 @@
   font-size: var(--work-fold-font-size, 14px);
   line-height: 1.5;
   user-select: text;
+}
+
+/* The composer and Chats search draw one ring around the whole box, like the
+   chat composer. The window's own field ring would sit inside it. */
+:root[data-theme] .app-shell .agent-panel :is(.agent-composer textarea, .agent-chat-search input):focus-visible {
+  outline: none;
+}
+
+:root[data-theme] .app-shell .agent-panel :is(.composer-field, .agent-chat-search):focus-within {
+  outline: 2px solid var(--ui-focus, var(--ui-accent));
+  outline-offset: -1px;
 }
 
 :root[data-theme] .app-shell .window-chrome-agent-controls .window-chrome-button svg {
