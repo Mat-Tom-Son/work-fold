@@ -146,6 +146,7 @@ import {
   type PiSetupStatus,
 } from "./agent/pi-runtime-config.js";
 import { ImageModelPreference, imageModelPreferencePath, normalizeImageModelChoice } from "./agent/image-model-preference.js";
+import { GeneratedImageStore, isGeneratedImageId } from "./agent/generated-image-store.js";
 import { getAzureOpenAIConnection, saveAzureOpenAIConnection } from "./agent/azure-openai-connection.js";
 import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, type AzureOpenAIConnection } from "../shared/azure-openai.js";
 import { loadConversationContextReferencesForTurn, previewConversationContextReference } from "./conversation-context.js";
@@ -762,6 +763,8 @@ interface LocalApiState {
   clientsToRefresh: Set<string>;
   /** Settings → AI Models → Image model: one machine-wide choice, absent for Automatic. */
   imageModelPreference: ImageModelPreference;
+  /** Pictures generate_image made, kept outside every work-folder for Chats to show. */
+  generatedImages: GeneratedImageStore;
   checkRunReservations: Set<string>;
   workFolderIdsByRoot: Map<string, string>;
   extensionRequests: Map<string, PiExtensionUiRequest>;
@@ -1074,6 +1077,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     capabilityMutations: new Set(),
     clientsToRefresh: new Set(),
     imageModelPreference: new ImageModelPreference(imageModelPreferencePath(workFoldStateRoot())),
+    generatedImages: new GeneratedImageStore(join(workFoldStateRoot(), "generated-images")),
     checkRunReservations: new Set(),
     workFolderIdsByRoot: new Map(),
     extensionRequests: new Map(),
@@ -2482,6 +2486,47 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       throw badRequest("work-folder paths must be an array of strings.");
     }
     sendJson(res, { existing: await findExistingWorkFolderFilePaths(workFolder.workFolderRoot, body.paths) });
+    return;
+  }
+
+  // Pictures generate_image made (2026-10-11): their bytes for a Chat to show,
+  // what the Chat needs to offer Add to folder or Show in Files, and Add to folder.
+  const generatedImageMatch = match(url.pathname, /^\/api\/generated-images\/([^/]+)$/);
+  if (method === "GET" && generatedImageMatch) {
+    const found = isGeneratedImageId(generatedImageMatch[1]) ? await state.generatedImages.read(generatedImageMatch[1]) : null;
+    if (!found) throw notFound("This picture is not on this computer.");
+    res.writeHead(200, {
+      "content-type": found.record.mimeType,
+      "content-length": found.bytes.length,
+      "content-disposition": "inline",
+      "cache-control": "private, max-age=31536000, immutable",
+    });
+    res.end(found.bytes);
+    return;
+  }
+  const workFolderImageMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/generated-images\/([^/]+)(\/add)?$/);
+  if (workFolderImageMatch && (method === "GET" || (method === "POST" && workFolderImageMatch[3]))) {
+    const workFolder = await getWorkFolder(workFolderImageMatch[1]);
+    const imageId = workFolderImageMatch[2]!;
+    const record = isGeneratedImageId(imageId) ? await state.generatedImages.get(imageId) : null;
+    if (!record) throw notFound("This picture is not on this computer.");
+    const addedPath = record.added?.[workFolder.id];
+    const stillThere = addedPath ? await state.generatedImages.matches(record, resolveWorkFolderPath(workFolder.workFolderRoot, addedPath)).catch(() => false) : false;
+    if (method === "GET") {
+      sendJson(res, { name: record.name, mimeType: record.mimeType, ...(stillThere ? { addedPath } : {}) });
+      return;
+    }
+    // Add to folder: the same additive write and restore point as an upload.
+    if (stillThere) { sendJson(res, { path: addedPath, added: false }); return; }
+    const found = await state.generatedImages.read(imageId);
+    if (!found) throw notFound("This picture is not on this computer.");
+    const [written] = await writeUploadedFiles(workFolder.workFolderRoot, "", [{ fileName: record.name, data: found.bytes }]);
+    await checkpointAdditiveWritesOrUndo(workFolder.workFolderRoot, [written!.path], {
+      reason: "pre_upload",
+      label: `Before adding ${record.name}`,
+    });
+    await state.generatedImages.noteAdded(imageId, workFolder.id, written!.path);
+    sendJson(res, { path: written!.path, added: true }, 201);
     return;
   }
 
@@ -12092,6 +12137,8 @@ async function getClient(
   const client = new PiConversationClient(conversationId, workFolderRoot, state.runtimeProvider, hostCapabilities, {
     ...(operationsGuide ? { operationsGuide } : {}),
     imageModel: () => state.imageModelPreference.get(),
+    // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.
+    ...(workFolderId === workFoldAgentScopeId ? {} : { imageStore: state.generatedImages }),
   });
   client.on("event", (event: PiChatEvent) => {
     broadcast(state, streamKey(workFolderId, conversationId), assistantEventForRenderer(event));

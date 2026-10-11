@@ -87,12 +87,12 @@ things should go. Plain words, no headings beyond a title.
   `toolbox`, `wrench`, `archive`, `folder`, `star`, `sparkles`.
 - Pick an accent color that fits, as a hex value. Prefer calm, readable
   colors.
-- Make a wide banner with `generate_image` and `temporary: true`, so the picture
-  never lands in the person's folder. Show the folder's real subject as a scene
+- Make a wide banner with `generate_image` and no `path`, so the picture shows
+  in the Chat and never lands in the person's folder. Show the folder's real subject as a scene
   or still life (illustrated or photographic) in colors that go with the accent,
   never app icons, interface elements, glowing "tech" effects, or abstract
   stock graphics. End the description with "no text, no letters, no logos".
-- Apply all three at once, using the absolute path `generate_image` returned:
+- Apply all three at once, using the file path `generate_image` returned:
 
   ```bash
   work-fold work-folders appearance apply --work-folder <id> --banner-image "<absolute path>" --icon <name> --color <#rrggbb> --json

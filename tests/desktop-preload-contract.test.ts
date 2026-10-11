@@ -46,7 +46,10 @@ test("native clipboard writes require a trusted top-level sender and expose no r
   assert.match(body, /assertTrustedRenderer\(event\)/);
   assert.match(body, /frame\.processId !== mainFrame\.processId/);
   assert.match(body, /frame\.routingId !== mainFrame\.routingId/);
-  assert.match(body, /writeDesktopClipboard\(value, \(content\) => clipboard\.write\(content\)\)/);
+  // Only validated content reaches the clipboard; a picture goes alone, decoded by Electron.
+  assert.match(body, /writeDesktopClipboard\(value, \(content\) => clipboard\.write\(/);
+  assert.match(body, /\{ image: nativeImage\.createFromDataURL\(content\.image\) \}/);
+  assert.match(body, /\{ text: content\.text, \.\.\.\(content\.html !== undefined \? \{ html: content\.html \} : \{\}\) \}/);
 });
 
 test("Open with reaches the host only as a work-folder file reference and launches only the app the dialog returned", () => {

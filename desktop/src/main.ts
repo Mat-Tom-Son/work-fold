@@ -1182,7 +1182,10 @@ function registerIpc(): void {
         throw new Error("Clipboard requests require a trusted main frame.");
       }
     }
-    writeDesktopClipboard(value, (content) => clipboard.write(content));
+    // A picture goes on the clipboard alone, so every app pastes the picture rather than text.
+    writeDesktopClipboard(value, (content) => clipboard.write(content.image !== undefined
+      ? { image: nativeImage.createFromDataURL(content.image) }
+      : { text: content.text, ...(content.html !== undefined ? { html: content.html } : {}) }));
   });
   ipcMain.handle("work-fold:diagnostics:request", (event, input: unknown) => {
     if (!modelContextWindow) throw new Error("The developer inspector is not open.");
