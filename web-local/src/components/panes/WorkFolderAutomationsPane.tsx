@@ -17,13 +17,15 @@ type FolderAutomationAction = "run" | "enable" | "disable";
 /**
  * The work-folder-owned Automations tab (docs/automations.md, F15 as amended
  * 2026-09-24): a read-mostly window onto the automations whose trigger or
- * steps name this work-folder. Run now, Turn on, and Turn off take the same
- * receipted path as Settings → Automations, which stays the management home;
- * nothing is edited here.
+ * steps name this work-folder. With `automationId` it shows that one
+ * automation, opened from the left-pane list (2026-10-11). Run now, Turn on,
+ * and Turn off take the same receipted path as Settings → Automations, which
+ * stays the management home; nothing is edited here.
  */
 export function WorkFolderAutomationsPane({
   workFolder,
-  automations,
+  automations: allAutomations,
+  automationId,
   active,
   fixtureMode = false,
   onRefresh,
@@ -32,11 +34,15 @@ export function WorkFolderAutomationsPane({
   workFolder: WorkFolderSummary;
   /** Undefined until the first read of this work-folder settles. */
   automations: FolderAutomationView[] | undefined;
+  /** Show only this automation, as its own tab. */
+  automationId?: string;
   active: boolean;
   fixtureMode?: boolean;
   onRefresh: () => Promise<void>;
   onOpenAllAutomations: () => void;
 }) {
+  const automations = automationId ? allAutomations?.filter((automation) => automation.automationId === automationId) : allAutomations;
+  const single = automationId ? automations?.[0] : undefined;
   const [pending, setPending] = useState<string | null>(null);
   const [watchUntil, setWatchUntil] = useState(0);
   const refreshRef = useRef(onRefresh);
@@ -84,18 +90,18 @@ export function WorkFolderAutomationsPane({
     <div className="work-folder-pane-content capabilities-pane folder-automations-pane professional-surface professional-setup">
       <header className="skills-extensions-header">
         <div>
-          <h1>{copy.heading(workFolder.name)}</h1>
+          <h1>{automationId ? single?.title ?? copy.tab : copy.heading(workFolder.name)}</h1>
         </div>
       </header>
       {automations && !automations.length ? (
-        <p className="folder-automations-empty">{copy.noneLeft}</p>
+        <p className="folder-automations-empty">{automationId ? copy.goneHere : copy.noneLeft}</p>
       ) : null}
       {automations?.length ? (
         <ul className="folder-automations-list" aria-label={copy.heading(workFolder.name)}>
           {automations.map((automation) => (
             <li className="folder-automation-row" key={automation.automationId}>
               <div className="folder-automation-heading">
-                <strong>{automation.title}</strong>
+                {automationId ? null : <strong>{automation.title}</strong>}
                 <span className={`automation-health ${stateClass(automation.state)}`}>{copy.states[automation.state]}</span>
               </div>
               <p className="folder-automation-trigger">{automation.triggerSummary}</p>
@@ -127,12 +133,12 @@ export function folderAutomationRoleSentence(roles: readonly FolderAutomationRol
   return roles.map((role) => copy.roles[role]).join(" · ");
 }
 
-function lastRunText(automation: FolderAutomationView): string {
+export function lastRunText(automation: FolderAutomationView): string {
   if (!automation.lastRun) return copy.notRunYet;
   const text = copy.lastRun(formatAutomationDateTime(automation.lastRun.at));
   return automation.lastRun.outcome === "failed" ? `${text} · ${copy.failed}` : text;
 }
 
-function stateClass(state: FolderAutomationState): string {
+export function stateClass(state: FolderAutomationState): string {
   return ({ on: "enabled", off: "disabled", running: "running", suspended: "suspended", completed: "completed" } as const)[state];
 }

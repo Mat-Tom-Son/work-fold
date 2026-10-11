@@ -32,6 +32,7 @@ import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
 import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
 import { WorkFolderAutomationsPane } from "./components/panes/WorkFolderAutomationsPane";
+import { WorkFolderAutomationsNavigator } from "./components/panes/WorkFolderAutomationsNavigator";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
 import { WorkFolderModeRail, WorkFolderPaneHeader } from "./components/panes/workFolderChrome";
@@ -590,6 +591,16 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const checks = useWorkFolderChecks(workFolder, Boolean(fixture), activeTab?.kind !== "checks");
   const folderAutomations = useFolderAutomations(workFolder.id, Boolean(fixture));
   const hasFolderAutomations = (folderAutomations.byWorkFolder[workFolder.id]?.length ?? 0) > 0;
+  const folderAutomationsLoaded = folderAutomations.byWorkFolder[workFolder.id] !== undefined;
+  // The Automations list is fresh whenever it is shown, and once nothing in
+  // this work-folder is automated any more, the pane falls back to Files.
+  useEffect(() => {
+    if (activeMode !== "automations") return;
+    if (folderAutomationsLoaded && !hasFolderAutomations) setActiveMode("files");
+  }, [activeMode, folderAutomationsLoaded, hasFolderAutomations]);
+  useEffect(() => {
+    if (activeMode === "automations" && !fixture) void folderAutomations.refresh(workFolder.id);
+  }, [activeMode, workFolder.id]);
   useEffect(() => {
     const control = { workFolderId: workFolder.id, suspend: checks.suspend, resume: checks.resume };
     onChecksControlChange(control);
@@ -1494,8 +1505,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   function selectRailMode(mode: WorkFolderRailMode): void {
     // Every rail destination brings a hidden navigation pane back.
     setSidebarHidden(false);
-    // Automations opens its work-folder's own tab and leaves the navigator pane as it was.
-    if (mode === "automations") { tabs.openWorkFolderAutomationsSurfaceTab(workFolder); return; }
     setActiveMode(mode);
     // Apps and Extension surfaces show their left pane and never open a tab by
     // themselves; a tab comes from a click inside that pane, like a file.
@@ -1573,7 +1582,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const layoutClassName = ["work-folder-layout", paneResize.sidebarResizing || agentPanelResizing ? "resizing" : "", sidebarCollapsed ? "sidebar-collapsed" : "", agentPanelOpen ? "agent-panel-open" : ""].filter(Boolean).join(" ");
   return <main className={layoutClassName} ref={paneResize.workFolderLayoutRef} style={layoutStyle}>
     <WindowChromeControls sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarHidden(!sidebarCollapsed)} agentPanelOpen={agentPanelOpen} onToggleAgentPanel={toggleAgentPanel} agentControlsRef={setAgentControlsTarget} />
-    <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} appAttention={(app) => appAttention.get(restrictedAppAttentionKey(app.workFolderId, app.manifest.id, app.featureInstallationId)) ?? 0} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: activeTab?.kind === "work-folder-automations" && activeTab.workFolderId === workFolder.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} appAttention={(app) => appAttention.get(restrictedAppAttentionKey(app.workFolderId, app.manifest.id, app.featureInstallationId)) ?? 0} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: !sidebarCollapsed && activeMode === "automations" } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`work-folder-mode-pane work-folder-mode-pane-${activeMode}`} id="work-folder-file-panel" onKeyDown={activeMode === "work-folders" ? leaveManageFoldersOnEscape : undefined}>
       <WorkFolderPaneHeader workFolder={workFolder} identity={identity} workFolders={workFolders} workFolderCustomizations={customizations} folderStatuses={folderStatuses} onSwitchWorkFolder={onSwitchWorkFolder} onCreateWorkFolder={onCreateWorkFolder} onOpenFolder={onOpenFolder} onManageWorkFolders={() => setActiveMode("work-folders")} managingWorkFolders={activeMode === "work-folders"} onNewChat={() => openChat(workFolder, null)} onOpenAppearance={() => openWorkFolderAppearance(workFolder)} {...(!fixture && typeof window.workFoldDesktop?.workFolder.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
       {activeMode === "work-folders" ? <WorkFoldersPane workFolder={workFolder} workFolders={workFolders} identities={customizations} onCreate={onCreateWorkFolder} onOpenFolder={onOpenFolder} onCustomize={openWorkFolderAppearance} onRemove={(target) => void removeWorkFolder(target)} onDone={leaveManageFolders} /> : null}
@@ -1636,6 +1645,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         )}
       </div> : null}
       {activeMode === "chats" ? <ChatsPane workFolder={workFolder} workFolders={workFolders} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
+      {activeMode === "automations" ? <WorkFolderAutomationsNavigator automations={folderAutomations.byWorkFolder[workFolder.id]} activeAutomationId={activeTab?.kind === "work-folder-automation" && activeTab.workFolderId === workFolder.id ? activeTab.automationId : null} onOpen={(automation) => tabs.openWorkFolderAutomationSurfaceTab(workFolder, automation)} onOpenAllAutomations={() => onOpenSettings("automations")} /> : null}
       {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={workFolder} fixtureItems={fixture?.checkpoints[workFolder.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workFolder, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(workFolder, activeSurface, view)} /> : null}
       {activeRestrictedApp ? <RestrictedAppViewport key={`${activeRestrictedApp.featureInstallationId}:${activeRestrictedApp.digest}`} app={activeRestrictedApp} placement="navigator" route="/" active /> : null}
@@ -1656,10 +1666,11 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
           <div className="work-folder-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={workFolderIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
               <FileDetailsPane workFolder={targetWorkFolder} path={tab.path} entry={targetWorkFolder.id === workFolder.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkFolder)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkFolder, path)} onRename={targetWorkFolder.id === workFolder.id ? renameEntry : undefined} canOpenWith={canOpenWith} shareRequestId={shareRequest && shareRequest.workFolderId === targetWorkFolder.id && shareRequest.path === tab.path ? shareRequest.id : undefined} onOpenSettings={openSharingSettings} />
-            ) : tab.kind === "work-folder-automations" ? (
+            ) : tab.kind === "work-folder-automations" || tab.kind === "work-folder-automation" ? (
               <WorkFolderAutomationsPane
                 workFolder={targetWorkFolder}
                 automations={folderAutomations.byWorkFolder[targetWorkFolder.id]}
+                {...(tab.kind === "work-folder-automation" ? { automationId: tab.automationId } : {})}
                 active={active}
                 fixtureMode={Boolean(fixture)}
                 onRefresh={() => folderAutomations.refresh(targetWorkFolder.id)}
@@ -1926,7 +1937,7 @@ function joinDropPath(...segments: string[]) {
 function fixtureConversationGroups(fixture: WorkFolderUiFixture): Record<string, ConversationSummary[]> { return Object.fromEntries(Object.entries(fixture.conversations).map(([id, conversations]) => [id, conversations.map(({ messages: _messages, ...summary }) => summary)])); }
 function normalizeMode(value: string | null): WorkFolderRailMode {
   if (value?.startsWith("app:") && /^[a-z0-9][a-z0-9:_-]{0,255}$/i.test(value.slice(4))) return value as WorkFolderRailMode;
-  return (["files", "chats", "history"] as WorkFolderRailMode[]).includes(value as WorkFolderRailMode) ? value as WorkFolderRailMode : "files";
+  return (["files", "chats", "history", "automations"] as WorkFolderRailMode[]).includes(value as WorkFolderRailMode) ? value as WorkFolderRailMode : "files";
 }
 
 function extensionSurfaceIdForMode(mode: WorkFolderRailMode): string | null {

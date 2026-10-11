@@ -19,6 +19,7 @@ const {
   reorderSurfaceTabList,
   restrictedAppSurfaceTabId,
   spaceAutomationsSurfaceTab,
+  workFolderAutomationSurfaceTab,
   surfaceTabActivationForWorkFolder,
   surfaceTabWorkFolderSwitchTarget,
   upsertSurfaceTab,
@@ -36,11 +37,12 @@ interface WorkFolderSummary {
 
 interface SurfaceTab {
   id: string;
-  kind: "chat" | "file" | "history" | "app-studio" | "checks" | "work-folder-automations" | "extension" | "restricted-app";
+  kind: "chat" | "file" | "history" | "app-studio" | "checks" | "work-folder-automations" | "work-folder-automation" | "extension" | "restricted-app";
   workFolderId: string;
   conversationId?: string | null;
   path?: string;
   checkpointId?: string;
+  automationId?: string;
   surfaceId?: string;
   surfaceExecution?: "full-trust-pi";
   viewId?: string;
@@ -58,6 +60,7 @@ interface SurfaceTabsExports {
   appStudioSurfaceTab: (workFolder: WorkFolderSummary) => SurfaceTab;
   checksSurfaceTab: (workFolder: WorkFolderSummary) => SurfaceTab;
   spaceAutomationsSurfaceTab: (workFolder: WorkFolderSummary) => SurfaceTab;
+  workFolderAutomationSurfaceTab: (workFolder: WorkFolderSummary, automation: { automationId: string; title: string }) => SurfaceTab;
   closeFileSurfaceTabs: (tabs: SurfaceTab[], workFolderId: string, deletedPaths: Set<string>) => SurfaceTab[];
   closeUnavailableRestrictedAppSurfaceTabs: (
     tabs: SurfaceTab[],
@@ -165,6 +168,16 @@ test("Automations use one canonical work-folder-owned tab", () => {
   });
 });
 
+test("each automation opened from the left pane gets its own canonical tab", () => {
+  assert.deepEqual(workFolderAutomationSurfaceTab(workFolder, { automationId: "sort-screenshots", title: "Sort screenshots" }), {
+    id: "work-folder-automation:work-folder-1:sort-screenshots",
+    kind: "work-folder-automation",
+    workFolderId: "work-folder-1",
+    automationId: "sort-screenshots",
+    title: "Sort screenshots",
+  });
+});
+
 test("tab restore falls back cleanly when persisted JSON is corrupt", () => {
   withStoredTabs("{not valid json", () => {
     assert.deepEqual(readStoredSurfaceTabsState(workFolder, [workFolder]), {
@@ -188,6 +201,8 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "broken-tools", kind: "assistant-tools", workFolderId: "work-folder-1", view: "packages", title: "Broken Tools" },
       { id: "spoofed-checks", kind: "checks", workFolderId: "work-folder-1", title: "All files are healthy" },
       { id: "spoofed-automations", kind: "work-folder-automations", workFolderId: "work-folder-1", title: "Everything is on" },
+      { id: "spoofed-automation", kind: "work-folder-automation", workFolderId: "work-folder-1", automationId: "sort-screenshots", title: "Sort screenshots" },
+      { id: "broken-automation", kind: "work-folder-automation", workFolderId: "work-folder-1", title: "No id" },
       { id: "extension:work-folder-1:inbox:overview", kind: "extension", workFolderId: "work-folder-1", surfaceId: "inbox", viewId: "overview", title: "Overview", ignored: true },
       { id: "restricted:bad", kind: "restricted-app", featureInstallationId: "feature-installation_original", workFolderId: "work-folder-1", appId: "mail", digest: "bad", appTabId: "message:release", route: "/message/release", title: "Bad app tab" },
       { id: "app-controlled-spoof", kind: "restricted-app", featureInstallationId: "feature-installation_original", workFolderId: "work-folder-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
@@ -202,6 +217,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "app-studio:work-folder-1", kind: "app-studio", workFolderId: "work-folder-1", title: "Renamed Studio" },
       { id: "checks:work-folder-1", kind: "checks", workFolderId: "work-folder-1", title: "Checks" },
       { id: "work-folder-automations:work-folder-1", kind: "work-folder-automations", workFolderId: "work-folder-1", title: "Automations" },
+      { id: "work-folder-automation:work-folder-1:sort-screenshots", kind: "work-folder-automation", workFolderId: "work-folder-1", automationId: "sort-screenshots", title: "Sort screenshots" },
       { id: "extension:work-folder-1:inbox:overview", kind: "extension", workFolderId: "work-folder-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
       { id: restrictedAppSurfaceTabId("work-folder-1", "mail", "a".repeat(64), "message:release", "feature-installation_original"), kind: "restricted-app", featureInstallationId: "feature-installation_original", workFolderId: "work-folder-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
     ],

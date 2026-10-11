@@ -12,9 +12,9 @@ import type { WorkFoldCheckTaskStatus } from "../../src/local/checks/check-servi
 export type WorkFolderPane = "files" | "chats" | "history";
 export type WorkFolderExtensionRailMode = `app:${string}`;
 /**
- * `automations` is the work-folder-owned Automations rail entry. Choosing it opens
- * the `work-folder-automations` tab and leaves the navigator pane as it was, so it
- * is never the persisted mode.
+ * `automations` is the work-folder-owned Automations rail entry. Like Files, it
+ * shows a list in the navigator pane, and clicking an automation there opens
+ * that automation's own tab (2026-10-11).
  */
 export type WorkFolderRailMode = "work-folders" | WorkFolderPane | "automations" | WorkFolderExtensionRailMode;
 export type AppTheme = "light" | "dark";
@@ -218,6 +218,7 @@ export type WorkFolderSurfaceTab =
   | (WorkFolderSurfaceTabBase & { kind: "app-studio" })
   | (WorkFolderSurfaceTabBase & { kind: "checks" })
   | (WorkFolderSurfaceTabBase & { kind: "work-folder-automations" })
+  | (WorkFolderSurfaceTabBase & { kind: "work-folder-automation"; automationId: string })
   | (WorkFolderSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
   | (WorkFolderSurfaceTabBase & {
     kind: "restricted-app";

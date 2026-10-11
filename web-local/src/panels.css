@@ -205,3 +205,8 @@
   box-shadow: 0 0 0 2px var(--ui-canvas, #f4f5f1);
   pointer-events: none;
 }
+
+/* The Automations list reuses the History list's rows, without its time column. */
+.app-shell .automations-navigator .history-entry {
+  grid-template-columns: minmax(0, 1fr) 14px;
+}
