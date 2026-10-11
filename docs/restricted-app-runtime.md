@@ -456,6 +456,12 @@ the revision they ran under), and connections carry only for destinations
 whose declaration is byte-identical. Removing or updating an app stops its UI
 views and worker before changing installed bytes.
 
+An installed Release whose manifest declares a `viewer` can be put at the
+person's address from the Lifecycle section of its details in Settings → Apps
+(**Share at your address**) or with `work-fold pages share-app`; both run the
+same receipted exposure and refuse when no address is set up. The link is
+revealed in Settings → Shared Pages ([Shared pages](shared-pages.md), rung 3).
+
 App Studio is a separate work-folder-bound work tab for moving reviewed previews into
 the local release-backed lane. Settings → Apps opens it from each work-folder's
 group heading and from an app's details. The shipped lifecycle is:

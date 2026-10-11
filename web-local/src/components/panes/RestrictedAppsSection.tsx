@@ -2,6 +2,9 @@ import { RestrictedAppCheckAccess } from "./RestrictedAppCheckAccess";
 import { openWorkFile } from "../chat/WorkRequest";
 import { RestrictedAppAssistantTasks } from "./RestrictedAppAssistantTasks";
 import { RestrictedAppInferenceReceipts } from "./RestrictedAppInferenceReceipts";
+import { reloadSharedPages, useSharedPages } from "../../hooks/useSharedPages";
+import { activeSharedAppFor, appCanBeSharedAtAddress } from "../../lib/page-sharing";
+import { appSharing } from "../../ui-contract";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Alert20Regular,
@@ -9,12 +12,13 @@ import {
   Clock20Regular,
   Delete16Regular,
   Dismiss20Regular,
+  Globe20Regular,
   PlugConnected20Regular,
   ShieldCheckmark20Regular,
 } from "@fluentui/react-icons";
 
 import { useModalDialog } from "../../hooks/useModalDialog";
-import { errorText } from "../../lib/api";
+import { ApiError, errorText } from "../../lib/api";
 import { downloadAppData } from "../../lib/app-data-download";
 import {
   restrictedAppAutomationOutcomeLabel,
@@ -38,6 +42,7 @@ import {
   setRestrictedAppFileGrant,
   setRestrictedAppNetworkGrant,
   setRestrictedAppNotificationGrant,
+  shareRestrictedAppAtAddress,
 } from "../../lib/restricted-apps";
 import type {
   RestrictedAppAutomation,
@@ -65,6 +70,8 @@ export function RestrictedAppsSection({
   onOpenBuildChat,
   onOpenResultFile,
   onOpenAppStudio,
+  onOpenSharedPages,
+  onOpenWebAccess,
   onUpsertApp,
   onRemoveApp,
   onError,
@@ -77,6 +84,8 @@ export function RestrictedAppsSection({
   onOpenBuildChat?: (workFolderId: string, conversationId: string) => Promise<void>;
   onOpenResultFile?: (workFolderId: string, path: string) => Promise<void>;
   onOpenAppStudio: (workFolderId?: string, runtimeInstanceId?: string) => void;
+  onOpenSharedPages?: () => void;
+  onOpenWebAccess?: () => void;
   onUpsertApp: (app: RestrictedAppInstalled) => void;
   onRemoveApp: (featureInstallationId: string) => void;
   onError: (message: string | null) => void;
@@ -147,7 +156,7 @@ export function RestrictedAppsSection({
           })}
         </div>
       ) : null}
-      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenResultFile={onOpenResultFile} onOpenAppStudio={(runtimeInstanceId) => { setSelectedInstallationId(null); onOpenAppStudio(selectedApp.sourceWorkFolderId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedInstallationId(null); }} /> : null}
+      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenResultFile={onOpenResultFile} onOpenAppStudio={(runtimeInstanceId) => { setSelectedInstallationId(null); onOpenAppStudio(selectedApp.sourceWorkFolderId, runtimeInstanceId); }} onOpenSharedPages={onOpenSharedPages ? () => { setSelectedInstallationId(null); onOpenSharedPages(); } : undefined} onOpenWebAccess={onOpenWebAccess ? () => { setSelectedInstallationId(null); onOpenWebAccess(); } : undefined} onError={onError} onClose={() => { if (!busy) setSelectedInstallationId(null); }} /> : null}
     </section>
   );
 }
@@ -168,7 +177,7 @@ function restrictedAppAccessState(app: RestrictedAppInstalled): { enabled: boole
   return { enabled: true, label: `${enabled} of ${total} enabled`, total };
 }
 
-function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRemove, onOpenBuildChat, onOpenResultFile = openWorkFile, onOpenAppStudio, onError, onClose }: {
+function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRemove, onOpenBuildChat, onOpenResultFile = openWorkFile, onOpenAppStudio, onOpenSharedPages, onOpenWebAccess, onError, onClose }: {
   app: RestrictedAppInstalled;
   busy: boolean;
   fixtureMode: boolean;
@@ -177,6 +186,8 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   onOpenBuildChat?: (workFolderId: string, conversationId: string) => Promise<void>;
   onOpenResultFile?: (workFolderId: string, path: string) => Promise<void>;
   onOpenAppStudio: (runtimeInstanceId?: string) => void;
+  onOpenSharedPages?: () => void;
+  onOpenWebAccess?: () => void;
   onError: (message: string | null) => void;
   onClose: () => void;
 }) {
@@ -529,11 +540,81 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
           <button className="ui-control ui-control--quiet" type="button" disabled={Boolean(actionBusy) || !storageUsage?.keyCount} onClick={() => void clearStorage()}>{actionBusy === "storage" ? <ArrowSync16Regular className="spin" /> : null}Clear data</button>
         </div></section>
         <details className="restricted-app-package-details"><summary>Package & Runtime</summary><dl className="capability-review-facts"><div><dt>Package</dt><dd>{app.packageName} {app.version}</dd></div><div><dt>Installed revision</dt><dd><code>{shortDigest(app.digest)}</code></dd></div>{buildContext?.sourcePath ? <div><dt>Source folder</dt><dd><code>{buildContext.sourcePath}</code></dd></div> : null}<div><dt>Runtime</dt><dd>Protected local web app</dd></div><div><dt>UI entry</dt><dd>{app.manifest.runtime.entry}</dd></div><div><dt>Worker</dt><dd>{app.manifest.runtime.worker ?? "None"}</dd></div></dl></details>
-        <section className="restricted-app-lifecycle"><div><h3>Lifecycle</h3><p>{app.runtimeInstanceKind === "development" ? "Preview" : "App Feature"} added {formatTimestamp(app.installedAt)} · Updated {formatTimestamp(app.updatedAt)}</p></div><div className="restricted-app-lifecycle-actions"><button className="ui-control" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => onOpenAppStudio(buildContext?.updateTargetRuntimeInstanceId ?? (app.runtimeInstanceKind === "app" ? app.runtimeInstanceId : undefined))}>{buildContext?.updateTargetRuntimeInstanceId || app.runtimeInstanceKind === "app" ? "Review updates" : "Open App Studio"}</button>{buildContext?.buildConversationId && onOpenBuildChat ? <button className="ui-control ui-control--quiet" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => void openBuildChat()}>Open build Chat</button> : null}{app.runtimeInstanceKind === "development" ? <button className="ui-control professional-button-danger" type="button" disabled={busy || Boolean(actionBusy)} onClick={onRemove}><Delete16Regular />Remove Preview</button> : null}</div></section>
+        <section className="restricted-app-lifecycle">
+          <div>
+            <h3>Lifecycle</h3>
+            <p>{app.runtimeInstanceKind === "development" ? "Preview" : "App Feature"} added {formatTimestamp(app.installedAt)} · Updated {formatTimestamp(app.updatedAt)}</p>
+            {/* Only an installed Release that declares a viewer can be put at
+                the address; its reviewed declaration says what that exposes. */}
+            {app.manifest.viewer && appCanBeSharedAtAddress(app) ? <p className="restricted-app-share-note">{appSharing.viewerNote(app.manifest.viewer.entry, app.manifest.viewer.readable)}</p> : null}
+          </div>
+          <div className="restricted-app-lifecycle-actions">
+            <button className="ui-control" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => onOpenAppStudio(buildContext?.updateTargetRuntimeInstanceId ?? (app.runtimeInstanceKind === "app" ? app.runtimeInstanceId : undefined))}>{buildContext?.updateTargetRuntimeInstanceId || app.runtimeInstanceKind === "app" ? "Review updates" : "Open App Studio"}</button>
+            {appCanBeSharedAtAddress(app) ? <ShareAppAtAddressButton app={app} disabled={busy || Boolean(actionBusy)} fixtureMode={fixtureMode} onOpenSharedPages={onOpenSharedPages} onOpenWebAccess={onOpenWebAccess} onError={onError} /> : null}
+            {buildContext?.buildConversationId && onOpenBuildChat ? <button className="ui-control ui-control--quiet" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => void openBuildChat()}>Open build Chat</button> : null}
+            {app.runtimeInstanceKind === "development" ? <button className="ui-control professional-button-danger" type="button" disabled={busy || Boolean(actionBusy)} onClick={onRemove}><Delete16Regular />Remove Preview</button> : null}
+          </div>
+        </section>
       </div>
       <div className="capability-dialog-footer restricted-app-details-footer"><button className="ui-control ui-control--primary" type="button" disabled={busy || Boolean(actionBusy)} onClick={onClose}>Done</button></div>
     </section>
   </div>;
+}
+
+/**
+ * "Share at your address" for an eligible installed app (docs/shared-pages.md,
+ * rung 3). The click shares and says so, like sharing a file; the link is
+ * revealed in Settings → Shared Pages, where Stop Sharing undoes it. Once the
+ * app is shared, the button opens Shared Pages instead of sharing again.
+ */
+function ShareAppAtAddressButton({ app, disabled, fixtureMode, onOpenSharedPages, onOpenWebAccess, onError }: {
+  app: RestrictedAppInstalled;
+  disabled: boolean;
+  fixtureMode: boolean;
+  onOpenSharedPages?: () => void;
+  onOpenWebAccess?: () => void;
+  onError: (message: string | null) => void;
+}) {
+  const publications = useSharedPages(fixtureMode);
+  const [sharing, setSharing] = useState(false);
+  const shared = activeSharedAppFor(publications, app.featureInstallationId);
+
+  async function share() {
+    if (fixtureMode) {
+      showToast({ text: appSharing.previewDisabled, tone: "info" });
+      return;
+    }
+    setSharing(true);
+    try {
+      const result = await shareRestrictedAppAtAddress(app);
+      void reloadSharedPages({ afterMutation: true });
+      showToast({
+        text: appSharing.sharedToast(result.publication.title),
+        tone: "success",
+        ...(onOpenSharedPages ? { actionLabel: appSharing.openSharedPages, onAction: onOpenSharedPages } : {}),
+      });
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === "NO_ADDRESS") {
+        showToast({
+          text: appSharing.noAddress,
+          tone: "info",
+          ...(onOpenWebAccess ? { actionLabel: appSharing.webAccess, onAction: onOpenWebAccess } : {}),
+        });
+      } else {
+        void reloadSharedPages({ afterMutation: true });
+        onError(errorText(caught));
+      }
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  if (shared) {
+    return onOpenSharedPages
+      ? <button className="ui-control ui-control--quiet" type="button" disabled={disabled} title={appSharing.shared} onClick={onOpenSharedPages}><Globe20Regular />{appSharing.openSharedPages}</button>
+      : <span className="professional-status-badge enabled">{appSharing.shared}</span>;
+  }
+  return <button className="ui-control" type="button" disabled={disabled || sharing} onClick={() => void share()}>{sharing ? <ArrowSync16Regular className="spin" /> : <Globe20Regular />}{appSharing.share}</button>;
 }
 
 function AppAutomationCard({ app, automation, state, runs, runsLoading, runsError, busy, activeBusyKey, onEnabledChange, onRun, onLoadRuns }: {

@@ -307,9 +307,11 @@ prefixes (lowercase letters, numbers, `._/-`, at most 64 characters each)
 viewers may read. Everything else is refused for viewers desktop-side —
 storage writes, agent actions, network, connections, work-folder files,
 notifications, automations, OAuth, and host UI. Declaring `viewer` grants no
-audience: putting an installed App Instance at the person's address is a
-separate receipted share, and a reviewed update that widens `readable` or
-changes `entry` records a fresh exposure receipt. See [the work-fold agent](work-fold-agent-decisions.md) and
+audience: an installed App Instance goes to the person's address only when it
+is shared — **Share at your address** in the app's details in Settings → Apps,
+or `work-fold pages share-app` — under its own receipt, and an update that
+widens `readable` or changes `entry` stops serving until the app is shared
+again. See [the work-fold agent](work-fold-agent-decisions.md) and
 [Restricted app runtime](restricted-app-runtime.md).
 
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.

@@ -1,4 +1,4 @@
-import { WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE } from "../../src/shared/publications";
+import { WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE, WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE } from "../../src/shared/publications";
 
 export const primaryNavigation = [
   { id: "files", label: "Files" },
@@ -23,6 +23,8 @@ export const welcomeActions = {
 export const publicationsSettings = {
   heading: "Shared Pages",
   linkMeaning: "Anyone with the link can read this page.",
+  /** App rows: the viewer reads; it never writes, acts, or reaches connections. */
+  appLinkMeaning: "Anyone with the link can view this app.",
   revealLink: "Show Link",
   hideLink: "Hide Link",
   copyLink: "Copy Link",
@@ -37,6 +39,7 @@ export const publicationsSettings = {
   budgetRange: (serveRateMaximum: number, byteBudgetMaximumMiB: number) => `Choose 1 to ${serveRateMaximum} serves per minute and 1 to ${byteBudgetMaximumMiB} MiB per day.`,
   stopSharing: "Stop Sharing",
   stopSharingConfirm: "Stop sharing this page? Every copy of its link stops working, and sharing again mints a new link.",
+  stopSharingAppConfirm: "Stop sharing this app? Every copy of its link stops working, and sharing again mints a new link.",
   emptyNoAddress: "Set up web access to share pages.",
   webAccess: "Web Access",
   empty: "No pages are shared. Share a file from its tab.",
@@ -69,6 +72,26 @@ export const fileSharing = {
   /** The at-a-glance mark on a shared file's Files row and tab. */
   sharedMarkLabel: "Shared as a Page",
   sharedMarkTooltip: "Shared as a page. Anyone with the link can read it.",
+} as const;
+
+/**
+ * Putting an installed app at the person's address from its details in
+ * Settings → Apps (docs/shared-pages.md, rung 3). Like sharing a file, the
+ * click shares and says so; the link itself is revealed in Settings → Shared
+ * Pages, and Stop Sharing there undoes it.
+ */
+export const appSharing = {
+  share: "Share at your address",
+  shared: "At your address",
+  sharedToast: (title: string) => `${title} is at your address. Show its link in Settings → Shared Pages.`,
+  openSharedPages: "Open Shared Pages",
+  noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE,
+  webAccess: "Web Access",
+  previewDisabled: "Sharing is disabled in the preview",
+  /** What the share exposes, from the app's reviewed viewer declaration. */
+  viewerNote: (entry: string, readable: readonly string[]) => readable.length
+    ? `Sharing shows ${entry} to anyone with the link. Viewers can read ${readable.join(", ")} in this app's data, and never write, act, or reach connections.`
+    : `Sharing shows ${entry} to anyone with the link. Viewers read none of this app's data, and never write, act, or reach connections.`,
 } as const;
 
 /**

@@ -84,6 +84,28 @@ export function activeSharedPageFor(publications: readonly SharedPageView[] | nu
   )) ?? null;
 }
 
+/**
+ * Whether Settings → Apps offers "Share at your address" for this app: the
+ * same rule the host's viewer adapter applies (docs/shared-pages.md, rung 3) —
+ * an installed App Instance of a prepared Release whose reviewed manifest
+ * declares a viewer surface. Local previews never qualify.
+ */
+export function appCanBeSharedAtAddress(app: {
+  runtimeInstanceKind: "development" | "app";
+  releaseDigest: string | null;
+  manifest: { viewer?: unknown };
+}): boolean {
+  return app.runtimeInstanceKind === "app" && app.releaseDigest !== null && Boolean(app.manifest.viewer);
+}
+
+/** The active app slot exposing this exact App Instance, if one exists. */
+export function activeSharedAppFor(publications: readonly SharedPageView[] | null, appInstanceId: string): SharedPageView | null {
+  if (!publications) return null;
+  return publications.find((publication) => (
+    publication.kind === "app" && publication.state === "active" && publication.app?.appInstanceId === appInstanceId
+  )) ?? null;
+}
+
 /** Every file in this work-folder backing an active page slot, for the Files mark and file tabs. */
 export function sharedPathsForWorkFolder(publications: readonly SharedPageView[] | null, workFolderId: string): ReadonlySet<string> {
   const paths = new Set<string>();

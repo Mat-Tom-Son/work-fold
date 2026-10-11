@@ -14,7 +14,7 @@ export type RestrictedAppsState = ReturnType<typeof useRestrictedApps>;
  * an app itself still happens from its rail entry; each work-folder's group
  * heading opens that work-folder's App Studio.
  */
-export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onChangeApp, onOpenBuildChat, onOpenResultFile, onOpenAppStudio }: {
+export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onChangeApp, onOpenBuildChat, onOpenResultFile, onOpenAppStudio, onOpenSharedPages, onOpenWebAccess }: {
   workFolders: WorkFolderSummary[];
   apps: RestrictedAppsState | null;
   fixtureMode?: boolean;
@@ -22,6 +22,9 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
   onOpenBuildChat?: (workFolderId: string, conversationId: string) => void;
   onOpenResultFile?: (workFolderId: string, path: string) => void;
   onOpenAppStudio?: (workFolderId: string, runtimeInstanceId?: string) => void;
+  /** Where an app shared at the address shows its link: Settings → Shared Pages. */
+  onOpenSharedPages?: () => void;
+  onOpenWebAccess?: () => void;
 }) {
   const knownWorkFolderIds = apps?.knownWorkFolderIds;
   const loadingWorkFolderIds = apps?.loadingWorkFolderIds;
@@ -75,6 +78,8 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
             onOpenBuildChat={onOpenBuildChat ? async (workFolderId, conversationId) => onOpenBuildChat(workFolderId, conversationId) : undefined}
             onOpenResultFile={onOpenResultFile ? async (workFolderId, path) => onOpenResultFile(workFolderId, path) : undefined}
             onOpenAppStudio={(workFolderId, runtimeInstanceId) => onOpenAppStudio?.(workFolderId ?? workFolder.id, runtimeInstanceId)}
+            onOpenSharedPages={onOpenSharedPages}
+            onOpenWebAccess={onOpenWebAccess}
             onUpsertApp={(app) => apps?.upsertApp(app)}
             onRemoveApp={(featureInstallationId) => apps?.removeApp(workFolder.id, featureInstallationId)}
             onError={report}

@@ -53,6 +53,9 @@ export const WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH = 80;
  */
 export const WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE = "Set up web access before sharing a page.";
 
+/** The same refusal for putting an installed app at the address. */
+export const WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE = "Set up web access before sharing an app.";
+
 /** True when a work-folder-relative path names a file type a page can be made from. */
 export function isWorkFoldPublicationSourcePath(path: string): boolean {
   const name = path.replace(/\\/g, "/").split("/").at(-1) ?? "";

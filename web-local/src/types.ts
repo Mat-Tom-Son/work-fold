@@ -532,7 +532,8 @@ export interface RestrictedAppAutomation {
  * The declared viewer surface for "an app at your address"
  * (docs/shared-pages.md, rung 3): `entry` is the packaged document served
  * to link holders, `readable` the exact instance-owned collections viewers
- * may read. Declared in the manifest, so it appears in the app's install copy.
+ * may read. Declared in the manifest, so the app's details in Settings → Apps
+ * say exactly what sharing it puts at the address.
  */
 export interface RestrictedAppViewerDeclaration {
   entry: string;

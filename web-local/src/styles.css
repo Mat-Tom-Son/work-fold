@@ -13726,6 +13726,16 @@ textarea:focus-visible,
   font-size: 10px;
 }
 
+.restricted-app-lifecycle > div:first-child {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.restricted-app-lifecycle .restricted-app-share-note {
+  max-width: 60ch;
+  line-height: 1.4;
+}
+
 .restricted-app-credential-heading {
   align-items: center;
 }

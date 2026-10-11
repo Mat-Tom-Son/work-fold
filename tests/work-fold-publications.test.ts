@@ -1050,7 +1050,8 @@ test("hosted-app serves recheck the grant, the surface, and the kind at effect t
   // exposure; the audience sees the vague state, the publisher the reason.
   app.state.mutateViewer = (viewer) => viewer.readable.push("private/");
   assert.equal((await fixture.service.serveViewerAppCall(view.publicationId, { kind: "entry" })).state, "not-available");
-  assert.match((await fixture.service.get(view.publicationId))!.lastProblem!.reason, /viewer surface changed after approval/);
+  assert.match((await fixture.service.get(view.publicationId))!.lastProblem!.reason, /viewer surface changed after it was put at your address; share it again/);
+  assert.doesNotMatch((await fixture.service.get(view.publicationId))!.lastProblem!.reason, /approv/, "approvals were removed (docs/receipts-not-gates.md)");
   app.state.mutateViewer = null;
 
   // An uninstalled instance is a publisher problem, not an audience detail.

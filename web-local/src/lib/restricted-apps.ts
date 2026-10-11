@@ -1,4 +1,5 @@
 import { api } from "./api";
+import type { SharedPageView } from "./page-sharing";
 import type {
   RestrictedAppAutomationRunReceipt,
   RestrictedAppConnectionStatus,
@@ -164,6 +165,18 @@ function appPath(workFolderId: string, appId: string): string {
 
 export async function listRestrictedApps(workFolderId: string): Promise<RestrictedAppInstalled[]> {
   return (await api<{ apps: RestrictedAppInstalled[] }>(collectionPath(workFolderId))).apps;
+}
+
+/**
+ * Puts an installed Release-backed app at the person's address through the
+ * same domain path as `work-fold pages share-app` (docs/shared-pages.md,
+ * rung 3). The link is revealed from Settings → Shared Pages.
+ */
+export async function shareRestrictedAppAtAddress(app: RestrictedAppInstalled): Promise<{ publication: SharedPageView; revealable: boolean }> {
+  return await api<{ publication: SharedPageView; revealable: boolean }>("/api/settings/publications/share-app", {
+    method: "POST",
+    body: { workFolderId: app.workFolderId, instance: app.featureInstallationId },
+  });
 }
 
 /**

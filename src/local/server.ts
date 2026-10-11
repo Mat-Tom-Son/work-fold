@@ -238,6 +238,7 @@ import { ensureWorkFoldAgentInstructions } from "./work-fold-agent-instructions.
 import {
   WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
   WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES,
+  WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE,
   WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
   WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
   WORKFOLD_PUBLICATION_SOURCE_TYPES,
@@ -3603,6 +3604,43 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       sendJson(res, { publication: { ...view, workFolderName: workFolder.name }, revealable });
     } catch (error) {
       if (error instanceof WorkFoldCliError && error.message === WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE) {
+        sendJson(res, { error: error.message, code: "NO_ADDRESS" }, 409);
+        return;
+      }
+      sendPublicationError(res, error);
+    }
+    return;
+  }
+  // Putting an installed Release-backed app at the address from Settings →
+  // Apps runs the same domain path as `pages share-app`: the viewer
+  // adapter's eligibility, the prepared `publish.viewer.expose` act with its
+  // journal, and the receipt (docs/shared-pages.md, rung 3).
+  if (url.pathname === "/api/settings/publications/share-app" && method === "POST") {
+    try {
+      const body = await readJsonBody<{ workFolderId?: unknown; instance?: unknown }>(state, req);
+      if (typeof body.workFolderId !== "string" || !body.workFolderId || typeof body.instance !== "string" || !body.instance.trim()) {
+        sendJson(res, { error: "A work-folder id and an installed app are required to share an app." }, 400);
+        return;
+      }
+      const workFolder = await getWorkFolder(body.workFolderId).catch(() => null);
+      if (!workFolder) {
+        sendJson(res, { error: "That work-folder is not registered on this machine.", code: "WORK_FOLDER_NOT_REGISTERED" }, 404);
+        return;
+      }
+      const instance = body.instance;
+      const shared = await runDesktopSettingsAct(state, "pages.share-app", async (requestId) => {
+        const view = await shareAppFromDesktop(state, { workFolder, instance }, { surface: "main-window", requestId });
+        return {
+          value: view,
+          detail: `Shared app "${view.title}" (App Instance ${view.app?.appInstanceId ?? instance}) as ${view.viewerPath}; `
+            + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
+        };
+      });
+      const view = shared.value;
+      const revealable = view.state === "active" && Boolean(await state.publicationKeys.get(view.publicationId).catch(() => null));
+      sendJson(res, { publication: { ...view, workFolderName: workFolder.name }, revealable });
+    } catch (error) {
+      if (error instanceof WorkFoldCliError && error.message === WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE) {
         sendJson(res, { error: error.message, code: "NO_ADDRESS" }, 409);
         return;
       }
@@ -7982,52 +8020,13 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async pagesShareApp(input) {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
       const workFolder = await resolveWorkFolder(input.workFolder);
-      const status = state.publications.status();
-      if (status.damaged) {
-        throw new WorkFoldCliError("failure", `work-fold cannot share an app: ${status.damageReason ?? "the publication store is damaged."}`);
-      }
-      // Exposure eligibility and pins come from the viewer adapter: an
-      // installed App Instance of a prepared Release whose reviewed manifest
-      // declares a viewer surface. The effect-time recheck re-resolves the
-      // same identity before anything activates. `--instance` accepts the App
-      // Instance id (the pin identity) or, like `apps uninstall`, the
-      // Runtime Instance id of an app installed in this work-folder.
-      const requested = input.instance.trim();
-      const byRuntimeId = (await runActOperation(() => state.restrictedApps.list(workFolder.id)))
-        .find((app) => app.runtimeInstanceKind === "app" && app.runtimeInstanceId === requested);
-      const exposure = await state.restrictedAppViewer.resolveExposure(byRuntimeId?.featureInstallationId ?? requested);
-      if (!exposure.eligible) throw new WorkFoldCliError("conflict", exposure.issue);
-      if (exposure.workFolderId !== workFolder.id) {
-        throw new WorkFoldCliError("notFound", "This work-folder has no installed App Instance with this id.");
-      }
-      const alreadyExposed = (await runActOperation(() => state.publications.list())).some((view) => (
-        view.state === "active" && view.kind === "app" && view.app?.appInstanceId === exposure.pins.appInstanceId
-      ));
-      if (alreadyExposed) {
-        throw new WorkFoldCliError("conflict", "This App Instance is already at your address; stop sharing it before exposing it again.");
-      }
-      const requestId = input.requestId?.trim() || randomUUID();
-      const context: ViewerExposeContext = {
-        requestId,
+      const view = await shareAppFromDesktop(state, { workFolder, instance: input.instance }, {
+        surface: "cli",
         ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
-        attribution: preparedActAttribution(state, "cli", input.parentTaskId),
-      };
-      await runPreparedAct({
-        kind: "publish.viewer.expose",
-        parameters: { exposure: "hosted-app", appInstanceId: exposure.pins.appInstanceId },
-        pins: {
-          exposure: "hosted-app",
-          appInstanceId: exposure.pins.appInstanceId,
-          releaseDigest: exposure.pins.releaseDigest,
-          viewerEntry: exposure.pins.viewerEntry,
-          viewerSurface: exposure.pins.viewerSurface,
-        },
-        requestId,
-        context,
+        ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
       });
-      if (!context.outcome) throw new WorkFoldCliError("failure", "The app was not put at your address.");
       await recordFacadeAction(state, input.parentTaskId, { command: "pages.share-app", workFolder });
-      return { workFolder: toActWorkFolderRef(workFolder), publication: toActPublicationRef(context.outcome, workFolder.name) };
+      return { workFolder: toActWorkFolderRef(workFolder), publication: toActPublicationRef(view, workFolder.name) };
     },
     async recentlyDeletedList() {
       const listing = await runActOperation(() => state.recentlyDeleted.list());
@@ -12376,6 +12375,69 @@ async function sharePageFromDesktop(
     await state.preparedActs.run({ act, requestId, context: exposeContext });
   }));
   if (!exposeContext.outcome) throw new WorkFoldCliError("failure", "The page was not activated.");
+  return exposeContext.outcome;
+}
+
+/**
+ * Puts one installed Release-backed app at the person's address
+ * (docs/shared-pages.md, rung 3) — the one domain path behind
+ * `work-fold pages share-app` and Settings → Apps' "Share at your address".
+ * Like a page share it refuses outright when no address is set up.
+ * Exposure eligibility and pins come from the viewer adapter: an installed
+ * App Instance of a prepared Release whose reviewed manifest declares a
+ * viewer surface. The effect-time recheck re-resolves the same identity
+ * before anything activates. `instance` accepts the App Instance id (the pin
+ * identity) or, like `apps uninstall`, the Runtime Instance id of an app
+ * installed in this work-folder.
+ */
+async function shareAppFromDesktop(
+  state: LocalApiState,
+  input: { workFolder: WorkFolderSummary; instance: string },
+  context: { surface: WorkFoldCliActSurface; parentTaskId?: string; requestId?: string },
+): Promise<WorkFoldPublicationView> {
+  const { workFolder } = input;
+  const status = state.publications.status();
+  if (status.damaged) {
+    throw new WorkFoldCliError("failure", `work-fold cannot share an app: ${status.damageReason ?? "the publication store is damaged."}`);
+  }
+  if (!await state.publications.hasAddress()) {
+    throw new WorkFoldCliError("conflict", WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE);
+  }
+  const requested = input.instance.trim();
+  const byRuntimeId = (await runActOperation(() => state.restrictedApps.list(workFolder.id)))
+    .find((app) => app.runtimeInstanceKind === "app" && app.runtimeInstanceId === requested);
+  const exposure = await state.restrictedAppViewer.resolveExposure(byRuntimeId?.featureInstallationId ?? requested);
+  if (!exposure.eligible) throw new WorkFoldCliError("conflict", exposure.issue);
+  if (exposure.workFolderId !== workFolder.id) {
+    throw new WorkFoldCliError("notFound", "This work-folder has no installed App Instance with this id.");
+  }
+  const alreadyExposed = (await runActOperation(() => state.publications.list())).some((view) => (
+    view.state === "active" && view.kind === "app" && view.app?.appInstanceId === exposure.pins.appInstanceId
+  ));
+  if (alreadyExposed) {
+    throw new WorkFoldCliError("conflict", "This App Instance is already at your address; stop sharing it before sharing it again.");
+  }
+  const requestId = context.requestId?.trim() || randomUUID();
+  const exposeContext: ViewerExposeContext = {
+    requestId,
+    ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
+    attribution: preparedActAttribution(state, context.surface, context.parentTaskId),
+  };
+  await runPublicationActOperation(() => runPreparedActOperation(async () => {
+    const act = prepareAct({
+      kind: "publish.viewer.expose",
+      parameters: { exposure: "hosted-app", appInstanceId: exposure.pins.appInstanceId },
+      pins: {
+        exposure: "hosted-app",
+        appInstanceId: exposure.pins.appInstanceId,
+        releaseDigest: exposure.pins.releaseDigest,
+        viewerEntry: exposure.pins.viewerEntry,
+        viewerSurface: exposure.pins.viewerSurface,
+      },
+    });
+    await state.preparedActs.run({ act, requestId, context: exposeContext });
+  }));
+  if (!exposeContext.outcome) throw new WorkFoldCliError("failure", "The app was not put at your address.");
   return exposeContext.outcome;
 }
 

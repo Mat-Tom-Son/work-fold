@@ -401,6 +401,21 @@ granted on install exactly as local installs behave
 ([Receipts, not gates](receipts-not-gates.md), F21), but the viewer plane
 refuses everything outside the reviewed `viewer` declaration regardless.
 
+Putting an installed app at the address is offered in two places that run one
+domain path: `work-fold pages share-app --work-folder <id> --instance <id>` and,
+since 2026-10-11, **Share at your address** in the Lifecycle section of the
+app's details in Settings → Apps (`POST /api/settings/publications/share-app`).
+The button appears only for an App Instance of a prepared Release whose
+manifest declares a `viewer` — the same rule the viewer adapter enforces —
+and the details say what sharing shows: the viewer entry and the
+viewer-readable collections, read-only. Like a page share, it refuses up front
+when no address is set up ("Set up web access before sharing an app."), runs
+the prepared `publish.viewer.expose` act with its journal and receipt, and
+answers by pointing to Settings → Shared Pages, where the link is revealed and
+**Stop sharing** undoes it. App rows there say "app" where page rows say
+"page". A later update that changes the reviewed viewer surface stops serving
+until the app is shared again; the publisher's reason says so.
+
 ### Which broker domains are viewer-safe
 
 Enforced in the desktop's viewer adapter
@@ -468,6 +483,9 @@ Studio's local Release transition. Copy never frames a share as something
 waiting to happen: the verb shares the page and says so, and **Stop
 sharing** is always one click away.
 
+An app is shared with **Share at your address** and its row reads "Anyone with
+the link can view this app."
+
 The CLI act verbs are `pages share|share-app|list|status|revoke|narrow|
 widen|snapshot-off`. The verb and the copy now say the same thing: `pages share`
 shares the page on the call that asks and returns the receipt, and there is
@@ -517,6 +535,7 @@ The plan items shipped as follows (numbering preserved for references):
 11. Share from the file tab and widen in place (2026-09-24) — `POST /api/settings/publications/share` and `pages share` run one domain path that refuses without an address; `POST /api/settings/publications/:id/widen` and `pages widen` raise budgets or turn the sleep copy on under a receipt; each Shared pages row shows its page state (Live, Asleep, Resting, Not available, Stopped) with the precise reason as a tooltip — `src/local/server.ts`, `src/local/publications.ts`, `src/shared/publications.ts`, `web-local/src/components/panes/FileSharePopover.tsx`; `tests/shared-pages-settings.test.ts`, `tests/work-fold-publications.test.ts`.
 12. Inert HTML pages and the shared mark (2026-09-24) — `.html`/`.htm` join the source set; the desktop strip in `src/local/publication-html.ts` runs before encryption, the viewer shell frames the stripped document in a script-less sandbox (`services/bridge/public/viewer/viewer.js`), and the page shell's CSP adds inline style and `data:` images only (`services/bridge/server.mjs`); Files rows and file tabs mark a shared file with a quiet glyph — `web-local/src/components/tree/FileTree.tsx`, `web-local/src/components/chat/WorkFolderSurfaceTabBar.tsx`; `tests/work-fold-publication-html.test.ts`, `tests/work-fold-publications.test.ts`, `services/bridge/server.test.mjs`, `tests/frontend-interaction-contract.test.ts`, `tests/web-ui-contract.test.ts`.
 
+13. Share an app from Settings → Apps (2026-10-11) — `POST /api/settings/publications/share-app` and `pages share-app` run one domain path that, like a page share, refuses without an address; the app's details offer **Share at your address** only for an eligible installed Release, and Shared Pages app rows use app wording — `src/local/server.ts`, `src/shared/publications.ts`, `web-local/src/components/panes/RestrictedAppsSection.tsx`, `web-local/src/lib/page-sharing.ts`; `tests/work-fold-act-facade.test.ts`, `tests/app-share-at-address-ui.test.ts`, `tests/web-ui-contract.test.ts`.
 
 ### Paired-browser shared-page navigation (2026-10-09)
 
