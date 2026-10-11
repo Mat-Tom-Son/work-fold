@@ -6,7 +6,12 @@ import { resolvePiRuntime, type PiRuntimeProvider, type ResolvedPiRuntime } from
 import { resolveIncludedResources } from "./included-tools.js";
 
 export type NativeResourceKind = "extensions" | "skills" | "prompts" | "themes";
-export interface NativeResource extends ResolvedResource { kind: NativeResourceKind; included?: IncludedToolDefinition }
+export interface NativeResource extends ResolvedResource {
+  kind: NativeResourceKind;
+  included?: IncludedToolDefinition;
+  /** A Skill work-fold ships outside the five included tools: it can be turned off, never removed. */
+  bundled?: true;
+}
 const resourceKinds: NativeResourceKind[] = ["extensions", "skills", "prompts", "themes"];
 
 /** Resolve Pi's inventory without importing executable resources or installing missing sources. */

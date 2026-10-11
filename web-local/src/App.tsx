@@ -62,6 +62,8 @@ import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./
 import { canOpenDirectly, hasNativeFiles, hasWorkFolderPathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { chatDisplayTitle, formatItemCount } from "./lib/format";
 import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./lib/storage";
+import { readWorkFolderSetUpOffers, workFolderSetUpMessage, writeWorkFolderSetUpOffers, type WorkFolderSetUpMode } from "./lib/work-folder-setup";
+import { WorkFolderSetUpCard } from "./components/panes/WorkFolderSetUpCard";
 import { WindowChromeControls } from "./components/chrome/WindowChromeControls";
 import { WorkFoldAgentChat } from "./popover/PopoverApp";
 import { workFoldAgentDraftEvent, type WorkFoldAgentDraftDetail } from "./lib/agent-draft";
@@ -119,6 +121,20 @@ export function App() {
   const [activeWorkFolderId, setActiveWorkFolderId] = useState(() => localStorage.getItem("work-fold.work-folder.active") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [createWorkFolderOpen, setCreateWorkFolderOpen] = useState(false);
+  // work-folders just added that still show the Set up for me card (2026-10-11).
+  const [setUpOffers, setSetUpOffers] = useState<string[]>(() => readWorkFolderSetUpOffers());
+  useEffect(() => {
+    if (!boot) return;
+    const registered = new Set(boot.workFolders.map((item) => item.id));
+    changeSetUpOffers((current) => current.filter((id) => registered.has(id)));
+  }, [boot?.workFolders]);
+  const changeSetUpOffers = useCallback((change: (current: string[]) => string[]) => {
+    setSetUpOffers((current) => {
+      const next = change(current);
+      if (next.length !== current.length || next.some((id, index) => id !== current[index])) writeWorkFolderSetUpOffers(next);
+      return next;
+    });
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // A draft headed for the agent panel should not land behind Settings.
   useEffect(() => {
@@ -289,6 +305,7 @@ export function App() {
       await checksControl?.suspend();
       const result = await api<{ workFolder: WorkFolderSummary }>("/api/work-folders", { method: "POST", body: { name } });
       await refreshBootstrap(); setActiveWorkFolderId(result.workFolder.id); setCreateWorkFolderOpen(false);
+      changeSetUpOffers((current) => [...current.filter((id) => id !== result.workFolder.id), result.workFolder.id]);
     } finally {
       void checksControl?.resume();
     }
@@ -304,6 +321,7 @@ export function App() {
       await checksControl?.suspend();
       const result = await api<{ workFolder: WorkFolderSummary }>("/api/work-folders/local-folder", { method: "POST", body: { workFolderRoot: selected.path, folderGrantId: selected.folderGrantId } });
       await refreshBootstrap(); setActiveWorkFolderId(result.workFolder.id);
+      changeSetUpOffers((current) => [...current.filter((id) => id !== result.workFolder.id), result.workFolder.id]);
     } catch (caught) { setError(errorText(caught)); }
     finally { void checksControl?.resume(); }
   }
@@ -329,7 +347,7 @@ export function App() {
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeWorkFolder ? <WorkFolderAppearanceProvider palette={appearance.preferences.palette}><WorkFolderView workFolder={activeWorkFolder} workFolders={boot.workFolders} restrictedAppsStore={restrictedAppsState} agent={boot.agent} modelConfigurationRevision={modelConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkFolder={(workFolder) => setActiveWorkFolderId(workFolder.id)} onRefreshBootstrap={refreshBootstrap} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /></WorkFolderAppearanceProvider> : <OnboardingFlow onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} />}
+    {activeWorkFolder ? <WorkFolderAppearanceProvider palette={appearance.preferences.palette}><WorkFolderView workFolder={activeWorkFolder} workFolders={boot.workFolders} restrictedAppsStore={restrictedAppsState} agent={boot.agent} modelConfigurationRevision={modelConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkFolder={(workFolder) => setActiveWorkFolderId(workFolder.id)} onRefreshBootstrap={refreshBootstrap} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} setUpOffered={setUpOffers.includes(activeWorkFolder.id)} onCloseSetUpOffer={() => changeSetUpOffers((current) => current.filter((id) => id !== activeWorkFolder.id))} /></WorkFolderAppearanceProvider> : <OnboardingFlow onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createWorkFolderOpen ? <CreateWorkFolderModal onClose={() => setCreateWorkFolderOpen(false)} onCreate={createWorkFolder} /> : null}
     {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeWorkFolder={(workFolderId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-work-folder", workFolderId }); }} workFolder={settingsWorkerWorkFolderId ? boot.workFolders.find((item) => item.id === settingsWorkerWorkFolderId) ?? null : activeWorkFolder} workFolders={boot.workFolders} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", workFolderId: app.sourceWorkFolderId, app }); }} onOpenAppBuildChat={(workFolderId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", workFolderId, conversationId }); }} onOpenAppResultFile={(workFolderId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", workFolderId, path }); }} onOpenAppStudio={(workFolderId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", workFolderId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialModelScope={settingsModelScope} focusAiModel={settingsFocusAiModel} focusWorkerInstructions={settingsFocusWorkerInstructions} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onModelChanged={modelConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onBackToCustomization={settingsBackAction ? () => { setSettingsOpen(false); setSettingsBackAction(null); settingsBackAction(); } : undefined} onClose={closeSettings} /> : null}
@@ -337,7 +355,7 @@ export function App() {
   </div>;
 }
 
-function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, modelConfigurationRevision, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchWorkFolder, onRefreshBootstrap, onCreateWorkFolder, onOpenFolder, onChecksControlChange, onOpenSettings, onOpenShortcuts, onError }: {
+function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, modelConfigurationRevision, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchWorkFolder, onRefreshBootstrap, onCreateWorkFolder, onOpenFolder, onChecksControlChange, onOpenSettings, onOpenShortcuts, onError, setUpOffered, onCloseSetUpOffer }: {
   workFolder: WorkFolderSummary;
   workFolders: WorkFolderSummary[];
   restrictedAppsStore: ReturnType<typeof useRestrictedApps>;
@@ -358,6 +376,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   onOpenSettings: (page?: SettingsPage, modelScope?: ModelScope, focusAiModel?: boolean, workerWorkFolderId?: string, focusWorkerInstructions?: boolean, backToCustomization?: () => void) => void;
   onOpenShortcuts: () => void;
   onError: (message: string | null) => void;
+  /** This work-folder was just added and its Set up for me card has not been used or dismissed. */
+  setUpOffered: boolean;
+  onCloseSetUpOffer: () => void;
 }) {
   const initialStoredModeRef = useRef(fixture ? null : localStorage.getItem("work-fold.work-folder.mode"));
   const [activeMode, setActiveMode] = useState<WorkFolderRailMode>(() => fixture ? "files" : normalizeMode(initialStoredModeRef.current));
@@ -1073,6 +1094,25 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     appChangeRequests.current.delete(key);
   }
 
+  /** Set up for me or Just the look: a fresh Chat whose first message the included set-up Skill answers. */
+  async function startSetUp(mode: WorkFolderSetUpMode) {
+    if (fixture) { showToast({ text: "Set up for me is unavailable in the preview", tone: "info" }); return; }
+    const target = workFolder;
+    try {
+      const base = `/api/work-folders/${encodeURIComponent(target.id)}/conversations`;
+      const { conversation } = await api<{ conversation: ConversationSummary }>(base, { method: "POST", body: {} });
+      await api(`${base}/${encodeURIComponent(conversation.id)}/messages`, {
+        method: "POST",
+        body: { content: workFolderSetUpMessage(mode), contextPaths: [], selectedPath: null },
+      });
+      const { conversations } = await api<{ conversations: ConversationSummary[] }>(base);
+      setConversationGroups((current) => ({ ...current, [target.id]: conversations }));
+      openChat(target, conversations.find((item) => item.id === conversation.id) ?? conversation);
+    } catch (caught) {
+      onError(errorText(caught));
+    }
+  }
+
   async function openAppBuildChat(sourceWorkFolderId: string, conversationId: string) {
     const source = workFolders.find((item) => item.id === sourceWorkFolderId);
     if (!source) throw new Error("The app's source work-folder is unavailable.");
@@ -1562,6 +1602,10 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       ];
     }),
     { id: "action:new-chat", groupId: "actions", groupLabel: "Actions", label: "New Chat", keywords: ["chat", "conversation", "assistant"], defaultVisible: true, run: () => openChat(workFolder, null) },
+    ...(!fixture ? [
+      { id: "action:set-up", groupId: "actions" as const, groupLabel: "Actions", label: "Set up for me", keywords: ["organize", "tidy", "setup", "banner", "instructions"], run: () => { void startSetUp("full"); } },
+      { id: "action:just-the-look", groupId: "actions" as const, groupLabel: "Actions", label: "Just the look", keywords: ["banner", "icon", "color", "appearance", "customize"], run: () => { void startSetUp("look"); } },
+    ] : []),
     ...(!fixture ? [{ id: "action:save-restore-point", groupId: "actions" as const, groupLabel: "Actions", label: "Save Restore Point", keywords: ["history", "checkpoint", "backup"], defaultVisible: true, run: () => { void saveRestorePoint(); } }] : []),
     // Files has no toolbar buttons (2026-10-01): its actions live in the
     // right-click menu and here, so the keyboard reaches them too.
@@ -1598,7 +1642,8 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     <WindowChromeControls sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarHidden(!sidebarCollapsed)} agentPanelOpen={agentPanelOpen} onToggleAgentPanel={toggleAgentPanel} agentControlsRef={setAgentControlsTarget} />
     <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} appAttention={(app) => appAttention.get(restrictedAppAttentionKey(app.workFolderId, app.manifest.id, app.featureInstallationId)) ?? 0} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: !sidebarCollapsed && activeMode === "automations" } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`work-folder-mode-pane work-folder-mode-pane-${activeMode}`} id="work-folder-file-panel" onKeyDown={activeMode === "work-folders" ? leaveManageFoldersOnEscape : undefined}>
-      <WorkFolderPaneHeader workFolder={workFolder} identity={identity} workFolders={workFolders} workFolderCustomizations={customizations} folderStatuses={folderStatuses} onSwitchWorkFolder={onSwitchWorkFolder} onCreateWorkFolder={onCreateWorkFolder} onOpenFolder={onOpenFolder} onManageWorkFolders={() => setActiveMode("work-folders")} managingWorkFolders={activeMode === "work-folders"} onNewChat={() => openChat(workFolder, null)} onOpenAppearance={() => openWorkFolderAppearance(workFolder)} {...(!fixture && typeof window.workFoldDesktop?.workFolder.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
+      <WorkFolderPaneHeader workFolder={workFolder} identity={identity} workFolders={workFolders} workFolderCustomizations={customizations} folderStatuses={folderStatuses} onSwitchWorkFolder={onSwitchWorkFolder} onCreateWorkFolder={onCreateWorkFolder} onOpenFolder={onOpenFolder} onManageWorkFolders={() => setActiveMode("work-folders")} managingWorkFolders={activeMode === "work-folders"} onNewChat={() => openChat(workFolder, null)} onOpenAppearance={() => openWorkFolderAppearance(workFolder)} {...(!fixture && typeof window.workFoldDesktop?.workFolder.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} {...(!fixture ? { onSetUp: (mode: WorkFolderSetUpMode) => void startSetUp(mode) } : {})} />
+      {setUpOffered ? <WorkFolderSetUpCard workFolderName={workFolder.name} onSetUp={(mode) => { onCloseSetUpOffer(); void startSetUp(mode); }} onDismiss={onCloseSetUpOffer} /> : null}
       {activeMode === "work-folders" ? <WorkFoldersPane workFolder={workFolder} workFolders={workFolders} identities={customizations} onCreate={onCreateWorkFolder} onOpenFolder={onOpenFolder} onCustomize={openWorkFolderAppearance} onRemove={(target) => void removeWorkFolder(target)} onDone={leaveManageFolders} /> : null}
       {activeMode === "files" ? <div className="local-files-panel">
         <input

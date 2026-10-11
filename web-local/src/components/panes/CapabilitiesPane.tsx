@@ -81,6 +81,8 @@ interface InstalledCapability {
   flags: string[];
   configurable?: boolean;
   included?: IncludedToolDefinition;
+  /** Shipped with work-fold outside the five included tools: turned off, never removed. */
+  bundled?: true;
 }
 
 type PendingInstall = {
@@ -1107,7 +1109,7 @@ function CapabilityEmpty({ title }: { title: string }) {
   return <div className="professional-empty-state capabilities-empty-state"><span className="professional-empty-icon" aria-hidden="true"><BookToolbox20Regular /></span><div><h2>{title}</h2></div></div>;
 }
 
-function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
+export function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
   const fromSkills = catalog.skills.map((item) => normalizeSkill(item, catalog.diagnostics));
   // Pi's named built-in factories already appear in Core Tools. They have no
   // installable resource or lifecycle controls to present as another Extension.
@@ -1121,13 +1123,17 @@ function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
     if (current) {
       current.configurable = true;
       if (resource.included) Object.assign(current, { included: resource.included, name: resource.kind === "extensions" ? resource.included.title : current.name, description: resource.kind === "extensions" ? resource.included.description : current.description, scope: "global", source: `${resource.included.package} ${resource.included.version} · Included with work-fold`, origin: "top-level" });
+      if (resource.bundled) Object.assign(current, { bundled: true, scope: "global", source: "Included with work-fold", origin: "top-level" });
       continue;
     }
     const source = resource.metadata;
-    const name = resource.path.split(/[\\/]/).filter(Boolean).at(-1)?.replace(/\.[^.]+$/, "") ?? resource.path;
+    // A Skill is a folder holding SKILL.md, so its folder names it.
+    const segments = resource.path.split(/[\\/]/).filter(Boolean);
+    const name = (segments.at(-1)?.toLowerCase() === "skill.md" ? segments.at(-2) : segments.at(-1)?.replace(/\.[^.]+$/, "")) ?? resource.path;
     items.push({
       id: `${resource.kind}:${source.scope}:${resource.path}`, kind: resource.kind === "skills" ? "skill" : "extension",
       ...(resource.included ? { included: resource.included } : {}),
+      ...(resource.bundled ? { bundled: true as const } : {}),
       name: resource.included?.title ?? name, description: resource.included?.description ?? "",
       path: resource.path, source: source.source, origin: source.origin, scope: productScope(source.scope),
       enabled: resource.enabled, loaded: false, status: resource.enabled ? "error" : "disabled", configurable: true,
@@ -1223,9 +1229,13 @@ function productScope(value: AgentCapabilitySource["scope"] | AgentCapabilitySco
   return value === "project" ? "project" : "global";
 }
 
-/** Only Skills work-fold itself placed in an import root can be removed here; package Skills go with their package. */
-function canRemoveSkill(item: InstalledCapability): boolean {
-  return item.kind === "skill" && item.origin !== "package";
+/**
+ * Only Skills work-fold itself placed in an import root can be removed here;
+ * package Skills go with their package, and Skills shipped with work-fold can
+ * only be turned off.
+ */
+export function canRemoveSkill(item: InstalledCapability): boolean {
+  return item.kind === "skill" && item.origin !== "package" && !item.included && !item.bundled;
 }
 
 /** The two rungs of the hierarchy as people see them: Everywhere (work-fold agent and every Worker) or This work-folder only. */

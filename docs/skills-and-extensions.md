@@ -168,6 +168,13 @@ Computer Control, Chrome, Web, Documents and MCP service connections. Their
 pinned versions and reviewed compatibility patches live in
 [the integration manifest](../patches/included-tools/manifest.json). “Included
 with work-fold” describes maintenance, not a different Extension runtime.
+work-fold also ships one Skill of its own outside the five tools:
+`set-up-work-folder` (`resources/included-tools/skills/`), which **Set up for
+me** and **Just the look** use (see [the product model](product-model.md)). It
+is listed under **Everywhere** as Included with work-fold, and it can be turned
+off through the same Pi path filter as any other resource, but never removed.
+The Documents tool's own Skill is likewise turned off rather than removed.
+
 The Installed view's **Included with work-fold** strip shows each included
 tool's observed readiness as one concise status and offers **Set up** only when a
 person can act; enabled state and Pi load diagnostics stay in the tool's

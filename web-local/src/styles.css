@@ -20897,3 +20897,56 @@ to {
   font-size: inherit;
   line-height: inherit;
 }
+
+/* Set up for me (2026-10-11): offered once right after a work-folder is added. */
+.work-folder-setup-card {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  margin: 10px 12px 4px;
+  padding: 12px 34px 12px 14px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+}
+
+.work-folder-setup-card strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.work-folder-setup-card p {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.work-folder-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.work-folder-setup-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--ui-text-subtle);
+  cursor: pointer;
+}
+
+.work-folder-setup-dismiss:hover {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
