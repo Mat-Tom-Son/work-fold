@@ -6,6 +6,8 @@ release-note file alone does not mean a version was published.
 
 ## October 11, 2026
 
+[0.4.52](work-fold-0.4.52.md) fixes the window layout after closing the agent panel, keeps apps in their left pane with work-fold's look, and tightens how apps are contained.
+
 [0.4.51](work-fold-0.4.51.md) adds the work-fold agent panel to the main window, a sidebar toggle, and Files sorting, and renames the code, CLI, and saved data to the interface's words with a one-time migration.
 
 ## October 9, 2026
