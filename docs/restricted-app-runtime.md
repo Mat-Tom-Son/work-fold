@@ -445,8 +445,9 @@ automation is enabled. Secrets stay person-entered once per destination; a
 file-target permission needs a chosen file. The receipt and the Chat report
 what still needs the person. **Settings → Apps**, which lists apps by work-folder,
 is where the person narrows any of that: destination, file, and notification grants, connections,
-each automation's schedule and run history, local data, and removal; advanced
-local preview remains a recovery/developer path. A code change preserves the
+each automation's schedule and run history, local data, and removal. Settings
+→ Apps has no path-entry add; `work-fold apps install-preview` remains the
+developer path for adding a package by hand. A code change preserves the
 Feature Installation and Data Namespace and advances the Feature, grant,
 connection, and job authority domains; the person's granted or revoked state
 carries by declaration id, a chosen file root carries when the declaration is

@@ -295,7 +295,7 @@ work-fold has two deliberately different executable lanes:
 | Lane | Trust and distribution | UI and authority |
 |---|---|---|
 | Native Pi Extension | Standard Pi package/resource locations; full current-user execution after Everywhere install or work-folder registration. | May add Pi tools, commands, providers, events, and a static host-rendered `surface.json` contribution. Its code owns its network and operating-system access. |
-| Restricted work-folder app | A complete, work-folder-local reviewed-web package proposed by the agent or selected through advanced local preview. It never enters Pi's package manager or loaded catalog. | Runs reviewed UI and worker code in separate sandboxed Electron hosts. Tabs, network, storage, files, connections, notifications, and named automations exist only through narrow host contracts. |
+| Restricted work-folder app | A complete, work-folder-local reviewed-web package proposed by the agent or added with `work-fold apps install-preview`. It never enters Pi's package manager or loaded catalog. | Runs reviewed UI and worker code in separate sandboxed Electron hosts. Tabs, network, storage, files, connections, notifications, and named automations exist only through narrow host contracts. |
 
 The model experiences either lane as a package-shaped capability, but the product must not flatten their execution boundaries. Native Pi compatibility remains the full-trust ecosystem lane; restricted apps are the flexible app canvas for generated inboxes, dashboards, extractors, project-service panels, and other work-folder-specific tools. See [Restricted app authoring](restricted-app-authoring.md) and [Restricted app runtime](restricted-app-runtime.md).
 

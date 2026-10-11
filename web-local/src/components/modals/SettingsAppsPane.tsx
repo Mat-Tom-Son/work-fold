@@ -65,7 +65,6 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
             apps={apps?.appsByWorkFolder[workFolder.id] ?? []}
             loading={Boolean(loadingWorkFolderIds?.has(workFolder.id))}
             fixtureMode={fixtureMode}
-            presentation="page"
             onChangeApp={onChangeApp ? async (app) => onChangeApp(app) : undefined}
             onOpenBuildChat={onOpenBuildChat ? async (workFolderId, conversationId) => onOpenBuildChat(workFolderId, conversationId) : undefined}
             onOpenResultFile={onOpenResultFile ? async (workFolderId, path) => onOpenResultFile(workFolderId, path) : undefined}

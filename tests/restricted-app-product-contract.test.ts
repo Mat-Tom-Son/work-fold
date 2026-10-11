@@ -21,46 +21,23 @@ const [capabilities, apps, chat, workFolderApp, workFolderChrome, viewport, styl
   read("desktop/src/restricted-app-preload.cts"),
 ]);
 
-test("Apps product hierarchy starts with the agent and keeps local preview loading advanced", () => {
-  assert.match(apps, /Apps in This work-folder/);
+test("Apps product hierarchy starts with the agent; Settings → Apps has no manual add path", () => {
+  // A local preview arrives from a Worker's proposal in its Chat or from
+  // `work-fold apps install-preview`. Settings → Apps lists and manages apps;
+  // the retired "section" presentation (its own heading, an App Studio button,
+  // and an "Advanced Local Preview" path-entry dialog) is gone, along with the
+  // routes only it called.
+  assert.doesNotMatch(apps, /Apps in This work-folder|Advanced Local Preview|Add Local Preview|presentation-\$\{|presentation\?: "section"/);
+  assert.doesNotMatch(apps, /inspectRestrictedApp|installRestrictedApp|RestrictedAppReviewDialog|RestrictedAppSourceDialog/);
   // Building an app is a plain ask in a Chat; there is no button for it (2026-09-25).
   assert.doesNotMatch(apps, /Build with worker|onBuildApp/);
-  assert.match(apps, /<details className="restricted-app-advanced"><summary>Advanced Local Preview/);
-  assert.match(apps, /Add Local Preview…/);
   assert.doesNotMatch(capabilities, /Sandboxed app extension|onAddRestrictedApp/);
   assert.doesNotMatch(apps, />Add app</);
+  assert.doesNotMatch(apps, /\bwebsite\b/i, "the word website never appears in app copy");
 });
 
-test("adding an app shows its declarations and enabled powers with narrowing in Apps", () => {
-  assert.match(apps, /<ReviewDeclarations review=\{review\} \/>[\s\S]*?<details className="restricted-app-package-details"><summary>Package Details/);
-  assert.match(apps, /"Add app"/);
-  assert.match(apps, /"Update app"/);
-  assert.match(apps, /Connections whose destination is unchanged, automation settings, and run history carry over/);
-  assert.match(apps, /restricted-app-authority-list/);
-  assert.match(apps, /On when added/);
-  assert.doesNotMatch(apps, /Off when added|access off|approve|Reviewed|Unrestricted|staged/);
-  assert.match(apps, /Starts a Chat in this work-folder/);
-  // The reviewed viewer declaration (docs/shared-pages.md, rung 3) is part
-  // of review copy and the install decision: the group shows the viewer entry
-  // and the complete viewer-readable surface, states that exposure is its own
-  // later decision, and keeps the viewer read-only. The copy says "at your
-  // address", never "host your website".
-  assert.match(apps, /title="At your address"/);
-  // Outward exposure is not included by an install, so this one group never
-  // reads green-affirmative: the badge agrees with the sentence below it.
-  assert.match(apps, /title="At your address"[\s\S]*?state=\{review\.manifest\.viewer \? "not-yet" : "included"\}/);
-  assert.match(apps, /\{state === "on" \? "On when added" : state === "included" \? "Included" : "Not shared yet"\}/);
-  // A single-file permission is not on when added, and a Check slot binds only
-  // when the work-folder has exactly one Check, so neither claims "On when added".
-  assert.match(apps, /state=\{review\.manifest\.permissions\.files\.some\(\(item\) => item\.target === "directory"\) \? "on" : "included"\}/);
-  assert.match(apps, /title="Check Results"[\s\S]*?state="included"/);
-  assert.match(apps, /Serve \{review\.manifest\.viewer\.entry\} to anyone holding this app's link/);
-  assert.match(apps, /viewer-readable \$\{review\.manifest\.viewer\.readable\.length === 1 \? "collection" : "collections"\} declared/);
-  assert.match(apps, /Viewer-readable collections: \$\{review\.manifest\.viewer\.readable\.join\(", "\)\}/);
-  assert.match(apps, /Viewers can read none of this app's stored data\./);
-  assert.match(apps, /Putting this app at your address is its own later decision; viewers never write, act, or reach connections\./);
-  assert.doesNotMatch(apps, /\bwebsite\b/i, "the word website never appears in app review copy");
-  assert.match(apps, /<OAuthDeclarationDetails auth=\{auth\}/);
+test("app details show each destination's OAuth request in full", () => {
+  assert.match(apps, /<OAuthDeclarationDetails auth=\{oauth\} \/>/);
   assert.match(apps, /<dt>Issuer<\/dt>/);
   assert.match(apps, /<dt>Scopes<\/dt>/);
   assert.match(apps, /<dt>Discovery<\/dt>/);

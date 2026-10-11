@@ -108,12 +108,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       packageVersion: "0.1.0",
       marker: "first-reviewed-revision",
     });
-    const firstReview = await inspect(api.origin, source.id);
-    const preview = await request<{ app: RestrictedAppInstalled }>(
-      api.origin,
-      `/api/work-folders/${source.id}/restricted-apps`,
-      { method: "POST", body: { sourcePath, expectedDigest: firstReview.digest } },
-    );
+    const preview = { app: await installPreview(service, source) };
     assert.equal(preview.app.runtimeInstanceKind, "development");
     assert.equal(preview.app.releaseDigest, null);
     assert.equal(preview.app.projectId, declared.project.projectId);
@@ -286,11 +281,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       packageVersion: "0.2.0",
       marker: "second-reviewed-revision",
     });
-    const secondReview = await inspect(api.origin, source.id);
-    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/work-folders/${source.id}/restricted-apps`, {
-      method: "POST",
-      body: { sourcePath, expectedDigest: secondReview.digest },
-    });
+    await installPreview(service, source);
     const secondPrepared = await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/prepare`, {
       method: "POST",
       body: { displayVersion: "2.0.0" },
@@ -586,11 +577,7 @@ test("target-scoped uninstall survives an unavailable linked source work-folder"
       packageVersion: "1.0.0",
       marker: "linked-source-release",
     });
-    const review = await inspect(api.origin, source.id);
-    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/work-folders/${source.id}/restricted-apps`, {
-      method: "POST",
-      body: { sourcePath, expectedDigest: review.digest },
-    });
+    await installPreview(service, source);
     const prepared = await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/prepare`, {
       method: "POST",
       body: { displayVersion: "1.0.0" },
@@ -661,12 +648,10 @@ async function registerLinkedWorkFolder(
   })).workFolder;
 }
 
-async function inspect(origin: string, workFolderId: string): Promise<{ digest: string }> {
-  return (await request<{ review: { digest: string } }>(
-    origin,
-    `/api/work-folders/${workFolderId}/restricted-apps/inspect`,
-    { method: "POST", body: { sourcePath } },
-  )).review;
+/** Adds the package as a Local preview through the service's own inspect-then-install path. */
+async function installPreview(service: RestrictedAppService, workFolder: { id: string; workFolderRoot: string }): Promise<RestrictedAppInstalled> {
+  const review = await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath });
+  return await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath, expectedDigest: review.digest });
 }
 
 /** An installed or reset Feature comes up with the install defaults (docs/receipts-not-gates.md, F21). */

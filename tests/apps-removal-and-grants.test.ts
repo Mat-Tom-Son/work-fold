@@ -49,16 +49,8 @@ async function withApp(run: (context: Harness) => Promise<void>): Promise<void> 
     const sourcePath = "tools/ledger-app";
     await writePackage(join(workFolder.workFolderRoot, "tools", "ledger-app"));
 
-    const inspected = await request<{ review: { digest: string } }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps/inspect`,
-      { method: "POST", body: { sourcePath } },
-    );
-    const installed = await request<{ app: { digest: string; tenantId: string; runtimeInstanceId: string; featureInstallationId: string; dataNamespaceId: string } }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps`,
-      { method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest } },
-    );
+    const review = await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath });
+    const installed = { app: await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath, expectedDigest: review.digest }) };
     // Data worth losing: the removal has to carry this into Recently deleted.
     await storage.set({
       ownerClass: "instance",
@@ -74,16 +66,6 @@ async function withApp(run: (context: Harness) => Promise<void>): Promise<void> 
     await service.close().catch(() => undefined);
     await rm(sandbox, { recursive: true, force: true });
   }
-}
-
-async function request<T>(origin: string, path: string, init: { method: string; body?: unknown }): Promise<T> {
-  const response = await fetch(new URL(path, origin), {
-    method: init.method,
-    ...(init.body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) }),
-  });
-  const value = await response.json() as T & { error?: string };
-  assert.equal(response.ok, true, value.error);
-  return value;
 }
 
 async function recentlyDeletedEntries(api: LocalApiHandle): Promise<Array<{ id: string; kind: string; reason: string; sizeBytes: number }>> {

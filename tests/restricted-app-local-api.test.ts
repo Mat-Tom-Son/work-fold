@@ -87,25 +87,25 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     await writePackage(join(workFolder.workFolderRoot, ...sourcePath.split("/")));
     await mkdir(join(workFolder.workFolderRoot, "reports"), { recursive: true });
 
-    const invalid = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/restricted-apps/inspect`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourcePath: join(workFolder.workFolderRoot, "tools", "mail-app") }),
-    });
-    assert.equal(invalid.status, 400);
-
-    const inspected = await request<{ review: { digest: string; manifest: { id: string } } }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps/inspect`,
-      { method: "POST", body: { sourcePath } },
+    // A preview arrives through the service's own inspect-then-install path
+    // (a Worker's proposal or `apps install-preview`); the desktop API has no
+    // path-entry install route.
+    await assert.rejects(
+      service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: join(workFolder.workFolderRoot, "tools", "mail-app") }),
+      /relative package folder/,
     );
+    const inspected = { review: await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath }) };
     assert.equal(inspected.review.manifest.id, "mail-app");
+    for (const [path, init] of [
+      [`/api/work-folders/${workFolder.id}/restricted-apps/inspect`, { method: "POST", body: { sourcePath } }],
+      [`/api/work-folders/${workFolder.id}/restricted-apps`, { method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest } }],
+    ] as const) {
+      const retired = await fetch(`${api.origin}${path}`, { method: init.method, headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) });
+      assert.ok(retired.status === 404 || retired.status === 405, `${path} is not a desktop install route (${retired.status})`);
+      await retired.body?.cancel();
+    }
 
-    const installed = await request<{ app: RestrictedAppInstalled }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps`,
-      { method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest } },
-    );
+    const installed = { app: await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath, expectedDigest: inspected.review.digest }) };
     assert.equal(installed.app.digest, inspected.review.digest);
     assert.deepEqual(installed.app.networkGrants, ["mail-api"], "an added app reaches its declared destination");
     assert.deepEqual(installed.app.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "a directory permission binds to the whole work-folder");
@@ -419,9 +419,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
 
     // Identical code is not the same installation. Exercise each management
     // route with the old card's identity after remove/reinstall.
-    const reinstalled = await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/work-folders/${workFolder.id}/restricted-apps`, {
-      method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest },
-    });
+    const reinstalled = { app: await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath, expectedDigest: inspected.review.digest }) };
     assert.notEqual(reinstalled.app.featureInstallationId, installed.app.featureInstallationId);
     const itemUrl = `/api/work-folders/${workFolder.id}/restricted-apps/mail-app`;
     const stale = { expectedDigest: inspected.review.digest, featureInstallationId: installed.app.featureInstallationId };
@@ -525,16 +523,8 @@ test("machine-wide automation ledgers feed the overview and the restore fence, a
     );
     await writePackage(join(workFolder.workFolderRoot, "tools", "mail-app"));
     await mkdir(join(workFolder.workFolderRoot, "reports"), { recursive: true });
-    const inspected = await request<{ review: { digest: string } }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps/inspect`,
-      { method: "POST", body: { sourcePath: "tools/mail-app" } },
-    );
-    const installed = await request<{ app: RestrictedAppInstalled }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps`,
-      { method: "POST", body: { sourcePath: "tools/mail-app", expectedDigest: inspected.review.digest } },
-    );
+    const inspected = { review: await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "tools/mail-app" }) };
+    const installed = { app: await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "tools/mail-app", expectedDigest: inspected.review.digest }) };
     await request(
       api.origin,
       `/api/work-folders/${workFolder.id}/restricted-apps/mail-app/automations/refresh-mail`,
@@ -984,8 +974,8 @@ test("app requests use reviewed native Pi turns, History, exact task cancellatio
       type: "object", properties: { quote: { type: "string", maxLength: 1_000 } }, required: ["quote"], additionalProperties: false } }];
     await writeFile(manifestPath, JSON.stringify(manifest));
     const base = `/api/work-folders/${workFolder.id}/restricted-apps`;
-    const { review: packageReview } = await request<{ review: { digest: string } }>(api.origin, `${base}/inspect`, { method: "POST", body: { sourcePath: "app" } });
-    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, base, { method: "POST", body: { sourcePath: "app", expectedDigest: packageReview.digest } });
+    await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app" });
+    const app = (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, base)).apps.find((item) => item.manifest.id === "mail-app")!;
     const pin = { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest };
     const scope = { workFolderId: app.workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
     const taskBase = `${base}/mail-app/assistant-tasks`;
@@ -1090,8 +1080,8 @@ test("app inference runs on the work-folder's configured model with no Chat and 
     const { workFolder } = await request<{ workFolder: { id: string; workFolderRoot: string } }>(api.origin, "/api/work-folders", { method: "POST", body: { name: "Quotes" } });
     await writePackage(join(workFolder.workFolderRoot, "app"));
     const base = `/api/work-folders/${workFolder.id}/restricted-apps`;
-    const { review } = await request<{ review: { digest: string } }>(api.origin, `${base}/inspect`, { method: "POST", body: { sourcePath: "app" } });
-    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, base, { method: "POST", body: { sourcePath: "app", expectedDigest: review.digest } });
+    await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app" });
+    const app = (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, base)).apps.find((item) => item.manifest.id === "mail-app")!;
     const scope = { workFolderId: app.workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
       digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
 
@@ -1156,8 +1146,8 @@ test("desktop Check selection composes the canonical Check service with exact ap
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
     manifest.permissions.checks = [{ id: "review", title: "Handoff review" }];
     await writeFile(manifestPath, JSON.stringify(manifest));
-    const { review } = await request<{ review: { digest: string } }>(api.origin, `${base}/restricted-apps/inspect`, { method: "POST", body: { sourcePath: "app" } });
-    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, `${base}/restricted-apps`, { method: "POST", body: { sourcePath: "app", expectedDigest: review.digest } });
+    await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app" });
+    const app = (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `${base}/restricted-apps`)).apps.find((item) => item.manifest.id === "mail-app")!;
     const check = await request<{ declaration: { id: string }; digest: string }>(api.origin, `${base}/checks/configure`, { method: "POST", body: { proposal: {
       kind: "work-fold.check-proposal", version: 1, name: "Handoff", createdBy: "human", createdAt: "2026-09-06T00:00:00.000Z",
       check: { title: "Handoff exists", severity: "error", trigger: "manual", sensor: { id: "work-fold.file-presence", revision: 1, parameters: { expect: "present" } }, targets: [{ kind: "file", role: "primary", path: "handoff.txt" }] },

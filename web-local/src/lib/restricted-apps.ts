@@ -4,7 +4,6 @@ import type {
   RestrictedAppConnectionStatus,
   RestrictedAppCredential,
   RestrictedAppInstalled,
-  RestrictedAppReview,
   RestrictedAppStorageUsage,
   RestrictedAppDataRecovery,
   LocalAppInstallOperation,
@@ -165,20 +164,6 @@ function appPath(workFolderId: string, appId: string): string {
 
 export async function listRestrictedApps(workFolderId: string): Promise<RestrictedAppInstalled[]> {
   return (await api<{ apps: RestrictedAppInstalled[] }>(collectionPath(workFolderId))).apps;
-}
-
-export async function inspectRestrictedApp(workFolderId: string, sourcePath: string): Promise<RestrictedAppReview> {
-  return (await api<{ review: RestrictedAppReview }>(`${collectionPath(workFolderId)}/inspect`, {
-    method: "POST",
-    body: { sourcePath },
-  })).review;
-}
-
-export async function installRestrictedApp(workFolderId: string, sourcePath: string, expectedDigest: string): Promise<RestrictedAppInstalled> {
-  return (await api<{ app: RestrictedAppInstalled }>(collectionPath(workFolderId), {
-    method: "POST",
-    body: { sourcePath, expectedDigest },
-  })).app;
 }
 
 /**

@@ -1956,32 +1956,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { apps: await state.restrictedApps.list(workFolder.id) });
     return;
   }
-  if (restrictedCollectionMatch && method === "POST") {
-    const workFolder = await getWorkFolder(restrictedCollectionMatch[1]);
-    const body = await readJsonBody<{ sourcePath?: string; expectedDigest?: string }>(state, req);
-    if (!body.sourcePath?.trim() || !body.expectedDigest?.trim()) throw badRequest("A reviewed package folder and digest are required.");
-    const app = await runRestrictedAppMutation(state, workFolder.id, () => state.restrictedApps.install({
-      workFolderId: workFolder.id,
-      workFolderRoot: workFolder.workFolderRoot,
-      sourcePath: body.sourcePath!,
-      expectedDigest: body.expectedDigest!,
-    }));
-    sendJson(res, { app }, 201);
-    return;
-  }
-
-  const restrictedInspectMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/restricted-apps\/inspect$/);
-  if (restrictedInspectMatch && method === "POST") {
-    const workFolder = await getWorkFolder(restrictedInspectMatch[1]);
-    const body = await readJsonBody<{ sourcePath?: string }>(state, req);
-    if (!body.sourcePath?.trim()) throw badRequest("A work-folder-relative package folder is required.");
-    sendJson(res, { review: await state.restrictedApps.inspect({
-      workFolderId: workFolder.id,
-      workFolderRoot: workFolder.workFolderRoot,
-      sourcePath: body.sourcePath,
-    }) });
-    return;
-  }
+  // A local preview is added by a Worker's proposal in its Chat or by
+  // `work-fold apps install-preview`; both inspect the package and own the
+  // review digest host-side, so this collection has no desktop install route.
 
   const restrictedItemMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/restricted-apps\/([^/]+)$/);
   if (restrictedItemMatch && method === "DELETE") {
