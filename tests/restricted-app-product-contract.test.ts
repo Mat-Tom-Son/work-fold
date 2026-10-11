@@ -81,6 +81,8 @@ test("Skills & Extensions owns access, connection, and lifecycle management with
   assert.match(apps, /work-fold · \{app\.manifest\.title\} — \{permission\.title\}/);
   assert.match(apps, /Allow notifications/);
   assert.match(apps, /Revoke notifications/);
+  // The app's recent notifications sit under its categories.
+  assert.match(apps, /<RestrictedAppNotificationHistory key=\{`notifications:\$\{app\.featureInstallationId\}`\} app=\{app\} disabled=\{fixtureMode\} \/>\s*<\/section> : null\}/);
   assert.doesNotMatch(apps, /Delete credential|Credential saved|Credential needed/);
   assert.match(apps, /Provider compatibility \{status\.diagnostics\.length === 1 \? "note" : "notes"\}/);
 });

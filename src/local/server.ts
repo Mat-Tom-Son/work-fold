@@ -118,6 +118,7 @@ import {
 import type { RestrictedAppNetworkDeclaration } from "./agent/restricted-app-manifest.js";
 import type { RestrictedAppConnectionStatus } from "./agent/restricted-app-connections.js";
 import type { RestrictedAppDataBackup } from "./agent/restricted-app-storage.js";
+import { RestrictedAppNotificationRecord } from "./agent/restricted-app-notification-record.js";
 import {
   getPiComposerState,
   getPiWorkerInstructions,
@@ -458,6 +459,12 @@ export interface LocalApiOptions {
   workFolderRemovalIo?: Partial<WorkFolderRemovalIo>;
   /** Test seam for the machine-local trash behind Recently deleted (docs/receipts-not-gates.md, F20). */
   recentlyDeletedStore?: WorkFoldRecentlyDeletedStore;
+  /**
+   * The record of what apps' notifications did. The desktop host owns the one
+   * instance its notification broker writes; without one the API opens the
+   * same file itself.
+   */
+  appNotificationRecord?: RestrictedAppNotificationRecord;
   /** Failure-injection seam that runs immediately before mandatory post-reservation work-folder validation. */
   beforeRestrictedAppWorkFolderRevalidation?: (workFolderId: string) => Promise<void>;
   maxBodyBytes?: number;
@@ -647,6 +654,7 @@ interface LocalApiState {
   browserAppActions: BrowserAppActionService;
   appAssistantTasks: RestrictedAppTaskService;
   appInference: RestrictedAppInferenceService;
+  appNotificationRecord: RestrictedAppNotificationRecord;
   appMode: "dev" | "desktop";
   workFolderBase?: string;
   allowedOrigins: string[];
@@ -974,6 +982,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     browserAppActions: undefined as unknown as BrowserAppActionService,
     appAssistantTasks: undefined as unknown as RestrictedAppTaskService,
     appInference: undefined as unknown as RestrictedAppInferenceService,
+    appNotificationRecord: options.appNotificationRecord ?? await RestrictedAppNotificationRecord.open({
+      path: join(workFoldStateRoot(), "restricted-apps", "notification-receipts.jsonl"),
+    }),
     appMode,
     workFolderBase: options.workFolderBase ? resolve(options.workFolderBase) : undefined,
     allowedOrigins: options.allowedOrigins ?? ["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -1183,6 +1194,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     });
   };
   state.appInference.on("changed", appInferenceChanged);
+  // Settings → Apps shows each app's recent notifications.
+  const appNotificationsChanged = () => publishControlHint(state, "apps");
+  state.appNotificationRecord.on("changed", appNotificationsChanged);
   const unsubscribeAppCatalog = restrictedApps.subscribeCatalog(() => publishControlHint(state, "apps"));
   state.automations = await WorkFoldAutomationService.create({
     store: automationStore,
@@ -1326,6 +1340,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       unsubscribeAppCatalog();
       state.appAssistantTasks.off("changed", appTasksChanged);
       state.appInference.off("changed", appInferenceChanged);
+      state.appNotificationRecord.off("changed", appNotificationsChanged);
       for (const response of state.localEventStreams) response.close();
       for (const response of state.controlStreams) response.close();
       extensionUi.off("request", requestListener);
@@ -2142,6 +2157,32 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const scope = { workFolderId: workFolder.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
       digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
     sendJson(res, { receipts: await state.appInference.list(scope, { ownership: "installation" }) });
+    return;
+  }
+
+  // Settings → Apps: what this installation's notifications did, newest first,
+  // across code changes. The record names the category, never the route or
+  // state the app attached.
+  const appNotificationRecordMatch = /^\/api\/work-folders\/([^/]+)\/restricted-apps\/([^/]+)\/notification-receipts$/.exec(url.pathname)
+    ?.map((value) => value === undefined ? "" : decodeURIComponent(value));
+  if (appNotificationRecordMatch && method === "GET") {
+    const workFolder = await getWorkFolder(appNotificationRecordMatch[1]);
+    const query = Object.fromEntries(url.searchParams);
+    if (typeof query.featureInstallationId !== "string" || typeof query.expectedDigest !== "string") {
+      throw badRequest("An exact app installation and revision are required.");
+    }
+    if (Object.keys(query).some((key) => !["featureInstallationId", "expectedDigest", "limit"].includes(key))) {
+      throw badRequest("Notification record fields are invalid.");
+    }
+    const limit = query.limit === undefined ? undefined : Number(query.limit);
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) throw badRequest("Choose how many notifications to show.");
+    const app = await state.restrictedApps.runtimeDescriptor(workFolder.id, appNotificationRecordMatch[2], query.expectedDigest, query.featureInstallationId);
+    sendJson(res, {
+      receipts: await state.appNotificationRecord.list(
+        { workFolderId: workFolder.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId },
+        limit,
+      ),
+    });
     return;
   }
 

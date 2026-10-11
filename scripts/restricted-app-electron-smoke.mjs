@@ -130,7 +130,9 @@ async function runSmoke() {
     const attentionStates = [];
     const shownNotifications = [];
     const notificationOpens = [];
+    const notificationOutcomes = [];
     const notificationBroker = new RestrictedAppNotificationBroker({
+      record: (outcome) => notificationOutcomes.push(outcome),
       sink: {
         isSupported: () => true,
         show: (notification, callbacks) => {
@@ -411,6 +413,12 @@ async function runSmoke() {
       route: "/updates/7?from=smoke",
       state: { batch: 7 },
     }], "a click opens the exact installation at the route and state the app named");
+    assert.deepEqual(notificationOutcomes.map(({ permissionId, title, status, featureInstallationId }) => ({ permissionId, title, status, featureInstallationId })), [{
+      permissionId: "automation-update",
+      title: "Automation update",
+      status: "shown",
+      featureInstallationId: descriptor.featureInstallationId,
+    }], "the shown notification reaches the notification record; the refused route does not");
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 350));
     assert.equal(shownNotifications.length, 1, "notification calls after handleAutomation returns are denied");
     assert.equal(await storage.get(storageOwner, "worker-storage-events"), 0);

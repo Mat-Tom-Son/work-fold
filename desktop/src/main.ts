@@ -57,6 +57,7 @@ import { WorkFoldSettleSignal } from "../../src/local/automations/settle-signal.
 import { RestrictedAppService } from "../../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage } from "../../src/local/agent/restricted-app-storage.js";
 import { RestrictedAppNotificationBroker } from "../../src/local/agent/restricted-app-notifications.js";
+import { RestrictedAppNotificationRecord } from "../../src/local/agent/restricted-app-notification-record.js";
 import { restrictedAppRoot } from "../../src/local/state-paths.js";
 import {
   WorkFoldDesktopCliHost,
@@ -398,6 +399,8 @@ interface DesktopHost {
   cli: WorkFoldDesktopCliHost;
   restrictedApps: RestrictedAppService;
   restrictedAppHost: RestrictedAppHost;
+  /** What each app's notifications did, read by Settings → Apps through the local API. */
+  restrictedAppNotificationRecord: RestrictedAppNotificationRecord;
   chromeConnection: IncludedChromeConnectionService;
   /**
    * The one in-process settle seam (docs/automations.md): the host's Check
@@ -436,7 +439,11 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
     const restrictedConnections = createRestrictedAppConnectionStore(join(userData, "restricted-app-connections.bin"));
     const restrictedOAuth = createRestrictedAppOAuthClient(restrictedConnections, (url) => shell.openExternal(url));
     const restrictedStorage = new FileRestrictedAppStorage(join(restrictedAppRoot(), "data"));
+    const restrictedNotificationRecord = await RestrictedAppNotificationRecord.open({
+      path: join(restrictedAppRoot(), "notification-receipts.jsonl"),
+    });
     const restrictedNotifications = new RestrictedAppNotificationBroker({
+      record: (outcome) => restrictedNotificationRecord.record(outcome),
       sink: {
         isSupported: () => Notification.isSupported(),
         show: (display, callbacks) => {
@@ -598,7 +605,10 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       await cli.initialize();
       secureSettings = settings;
       piRuntime = runtime;
-      return { settings, extensionUi, runtime, runtimeProvider, workFolderTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime, settleSignal, chromeConnection };
+      return {
+        settings, extensionUi, runtime, runtimeProvider, workFolderTrustAuthority, kernel, checks, cli, restrictedApps,
+        restrictedAppHost: restrictedRuntime, restrictedAppNotificationRecord: restrictedNotificationRecord, settleSignal, chromeConnection,
+      };
     } catch (error) {
       await restrictedApps.close();
       throw error;
@@ -753,6 +763,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       actReceipts: host.cli.receipts,
       localFolderGrantProvider: { consumeLocalFolderGrant },
       restrictedAppService: host.restrictedApps,
+      appNotificationRecord: host.restrictedAppNotificationRecord,
       onAgentTurnActivity: updateAgentPowerState,
       // Resolved before any window exists, so no app view can be mounted
       // without this wire in place (docs/collaboration-contract.md, F30).

@@ -378,6 +378,19 @@ the exact Feature Installation; category replacement and scoped cleanup cannot
 close another installation's notification. The aggregate hourly app budget
 continues to span installations.
 
+Every call the host answers with a status — `shown`, `rate-limited`, or
+`unsupported` — lands in a bounded machine-local record (2026-10-11),
+`restricted-apps/notification-receipts.jsonl` under the state root and outside
+every work-folder, like the inference receipts. A line holds the time, work-folder,
+app, installation, revision, category id and its reviewed title, and the
+status; never the route or state the app attached. A refused call has no
+status and is not recorded. The record keeps each installation's newest 1,000
+and the newest 20,000 overall, for at most 90 days; a torn or damaged line is
+skipped, and a line that cannot be written is lost rather than delaying the
+notification. Settings → Apps shows each app's recent ones under its
+notification categories, such as "Shown Oct 11, 3:02 PM · New screenshots
+sorted", across code changes.
+
 The real-Electron preparation probe covers both hosts: missing Node globals,
 rejected Node imports, direct loopback HTTP/WebSocket denial, WebRTC and popup
 denial, sender-bound broker failure, bounded results, timeout recovery, visible

@@ -880,7 +880,10 @@ origin-relative path inside the app of at most 2,048 characters (default
 invalid one is refused with `NOTIFICATION_DENIED` and nothing is shown. See
 [Opened from a notification](#opened-from-a-notification). Notification failure should not discard already completed work. Use
 copy such as “refresh finished” when the result may be either success or
-failure.
+failure. Settings → Apps lists each call's outcome under the app's notification
+categories — shown, not shown because there were too many at once, or not shown
+because this computer cannot show notifications — so the category title is
+also how the person reads that history.
 
 ## Authentication declarations
 

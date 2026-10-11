@@ -1,5 +1,6 @@
 import { restrictedAppNavigationLimits, restrictedAppRoute, restrictedAppState } from "../../shared/restricted-app-navigation.js";
 import type { RestrictedAppNotificationDeclaration } from "./restricted-app-manifest.js";
+import type { RestrictedAppNotificationOutcome } from "./restricted-app-notification-record.js";
 
 /**
  * A spam guard for the person, not a budget for the app: a notification over
@@ -70,6 +71,13 @@ export class RestrictedAppNotificationError extends Error {
 export interface RestrictedAppNotificationBrokerOptions {
   sink: RestrictedAppNotificationSink;
   now?: () => number;
+  /**
+   * Told about every call the broker answers with a status — shown,
+   * rate-limited, or unsupported — for the machine-local notification record.
+   * A refused call has no status and is not reported. Failures are ignored:
+   * recording never stands between an app and its notification.
+   */
+  record?: (outcome: RestrictedAppNotificationOutcome) => void | Promise<void>;
 }
 
 interface OutstandingNotification {
@@ -88,6 +96,7 @@ interface OutstandingNotification {
 export class RestrictedAppNotificationBroker {
   readonly #sink: RestrictedAppNotificationSink;
   readonly #now: () => number;
+  readonly #record?: (outcome: RestrictedAppNotificationOutcome) => void | Promise<void>;
   readonly #hourly = new Map<string, number[]>();
   readonly #categoryLastShown = new Map<string, number>();
   readonly #invocations = new Map<string, { count: number; usedAt: number }>();
@@ -97,6 +106,7 @@ export class RestrictedAppNotificationBroker {
   constructor(options: RestrictedAppNotificationBrokerOptions) {
     this.#sink = options.sink;
     this.#now = options.now ?? Date.now;
+    this.#record = options.record;
   }
 
   show(
@@ -113,7 +123,7 @@ export class RestrictedAppNotificationBroker {
     if (!declaration || !context.grants.includes(declaration.id)) {
       throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "This notification category is not granted to the app.");
     }
-    if (!this.#sink.isSupported()) return { status: "unsupported" };
+    if (!this.#sink.isSupported()) return this.#answer(context, declaration, "unsupported", this.#now());
 
     const now = this.#now();
     this.#prune(now);
@@ -127,7 +137,7 @@ export class RestrictedAppNotificationBroker {
     if (invocation.count >= restrictedAppNotificationLimits.perInvocation
       || hourly.length >= restrictedAppNotificationLimits.perHour
       || (lastCategory !== undefined && now - lastCategory < restrictedAppNotificationLimits.categoryIntervalMs)) {
-      return { status: "rate-limited" };
+      return this.#answer(context, declaration, "rate-limited", now);
     }
 
     const appOutstanding = [...this.#outstanding.values()]
@@ -177,7 +187,30 @@ export class RestrictedAppNotificationBroker {
     this.#hourly.set(appKey, hourly);
     this.#categoryLastShown.set(categoryKey, now);
     this.#schedulePrune(now);
-    return { status: "shown" };
+    return this.#answer(context, declaration, "shown", now);
+  }
+
+  #answer(
+    context: RestrictedAppNotificationContext,
+    declaration: RestrictedAppNotificationDeclaration,
+    status: RestrictedAppNotificationStatus,
+    at: number,
+  ): { status: RestrictedAppNotificationStatus } {
+    const record = this.#record;
+    if (record) {
+      const outcome: RestrictedAppNotificationOutcome = {
+        at: new Date(at).toISOString(),
+        workFolderId: context.workFolderId,
+        appId: context.appId,
+        featureInstallationId: context.featureInstallationId ?? null,
+        digest: context.digest,
+        permissionId: declaration.id,
+        title: declaration.title,
+        status,
+      };
+      void Promise.resolve().then(() => record(outcome)).catch(() => undefined);
+    }
+    return { status };
   }
 
   closeApp(owner: Pick<RestrictedAppNotificationOwner, "workFolderId" | "appId" | "featureInstallationId">, digest?: string): void {
