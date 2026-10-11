@@ -2762,13 +2762,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     } catch (error) {
       throw badRequest(errorMessage(error));
     }
-    await runCapabilityMutation(
-      state,
-      scope,
-      "project",
-      () => setPiWorkerInstructions(scope.workFolderRoot, instructions, state.runtimeProvider),
-      { requireProjectTrust: false },
-    );
+    await saveWorkerInstructions(state, scope, instructions);
     sendJson(res, { instructions });
     return;
   }
@@ -3300,6 +3294,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       broadcast(state, streamKey(workFolder.id, compactMatch[2]), { type: "done", conversationId: compactMatch[2] });
     } finally {
       state.compactingConversations.delete(key);
+      await refreshClientIfMarked(state, key);
       state.kernel.finishTask(task.id);
       queueConversationRequestEvaluation(state, workFolder.id, compactMatch[2]);
     }
@@ -6501,13 +6496,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       } catch (error) {
         throw new WorkFoldCliError("usage", errorMessage(error));
       }
-      await runActOperation(() => runCapabilityMutation(
-        state,
-        workFolder,
-        "project",
-        () => setPiWorkerInstructions(workFolder.workFolderRoot, instructions, state.runtimeProvider),
-        { requireProjectTrust: false },
-      ));
+      await runActOperation(() => saveWorkerInstructions(state, workFolder, instructions));
       await recordFacadeAction(state, input.parentTaskId, { command: "work-folders.worker.instructions", workFolder });
       return { workFolder: toActWorkFolderRef(workFolder), instructions };
     },
@@ -6858,6 +6847,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           broadcast(state, streamKey(workFolder.id, input.conversationId), { type: "done", conversationId: input.conversationId });
         } finally {
           state.compactingConversations.delete(key);
+          await refreshClientIfMarked(state, key);
           state.kernel.finishTask(task.id);
           queueConversationRequestEvaluation(state, workFolder.id, input.conversationId);
         }
@@ -11818,15 +11808,10 @@ async function runAgentTurn(
     state.cancelledTurnTasks.delete(taskId);
     state.activeTurnIdsByKey.delete(key);
     state.kernel.finishTask(taskId);
-    if (state.clientsToRefresh.delete(key)) {
-      // The work-folder's apps changed during this turn (propose_work-folder_app added a
-      // preview). Rebuild this Chat's client so its next turn sees the new tools.
-      const stale = state.clients.get(key);
-      if (stale) {
-        await stale.stop().catch(() => undefined);
-        state.clients.delete(key);
-      }
-    }
+    // The work-folder's apps or Worker instructions changed during this turn
+    // (propose_work-folder_app, or Set up for me). Rebuild this Chat's client so
+    // its next turn sees them.
+    await refreshClientIfMarked(state, key);
     settleTurnTask(state, taskId, {
       workFolderId,
       conversationId,
@@ -12175,6 +12160,42 @@ async function runSettledWorkFolderDeletion<T>(state: LocalApiState, workFolderI
     assertSettled();
     return operation();
   });
+}
+
+/**
+ * Worker instructions shape only later turns, so saving them never waits on or
+ * interrupts work: idle Chats rebuild now, and a Chat that is mid-turn or
+ * compacting (including the Worker that saved them, as Set up for me does)
+ * rebuilds as soon as that work ends.
+ */
+async function saveWorkerInstructions(
+  state: LocalApiState,
+  workFolder: { id: string; workFolderRoot: string },
+  instructions: string,
+): Promise<void> {
+  if (state.capabilityMutations.has(globalCapabilityMutationKey) || state.capabilityMutations.has(workFolder.id)) {
+    throw httpError(409, "Wait for the current capability change to finish.");
+  }
+  await setPiWorkerInstructions(workFolder.workFolderRoot, instructions, state.runtimeProvider);
+  for (const [key, client] of [...state.clients]) {
+    if (!key.startsWith(`${workFolder.id}:`)) continue;
+    if (state.runningTurns.has(key) || state.compactingConversations.has(key)) {
+      state.clientsToRefresh.add(key);
+      continue;
+    }
+    await client.stop().catch(() => undefined);
+    state.clients.delete(key);
+  }
+  publishControlHint(state, "models");
+}
+
+/** Rebuilds a Chat's client that was marked while it was busy. */
+async function refreshClientIfMarked(state: LocalApiState, key: string): Promise<void> {
+  if (!state.clientsToRefresh.delete(key)) return;
+  const stale = state.clients.get(key);
+  if (!stale) return;
+  await stale.stop().catch(() => undefined);
+  state.clients.delete(key);
 }
 
 async function runCapabilityMutation<T>(

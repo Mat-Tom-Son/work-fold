@@ -4,8 +4,10 @@
  * and saves it as an ordinary file in the folder the session works in, where
  * History captures it like any other change (docs/image-generation.md).
  */
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, extname, isAbsolute, join, normalize, relative, sep } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, dirname, extname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
 import type { AssistantImages, ImageApi, ImageModel, ImagesContext } from "@earendil-works/pi-ai";
 import { resizeImage, type ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -58,6 +60,7 @@ export async function listImageModels(source: ImageModelSource): Promise<ChosenI
 }
 
 export interface GeneratedImage {
+  /** Relative to the folder, or absolute for a temporary picture saved outside it. */
   path: string;
   mimeType: string;
   width: number;
@@ -121,6 +124,8 @@ export async function generateImageFile(input: {
   shape?: ImageShape;
   model?: { provider: string; id: string };
   includePreview?: boolean;
+  /** Save outside the folder, in work-fold's temporary space: for a picture used once, such as a banner. */
+  temporary?: boolean;
   signal?: AbortSignal;
 }): Promise<GeneratedImage> {
   const prompt = input.prompt.trim();
@@ -149,14 +154,18 @@ export async function generateImageFile(input: {
     throw new Error(`${model.name} returned no image${said ? `. It said: ${said.slice(0, 400)}` : "."}`);
   }
   const bytes = Buffer.from(image.data, "base64");
-  const relativePath = resolveImagePath(input.root, input.path, image.mimeType);
-  const target = join(input.root, normalize(relativePath));
+  // A temporary picture keeps only the file name and never touches the person's folder.
+  const temporaryRoot = input.temporary ? join(tmpdir(), "work-fold-images", randomUUID()) : null;
+  const relativePath = temporaryRoot
+    ? resolveImagePath(temporaryRoot, basename(input.path.trim().replace(/\\/g, "/")) || "image.png", image.mimeType)
+    : resolveImagePath(input.root, input.path, image.mimeType);
+  const target = join(temporaryRoot ?? input.root, normalize(relativePath));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, bytes);
   const preview = await resizeImage(bytes, image.mimeType, { maxWidth: 1024, maxHeight: 1024, maxBytes: 900_000, jpegQuality: 80 }).catch(() => null);
   const cost = result.usage?.cost?.total;
   return {
-    path: relativePath,
+    path: temporaryRoot ? target : relativePath,
     mimeType: image.mimeType,
     width: preview?.originalWidth ?? 0,
     height: preview?.originalHeight ?? 0,
@@ -200,7 +209,7 @@ export function createImageGenerationTool(input: { root: string; models: ImageMo
     promptGuidelines: [
       "generate_image saves to the path you give, relative to this folder (png, jpg, or webp; the extension follows the format the model returns). Use shape \"wide\" for a work-folder banner, \"square\" for an icon-like picture, and \"tall\" for a poster. Describe the subject, style, mood, and colors. Say \"no text, no letters\" unless words are wanted, because image models misspell text.",
       "With no model named it uses a connected image model work-fold prefers; name one as {provider, id} only when the person asks for it. If no image model is connected, tell the person to connect a provider with image models in Settings → AI Models.",
-      "To make a generated picture this work-folder's banner, apply it with work-fold work-folders appearance apply --work-folder <id> --banner-image <path>; it can be undone with work-folders appearance undo.",
+      "To make a generated picture this work-folder's banner, make it with temporary: true so it never lands in the person's folder, then apply the absolute path it returns with work-fold work-folders appearance apply --work-folder <id> --banner-image <path>; it can be undone with work-folders appearance undo.",
     ],
     parameters: {
       type: "object",
@@ -208,6 +217,10 @@ export function createImageGenerationTool(input: { root: string; models: ImageMo
         prompt: { type: "string", minLength: 1, maxLength: maxPromptCharacters, description: "What the image shows: subject, style, mood, and colors." },
         path: { type: "string", minLength: 1, maxLength: 1024, description: "Where to save it, relative to this folder, for example images/banner.png." },
         shape: { type: "string", enum: ["wide", "square", "tall"], description: "wide (about 21:9, for banners), square, or tall. Defaults to square." },
+        temporary: {
+          type: "boolean",
+          description: "Save outside this folder, in work-fold's temporary space, for a picture used once (such as a banner you are about to apply). The result gives its absolute path.",
+        },
         model: {
           type: "object",
           properties: { provider: { type: "string", minLength: 1 }, id: { type: "string", minLength: 1 } },
@@ -221,7 +234,7 @@ export function createImageGenerationTool(input: { root: string; models: ImageMo
     } as any,
     executionMode: "sequential",
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const value = params as { prompt?: unknown; path?: unknown; shape?: unknown; model?: { provider?: unknown; id?: unknown } };
+      const value = params as { prompt?: unknown; path?: unknown; shape?: unknown; temporary?: unknown; model?: { provider?: unknown; id?: unknown } };
       const shape = value.shape === "wide" || value.shape === "tall" || value.shape === "square" ? value.shape : undefined;
       const model = value.model && typeof value.model.provider === "string" && typeof value.model.id === "string"
         ? { provider: value.model.provider, id: value.model.id }
@@ -235,11 +248,13 @@ export function createImageGenerationTool(input: { root: string; models: ImageMo
         ...(shape ? { shape } : {}),
         ...(model ? { model } : {}),
         includePreview: sees,
+        ...(value.temporary === true ? { temporary: true } : {}),
         ...(signal ? { signal } : {}),
       });
       const size = made.width && made.height ? ` (${made.width}×${made.height})` : "";
       const cost = made.cost !== undefined ? ` It cost about $${made.cost.toFixed(4)}.` : "";
-      const text = `Saved the image to ${made.path}${size} with ${made.model.name} (${made.model.provider}).${cost}${sees ? " A small copy is attached so you can check it." : ""}`;
+      const where = value.temporary === true ? `${made.path}, outside this folder,` : made.path;
+      const text = `Saved the image to ${where}${size} with ${made.model.name} (${made.model.provider}).${cost}${sees ? " A small copy is attached so you can check it." : ""}`;
       return {
         content: [
           { type: "text" as const, text },
