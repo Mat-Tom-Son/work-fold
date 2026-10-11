@@ -236,6 +236,69 @@ test("a late polling response cannot replace a newly selected automation or reta
   assert.deepEqual(bridge.disabledIds, ["automation-b"]);
 });
 
+test("a folder automation that catches up says so, shows a waiting catch-up, and names the last one (2026-10-11)", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  const trigger = {
+    kind: "files-changed" as const,
+    workFolderId: "work-folder-a",
+    watch: { kind: "tree" as const, path: "Screenshots", recursive: false, extensions: [".png"] },
+    debounceSeconds: 5,
+    cooldownMinutes: 1,
+    ifMissed: "run" as const,
+  };
+  const summary = {
+    automationId: "automation-catch-up-ui",
+    title: "File new screenshots",
+    health: "enabled" as const,
+    trigger,
+    fileWatch: {
+      state: "watching" as const,
+      catchingUp: { reason: "asleep" as const, count: 2 },
+      notice: "An automation was running when work-fold stopped watching, so it took a fresh look instead of catching up; files that changed in that gap were not caught up.",
+    },
+    stepCount: 1,
+    lastCatchUp: { runId: "run-7", at: "2026-10-11T08:30:00.000Z", count: 3, reason: "closed" as const },
+  };
+  Object.defineProperty(window, "workFoldDesktop", {
+    configurable: true,
+    value: {
+      automations: {
+        list: async (): Promise<AutomationsResponse> => ({
+          automations: [summary],
+          status: { storeDamaged: false, journalDamaged: false, activeRunCount: 0 },
+        }),
+        show: async (): Promise<AutomationDetailResponse> => ({
+          automation: {
+            ...summary,
+            createdAt: "2026-10-11T08:00:00.000Z",
+            workFolders: [{ workFolderId: "work-folder-a", workFolderName: "Desktop" }],
+            steps: [{ id: "file", kind: "chat", workFolder: { workFolderId: "work-folder-a", workFolderName: "Desktop" }, message: "File these." }],
+          },
+        }),
+        history: async (): Promise<AutomationHistoryResponse> => ({ runs: [], truncated: false, damagedLineCount: 0 }),
+      },
+    },
+  });
+  await dom.render(createElement(AutomationsPane));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".automation-inspector-header")));
+
+  const text = dom.container.textContent ?? "";
+  assert.match(text, /When Screenshots changes · wait 5s · 1 minute cooldown · catches up after work-fold was closed/);
+  assert.match(dom.container.querySelector(".automation-catch-up")?.textContent ?? "", /files added or changed while work-fold was closed, the computer was asleep, or this automation was off start one run/);
+  assert.equal(
+    dom.container.querySelector(".automation-catch-up-pending")?.textContent,
+    "Catching up on 2 files that changed while the computer was asleep.",
+  );
+  assert.match(
+    dom.container.querySelector(".automation-catch-up-last")?.textContent ?? "",
+    /^Last catch-up: .+ · Caught up on 3 files that changed while work-fold was closed$/,
+  );
+  assert.match(dom.container.querySelector(".automation-catch-up-notice")?.textContent ?? "", /took a fresh look instead of catching up/);
+  assert.match(text, /Changes made while an automation is running are not replayed\./);
+  assert.doesNotMatch(text, /Changes during automation work, sleep, or restart are not replayed\./);
+});
+
 test("desktop wake catches asynchronous automation resume failures", () => {
   assert.match(desktopMain, /automationPowerLifecycle\?\.resume\(\)\.catch\(\(error\) =>/);
   assert.match(desktopMain, /could not resume Automations after wake/);

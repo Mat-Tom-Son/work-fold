@@ -335,8 +335,10 @@ test("Automation help's complete authoring example passes the real proposal vali
   const example = workFoldCliHelp("work-fold", "automations").split("\n").find((line) => line.startsWith('{"kind":"work-fold.automation-proposal"'));
   assert.ok(example);
   const proposal = normalizeWorkFoldAutomationProposal(JSON.parse(example));
-  assert.equal(proposal.version, 4);
+  assert.equal(proposal.version, 5);
   assert.equal(proposal.automation.trigger.kind, "files-changed");
+  // The example teaches the version-5 catch-up (docs/automations.md, 2026-10-11).
+  assert.equal(proposal.automation.trigger.kind === "files-changed" && proposal.automation.trigger.ifMissed, "run");
   assert.deepEqual(proposal.automation.steps.map((step) => step.kind), ["files", "chat", "check", "agent"]);
   // The example teaches the closed placeholder set, so it must itself be
   // something the parser accepts and the executor can fill in.
@@ -351,6 +353,8 @@ test("Automation help's complete authoring example passes the real proposal vali
     ["trigger.summary", "steps.adopt.createdFiles"],
   );
   const help = workFoldCliHelp("work-fold", "automations");
+  assert.match(help, /never a backlog of missed events/);
+  assert.match(help, /Debounce: 1–3600 seconds\. Cooldown: 0–10080 minutes\. 64 runs may/);
   assert.doesNotMatch(help, /Up to 16 steps/);
   assert.doesNotMatch(help, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
 });

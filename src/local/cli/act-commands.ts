@@ -3552,7 +3552,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         : automation.trigger?.kind === "at"
           ? `once at ${terminalText(automation.trigger.at)}; if missed: ${terminalText(automation.trigger.ifMissed)}`
         : automation.trigger?.kind === "files-changed"
-          ? `folder changes in work-folder ${terminalText(automation.trigger.workFolderId)}: ${terminalText(automation.trigger.watch?.path)}; debounce ${terminalText(automation.trigger.debounceSeconds)}s; cooldown ${terminalText(automation.trigger.cooldownMinutes)} minutes`
+          ? `folder changes in work-folder ${terminalText(automation.trigger.workFolderId)}: ${terminalText(automation.trigger.watch?.path)}; debounce ${terminalText(automation.trigger.debounceSeconds)}s; cooldown ${terminalText(automation.trigger.cooldownMinutes)} minutes${automation.trigger.ifMissed === "run" ? "; catches up once on files added or changed while work-fold was closed, the computer was asleep, or this automation was off" : ""}`
         : automation.trigger?.kind === "on-settled"
           ? `on-settled: ${terminalText(automation.trigger.source?.kind)} in work-folder ${terminalText(automation.trigger.source?.workFolderId)}`
           : "manual (run-now only)";
