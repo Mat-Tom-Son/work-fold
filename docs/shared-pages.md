@@ -289,8 +289,10 @@ IndexedDB for `<slug>.work-fold.com`). Structurally:
 ### Honest states
 
 - **Asleep.** Desktop offline, no snapshot: "This page is served by
-  `<slug>`'s work-fold desktop, which is asleep right now. Try again
-  later." HTTP 200, typed state, no pretending.
+  `<slug>`'s work-fold desktop, which is offline right now. Try again
+  later." An app reads "The app this page belongs to is served by
+  `<slug>`'s work-fold desktop, which is offline right now. Try again
+  later." HTTP 200, typed `asleep` state, no pretending.
 - **As of.** Desktop offline, snapshot opted in: the cached page renders
   under a persistent "as of `<time>`" banner. Never presented as live.
 - **Not available.** Desktop online but the source file is missing, moved,
