@@ -15,7 +15,10 @@ Development preview can be opened without first publishing a Release.
 An installation named in the current work-fold agent request also provides an app
 result link. The host derives it from the executed act receipt and installed
 proposal, or the completed Release activation. It pins the work-folder, app and
-Feature Installation instead of looking up a title. Opening resolves that same
+Feature Installation instead of looking up a title, and carries the name of the
+work-folder the app is installed in (which can differ from the work-folder the
+act ran in) for the view's header; `apps.list` supplies the current name when
+the view opens. Opening resolves that same
 installation's current reviewed revision; a changed digest shows **Updated
 since this task**. Removal/reinstallation makes the old link unavailable.
 
