@@ -53,8 +53,9 @@ node examples/services/restricted-app-demo-service.mjs
 ```
 
 It binds only `127.0.0.1:4317` and implements `GET /health` plus
-`POST /jobs/refresh`. Allow **project-service** for this app in Settings → Apps,
-open **Project service**, then use **Check health** or **Run refresh job**.
+`POST /jobs/refresh`. Installing the app turns its **project-service**
+destination on. Click **Project service** in the app's left pane to open its
+tab, then use **Check health** or **Run refresh job**.
 
 This helper is an ordinary developer process outside the restricted app
 package. work-fold and the sandboxed app do not execute, install, stop, or
@@ -62,8 +63,8 @@ trust it. work-fold verifies only the reviewed numeric loopback address and
 port before brokering a request; it does not verify that this particular
 process owns the port. Stop the helper from its terminal when testing is done.
 
-Notifications are separately off after installation. If allowed, they can be
-shown only during an enabled automation run while work-fold is running, using
+Notifications are on after installation and can be turned off in Settings →
+Apps. They can be shown only during an enabled automation run while work-fold is running, using
 the exact title and body reviewed in `agent-app.json`; app code cannot supply
 dynamic notification copy, actions, or URLs. An explicit **Run now** while the
 automation is disabled has no notification authority.

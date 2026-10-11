@@ -288,8 +288,8 @@ saved before that falls back to the tool's own name marked as an app's
 Apps that expose tools or automations declare a separate worker
 module. work-fold loads it in a hidden sandboxed renderer with the same
 direct-network and Node denials. Inputs and outputs are schema checked and
-bounded at 64 MiB; timeouts, crashes, cyclic values, intrinsic tampering, and
-oversized results terminate the worker. The timeout is a ten-minute hang guard
+bounded at 64 MiB. Timeouts and crashes terminate the worker; cyclic,
+tampered, or oversized results are refused with `OUTPUT_INVALID`. The timeout is a ten-minute hang guard
 measured only over time the worker spends in its own code — a host call in
 flight (network, Worker request, bounded inference) stops the clock — so it
 never caps real work that waits on the host. A worker holds one operation at a
@@ -641,8 +641,7 @@ Chromium still carries browser-engine exploit and denial-of-service risk.
 Electron updates, sender validation, package review, and the real-runtime probe
 remain release requirements.
 
-The development branch adds [app data export and recovery](app-data-recovery.md)
-to Settings → Apps and retained-data export to App Studio. These are host management
+[App data export and recovery](app-data-recovery.md) live in Settings → Apps and retained-data export to App Studio. These are host management
 operations, separate from the restricted runtime bridge.
 
 

@@ -36,8 +36,9 @@ An installed Feature may submit a [named Worker request](app-assistant-tasks.md)
 bound to its exact incarnation and authority. An accepted task enters the
 owning work-folder's normal full-trust Chat runtime immediately and leaves a receipt
 ([Receipts, not gates](receipts-not-gates.md), F22). Direct app broker grants do
-not restrict that Worker's native tools. The app observes its owned request,
-including questions and continuations, through the task bridge.
+not restrict that Worker's native tools. The app observes its owned request's
+status (including `waiting` while a question is open) and its result through the
+task bridge; the question itself is answered in the Chat or Settings → Apps.
 
 ```mermaid
 flowchart TB
@@ -183,7 +184,7 @@ The desktop implements the first complete local Project-to-Instance journey:
    Development Instance. App Studio explicitly records the App title,
    description, and icon; the first direct preview can seed those values from
    its Feature declaration during project initialization.
-2. The existing Chat-bound proposal/install and advanced local-install paths
+2. The existing Chat-bound proposal/install path and the CLI's `apps install-preview`
    create reviewed **Local previews**. They remain source-work-folder-bound,
    release-less Development Features and never convert in place.
 3. **Prepare Release** snapshots every current reviewed preview into a verified

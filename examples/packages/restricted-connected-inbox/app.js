@@ -61,7 +61,7 @@ function renderTab() {
 
 function renderInbox(folder) {
   const filtered = messages.filter((message) => message.folder === folder && `${message.sender} ${message.subject}`.toLowerCase().includes(query.toLowerCase()));
-  root.innerHTML = `<section class="tab-shell"><header class="tab-header"><div><span class="eyebrow">CONNECTED INBOX</span><h1>${folder === "drafts" ? "Drafts" : "Inbox"}</h1><p>${filtered.length} messages in this work-folder</p></div><button class="primary" data-open-compose>Compose</button></header><div class="tab-toolbar"><label class="search"><span>⌕</span><input type="search" value="${escapeAttribute(query)}" placeholder="Filter messages"></label><button class="secondary" data-refresh>Sync</button></div>${automationStatusMarkup()}<div class="wide-message-list">${filtered.map(messageCard).join("") || `<p class="empty">Nothing here yet</p>`}</div><p id="connection-state" class="connection-state">Showing local demo data. Approve mail-api in Capabilities to connect.</p></section>`;
+  root.innerHTML = `<section class="tab-shell"><header class="tab-header"><div><span class="eyebrow">CONNECTED INBOX</span><h1>${folder === "drafts" ? "Drafts" : "Inbox"}</h1><p>${filtered.length} messages in this work-folder</p></div><button class="primary" data-open-compose>Compose</button></header><div class="tab-toolbar"><label class="search"><span>⌕</span><input type="search" value="${escapeAttribute(query)}" placeholder="Filter messages"></label><button class="secondary" data-refresh>Sync</button></div>${automationStatusMarkup()}<div class="wide-message-list">${filtered.map(messageCard).join("") || `<p class="empty">Nothing here yet</p>`}</div><p id="connection-state" class="connection-state">Showing local demo data. Connect mail-api in Settings → Apps to use your mail.</p></section>`;
   root.querySelector("input")?.addEventListener("input", (event) => { query = event.target.value; void bridge.storage.set("search-query", query); renderInbox(folder); });
   wireOpenActions();
   root.querySelector("[data-refresh]")?.addEventListener("click", refreshMail);
@@ -98,7 +98,7 @@ function renderCompose() {
 }
 
 function renderService() {
-  root.innerHTML = `<section class="service"><header><div><span class="eyebrow">LOCAL SERVICE · 127.0.0.1:4317</span><h1>Project service</h1><p>A tiny control panel for a process running beside this work-folder.</p></div><button class="secondary" data-close>Close</button></header><div class="metrics"><article><span>Status</span><strong id="service-status">Not checked</strong></article><article><span>Endpoint</span><strong>/health</strong></article><article><span>Transport</span><strong>Brokered HTTP</strong></article></div><div class="service-actions"><button class="primary" data-check>Check health</button><button class="secondary" data-run>Run refresh job</button><button class="secondary" data-export>Export status</button></div><pre id="service-output">Start the example service on port 4317, allow project-service in Capabilities, then check it here.</pre></section>`;
+  root.innerHTML = `<section class="service"><header><div><span class="eyebrow">LOCAL SERVICE · 127.0.0.1:4317</span><h1>Project service</h1><p>A tiny control panel for a process running beside this work-folder.</p></div><button class="secondary" data-close>Close</button></header><div class="metrics"><article><span>Status</span><strong id="service-status">Not checked</strong></article><article><span>Endpoint</span><strong>/health</strong></article><article><span>Transport</span><strong>Brokered HTTP</strong></article></div><div class="service-actions"><button class="primary" data-check>Check health</button><button class="secondary" data-run>Run refresh job</button><button class="secondary" data-export>Export status</button></div><pre id="service-output">Start the example service on port 4317, then check it here.</pre></section>`;
   root.querySelector("[data-close]")?.addEventListener("click", () => bridge.tabs.close());
   root.querySelector("[data-check]")?.addEventListener("click", () => callService("GET", "/health"));
   root.querySelector("[data-run]")?.addEventListener("click", () => callService("POST", "/jobs/refresh"));
@@ -164,7 +164,7 @@ function summarizeAutomationRefresh() {
     const source = lastAutomationStorageEvent
       ? `Live storage ${lastAutomationStorageEvent.reset ? "reset" : "update"} · revision ${lastAutomationStorageEvent.revision}`
       : "Waiting for the first automation run";
-    return { state: "idle", title: "Inbox refresh has not run", detail: `${source}. Use Run now in Capabilities.` };
+    return { state: "idle", title: "Inbox refresh has not run", detail: `${source}. Use Run now in Settings → Apps.` };
   }
 
   const network = lastAutomationRefresh.network && typeof lastAutomationRefresh.network === "object" ? lastAutomationRefresh.network : {};
@@ -197,7 +197,7 @@ function summarizeAutomationRefresh() {
 }
 
 function automationStatusMarkup() {
-  return `<aside class="automation-status" data-automation-refresh data-state="idle" aria-live="polite"><span class="automation-status-dot" aria-hidden="true"></span><span><strong data-automation-refresh-title>Inbox refresh has not run</strong><small data-automation-refresh-detail>Use Run now in Capabilities.</small></span></aside>`;
+  return `<aside class="automation-status" data-automation-refresh data-state="idle" aria-live="polite"><span class="automation-status-dot" aria-hidden="true"></span><span><strong data-automation-refresh-title>Inbox refresh has not run</strong><small data-automation-refresh-detail>Use Run now in Settings → Apps.</small></span></aside>`;
 }
 
 function safeStatus(value) {
@@ -217,20 +217,26 @@ function wireOpenActions() {
   root.querySelectorAll("[data-open-service]").forEach((element) => element.addEventListener("click", openService));
 }
 
+// The left pane opens a tab per click; a tab cannot open others, so inside a
+// tab the same buttons move that tab to the new view.
+function show(tab) {
+  if (context.placement === "tab") return bridge.tabs.update({ title: tab.title, route: tab.route, ...(tab.state ? { state: tab.state } : {}) });
+  return bridge.tabs.open(tab);
+}
 function openMessage(id) {
   const message = messages.find((item) => item.id === id);
   if (!message) return;
-  return bridge.tabs.open({ tabId: `message:${message.id}`, title: message.subject, route: `/message/${message.id}`, state: { messageId: message.id } });
+  return show({ tabId: `message:${message.id}`, title: message.subject, route: `/message/${message.id}`, state: { messageId: message.id } });
 }
-function openFolder(folder) { return bridge.tabs.open({ tabId: `folder:${folder}`, title: folder === "drafts" ? "Drafts" : "Inbox", route: `/inbox?folder=${folder}` }); }
-function openCompose() { return bridge.tabs.open({ tabId: `compose:${Date.now()}`, title: "New message", route: "/compose" }); }
-function openService() { return bridge.tabs.open({ tabId: "project-service", title: "Project service", route: "/service" }); }
+function openFolder(folder) { return show({ tabId: `folder:${folder}`, title: folder === "drafts" ? "Drafts" : "Inbox", route: `/inbox?folder=${folder}` }); }
+function openCompose() { return show({ tabId: `compose:${Date.now()}`, title: "New message", route: "/compose" }); }
+function openService() { return show({ tabId: "project-service", title: "Project service", route: "/service" }); }
 
 function messageRow(message) { return `<button class="message-row ${message.unread ? "unread" : ""}" data-message="${message.id}"><span class="avatar">${escapeHtml(message.sender.slice(0, 1))}</span><span><strong>${escapeHtml(message.sender)}</strong><b>${escapeHtml(message.subject)}</b><small>${escapeHtml(message.preview)}</small></span><time>${escapeHtml(message.time)}</time></button>`; }
 function messageCard(message) { return `<button class="message-card ${message.unread ? "unread" : ""}" data-message="${message.id}"><span class="avatar">${escapeHtml(message.sender.slice(0, 1))}</span><span><strong>${escapeHtml(message.sender)}</strong><b>${escapeHtml(message.subject)}</b><small>${escapeHtml(message.preview)}</small></span><time>${escapeHtml(message.time)}</time></button>`; }
 function friendlyConnectionError(error) {
-  if (error?.code === "NETWORK_DENIED") return "Access is off or this request was not declared · review it in Capabilities";
-  if (error?.code === "AUTH_REQUIRED") return "Connection required · connect it in Capabilities";
+  if (error?.code === "NETWORK_DENIED") return "Access is off or this request was not declared · review it in Settings → Apps";
+  if (error?.code === "AUTH_REQUIRED") return "Connection required · connect it in Settings → Apps";
   return error?.message || "Connection unavailable";
 }
 function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]); }
