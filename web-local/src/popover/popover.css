@@ -229,6 +229,30 @@
   user-select: text;
 }
 .popover-transcript:focus { outline: none; }
+/* Sticks to the bottom of the transcript while the person reads scrollback. */
+.agent-jump-latest {
+  position: sticky;
+  bottom: 4px;
+  z-index: 1;
+  align-self: center;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--pop-border);
+  border-radius: 999px;
+  background: var(--pop-surface);
+  color: var(--pop-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+}
+.agent-jump-latest svg { width: 13px; height: 13px; }
+.agent-jump-latest:hover { background: var(--pop-surface-2); }
 .popover-message { min-width: 0; }
 .popover-message.user {
   align-self: flex-end;
@@ -372,6 +396,8 @@ textarea:focus { outline: none; }
   background-color: transparent;
   color: var(--pop-text-muted);
   field-sizing: content;
+  /* The level sits against its chevron, so short words leave no gap. */
+  text-align: right;
   cursor: pointer;
 }
 .composer-model:hover,
