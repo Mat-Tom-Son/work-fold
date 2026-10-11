@@ -201,6 +201,12 @@ import {
 import { compareHistoryFile, readHistoryFile } from "./history-review.js";
 import { searchWorkFolder } from "./search.js";
 import { WorkFolderAppearanceStore } from "./work-folder-appearance-store.js";
+import {
+  applyWorkFolderAppearanceParts,
+  resolveWorkFolderAppearanceParts,
+  workFolderAppearancePartsLabel,
+  WorkFolderAppearancePartsError,
+} from "./work-folder-appearance-parts.js";
 import { normalizeConversationTitle, normalizeGeneratedConversationTitle } from "../shared/chat-title.js";
 import {
   hasWorkFolderAppearanceCustomization,
@@ -7189,8 +7195,16 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async workFoldersAppearanceApply(input) {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
       const workFolder = await resolveWorkFolder(input.workFolder);
-      const proposal = await readWorkFolderAppearanceProposalFile(input.proposalPath, input.cwd);
-      if (proposal.target?.workFolderId && proposal.target.workFolderId !== workFolder.id) {
+      const proposal = input.proposalPath !== undefined ? await readWorkFolderAppearanceProposalFile(input.proposalPath, input.cwd) : null;
+      // Named parts are read and encoded first, so an unusable image refuses before anything changes.
+      const parts = proposal ? null : await resolveWorkFolderAppearanceParts(input.parts ?? {}, input.cwd).catch((error: unknown) => {
+        if (error instanceof WorkFolderAppearancePartsError) throw new WorkFoldCliError(error.code, error.message, { cause: error });
+        throw error;
+      });
+      if (!proposal && (!parts || !workFolderAppearancePartsLabel(parts))) {
+        throw new WorkFoldCliError("usage", "Provide a proposal, or a banner image, icon, or color to change.");
+      }
+      if (proposal?.target?.workFolderId && proposal.target.workFolderId !== workFolder.id) {
         throw new WorkFoldCliError(
           "conflict",
           `This appearance proposal targets a different work-folder (${proposal.target.workFolderId}). Apply it with that --work-folder, or use a proposal authored for this one.`,
@@ -7199,15 +7213,19 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       return runActOperation(async () => {
         const displaced = currentAppearanceCustomization(workFolder.id);
         // Exactly the Customize work-folder import route's mutation: the store
-        // normalizes and persists the typed customization atomically.
-        const applied = await state.appearance.replaceWorkFolder(workFolder.id, proposal.customization);
+        // normalizes and persists the typed customization atomically. Named
+        // parts change only themselves on top of the current appearance.
+        const applied = await state.appearance.replaceWorkFolder(
+          workFolder.id,
+          proposal ? proposal.customization : applyWorkFolderAppearanceParts(displaced, parts!),
+        );
         const result = applied.customizations[workFolder.id] ?? null;
         appearanceUndoSlots.set(workFolder.id, { displaced, result });
         await recordFacadeAction(state, input.parentTaskId, { command: "work-folders.appearance.apply", workFolder });
         return {
           workFolder: toActWorkFolderRef(workFolder),
           applied: true as const,
-          proposalName: proposal.name,
+          proposalName: proposal ? proposal.name : workFolderAppearancePartsLabel(parts!),
           appearanceRef: appearanceCustomizationRef(result),
           priorAppearanceRef: appearanceCustomizationRef(displaced),
         };

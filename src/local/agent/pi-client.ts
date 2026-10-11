@@ -59,6 +59,7 @@ import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit
 import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
+import { createImageGenerationTool } from "./image-generation-tool.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -747,6 +748,8 @@ export class PiConversationClient extends EventEmitter {
         : [];
       this.appToolTitles = restrictedAppToolTitles(restrictedApps);
       const customTools = [
+        // Every session can make pictures with a connected image model, saved in its own folder.
+        createImageGenerationTool({ root: options.cwd, models: runtime.modelRuntime }),
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
             workFolderId: this.hostCapabilities.workFolderId,
@@ -760,7 +763,7 @@ export class PiConversationClient extends EventEmitter {
       const result = await createAgentSessionFromServices({
         services,
         sessionManager: options.sessionManager,
-        ...(customTools.length ? { customTools } : {}),
+        customTools,
         ...(options.sessionStartEvent ? { sessionStartEvent: options.sessionStartEvent } : {}),
         ...(preferred ? { model: preferred } : {}),
       });

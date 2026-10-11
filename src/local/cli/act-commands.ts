@@ -175,6 +175,8 @@ export interface WorkFoldCliActParsedCommand {
   attachments?: string[];
   toDir?: string;
   proposalPath?: string;
+  /** `work-folders appearance apply` without a proposal: just these parts change. */
+  appearanceParts?: { bannerImagePath?: string; icon?: string; color?: string };
   check?: string;
   finding?: string;
   decision?: WorkFoldCheckDecisionKind;
@@ -404,6 +406,9 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--to-work-folder",
     "--file",
     "--request",
+    "--banner-image",
+    "--icon",
+    "--color",
   ]);
   const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear"]);
 
@@ -1221,17 +1226,28 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         workFolder: requireWorkFolder(),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
-    case "work-folders appearance apply":
+    case "work-folders appearance apply": {
       // File-borne input: the typed proposal passes as a path resolved
-      // host-side, the same pattern as `checks enable --proposal`.
-      allowOnlyFlags("--work-folder", "--proposal", "--parent-task");
+      // host-side, the same pattern as `checks enable --proposal`. Or name
+      // just the parts to change; the image is read and encoded host-side.
+      allowOnlyFlags("--work-folder", "--proposal", "--banner-image", "--icon", "--color", "--parent-task");
+      const proposalPath = optionalBoundedFlag("--proposal", "proposal-path", maxActPathLength);
+      const bannerImagePath = optionalBoundedFlag("--banner-image", "image-path", maxActPathLength);
+      const icon = optionalBoundedFlag("--icon", "icon-name", 64);
+      const color = optionalBoundedFlag("--color", "#rrggbb", 16);
+      const parts = { ...(bannerImagePath ? { bannerImagePath } : {}), ...(icon ? { icon } : {}), ...(color ? { color } : {}) };
+      if (proposalPath && Object.keys(parts).length) throw usageError("Use --proposal, or --banner-image/--icon/--color, not both.");
+      if (!proposalPath && !Object.keys(parts).length) {
+        throw usageError("Provide --proposal <path>, or at least one of --banner-image <path>, --icon <name>, --color <#rrggbb>.");
+      }
       return {
         name: "work-folders.appearance.apply",
         output,
         workFolder: requireWorkFolder(),
-        proposalPath: requireBoundedFlag("--proposal", "proposal-path", maxActPathLength),
+        ...(proposalPath ? { proposalPath } : { appearanceParts: parts }),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    }
     case "work-folders appearance reset":
       allowOnlyFlags("--work-folder", "--parent-task");
       return {
@@ -2274,7 +2290,7 @@ async function runActCommand(
     case "work-folders.appearance.apply":
       return toJson(await facade.workFoldersAppearanceApply({
         workFolder: command.workFolder!,
-        proposalPath: command.proposalPath!,
+        ...(command.proposalPath ? { proposalPath: command.proposalPath } : { parts: command.appearanceParts! }),
         cwd: request.cwd,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
