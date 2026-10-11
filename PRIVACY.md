@@ -144,7 +144,7 @@ MCP settings are not automatically imported. Native MCP currently has no elicita
 
 ## When data leaves this computer
 
-The development branch supports named [app-requested agent tasks](docs/app-assistant-tasks.md).
+Apps can make named [app-requested agent tasks](docs/app-assistant-tasks.md).
 A request starts a Chat in the owning work-folder at once, sending the app's
 instructions and input through that work-folder's usual model and tools; Settings → Apps
 shows its status and can open or stop it. The successful reply is shared with the
@@ -181,7 +181,7 @@ App data and management controls carry the non-secret installation identity
 as well as the installed revision. Removing and reinstalling the same code does
 not let an old control read or modify the new installation's data.
 
-The development branch's **Change this app** copies only the verified installed
+**Change this app** copies only the verified installed
 package into its source work-folder, where ordinary folder backup/synchronization rules
 apply. Its machine-local provenance records the source working path, exact app
 revision and installation identities, and a building Chat id when available.
@@ -347,8 +347,8 @@ Fold-led setup prepares an unsent draft and materializes inert Check proposals. 
 Restricted app Check-result access is separately selected per exact installation
 and Check revision. It shares only that Check's status, bounded finding details,
 relative paths and quoted evidence. It never runs a sensor or contacts a model,
-and grants no general file access. Changed declarations refuse; changed app
-revisions reset selections. Workers and shared viewers cannot read Check results.
+and grants no general file access. Changed declarations refuse; an app update
+carries a selection forward by its permission id. Workers and shared viewers cannot read Check results.
 
 ### Fold task result links
 

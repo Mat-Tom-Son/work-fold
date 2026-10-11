@@ -55,7 +55,7 @@ already inside the work-folder and was not proposed from a Chat is added with
 (a recovery and developer lane in the CLI's act family); it does not replace
 the Chat-bound proposal and review flow for agent-created apps.
 
-On the development branch, **Change this app** creates an exact installed-byte
+**Change this app** creates an exact installed-byte
 working copy and an unsent source-work-folder Chat draft. Edit that copy without changing
 its app/package identity and propose it normally. The host rejects an update if
 another edit changed the source preview in the meantime. See
@@ -93,12 +93,13 @@ the chosen work-folder for navigation and file-grant selection.
 
 App Studio can prepare an update or rollback to any other published Release from
 the same Project. Exact unchanged Features may keep eligible authority; a
-changed Feature keeps its installation and data namespace but resets grants,
-connections, and jobs. The current local runtime rejects data schemas and
+changed Feature keeps its installation and data namespace and, under the
+default "keep current choices" update, carries its grants, connections, and
+job states forward by declaration id; "use install defaults" resets them. The current local runtime rejects data schemas and
 migrations, so this package format must continue to rely on backward-compatible
 JSON storage until reviewed migration execution is implemented. Uninstall
-requires retaining or purging App data; retained namespaces are inactive. The
-development branch also supports export; see [App data recovery](app-data-recovery.md).
+requires retaining or purging App data; retained namespaces are inactive. App data
+can also be exported; see [App data recovery](app-data-recovery.md).
 
 ## Package layout
 
@@ -356,7 +357,7 @@ if (actions) {
   // Keep this exact request for an uncertain retry; do not create another id.
   const request = actions.createRequest("save-quote", { supplier: "North", quantity: 10 });
   const receipt = await actions.request(request);
-  // Waiting means the person has not yet run it from the trusted parent.
+  // The request runs as soon as it is accepted; poll until it settles.
   const current = await actions.get(receipt.requestId);
   if (current.status === "succeeded") showResult(current.result);
 }
@@ -834,7 +835,7 @@ events contain `runId`, `appAutomationId`, `handler`, `reason` (`scheduled`,
 Every automation is on when the app is added, anchored at that moment so its
 first run is one interval later; the person can turn any off in Settings → Apps. A job
 runs only while work-fold is running. One scheduler is shared across all
-work-folders and apps, with a four-run global limit, FIFO admission, same-job
+work-folders and apps, with 32 concurrent runs by default, FIFO admission, same-job
 non-overlap, and at most one staggered latest catch-up when requested. **Run
 now** is a one-off execution: it works while the schedule is off and does not
 move the recurring cadence. Every attempt receives a durable receipt visible in
@@ -1075,9 +1076,9 @@ The Connected inbox package includes a project-service panel. To test it:
    node examples/services/restricted-app-demo-service.mjs
    ```
 
-4. In Settings → Apps, allow the app's **project-service** destination.
-5. Open the app's **Project service** tab and use **Check health** or **Run
-   refresh job**.
+4. Open the app from its rail button and click **Project service** in its left
+   pane. Installing turned the **project-service** destination on, so the tab
+   can use **Check health** or **Run refresh job** right away.
 
 The helper is an ordinary dependency-free developer process that binds only
 `127.0.0.1:4317`. work-fold and the sandboxed app do not execute, install,

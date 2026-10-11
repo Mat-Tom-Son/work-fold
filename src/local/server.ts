@@ -855,7 +855,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       "The Local API requires an injected restricted App service whose automation startup is still deferred.",
     );
   }
-  // propose_space_app installs the local preview inside the proposing turn's
+  // propose_work-folder_app installs the local preview inside the proposing turn's
   // own tool call. That install waits for other work-folder work instead of refusing
   // it and never stops the proposing turn's own Pi client.
   let proposalState: LocalApiState | undefined;
@@ -11426,7 +11426,7 @@ async function runAgentTurn(
     state.activeTurnIdsByKey.delete(key);
     state.kernel.finishTask(taskId);
     if (state.clientsToRefresh.delete(key)) {
-      // The work-folder's apps changed during this turn (propose_space_app added a
+      // The work-folder's apps changed during this turn (propose_work-folder_app added a
       // preview). Rebuild this Chat's client so its next turn sees the new tools.
       const stale = state.clients.get(key);
       if (stale) {

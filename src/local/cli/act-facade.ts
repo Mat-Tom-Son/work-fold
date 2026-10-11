@@ -1165,7 +1165,7 @@ export interface WorkFoldActFacade {
   }>;
   /**
    * Run-now for an enabled named automation, under the machine-wide
-   * scheduler's admission rules (two slots, same-job non-overlap). The run's
+   * scheduler's admission rules (32 slots by default, same-job non-overlap). The run's
    * durable, authority-captured receipt is the result; a run the scheduler
    * skipped reports its skipped outcome honestly.
    */
@@ -1183,7 +1183,7 @@ export interface WorkFoldActFacade {
    * reuses the exact desktop route internals, including the App Studio
    * guards: referenced Releases cannot be deleted, prepared operations
    * recheck at activation, digest identity beats display versions, and
-   * install activation starts with every power off.
+   * install activation turns on every declared power (docs/receipts-not-gates.md, F21).
    */
   appsProjectDeclare(input: { workFolder: string; presentationPath: string; cwd: string; parentTaskId?: string }): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
