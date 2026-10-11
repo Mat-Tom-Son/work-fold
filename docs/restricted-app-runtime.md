@@ -174,7 +174,12 @@ read-only view, including a Development preview. The declaration alone does
 not publish anything. That browser host uses two opaque frames and the same
 selected-data read implementation behind an exact-installation adapter; it
 exposes no native runtime, write, network, file, Check or Worker authority.
-See [work-folder apps in paired browsers](browser-apps.md).
+What reaches a paired browser is bounded by the relay, not by the desktop's
+larger limits: about 3 MiB of JSON per response (an asset of about 2.3 MiB)
+and an app action call of at most 2 MiB. The desktop answers a larger response
+with a `RESPONSE_TOO_LARGE` refusal and a plain message instead of sending it.
+See [work-folder apps in paired browsers](browser-apps.md) and its
+[transport limits](browser-apps.md#transport-limits).
 
 The trusted work-fold renderer owns only a placeholder rectangle and app
 identity. Electron main verifies the installed Runtime Instance, Feature
@@ -184,8 +189,14 @@ gets a separate ephemeral session and origin.
 
 The view has Chromium sandboxing and context isolation enabled, with Node,
 webviews, popups, downloads, dialogs, permissions, direct network access,
-navigation, workers, frames, service workers, and file selection denied. Its
-CSP permits only reviewed same-origin scripts, styles, images, and fonts. Native
+navigation, workers, frames, service workers, and file selection denied. A
+file dragged or pasted in from the computer is stopped before any app listener
+can read it (2026-10-11); an app's own drag and drop of text or elements still
+reaches it. Its CSP permits only reviewed same-origin scripts, styles, images,
+and fonts. The host injects the shell's look as `--wf-*` CSS variables
+(validated against an allowlist, unsafe values dropped) and serves its kit
+stylesheet and Inter font on the app's own origin under the host-owned
+`/__work-fold/` path, so the policy is unchanged (2026-10-11). Native
 view bounds and visibility follow the owning DOM placeholder; inactive tabs,
 hidden windows, minimization, and modal occlusion detach the native view while
 leaving its renderer alive.
@@ -209,8 +220,13 @@ The `work-fold.restricted-app-bridge` preload exposes only the frozen
 - `context.get()` and `context.onChanged()` report placement (`navigator` or
   `tab`), route, host-owned app identity, theme, active state, and bounded tab
   state;
-- `tabs.open(...)` asks work-fold to create or activate a work-folder-owned work tab;
-- a tab may update or close itself;
+- `tabs.open(...)` asks work-fold to create or activate a work-folder-owned work
+  tab. Only the left-pane (`navigator`) view may ask, and only within five
+  seconds of the person pressing a mouse button or key in it, as Electron main
+  sees that input; one press opens at most one tab, and anything else is
+  refused with `TAB_DENIED` (2026-10-11). The rail button itself only shows the
+  left pane, like a file in Files, a tab comes from a click inside it;
+- a tab may update or close itself, but cannot open others;
 - `request(...)` sends a declared request through the network broker;
 - `storage` provides Tenant-and-Data-Namespace-owned JSON data and active-UI
   invalidation hints;
@@ -219,7 +235,10 @@ The `work-fold.restricted-app-bridge` preload exposes only the frozen
   Check revision in the owning work-folder, only in an active visible desktop view; and
 - `notifications.show({ permissionId })` selects reviewed static copy, only
   during an enabled automation invocation whose permission subset includes a
-  separately granted category; and
+  separately granted category;
+- `attention.set({ count })` and `attention.clear()` put or remove a dot on the
+  app's rail button, from a mounted view or a worker holding an operation
+  (2026-10-11); the shell keeps the current set across a window reload; and
 - `limits.get()` returns the host's effective network, storage, file,
   automation, inference, Worker request, and change-hint bounds synchronously.
 
@@ -257,7 +276,12 @@ Feature Installation id, and resolved CLI actions retain that pin through
 execution. A stale removal reports nothing removed; other stale controls refuse
 to operate on a same-byte reinstall. Worker-facing tool names include a hash of the
 installation and complete tool name, keeping sibling actions distinct even when
-long displayed name suffixes are truncated.
+long displayed name suffixes are truncated. That name is never shown: a Chat's
+steps, live and saved, name the app and the tool instead — `Used Inbox:
+Search messages`, with `(preview)` after a local preview's title — through
+an optional `toolTitle` on the saved work-trail entry (2026-10-11). A step
+saved before that falls back to the tool's own name marked as an app's
+(`Used Search messages (app)`).
 
 ## Worker host
 
@@ -308,12 +332,23 @@ That 32 is this document's number to own: it lives as
 `workFoldAppAutomationDefaultConcurrency` in `src/shared/work-fold-limits.ts`, is read
 by `src/local/agent/work-fold-scheduler-service.ts`, and is shown read-only
 in Settings → Automations → Limits. Scheduled, manual, skipped, cancelled, and
-failed attempts produce durable run receipts. The cadence anchor is persisted
+failed attempts produce durable run receipts. A failed run's receipt and the
+automation's **Last error** keep the worker's error text whole, up to the same
+16,384 characters the worker host keeps (`workFoldAppErrorTextMaxLength`;
+before 2026-10-11 they were cut to 300). The text is made well-formed (a lone
+surrogate becomes U+FFFD) and never cut inside a character pair, so it always
+persists. The machine-wide history the overview reads keeps a 300-character
+copy, since it is read only for outcomes. Settings → Apps folds a long error
+to four lines with **Show all**. The cadence anchor is persisted
 separately from one-off manual runs, so **Run now** does not shift the next
 scheduled occurrence. A manual run is allowed while its schedule is disabled,
 but it receives no notification authority. At launch, work-fold re-reads the
 installed digest and current grants, then intersects those grants with that
-job's reviewed permission subset. Disabling, updating, removing, sleeping, or
+job's reviewed permission subset. One warm worker serves an installation's tool
+calls and automations one at a time, and each operation brings its own grants:
+an automation that reuses a worker a tool call started still gets only its
+subset, and the next tool call gets the app's grants back (2026-10-11; before,
+a reused worker kept the grants it launched with). Disabling, updating, removing, sleeping, or
 quitting stops stale launches before authority changes take effect.
 
 Notifications are host-owned system notifications, not arbitrary renderer

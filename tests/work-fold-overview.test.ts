@@ -67,6 +67,7 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
   assert.equal(first.running[1].kind, "assistant-turn", "a plain work-folder turn's own root never replaces its kernel task");
   assert.ok(!first.running.some((item) => item.id === "agent-requests:req-wait"), "a waiting request is not running");
   assert.equal(first.running[3].kind, "check-run");
+  assert.equal(first.running[4].headline, 'Inbox automation "Collect new mail" running', "an app automation names the app and its title, not its id");
   assert.equal(first.running[5].headline, 'Automation "Weekly handoff" running');
 
   // Needs you: questions and due snoozes only, newest first. Nothing here is
@@ -114,6 +115,7 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
   assert.equal(actItem.workFolderName, "work-folder-gone (removed)", "an unregistered work-folder renders the id plus (removed)");
   assert.deepEqual(actItem.ref, { checkpointId: "cp-9", requestId: "req-1" });
   assert.equal(first.changes[4].headline, "chat.rename failed");
+  assert.equal(first.changes[5].headline, 'Inbox automation "Collect new mail" succeeded');
   assert.equal(first.changes[6].headline, "Check run failed — 2 findings admitted");
   assert.equal(first.changes[7].headline, 'Automation "Weekly handoff" failed — 1/3 steps completed');
   assert.equal(first.changes[12].headline, '"Waiting" snoozed until 2026-08-10T11:30:00.000Z');
@@ -282,6 +284,11 @@ test("changes are bounded per kind and in total, newest first", async () => {
   });
   assert.equal(snapshot.changes.length, workFoldOverviewChangesTotalCap);
   assert.equal(snapshot.truncated.changes, true);
+  assert.equal(
+    snapshot.changes.find((item) => item.kind === "app-automation-run-settled")?.headline,
+    'App automation "collect" succeeded',
+    "a receipt whose app is gone keeps its declared id and still reads as an app's",
+  );
   const counts = new Map<string, number>();
   for (const item of snapshot.changes) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
   for (const [kind, count] of counts) {
@@ -729,10 +736,10 @@ function fullFixtureSources(): WorkFoldOverviewSourceReaders {
       { v: 2, at: "2026-08-10T10:55:00.000Z", requestId: "req-3", command: "chat.send", outcome: "accepted" },
     ],
     appAutomationRuns: async () => [
-      { runId: "auto-run-1", appAutomationId: "collect", workFolderId: "work-folder-b", startedAt: "2026-08-10T11:20:00.000Z" },
+      { runId: "auto-run-1", appAutomationId: "collect", appTitle: "Inbox", automationTitle: "Collect new mail", workFolderId: "work-folder-b", startedAt: "2026-08-10T11:20:00.000Z" },
     ],
     appAutomationRunReceipts: async () => [
-      { receiptId: "ar-1", runId: "auto-run-0", appAutomationId: "collect", workFolderId: "work-folder-b", outcome: "success", finishedAt: "2026-08-10T10:10:00.000Z" },
+      { receiptId: "ar-1", runId: "auto-run-0", appAutomationId: "collect", appTitle: "Inbox", automationTitle: "Collect new mail", workFolderId: "work-folder-b", outcome: "success", finishedAt: "2026-08-10T10:10:00.000Z" },
     ],
     automationRuns: async () => [
       { runId: "rr-1", automationId: "automation-1", title: "Weekly handoff", state: "running", startedAt: "2026-08-10T11:25:00.000Z", hops: [] },

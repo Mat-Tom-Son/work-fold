@@ -256,6 +256,12 @@ export interface WorkFoldRequestAction {
   /** Exact installation produced by a completed app operation. Never resolved by display name. */
   apps?: Array<{
     workFolderId: string;
+    /**
+     * Display label for the installation's own work-folder at the time of the
+     * act, which can differ from the act's work-folder (an install into a
+     * target). Records written before this field existed omit it.
+     */
+    workFolderName?: string;
     appId: string;
     featureInstallationId: string;
     digest: string;
@@ -647,9 +653,10 @@ export function parseWorkFoldRequestAction(value: unknown, label = "Request acti
     if (!Array.isArray(record.apps) || record.apps.length > 64) throw new Error(`${label} apps are invalid.`);
     action.apps = record.apps.map((item, index) => {
       const app = objectValue(item, `${label} app ${index + 1}`);
-      assertClosedShape(app, ["workFolderId", "appId", "featureInstallationId", "digest", "title", "version"], `${label} app ${index + 1}`);
+      assertClosedShape(app, ["workFolderId", "workFolderName", "appId", "featureInstallationId", "digest", "title", "version"], `${label} app ${index + 1}`);
       return {
         workFolderId: stableId(app.workFolderId, `${label} app work-folder id`),
+        ...(app.workFolderName === undefined ? {} : { workFolderName: boundedText(app.workFolderName, `${label} app work-folder name`, 1_024) }),
         appId: stableId(app.appId, `${label} app id`),
         featureInstallationId: stableId(app.featureInstallationId, `${label} app installation id`),
         digest: stableId(app.digest, `${label} app fingerprint`),

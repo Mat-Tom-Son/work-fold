@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { parseWorkFoldRequestAction } from "../src/local/requests/request-records.js";
 import { WorkFoldRequestStore } from "../src/local/requests/request-store.js";
 
 /**
@@ -165,4 +166,21 @@ test("a needs-you continuation joins the request instead of copying its trail in
   assert.equal(continued.state, "working", "a joined turn reopens the request");
   assert.equal(store.byTaskId("task-1")?.requestId, store.byTaskId("task-2")?.requestId, "both task ids resolve to the one record");
   assert.equal(store.list().length, 1, "no second record was created");
+});
+
+test("an app result names its own work-folder, and older app results without a name still load", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-agent-requests-apps-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = await WorkFoldRequestStore.open({ rootPath: root });
+  const request = await store.beginRoot({ kind: "agent", owner: { conversationId: "chat-1" }, surface: "popover", taskId: "task-1", content: "install it" });
+  const app = { workFolderId: "work-folder-target", appId: "quote-board", featureInstallationId: "installation-1", digest: "a".repeat(64), title: "Quote board", version: "1.0.0" };
+  await store.recordAction("task-1", { command: "apps.operation.activate", at: new Date().toISOString(), workFolderId: "work-folder-studio", workFolderName: "Studio",
+    apps: [{ ...app, workFolderName: "Launch plan" }] });
+  await store.recordAction("task-1", { command: "apps.install-preview", at: new Date().toISOString(), workFolderId: "work-folder-target", workFolderName: "Launch plan", apps: [app] });
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root });
+  const actions = reopened.get(request.requestId)!.actions;
+  assert.equal(actions[0]?.apps?.[0]?.workFolderName, "Launch plan", "the installation's work-folder, not the act's");
+  assert.equal(Object.hasOwn(actions[1]!.apps![0]!, "workFolderName"), false, "a reference without a name stays without one");
+  assert.equal(parseWorkFoldRequestAction({ command: "apps.install-preview", at: new Date().toISOString(), apps: [app] }).apps?.[0]?.workFolderName, undefined);
+  assert.throws(() => parseWorkFoldRequestAction({ command: "apps.install-preview", at: new Date().toISOString(), apps: [{ ...app, workFolderName: 7 }] }), /work-folder name/);
 });

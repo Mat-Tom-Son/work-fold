@@ -152,7 +152,8 @@ export type RestrictedAppErrorCode =
   | "NETWORK_RESPONSE_TOO_LARGE"
   | "OUTPUT_INVALID"
   | "REVISION_CHANGED"
-  | "STORAGE_FAILED";
+  | "STORAGE_FAILED"
+  | "TAB_DENIED";
 
 export class RestrictedAppError extends Error {
   constructor(readonly code: RestrictedAppErrorCode, message: string) {

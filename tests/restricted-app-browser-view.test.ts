@@ -10,6 +10,7 @@ import { restrictedAppTaskAuthorityDigest } from "../src/local/agent/restricted-
 import { RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES } from "../src/local/agent/restricted-app-viewer.js";
 import { startLocalApi } from "../src/local/server.js";
 import type { RestrictedAppActionExecution } from "../src/local/agent/restricted-app-service.js";
+import { requestResultLinks } from "../services/bridge/public/request-results.js";
 
 const scopeFor = (app: RestrictedAppInstalled) => ({ workFolderId: app.workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) });
 const ownerFor = (app: RestrictedAppInstalled): RestrictedAppStorageOwner => ({ ownerClass: "instance", tenantId: app.tenantId, runtimeInstanceId: app.runtimeInstanceId, featureInstallationId: app.featureInstallationId, dataNamespaceId: app.dataNamespaceId });
@@ -99,6 +100,7 @@ test("approved-browser app operations project exact identities and refuse foreig
     assert.ok(!JSON.stringify(catalog).includes(root));
     const app = catalog.apps[0]!;
     assert.equal(app.webView, true);
+    assert.equal(app.workFolderName, "Web app", "an app view labels the work-folder by its current name");
     const scope = { workFolderId: app.workFolderId, appId: app.appId, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: app.authorityDigest };
     const result = await api.remoteFacade.execute("apps.read", { ...scope, call: { kind: "entry" } }, principal) as { state: string };
     assert.equal(result.state, "served");
@@ -195,10 +197,46 @@ test("a fold app-install result follows the executed review's exact installation
     const view = async (who = principal) => await api.remoteFacade.execute("management.summary", { conversationId: parent.conversationId }, who) as { latestRequest: { actions?: Array<{ apps?: unknown[] }> } };
     const apps = (await api.remoteFacade.execute("apps.list", { workFolderId: workFolder.id }, principal) as { apps: Array<Record<string, any>> }).apps;
     assert.equal(installedPreview.app.featureInstallationId, apps[0]!.featureInstallationId, "the install result names the exact installation");
+    assert.equal(Object.hasOwn(installedPreview.app, "workFolderName"), false, "the CLI result keeps its existing shape");
     const result = (await view()).latestRequest.actions![0]!.apps;
     assert.deepEqual(result, [{ workFolderId: workFolder.id, appId: apps[0]!.appId, featureInstallationId: apps[0]!.featureInstallationId,
-      digest: apps[0]!.digest, title: "Quote board", version: "1.0.0" }]);
+      digest: apps[0]!.digest, title: "Quote board", version: "1.0.0", workFolderName: "App result" }]);
     assert.equal((await view({ ...principal, grantId: "another-grant" })).latestRequest.actions, undefined);
     assert.equal(JSON.stringify(result).includes(root), false);
+  } finally { release(); await api.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("a Release installed into another work-folder names that work-folder in its result link", async () => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-target-result-"));
+  const agentDir = join(root, "agent"); await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await writeFile(join(agentDir, "extensions", "done.ts"), 'export default function(pi) { pi.registerCommand("done", { description: "Finish a test", handler: async () => {} }); }');
+  let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "work-folders"), loadEnv: false,
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } }, beforeAgentPrompt: async () => gate });
+  const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "request-release" };
+  try {
+    const { workFolder: studio } = await api.actFacade.createWorkFolder({ name: "App studio" });
+    const { workFolder: target } = await api.actFacade.createWorkFolder({ name: "Launch plan" });
+    const source = join(studio.workFolderRoot, "app"); await mkdir(source);
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "release-result-qa", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
+    await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "release-result-qa", title: "Quote board", runtime: { kind: "sandboxed-web", entry: "index.html" },
+      ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["quotes/"] } }));
+    await writeFile(join(source, "index.html"), "<!doctype html><h1>Quote board</h1>");
+    await api.actFacade.appsInstallPreview({ workFolder: studio.id, packagePath: "app" });
+    const prepared = await api.actFacade.appsReleasePrepare({ workFolder: studio.id, version: "1.0.0" });
+    await api.actFacade.appsReleasePublish({ workFolder: studio.id, release: prepared.release.releaseDigest });
+    const plan = await api.actFacade.appsInstallPrepare({ workFolder: studio.id, release: prepared.release.releaseDigest, targetWorkFolder: target.id });
+    const parent = await api.remoteFacade.execute("management.send", { content: "/done", newConversation: true }, principal) as { taskId: string; conversationId: string };
+    await api.actFacade.appsOperationActivate({ workFolder: studio.id, operation: plan.operation.operationId, parentTaskId: parent.taskId });
+    const summary = await api.remoteFacade.execute("management.summary", { conversationId: parent.conversationId }, principal) as {
+      latestRequest: { actions: Array<{ command: string; workFolderName?: string; apps?: Array<Record<string, unknown>> }> } };
+    const activation = summary.latestRequest.actions.find((action) => action.command === "apps.operation.activate")!;
+    assert.equal(activation.workFolderName, "App studio", "the act ran in the studio");
+    assert.equal(activation.apps?.length, 1);
+    assert.equal(activation.apps![0]!.workFolderId, target.id);
+    assert.equal(activation.apps![0]!.workFolderName, "Launch plan", "the installation names the work-folder it was installed into");
+    const [link] = requestResultLinks(summary.latestRequest);
+    assert.equal(link.kind, "app");
+    assert.equal(link.workFolderName, "Launch plan");
   } finally { release(); await api.close(); await rm(root, { recursive: true, force: true }); }
 });

@@ -100,3 +100,21 @@ test("saved rows expose captured edit text safely, and Copy retains progress plu
   await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Copy message"]')!.click());
   assert.deepEqual(copies, [input.content]);
 });
+
+test("a request an app made says which app asked instead of looking like the person's message", () => {
+  const row = (message: ChatMessage) => renderToStaticMarkup(createElement(ChatMessageRow, { message, copied: false, showLanding: false,
+    suppressEnterAnimation: true, showRuntimePreview: false, runtimePreviews: [], workFolderId: "folder", workFolderRoot: "/folder",
+    onCopyMessage: () => undefined }));
+  const base: ChatMessage = { id: "m", role: "user", createdAt: "2026-10-11T12:00:00Z", content: "App request: Compare quotes" };
+  const fromApp = row({ ...base, source: "app", appId: "quote-board", appTitle: "Quote board" });
+  assert.match(fromApp, /<article class="message app-request settled">/);
+  assert.match(fromApp, /<p class="message-sender">From Quote board<\/p>/);
+  assert.doesNotMatch(fromApp, /class="message user/, "it does not borrow the person's bubble");
+  assert.match(fromApp, /App request: Compare quotes/);
+
+  const own = row(base);
+  assert.match(own, /<article class="message user settled">/);
+  assert.doesNotMatch(own, /message-sender/);
+  // A marker without a title (an older or damaged log) renders as before.
+  assert.match(row({ ...base, source: "app" }), /<article class="message user settled">/);
+});

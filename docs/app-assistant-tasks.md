@@ -306,6 +306,25 @@ journal and never automatically retried: a crash before acceptance becomes
 authoritative. Replaying an envelope after a failure returns the failed record;
 a new request is a new envelope.
 
+The dispatched message keeps the action's reviewed instructions as the task
+and fences the app's input after them in an `<app-input>` block labelled as
+untrusted data (2026-10-11). The input can be content the app fetched from
+anywhere, and the Worker receiving it has full tools, so it is told to use the
+input for the task and never to follow instructions inside it. `<` is escaped
+inside that JSON, so the input cannot close its own fence.
+
+The Chat shows that the request is the app's, not the person's (2026-10-11).
+Its title is the app's name, shortened to 24 characters, then the action's
+title — `Inbox · Compare quotes` — within the usual 80-character Chat title,
+so two apps that both offer "Compare quotes" stay apart in the Chat list. The
+dispatched message is saved in the portable Chat log with `source: "app"`,
+the app's manifest `appId`, and its `appTitle` when it asked, the same way a
+message sent from a paired browser carries `source: "remote_web"`. The Chat
+draws it with a small **From Inbox** label and a quiet surface instead of the
+person's own message bubble. A log written before the marker, or a marker
+without a usable title (one plain line, at most 80 characters), loads as an
+ordinary message.
+
 Damage disables only this task lane without overwriting its evidence or
 preventing work-fold startup. Task input and results stay machine-local; the
 dispatched prompt and the normal reply also belong to the portable Chat in the

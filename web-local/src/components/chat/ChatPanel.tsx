@@ -667,6 +667,7 @@ export function ChatPanel({
           text: data.message?.trim() || data.toolName?.trim() || "Tool",
           ...(data.detail?.trim() ? { detail: data.detail.trim() } : {}),
           ...(data.toolName?.trim() ? { toolName: data.toolName.trim() } : {}),
+          ...(data.toolTitle?.trim() ? { toolTitle: data.toolTitle.trim() } : {}),
           ...(data.order !== undefined ? { order: data.order } : {}),
           ...(data.durationMs !== undefined ? { durationMs: data.durationMs } : {}),
           ...(data.edit ? { edit: data.edit } : {}),

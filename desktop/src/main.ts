@@ -477,6 +477,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       notifications: restrictedNotifications,
       resolveWorkFolderRoot: async (workFolderId) => (await listWorkFolders()).find((workFolder) => workFolder.id === workFolderId)?.workFolderRoot ?? null,
       preloadPath: resolveRestrictedAppPreloadPath(),
+      kitRoot: join(dirnameFromFile(currentFile), "..", "..", "restricted-app-kit"),
       onTabCommand: (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         mainWindow.webContents.send("work-fold:restricted-app-view:tab-command", command);
@@ -484,6 +485,10 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       onUiState: (state) => {
         if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.id !== state.ownerWebContentsId) return;
         mainWindow.webContents.send("work-fold:restricted-app-view:state", state);
+      },
+      onAttention: (state) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.webContents.send("work-fold:restricted-app-view:attention", state);
       },
       onNotificationOpen: (request) => {
         if (!request.featureInstallationId) return;
@@ -1468,6 +1473,11 @@ function registerIpc(): void {
         railTooltipOverlay?.raise();
       })
       .catch((error) => console.warn(`${productName} could not lay out a restricted app view: ${errorMessage(error)}`));
+  });
+  ipcMain.handle("work-fold:restricted-app-view:attention-states", async (event) => {
+    assertTrustedMainRenderer(event);
+    const host = await ensureDesktopHost();
+    return host.restrictedAppHost.attentionStates();
   });
   ipcMain.handle("work-fold:restricted-app-view:unmount", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);

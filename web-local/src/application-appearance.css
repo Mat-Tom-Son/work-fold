@@ -100,7 +100,7 @@
   padding-inline: max(20px, calc((100% - var(--work-fold-chat-measure)) / 2));
 }
 :root[data-appearance-palette] .app-shell .message.assistant { width: min(100%, var(--work-fold-chat-measure)); }
-:root[data-appearance-palette] .app-shell .message.user { max-width: min(88%, calc(var(--work-fold-chat-measure) * 0.82)); }
+:root[data-appearance-palette] .app-shell :is(.message.user, .message.app-request) { max-width: min(88%, calc(var(--work-fold-chat-measure) * 0.82)); }
 :root[data-appearance-palette] .app-shell .composer-input-shell {
   width: 100%;
   max-width: var(--work-fold-chat-measure);

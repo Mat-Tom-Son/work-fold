@@ -364,3 +364,10 @@ test("the work-folder-owned Automations rail entry sits after History, shows onl
   assert.match(app, /openKeyboardShortcuts = useCallback\(\(\) => openSettings\("shortcuts"\)/);
   assert.doesNotMatch(workFolderChrome, /onOpenKeyboardShortcuts|<span>Shortcuts<\/span>/);
  });
+
+test("app and Extension rail buttons show their left pane and leave opening tabs to a click inside it", () => {
+  const selectRailMode = /function selectRailMode\(mode: WorkFolderRailMode\): void \{([\s\S]*?)\n  \}/.exec(app)?.[1] ?? "";
+  assert.ok(selectRailMode, "selectRailMode is found");
+  assert.doesNotMatch(selectRailMode, /openExtensionSurfaceTab|openRestrictedApp/, "a rail click never opens an Extension or app tab");
+  assert.match(app, /<ExtensionSurfacePane surface=\{activeSurface\}[\s\S]*?onOpenView=\{\(view\) => tabs\.openExtensionSurfaceTab\(workFolder, activeSurface, view\)\}/);
+});

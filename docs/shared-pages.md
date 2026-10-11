@@ -131,8 +131,10 @@ Consequences, consistent with the work-fold agent decision register:
 ## Rung 1 — paired access to your own work
 
 Rung 1 is not a publishing feature and introduces no viewer. The paired
-client keeps work and questions inside Chats and offers work-folder file and App
-browsing. Its earlier Needs you screen, which showed
+client keeps work and questions inside Chats. It has no work-folder file or
+App browser (removed 2026-10-09); files and apps open only from a Chat's
+result links, as bounded previews and exact-installation app views. Its
+earlier Needs you screen, which showed
 [the overview](work-fold-agent-overview.md), has been retired; the host overview operations
 remain compatible with older clients. The paired-browser grant and envelope
 encryption stay the same, with no new audience.
@@ -287,8 +289,10 @@ IndexedDB for `<slug>.work-fold.com`). Structurally:
 ### Honest states
 
 - **Asleep.** Desktop offline, no snapshot: "This page is served by
-  `<slug>`'s work-fold desktop, which is asleep right now. Try again
-  later." HTTP 200, typed state, no pretending.
+  `<slug>`'s work-fold desktop, which is offline right now. Try again
+  later." An app reads "The app this page belongs to is served by
+  `<slug>`'s work-fold desktop, which is offline right now. Try again
+  later." HTTP 200, typed `asleep` state, no pretending.
 - **As of.** Desktop offline, snapshot opted in: the cached page renders
   under a persistent "as of `<time>`" banner. Never presented as live.
 - **Not available.** Desktop online but the source file is missing, moved,
@@ -367,6 +371,14 @@ render). Budget exhaustion is a typed viewer state and an overview item, never
 a silent drop. The minute-interval bridge metrics record gains aggregate
 viewer counters with the existing rule intact: no ids, addresses, tokens,
 ciphertext, or content.
+
+The paired-browser lane keeps its own envelope bounds, separate from the
+viewer plane's: about 2.1 MiB of JSON per browser request (2 MiB × 1.4
+ciphertext characters; a message with uploads may use 12 MiB × 1.4) and about
+3.15 MiB per desktop response (3 MiB × 1.4). The desktop checks each response
+first and answers a larger one with a typed `RESPONSE_TOO_LARGE` refusal
+instead of sending it. See
+[transport limits](browser-apps.md#transport-limits).
 
 ### The mutation ledger
 

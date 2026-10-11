@@ -632,6 +632,11 @@ test("machine-wide automation ledgers feed the overview and the restore fence, a
       true,
       "an accepted automation run reaches the overview's running digest",
     );
+    assert.equal(
+      runningOverview.running.find((item) => item.kind === "app-automation-run")?.headline,
+      'Mail automation "Refresh mail" running',
+      "the overview names the app and the automation's title, not its id",
+    );
     assert.deepEqual(
       await api.kernel.listExperimentalHistoryRestoreBlockers(workFolder.id),
       [],
@@ -1078,6 +1083,13 @@ test("app requests use reviewed native Pi turns, History, exact task cancellatio
     const completedTurn = journal.filter((record) => record.conversationId === `chat-app-${started.id}` && record.status === "succeeded").at(-1);
     assert.deepEqual(completedTurn.fileChanges.files.map((file: { path: string }) => file.path), ["comparison.md"], "the actual Pi write has durable History-derived navigation evidence");
     assert.ok(bodies.some((body) => body.includes("App request: Compare quotes")), "ordinary Pi sees the app's request");
+    // The Chat shows the request as the app's, under a title that names the app.
+    const { conversations } = await request<{ conversations: Array<{ id: string; title: string }> }>(api.origin, `/api/work-folders/${workFolder.id}/conversations`);
+    assert.equal(conversations.find((item) => item.id === `chat-app-${started.id}`)?.title, "Mail · Compare quotes");
+    const { messages } = await request<{ messages: Array<{ id: string; role: string; source?: string; appId?: string; appTitle?: string }> }>(api.origin, `/api/work-folders/${workFolder.id}/conversations/chat-app-${started.id}`);
+    const asked = messages.find((item) => item.id === `message-app-${started.id}`)!;
+    assert.equal(asked.role, "user");
+    assert.deepEqual({ source: asked.source, appId: asked.appId, appTitle: asked.appTitle }, { source: "app", appId: "mail-app", appTitle: "Mail" });
     assert.ok((await listWorkFolderCheckpoints(workFolder.workFolderRoot)).length > 0, "the ordinary turn captures History");
     const listed = (await request<{ tasks: RestrictedAppAssistantTask[] }>(api.origin, `${taskBase}?${query}`)).tasks[0]!;
     assert.equal(listed.result?.summary, "Saved comparison.md. North costs $42.", "the trusted Apps list shows its primary result");

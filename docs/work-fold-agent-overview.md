@@ -54,7 +54,7 @@ product keeps for its own sake. The overview never causes a record to exist.
 | History checkpoints | `listWorkFolderCheckpoints` in `src/local/history.ts` | Durable machine-local app state | `checkpointId`, `createdAt`, `label`, `reason`, `scope` |
 | Check status | `WorkFoldCheckService.status()` in `src/local/checks/check-service.ts` | Durable machine-local Check state, locally re-verified designated inputs | Per-work-folder aggregate state and counts; text freshness reads/hashes designated files locally without executing a sensor or calling a model |
 | Act receipts | `WorkFoldCliActReceipts` journal (`src/local/cli/act-receipts.ts`) | Durable, rotation-bounded | Terminal `ok`/`error` records: command name, work-folder id, outcome, checkpoint id, parent task id |
-| App automation run receipts | `RestrictedAppAutomationRunReceipt` in `src/local/agent/restricted-app-service.ts` | Durable registry state | Named job, App Instance, outcome, timestamps |
+| App automation run receipts | `RestrictedAppAutomationRunReceipt` in `src/local/agent/restricted-app-service.ts` | Durable registry state | Named job, App Instance, outcome, timestamps; the app's and automation's titles are read from the installation |
 | App automation scheduler state | `WorkFoldSchedulerService` | In-memory, app run | Active and pending named jobs, feeding "Running now" |
 | Automation runs | `src/local/automations/automation-store.ts` | Durable | Running and settled automation runs with per-hop outcomes |
 | Viewer grants | `src/local/publications.ts` | Durable | Publication created/revoked events and page health (not-available, resting) |
@@ -75,8 +75,13 @@ the same recorded state and the same single `composedAt` clock reading
 produce a byte-identical digest. Headlines are fixed templates over typed
 record fields — never model output, never file content, never free
 re-wording. A receipt naming an unregistered work-folder renders the id plus
-"(removed)". Every section carries a `truncated` flag; bounds are
-disclosure, not curation.
+"(removed)". An app's named automation is named by the app's and the
+automation's reviewed titles from its installation — `Inbox automation
+"Refresh inbox" running` — so it reads apart from work-fold's own
+Automations (`Automation "Weekly handoff" running`); once the installation
+is gone, the item keeps the declared id (`App automation "refresh-inbox"
+succeeded`) (2026-10-11). Every section carries a `truncated` flag; bounds
+are disclosure, not curation.
 
 **Running now** — everything the product knows is executing: assistant
 turns and compactions, Check runs, app automation runs, and Automation runs.

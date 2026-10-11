@@ -646,7 +646,7 @@ function AppAutomationCard({ app, automation, state, runs, runsLoading, runsErro
     </div>
     <p className="restricted-app-oauth-note"><strong>Power subset:</strong> {appAutomationPowerSummary(app.manifest, automation)} · {appAutomationGrantedPowerSummary(app, automation)}</p>
     <p className="restricted-app-oauth-note">Worker handler <code>{automation.handler}</code> · {automation.catchUp === "latest" ? "Latest missed occurrence runs after resume" : "Missed occurrences are not run"} · Overlapping runs are skipped.</p>
-    {state?.lastError ? <p className="restricted-app-oauth-note"><strong>Last error:</strong> {state.lastError}</p> : null}
+    {state?.lastError ? <div className="restricted-app-oauth-note restricted-app-last-error"><strong>Last error:</strong> <AppErrorText text={state.lastError} /></div> : null}
     <div className="restricted-app-destination-actions">
       <button className="ui-control" type="button" disabled={busy} onClick={onRun}>{activeBusyKey === `app-automation-run:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}Run Now</button>
       <button className={enabled ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={busy} onClick={() => onEnabledChange(!enabled)}>{activeBusyKey === `automation:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}{enabled ? "Disable" : "Enable"}</button>
@@ -657,10 +657,27 @@ function AppAutomationCard({ app, automation, state, runs, runsLoading, runsErro
       {runsLoading ? <p><ArrowSync16Regular className="spin" /> Loading run history…</p> : null}
       {runsError ? <p role="alert">Run history could not be loaded: {runsError}</p> : null}
       {!runsLoading && !runsError && runs ? runs.length ? <dl className="capability-review-facts">{runs.slice(0, 10).map((run) => {
-        return <div key={run.receiptId}><dt>{restrictedAppAutomationOutcomeLabel(run)}</dt><dd>{formatAppAutomationReason(run.reason)} · Scheduled {formatTimestamp(run.scheduledAt)} · Started {formatTimestamp(run.startedAt)} · Finished {formatTimestamp(run.finishedAt)}{run.featureRevisionDigest !== app.artifactDigest ? " · Earlier revision" : ""}{run.error ? ` · ${run.error}` : ""}</dd></div>;
+        return <div key={run.receiptId}><dt>{restrictedAppAutomationOutcomeLabel(run)}</dt><dd>{formatAppAutomationReason(run.reason)} · Scheduled {formatTimestamp(run.scheduledAt)} · Started {formatTimestamp(run.startedAt)} · Finished {formatTimestamp(run.finishedAt)}{run.featureRevisionDigest !== app.artifactDigest ? " · Earlier revision" : ""}{run.error ? <AppErrorText text={run.error} /> : null}</dd></div>;
       })}</dl> : <p>No recorded runs.</p> : null}
     </details>
   </article>;
+}
+
+/** Past this, error text starts folded to a few lines. */
+const appErrorFoldCharacters = 280;
+const appErrorFoldLines = 4;
+
+/**
+ * An app's error text, kept whole (up to 16 KiB) but folded to a few lines
+ * until the person opens it, so a long error never takes over the card.
+ */
+export function AppErrorText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > appErrorFoldCharacters || text.split("\n").length > appErrorFoldLines;
+  return <span className={`restricted-app-error-text${long && !open ? " folded" : ""}`}>
+    <span className="restricted-app-error-body">{text}</span>
+    {long ? <button className="app-studio-text-button restricted-app-error-toggle" type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>{open ? "Show less" : "Show all"}</button> : null}
+  </span>;
 }
 
 function FilePermissionCard({ permission, grant, busy, active, onChange }: {

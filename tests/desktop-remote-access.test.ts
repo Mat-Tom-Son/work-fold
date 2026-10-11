@@ -24,6 +24,8 @@ import {
   createRemoteBridgePublicationSync,
   deriveRemotePairingCode,
   generateRemoteDeviceKeys,
+  maximumRemoteResponseCiphertextCharacters,
+  remoteResponseTooLargeCode,
   runRemoteAccountRemoval,
   type RemotePairingPrompt,
   type RemoteViewerPageProvider,
@@ -705,6 +707,62 @@ test("a maximum-size file preview crosses the paired browser encrypted transport
     assert.equal(completion().envelope.header.ok, true);
     assert.deepEqual(decryptTestResponse(browser, settings, completion().envelope), { result: { preview } });
     assert.equal(fixture.socket.sent.some((value) => value.includes(preview.path)), false, "file names travel only inside ciphertext");
+  } finally { fixture.client.stop(); }
+});
+
+test("a response the relay cannot carry becomes a small typed refusal instead of an oversized frame", async () => {
+  const browser = remoteTestBrowser("grant-oversized");
+  const settings = remoteTestSettings([browser]);
+  // The relay refuses a device envelope over 3 MiB × 1.4 base64url characters
+  // (services/bridge/server.mjs), so that is exactly where the desktop stops.
+  assert.equal(maximumRemoteResponseCiphertextCharacters, 4_404_019);
+  const overhead = Buffer.byteLength(JSON.stringify({ result: { text: "" } }), "utf8");
+  // AES-GCM adds a 16-byte tag; base64url turns each 3 bytes into 4 characters.
+  const largestPlaintext = Math.floor((maximumRemoteResponseCiphertextCharacters * 3) / 4) - 16;
+  const sizes = new Map<string, number>([
+    ["request-at-bound", largestPlaintext - overhead],
+    ["request-over-bound", largestPlaintext - overhead + 1],
+    ["request-asset", 8 * 1024 * 1024],
+    ["request-small", 2],
+  ]);
+  const fixture = remoteOperationClient(settings, {
+    async execute(operation, _input, principal) {
+      const size = sizes.get(principal.requestId)!;
+      return principal.requestId === "request-asset" ? { state: "served", result: { ok: true, result: { kind: "asset", bytes: Buffer.alloc(size, 7).toString("base64url") } } }
+        : { text: "x".repeat(size) };
+    },
+    async purgeUploads() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+  const completion = (requestId: string) => fixture.socket.sent.map((value) => JSON.parse(value) as { type?: string; envelope?: { header: Record<string, unknown>; iv: string; ciphertext: string } })
+    .find((message) => message.type === "operation.complete" && message.envelope?.header.requestId === requestId)?.envelope;
+  const run = async (requestId: string, operation: string) => {
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, requestId, operation, {})));
+    await waitForRemoteTest(() => Boolean(completion(requestId)), `${requestId} never completed`);
+    return completion(requestId)!;
+  };
+  try {
+    const atBound = await run("request-at-bound", "management.transcript");
+    assert.equal(atBound.header.ok, true);
+    assert.equal(atBound.ciphertext.length, maximumRemoteResponseCiphertextCharacters, "the largest response the relay accepts still crosses");
+    assert.equal((decryptTestResponse(browser, settings, atBound).result as { text: string }).text.length, sizes.get("request-at-bound"));
+
+    const overBound = await run("request-over-bound", "management.transcript");
+    assert.equal(overBound.header.ok, false, "one byte more is refused, never sent as a frame the relay would reject");
+    assert.ok(overBound.ciphertext.length < 1024);
+    assert.deepEqual(decryptTestResponse(browser, settings, overBound), {
+      error: "This is too large to show in the browser. Open work-fold on your desktop to see it.", code: remoteResponseTooLargeCode });
+
+    const asset = await run("request-asset", "apps.read");
+    assert.equal(asset.header.ok, false);
+    assert.deepEqual(decryptTestResponse(browser, settings, asset), {
+      error: "This part of the app is too large to open in the browser. Open the app on your desktop.", code: remoteResponseTooLargeCode });
+
+    const small = await run("request-small", "management.transcript");
+    assert.equal(small.header.ok, true, "the connection keeps serving after a refusal");
+    assert.equal(fixture.socket.closes.length, 0);
+    assert.ok(fixture.socket.sent.every((value) => value.length < maximumRemoteResponseCiphertextCharacters + 4096), "no frame exceeds the relay bound");
   } finally { fixture.client.stop(); }
 });
 

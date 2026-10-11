@@ -29,6 +29,7 @@ import {
   type RestrictedAppFileWatchTarget,
 } from "../../src/local/agent/restricted-app-file-watch.js";
 import { restrictedAppSubscriptionLimits } from "../../src/shared/restricted-app-tasks.js";
+import { workFoldAppErrorTextMaxLength } from "../../src/shared/work-fold-limits.js";
 import type { RestrictedAppAssistantActivity } from "../../src/local/agent/restricted-app-tasks.js";
 import {
   buildRestrictedAppLimits,
@@ -75,12 +76,21 @@ import {
   type EffectivePrincipal,
 } from "../../src/local/agent/app-platform-contract.js";
 import { resolveRestrictedAppCornerRadius } from "../../src/shared/restricted-app-presentation.js";
+import { loadRestrictedAppKit, parseRestrictedAppAppearance, restrictedAppAppearanceCss, type RestrictedAppAppearance, type RestrictedAppKitAsset } from "./restricted-app-appearance.js";
 
 export const restrictedAppProtocol = "agent-app";
 const networkChannel = "work-fold:restricted-app:network";
 const tabCommandChannel = "work-fold:restricted-app:tabs";
+/** Host-owned files on an app view's origin; this path is never read from the package. */
+const kitPathPrefix = "__work-fold";
+/** Chromium's own transient user activation lasts five seconds. */
+const tabOpenInputWindowMs = 5_000;
+const userInputTypes = new Set(["mouseDown", "mouseUp", "rawKeyDown", "keyDown", "touchEnd", "gestureTap"]);
 const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
+const attentionChannel = "work-fold:restricted-app:attention";
+/** The most an app's rail dot counts; past this it still shows. */
+const maxAttentionCount = 9_999;
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
 const tasksChangedChannel = "work-fold:restricted-app:tasks-changed";
 const checksChangedChannel = "work-fold:restricted-app:checks-changed";
@@ -124,7 +134,7 @@ const defaultInvocationTimeoutMs = 10 * 60_000;
 const defaultLoadTimeoutMs = 2 * 60_000;
 const workerIdleTimeoutMs = 30_000;
 /** Error text an app or worker reports, kept whole up to this many characters. */
-const maxErrorTextLength = 16 * 1024;
+const maxErrorTextLength = workFoldAppErrorTextMaxLength;
 
 export interface RestrictedAppHostOptions {
   assistantTasks?: () => Promise<Pick<RestrictedAppTaskService, "request" | "get" | "list" | "cancel">>;
@@ -133,6 +143,8 @@ export interface RestrictedAppHostOptions {
   readCheckResult?: RestrictedAppCheckReader;
   connections: RestrictedAppConnectionStore;
   preloadPath: string;
+  /** Staged kit stylesheet and fonts served to app views under /__work-fold/. */
+  kitRoot?: string;
   invocationTimeoutMs?: number;
   loadTimeoutMs?: number;
   networkBroker?: RestrictedAppNetworkBroker;
@@ -143,7 +155,17 @@ export interface RestrictedAppHostOptions {
   resolveWorkFolderRoot: (workFolderId: string) => Promise<string | null>;
   onTabCommand?: (command: RestrictedAppTabCommand) => void;
   onUiState?: (state: RestrictedAppUiState) => void;
+  /** An app asked for (or cleared) the dot on its rail button. */
+  onAttention?: (state: RestrictedAppAttention) => void;
   onNotificationOpen?: (request: RestrictedAppNotificationOpenRequest) => void;
+}
+
+export interface RestrictedAppAttention {
+  workFolderId: string;
+  appId: string;
+  featureInstallationId: string;
+  /** 0 clears the dot. */
+  count: number;
 }
 
 export interface RestrictedAppTabCommand {
@@ -176,6 +198,8 @@ export interface RestrictedAppUiMountRequest {
   active: boolean;
   occluded: boolean;
   theme: "light" | "dark";
+  /** The shell's current look, read by the trusted renderer from its own styles. */
+  appearance?: RestrictedAppAppearance;
 }
 
 interface RestrictedAppInstance {
@@ -254,6 +278,12 @@ interface RestrictedAppUiInstance {
   active: boolean;
   occluded: boolean;
   crashed: boolean;
+  /** When the person last pressed a key or button in this view (main-process input, which page code cannot fake). */
+  lastUserInputAt: number;
+  appearance?: RestrictedAppAppearance;
+  /** The variables injected into the current document, and their key for replacement. */
+  appearanceCss?: string;
+  appearanceCssKey?: string;
   abortController: AbortController;
   destroyPromise?: Promise<void>;
 }
@@ -301,6 +331,9 @@ interface RestrictedAppFileWatchEntry extends RestrictedAppScopeRef {
 export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   readonly #connections: RestrictedAppConnectionStore;
   readonly #preloadPath: string;
+  readonly #kit: Map<string, RestrictedAppKitAsset>;
+  readonly #attention = new Map<string, RestrictedAppAttention>();
+  readonly #onAttention?: RestrictedAppHostOptions["onAttention"];
   readonly #invocationTimeoutMs: number;
   readonly #loadTimeoutMs: number;
   readonly #network: RestrictedAppNetworkBroker;
@@ -344,6 +377,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#assistantInference = options.assistantInference;
     this.#connections = options.connections;
     this.#preloadPath = options.preloadPath;
+    this.#kit = loadRestrictedAppKit(options.kitRoot);
+    this.#onAttention = options.onAttention;
     this.#invocationTimeoutMs = options.invocationTimeoutMs ?? defaultInvocationTimeoutMs;
     this.#loadTimeoutMs = options.loadTimeoutMs ?? defaultLoadTimeoutMs;
     this.#network = options.networkBroker ?? new RestrictedAppNetworkBroker({ credentials: options.connections, oauth: options.oauth });
@@ -372,12 +407,22 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#maxFileEnvelopeBytes = restrictedAppFileEnvelopeBytes(this.#files.limits.maxWriteBytes);
     ipcMain.handle(networkChannel, (event, value) => this.#handleNetwork(event, value));
     ipcMain.handle(storageChannel, (event, value) => this.#handleStorage(event, value));
+    ipcMain.handle(attentionChannel, (event, value) => this.#handleAttention(event, value));
     ipcMain.handle(checksChannel, (event, value) => this.#handleChecks(event, value));
     ipcMain.handle(assistantTasksChannel, (event, value) => this.#handleAssistantTasks(event, value));
     ipcMain.handle(assistantInferChannel, (event, value) => this.#handleAssistantInference(event, value));
     ipcMain.handle(filesChannel, (event, value) => this.#handleFiles(event, value));
     ipcMain.handle(notificationsChannel, (event, value) => this.#handleNotification(event, value));
-    ipcMain.handle(tabCommandChannel, (event, value) => this.#handleTabCommand(event, value));
+    ipcMain.handle(tabCommandChannel, async (event, value) => {
+      // Answered as an envelope like the other lanes, so the app keeps the code.
+      try {
+        await this.#handleTabCommand(event, value);
+        return { ok: true };
+      } catch (error) {
+        const code = error instanceof RestrictedAppError ? error.code : "INPUT_INVALID";
+        return { ok: false, error: { code, message: errorMessage(error).slice(0, maxErrorTextLength) } };
+      }
+    });
     ipcMain.on(filesSubscriptionChannel, (event, value) => this.#handleFilesSubscription(event, value));
   }
 
@@ -409,6 +454,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     // a launch that had not created its worker or view yet.
     for (const [key, previous] of this.#authorities) {
       const current = next.get(key);
+      // A removed installation takes its rail dot with it.
+      if (!current) this.#setAttention(previous, 0);
       if (!current || current.digest !== previous.digest || current.runtimeInstanceId !== previous.runtimeInstanceId
         || !authorityStampsEqual(current.authority, previous.authority)) {
         this.#advanceGeneration(previous.workFolderId, previous.appId, previous.featureInstallationId);
@@ -584,6 +631,12 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       try { assertClaimable(); }
       catch (error) { this.#scheduleWorkerIdle(instance); throw error; }
       instance.pendingOperation = operation;
+      // A warm worker is shared by every operation of this installation, one
+      // at a time, and each brings its own grants: a tool call the app's, an
+      // automation only the subset it declared. Every effect reads
+      // `instance.app`, so it must be this operation's descriptor, not the
+      // one the worker happened to launch with.
+      instance.app = structuredClone(app);
       return instance;
     }
   }
@@ -724,6 +777,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       active: request.active,
       occluded: request.occluded,
       crashed: false,
+      lastUserInputAt: 0,
+      ...(request.appearance ? { appearance: request.appearance } : {}),
       abortController: new AbortController(),
     };
     try {
@@ -785,6 +840,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       capture({ ...instance.app, appId: instance.app.manifest.id });
     }
     for (const [key, scope] of scopes) {
+      this.#setAttention(scope, 0);
       this.#advanceGeneration(scope.workFolderId, scope.appId, scope.featureInstallationId);
       this.#clearPendingStorageEvent(key);
       this.#storageLastEmittedAt.delete(key);
@@ -834,6 +890,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#closed = true;
     ipcMain.removeHandler(networkChannel);
     ipcMain.removeHandler(storageChannel);
+    ipcMain.removeHandler(attentionChannel);
     ipcMain.removeHandler(filesChannel);
     ipcMain.removeHandler(checksChannel);
     ipcMain.removeHandler(assistantTasksChannel);
@@ -1025,6 +1082,15 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     contents.on("will-navigate", (event, url) => {
       if (!sameUiDocument(instance, url)) event.preventDefault();
     });
+    // Inserted styles belong to one document; a reload gets them again.
+    contents.on("dom-ready", () => {
+      instance.appearanceCssKey = undefined;
+      void this.#applyAppearance(instance);
+    });
+    // Real presses only: these arrive from the window, never from page code.
+    contents.on("input-event", (_event, input) => {
+      if (userInputTypes.has(input.type)) instance.lastUserInputAt = Date.now();
+    });
     contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.session.on("will-download", (event) => event.preventDefault());
     contents.on("render-process-gone", () => {
@@ -1044,6 +1110,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     instance.active = request.active;
     instance.occluded = request.occluded;
     instance.theme = request.theme;
+    if (request.appearance) instance.appearance = request.appearance;
+    void this.#applyAppearance(instance);
     instance.route = request.route;
     instance.state = request.state === undefined ? undefined : structuredClone(request.state);
     this.#applyUiLayout(instance, request.bounds);
@@ -1058,6 +1126,30 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       });
     }
     this.#syncFileWatches();
+  }
+
+  /** Puts the shell's look into the view as `--wf-*` variables, replacing the previous set only when it changed. */
+  async #applyAppearance(instance: RestrictedAppUiInstance): Promise<void> {
+    const contents = instance.view.webContents;
+    if (contents.isDestroyed()) return;
+    const css = restrictedAppAppearanceCss(instance.theme, instance.appearance);
+    if (css === instance.appearanceCss && instance.appearanceCssKey) return;
+    const previous = instance.appearanceCssKey;
+    instance.appearanceCss = css;
+    try {
+      const key = await contents.insertCSS(css, { cssOrigin: "author" });
+      if (contents.isDestroyed()) return;
+      if (instance.appearanceCss !== css) {
+        // A newer look arrived while this one was being inserted.
+        await contents.removeInsertedCSS(key).catch(() => undefined);
+        return;
+      }
+      instance.appearanceCssKey = key;
+      if (previous) await contents.removeInsertedCSS(previous).catch(() => undefined);
+    } catch {
+      // Before the first document is ready there is nothing to insert into; dom-ready retries.
+      if (instance.appearanceCss === css) instance.appearanceCss = undefined;
+    }
   }
 
   #applyUiLayout(instance: RestrictedAppUiInstance, requestedBounds: Rectangle): void {
@@ -1108,6 +1200,18 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (!instance) throw new RestrictedAppError("APP_UNAVAILABLE", "The tab request did not come from an installed app's main frame.");
     this.#assertEffectAuthorized(instance);
     const command = parseTabCommand(value, instance);
+    if (command.type === "open") {
+      // Rail buttons open the app's left-pane view, never a tab. A tab opens
+      // only when the person clicks something in that view, the way a file in
+      // Files opens its preview, and one press opens at most one tab.
+      if (instance.placement !== "navigator") {
+        throw new RestrictedAppError("TAB_DENIED", "Only the app's left-pane view can open a tab.");
+      }
+      if (Date.now() - instance.lastUserInputAt > tabOpenInputWindowMs) {
+        throw new RestrictedAppError("TAB_DENIED", "An app can open a tab only right after the person clicks or presses a key in its left-pane view.");
+      }
+      instance.lastUserInputAt = 0;
+    }
     this.#onTabCommand?.(command);
   }
 
@@ -1163,6 +1267,46 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     } catch (error) {
       const code = error instanceof RestrictedAppError ? error.code : "NETWORK_FAILED";
       return { ok: false, error: { code, message: errorMessage(error).slice(0, maxErrorTextLength) } };
+    }
+  }
+
+  /** Every app's current rail dot, for a renderer that starts or reloads. */
+  attentionStates(): RestrictedAppAttention[] {
+    return [...this.#attention.values()].map((state) => ({ ...state }));
+  }
+
+  #setAttention(scope: { workFolderId: string; appId: string; featureInstallationId: string }, count: number): void {
+    const key = appScopeKey(scope.workFolderId, scope.appId, scope.featureInstallationId);
+    const current = this.#attention.get(key)?.count ?? 0;
+    if (current === count) return;
+    const state = { workFolderId: scope.workFolderId, appId: scope.appId, featureInstallationId: scope.featureInstallationId, count };
+    if (count > 0) this.#attention.set(key, state);
+    else this.#attention.delete(key);
+    this.#onAttention?.({ ...state });
+  }
+
+  /**
+   * The app's own say in whether its rail button shows a dot: a mounted view
+   * (shown or not) or a worker during an operation, like app storage. The app
+   * decides when to clear it, usually once the person has seen what was new.
+   */
+  async #handleAttention(event: IpcMainInvokeEvent, value: unknown): Promise<unknown> {
+    const instance = this.#ownedInstance(event.sender, ipcFromMainFrame(event));
+    if (!instance || ("window" in instance && !instance.pendingOperation)) {
+      return hostError("APP_UNAVAILABLE", "The attention caller is not a running restricted app.");
+    }
+    try {
+      this.#assertEffectAuthorized(instance);
+      const request = jsonEnvelope(value, 1_024, "attention");
+      assertRequestKeys(request, ["count"]);
+      const count = request.count;
+      if (typeof count !== "number" || !Number.isInteger(count) || count < 0 || count > maxAttentionCount) {
+        throw new RestrictedAppError("INPUT_INVALID", `Attention count must be a whole number from 0 through ${maxAttentionCount}.`);
+      }
+      this.#setAttention({ workFolderId: instance.app.workFolderId, appId: instance.app.manifest.id, featureInstallationId: instance.app.featureInstallationId }, count);
+      return { ok: true, value: { count } };
+    } catch (error) {
+      return hostError(error instanceof RestrictedAppError ? error.code : "INPUT_INVALID", errorMessage(error));
     }
   }
 
@@ -1734,6 +1878,10 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (!path || path.includes("\\") || path.includes("\0") || path.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
       return response("Not found", 404, "text/plain");
     }
+    if (path.startsWith(`${kitPathPrefix}/`)) {
+      const asset = this.#kit.get(path.slice(kitPathPrefix.length + 1));
+      return asset ? uiResponse(request.method === "HEAD" ? null : Buffer.from(asset.bytes), asset.contentType, false) : response("Not found", 404, "text/plain");
+    }
     const bytes = snapshot.files.get(path);
     const contentType = uiContentType(path, path === snapshot.receipt.manifest.runtime.entry);
     if (!bytes || !contentType) return response("Not found", 404, "text/plain");
@@ -1921,7 +2069,7 @@ function configureRestrictedSession(isolatedSession: Session, token: string): vo
 
 function parseUiMountRequest(value: unknown): RestrictedAppUiMountRequest {
   const record = strictRecord(value, "Restricted app view", [
-    "mountId", "placement", "appTabId", "route", "state", "sequence", "bounds", "active", "occluded", "theme",
+    "mountId", "placement", "appTabId", "route", "state", "sequence", "bounds", "active", "occluded", "theme", "appearance",
   ]);
   const placement = record.placement;
   if (placement !== "navigator" && placement !== "tab") throw new Error("Restricted app view placement is invalid.");
@@ -1942,6 +2090,7 @@ function parseUiMountRequest(value: unknown): RestrictedAppUiMountRequest {
     active: booleanValue(record.active, "Restricted app view active state"),
     occluded: booleanValue(record.occluded, "Restricted app view occlusion state"),
     theme: themeValue(record.theme),
+    ...(record.appearance !== undefined ? { appearance: parseRestrictedAppAppearance(record.appearance) } : {}),
   };
 }
 

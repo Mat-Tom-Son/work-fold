@@ -5,7 +5,7 @@ import { createIncludedMcpSetup } from "./agent/included-mcp-setup.js";
 import { prepareResourceEnable, resourceEnableAdapter } from "./agent/resource-enable-act.js";
 import { listIncludedToolStatus, setupIncludedTool, shutdownIncludedToolHost, type IncludedSetupAction } from "./agent/included-tool-setup.js";
 import { includedToolDefinitions, type IncludedToolId } from "../shared/included-tools.js";
-import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, type RestrictedAppAssistantActivity } from "./agent/restricted-app-tasks.js";
+import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskChatTitle, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, type RestrictedAppAssistantActivity } from "./agent/restricted-app-tasks.js";
 import { RestrictedAppInferenceService, RestrictedAppInferenceError, type RestrictedAppInferenceActivity } from "./agent/restricted-app-inference.js";
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
 import { ModelContextInspector } from "./agent/model-context-inspector.js";
@@ -1080,10 +1080,12 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       }),
       dispatch: async (receipt, app) => {
         const workFolder = await getWorkFolder(receipt.scope.workFolderId);
-        await createConversation(workFolder.workFolderRoot, receipt.title, receipt.conversationId);
+        await createConversation(workFolder.workFolderRoot, restrictedAppTaskChatTitle(app.title, receipt.title), receipt.conversationId);
         await acceptConversationTurn(state, workFolder, receipt.conversationId, {
           content: restrictedAppTaskPrompt(receipt, app.title), contextPaths: [], selectedPath: null, actorKind: "system",
           requestId: restrictedAppTaskTurnRequestId(receipt), userMessageId: `message-app-${receipt.id}`,
+          // The message is the app's, not the person's; the Chat says so.
+          appSource: { appId: receipt.scope.appId, title: app.title },
           // An app-requested task is its own root request, owned by the app
           // installation that asked (docs/collaboration-contract.md, F25).
           request: {
@@ -3855,6 +3857,8 @@ async function acceptConversationTurn(
     continuedFromWorkFoldAgentTaskId?: string;
     /** Remote provenance is persisted with the message and work-fold agent request. */
     remotePrincipal?: WorkFoldRemotePrincipal;
+    /** An app's `assistant.request`: persisted on the message so the Chat shows who asked. */
+    appSource?: { appId: string; title: string };
     /** Stable caller identity. Replays with the same input return the original acceptance. */
     requestId?: string;
     /** Stable optimistic message identity supplied by renderer clients. */
@@ -3988,6 +3992,10 @@ async function acceptConversationTurn(
       remotePrincipalId: input.remotePrincipal.browserId,
       remoteGrantId: input.remotePrincipal.grantId,
       remoteRequestId: input.remotePrincipal.requestId,
+    } : input.appSource ? {
+      source: "app" as const,
+      appId: input.appSource.appId,
+      appTitle: input.appSource.title,
     } : {}),
   };
   let answeredQuestionIds: string[] = [];
@@ -5427,9 +5435,11 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           const workFolderId = remoteStableId(input.workFolderId, "work-folder id", 512);
           await getWorkFolder(workFolderId);
           const apps = await state.restrictedApps.list(workFolderId);
-          await getWorkFolder(workFolderId);
+          // The current name, so an app view opened from an older result link
+          // shows the work-folder as it is called now.
+          const { name: workFolderName } = await getWorkFolder(workFolderId);
           return { apps: apps.slice(0, 64).map((app) => ({
-            workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
+            workFolderId, workFolderName, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
             digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority),
             title: app.manifest.title, version: app.version, preview: app.runtimeInstanceKind === "development",
             webView: Boolean(app.manifest.viewer),
@@ -7360,7 +7370,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           ? state.restrictedApps.activateLocalAppInstall(operation.operationId)
           : state.restrictedApps.activateLocalAppUpdate(operation.operationId));
         await recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.activate", workFolder,
-          apps: result.apps.map(workFoldAgentAppResultRef) });
+          apps: result.apps.map((app) => ({ ...workFoldAgentAppResultRef(app), ...(app.workFolderId === target.id ? { workFolderName: target.name } : {}) })) });
         return {
           workFolder: toActWorkFolderRef(workFolder),
           operationId: operation.operationId,
@@ -8950,7 +8960,11 @@ async function recordFacadeAction(
     ...(input.checkpointId !== undefined ? { checkpointId: input.checkpointId } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),
     ...(input.copied ? { copied: input.copied } : {}),
-    ...(input.apps ? { apps: input.apps.slice(0, 64) } : {}),
+    // Each app result names its own work-folder so a result link can label
+    // it; an installation in the act's work-folder takes that name.
+    ...(input.apps ? { apps: input.apps.slice(0, 64).map((app) => app.workFolderName === undefined && input.workFolder && app.workFolderId === input.workFolder.id
+      ? { ...app, workFolderName: input.workFolder.name }
+      : app) } : {}),
   });
 }
 
@@ -13668,6 +13682,8 @@ function createServerOverviewSources(state: LocalApiState): WorkFoldOverviewSour
       (await state.restrictedApps.listActiveAppAutomationRuns()).map((run) => ({
         runId: run.runId,
         appAutomationId: run.appAutomationId,
+        ...(run.appTitle ? { appTitle: run.appTitle } : {}),
+        ...(run.automationTitle ? { automationTitle: run.automationTitle } : {}),
         workFolderId: run.workFolderId,
         startedAt: run.acceptedAt,
       })),
@@ -13676,6 +13692,8 @@ function createServerOverviewSources(state: LocalApiState): WorkFoldOverviewSour
         receiptId: receipt.receiptId,
         runId: receipt.runId,
         appAutomationId: receipt.appAutomationId,
+        ...(receipt.appTitle ? { appTitle: receipt.appTitle } : {}),
+        ...(receipt.automationTitle ? { automationTitle: receipt.automationTitle } : {}),
         workFolderId: receipt.workFolderId,
         outcome: receipt.outcome,
         finishedAt: receipt.finishedAt,
@@ -14556,7 +14574,8 @@ function restrictedAppErrorStatus(error: unknown): number | null {
     case "INPUT_INVALID": return 400;
     case "ACTION_UNKNOWN": return 404;
     case "NETWORK_DENIED":
-    case "FILE_DENIED": return 403;
+    case "FILE_DENIED":
+    case "TAB_DENIED": return 403;
     case "AUTH_REQUIRED":
     case "AUTHORITY_STALE":
     case "REVISION_CHANGED": return 409;

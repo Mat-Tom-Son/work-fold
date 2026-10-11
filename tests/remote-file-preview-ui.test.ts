@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createFilePreview, filePreviewMarkup } from "../services/bridge/public/file-preview.js";
-import { requestResultLinks } from "../services/bridge/public/request-results.js";
+import { requestResultLinks, unnamedWorkFolderLabel } from "../services/bridge/public/request-results.js";
 
 test("web previews escape file content and accept only bounded inert image types", () => {
   const text = filePreviewMarkup({ kind: "text", text: '<script>steal()</script><img src="https://track.example/x">', format: "text" });
@@ -109,4 +109,17 @@ test("task file and app links retain exact host identities and ignore active or 
   assert.equal(links[0].workFolderId, "target", "an installation result points at its target work-folder, not the source operation's work-folder");
   assert.equal(links[0].featureInstallationId, "installation-one");
   assert.equal(links[1].path, "comparison.md");
+});
+
+test("result links carry the receipt's work-folder name and fall back to a neutral label only without one", () => {
+  const app = { workFolderId: "target", appId: "quotes", featureInstallationId: "installation-one", digest: "a".repeat(64), title: "Quote board", version: "1.0.0" };
+  const [named] = requestResultLinks({ actions: [{ workFolderId: "studio", workFolderName: "App studio", apps: [{ ...app, workFolderName: "Launch plan" }] }] });
+  assert.equal(named.workFolderName, "Launch plan", "an installation's own work-folder wins over the act's");
+  const [sameWorkFolder] = requestResultLinks({ actions: [{ workFolderId: "target", workFolderName: "Launch plan", apps: [app] }] });
+  assert.equal(sameWorkFolder.workFolderName, "Launch plan", "an older receipt in the act's own work-folder uses the act's name");
+  const [otherWorkFolder] = requestResultLinks({ actions: [{ workFolderId: "studio", workFolderName: "App studio", apps: [app] }] });
+  assert.equal(otherWorkFolder.workFolderName, unnamedWorkFolderLabel, "another work-folder's name is never borrowed");
+  const files = requestResultLinks({ actions: [{ workFolderId: "one", workFolderName: "Quotes", copied: ["brief.md"] }, { workFolderId: "two", copied: ["notes.md"] }],
+    children: [{ workFolderId: "three", workFolderName: "Audits", state: "succeeded", files: ["audit.md"] }, { workFolderId: "four", workFolderName: "  ", state: "succeeded", files: ["plan.md"] }] });
+  assert.deepEqual(files.map((item: any) => item.workFolderName), ["Quotes", unnamedWorkFolderLabel, "Audits", unnamedWorkFolderLabel]);
 });

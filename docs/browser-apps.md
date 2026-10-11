@@ -15,7 +15,10 @@ Development preview can be opened without first publishing a Release.
 An installation named in the current work-fold agent request also provides an app
 result link. The host derives it from the executed act receipt and installed
 proposal, or the completed Release activation. It pins the work-folder, app and
-Feature Installation instead of looking up a title. Opening resolves that same
+Feature Installation instead of looking up a title, and carries the name of the
+work-folder the app is installed in (which can differ from the work-folder the
+act ran in) for the view's header; `apps.list` supplies the current name when
+the view opens. Opening resolves that same
 installation's current reviewed revision; a changed digest shows **Updated
 since this task**. Removal/reinstallation makes the old link unavailable.
 
@@ -28,14 +31,20 @@ publication. The private adapter requires a paired browser and pins the
 work-folder, app, Feature Installation, revision and current authority digest.
 
 `management.summary`, `management.chats`, and `work-folders.list` advertise
-`capabilities.appViews`. The closed management lane
+`capabilities.appViews`. The current client reads neither that flag nor
+`work-folders.list` or `work-folders.tree`: since its work-folder Files and
+Apps browser was removed (2026-10-09), it opens app views only from result
+links. The desktop keeps advertising the flag and answering both operations
+for older clients. The closed management lane
 adds `apps.list` for one registered work-folder and `apps.read` for one exact installed
 web view. Listings contain at most 64 compact descriptors and report truncation.
 They omit absolute roots, credentials, grants and data. Read calls accept only
 `entry`, `asset`, `data.keys` and `data.get`, with strict field validation.
 Owner identity comes from the installation, never the app or a request body.
 
-Assets are rehashed against the installed package and limited to 64 MiB each.
+Assets are rehashed against the installed package and limited to 64 MiB each
+on the desktop; a paired browser receives at most about 2.3 MiB per asset (see
+[Transport limits](#transport-limits)).
 Mutable source edits cannot change running bytes. Data reads include only the
 declared prefixes, with the existing 65,536-key/16-MiB-per-value storage bounds.
 The service serializes reads against authority changes and checks the exact
@@ -88,13 +97,18 @@ the same app's actions run on the desktop; the trusted parent lists requests,
 shows each status and result, and offers Stop while one is running. Nothing
 waits for a click.
 
-Requests select a declared worker action and at most 4 MiB of schema-checked
-JSON. The host pins the work-folder, installation, revision, authority, browser and
+Requests select a declared worker action and schema-checked JSON input. The
+desktop accepts up to 4 MiB of input, but a paired browser sends the whole
+action call — request id, action and input — as at most 2 MiB of UTF-8 JSON,
+which is what the relay carries (see [Transport limits](#transport-limits)).
+The host pins the work-folder, installation, revision, authority, browser and
 grant, and records the accepting Tenant, Runtime Instance, Data Namespace,
 canonical artifact and human Principal. App code cannot choose those owners.
 The machine-local `restricted-apps/browser-actions.json` journal separates
 bounded intent/result content from metadata-only receipt projections. Results
-are schema-checked and at most 4 MiB; lists contain summaries without results.
+are schema-checked and at most 4 MiB; a paired browser receives a result of up
+to about 3 MiB of JSON and the desktop's too-large message beyond that. Lists
+contain summaries without results.
 Record contents are never sent through a shared viewer.
 
 A request UUID and timestamp identify a retry. Identical retries return the
@@ -131,6 +145,35 @@ lack `crypto.randomUUID`. `actions.list()` recovers request ids after reopening;
 stops the app's own request. A timeout says the status is uncertain and asks the
 app to check existing requests before starting another. None of these helpers
 widen a permission. Shared viewers never install this SDK.
+
+## Transport limits
+
+Everything a paired browser reads or sends crosses the relay inside one signed
+encrypted envelope, and the relay bounds each envelope's base64url ciphertext
+(`services/bridge/server.mjs`). Those bounds, not the desktop's larger ones,
+decide what a paired browser can open:
+
+| Direction | Relay bound (ciphertext characters) | What fits |
+|---|---|---|
+| Browser to desktop, a message with uploads (`management.send`) | 12 MiB × 1.4 | the 8 MB of attached files a message allows |
+| Browser to desktop, every other operation | 2 MiB × 1.4, about 2.1 MiB of JSON | an app action call of at most 2 MiB of UTF-8 JSON |
+| Desktop to browser, every response | 3 MiB × 1.4, about 3.15 MiB of JSON | an app asset of about 2.3 MiB (bytes travel base64-encoded); an action result or data value of about 3 MiB of JSON |
+
+The desktop's own bounds stay as described above: assets up to 64 MiB, action
+input and results up to 4 MiB, stored values up to 16 MiB. The browser view
+also caps a reviewed entry document at 1 MiB, and file previews stay within
+[their own smaller bounds](browser-file-previews.md).
+
+The desktop measures each encoded response before sending it. When a response
+would exceed the relay bound, it sends a small refusal instead, with the code
+`RESPONSE_TOO_LARGE` and a plain message such as "This file is too large to
+open in the browser. Open it on your desktop." The relay never receives an
+oversized frame, so a large result cannot count against the device connection
+(the relay closes a device socket after more than two invalid frames). A
+refused asset or data read reaches the app as an error with that code and
+message while the app keeps running; a refused entry, file preview or action
+result shows the message in place of the content. The browser refuses an app
+action call over 2 MiB with `REQUEST_TOO_LARGE` before sending anything.
 
 ## Verification
 

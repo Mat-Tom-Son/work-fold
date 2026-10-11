@@ -39,6 +39,7 @@ import { FileContentSearch } from "./components/panes/FileContentSearch";
 import { ChatsPane, HistoryPane, WorkFoldersPane, type ModelScope } from "./components/panes/workFolderPanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
 import { useSharedPages } from "./hooks/useSharedPages";
+import { restrictedAppAttentionKey, useRestrictedAppAttention } from "./hooks/useRestrictedAppAttention";
 import { activeSharedPageFor, isShareablePath, sharedPathsForWorkFolder } from "./lib/page-sharing";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
 import type { WorkFolderUiFixture } from "./fixtures/work-folder-fixture";
@@ -623,6 +624,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const surfaceCatalogKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, workFolder.id);
   const restrictedAppCatalogKnown = restrictedAppsState.knownWorkFolderIds.has(workFolder.id);
   const restrictedApps = restrictedAppsState.appsByWorkFolder[workFolder.id] ?? [];
+  const appAttention = useRestrictedAppAttention();
   useEffect(() => {
     tabs.reconcileRestrictedAppSurfaceTabs(
       restrictedAppsState.appsByWorkFolder,
@@ -1495,14 +1497,8 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     // Automations opens its work-folder's own tab and leaves the navigator pane as it was.
     if (mode === "automations") { tabs.openWorkFolderAutomationsSurfaceTab(workFolder); return; }
     setActiveMode(mode);
-    if (mode.startsWith("app:restricted:")) return;
-    const surfaceKey = extensionSurfaceIdForMode(mode);
-    if (!surfaceKey) return;
-    const surface = resolveSurfaceForKey(surfaces, surfaceKey);
-    const firstView = surface?.views[0];
-    if (!surface || !firstView) return;
-    const activeMatches = activeTab?.kind === "extension" && surfaceMatchesTab(surface, activeTab);
-    if (!activeMatches) tabs.openExtensionSurfaceTab(workFolder, surface, firstView);
+    // Apps and Extension surfaces show their left pane and never open a tab by
+    // themselves; a tab comes from a click inside that pane, like a file.
   }
 
   function openInstalledRestrictedApp(targetWorkFolder: WorkFolderSummary, app: RestrictedAppInstalled): void {
@@ -1577,7 +1573,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const layoutClassName = ["work-folder-layout", paneResize.sidebarResizing || agentPanelResizing ? "resizing" : "", sidebarCollapsed ? "sidebar-collapsed" : "", agentPanelOpen ? "agent-panel-open" : ""].filter(Boolean).join(" ");
   return <main className={layoutClassName} ref={paneResize.workFolderLayoutRef} style={layoutStyle}>
     <WindowChromeControls sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarHidden(!sidebarCollapsed)} agentPanelOpen={agentPanelOpen} onToggleAgentPanel={toggleAgentPanel} agentControlsRef={setAgentControlsTarget} />
-    <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: activeTab?.kind === "work-folder-automations" && activeTab.workFolderId === workFolder.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} appAttention={(app) => appAttention.get(restrictedAppAttentionKey(app.workFolderId, app.manifest.id, app.featureInstallationId)) ?? 0} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: activeTab?.kind === "work-folder-automations" && activeTab.workFolderId === workFolder.id } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`work-folder-mode-pane work-folder-mode-pane-${activeMode}`} id="work-folder-file-panel" onKeyDown={activeMode === "work-folders" ? leaveManageFoldersOnEscape : undefined}>
       <WorkFolderPaneHeader workFolder={workFolder} identity={identity} workFolders={workFolders} workFolderCustomizations={customizations} folderStatuses={folderStatuses} onSwitchWorkFolder={onSwitchWorkFolder} onCreateWorkFolder={onCreateWorkFolder} onOpenFolder={onOpenFolder} onManageWorkFolders={() => setActiveMode("work-folders")} managingWorkFolders={activeMode === "work-folders"} onNewChat={() => openChat(workFolder, null)} onOpenAppearance={() => openWorkFolderAppearance(workFolder)} {...(!fixture && typeof window.workFoldDesktop?.workFolder.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} />
       {activeMode === "work-folders" ? <WorkFoldersPane workFolder={workFolder} workFolders={workFolders} identities={customizations} onCreate={onCreateWorkFolder} onOpenFolder={onOpenFolder} onCustomize={openWorkFolderAppearance} onRemove={(target) => void removeWorkFolder(target)} onDone={leaveManageFolders} /> : null}

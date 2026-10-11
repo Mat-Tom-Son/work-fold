@@ -134,6 +134,12 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       ipcRenderer.on("work-fold:restricted-app-view:state", listener);
       return () => ipcRenderer.removeListener("work-fold:restricted-app-view:state", listener);
     },
+    attentionStates: () => ipcRenderer.invoke("work-fold:restricted-app-view:attention-states"),
+    onAttention: (callback: (state: unknown) => void) => {
+      const listener = (_event: unknown, state: unknown) => callback(state);
+      ipcRenderer.on("work-fold:restricted-app-view:attention", listener);
+      return () => ipcRenderer.removeListener("work-fold:restricted-app-view:attention", listener);
+    },
     onOpenRequest: (callback: (owner: unknown) => void) => {
       const listener = (_event: unknown, owner: unknown) => callback(owner);
       ipcRenderer.on("work-fold:restricted-app-view:open-request", listener);
