@@ -46,6 +46,15 @@ test("propose_space_app exposes only a work-folder-relative path and reports wha
   assert.match(guidance, /assistant\.request/);
   assert.match(guidance, /assistant\.infer/);
   assert.match(guidance, /permissions\.checks/);
+  // The automation event field is the one the host sends, and the rules a
+  // Worker cannot discover by trial are stated up front.
+  assert.match(guidance, /appAutomationId \(the automation's declared id\)/);
+  assert.doesNotMatch(guidance, /includes runId, automationId/);
+  assert.match(guidance, /tabs\.open\(\{tabId,title,route,state\}\) works only from the left-pane view, inside a handler for the person's click or key press/);
+  assert.match(guidance, /Inline <script> blocks, inline event handlers such as onclick=, eval, new Function, and WebAssembly are blocked/);
+  assert.match(guidance, /declare viewer \{entry:'viewer\.html', readable:/);
+  assert.match(guidance, /context\.get\(\)\.theme/);
+  assert.doesNotMatch(guidance, /checks\.read\/onChanged; and notifications\.show/, "views cannot show notifications");
   // The guidance states the live bounds, not copies of them.
   assert.ok(guidance.includes(`Input is at most ${restrictedAppLimitSize(restrictedAppAssistantLimits.inputBytes)}`));
   assert.ok(guidance.includes(`Input is at most ${restrictedAppLimitSize(restrictedAppInferenceLimits.inputBytes)}`));

@@ -306,6 +306,13 @@ journal and never automatically retried: a crash before acceptance becomes
 authoritative. Replaying an envelope after a failure returns the failed record;
 a new request is a new envelope.
 
+The dispatched message keeps the action's reviewed instructions as the task
+and fences the app's input after them in an `<app-input>` block labelled as
+untrusted data (2026-10-11). The input can be content the app fetched from
+anywhere, and the Worker receiving it has full tools, so it is told to use the
+input for the task and never to follow instructions inside it. `<` is escaped
+inside that JSON, so the input cannot close its own fence.
+
 Damage disables only this task lane without overwriting its evidence or
 preventing work-fold startup. Task input and results stay machine-local; the
 dispatched prompt and the normal reply also belong to the portable Chat in the

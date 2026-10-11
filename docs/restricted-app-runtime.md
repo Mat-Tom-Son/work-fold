@@ -184,8 +184,11 @@ gets a separate ephemeral session and origin.
 
 The view has Chromium sandboxing and context isolation enabled, with Node,
 webviews, popups, downloads, dialogs, permissions, direct network access,
-navigation, workers, frames, service workers, and file selection denied. Its
-CSP permits only reviewed same-origin scripts, styles, images, and fonts. Native
+navigation, workers, frames, service workers, and file selection denied. A
+file dragged or pasted in from the computer is stopped before any app listener
+can read it (2026-10-11); an app's own drag and drop of text or elements still
+reaches it. Its CSP permits only reviewed same-origin scripts, styles, images,
+and fonts. Native
 view bounds and visibility follow the owning DOM placeholder; inactive tabs,
 hidden windows, minimization, and modal occlusion detach the native view while
 leaving its renderer alive.
@@ -209,8 +212,13 @@ The `work-fold.restricted-app-bridge` preload exposes only the frozen
 - `context.get()` and `context.onChanged()` report placement (`navigator` or
   `tab`), route, host-owned app identity, theme, active state, and bounded tab
   state;
-- `tabs.open(...)` asks work-fold to create or activate a work-folder-owned work tab;
-- a tab may update or close itself;
+- `tabs.open(...)` asks work-fold to create or activate a work-folder-owned work
+  tab. Only the left-pane (`navigator`) view may ask, and only within five
+  seconds of the person pressing a mouse button or key in it, as Electron main
+  sees that input; one press opens at most one tab, and anything else is
+  refused with `TAB_DENIED` (2026-10-11). The rail button itself only shows the
+  left pane, like a file in Files, a tab comes from a click inside it;
+- a tab may update or close itself, but cannot open others;
 - `request(...)` sends a declared request through the network broker;
 - `storage` provides Tenant-and-Data-Namespace-owned JSON data and active-UI
   invalidation hints;
@@ -313,7 +321,11 @@ separately from one-off manual runs, so **Run now** does not shift the next
 scheduled occurrence. A manual run is allowed while its schedule is disabled,
 but it receives no notification authority. At launch, work-fold re-reads the
 installed digest and current grants, then intersects those grants with that
-job's reviewed permission subset. Disabling, updating, removing, sleeping, or
+job's reviewed permission subset. One warm worker serves an installation's tool
+calls and automations one at a time, and each operation brings its own grants:
+an automation that reuses a worker a tool call started still gets only its
+subset, and the next tool call gets the app's grants back (2026-10-11; before,
+a reused worker kept the grants it launched with). Disabling, updating, removing, sleeping, or
 quitting stops stale launches before authority changes take effect.
 
 Notifications are host-owned system notifications, not arbitrary renderer

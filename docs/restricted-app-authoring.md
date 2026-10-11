@@ -366,9 +366,12 @@ earlier effects; do not describe these outcomes as rollback.
 
 The HTML entry runs with Node disabled and direct networking, navigation,
 popups, downloads, dialogs, permissions, workers, frames, service workers, and
-file selection denied. Scripts and fonts must come from reviewed same-origin
-files. Styles may be same-origin or inline; images may be same-origin or
-`data:`. Bundle browser libraries and assets into the package instead of using
+file selection denied, and files dragged or pasted in from the computer never
+reach the app. Scripts and fonts must come from reviewed same-origin files:
+inline `<script>` blocks, inline handlers such as `onclick=`, `eval`,
+`new Function`, and WebAssembly are blocked, and `fetch()` of a packaged file
+is blocked too, so ship data as a JavaScript module. Styles may be same-origin
+or inline; images may be same-origin or `data:`. Bundle browser libraries and assets into the package instead of using
 a CDN. Use the host bridge for network and work-folder files.
 
 The preload exposes one frozen global:
@@ -397,17 +400,24 @@ plus `placement` (`navigator` or `tab`), nullable `appTabId`, origin-relative
 `route`, JSON `state`, `theme` (`light` or `dark`), and `active`. Treat identity
 as descriptive; the host derives authority from the sending renderer, never
 from values supplied back by app code. One UI entry can branch on placement and
-route to render a compact left navigator and full work-tab views.
+route to render a compact left navigator and full work-tab views. The left
+navigator is the app's home: its rail button always shows it, and it should
+work on its own at 280-640px wide.
 
 ### work-folder-owned tabs
 
+A tab opens only from the left-pane view, in response to the person's click or
+key press there, the way a file in Files opens its preview (2026-10-11). Call
+`tabs.open` from that click handler; a call at startup, from a timer, from a tab,
+or a second call from the same press is refused with `TAB_DENIED`.
+
 ```js
-await bridge.tabs.open({
+openButton.addEventListener("click", () => bridge.tabs.open({
   tabId: "record:123",
   title: "Record 123",
   route: "/records/123",
   state: { recordId: "123" },
-});
+}));
 
 // These are valid only from the currently mounted app tab.
 await bridge.tabs.update({ title: "Record 123 · edited", route: "/records/123", state: { dirty: true } });
@@ -713,7 +723,7 @@ export async function handleAction(action, input) {
 }
 
 export async function handleAutomation(event) {
-  if (event.automationId !== "refresh-records" || event.handler !== "refresh-records") {
+  if (event.appAutomationId !== "refresh-records" || event.handler !== "refresh-records") {
     throw new Error("Unknown automation.");
   }
   let network;
