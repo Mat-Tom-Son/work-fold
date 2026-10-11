@@ -700,7 +700,9 @@ See [Invalidation hints](#invalidation-hints).
 Installation is the grant for both AI lanes
 ([Receipts, not gates](receipts-not-gates.md), F22). `assistant.request`
 journals a declared `assistantActions` entry and starts a fresh ordinary Chat
-in the owning work-folder in the same call; `assistant.infer` asks the work-folder's
+in the owning work-folder in the same call — titled with your app's title and the
+action's (`Inbox · Compare quotes`), its message labelled as coming from your
+app; `assistant.infer` asks the work-folder's
 configured model one bounded question with no tools, no files, and no
 transcript:
 
@@ -817,7 +819,7 @@ time the worker spends in its own code: waiting on a network request, an
 agent request, or `assistant.infer` never counts. One worker runs one
 action or automation at a time; a second one queues and starts when the first
 finishes, instead of being refused. Error text a worker reports is kept up to
-16,384 characters. Automation
+16,384 characters, in an automation's run receipts and **Last error** too. Automation
 events contain `runId`, `appAutomationId`, `handler`, `reason` (`scheduled`,
 `manual`, or `resume`), and ISO `scheduledAt`. Treat `appAutomationId` and
 `handler` as the reviewed dispatch pair and reject unknown values.

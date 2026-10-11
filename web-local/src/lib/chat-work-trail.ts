@@ -87,6 +87,7 @@ export function savedWorkTrailPreviews(message: ChatMessage): RuntimePreviewEntr
     text: activity.message,
     ...(activity.detail ? { detail: activity.detail } : {}),
     ...(activity.toolName ? { toolName: activity.toolName } : {}),
+    ...(activity.toolTitle ? { toolTitle: activity.toolTitle } : {}),
     phase: activity.phase ?? "complete",
   }));
 }

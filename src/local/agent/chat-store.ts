@@ -4,7 +4,7 @@ import { appendFile, mkdir, open, readFile, readdir, rename, stat, unlink, write
 import { join } from "node:path";
 
 import { workFolderConversationDir, workFolderStateDir } from "../state-paths.js";
-import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
+import { maxChatToolTitleLength, maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
 import { parseAssistantPresentation, parseChatToolEdit } from "./turn-presentation.js";
 import {
   normalizeConversationTitle,
@@ -24,11 +24,18 @@ export interface ChatMessage {
   assistantPresentation?: AssistantPresentation;
   interruption?: ChatMessageInterruption;
   attachments?: ChatMessageAttachmentRef[];
-  /** Durable surface provenance for messages accepted through remote access. */
-  source?: "remote_web";
+  /**
+   * Durable surface provenance: `remote_web` for messages accepted through
+   * remote access, `app` for a request an installed app made with
+   * `assistant.request` (the message is the app's, not the person's).
+   */
+  source?: "remote_web" | "app";
   remotePrincipalId?: string;
   remoteGrantId?: string;
   remoteRequestId?: string;
+  /** With `source: "app"`: the app's manifest id and its title when it asked. */
+  appId?: string;
+  appTitle?: string;
   /** Stable host-owned identity for one accepted turn. */
   turnId?: string;
   /** Stable caller identity used to make turn acceptance idempotent. */
@@ -61,6 +68,7 @@ export interface ChatMessageInterruptionActivity {
   message: string;
   detail?: string;
   toolName?: string;
+  toolTitle?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
 
@@ -525,6 +533,13 @@ function parseChatMessage(line: string): ChatMessage | null {
       if (isRemoteProvenanceId(parsed.remoteGrantId)) message.remoteGrantId = parsed.remoteGrantId;
       message.remoteRequestId = parsed.remoteRequestId;
     }
+    // An app's request keeps its marker only with a readable title; a log
+    // without it (or from before it existed) loads as an ordinary message.
+    if (parsed.role === "user" && parsed.source === "app" && isAppSourceTitle(parsed.appTitle)) {
+      message.source = "app";
+      message.appTitle = parsed.appTitle;
+      if (isRemoteProvenanceId(parsed.appId)) message.appId = parsed.appId;
+    }
     if (isTurnIdentity(parsed.turnId)) message.turnId = parsed.turnId;
     if (isTurnIdentity(parsed.requestId)) message.requestId = parsed.requestId;
     if (parsed.role === "user" && parsed.delivery === "steer") message.delivery = "steer";
@@ -532,6 +547,17 @@ function parseChatMessage(line: string): ChatMessage | null {
   } catch {
     return null;
   }
+}
+
+/** Same shape the app manifest requires of a title: one plain line, at most 80 characters. */
+function isAppSourceTitle(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 80
+    && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(value);
+}
+
+function isChatToolTitle(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxChatToolTitleLength
+    && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(value);
 }
 
 function isRemoteProvenanceId(value: unknown): value is string {
@@ -575,6 +601,7 @@ function isChatMessageInterruptionActivity(value: unknown): value is ChatMessage
   return typeof record.message === "string"
     && (record.detail === undefined || typeof record.detail === "string")
     && (record.toolName === undefined || typeof record.toolName === "string")
+    && (record.toolTitle === undefined || typeof record.toolTitle === "string")
     && (
       record.phase === undefined
       || record.phase === "queued"
@@ -602,6 +629,8 @@ function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] 
       text: entry.text,
       ...(entry.detail === undefined ? {} : { detail: entry.detail }),
       ...(entry.toolName === undefined ? {} : { toolName: entry.toolName }),
+      // A newer field: an unreadable title is dropped, never the whole trail.
+      ...(isChatToolTitle(entry.toolTitle) ? { toolTitle: entry.toolTitle } : {}),
       ...(entry.phase === undefined ? {} : { phase: entry.phase }),
       ...(entry.order === undefined ? {} : { order: entry.order }),
       ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),

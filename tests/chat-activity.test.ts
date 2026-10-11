@@ -158,3 +158,29 @@ test("saved successful-turn work trails restore thinking and tools without a spi
   assert.equal(previews[1]?.durationMs, 2_600);
   assert.equal(previews[2]?.detail, "notes.md");
 });
+
+test("an app's tool step names the app and the tool, never the registered hash", () => {
+  const hashed = `app_${"1a2b3c4d".repeat(2)}_inbox_search`;
+  const live: RuntimePreviewEntry = { id: "a1", kind: "tool", toolName: hashed, toolTitle: "Inbox: Inbox search", text: "Inbox: Inbox search running", detail: "invoices", phase: "running" };
+  const done: RuntimePreviewEntry = { ...live, text: "Inbox: Inbox search finished", phase: "complete" };
+  const running = render({ entries: [live], running: true });
+  assert.match(running, />Using Inbox: Inbox search</);
+  assert.doesNotMatch(running, /1a2b3c4d|App 1a2b/i);
+  const settled = render({ entries: [done], running: true, replyStarted: true });
+  assert.match(settled, />Used Inbox: Inbox search invoices</);
+  assert.match(settled, />Used Inbox: Inbox search</);
+  assert.doesNotMatch(settled, /1a2b3c4d/i);
+  assert.equal(workStepsSummary([done, read("r1", "a.md")]), "Used Inbox: Inbox search, read a file");
+
+  // A step saved before titles were recorded still hides the hash.
+  const saved = savedWorkTrailPreviews({ id: "old", role: "assistant", content: "Done.", createdAt: "2026-10-01T00:00:00.000Z",
+    workTrail: [{ kind: "tool", text: "App 1a2b3c4d1a2b3c4d Inbox Search finished", toolName: hashed, phase: "complete" }] });
+  assert.equal(workStepsSummary(saved), "Used Inbox search (app)");
+  assert.doesNotMatch(render({ entries: saved }), /1a2b3c4d/i);
+
+  // And the title reaches the saved view from an interrupted turn's activities.
+  const interrupted = savedWorkTrailPreviews({ id: "stopped", role: "assistant", content: "", createdAt: "2026-10-01T00:00:00.000Z",
+    interruption: { reason: "cancelled", message: "Stopped.", retryAttempts: 0, provider: null, model: null,
+      activities: [{ message: "Inbox: Inbox search running", toolName: hashed, toolTitle: "Inbox: Inbox search", phase: "running" }] } });
+  assert.equal(workStepsSummary(interrupted), "Used Inbox: Inbox search");
+});

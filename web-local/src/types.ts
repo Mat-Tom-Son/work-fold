@@ -112,6 +112,10 @@ export interface ChatMessage {
   requestId?: string;
   /** Sent into an already-running turn; the agent saw it after its current step. */
   delivery?: "steer";
+  /** `app`: an installed app asked for this (`assistant.request`), not the person. */
+  source?: "remote_web" | "app";
+  appId?: string;
+  appTitle?: string;
 }
 
 export interface ChatMessageInterruption {
@@ -127,6 +131,7 @@ export interface ChatMessageInterruptionActivity {
   message: string;
   detail?: string;
   toolName?: string;
+  toolTitle?: string;
   phase?: AgentActivityPhase;
 }
 
@@ -925,6 +930,8 @@ export interface ChatStreamEvent {
   message?: string;
   text?: string;
   toolName?: string;
+  /** Readable name for a tool whose registered name is not, such as an app's. */
+  toolTitle?: string;
   toolCallId?: string;
   phase?: AgentActivityPhase;
   thinkingPhase?: "start" | "delta" | "end";

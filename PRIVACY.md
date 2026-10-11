@@ -26,7 +26,7 @@ durable agent questions remain in the separately documented request store.
 By default, work-fold stores:
 
 - work-folder files in the ordinary folders the user creates or registers.
-- A hidden `.work-fold/` directory inside each work-folder. Its `work-folder.json` file stores the portable work-folder identity, and its `conversations/` directory stores that work-folder's append-only Chat records, including title, archive, and snooze lifecycle events.
+- A hidden `.work-fold/` directory inside each work-folder. Its `work-folder.json` file stores the portable work-folder identity, and its `conversations/` directory stores that work-folder's append-only Chat records, including title, archive, and snooze lifecycle events, and, on a message an installed app sent with `assistant.request`, that app's manifest id and title.
 - The work-folder registry, History objects, ignore rules, application settings, per-work-folder model defaults and work-folder instructions, and machine-local Chat attention acknowledgements under the local work-fold application-data directory or browser-backed application storage.
 - Pi settings, sessions, Pi's independent trust decisions, personal Skills, Extensions, and packages under the configured Pi agent directory, normally `~/.pi/agent`.
 - Provider credentials in an application-scoped file encrypted through Electron's operating-system-backed `safeStorage`. work-fold refuses credential operations when that encryption is unavailable.

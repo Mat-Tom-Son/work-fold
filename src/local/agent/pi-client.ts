@@ -91,6 +91,8 @@ export interface PiChatEvent {
   assistantPresentation?: AssistantPresentation;
   toolCallId?: string;
   toolName?: string;
+  /** Readable name for an app's tool, whose registered name carries a hash. */
+  toolTitle?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
   detail?: string;
   edit?: ChatToolEdit;
@@ -101,6 +103,7 @@ export interface PiTurnActivity {
   message: string;
   detail?: string;
   toolName?: string;
+  toolTitle?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
 
@@ -235,6 +238,8 @@ export class PiConversationClient extends EventEmitter {
   private pendingAssistantError: string | null = null;
   private retryAttempts = 0;
   private turnActivities = new Map<string, PiTurnActivity>();
+  /** Registered app tool name → "App: Tool", so steps never show the hashed name. */
+  private appToolTitles = new Map<string, string>();
   private turnWorkTrail = new Map<string, PiTurnWorkTrailEntry>();
   private turnWorkTrailTruncated = false;
   private activeThinkingTrailId: string | null = null;
@@ -728,13 +733,17 @@ export class PiConversationClient extends EventEmitter {
       const preferred = options.sessionManager.buildSessionContext().messages.length === 0
         ? findPreferredModel(runtime)
         : undefined;
+      const restrictedApps = this.hostCapabilities?.restrictedApps
+        ? await this.hostCapabilities.restrictedApps.list(this.hostCapabilities.workFolderId)
+        : [];
       const restrictedAppTools = this.hostCapabilities?.restrictedApps
         ? createRestrictedAppTools({
           workFolderId: this.hostCapabilities.workFolderId,
-          apps: await this.hostCapabilities.restrictedApps.list(this.hostCapabilities.workFolderId),
+          apps: restrictedApps,
           service: this.hostCapabilities.restrictedApps,
         })
         : [];
+      this.appToolTitles = restrictedAppToolTitles(restrictedApps);
       const customTools = [
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
@@ -1069,7 +1078,7 @@ export class PiConversationClient extends EventEmitter {
   }
 
   private emitToolEvent(raw: any): void {
-    const event = toolEvent(raw);
+    const event = toolEvent(raw, this.appToolTitles);
     if (!event) return;
     const toolCallId = event.toolCallId;
     if (!toolCallId) return;
@@ -1103,6 +1112,7 @@ export class PiConversationClient extends EventEmitter {
       message: event.message ?? humanize(event.toolName ?? "Tool"),
       ...(event.detail ? { detail: event.detail } : {}),
       ...(event.toolName ? { toolName: event.toolName } : {}),
+      ...(event.toolTitle ? { toolTitle: event.toolTitle } : {}),
       ...(event.phase ? { phase: event.phase } : {}),
     });
     const workTrailId = `tool:${toolCallId}`;
@@ -1113,6 +1123,7 @@ export class PiConversationClient extends EventEmitter {
       ...(event.detail ? { detail: event.detail } : {}),
       ...(event.edit ? { edit: { ...event.edit } } : {}),
       ...(event.toolName ? { toolName: event.toolName } : {}),
+      ...(event.toolTitle ? { toolTitle: event.toolTitle } : {}),
       ...(event.phase ? { phase: event.phase } : {}),
       ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
     });
@@ -1636,6 +1647,27 @@ export function createRestrictedAppTools(input: {
   })));
 }
 
+/**
+ * What a Chat's steps call an app's tool: the app's title and the tool's name
+ * ("Inbox: Search messages"), never the registered `app_<hash>_` name.
+ */
+export function restrictedAppToolTitle(
+  app: Pick<RestrictedAppInstalled, "runtimeInstanceKind"> & { manifest: Pick<RestrictedAppInstalled["manifest"], "title"> },
+  toolName: string,
+): string {
+  const words = toolName.replace(/[_-]+/g, " ").trim();
+  const tool = words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : toolName;
+  return `${app.manifest.title}${app.runtimeInstanceKind === "development" ? " (preview)" : ""}: ${tool}`;
+}
+
+/** Registered tool name → readable title for every tool these apps add. */
+export function restrictedAppToolTitles(apps: readonly RestrictedAppInstalled[]): Map<string, string> {
+  return new Map(apps.flatMap((app) => app.manifest.tools.map((tool) => [
+    restrictedAppToolName(app.featureInstallationId, tool.name),
+    restrictedAppToolTitle(app, tool.name),
+  ] as const)));
+}
+
 function restrictedAppToolName(featureInstallationId: string, toolName: string): string {
   const prefix = `app_${createHash("sha256").update(JSON.stringify([featureInstallationId, toolName])).digest("hex").slice(0, 16)}_`;
   return `${prefix}${toolName}`.slice(0, 64);
@@ -1950,7 +1982,7 @@ function lastAssistantText(messages: any[]): string {
   return "";
 }
 
-function toolEvent(raw: any): Omit<PiChatEvent, "conversationId" | "raw"> | null {
+function toolEvent(raw: any, titles: ReadonlyMap<string, string> = new Map()): Omit<PiChatEvent, "conversationId" | "raw"> | null {
   const assistantEvent = raw.assistantMessageEvent ?? {};
   const call = assistantEvent.toolCall ?? assistantEvent.partial?.toolCall ?? raw.tool ?? {};
   const toolName = String(raw.toolName ?? raw.name ?? call.toolName ?? call.name ?? "");
@@ -1960,15 +1992,19 @@ function toolEvent(raw: any): Omit<PiChatEvent, "conversationId" | "raw"> | null
   const detail = summarizeToolValue(args);
   const subtype = String(assistantEvent.type ?? "");
   const type = String(raw.type ?? "");
-  const label = humanize(toolName);
+  // An app's tool is registered as `app_<hash>_<name>`; its title names the
+  // app instead, so no surface shows the hash.
+  const toolTitle = titles.get(toolName);
+  const label = toolTitle ?? humanize(toolName);
+  const named = toolTitle ? { toolTitle } : {};
   if (subtype === "toolcall_start" || subtype === "toolcall_end") {
-    return { type: "tool", toolCallId, toolName, phase: "queued", message: `${label} queued`, detail };
+    return { type: "tool", toolCallId, toolName, ...named, phase: "queued", message: `${label} queued`, detail };
   }
   if (type === "tool_execution_start" || type === "tool_call") {
-    return { type: "tool", toolCallId, toolName, phase: "running", message: `${label} running`, detail };
+    return { type: "tool", toolCallId, toolName, ...named, phase: "running", message: `${label} running`, detail };
   }
   if (type === "tool_execution_update") {
-    return { type: "tool", toolCallId, toolName, phase: "streaming", message: `${label} updating`, detail };
+    return { type: "tool", toolCallId, toolName, ...named, phase: "streaming", message: `${label} updating`, detail };
   }
   if (type === "tool_execution_end" || type === "tool_result") {
     const failed = Boolean(raw.isError);
@@ -1976,6 +2012,7 @@ function toolEvent(raw: any): Omit<PiChatEvent, "conversationId" | "raw"> | null
       type: "tool",
       toolCallId,
       toolName,
+      ...named,
       phase: failed ? "error" : "complete",
       ...(typeof raw.durationMs === "number" && Number.isFinite(raw.durationMs) && raw.durationMs >= 0 && raw.durationMs <= 86_400_000 ? { durationMs: raw.durationMs } : {}),
       message: `${label} ${failed ? "failed" : "finished"}`,

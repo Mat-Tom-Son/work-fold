@@ -29,6 +29,7 @@ import {
   type RestrictedAppFileWatchTarget,
 } from "../../src/local/agent/restricted-app-file-watch.js";
 import { restrictedAppSubscriptionLimits } from "../../src/shared/restricted-app-tasks.js";
+import { workFoldAppErrorTextMaxLength } from "../../src/shared/work-fold-limits.js";
 import type { RestrictedAppAssistantActivity } from "../../src/local/agent/restricted-app-tasks.js";
 import {
   buildRestrictedAppLimits,
@@ -133,7 +134,7 @@ const defaultInvocationTimeoutMs = 10 * 60_000;
 const defaultLoadTimeoutMs = 2 * 60_000;
 const workerIdleTimeoutMs = 30_000;
 /** Error text an app or worker reports, kept whole up to this many characters. */
-const maxErrorTextLength = 16 * 1024;
+const maxErrorTextLength = workFoldAppErrorTextMaxLength;
 
 export interface RestrictedAppHostOptions {
   assistantTasks?: () => Promise<Pick<RestrictedAppTaskService, "request" | "get" | "list" | "cancel">>;

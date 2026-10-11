@@ -413,6 +413,64 @@ test("remote Chat title retries are append-only and idempotent within one browse
   );
 });
 
+test("an app's request keeps its app marker, and logs without one still load", async (t) => {
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "work-fold-chat-store-app-source-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
+  const created = await createConversation(workFolderRoot, "Inbox · Compare quotes", "chat-app-source");
+  assert.equal(created.title, "Inbox · Compare quotes");
+  await appendMessage(workFolderRoot, created.id, {
+    ...message("app", "App request: Compare quotes"), source: "app", appId: "connected-inbox", appTitle: "Inbox",
+  });
+  // A line written before the marker existed, and lines whose marker is not
+  // usable: each still loads as an ordinary message.
+  const path = join(conversationsDir(workFolderRoot), `${created.id}.jsonl`);
+  const legacy = { ...message("legacy", "An older app request"), createdAt: "2026-07-01T00:00:00.000Z" };
+  const lines = [
+    legacy,
+    { ...message("bad-title", "Control characters"), source: "app", appTitle: "Inbox\u0000" },
+    { ...message("long-title", "Too long"), source: "app", appTitle: "x".repeat(81) },
+    { ...message("bad-id", "Odd id"), source: "app", appId: "has spaces", appTitle: "Inbox" },
+    { id: "reply", role: "assistant", content: "Done.", createdAt: "2026-07-01T00:00:01.000Z", source: "app", appTitle: "Inbox" },
+    { ...message("future", "A newer source"), source: "somewhere-else", appTitle: "Inbox" },
+  ];
+  await writeFile(path, `${await readFile(path, "utf8")}${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, "utf8");
+
+  const messages = new Map((await readConversation(workFolderRoot, created.id)).map((item) => [item.id, item]));
+  const app = messages.get("app")!;
+  assert.equal(app.source, "app");
+  assert.equal(app.appTitle, "Inbox");
+  assert.equal(app.appId, "connected-inbox");
+  assert.equal(messages.get("legacy")?.content, "An older app request");
+  assert.equal(messages.get("legacy")?.source, undefined, "an old log line without the marker still loads");
+  for (const id of ["bad-title", "long-title", "reply", "future"]) {
+    const item = messages.get(id);
+    assert.ok(item, `${id} still loads`);
+    assert.equal(item.source, undefined, `${id} carries no app marker`);
+    assert.equal(item.appTitle, undefined);
+  }
+  assert.equal(messages.get("bad-id")?.source, "app", "an unusable app id drops only the id");
+  assert.equal(messages.get("bad-id")?.appId, undefined);
+});
+
+test("saved work trails keep an app tool's readable title and drop an unusable one alone", async (t) => {
+  const workFolderRoot = await mkdtemp(join(tmpdir(), "work-fold-chat-store-tool-title-"));
+  t.after(() => rm(workFolderRoot, { recursive: true, force: true }));
+  const appTool = `app_${"1a2b3c4d".repeat(2)}_search`;
+  await appendMessage(workFolderRoot, "chat-tool-title", {
+    id: "reply", role: "assistant", content: "Found 3.", createdAt: "2026-10-11T12:00:00.000Z",
+    workTrail: [
+      { kind: "tool", text: "Inbox: Search finished", toolName: appTool, toolTitle: "Inbox: Search", phase: "complete" },
+      { kind: "tool", text: "Read finished", toolName: "read", toolTitle: "x".repeat(201), detail: "notes.md", phase: "complete" },
+    ],
+  });
+  const [reply] = await readConversation(workFolderRoot, "chat-tool-title");
+  assert.equal(reply?.workTrail?.length, 2, "an unusable title never drops the trail");
+  assert.equal(reply?.workTrail?.[0]?.toolTitle, "Inbox: Search");
+  assert.equal(reply?.workTrail?.[0]?.toolName, appTool, "the registered name stays the identity");
+  assert.equal(reply?.workTrail?.[1]?.toolTitle, undefined);
+  assert.equal(reply?.workTrail?.[1]?.detail, "notes.md");
+});
+
 test("chat store persists archive and snooze state as append-only lifecycle events", async (t) => {
   const workFolderRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-lifecycle-"));
   t.after(() => rm(workFolderRoot, { recursive: true, force: true }));

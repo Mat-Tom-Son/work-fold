@@ -463,6 +463,25 @@ export class RestrictedAppTaskService extends EventEmitter {
 
 export function restrictedAppTaskTurnRequestId(record: Pick<RestrictedAppTaskReceipt, "id">): string { return `app-task-${record.id}`; }
 
+/** Chat titles hold 80 characters (src/shared/chat-title.ts); the app's name takes at most this many. */
+const appTitleInChatTitle = 24;
+
+/**
+ * The title of the Chat an app request opens: the app's name, shortened, then
+ * the action's title ("Inbox · Compare quotes"), so two apps with the same
+ * action title stay apart in the Chat list.
+ */
+export function restrictedAppTaskChatTitle(appTitle: string | undefined, actionTitle: string): string {
+  const action = actionTitle.replace(/\s+/g, " ").trim();
+  const app = shortened(appTitle?.replace(/\s+/g, " ").trim() ?? "", appTitleInChatTitle);
+  const prefix = app ? `${app} · ` : "";
+  return `${prefix}${shortened(action, 80 - prefix.length)}`;
+}
+
+function shortened(text: string, length: number): string {
+  return text.length <= length ? text : `${text.slice(0, length - 1).trimEnd()}…`;
+}
+
 /**
  * Stable, fully inspectable content; no arbitrary Chat, work-fold agent context, or tool
  * policy injection. `record.title` is the action's own label (for example

@@ -278,6 +278,9 @@ export interface RestrictedAppActiveAutomationRun {
   workFolderId: string;
   appId: string;
   appAutomationId: string;
+  /** The app's and the automation's titles, while the installation still declares them. */
+  appTitle?: string;
+  automationTitle?: string;
   runId: string;
   reason: "scheduled" | "manual" | "resume";
   scheduledAt: string;
@@ -303,6 +306,8 @@ export interface RestrictedAppAutomationRunHistoryReceipt {
   workFolderId: string;
   appId: string;
   appAutomationId: string;
+  appTitle?: string;
+  automationTitle?: string;
   runId: string;
   reason: "scheduled" | "manual" | "resume";
   outcome: "success" | "failure" | "skipped" | "cancelled" | "interrupted";
@@ -2303,6 +2308,7 @@ export class RestrictedAppService {
         workFolderId: accepted.workFolderId,
         appId: accepted.appId,
         appAutomationId: accepted.appAutomationId,
+        ...this.#appAutomationTitles(accepted),
         runId: accepted.runId,
         reason: accepted.reason,
         scheduledAt: accepted.scheduledAt,
@@ -2310,6 +2316,25 @@ export class RestrictedAppService {
         fileGrantIds,
       };
     });
+  }
+
+  /**
+   * The titles a person knows a run by: the app's and the automation's, from
+   * the revision that ran it, or the installation's current revision after a
+   * code change. Nothing once the installation is gone; callers keep the id.
+   */
+  #appAutomationTitles(run: {
+    runtimeInstanceId: string;
+    featureInstallationId: string;
+    packageDigest: string;
+    appAutomationId: string;
+  }): { appTitle?: string; automationTitle?: string } {
+    const installation = this.#registry.installations.filter((item) => item.runtimeInstanceId === run.runtimeInstanceId
+      && item.featureInstallationId === run.featureInstallationId);
+    const entry = installation.find((item) => item.digest === run.packageDigest) ?? installation[0];
+    if (!entry) return {};
+    const declaration = entry.manifest.automations.find((item) => item.id === run.appAutomationId);
+    return { appTitle: entry.manifest.title, ...(declaration ? { automationTitle: declaration.title } : {}) };
   }
 
   /**
@@ -2329,6 +2354,7 @@ export class RestrictedAppService {
       workFolderId: receipt.workFolderId,
       appId: receipt.appId,
       appAutomationId: receipt.appAutomationId,
+      ...this.#appAutomationTitles(receipt),
       runId: receipt.runId,
       reason: receipt.reason,
       outcome: receipt.outcome,
@@ -2795,7 +2821,10 @@ export class RestrictedAppService {
             appId: _appId,
             ...receipt
           } = historicalDuplicate;
-          recorded = structuredClone(receipt);
+          // The installation's own copy keeps the whole error; the
+          // machine-wide ledger's copy is shortened.
+          const whole = this.#registry.installations.flatMap((item) => item.appAutomationRuns).find((run) => run.runId === result.runId);
+          recorded = structuredClone(whole ? { ...receipt, ...(whole.error !== undefined ? { error: whole.error } : {}) } : receipt);
           return;
         }
         const existing = this.#registry.installations.find((item) => item.runtimeInstanceId === owner.runtimeInstanceId
@@ -2823,6 +2852,7 @@ export class RestrictedAppService {
         const receipt: RestrictedAppAutomationRegistryReceipt = { ...publicReceipt, packageDigest };
         const historical: RestrictedAppHistoricalAutomationRegistryReceipt = {
           ...receipt,
+          ...(receipt.error !== undefined ? { error: historicalAppAutomationError(receipt.error) } : {}),
           workFolderId,
           appId,
         };
@@ -3323,6 +3353,20 @@ function freshRegistry(): RestrictedAppRegistryFile {
     acceptedAppAutomationRuns: [],
     historicalAppAutomationRuns: [],
   };
+}
+
+/**
+ * The machine-wide historical ledger (up to 1,000 receipts) is read only for
+ * identities and outcomes, by the overview. It keeps a short error so it
+ * cannot grow the one registry document by 16 KiB a receipt; the
+ * installation's own run receipts and its Last error keep the whole text.
+ */
+const historicalAppAutomationErrorLength = 300;
+
+function historicalAppAutomationError(error: string): string {
+  if (error.length <= historicalAppAutomationErrorLength) return error;
+  const cut = error.slice(0, historicalAppAutomationErrorLength - 1).replace(/[\uD800-\uDBFF]$/, "").trimEnd();
+  return cut ? `${cut}…` : "Automation run failed.";
 }
 
 function reconcileInterruptedAppAutomationRuns(
@@ -4741,7 +4785,7 @@ function appAutomationRegistryStateValue(
     : isoDate(item.lastRunAt, "Restricted app automation run time");
   const lastError = item.lastError === undefined
     ? undefined
-    : nonempty(item.lastError, "Restricted app automation error", 300);
+    : nonempty(item.lastError, "Restricted app automation error", workFoldSchedulerMaxErrorLength);
   return {
     id,
     enabled: item.enabled,
@@ -4848,7 +4892,7 @@ function appAutomationRunReceiptValue(
   const startedAt = isoDate(item.startedAt, "Restricted app automation start time");
   const finishedAt = isoDate(item.finishedAt, "Restricted app automation finish time");
   if (Date.parse(finishedAt) < Date.parse(startedAt)) throw new Error("Restricted app automation run times are invalid.");
-  const error = item.error === undefined ? undefined : nonempty(item.error, "Restricted app automation run error", 300);
+  const error = item.error === undefined ? undefined : nonempty(item.error, "Restricted app automation run error", workFoldSchedulerMaxErrorLength);
   if (item.outcome === "success" ? error !== undefined : error === undefined) {
     throw new Error("Restricted app automation run error does not match its outcome.");
   }

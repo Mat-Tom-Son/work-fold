@@ -273,6 +273,9 @@ export interface WorkFoldOverviewCheckSource {
 export interface WorkFoldOverviewAppAutomationRunRecord {
   runId: string;
   appAutomationId: string;
+  /** The app's and the automation's titles, when the installation still declares them. */
+  appTitle?: string;
+  automationTitle?: string;
   workFolderId?: string;
   startedAt: string;
 }
@@ -288,6 +291,8 @@ export interface WorkFoldOverviewAppAutomationReceiptRecord {
   receiptId: string;
   runId: string;
   appAutomationId: string;
+  appTitle?: string;
+  automationTitle?: string;
   workFolderId?: string;
   outcome: WorkFoldOverviewAppAutomationOutcome;
   finishedAt: string;
@@ -529,7 +534,7 @@ function composeRunning(input: {
       at: run.startedAt,
       kind: "app-automation-run",
       ...(run.workFolderId ? { workFolderId: run.workFolderId, workFolderNames: input.workFolderNames } : {}),
-      headline: `Automation "${clampText(run.appAutomationId, maxTitleInHeadline)}" running`,
+      headline: `${appAutomationSubject(run)} running`,
       ref: { runId: run.runId },
     }));
   }
@@ -777,7 +782,7 @@ function composeChanges(input: {
       at: receipt.finishedAt,
       kind: "app-automation-run-settled",
       ...(receipt.workFolderId ? { workFolderId: receipt.workFolderId, workFolderNames: input.workFolderNames } : {}),
-      headline: `Automation "${clampText(receipt.appAutomationId, maxTitleInHeadline)}" ${appAutomationOutcomeLabel(receipt.outcome)}`,
+      headline: `${appAutomationSubject(receipt)} ${appAutomationOutcomeLabel(receipt.outcome)}`,
       ref: { runId: receipt.runId },
     }));
   }
@@ -1128,6 +1133,17 @@ function chatLifecycleHeadline(title: string, event: WorkFoldOverviewChatLifecyc
   if (event.change === "restored") return `"${title}" restored`;
   if (event.change === "snoozed") return `"${title}" snoozed${event.snoozedUntil ? ` until ${event.snoozedUntil}` : ""}`;
   return `"${title}" snooze cleared`;
+}
+
+/**
+ * An app's named automation by the app's and the automation's titles
+ * (`Inbox automation "Refresh inbox"`), so it reads apart from work-fold's
+ * own Automations. A run whose app is gone keeps its declared id.
+ */
+function appAutomationSubject(record: { appAutomationId: string; appTitle?: string; automationTitle?: string }): string {
+  const automation = clampText(record.automationTitle?.trim() || record.appAutomationId, maxTitleInHeadline);
+  const app = record.appTitle?.trim();
+  return app ? `${clampText(app, maxTitleInHeadline)} automation "${automation}"` : `App automation "${automation}"`;
 }
 
 function appAutomationOutcomeLabel(outcome: WorkFoldOverviewAppAutomationOutcome): string {

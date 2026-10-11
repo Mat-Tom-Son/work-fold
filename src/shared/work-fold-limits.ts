@@ -37,6 +37,13 @@ export const workFoldAutomationDeclarationBounds = Object.freeze({
   maxAtAdvanceMs: 10 * 366 * 24 * 60 * 60 * 1_000,
 });
 
+/**
+ * Error text an app or its worker reports, kept whole up to this many
+ * characters. The app host and an app automation's durable run receipt share
+ * it, so a receipt never cuts what the host kept.
+ */
+export const workFoldAppErrorTextMaxLength = 16 * 1024;
+
 /** Automation runs this machine executes at once before the rest queue. */
 export const workFoldAutomationMaxConcurrentRuns = 64;
 

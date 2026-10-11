@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { workFoldAppAutomationDefaultConcurrency } from "../../shared/work-fold-limits.js";
+import { workFoldAppAutomationDefaultConcurrency, workFoldAppErrorTextMaxLength } from "../../shared/work-fold-limits.js";
 
-export const workFoldSchedulerMaxErrorLength = 300;
+/** The same bound the app host keeps, so a run receipt holds an app's whole error. */
+export const workFoldSchedulerMaxErrorLength = workFoldAppErrorTextMaxLength;
 
 /** Shared with Settings → Automations → Limits so the shown number is the enforced one. */
 const defaultMaxConcurrency = workFoldAppAutomationDefaultConcurrency;
@@ -878,8 +879,15 @@ function normalizedIsoTime(value: unknown, label: string): string {
   return isoTime(time);
 }
 
+/**
+ * Error text for a durable receipt: well-formed (a lone surrogate becomes
+ * U+FFFD, and the cut never splits a pair, so the receipt always persists)
+ * and at most `workFoldSchedulerMaxErrorLength` characters.
+ */
 function boundedError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error ?? "Automation run failed.");
-  const bounded = message.slice(0, workFoldSchedulerMaxErrorLength);
+  const message = (error instanceof Error ? error.message : String(error ?? "Automation run failed."))
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
+  let bounded = message.slice(0, workFoldSchedulerMaxErrorLength);
+  if (/[\uD800-\uDBFF]$/.test(bounded)) bounded = bounded.slice(0, -1);
   return bounded.trim() ? bounded : "Automation run failed.";
 }
