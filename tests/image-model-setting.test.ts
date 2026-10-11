@@ -65,31 +65,31 @@ test("Settings saves one image model for every Worker, refuses one that isn't co
 
 test("the Image model section shows Automatic with its pick, and saves a choice at once", async (t) => {
   const { createDomHarness } = await import("./support/dom.js");
-  const { createElement } = await import("react");
+  const { createElement, useState } = await import("react");
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   const posts: unknown[] = [];
   const models = [
-    { provider: "openrouter", providerName: "OpenRouter", id: "google/gemini-3.1-flash-image", name: "Nano Banana 2" },
-    { provider: "openrouter", providerName: "OpenRouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
+    { provider: "openrouter", providerName: "OpenRouter", id: "google/gemini-3.1-flash-image", name: "Google: Nano Banana 2" },
+    { provider: "openrouter", providerName: "OpenRouter", id: "openai/gpt-image-2", name: "OpenAI: GPT Image 2" },
   ];
-  let selected: { provider: string; id: string } | null = null;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.endsWith("/api/agent/image-model") && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as { model: { provider: string; id: string } | null };
-      posts.push(body.model);
-      selected = body.model;
-    }
-    if (!url.includes("/api/agent/image-model")) throw new Error(`unexpected ${url}`);
-    return new Response(JSON.stringify({ selected, selectedAvailable: true, automatic: models[0], models }), { status: 200, headers: { "content-type": "application/json" } });
+    if (!url.endsWith("/api/agent/image-model") || init?.method !== "POST") throw new Error(`unexpected ${url}`);
+    const body = JSON.parse(String(init.body)) as { model: { provider: string; id: string } | null };
+    posts.push(body.model);
+    return new Response(JSON.stringify({ selected: body.model, selectedAvailable: true, automatic: models[0], models }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   const { ImageModelSection } = await import("../web-local/src/components/panes/ImageModelSection.js");
-  await dom.render(createElement(ImageModelSection, {}));
-  await dom.waitFor(() => dom.container.querySelector(".model-catalog-name")?.textContent === "Nano Banana 2"
-    && dom.container.querySelector(".model-catalog-id")?.textContent === "Automatic");
+  function Host() {
+    const [settings, setSettings] = useState({ selected: null, selectedAvailable: true, automatic: models[0]!, models } as never);
+    return createElement(ImageModelSection, { settings, onChange: setSettings });
+  }
+  await dom.render(createElement(Host));
+  assert.equal(dom.container.querySelector(".model-catalog-name")?.textContent, "Nano Banana 2", "Automatic shows its current pick without the vendor prefix");
+  assert.equal(dom.container.querySelector(".model-catalog-id")?.textContent, "Automatic");
   await dom.act(() => dom.container.querySelector<HTMLButtonElement>(".model-catalog button")!.click());
   const option = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((item) => item.dataset.modelId === "openai/gpt-image-2")!;
   await dom.waitFor(() => Boolean(option()));

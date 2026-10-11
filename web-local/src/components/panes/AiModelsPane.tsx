@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ModelCatalogList, modelCatalogKey } from "./ModelCatalogList";
-import { ImageModelSection } from "./ImageModelSection";
+import { ImageModelSection, type ImageModelSettings } from "./ImageModelSection";
 import { RefreshCw } from "lucide-react";
 import { Eye20Regular, EyeOff20Regular } from "@fluentui/react-icons";
 import { api, errorText } from "../../lib/api";
@@ -145,7 +145,6 @@ export function AiModelsPane(props: AiModelsProps) {
         onSnapshot={(result) => loaded.current.set(target, result)}
         onLoaded={() => setPrefetchTick((current) => current + 1)}
       />
-      <ImageModelSection fixtureMode={props.fixtureMode} />
     </div>
   );
 }
@@ -187,6 +186,8 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
   const instructionsField = useRef<HTMLTextAreaElement>(null);
   const [instructions, setInstructions] = useState("");
   const [savedInstructions, setSavedInstructions] = useState("");
+  // Settings → AI Models → Image model: machine-wide, so the same in either scope.
+  const [imageModels, setImageModels] = useState<ImageModelSettings | undefined>(undefined);
   const [loading, setLoading] = useState(!initialResult);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -301,6 +302,7 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
 
   function applyLoadedSettings(result: AiModelsSettingsResponse, restoreDraft = false) {
     const draft = restoreDraft ? readDraft() : {};
+    if (result.imageModels) setImageModels(result.imageModels);
     setModels(result.models);
     const connections = connectionProviders(result);
     setProviderCatalog(connections);
@@ -589,6 +591,7 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
         <div className="ai-models-form-actions worker-instructions-actions"><AiModelsOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /><button className="ui-control" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save Instructions"}</button></div>
       </form>
     </section> : null}
+    {imageModels ? <ImageModelSection settings={imageModels} onChange={setImageModels} /> : null}
   </>;
 }
 
@@ -600,7 +603,7 @@ function serializeAzureConnection(draft: AzureConnectionDraft): AzureOpenAIConne
   return normalizeAzureOpenAIConnection({ baseUrl: draft.baseUrl, deployments: parseAzureDeploymentNames(draft.deployments) });
 }
 
-type AiModelsSettingsResponse = { models: AgentModel[]; providers?: AgentProvider[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null; azure?: AzureOpenAIConnection };
+type AiModelsSettingsResponse = { models: AgentModel[]; providers?: AgentProvider[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null; azure?: AzureOpenAIConnection; imageModels?: ImageModelSettings };
 function settingsSnapshot(result: AiModelsSettingsResponse): string {
   return JSON.stringify([result.status.provider, result.status.model, result.status.configured, result.models, connectionProviders(result), result.catalogs, result.instructions ?? "", result.azure ?? emptyAzureConnection]);
 }

@@ -2751,6 +2751,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       instructions: scope.id === workFoldAgentScopeId
         ? null
         : await getPiWorkerInstructions(scope.workFolderRoot, state.runtimeProvider),
+      // The Image model section rides this load, so opening Settings costs no extra request.
+      ...(await imageModelSettings(state).then((imageModels) => ({ imageModels }), () => ({}))),
     });
     return;
   }
