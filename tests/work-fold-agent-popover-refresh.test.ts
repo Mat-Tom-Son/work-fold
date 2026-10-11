@@ -147,7 +147,15 @@ test("the popover composer behaves like every other work-fold composer", async (
   // refetch that changes nothing keeps the old array identity.
   assert.match(popover, /transcriptPinnedRef/);
   assert.match(popover, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*?transcript\.scrollTop = transcript\.scrollHeight/);
-  assert.match(popover, /\[messages, phase, streamingAssistant, activity, liveSteps, conversationId\]/);
+  assert.match(popover, /\[messages, phase, streamingAssistant, activity, liveSteps, conversationId, visible, historyOpen\]/);
+  // Showing the panel or returning from Chats re-applies the place a hidden
+  // transcript lost; outside size changes follow too, and sending or Latest
+  // always returns to the newest entry.
+  assert.match(popover, /new ResizeObserver\(stick\)/);
+  assert.match(popover, /if \(!target\.clientHeight\) return;/);
+  assert.match(popover, /target\.scrollHeight - target\.scrollTop - target\.clientHeight < 120/);
+  assert.match(popover, /clearLiveSteps\(\);\s*followLatest\(\);/);
+  assert.match(popover, /className="agent-jump-latest" type="button" onClick=\{\(\) => followLatest\("smooth"\)\}/);
   assert.match(popover, /sameTranscript\(current, next\) \? current : next/);
   // Staged chips render outside the composer conditional so a mid-turn drop
   // is confirmed on screen instead of surfacing after the turn settles.

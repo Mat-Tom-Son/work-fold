@@ -4,7 +4,7 @@ import { useApplicationAppearance } from "../hooks/useApplicationAppearance";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ArrowUp, ChevronRight, File, Folder, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, File, Folder, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -219,6 +219,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   const transcriptRef = useRef<HTMLElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const transcriptPinnedRef = useRef(true);
+  const [transcriptPinned, setTranscriptPinnedState] = useState(true);
   const dragDepthRef = useRef(0);
   const streamingDeltaRef = useRef("");
   const streamingFrameRef = useRef<number | null>(null);
@@ -532,14 +533,29 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
     };
   }, [refreshConversation, refreshWorkFoldAgentComposer]);
 
+  const setTranscriptPinned = useCallback((pinned: boolean) => {
+    transcriptPinnedRef.current = pinned;
+    setTranscriptPinnedState(pinned);
+  }, []);
+
+  // Sending, opening a chat, and Latest all return to the newest entry.
+  const followLatest = useCallback((behavior: ScrollBehavior = "auto") => {
+    setTranscriptPinned(true);
+    window.requestAnimationFrame(() => {
+      const transcript = transcriptRef.current;
+      if (transcript) transcript.scrollTo({ top: transcript.scrollHeight, behavior });
+    });
+  }, [setTranscriptPinned]);
+
   useEffect(() => {
-    transcriptPinnedRef.current = true;
-  }, [conversationId]);
+    setTranscriptPinned(true);
+  }, [conversationId, setTranscriptPinned]);
 
   // The transcript follows every streamed frame and compact status change only
   // while the person is at (or near) the bottom. A frame runs after layout so
   // a growing Markdown reply and the shrinking/growing live tail are measured
-  // at their final height before the scroll is applied.
+  // at their final height before the scroll is applied. Showing the panel or
+  // coming back from Chats counts too: a hidden transcript loses its place.
   useEffect(() => {
     const transcript = transcriptRef.current;
     if (!transcript || !transcriptPinnedRef.current) return;
@@ -547,7 +563,32 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       if (transcriptPinnedRef.current) transcript.scrollTop = transcript.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [messages, phase, streamingAssistant, activity, liveSteps, conversationId]);
+  }, [messages, phase, streamingAssistant, activity, liveSteps, conversationId, visible, historyOpen]);
+
+  // Size changes that come from outside the chat state follow too: a resized
+  // panel or window, a growing composer, a loaded image, or an opened step.
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    let frame: number | null = null;
+    const stick = () => {
+      if (!transcriptPinnedRef.current || frame !== null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        if (transcriptPinnedRef.current) transcript.scrollTop = transcript.scrollHeight;
+      });
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(stick);
+    observer?.observe(transcript);
+    transcript.addEventListener("load", stick, true);
+    transcript.addEventListener("toggle", stick, true);
+    return () => {
+      observer?.disconnect();
+      transcript.removeEventListener("load", stick, true);
+      transcript.removeEventListener("toggle", stick, true);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   // The door comes first: whenever the shown popover has nothing that outranks
   // it — no running work hiding the composer — and focus has not landed
@@ -606,6 +647,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
     setActivity("");
     replaceStreamingAssistant("");
     clearLiveSteps();
+    followLatest();
     try {
       const current = requestRef.current;
       const addressedWorkFolderIds = addressedFolderIds(content, mentionFolders);
@@ -659,7 +701,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
     } finally {
       setSending(false);
     }
-  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, clearLiveSteps, mentionFolders]);
+  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, clearLiveSteps, mentionFolders, followLatest]);
 
   const activeMention = useMemo(() => mentionFolders.length ? activeFolderMention(text, composerCaret) : null, [composerCaret, mentionFolders.length, text]);
   const mentionSuggestions = useMemo(() => activeMention ? matchingMentionFolders(mentionFolders, activeMention.query) : [], [activeMention, mentionFolders]);
@@ -1019,7 +1061,10 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
           tabIndex={-1}
           onScroll={(event) => {
             const target = event.currentTarget;
-            transcriptPinnedRef.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
+            // A hidden transcript reports no height; keep its place for when it shows.
+            if (!target.clientHeight) return;
+            const pinned = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
+            if (pinned !== transcriptPinnedRef.current) setTranscriptPinned(pinned);
           }}
         >
           {loadingChat ? <p className="muted small" role="status">Loading chat…</p> : !messages.length && !streamingAssistant && !request ? <div className="agent-chat-empty"><p>What would you like to work on?</p><span>Pick up a saved chat, or start here.</span></div> : null}
@@ -1068,6 +1113,9 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
             setExtensionSnapshot((current) => current?.conversationId === selectedId ? { ...current, requests: current.requests.filter((item) => item.id !== question.id) } : current);
           }} /> : null}
           <WorkRequest {...workState} showProgress={request?.phase !== "working"} showStop={request?.phase === "needs_you"} />
+          {!transcriptPinned ? (
+            <button className="agent-jump-latest" type="button" onClick={() => followLatest("smooth")}><ArrowDown aria-hidden="true" />Latest</button>
+          ) : null}
         </section>
           {request && activePhases.has(request.phase) ? (
             <div className="agent-tail">
