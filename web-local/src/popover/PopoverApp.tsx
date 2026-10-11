@@ -977,7 +977,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
         <section className="agent-chat-history" id="agent-chat-history" aria-label="Saved work-fold agent chats">
           <div className="agent-history-heading">
             <button type="button" className="agent-back" aria-label="Back to chat" onClick={() => { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }}><ArrowLeft aria-hidden="true" /></button>
-            <h1>Chats</h1><span>On this desktop</span>
+            <h1>Chats</h1>
           </div>
           <label className="agent-chat-search"><Search aria-hidden="true" /><input ref={searchRef} type="search" aria-label="Search chats" placeholder="Search chats" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} /></label>
           {historyError ? <p className="error-line" role="alert">{historyError} <button type="button" onClick={() => void refreshConversation()}>Try Again</button></p> : null}

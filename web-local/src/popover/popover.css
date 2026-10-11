@@ -497,7 +497,6 @@ button.primary:not(:disabled):active { filter: brightness(0.92); }
 .agent-chat-history { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 12px; }
 .agent-history-heading { display: flex; align-items: center; gap: 8px; }
 .agent-history-heading h1 { margin: 0; font-size: 16px; font-weight: 650; }
-.agent-history-heading > span { margin-left: auto; color: var(--pop-text-muted); font-size: 11px; }
 .agent-back { display: grid; place-items: center; padding: 6px; border: none; background: none; }
 .agent-back svg { width: 16px; height: 16px; }
 .agent-chat-search { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--pop-border); border-radius: 8px; background: var(--pop-surface); }
