@@ -44,6 +44,22 @@ still pauses during automation runs and takes a fresh baseline afterward, and
 a catch-up is a single coalesced run, never a backlog or an event log. See
 [Catching up after a gap](#catching-up-after-a-gap-version-5).
 
+**Amended 2026-10-11 (owner decision): steps report their results.** A chat
+step's message is its Worker's whole instruction, and the Worker reports back
+in the one result shape ([the collaboration contract](collaboration-contract.md)).
+Its turn context names the Automation that sent the message, says nobody is
+watching while it runs, and asks it to finish with `chat report`: a summary,
+the files it made or changed, and an outcome. The step takes that outcome. A
+reported `failed` fails the step in the Worker's own words, and so the run,
+like any failed hop. A reported `partial` keeps the step and the run
+`succeeded` but marks both `partial`, shown as **Partly done**. The reported
+summary becomes the step receipt's detail. A turn that ends with only a reply
+keeps the turn's own outcome. An `agent` step gets the same unattended
+framing; the work-fold agent has no report verb, so its final reply is the
+record. Live testing prompted this: a Worker told to "look at each
+screenshot" sometimes asked a person to describe the images, and the run
+still read Succeeded.
+
 The declaration contract accepts versions 1 through 5. Version 2 added a
 bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
 observation, shipped in September 2026; version 4 adds the closed placeholder
@@ -416,13 +432,15 @@ Every run is journal-first on the act-receipts discipline: a run `accepted`
 record before hop 1 — an unwritable journal refuses the run — and a
 terminal record after; each hop writes its own accepted/terminal pair
 carrying the underlying domain evidence (chat hop: conversation id, turn
-task id, outcome, checkpoint ids; files hop: source and destination work-folder
+task id, outcome, checkpoint ids, and the summary and `partial` mark its
+Worker reported; files hop: source and destination work-folder
 ids, resolved and copied paths with collision renames, counts, restore-point
 id; check hop: Check ids, run id, terminal state, finding counts). The run's
 terminal record names the trigger cause exactly — scheduled slot, run-now
 request id, or the settled source — plus the declaration digest in force.
 
-**Failure.** A failed hop fails the run; later hops are recorded `skipped`
+**Failure.** A failed hop — including a chat step whose Worker reported
+`failed` — fails the run; later hops are recorded `skipped`
 with the failing hop named. There are no retries — the next trigger
 occurrence is the retry, and the receipt trail makes the failure
 inspectable rather than smoothed over. Infrastructure refusals inside a hop

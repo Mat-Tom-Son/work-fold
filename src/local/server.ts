@@ -484,7 +484,13 @@ export interface LocalApiOptions {
    * turn's event carries the host-composed turn context (F26) so a test can
    * observe it without a second option.
    */
-  beforeAgentPrompt?: (event: { workFolderId: string; conversationId: string; taskId: string; workFolderTurn?: PiWorkFolderTurnContext }) => Promise<void>;
+  beforeAgentPrompt?: (event: {
+    workFolderId: string;
+    conversationId: string;
+    taskId: string;
+    workFolderTurn?: PiWorkFolderTurnContext;
+    automation?: { title: string };
+  }) => Promise<void>;
   /**
    * Failure-injection seam between the parent check and child acceptance of
    * a delegated `chat send`. The child is not accepted yet when it runs, so
@@ -521,10 +527,13 @@ export interface WorkFoldAutomationSettingsRunView {
   finishedAt?: string;
   cause?: string;
   detail?: string;
+  /** Succeeded, but a step's Worker reported finishing only partly. */
+  partial?: true;
   hops: Array<{
     hopId: string;
     kind: "chat" | "files" | "check" | "agent";
     outcome: WorkFoldAutomationSettingsOutcome;
+    partial?: true;
     workFolderName?: string;
     detail?: string;
     evidence?: Array<{ label: string; value: string }>;
@@ -3930,6 +3939,8 @@ async function admitConversationTurn(
     remotePrincipal?: WorkFoldRemotePrincipal;
     /** An app's `assistant.request`: persisted on the message so the Chat shows who asked. */
     appSource?: { appId: string; title: string };
+    /** An automation's chat or agent step: its turn learns that no one is watching and how to report. */
+    automationSource?: { automationId: string; title: string };
     /** Stable caller identity. Replays with the same input return the original acceptance. */
     requestId?: string;
     /** Stable optimistic message identity supplied by renderer clients. */
@@ -4123,6 +4134,7 @@ async function admitConversationTurn(
       // answers whichever of this request's questions were waiting on them.
       ...(answeredQuestionId ? { answeredQuestionId } : {}),
       ...(input.addressedWorkFolderIds?.length ? { addressedWorkFolderIds: input.addressedWorkFolderIds } : {}),
+      ...(input.automationSource ? { automation: { title: input.automationSource.title } } : {}),
     },
   );
   state.activeTurnPromises.add(turn);
@@ -9298,6 +9310,13 @@ async function turnResultForScope(
 }
 
 /** Only a request's selected report/final reply, never its transcript or graph. */
+/** Whether the request's latest turn filed its own result with `chat report`, rather than ending with only a reply. */
+function turnReportedResult(state: LocalApiState, taskId: string): boolean {
+  const request = state.requests.byTaskId(taskId);
+  const latest = request?.turns.at(-1);
+  return Boolean(request && latest && request.results.some((item) => item.taskId === latest.taskId));
+}
+
 async function completedRequestEnvelope(state: LocalApiState, taskId: string): Promise<WorkFoldResultEnvelope | null> {
   const request = state.requests.byTaskId(taskId);
   if (!request || !isWorkFoldRequestTerminalState(request.state)) return null;
@@ -10092,6 +10111,7 @@ function projectAutomationReceipt(value: unknown): WorkFoldActAutomationReceipt 
   addText("title", receipt.title);
   addText("digest", receipt.digest);
   addText("detail", receipt.detail);
+  if (receipt.partial === true && outcome === "succeeded") projected.partial = true;
   const cause = projectAutomationReceiptCause(receipt.cause);
   if (cause !== undefined) projected.cause = cause;
   addText("workFolderId", receipt.workFolderId);
@@ -10546,7 +10566,9 @@ function folderAutomationView(
     state,
     triggerSummary: automationTriggerSummary(trigger),
     nextRunAt: summary.nextScheduledAt ?? null,
-    lastRun: summary.lastRun ? { at: summary.lastRun.startedAt, outcome: summary.lastRun.outcome } : null,
+    lastRun: summary.lastRun
+      ? { at: summary.lastRun.startedAt, outcome: summary.lastRun.outcome, ...(summary.lastRun.partial ? { partial: true as const } : {}) }
+      : null,
     roles: workFoldAutomationWorkFolderRoles(projection.declaration, workFolderId),
   };
 }
@@ -10605,6 +10627,7 @@ async function automationSettingsSummary(
           outcome: lastRun.outcome,
           startedAt: lastRun.startedAt,
           ...(lastRun.finishedAt ? { finishedAt: lastRun.finishedAt } : {}),
+          ...(lastRun.partial ? { partial: true as const } : {}),
         },
       }
       : {}),
@@ -10679,6 +10702,7 @@ async function automationSettingsHistoryFromProjection(
         run.outcome = receipt.outcome;
         run.finishedAt = receipt.at;
         if (receipt.detail) run.detail = receipt.detail;
+        if (receipt.partial) run.partial = true;
       }
       continue;
     }
@@ -10690,6 +10714,7 @@ async function automationSettingsHistoryFromProjection(
       run.hops.push(hop);
     }
     if (isAutomationSettingsOutcome(receipt.outcome)) hop.outcome = receipt.outcome;
+    if (receipt.partial) hop.partial = true;
     const workFolderId = receipt.workFolderId ?? receipt.toWorkFolderId ?? receipt.fromWorkFolderId;
     if (workFolderId && workFolderNames.has(workFolderId)) hop.workFolderName = workFolderNames.get(workFolderId);
     if (receipt.detail) hop.detail = receipt.detail;
@@ -11539,6 +11564,8 @@ async function runAgentTurn(
     answeredQuestionId?: string;
     /** work-folder Workers the person addressed with @ in this message (2026-10-01). */
     addressedWorkFolderIds?: string[];
+    /** The automation that sent this message; nobody is watching the turn. */
+    automation?: { title: string };
   } = {},
 ): Promise<void> {
   const { workFoldAgentAttachments, answeredQuestionId } = options;
@@ -11617,7 +11644,11 @@ async function runAgentTurn(
       const nested = [...childFolderPaths(ownWorkFolder, registeredWorkFolders)].map(([path, child]) => ({ workFolderId: child.id, name: child.name, path }));
       if (nested.length) workFolderTurn.nestedFolders = nested;
     }
-    await state.beforeAgentPrompt?.({ workFolderId, conversationId, taskId, ...(workFolderTurn ? { workFolderTurn } : {}) });
+    await state.beforeAgentPrompt?.({
+      workFolderId, conversationId, taskId,
+      ...(workFolderTurn ? { workFolderTurn } : {}),
+      ...(options.automation ? { automation: options.automation } : {}),
+    });
     throwIfTurnCancelled(state, taskId);
     promptStarted = true;
     const finalText = await client.prompt(content, {
@@ -11628,6 +11659,7 @@ async function runAgentTurn(
       ...(workFolderTurn ? { workFolderTurn } : {}),
       ...(attachedLinks.length ? { attachedLinks } : {}),
       ...(addressedFolders.length ? { addressedFolders } : {}),
+      ...(options.automation ? { automation: options.automation } : {}),
     });
     // Capture synchronously with prompt completion. Shutdown may dispose the
     // client while the server awaits checkpoint persistence below.
@@ -13694,13 +13726,16 @@ function createAutomationHopPorts(state: LocalApiState): WorkFoldAutomationHopPo
           contextPaths: [],
           selectedPath: null,
           actorKind: "system",
+          automationSource: { automationId: context.automationId, title: context.title },
         });
         const settled = await waitForSettledRequest(state, workFolder.id, conversation.id, taskId, context.signal);
+        const result = await completedRequestEnvelope(state, taskId);
         return {
           conversationId: conversation.id,
           turnTaskId: taskId,
           outcome: settled.status,
-          result: await completedRequestEnvelope(state, taskId),
+          result,
+          ...(result && turnReportedResult(state, taskId) ? { reported: result } : {}),
           ...(settled.error !== undefined ? { error: settled.error } : {}),
           ...(checkpoints.pre !== undefined ? { preCheckpointId: checkpoints.pre } : {}),
           ...(checkpoints.post !== undefined ? { postCheckpointId: checkpoints.post } : {}),
@@ -13726,6 +13761,7 @@ function createAutomationHopPorts(state: LocalApiState): WorkFoldAutomationHopPo
         selectedPath: null,
         actorKind: "system",
         workFoldAgentAttachments: [],
+        automationSource: { automationId: context.automationId, title: context.title },
       });
       const settled = await waitForSettledRequest(state, scope.id, conversation.id, taskId, context.signal);
       return {

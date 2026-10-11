@@ -977,6 +977,60 @@ test("a failed hop fails the run, later hops are recorded skipped naming it, and
   assert.equal(retry.outcome, "success", "there are no automatic retries; the next trigger occurrence is the retry");
 });
 
+test("a chat step takes the outcome its Worker reported, in the Worker's own words", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("automation-weekly-handoff", { steps: pipelineSteps }));
+  const titles: string[] = [];
+  let runId = "";
+  const reporting = (
+    outcome: "succeeded" | "partial" | "failed",
+    summary: string,
+    turn: "succeeded" | "failed" = "succeeded",
+  ) => async (_step: WorkFoldAutomationChatStep, context: WorkFoldAutomationHopContext): Promise<WorkFoldAutomationChatHopResult> => {
+    titles.push(context.title);
+    runId = context.runId;
+    return {
+      conversationId: `conversation-${context.hopId}`,
+      turnTaskId: `turn-task-${context.hopId}`,
+      outcome: turn,
+      result: { summary, outcome },
+      reported: { summary, outcome },
+    };
+  };
+  const runReceipts = async () => (await harness.journal()).filter((line) => line.runId === runId);
+
+  // The Worker could not do it: the step fails in its words and later steps never run.
+  harness.ports.chatImpl = reporting("failed", "I could not open the chapters: the folder was empty.", "failed");
+  const failed = await harness.service.runNow("automation-weekly-handoff", { requestId: "request-1" });
+  assert.equal(failed.outcome, "failure");
+  let lines = await runReceipts();
+  assert.equal(lines.find((line) => line.hopId === "review" && line.outcome === "failed")?.detail, "I could not open the chapters: the folder was empty.");
+  assert.equal(lines.find((line) => line.scope === "run" && line.outcome === "failed")?.detail, "I could not open the chapters: the folder was empty.");
+  assert.ok(lines.some((line) => line.hopId === "handoff" && line.outcome === "skipped"));
+
+  // Partly done: the request ended partial, yet the step succeeds, marked, and the run goes on.
+  harness.ports.chatImpl = reporting("partial", "Reviewed two of three chapters; chapter 3 would not open.", "failed");
+  const partial = await harness.service.runNow("automation-weekly-handoff", { requestId: "request-2" });
+  assert.equal(partial.outcome, "success");
+  lines = await runReceipts();
+  const partialHop = lines.find((line) => line.hopId === "review" && line.outcome === "succeeded");
+  assert.equal(partialHop?.partial, true);
+  assert.equal(partialHop?.detail, "Reviewed two of three chapters; chapter 3 would not open.");
+  assert.ok(lines.some((line) => line.hopId === "verify" && line.outcome === "succeeded"), "later steps still run");
+  assert.equal(lines.find((line) => line.scope === "run" && line.outcome === "succeeded")?.partial, true);
+
+  // Done: the summary lands on the step, unmarked.
+  harness.ports.chatImpl = reporting("succeeded", "Reviewed all three chapters and wrote reports/weekly.md.");
+  await harness.service.runNow("automation-weekly-handoff", { requestId: "request-3" });
+  lines = await runReceipts();
+  const doneHop = lines.find((line) => line.hopId === "review" && line.outcome === "succeeded");
+  assert.equal(doneHop?.detail, "Reviewed all three chapters and wrote reports/weekly.md.");
+  assert.equal(doneHop?.partial, undefined);
+  assert.equal(lines.find((line) => line.scope === "run" && line.outcome === "succeeded")?.partial, undefined);
+
+  assert.deepEqual([...new Set(titles)], ["Automation automation-weekly-handoff"], "each Chat learns which Automation sent it");
+});
+
 test("stop aborts the current hop through its domain path, skips later hops, and names the aborted hop task", async (t) => {
   const harness = await createHarness(t);
   await harness.enable(declarationInput("automation-weekly-handoff", { steps: pipelineSteps }));

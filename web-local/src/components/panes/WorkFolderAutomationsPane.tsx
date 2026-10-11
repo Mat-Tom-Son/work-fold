@@ -136,7 +136,8 @@ export function folderAutomationRoleSentence(roles: readonly FolderAutomationRol
 export function lastRunText(automation: FolderAutomationView): string {
   if (!automation.lastRun) return copy.notRunYet;
   const text = copy.lastRun(formatAutomationDateTime(automation.lastRun.at));
-  return automation.lastRun.outcome === "failed" ? `${text} · ${copy.failed}` : text;
+  if (automation.lastRun.outcome === "failed") return `${text} · ${copy.failed}`;
+  return automation.lastRun.partial ? `${text} · ${copy.partlyDone}` : text;
 }
 
 export function stateClass(state: FolderAutomationState): string {

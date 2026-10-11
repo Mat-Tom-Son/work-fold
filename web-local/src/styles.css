@@ -9485,6 +9485,10 @@ to {
   background: var(--work-fold-blue-600);
 }
 
+.automation-run-dot.partial {
+  background: #c08a2e;
+}
+
 .automation-run-detail {
   display: grid;
   gap: 7px;

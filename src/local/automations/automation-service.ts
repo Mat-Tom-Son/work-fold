@@ -87,6 +87,8 @@ export { workFoldAutomationMaxConcurrentRuns };
 
 export interface WorkFoldAutomationHopContext {
   automationId: string;
+  /** The automation's title, so the Chat or work-fold agent turn it starts knows who sent it. */
+  title: string;
   runId: string;
   hopId: string;
   /** Stamped onto every domain run a hop causes, so its settles never fire triggers. */
@@ -100,6 +102,12 @@ export interface WorkFoldAutomationChatHopResult {
   outcome: "succeeded" | "failed" | "aborted";
   /** Selected request result, never turn file-change evidence. Null while waiting. */
   result?: WorkFoldResultEnvelope | null;
+  /**
+   * The same result, present only when the turn filed it itself with
+   * `chat report` rather than ending with just a reply. Its outcome decides
+   * the step's (docs/automations.md, 2026-10-11).
+   */
+  reported?: WorkFoldResultEnvelope;
   error?: string;
   preCheckpointId?: string;
   postCheckpointId?: string;
@@ -108,7 +116,7 @@ export interface WorkFoldAutomationChatHopResult {
 /** An agent hop's own work-fold agent turn; it records no checkpoints and names no work-folder. */
 export type WorkFoldAutomationAgentHopResult = Pick<
   WorkFoldAutomationChatHopResult,
-  "conversationId" | "turnTaskId" | "outcome" | "error" | "result"
+  "conversationId" | "turnTaskId" | "outcome" | "error" | "result" | "reported"
 >;
 
 /** The active findings of a settled Check run, for `{{trigger.findings}}`. */
@@ -289,7 +297,7 @@ interface ActiveRunState {
 }
 
 type RunSummary =
-  | { kind: "succeeded" }
+  | { kind: "succeeded"; partial?: true }
   | { kind: "failed"; failedHopId: string; error: string }
   | { kind: "stopped" }
   | { kind: "interrupted"; detail: string };
@@ -1118,6 +1126,7 @@ export class WorkFoldAutomationService {
       if (summary.kind === "succeeded") {
         await this.#receipts.append({
           scope: "run", outcome: "succeeded", automationId, runId, cause, ...runReceiptFields(cause, record),
+          ...(summary.partial ? { partial: true as const } : {}),
         });
         return;
       }
@@ -1182,6 +1191,7 @@ export class WorkFoldAutomationService {
     const chatResults = new Map<string, WorkFoldAutomationChatHopResult>();
     let failure: { hopId: string; error: string } | null = null;
     let halted: { kind: "stopped" } | { kind: "interrupted"; detail: string } | null = null;
+    let partial = false;
 
     for (const step of declaration.steps) {
       if (failure) {
@@ -1219,6 +1229,7 @@ export class WorkFoldAutomationService {
 
       const hopContext: WorkFoldAutomationHopContext = {
         automationId,
+        title: declaration.title,
         runId,
         hopId: step.id,
         lineage: { kind: "automation-hop", automationId, automationRunId: runId, hopId: step.id },
@@ -1267,9 +1278,25 @@ export class WorkFoldAutomationService {
             result = agentTurn;
             evidence = { conversationId: agentTurn.conversationId, taskId: agentTurn.turnTaskId };
           }
-          if (result.outcome === "succeeded") {
+          // A finished turn's step takes the outcome its Worker reported (the
+          // one result shape, docs/collaboration-contract.md): a Worker that
+          // could not do the work fails the step in its own words, and one
+          // that finished partly marks the step and the run partly done.
+          const reported = result.outcome === "aborted" ? null : result.reported ?? null;
+          if (reported?.outcome === "failed") {
+            const error = reported.summary.trim() || (step.kind === "chat"
+              ? "The Worker reported that it could not do this step."
+              : "The work-fold agent reported that it could not do this step.");
+            await this.#receipts.append({
+              scope: "hop", outcome: "failed", automationId, runId, hopId: step.id, hopKind: step.kind, ...evidence, ...filled, detail: error,
+            });
+            failure = { hopId: step.id, error };
+          } else if (result.outcome === "succeeded" || reported?.outcome === "partial") {
+            if (reported?.outcome === "partial") partial = true;
             await this.#receipts.append({
               scope: "hop", outcome: "succeeded", automationId, runId, hopId: step.id, hopKind: step.kind, ...evidence, ...filled,
+              ...(reported?.summary.trim() ? { detail: reported.summary.trim() } : {}),
+              ...(reported?.outcome === "partial" ? { partial: true as const } : {}),
             });
           } else if (result.outcome === "aborted" && active.stopRequested) {
             active.stoppedHopTaskIds.push(result.turnTaskId);
@@ -1381,7 +1408,7 @@ export class WorkFoldAutomationService {
 
     if (failure) return { kind: "failed", failedHopId: failure.hopId, error: failure.error };
     if (halted) return halted;
-    return { kind: "succeeded" };
+    return partial ? { kind: "succeeded", partial: true } : { kind: "succeeded" };
   }
 
   /**

@@ -158,6 +158,8 @@ export interface PiTurnContext {
    */
   workFolderTurn?: PiWorkFolderTurnContext;
   selectedPath?: string | null;
+  /** Set when an Automation's step sent this turn's message; nobody is watching it run. */
+  automation?: { title: string };
 }
 
 export interface PiConversationClientOptions {
@@ -1775,6 +1777,17 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       "This work-fold agent request's task id is:",
       context.workFoldAgentTaskId,
       "Add --parent-task with that exact id to each chat send, work-folders create/register, or files add command you run for this request. Do not reuse it in a later request.",
+    );
+  }
+  if (context.automation) {
+    // An Automation step's turn (docs/automations.md, 2026-10-11): the message
+    // is the whole instruction, nobody reads the reply while it runs, and the
+    // step's recorded outcome is the result this turn reports.
+    lines.push(
+      `The Automation ${JSON.stringify(context.automation.title)} sent the message in this turn. Nobody is watching while it runs, so do the work yourself with your tools instead of asking for help or describing what you would do. Your read tool shows you images (png, jpg, gif, webp) when your model accepts them.`,
+      context.workFolderTurn
+        ? "When you finish, report with chat report: --summary saying what you did, --file for each file you made or changed, and --outcome succeeded, partial, or failed. If you cannot do the work, report failed and say why. The Automation's run history shows your summary and that outcome. Then give your final reply."
+        : "Your final reply is this step's record in the Automation's run history: say what you did, and say plainly if you could not do it and why.",
     );
   }
   if (context.selectedPath) {

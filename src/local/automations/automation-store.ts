@@ -132,6 +132,12 @@ export interface WorkFoldAutomationReceiptV1 {
   digest?: string;
   cause?: WorkFoldAutomationRunCause;
   detail?: string;
+  /**
+   * On a succeeded hop or run: its Worker reported finishing only partly
+   * (docs/automations.md, 2026-10-11). The outcome stays succeeded, so the
+   * run's later steps still run and nothing that counts successes changes.
+   */
+  partial?: true;
   workFolderId?: string;
   fromWorkFolderId?: string;
   toWorkFolderId?: string;

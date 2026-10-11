@@ -190,6 +190,7 @@ export const folderAutomations = {
   lastRun: (when: string) => `Last run ${when}`,
   notRunYet: "Not Run Yet",
   failed: "Failed",
+  partlyDone: "Partly done",
   allAutomations: "All Automations",
   noneLeft: "No automations touch this work-folder.",
   goneHere: "This automation no longer touches this work-folder.",
