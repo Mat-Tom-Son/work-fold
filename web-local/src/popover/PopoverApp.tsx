@@ -157,6 +157,8 @@ export interface WorkFoldAgentChatProps {
   visible?: boolean;
   /** Panel only: opens Settings → AI Models for the work-fold agent. */
   onOpenModelSettings?: () => void;
+  /** Panel only: text another surface handed over, added to the message box like a tray drop. */
+  draftRequest?: { id: number; text: string } | null;
 }
 
 /**
@@ -164,7 +166,7 @@ export interface WorkFoldAgentChatProps {
  * panel render this same component, so both show one conversation the same
  * way, including each turn's thinking and tool steps as they happen.
  */
-export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = null, visible = true, onOpenModelSettings }: WorkFoldAgentChatProps) {
+export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = null, visible = true, onOpenModelSettings, draftRequest = null }: WorkFoldAgentChatProps) {
   const popoverFixtureRequested = fixtureMode;
   const extensionFixture = fixtureMode && extensionFixtureRequested;
   const bridge = window.workFoldDesktop;
@@ -395,6 +397,14 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       ? { ...entry, phase: "complete", ...(event?.durationMs !== undefined ? { durationMs: event.durationMs } : entry.startedAt ? { durationMs: Math.max(0, endedAt - entry.startedAt) } : {}) }
       : entry));
   }, []);
+
+  // A draft from another surface (a Check or an Automation) lands in the message box.
+  useEffect(() => {
+    if (!draftRequest) return;
+    setHistoryOpen(false);
+    setText((current) => (current ? `${current}\n${draftRequest.text}` : draftRequest.text));
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [draftRequest?.id]);
 
   // Live turn events for the active request's conversation.
   useEffect(() => {

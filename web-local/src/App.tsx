@@ -62,6 +62,7 @@ import { chatDisplayTitle, formatItemCount } from "./lib/format";
 import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./lib/storage";
 import { WindowChromeControls } from "./components/chrome/WindowChromeControls";
 import { WorkFoldAgentChat } from "./popover/PopoverApp";
+import { workFoldAgentDraftEvent, type WorkFoldAgentDraftDetail } from "./lib/agent-draft";
 import { defaultFileSort, fileSortStorageKey, normalizeFileSort, sortFileTree, type FileSort } from "./lib/file-sort";
 import { FileSortMenu } from "./components/tree/FileSortMenu";
 import { isMacOS, workFolderEntryNativePath } from "./lib/platform";
@@ -117,6 +118,14 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [createWorkFolderOpen, setCreateWorkFolderOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // A draft headed for the agent panel should not land behind Settings.
+  useEffect(() => {
+    function revealAgentPanel(event: Event): void {
+      queueMicrotask(() => { if (event.defaultPrevented) setSettingsOpen(false); });
+    }
+    window.addEventListener(workFoldAgentDraftEvent, revealAgentPanel);
+    return () => window.removeEventListener(workFoldAgentDraftEvent, revealAgentPanel);
+  }, []);
   const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("appearance");
   const [settingsModelScope, setSettingsModelScope] = useState<ModelScope | undefined>(undefined);
   const [settingsFocusAiModel, setSettingsFocusAiModel] = useState(false);
@@ -460,6 +469,19 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     setAgentPanelMounted(true);
     updateAgentPanel((current) => ({ ...current, open: !current.open }));
   }
+  const [agentDraftRequest, setAgentDraftRequest] = useState<{ id: number; text: string } | null>(null);
+  useEffect(() => {
+    function takeDraft(event: Event): void {
+      const text = (event as CustomEvent<WorkFoldAgentDraftDetail>).detail?.text;
+      if (typeof text !== "string" || !text.trim()) return;
+      event.preventDefault();
+      setAgentPanelMounted(true);
+      updateAgentPanel((current) => ({ ...current, open: true }));
+      setAgentDraftRequest((current) => ({ id: (current?.id ?? 0) + 1, text }));
+    }
+    window.addEventListener(workFoldAgentDraftEvent, takeDraft);
+    return () => window.removeEventListener(workFoldAgentDraftEvent, takeDraft);
+  }, []);
   function startAgentPanelResize(event: import("react").PointerEvent<HTMLButtonElement>): void {
     event.preventDefault();
     const handle = event.currentTarget;
@@ -1707,7 +1729,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     {agentPanelMounted ? <>
       <button className="work-folder-resizer agent-panel-resizer" type="button" role="separator" aria-label="Resize the work-fold agent panel" aria-controls="work-fold-agent-panel" aria-orientation="vertical" aria-valuemin={agentPanelMinWidth} aria-valuenow={agentPanel.width} hidden={!agentPanelOpen} onPointerDown={startAgentPanelResize} onDoubleClick={() => updateAgentPanel((current) => ({ ...current, width: defaultAgentPanelState.width }))} onKeyDown={resizeAgentPanelWithKeys}><span className="sr-only">Resize the work-fold agent panel</span></button>
       <aside className="agent-panel" id="work-fold-agent-panel" aria-label="work-fold agent" hidden={!agentPanelOpen}>
-        <WorkFoldAgentChat host="panel" fixtureMode={Boolean(fixture)} visible={agentPanelOpen} controlsTarget={agentPanelOpen ? agentControlsTarget : null} onOpenModelSettings={() => onOpenSettings("ai-models", "agent", true)} />
+        <WorkFoldAgentChat host="panel" fixtureMode={Boolean(fixture)} visible={agentPanelOpen} controlsTarget={agentPanelOpen ? agentControlsTarget : null} onOpenModelSettings={() => onOpenSettings("ai-models", "agent", true)} draftRequest={agentDraftRequest} />
       </aside>
     </> : null}
     {appearanceWorkFolder ? <WorkFolderAppearanceModal
