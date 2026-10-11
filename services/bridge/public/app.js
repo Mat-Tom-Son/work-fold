@@ -11,7 +11,7 @@ import { renderMarkdown } from "./markdown.js";
 import { createFilePreview } from "./file-preview.js";
 import { createBrowserAppView } from "./browser-app.js";
 import { createSharedPages } from "./shared-pages.js";
-import { requestResultLinks } from "./request-results.js";
+import { requestResultLinks, unnamedWorkFolderLabel } from "./request-results.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
 import { canDeleteChat, removeDeletedChat } from "./chat-delete.js";
@@ -136,13 +136,13 @@ function updateCapabilities(capabilities) {
     sharedPages?.capabilityChanged();
   }
 }
-function openFilePreview(workFolderId, path) {
+function openFilePreview(reference) {
   filePreview ??= createFilePreview({
     available: () => Boolean(fixtureName || state.filePreviewAvailable),
     online: () => Boolean(state.session?.desktopOnline),
     fetchPreview: readWorkFolderFilePreview,
   });
-  void filePreview.open({ workFolderId, path, workFolderName: "work-folder" });
+  void filePreview.open({ workFolderId: reference.workFolderId, path: reference.path, workFolderName: reference.workFolderName || unnamedWorkFolderLabel });
 }
 
 async function readWorkFolderFilePreview(selectedWorkFolderId, selectedPath) {
@@ -164,7 +164,7 @@ const fixtureAppActions = createFixtureAppActions();
 
 function openBrowserAppResult(reference) {
   void browserAppController().open({ ...reference, title: reference.label, webView: true, sourceDigest: reference.digest,
-    workFolderName: "work-folder" });
+    workFolderName: reference.workFolderName || unnamedWorkFolderLabel });
 }
 function browserAppController() {
   browserApp ??= createBrowserAppView({
@@ -1067,7 +1067,10 @@ function renderMessages() {
       const reference = resultLinks.find((item) => item.kind === "app" && item.featureInstallationId === button.dataset.resultApp && item.workFolderId === button.dataset.workFolderId);
       if (reference) openBrowserAppResult(reference);
     });
-    for (const button of workStatus.querySelectorAll("[data-result-file]")) button.addEventListener("click", () => openFilePreview(button.dataset.workFolderId, button.dataset.resultFile));
+    for (const button of workStatus.querySelectorAll("[data-result-file]")) button.addEventListener("click", () => {
+      const reference = resultLinks.find((item) => item.kind === "file" && item.path === button.dataset.resultFile && item.workFolderId === button.dataset.workFolderId);
+      if (reference) openFilePreview(reference);
+    });
   }
   if (container.dataset.rendered !== "true") container.dataset.rendered = "true";
   if (!sameConversation || (wasNearBottom && (noticeChanged || messagesChanged || workChanged))) {

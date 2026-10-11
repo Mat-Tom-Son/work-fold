@@ -77,12 +77,12 @@ test("offline and updated app views require an explicit fresh open and preserve 
     assert.match(document.body.textContent!, /Desktop offline/);
     connected = true; controller.connectionChanged(true);
     assert.equal(seen.length, 1, "reconnect does not replay reads");
-    current = { ...app, digest: "revision-two", authorityDigest: "authority-two", version: "2.0.0" };
+    assert.equal(document.querySelector("header p")!.textContent, "Quotes · 1.0.0", "the header names the reference's work-folder");
+    current = { ...app, digest: "revision-two", authorityDigest: "authority-two", version: "2.0.0", workFolderName: "Quotes 2026" };
     document.querySelector<HTMLButtonElement>("[data-refresh]")!.click();
     await flush();
     assert.equal(seen.at(-1).digest, "revision-two");
-    assert.match(document.querySelector("header p")!.textContent!, /2.0.0/);
-    assert.match(document.querySelector("header p")!.textContent!, /Updated since this task/);
+    assert.equal(document.querySelector("header p")!.textContent, "Quotes 2026 · 2.0.0 · Updated since this task", "the current catalog name replaces the receipt's");
     current = { ...current, authorityDigest: "revoked-authority" };
     healthChecks.at(-1)!();
     await flush();

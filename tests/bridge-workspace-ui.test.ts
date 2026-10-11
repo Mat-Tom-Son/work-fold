@@ -149,6 +149,26 @@ test("running is an explicit fixture state and its Stop remains inert", async (t
   assert.deepEqual(f.network, []);
 });
 
+test("result links open their file and app under the work-folder the receipt names", async (t) => {
+  const f = await workspace(); t.after(() => f.dom.window.close());
+  f.win.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  f.win.HTMLDialogElement.prototype.close = function () { this.open = false; };
+  const settle = () => new Promise<void>((done) => setImmediate(done));
+  f.click('[data-chat-id="chat-2"]');
+  const results = f.document.querySelector<HTMLDetailsElement>(".request-deliverables")!;
+  results.open = true;
+  f.click('[data-result-file="reports/q3-summary.md"]');
+  await settle();
+  assert.equal(f.document.querySelector(".file-preview-location")!.textContent, "Launch plan · reports/q3-summary.md");
+  f.click(".file-preview-close");
+  f.click('[data-result-app="fixture-quote-board"]');
+  await settle();
+  assert.equal(f.document.querySelector(".browser-app-dialog header p")!.textContent, "Launch plan · 1.0.0 · Updated since this task");
+  f.click(".browser-app-dialog [data-close]");
+  assert.doesNotMatch(f.document.body.textContent!, /work-folder · /);
+  assert.deepEqual(f.network, []);
+});
+
 test("retired Files and work-folder routes land on chat without a file browser", async (t) => {
   for (const screen of ["work-folders", "files"]) {
     const f = await workspace(screen); t.after(() => f.dom.window.close());

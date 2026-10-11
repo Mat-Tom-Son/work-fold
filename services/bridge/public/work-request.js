@@ -95,7 +95,7 @@ function draw(container, controller) {
     for (const file of work.result.files) {
       const row = element("li"); const link = button("", "work-file-button", () => {
         const scope = controller.scope;
-        void Promise.resolve().then(() => openFile?.(file.workFolderId, file.path)).catch((caught) => {
+        void Promise.resolve().then(() => openFile?.({ workFolderId: file.workFolderId, path: file.path, workFolderName: file.workFolderName })).catch((caught) => {
           if (scope !== controller.scope) return;
           controller.error = caught?.message || "Could not open this file."; draw(container, controller);
         });
