@@ -285,7 +285,7 @@ export function createRestrictedAppViewerAdapter(options: RestrictedAppViewerAda
     }
     const viewer = instance.manifest.viewer;
     if (!viewer) {
-      return { state: "not-available", reason: "the installed app no longer declares a viewer surface; put it at your address again after review" };
+      return { state: "not-available", reason: "the installed app no longer declares a viewer surface, so it has nothing to serve" };
     }
     // Effect-time surface recheck: the reviewed viewer surface must equal the
     // exposure's pins exactly. An unchanged-surface update (new digest, same
@@ -294,7 +294,7 @@ export function createRestrictedAppViewerAdapter(options: RestrictedAppViewerAda
     if (viewer.entry !== pins.viewerEntry || !sameStringList(restrictedAppViewerSurfacePins(viewer), pins.viewerSurface)) {
       return {
         state: "not-available",
-        reason: "the installed app's viewer surface changed after approval; approving the update's exposure is required",
+        reason: "the installed app's viewer surface changed after it was put at your address; share it again to put the new surface there",
       };
     }
 

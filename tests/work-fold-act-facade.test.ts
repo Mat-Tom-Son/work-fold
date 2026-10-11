@@ -1632,6 +1632,8 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     deferAppAutomationStart: true,
     storage,
   });
+  // An address is set up; the test takes it away once to see the refusal.
+  let addressed = true;
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
@@ -1639,7 +1641,17 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     loadEnv: false,
     restrictedAppService: restrictedApps,
     piRuntimeProvider: { async resolveRuntime() { return {}; } },
+    publicationBridge: { ...addressedUnreachableRelay, async addressConfigured() { return addressed; } },
   });
+  // Settings → Apps' "Share at your address" posts here; same domain path as the CLI verb.
+  const shareFromSettings = async (workFolderId: string, instance: string) => {
+    const response = await fetch(`${api.origin}/api/settings/publications/share-app`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workFolderId, instance }),
+    });
+    return { status: response.status, body: await response.json() as { error?: string; code?: string; publication?: { kind: string; state: string; publicationId: string; title: string; app?: { appInstanceId: string } }; revealable?: boolean } };
+  };
   try {
     const facade = api.actFacade;
     const studio = (await facade.createWorkFolder({ name: "Viewer Studio" })).workFolder;
@@ -1697,6 +1709,23 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     const activated = await facade.appsOperationActivate({ workFolder: studio.id, operation: installPlan.operation.operationId });
     const installed = (await restrictedApps.list(target.id)).find((app) => app.runtimeInstanceKind === "app");
     assert.ok(installed);
+
+    // With no address set up, both surfaces refuse before anything activates,
+    // in app words rather than page words, exactly as sharing a page refuses.
+    addressed = false;
+    await assert.rejects(
+      () => facade.pagesShareApp({ workFolder: target.id, instance: activated.instance.runtimeInstanceId, requestId: "req-rung3-no-address" }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && error.message === "Set up web access before sharing an app.",
+    );
+    const noAddress = await shareFromSettings(target.id, installed.featureInstallationId);
+    assert.equal(noAddress.status, 409);
+    assert.equal(noAddress.body.code, "NO_ADDRESS");
+    assert.equal(noAddress.body.error, "Set up web access before sharing an app.");
+    assert.deepEqual(await api.publications.list(), [], "a refused share leaves no slot behind");
+    addressed = true;
+    const previewFromSettings = await shareFromSettings(studio.id, development!.featureInstallationId);
+    assert.equal(previewFromSettings.status, 409, "a local preview is not shareable from Settings either");
+    assert.match(previewFromSettings.body.error ?? "", /prepared Release/);
 
     // The verb accepts the Runtime Instance id like the other apps verbs,
     // pins the App Instance identity plus the complete viewer surface, and
@@ -1767,13 +1796,33 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     });
     assert.ok((await restrictedApps.list(target.id)).some((app) => app.runtimeInstanceKind === "app"),
       "revoking exposure never uninstalls the Instance");
-    const reshared = await facade.pagesShareApp({
-      workFolder: target.id,
-      instance: activated.instance.runtimeInstanceId,
-      requestId: "req-rung3-reshare",
-    });
-    assert.equal(reshared.publication.state, "active");
-    assert.notEqual(reshared.publication.publicationId, exposure.publicationId, "sharing again mints a fresh publication");
+    // Settings → Apps shares through the same prepared act: one active app
+    // slot, a Settings receipt, and the activation journaled under its id.
+    const reshared = await shareFromSettings(target.id, installed.featureInstallationId);
+    assert.equal(reshared.status, 200, reshared.body.error);
+    assert.equal(reshared.body.publication?.kind, "app");
+    assert.equal(reshared.body.publication?.state, "active");
+    assert.equal(reshared.body.publication?.title, "Viewer inbox");
+    assert.equal(reshared.body.publication?.app?.appInstanceId, installed.featureInstallationId);
+    assert.notEqual(reshared.body.publication?.publicationId, exposure.publicationId, "sharing again mints a fresh publication");
+    const settingsReceipts = (await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8")).trim().split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    // Every Settings attempt is receipted, the two refusals included.
+    const settingsShare = settingsReceipts.filter((entry) => entry.command === "pages.share-app");
+    assert.deepEqual(settingsShare.map((entry) => entry.outcome), ["accepted", "error", "accepted", "error", "accepted", "ok"]);
+    const settingsRequestId = String(settingsShare.at(-1)?.requestId);
+    assert.match(settingsRequestId, /^settings:/);
+    assert.deepEqual(settingsShare.filter((entry) => entry.requestId === settingsRequestId).map((entry) => [entry.outcome, entry.surface]),
+      [["accepted", "main-window"], ["ok", "main-window"]]);
+    assert.deepEqual(
+      settingsReceipts.filter((entry) => entry.command === "pages activate-app" && entry.requestId === `${settingsRequestId}:activate`).map((entry) => entry.outcome),
+      ["accepted", "ok"],
+      "the prepared act journals its activation under the Settings request",
+    );
+    const again = await shareFromSettings(target.id, installed.featureInstallationId);
+    assert.equal(again.status, 409, "one App Instance holds one active exposure");
+    assert.match(again.body.error ?? "", /already at your address/);
+    assert.equal((await api.publications.list()).filter((view) => view.state === "active").length, 1);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

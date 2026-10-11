@@ -65,6 +65,10 @@ test("publication controls preserve access, retention, and revocation consequenc
   });
   assert.equal(publicationsSettings.stopSharing, "Stop Sharing");
   assert.match(publicationsSettings.stopSharingConfirm, /every copy of its link stops working/i);
+  // An app at the address is named as an app on its row, never as a page.
+  assert.equal(publicationsSettings.appLinkMeaning, "Anyone with the link can view this app.");
+  assert.match(publicationsSettings.stopSharingAppConfirm, /^Stop sharing this app\? Every copy of its link stops working/);
+  assert.doesNotMatch(publicationsSettings.appLinkMeaning + publicationsSettings.stopSharingAppConfirm, /\bpage\b/);
   const copy = JSON.stringify(publicationsSettings);
   assert.doesNotMatch(copy, /\bhost(ing|ed)?\b|\bwebsite\b/i, "the words host and website never appear in product copy");
   assert.doesNotMatch(copy, /publish/i, '"publish" stays reserved for App Studio\'s local Release transition');

@@ -116,8 +116,10 @@ test("the publications Settings section reveals links transiently and changes bu
   assert.match(settings, /setRevealed\(\{ publicationId: publication\.publicationId, link: `\$\{viewerOrigin\}\$\{response\.viewerPath\}#\$\{response\.key\}` \}\)/);
   // No address, no reveal: the control is disabled until Remote access exists.
   assert.match(settings, /disabled=\{Boolean\(busy\) \|\| !viewerOrigin\}/);
-  // Stop sharing takes the contract confirm and drops any revealed link.
-  assert.match(settings, /window\.confirm\(publicationsSettings\.stopSharingConfirm\)/);
+  // Stop sharing takes the contract confirm, in app words on an app row, and
+  // drops any revealed link.
+  assert.match(settings, /window\.confirm\(publication\.kind === "app" \? publicationsSettings\.stopSharingAppConfirm : publicationsSettings\.stopSharingConfirm\)/);
+  assert.match(settings, /publication\.kind === "app" \? publicationsSettings\.appLinkMeaning : publicationsSettings\.linkMeaning/);
   assert.match(settings, /setRevealed\(\(current\) => \(current\?\.publicationId === publication\.publicationId \? null : current\)\)/);
   // Budgets: inputs clamp at the publication ceilings, and one Save sends a
   // lower value to narrow and a higher one to widen.

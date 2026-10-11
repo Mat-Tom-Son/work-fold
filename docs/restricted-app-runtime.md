@@ -480,8 +480,9 @@ automation is enabled. Secrets stay person-entered once per destination; a
 file-target permission needs a chosen file. The receipt and the Chat report
 what still needs the person. **Settings → Apps**, which lists apps by work-folder,
 is where the person narrows any of that: destination, file, and notification grants, connections,
-each automation's schedule and run history, local data, and removal; advanced
-local preview remains a recovery/developer path. A code change preserves the
+each automation's schedule and run history, local data, and removal. Settings
+→ Apps has no path-entry add; `work-fold apps install-preview` remains the
+developer path for adding a package by hand. A code change preserves the
 Feature Installation and Data Namespace and advances the Feature, grant,
 connection, and job authority domains; the person's granted or revoked state
 carries by declaration id, a chosen file root carries when the declaration is
@@ -490,8 +491,15 @@ the revision they ran under), and connections carry only for destinations
 whose declaration is byte-identical. Removing or updating an app stops its UI
 views and worker before changing installed bytes.
 
+An installed Release whose manifest declares a `viewer` can be put at the
+person's address from the Lifecycle section of its details in Settings → Apps
+(**Share at your address**) or with `work-fold pages share-app`; both run the
+same receipted exposure and refuse when no address is set up. The link is
+revealed in Settings → Shared Pages ([Shared pages](shared-pages.md), rung 3).
+
 App Studio is a separate work-folder-bound work tab for moving reviewed previews into
-the local release-backed lane. The shipped lifecycle is:
+the local release-backed lane. Settings → Apps opens it from each work-folder's
+group heading and from an app's details. The shipped lifecycle is:
 
 1. Declare or edit one App Project's machine-local title, description, and icon.
    The Project record stays in work-fold application data; no portable Project
@@ -522,8 +530,11 @@ the local release-backed lane. The shipped lifecycle is:
    selected ordinary work-folder files are never deleted.
 7. Delete an individual Release only after it is unused. The host refuses while
    an active App Instance, either side of a prepared install/update/rollback, or
-   retained-data lineage still references it. Registry deletion commits before
-   safe object pruning, and interrupted pruning is retried.
+   retained-data lineage still references it. The Release's record and verified
+   envelope go to Recently deleted first, registry deletion commits before safe
+   object pruning, and interrupted pruning is retried. Restoring from Recently
+   deleted re-verifies the envelope and returns the Release in the state it was
+   deleted in.
 
 The current local host admits at most one App Instance for a `(projectId,
 target work-folder)` pair. In the Project's source work-folder, its Development preview may

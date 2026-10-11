@@ -257,9 +257,14 @@ Removing a target cancels prepared operations aimed at that work-folder.
 App Studio may also explicitly delete an individual prepared or published
 Release after proving it is unused. Deletion is blocked while any active Runtime
 Instance, prepared operation (including both its source and target Release), or
-retained-data record requires the Release. The lifecycle record is committed
-away before safe content-addressed pruning; an interrupted physical cleanup is
-therefore inert and retried rather than restoring authority.
+retained-data record requires the Release. The Release's record and verified
+envelope are written into Recently deleted first; the lifecycle record is then
+committed away before safe content-addressed pruning, so an interrupted physical
+cleanup is inert and retried rather than restoring authority. Restoring the
+entry re-verifies the envelope against its content digest and its record and
+returns the Release to its App Project in the state it was deleted in; it is
+refused once that App Project is gone or the same version has been prepared
+again.
 
 ## Product language
 

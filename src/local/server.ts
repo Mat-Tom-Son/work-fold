@@ -16,6 +16,7 @@ import { turnFileChanges } from "./agent/turn-file-changes.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { workRequestLabel, type WorkRequestView } from "../shared/request-presentation.js";
 import { childFolderPaths } from "../shared/folder-nesting.js";
+import { restrictedAppDataRestoreBytes } from "../shared/restricted-app-storage-limits.js";
 import {
   automationTriggerSummary,
   type FolderAutomationState,
@@ -107,6 +108,7 @@ import {
   type LocalAppInstance,
   type LocalAppOperation,
   type LocalAppRelease,
+  type LocalAppReleaseDeletionResult,
   type LocalAppRetainedData,
   type RestrictedAppAutomationRunReceipt,
   type RestrictedAppInstallationNeeds,
@@ -236,6 +238,7 @@ import { ensureWorkFoldAgentInstructions } from "./work-fold-agent-instructions.
 import {
   WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
   WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES,
+  WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE,
   WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
   WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
   WORKFOLD_PUBLICATION_SOURCE_TYPES,
@@ -1808,11 +1811,16 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (localAppReleaseMatch && method === "DELETE") {
     const workFolder = await getWorkFolder(localAppReleaseMatch[1]);
     const releaseDigest = localAppReleaseMatch[2];
-    const deletion = await runRestrictedAppMutation(state, workFolder.id, () => state.restrictedApps.deleteLocalAppRelease({
-      workFolderId: workFolder.id,
-      releaseDigest,
-    }));
-    sendJson(res, { deletion });
+    // A copy of the Release lands in Recently deleted before it goes
+    // (docs/receipts-not-gates.md, F20), the same order the CLI verb uses.
+    const deleted = await runDesktopSettingsAct(state, "apps.release.delete", async (requestId) => {
+      const deletion = await deleteLocalAppReleaseIntoRecentlyDeleted(state, workFolder, releaseDigest, requestId);
+      return {
+        value: deletion,
+        detail: `release ${releaseDigest}${deletion.recentlyDeleted ? `; trash ${deletion.recentlyDeleted.entryId}` : deletion.deleted ? "" : " (not found)"}`,
+      };
+    });
+    sendJson(res, { deletion: deleted.value });
     return;
   }
 
@@ -1958,32 +1966,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { apps: await state.restrictedApps.list(workFolder.id) });
     return;
   }
-  if (restrictedCollectionMatch && method === "POST") {
-    const workFolder = await getWorkFolder(restrictedCollectionMatch[1]);
-    const body = await readJsonBody<{ sourcePath?: string; expectedDigest?: string }>(state, req);
-    if (!body.sourcePath?.trim() || !body.expectedDigest?.trim()) throw badRequest("A reviewed package folder and digest are required.");
-    const app = await runRestrictedAppMutation(state, workFolder.id, () => state.restrictedApps.install({
-      workFolderId: workFolder.id,
-      workFolderRoot: workFolder.workFolderRoot,
-      sourcePath: body.sourcePath!,
-      expectedDigest: body.expectedDigest!,
-    }));
-    sendJson(res, { app }, 201);
-    return;
-  }
-
-  const restrictedInspectMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/restricted-apps\/inspect$/);
-  if (restrictedInspectMatch && method === "POST") {
-    const workFolder = await getWorkFolder(restrictedInspectMatch[1]);
-    const body = await readJsonBody<{ sourcePath?: string }>(state, req);
-    if (!body.sourcePath?.trim()) throw badRequest("A work-folder-relative package folder is required.");
-    sendJson(res, { review: await state.restrictedApps.inspect({
-      workFolderId: workFolder.id,
-      workFolderRoot: workFolder.workFolderRoot,
-      sourcePath: body.sourcePath,
-    }) });
-    return;
-  }
+  // A local preview is added by a Worker's proposal in its Chat or by
+  // `work-fold apps install-preview`; both inspect the package and own the
+  // review digest host-side, so this collection has no desktop install route.
 
   const restrictedItemMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/restricted-apps\/([^/]+)$/);
   if (restrictedItemMatch && method === "DELETE") {
@@ -2272,7 +2257,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const workFolder = await getWorkFolder(restrictedDataMatch[1]);
     const appId = restrictedDataMatch[2];
     if (method === "POST") {
-      const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest: string; expectedRevision: number; backup?: unknown; recoveryId?: string }>(state, req, 6 * 1024 * 1024);
+      // A restore carries a whole export, so its bound is the export's own
+      // (every export work-fold makes restores), above the general body cap.
+      const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest: string; expectedRevision: number; backup?: unknown; recoveryId?: string }>(
+        state, req, restrictedAppDataRestoreBytes, { exceedDefaultLimit: true },
+      );
       if (!body || typeof body !== "object" || Array.isArray(body)) throw badRequest("A backup or recovery point is required.");
       const usage = await runRestrictedAppMutation(state, workFolder.id, () => state.restrictedApps.restoreStorage({
         workFolderId: workFolder.id, appId, featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest, expectedRevision: body.expectedRevision,
@@ -3624,6 +3613,43 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     }
     return;
   }
+  // Putting an installed Release-backed app at the address from Settings →
+  // Apps runs the same domain path as `pages share-app`: the viewer
+  // adapter's eligibility, the prepared `publish.viewer.expose` act with its
+  // journal, and the receipt (docs/shared-pages.md, rung 3).
+  if (url.pathname === "/api/settings/publications/share-app" && method === "POST") {
+    try {
+      const body = await readJsonBody<{ workFolderId?: unknown; instance?: unknown }>(state, req);
+      if (typeof body.workFolderId !== "string" || !body.workFolderId || typeof body.instance !== "string" || !body.instance.trim()) {
+        sendJson(res, { error: "A work-folder id and an installed app are required to share an app." }, 400);
+        return;
+      }
+      const workFolder = await getWorkFolder(body.workFolderId).catch(() => null);
+      if (!workFolder) {
+        sendJson(res, { error: "That work-folder is not registered on this machine.", code: "WORK_FOLDER_NOT_REGISTERED" }, 404);
+        return;
+      }
+      const instance = body.instance;
+      const shared = await runDesktopSettingsAct(state, "pages.share-app", async (requestId) => {
+        const view = await shareAppFromDesktop(state, { workFolder, instance }, { surface: "main-window", requestId });
+        return {
+          value: view,
+          detail: `Shared app "${view.title}" (App Instance ${view.app?.appInstanceId ?? instance}) as ${view.viewerPath}; `
+            + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
+        };
+      });
+      const view = shared.value;
+      const revealable = view.state === "active" && Boolean(await state.publicationKeys.get(view.publicationId).catch(() => null));
+      sendJson(res, { publication: { ...view, workFolderName: workFolder.name }, revealable });
+    } catch (error) {
+      if (error instanceof WorkFoldCliError && error.message === WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE) {
+        sendJson(res, { error: error.message, code: "NO_ADDRESS" }, 409);
+        return;
+      }
+      sendPublicationError(res, error);
+    }
+    return;
+  }
   const publicationSettingsMatch = match(url.pathname, /^\/api\/settings\/publications\/([^/]+)\/(reveal-link|revoke|narrow|widen|snapshot-off)$/);
   if (publicationSettingsMatch && method === "POST") {
     const publicationId = publicationSettingsMatch[1];
@@ -4347,6 +4373,7 @@ export type WorkFoldRecentlyDeletedRestoreResult =
   | { kind: "file" | "folder"; entryId: string; workFolder: WorkFoldActWorkFolderRef; path: string; renamed: boolean; safetyCheckpointId: string | null }
   | { kind: "work-folder"; entryId: string; workFolder: WorkFoldActWorkFolderRef; workFolderRoot: string; renamed: boolean }
   | { kind: "app-storage"; entryId: string; workFolder: WorkFoldActWorkFolderRef; appId: string; usage: { revision: number; usageBytes: number } }
+  | { kind: "app-release"; entryId: string; workFolder: WorkFoldActWorkFolderRef; releaseDigest: string; displayVersion: string }
   | { kind: "saved-copy"; entryId: string; path: string };
 
 /**
@@ -4367,7 +4394,9 @@ async function recentlyDeletedEntryView(
     workFolderId: entry.workFolderId,
     ...(entry.workFolderName === undefined ? {} : { workFolderName: entry.workFolderName }),
     originalPath: entry.originalPath,
-    name: entry.displayName ?? (entry.payload.kind === "tree" ? entry.payload.name : entry.payload.appId),
+    name: entry.displayName ?? (entry.payload.kind === "tree"
+      ? entry.payload.name
+      : entry.payload.kind === "app-release" ? `Release ${entry.payload.displayVersion}` : entry.payload.appId),
     sizeBytes: entry.sizeBytes,
     ...(entry.sizeApproximate ? { sizeApproximate: true as const } : {}),
     deletedAt: entry.deletedAt,
@@ -4387,6 +4416,20 @@ async function recentlyDeletedEntryView(
       : { ...base, restorable: "blocked", note: "The work-folder this came from is no longer registered." };
   }
   if (entry.kind === "work-folder") return base;
+  if (entry.kind === "app-release") {
+    // A Release goes back only into the App Project it came from, and only
+    // while its version has not been prepared again in the meantime.
+    const payload = entry.payload;
+    if (payload.kind !== "app-release") return { ...base, restorable: "blocked" };
+    const studio = await state.restrictedApps.localAppStudio(entry.workFolderId).catch(() => null);
+    if (!studio?.project || studio.project.projectId !== payload.projectId) {
+      return { ...base, restorable: "blocked", note: "The App Project this Release came from is no longer in that work-folder." };
+    }
+    if (studio.releases.some((release) => release.displayVersion === payload.displayVersion && release.releaseDigest !== payload.releaseDigest)) {
+      return { ...base, restorable: "blocked", note: `Another Release ${payload.displayVersion} has been prepared since this one was deleted.` };
+    }
+    return base;
+  }
   if (entry.kind === "app-retained") {
     return { ...base, restorable: "save-only", note: "Retained app data has no app to go back into." };
   }
@@ -4425,8 +4468,9 @@ async function restoreRecentlyDeletedEntry(
     return restoreRecentlyDeletedAppData(state, entry, context);
   }
   if (context.toPath !== undefined) {
-    throw new WorkFoldCliError("usage", "'--to' saves a copy of app data; files, folders, and work-folders go back where they came from.");
+    throw new WorkFoldCliError("usage", "'--to' saves a copy of app data; files, folders, work-folders, and Releases go back where they came from.");
   }
+  if (entry.kind === "app-release") return restoreRecentlyDeletedAppRelease(state, entry);
   if (entry.kind === "work-folder") return restoreRecentlyDeletedWorkFolder(state, entry);
   if (isWorkFoldAgentConversationRecentlyDeletedEntry(entry)) return restoreWorkFoldAgentConversationRecentlyDeletedEntry(state, entry);
   if (isWorkFolderConversationRecentlyDeletedEntry(entry)) return restoreWorkFolderConversationRecentlyDeletedEntry(state, entry);
@@ -4591,6 +4635,40 @@ async function restoreRecentlyDeletedWorkFolder(state: LocalApiState, entry: Wor
     workFolder: toActWorkFolderRef(workFolder),
     workFolderRoot: workFolder.workFolderRoot,
     renamed: restored.renamed,
+  };
+}
+
+/**
+ * Puts a deleted Release back into the App Project it came from, through the
+ * service's own verification: the envelope must match its content digest and
+ * its record, and the record must still fit the Project (docs/receipts-not-gates.md, F20).
+ */
+async function restoreRecentlyDeletedAppRelease(
+  state: LocalApiState,
+  entry: WorkFoldRecentlyDeletedEntry,
+): Promise<WorkFoldRecentlyDeletedRestoreResult> {
+  const kept = await state.recentlyDeleted.readAppRelease(entry.id).catch((error: unknown) => {
+    throw recentlyDeletedCliError(error);
+  });
+  const workFolder = await getWorkFolder(entry.workFolderId).catch(() => null);
+  if (!workFolder) {
+    throw new WorkFoldCliError(
+      "conflict",
+      "The work-folder this Release came from is no longer registered, so there is nowhere to put it back. Register that work-folder again first.",
+    );
+  }
+  const release = await runRestrictedAppMutation(state, workFolder.id, () => state.restrictedApps.restoreLocalAppRelease({
+    workFolderId: workFolder.id,
+    record: kept.record,
+    release: kept.release,
+  }));
+  await state.recentlyDeleted.remove(entry.id).catch(() => undefined);
+  return {
+    kind: "app-release",
+    entryId: entry.id,
+    workFolder: toActWorkFolderRef(workFolder),
+    releaseDigest: release.releaseDigest,
+    displayVersion: release.displayVersion,
   };
 }
 
@@ -7231,14 +7309,14 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async appsReleaseDelete(input) {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
       const workFolder = await resolveWorkFolder(input.workFolder);
-      const deletion = await runActOperation(() => runRestrictedAppMutation(state, workFolder.id, () =>
-        state.restrictedApps.deleteLocalAppRelease({ workFolderId: workFolder.id, releaseDigest: input.release })));
+      const deletion = await runActOperation(() => deleteLocalAppReleaseIntoRecentlyDeleted(state, workFolder, input.release, input.requestId ?? null));
       await recordFacadeAction(state, input.parentTaskId, { command: "apps.release.delete", workFolder });
       return {
         workFolder: toActWorkFolderRef(workFolder),
         releaseDigest: input.release,
         deleted: deletion.deleted,
         cleanupPending: deletion.cleanupPending,
+        recentlyDeleted: deletion.recentlyDeleted,
       };
     },
     async appsInstallPrepare(input) {
@@ -7632,6 +7710,11 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const workFolder = await resolveWorkFolder(input.workFolder);
       const packagePath = input.packagePath.trim();
       if (!packagePath) throw new WorkFoldCliError("usage", "Provide --package <work-folder-path>.");
+      // `propose` installs in the same call, so what the package replaces is
+      // read before it runs: the Local preview of each app id, by revision.
+      const previewsBefore = new Map((await runActOperation(() => state.restrictedApps.list(workFolder.id)))
+        .filter((app) => app.runtimeInstanceKind === "development")
+        .map((app) => [app.manifest.id, app.digest]));
       // The host inspects the package and owns every review field and the
       // digest — the same review record the Chat proposal path creates, under
       // an act-lane marker instead of a conversation — and installs it at
@@ -7651,8 +7734,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         }
         return result.proposal;
       });
-      const replacesInstalled = (await runActOperation(() => state.restrictedApps.list(workFolder.id)))
-        .some((app) => app.manifest.id === proposal.review.manifest.id);
+      // Re-adding the revision already installed changes nothing, so only a
+      // different revision of the same app id is a replacement.
+      const previousDigest = previewsBefore.get(proposal.review.manifest.id);
+      const replacesInstalled = previousDigest !== undefined && previousDigest !== proposal.review.digest;
       const context: PreparedActOutcome<RestrictedAppInstalled> = {};
       await runPreparedAct({
         kind: "app.review.install",
@@ -7945,52 +8030,13 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async pagesShareApp(input) {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
       const workFolder = await resolveWorkFolder(input.workFolder);
-      const status = state.publications.status();
-      if (status.damaged) {
-        throw new WorkFoldCliError("failure", `work-fold cannot share an app: ${status.damageReason ?? "the publication store is damaged."}`);
-      }
-      // Exposure eligibility and pins come from the viewer adapter: an
-      // installed App Instance of a prepared Release whose reviewed manifest
-      // declares a viewer surface. The effect-time recheck re-resolves the
-      // same identity before anything activates. `--instance` accepts the App
-      // Instance id (the pin identity) or, like `apps uninstall`, the
-      // Runtime Instance id of an app installed in this work-folder.
-      const requested = input.instance.trim();
-      const byRuntimeId = (await runActOperation(() => state.restrictedApps.list(workFolder.id)))
-        .find((app) => app.runtimeInstanceKind === "app" && app.runtimeInstanceId === requested);
-      const exposure = await state.restrictedAppViewer.resolveExposure(byRuntimeId?.featureInstallationId ?? requested);
-      if (!exposure.eligible) throw new WorkFoldCliError("conflict", exposure.issue);
-      if (exposure.workFolderId !== workFolder.id) {
-        throw new WorkFoldCliError("notFound", "This work-folder has no installed App Instance with this id.");
-      }
-      const alreadyExposed = (await runActOperation(() => state.publications.list())).some((view) => (
-        view.state === "active" && view.kind === "app" && view.app?.appInstanceId === exposure.pins.appInstanceId
-      ));
-      if (alreadyExposed) {
-        throw new WorkFoldCliError("conflict", "This App Instance is already at your address; stop sharing it before exposing it again.");
-      }
-      const requestId = input.requestId?.trim() || randomUUID();
-      const context: ViewerExposeContext = {
-        requestId,
+      const view = await shareAppFromDesktop(state, { workFolder, instance: input.instance }, {
+        surface: "cli",
         ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
-        attribution: preparedActAttribution(state, "cli", input.parentTaskId),
-      };
-      await runPreparedAct({
-        kind: "publish.viewer.expose",
-        parameters: { exposure: "hosted-app", appInstanceId: exposure.pins.appInstanceId },
-        pins: {
-          exposure: "hosted-app",
-          appInstanceId: exposure.pins.appInstanceId,
-          releaseDigest: exposure.pins.releaseDigest,
-          viewerEntry: exposure.pins.viewerEntry,
-          viewerSurface: exposure.pins.viewerSurface,
-        },
-        requestId,
-        context,
+        ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
       });
-      if (!context.outcome) throw new WorkFoldCliError("failure", "The app was not put at your address.");
       await recordFacadeAction(state, input.parentTaskId, { command: "pages.share-app", workFolder });
-      return { workFolder: toActWorkFolderRef(workFolder), publication: toActPublicationRef(context.outcome, workFolder.name) };
+      return { workFolder: toActWorkFolderRef(workFolder), publication: toActPublicationRef(view, workFolder.name) };
     },
     async recentlyDeletedList() {
       const listing = await runActOperation(() => state.recentlyDeleted.list());
@@ -8023,7 +8069,9 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           ? { kind: restored.kind, workFolder: restored.workFolder, workFolderRoot: restored.workFolderRoot, renamed: restored.renamed }
           : restored.kind === "app-storage"
             ? { kind: restored.kind, workFolder: restored.workFolder, appId: restored.appId, usage: restored.usage }
-            : {
+            : restored.kind === "app-release"
+              ? { kind: restored.kind, workFolder: restored.workFolder, releaseDigest: restored.releaseDigest, displayVersion: restored.displayVersion }
+              : {
               kind: restored.kind,
               workFolder: restored.workFolder,
               path: restored.path,
@@ -9243,6 +9291,68 @@ async function moveRemovedAppStorageToRecentlyDeleted(
   ));
   if (!app) return null;
   return await moveAppStorageExportToRecentlyDeleted(state, app, reason, receiptId, { skipWhenStorageUnavailable: true });
+}
+
+/**
+ * Deleting an unused App Studio Release keeps its registry record and verified
+ * envelope in Recently deleted first (docs/receipts-not-gates.md, F20); the
+ * Release comes back from there in the state it was deleted in. The service
+ * hands over the copy only once every blocker has passed, so a refused delete
+ * leaves nothing behind. If the copy landed but the Release is still there
+ * afterwards, the copy is withdrawn so Recently deleted never shows a Release
+ * that was not deleted.
+ */
+async function deleteLocalAppReleaseIntoRecentlyDeleted(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  releaseDigest: string,
+  receiptId: string | null,
+): Promise<LocalAppReleaseDeletionResult & { recentlyDeleted: { entryId: string; restoreBy: string } | null }> {
+  return await runRestrictedAppMutation(state, workFolder.id, async () => {
+    let kept: { entry: WorkFoldRecentlyDeletedEntry; releaseDigest: string } | null = null;
+    try {
+      const deletion = await state.restrictedApps.deleteLocalAppRelease({
+        workFolderId: workFolder.id,
+        releaseDigest,
+        keep: async (copy) => {
+          const entry = await state.recentlyDeleted.moveAppReleaseToRecentlyDeleted({
+            reason: "apps.release.delete",
+            identity: {
+              kind: "app-release",
+              projectId: copy.record.projectId,
+              releaseDigest: copy.record.releaseDigest,
+              displayVersion: copy.record.displayVersion,
+              sourceWorkFolderId: copy.record.sourceWorkFolderId,
+            },
+            record: copy.record,
+            release: copy.release,
+            workFolderId: workFolder.id,
+            workFolderName: workFolder.name,
+            ...recentlyDeletedDisplayName(`${copy.record.presentation.title} ${copy.record.displayVersion}`),
+            receiptId,
+          });
+          kept = { entry, releaseDigest: copy.record.releaseDigest };
+        },
+      });
+      const landed = kept as { entry: WorkFoldRecentlyDeletedEntry } | null;
+      return { ...deletion, recentlyDeleted: landed ? { entryId: landed.entry.id, restoreBy: landed.entry.restoreBy } : null };
+    } catch (error) {
+      const landed = kept as { entry: WorkFoldRecentlyDeletedEntry; releaseDigest: string } | null;
+      if (landed) {
+        const stillThere = await state.restrictedApps.localAppStudio(workFolder.id)
+          .then((studio) => studio.releases.some((release) => release.releaseDigest === landed.releaseDigest))
+          .catch(() => false);
+        if (stillThere) await state.recentlyDeleted.remove(landed.entry.id).catch(() => undefined);
+      }
+      throw error;
+    }
+  });
+}
+
+/** A person-facing Recently deleted label, or none when the text has nothing printable left. */
+function recentlyDeletedDisplayName(text: string): { displayName?: string } {
+  const printable = text.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, 200).trim();
+  return printable ? { displayName: printable } : {};
 }
 
 async function moveRetainedExportToRecentlyDeleted(
@@ -12283,6 +12393,69 @@ async function sharePageFromDesktop(
 }
 
 /**
+ * Puts one installed Release-backed app at the person's address
+ * (docs/shared-pages.md, rung 3) — the one domain path behind
+ * `work-fold pages share-app` and Settings → Apps' "Share at your address".
+ * Like a page share it refuses outright when no address is set up.
+ * Exposure eligibility and pins come from the viewer adapter: an installed
+ * App Instance of a prepared Release whose reviewed manifest declares a
+ * viewer surface. The effect-time recheck re-resolves the same identity
+ * before anything activates. `instance` accepts the App Instance id (the pin
+ * identity) or, like `apps uninstall`, the Runtime Instance id of an app
+ * installed in this work-folder.
+ */
+async function shareAppFromDesktop(
+  state: LocalApiState,
+  input: { workFolder: WorkFolderSummary; instance: string },
+  context: { surface: WorkFoldCliActSurface; parentTaskId?: string; requestId?: string },
+): Promise<WorkFoldPublicationView> {
+  const { workFolder } = input;
+  const status = state.publications.status();
+  if (status.damaged) {
+    throw new WorkFoldCliError("failure", `work-fold cannot share an app: ${status.damageReason ?? "the publication store is damaged."}`);
+  }
+  if (!await state.publications.hasAddress()) {
+    throw new WorkFoldCliError("conflict", WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE);
+  }
+  const requested = input.instance.trim();
+  const byRuntimeId = (await runActOperation(() => state.restrictedApps.list(workFolder.id)))
+    .find((app) => app.runtimeInstanceKind === "app" && app.runtimeInstanceId === requested);
+  const exposure = await state.restrictedAppViewer.resolveExposure(byRuntimeId?.featureInstallationId ?? requested);
+  if (!exposure.eligible) throw new WorkFoldCliError("conflict", exposure.issue);
+  if (exposure.workFolderId !== workFolder.id) {
+    throw new WorkFoldCliError("notFound", "This work-folder has no installed App Instance with this id.");
+  }
+  const alreadyExposed = (await runActOperation(() => state.publications.list())).some((view) => (
+    view.state === "active" && view.kind === "app" && view.app?.appInstanceId === exposure.pins.appInstanceId
+  ));
+  if (alreadyExposed) {
+    throw new WorkFoldCliError("conflict", "This App Instance is already at your address; stop sharing it before sharing it again.");
+  }
+  const requestId = context.requestId?.trim() || randomUUID();
+  const exposeContext: ViewerExposeContext = {
+    requestId,
+    ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
+    attribution: preparedActAttribution(state, context.surface, context.parentTaskId),
+  };
+  await runPublicationActOperation(() => runPreparedActOperation(async () => {
+    const act = prepareAct({
+      kind: "publish.viewer.expose",
+      parameters: { exposure: "hosted-app", appInstanceId: exposure.pins.appInstanceId },
+      pins: {
+        exposure: "hosted-app",
+        appInstanceId: exposure.pins.appInstanceId,
+        releaseDigest: exposure.pins.releaseDigest,
+        viewerEntry: exposure.pins.viewerEntry,
+        viewerSurface: exposure.pins.viewerSurface,
+      },
+    });
+    await state.preparedActs.run({ act, requestId, context: exposeContext });
+  }));
+  if (!exposeContext.outcome) throw new WorkFoldCliError("failure", "The app was not put at your address.");
+  return exposeContext.outcome;
+}
+
+/**
  * The act lane's reading of a publication service refusal: an invalid
  * request is a usage error, a missing slot is not found, and a slot that is
  * no longer shared or already at its cap is a conflict.
@@ -14219,8 +14392,13 @@ function broadcast(state: LocalApiState, key: string, event: unknown): void {
   if (!streams.size) state.chatStreams.delete(key);
 }
 
-async function readJsonBody<T>(state: LocalApiState, req: IncomingMessage, maximumBytes?: number): Promise<T> {
-  const bytes = await readBody(state, req, maximumBytes);
+async function readJsonBody<T>(
+  state: LocalApiState,
+  req: IncomingMessage,
+  maximumBytes?: number,
+  options: { exceedDefaultLimit?: boolean } = {},
+): Promise<T> {
+  const bytes = await readBody(state, req, maximumBytes, options);
   if (!bytes.length) return {} as T;
   try { return JSON.parse(bytes.toString("utf8")) as T; } catch { throw badRequest("Request body must be valid JSON."); }
 }
@@ -14258,8 +14436,18 @@ async function readMultipartBody(state: LocalApiState, req: IncomingMessage): Pr
   return { fields, files };
 }
 
-async function readBody(state: LocalApiState, req: IncomingMessage, maximumBytes = state.maxBodyBytes): Promise<Buffer> {
-  const limit = Math.min(maximumBytes, state.maxBodyBytes);
+/**
+ * A route's own bound applies under the general body cap, except where the
+ * route names a larger contract of its own (`exceedDefaultLimit`), such as an
+ * app-data restore that must accept every export work-fold produces.
+ */
+async function readBody(
+  state: LocalApiState,
+  req: IncomingMessage,
+  maximumBytes = state.maxBodyBytes,
+  options: { exceedDefaultLimit?: boolean } = {},
+): Promise<Buffer> {
+  const limit = options.exceedDefaultLimit ? maximumBytes : Math.min(maximumBytes, state.maxBodyBytes);
   const declared = Number(req.headers["content-length"] ?? 0);
   if (Number.isFinite(declared) && declared > limit) throw tooLarge("Request body is too large.");
   const chunks: Buffer[] = [];

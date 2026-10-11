@@ -87,25 +87,25 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     await writePackage(join(workFolder.workFolderRoot, ...sourcePath.split("/")));
     await mkdir(join(workFolder.workFolderRoot, "reports"), { recursive: true });
 
-    const invalid = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/restricted-apps/inspect`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourcePath: join(workFolder.workFolderRoot, "tools", "mail-app") }),
-    });
-    assert.equal(invalid.status, 400);
-
-    const inspected = await request<{ review: { digest: string; manifest: { id: string } } }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps/inspect`,
-      { method: "POST", body: { sourcePath } },
+    // A preview arrives through the service's own inspect-then-install path
+    // (a Worker's proposal or `apps install-preview`); the desktop API has no
+    // path-entry install route.
+    await assert.rejects(
+      service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: join(workFolder.workFolderRoot, "tools", "mail-app") }),
+      /relative package folder/,
     );
+    const inspected = { review: await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath }) };
     assert.equal(inspected.review.manifest.id, "mail-app");
+    for (const [path, init] of [
+      [`/api/work-folders/${workFolder.id}/restricted-apps/inspect`, { method: "POST", body: { sourcePath } }],
+      [`/api/work-folders/${workFolder.id}/restricted-apps`, { method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest } }],
+    ] as const) {
+      const retired = await fetch(`${api.origin}${path}`, { method: init.method, headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) });
+      assert.ok(retired.status === 404 || retired.status === 405, `${path} is not a desktop install route (${retired.status})`);
+      await retired.body?.cancel();
+    }
 
-    const installed = await request<{ app: RestrictedAppInstalled }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps`,
-      { method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest } },
-    );
+    const installed = { app: await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath, expectedDigest: inspected.review.digest }) };
     assert.equal(installed.app.digest, inspected.review.digest);
     assert.deepEqual(installed.app.networkGrants, ["mail-api"], "an added app reaches its declared destination");
     assert.deepEqual(installed.app.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "a directory permission binds to the whole work-folder");
@@ -419,9 +419,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
 
     // Identical code is not the same installation. Exercise each management
     // route with the old card's identity after remove/reinstall.
-    const reinstalled = await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/work-folders/${workFolder.id}/restricted-apps`, {
-      method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest },
-    });
+    const reinstalled = { app: await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath, expectedDigest: inspected.review.digest }) };
     assert.notEqual(reinstalled.app.featureInstallationId, installed.app.featureInstallationId);
     const itemUrl = `/api/work-folders/${workFolder.id}/restricted-apps/mail-app`;
     const stale = { expectedDigest: inspected.review.digest, featureInstallationId: installed.app.featureInstallationId };
@@ -503,6 +501,70 @@ test("restricted app API keeps review, install, grants, connections, invocation,
   }
 });
 
+/**
+ * An export can be as large as the app's storage file, so a restore takes a
+ * body as large as the export — above the local API's general body cap, which
+ * this test sets deliberately small — while every other route keeps that cap
+ * and a restore past its own bound is refused before any of it is read
+ * (docs/app-data-recovery.md).
+ */
+test("app data restore accepts an export larger than the general body cap and refuses one past the export bound", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-restore-size-"));
+  const storage = new FileRestrictedAppStorage(join(sandbox, "state", "restricted-apps", "data"));
+  const service = await RestrictedAppService.create({ rootPath: join(sandbox, "state", "restricted-apps"), runtimeHost: new RuntimeHost(), storage });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    workFolderBase: join(sandbox, "work-folders"),
+    loadEnv: false,
+    restrictedAppService: service,
+    maxBodyBytes: 1024 * 1024,
+  });
+  try {
+    const { workFolder } = await request<{ workFolder: { id: string; workFolderRoot: string } }>(api.origin, "/api/work-folders", { method: "POST", body: { name: "Restore size" } });
+    await writePackage(join(workFolder.workFolderRoot, "tools", "mail-app"));
+    const review = await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "tools/mail-app" });
+    const app = await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "tools/mail-app", expectedDigest: review.digest });
+    const owner = { ownerClass: "instance" as const, tenantId: app.tenantId, runtimeInstanceId: app.runtimeInstanceId,
+      featureInstallationId: app.featureInstallationId, dataNamespaceId: app.dataNamespaceId };
+    const large = "x".repeat(7 * 1024 * 1024);
+    await storage.set(owner, "archive", large);
+    const pin = { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest };
+    const itemUrl = `/api/work-folders/${workFolder.id}/restricted-apps/mail-app`;
+    const exported = await request<{ backup: RestrictedAppDataBackup }>(api.origin, `${itemUrl}/storage/export?${new URLSearchParams(pin)}`);
+    await storage.set(owner, "archive", "replaced");
+    const revision = (await storage.usage(owner)).revision;
+
+    const body = JSON.stringify({ ...pin, expectedRevision: revision, backup: exported.backup });
+    assert.ok(Buffer.byteLength(body) > 6 * 1024 * 1024, "the restore body is past the former 6 MiB ceiling and the general cap");
+    const restored = await fetch(`${api.origin}${itemUrl}/storage/restore`, { method: "POST", headers: { "content-type": "application/json" }, body });
+    assert.equal(restored.status, 200, await restored.clone().text());
+    assert.equal(await storage.get(owner, "archive"), large);
+
+    // The general cap still holds for every other route.
+    const capped = await fetch(`${api.origin}/api/work-folders`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "x".repeat(2 * 1024 * 1024) }) });
+    assert.equal(capped.status, 413);
+    await capped.body?.cancel();
+
+    // A declared body past the export bound is refused before it is read.
+    const { request: httpRequest } = await import("node:http");
+    const { restrictedAppDataRestoreBytes } = await import("../src/shared/restricted-app-storage-limits.js");
+    const status = await new Promise<number>((resolvePromise, rejectPromise) => {
+      const outgoing = httpRequest(`${api.origin}${itemUrl}/storage/restore`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-length": String(restrictedAppDataRestoreBytes + 1) },
+      }, (response) => { response.resume(); resolvePromise(response.statusCode ?? 0); outgoing.destroy(); });
+      outgoing.on("error", rejectPromise);
+      outgoing.write("{");
+    });
+    assert.equal(status, 413);
+  } finally {
+    await api.close();
+    await service.close().catch(() => undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("machine-wide automation ledgers feed the overview and the restore fence, and a files grant binds to the whole work-folder", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-ledgers-"));
   const runtime = new RuntimeHost();
@@ -525,16 +587,8 @@ test("machine-wide automation ledgers feed the overview and the restore fence, a
     );
     await writePackage(join(workFolder.workFolderRoot, "tools", "mail-app"));
     await mkdir(join(workFolder.workFolderRoot, "reports"), { recursive: true });
-    const inspected = await request<{ review: { digest: string } }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps/inspect`,
-      { method: "POST", body: { sourcePath: "tools/mail-app" } },
-    );
-    const installed = await request<{ app: RestrictedAppInstalled }>(
-      api.origin,
-      `/api/work-folders/${workFolder.id}/restricted-apps`,
-      { method: "POST", body: { sourcePath: "tools/mail-app", expectedDigest: inspected.review.digest } },
-    );
+    const inspected = { review: await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "tools/mail-app" }) };
+    const installed = { app: await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "tools/mail-app", expectedDigest: inspected.review.digest }) };
     await request(
       api.origin,
       `/api/work-folders/${workFolder.id}/restricted-apps/mail-app/automations/refresh-mail`,
@@ -989,8 +1043,8 @@ test("app requests use reviewed native Pi turns, History, exact task cancellatio
       type: "object", properties: { quote: { type: "string", maxLength: 1_000 } }, required: ["quote"], additionalProperties: false } }];
     await writeFile(manifestPath, JSON.stringify(manifest));
     const base = `/api/work-folders/${workFolder.id}/restricted-apps`;
-    const { review: packageReview } = await request<{ review: { digest: string } }>(api.origin, `${base}/inspect`, { method: "POST", body: { sourcePath: "app" } });
-    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, base, { method: "POST", body: { sourcePath: "app", expectedDigest: packageReview.digest } });
+    await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app" });
+    const app = (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, base)).apps.find((item) => item.manifest.id === "mail-app")!;
     const pin = { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest };
     const scope = { workFolderId: app.workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
     const taskBase = `${base}/mail-app/assistant-tasks`;
@@ -1102,8 +1156,8 @@ test("app inference runs on the work-folder's configured model with no Chat and 
     const { workFolder } = await request<{ workFolder: { id: string; workFolderRoot: string } }>(api.origin, "/api/work-folders", { method: "POST", body: { name: "Quotes" } });
     await writePackage(join(workFolder.workFolderRoot, "app"));
     const base = `/api/work-folders/${workFolder.id}/restricted-apps`;
-    const { review } = await request<{ review: { digest: string } }>(api.origin, `${base}/inspect`, { method: "POST", body: { sourcePath: "app" } });
-    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, base, { method: "POST", body: { sourcePath: "app", expectedDigest: review.digest } });
+    await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app" });
+    const app = (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, base)).apps.find((item) => item.manifest.id === "mail-app")!;
     const scope = { workFolderId: app.workFolderId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
       digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
 
@@ -1168,8 +1222,8 @@ test("desktop Check selection composes the canonical Check service with exact ap
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
     manifest.permissions.checks = [{ id: "review", title: "Handoff review" }];
     await writeFile(manifestPath, JSON.stringify(manifest));
-    const { review } = await request<{ review: { digest: string } }>(api.origin, `${base}/restricted-apps/inspect`, { method: "POST", body: { sourcePath: "app" } });
-    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, `${base}/restricted-apps`, { method: "POST", body: { sourcePath: "app", expectedDigest: review.digest } });
+    await api.actFacade.appsInstallPreview({ workFolder: workFolder.id, packagePath: "app" });
+    const app = (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `${base}/restricted-apps`)).apps.find((item) => item.manifest.id === "mail-app")!;
     const check = await request<{ declaration: { id: string }; digest: string }>(api.origin, `${base}/checks/configure`, { method: "POST", body: { proposal: {
       kind: "work-fold.check-proposal", version: 1, name: "Handoff", createdBy: "human", createdAt: "2026-09-06T00:00:00.000Z",
       check: { title: "Handoff exists", severity: "error", trigger: "manual", sensor: { id: "work-fold.file-presence", revision: 1, parameters: { expect: "present" } }, targets: [{ kind: "file", role: "primary", path: "handoff.txt" }] },

@@ -259,6 +259,11 @@ template exercises every current section:
 }
 ```
 
+`ui.icon` is optional presentation metadata naming an icon from the
+work-folder icon catalog (the names Customize work-folder offers, such as
+`mail`, `calendar`, or `briefcase`). The app's rail button shows it; a name the
+catalog does not know, or no name, shows the generic Apps glyph.
+
 `ui.cornerRadius` is optional presentation metadata. work-fold uses a rounded
 12px app canvas when it is omitted. Apps may request a whole-pixel radius from
 0 through 24; use `0` only when the app intentionally owns a square edge. The
@@ -304,9 +309,11 @@ prefixes (lowercase letters, numbers, `._/-`, at most 64 characters each)
 viewers may read. Everything else is refused for viewers desktop-side —
 storage writes, agent actions, network, connections, work-folder files,
 notifications, automations, OAuth, and host UI. Declaring `viewer` grants no
-audience: putting an installed App Instance at the person's address is a
-separate receipted share, and a reviewed update that widens `readable` or
-changes `entry` records a fresh exposure receipt. See [the work-fold agent](work-fold-agent-decisions.md) and
+audience: an installed App Instance goes to the person's address only when it
+is shared — **Share at your address** in the app's details in Settings → Apps,
+or `work-fold pages share-app` — under its own receipt, and an update that
+widens `readable` or changes `entry` stops serving until the app is shared
+again. See [the work-fold agent](work-fold-agent-decisions.md) and
 [Restricted app runtime](restricted-app-runtime.md).
 
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.

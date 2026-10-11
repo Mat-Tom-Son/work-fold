@@ -13300,6 +13300,25 @@ textarea:focus-visible,
 }
 }
 
+.settings-apps-folder-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+
+.settings-apps-folder-heading > h4 {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-apps-folder-heading > .ui-control {
+  flex: 0 0 auto;
+}
+
 .restricted-apps-section {
   display: grid;
   gap: 14px;
@@ -13307,68 +13326,10 @@ textarea:focus-visible,
   border-top: 1px solid var(--ui-border);
 }
 
-.restricted-apps-heading {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(300px, 1fr) auto;
-  align-items: end;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.restricted-apps-heading > div:first-child {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.restricted-apps-title-line {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.restricted-apps-title-line > span {
-  min-width: 22px;
-  min-height: 20px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0 6px;
-  color: var(--ui-text-subtle);
-  background: var(--ui-surface-subtle);
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.restricted-apps-heading-actions {
-  flex: 0 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.restricted-apps-heading h3,
-.restricted-apps-heading p,
 .restricted-app-card p,
 .restricted-app-connections p,
 .restricted-app-destination-card p {
   margin: 0;
-}
-
-.restricted-apps-heading h3 {
-  color: var(--ui-text);
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.restricted-apps-heading p {
-  color: var(--ui-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .restricted-apps-loading svg {
@@ -13473,14 +13434,12 @@ textarea:focus-visible,
   gap: 8px;
 }
 
-.restricted-app-advanced,
 .restricted-app-package-details {
   padding-top: 2px;
   color: var(--ui-text-muted);
   font-size: 11px;
 }
 
-.restricted-app-advanced summary,
 .restricted-app-package-details summary {
   cursor: pointer;
   color: var(--ui-text-subtle);
@@ -13488,22 +13447,16 @@ textarea:focus-visible,
   font-weight: 600;
 }
 
-.restricted-app-advanced p {
-  margin: 8px 0;
-}
-
 .restricted-app-package-details .capability-review-facts {
   margin-top: 10px;
 }
 
-.restricted-app-source-body > label,
 .restricted-app-secret-field,
 .restricted-app-credential-fields label {
   display: grid;
   gap: 6px;
 }
 
-.restricted-app-source-body > label > strong,
 .restricted-app-secret-field > span,
 .restricted-app-credential-fields label > span {
   color: var(--ui-text);
@@ -13511,13 +13464,6 @@ textarea:focus-visible,
   font-weight: 600;
 }
 
-.restricted-app-source-body > label > span {
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.restricted-app-source-body input,
 .restricted-app-credential-form input,
 .restricted-app-credential-form select {
   width: 100%;
@@ -13536,184 +13482,11 @@ textarea:focus-visible,
   width: min(820px, calc(100vw - 32px));
 }
 
-.restricted-app-review-dialog {
-  width: min(760px, calc(100vw - 32px));
-}
-
-.restricted-app-review-summary {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.restricted-app-review-icon {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  color: var(--ui-accent);
-  background: var(--ui-accent-soft);
-  border-radius: var(--ui-radius-md);
-}
-
-.restricted-app-review-summary > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.restricted-app-review-summary > div > span {
-  color: var(--ui-text-subtle);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.restricted-app-review-summary strong {
-  color: var(--ui-text);
-  font-size: 14px;
-  font-weight: 670;
-}
-
-.restricted-app-review-summary p {
-  margin: 0;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.restricted-app-review-heading {
-  min-width: 0;
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 16px;
-  padding-top: 4px;
-}
-
-.restricted-app-review-heading > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.restricted-app-review-heading h3,
 .restricted-app-connections h3 {
   margin: 0;
   color: var(--ui-text);
   font-size: 12px;
   font-weight: 650;
-}
-
-.restricted-app-review-heading p {
-  margin: 0;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.restricted-app-review-heading > span {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.restricted-app-review-heading > span {
-  flex: 0 0 auto;
-  color: var(--ui-text-subtle);
-}
-
-.restricted-app-authority-list {
-  overflow: hidden;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-lg);
-}
-
-.restricted-app-authority-group {
-  min-width: 0;
-  display: grid;
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.restricted-app-authority-group:last-child {
-  border-bottom: 0;
-}
-
-.restricted-app-authority-heading {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.restricted-app-authority-heading > span:first-child {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  color: var(--ui-text-muted);
-}
-
-.restricted-app-authority-heading > div {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.restricted-app-authority-heading h4 {
-  margin: 0;
-  color: var(--ui-text);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.restricted-app-authority-heading p {
-  margin: 0;
-  color: var(--ui-text-muted);
-  font-size: 10px;
-}
-
-.restricted-app-authority-items {
-  min-width: 0;
-  display: grid;
-  gap: 8px;
-  margin-left: 34px;
-  padding: 10px 0 2px;
-  border-top: 1px solid var(--ui-border);
-}
-
-.restricted-app-authority-items article {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.restricted-app-authority-items article + article {
-  padding-top: 8px;
-  border-top: 1px solid var(--ui-border);
-}
-
-.restricted-app-authority-items strong {
-  color: var(--ui-text);
-  font-size: 11px;
-  font-weight: 620;
-  overflow-wrap: anywhere;
-}
-
-.restricted-app-authority-items span,
-.restricted-app-authority-items small {
-  color: var(--ui-text-muted);
-  font-size: 10px;
-  line-height: 1.4;
 }
 
 .restricted-app-connections {
@@ -13988,6 +13761,16 @@ textarea:focus-visible,
   font-size: 10px;
 }
 
+.restricted-app-lifecycle > div:first-child {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.restricted-app-lifecycle .restricted-app-share-note {
+  max-width: 60ch;
+  line-height: 1.4;
+}
+
 .restricted-app-credential-heading {
   align-items: center;
 }
@@ -14076,15 +13859,9 @@ textarea:focus-visible,
 
 @container space-pane (max-width: 620px) {
 
-.restricted-apps-heading,
 .restricted-app-card {
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-}
-
-.restricted-apps-heading-actions {
-  width: 100%;
-  justify-content: flex-start;
 }
 
 .restricted-app-card-actions {
@@ -14098,31 +13875,6 @@ textarea:focus-visible,
 
 .restricted-app-credential-fields {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.restricted-app-review-summary {
-  grid-template-columns: 40px minmax(0, 1fr);
-  align-items: start;
-}
-
-.restricted-app-review-summary > .professional-status-badge {
-  grid-column: 2;
-  justify-self: start;
-}
-
-.restricted-app-review-heading {
-  align-items: flex-start;
-  flex-direction: column;
-}
-
-.restricted-app-authority-heading {
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-items: start;
-}
-
-.restricted-app-authority-heading > .professional-status-badge {
-  grid-column: 2;
-  justify-self: start;
 }
 
 .restricted-app-destination-heading,
@@ -15623,8 +15375,7 @@ to {
   margin-top: 12px;
 }
 
-.restricted-app-task-review pre,
-.restricted-app-task-declaration {
+.restricted-app-task-review pre {
   max-height: 240px;
   overflow: auto;
   white-space: pre-wrap;

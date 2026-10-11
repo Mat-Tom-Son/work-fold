@@ -337,6 +337,93 @@ test("Release deletion prunes only unused objects and preserves every active, pr
   }
 });
 
+/**
+ * Deleting a Release hands its record and verified envelope to `keep` before
+ * anything is removed, and `restoreLocalAppRelease` puts the same two values
+ * back (docs/receipts-not-gates.md, F20). The restored Release survives a
+ * restart, because startup checks every stored Release against its record.
+ */
+test("a deleted Release comes back from its kept copy, verified, in the state it was deleted in", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-release-restore-"));
+  const sourceRoot = join(sandbox, "source-work-folder");
+  const rootPath = join(sandbox, "state", "restricted-apps");
+  const storage = new FileRestrictedAppStorage(join(rootPath, "data"));
+  const connections = new MemoryConnectionStore();
+  let service: RestrictedAppService | undefined;
+  try {
+    await writePackage(join(sourceRoot, "apps", "connected-inbox"), { marker: "release-restore" });
+    service = await RestrictedAppService.create({ rootPath, storage, connections });
+    await service.declareLocalAppProject({
+      workFolderId: sourceWorkFolder,
+      presentation: { title: "Connected Inbox", description: "Release restore fixture.", icon: "mail" },
+    });
+    const review = await service.inspect({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
+    await service.install({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox", expectedDigest: review.digest });
+    const published = await prepareAndPublish(service, "1.0.0");
+
+    // A failing keep deletes nothing: the copy comes first.
+    await assert.rejects(
+      service.deleteLocalAppRelease({
+        workFolderId: sourceWorkFolder,
+        releaseDigest: published.releaseDigest,
+        keep: async () => { throw new Error("Recently deleted is unavailable"); },
+      }),
+      /Recently deleted is unavailable/,
+    );
+    assert.equal((await service.localAppStudio(sourceWorkFolder)).releases.length, 1);
+
+    let kept: { record: unknown; release: unknown } | undefined;
+    assert.deepEqual(await service.deleteLocalAppRelease({
+      workFolderId: sourceWorkFolder,
+      releaseDigest: published.releaseDigest,
+      keep: async (copy) => { kept = JSON.parse(JSON.stringify(copy)); },
+    }), { deleted: true, cleanupPending: false });
+    assert.ok(kept);
+    assert.equal((kept.record as { releaseDigest: string }).releaseDigest, published.releaseDigest);
+    assert.equal((kept.release as { releaseDigest: string }).releaseDigest, published.releaseDigest);
+    await assert.rejects(access(releaseObjectPath(rootPath, published.releaseDigest)), (error: unknown) => isMissingError(error));
+
+    // The envelope is checked against its own content digest and its record.
+    const tampered = structuredClone(kept.release) as { manifest: { displayVersion: string } };
+    tampered.manifest.displayVersion = "9.9.9";
+    await assert.rejects(
+      service.restoreLocalAppRelease({ workFolderId: sourceWorkFolder, record: kept.record, release: tampered }),
+      (error: unknown) => errorCode(error) === "INPUT_INVALID",
+    );
+    await assert.rejects(
+      service.restoreLocalAppRelease({ workFolderId: targetWorkFolder, record: kept.record, release: kept.release }),
+      /different work-folder/,
+    );
+
+    const restored = await service.restoreLocalAppRelease({ workFolderId: sourceWorkFolder, record: kept.record, release: kept.release });
+    assert.deepEqual(restored, published, "the Release returns exactly as it was, published");
+    await access(releaseObjectPath(rootPath, published.releaseDigest));
+    assert.deepEqual(
+      await service.restoreLocalAppRelease({ workFolderId: sourceWorkFolder, record: kept.record, release: kept.release }),
+      published,
+      "restoring a Release that is already back changes nothing",
+    );
+
+    await service.close();
+    service = await RestrictedAppService.create({ rootPath, storage, connections });
+    assert.deepEqual((await service.localAppStudio(sourceWorkFolder)).releases, [published], "the restored Release passes startup verification");
+
+    // A version prepared again in the meantime is not overwritten.
+    await service.deleteLocalAppRelease({ workFolderId: sourceWorkFolder, releaseDigest: published.releaseDigest });
+    await writePackage(join(sourceRoot, "apps", "connected-inbox"), { marker: "release-restore-second" });
+    const nextReview = await service.inspect({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
+    await service.install({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox", expectedDigest: nextReview.digest });
+    await service.prepareLocalAppRelease({ workFolderId: sourceWorkFolder, displayVersion: "1.0.0" });
+    await assert.rejects(
+      service.restoreLocalAppRelease({ workFolderId: sourceWorkFolder, record: kept.record, release: kept.release }),
+      /Another Release 1\.0\.0 has been prepared since/,
+    );
+  } finally {
+    await service?.close().catch(() => undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("a retryable Release prune remains pending across restart without blocking service startup", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-release-prune-retry-"));
   const sourceRoot = join(sandbox, "source-work-folder");

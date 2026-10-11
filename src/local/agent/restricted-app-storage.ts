@@ -13,24 +13,9 @@ import {
   type TenantId,
 } from "./app-platform-contract.js";
 import { restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
+import { restrictedAppStorageLimits } from "../../shared/restricted-app-storage-limits.js";
 
-/**
- * App storage is one JSON document per installation, read and rewritten whole
- * on every operation. The quota keeps that document comfortably under V8's
- * maximum string length (about 512 MiB), which is the real ceiling for this
- * design; bulk data still belongs in granted work-folder files.
- */
-export const restrictedAppStorageLimits = {
-  appBytes: 256 * 1024 * 1024,
-  keys: 65_536,
-  keyBytes: 256,
-  valueBytes: 16 * 1024 * 1024,
-  transactionBytes: 64 * 1024 * 1024,
-  transactionOperations: 4_096,
-  jsonDepth: 32,
-  /** The quota plus per-entry framing for every key and the file's own metadata. */
-  fileBytes: 264 * 1024 * 1024,
-} as const;
+export { restrictedAppStorageLimits };
 
 /** The limits one store enforces: the published defaults unless a host or test configures others. */
 export type RestrictedAppStorageLimitValues = { [K in keyof typeof restrictedAppStorageLimits]: number };

@@ -228,7 +228,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
             ) : null}
             {page === "apps" ? (
               <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
-                <SettingsAppsPane workFolders={workFolders} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
+                <SettingsAppsPane workFolders={workFolders} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} onOpenSharedPages={() => setPage("shared-pages")} onOpenWebAccess={() => setPage("web-access")} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (
@@ -659,7 +659,7 @@ function PublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMod
                         disabled={Boolean(busy)}
                         onClick={() => {
                           if (fixtureMode) { showToast({ text: publicationsSettings.previewDisabled, tone: "info" }); return; }
-                          if (!window.confirm(publicationsSettings.stopSharingConfirm)) return;
+                          if (!window.confirm(publication.kind === "app" ? publicationsSettings.stopSharingAppConfirm : publicationsSettings.stopSharingConfirm)) return;
                           setRevealed((current) => (current?.publicationId === publication.publicationId ? null : current));
                           void run(`revoke-${publication.publicationId}`, async () => {
                             await api(`/api/settings/publications/${publication.publicationId}/revoke`, { method: "POST", body: {} });
@@ -690,7 +690,7 @@ function PublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMod
                         {publicationsSettings.copyLink}
                       </button>
                     </div>
-                    <small>{publicationsSettings.linkMeaning}</small>
+                    <small>{publication.kind === "app" ? publicationsSettings.appLinkMeaning : publicationsSettings.linkMeaning}</small>
                   </div>
                 ) : null}
                 {editing ? (

@@ -2373,6 +2373,7 @@ async function runActCommand(
         workFolder: command.workFolder!,
         release: command.release!,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+        requestId: request.id,
       }));
     case "apps.install.prepare":
       return toJson(await facade.appsInstallPrepare({
@@ -3272,10 +3273,15 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Published Release ${terminalText(release?.displayVersion)} [${terminalText(release?.releaseDigest)}] in ${workFolderLabel}. `
         + `This is a local state transition — nothing is uploaded, hosted, listed, or granted.\n`;
     }
-    case "apps.release.delete":
+    case "apps.release.delete": {
+      const recentlyDeleted = (record.recentlyDeleted ?? null) as { entryId?: unknown; restoreBy?: unknown } | null;
       return record.deleted === true
-        ? `Deleted unused Release [${terminalText(record.releaseDigest)}] in ${workFolderLabel}. Re-prepare from unchanged source to get it back.\n`
+        ? `Deleted unused Release [${terminalText(record.releaseDigest)}] in ${workFolderLabel}.\n`
+          + (recentlyDeleted
+            ? `It is in Recently deleted until ${terminalText(recentlyDeleted.restoreBy)} — put it back with 'recently-deleted restore --entry ${terminalText(recentlyDeleted.entryId)}'.\n`
+            : "")
         : `Release [${terminalText(record.releaseDigest)}] was not found in ${workFolderLabel}; nothing was deleted.\n`;
+    }
     case "apps.install.prepare": {
       const operation = record.operation as { operationId?: unknown; releaseDigest?: unknown } | undefined;
       const target = record.targetWorkFolder as { id?: unknown; name?: unknown } | undefined;
@@ -3457,6 +3463,8 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         renamed?: unknown;
         workFolderRoot?: unknown;
         appId?: unknown;
+        releaseDigest?: unknown;
+        displayVersion?: unknown;
         safetyCheckpointId?: unknown;
         workFolder?: { name?: unknown; id?: unknown };
       };
@@ -3469,6 +3477,9 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
           + `${restored.renamed === true ? " under a new folder name, because the old one was taken" : ""}.\n`;
       }
       if (restored.kind === "app-storage") return `Restored ${terminalText(restored.appId)}'s data in ${where}.\n`;
+      if (restored.kind === "app-release") {
+        return `Restored Release ${terminalText(restored.displayVersion)} [${terminalText(restored.releaseDigest)}] to App Studio in ${where}.\n`;
+      }
       return `Restored ${restored.kind === "folder" ? "folder" : "file"} ${terminalText(restored.path)} to ${where}`
         + `${restored.renamed === true ? " under a new name, because the old one was taken" : ""}.\n`
         // The restore stands either way; a missing undo point is said plainly
@@ -3732,6 +3743,13 @@ function humanCheckEvidence(value: WorkFoldCliJson): string {
   }
 }
 
+/** The entry id a destroying verb's `recentlyDeleted` result names, if it names one. */
+function recentlyDeletedEntryId(value: unknown): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value;
+  const entryId = first && typeof first === "object" ? (first as { entryId?: unknown }).entryId : undefined;
+  return typeof entryId === "string" ? entryId : undefined;
+}
+
 /** Person-facing names for what is waiting in Recently deleted. */
 function recentlyDeletedKindLabel(kind: unknown): string {
   switch (kind) {
@@ -3740,6 +3758,7 @@ function recentlyDeletedKindLabel(kind: unknown): string {
     case "work-folder": return "work-folder";
     case "app-storage":
     case "app-retained": return "app data";
+    case "app-release": return "Release";
     default: return "item";
   }
 }
@@ -4118,6 +4137,7 @@ function actReceiptDetail(
     case "apps.release.delete":
       return typeof record.releaseDigest === "string"
         ? `release ${record.releaseDigest}${record.deleted === false ? " (not found)" : ""}`
+          + `${recentlyDeletedEntryId(record.recentlyDeleted) ? `; trash ${recentlyDeletedEntryId(record.recentlyDeleted)}` : ""}`
         : undefined;
     case "apps.install.prepare":
       return typeof record.operation?.operationId === "string" ? `operation ${record.operation.operationId}` : undefined;
@@ -4265,6 +4285,7 @@ function actUndoRef(
     case "work-folders.delete":
     case "apps.storage.clear":
     case "apps.retained.purge":
+    case "apps.release.delete":
     case "apps.uninstall": {
       const first = Array.isArray(record.recentlyDeleted) ? record.recentlyDeleted[0] : record.recentlyDeleted;
       const entryId = first && typeof first === "object" ? (first as { entryId?: unknown }).entryId : undefined;

@@ -161,6 +161,17 @@ export interface LocalAppRelease {
   publishedAt: string | null;
 }
 
+/**
+ * What deleting a Release keeps for Recently deleted
+ * (docs/receipts-not-gates.md, F20): the registry record, with the source
+ * Feature stamps publication checked, and the verified canonical envelope.
+ * `restoreLocalAppRelease` takes the same two values back.
+ */
+export interface LocalAppReleaseRecoveryCopy {
+  record: LocalAppRelease & { sourceFeatures: unknown[] };
+  release: AppReleaseEnvelope;
+}
+
 export interface LocalAppInstance {
   runtimeInstanceId: RuntimeInstanceId;
   projectId: ProjectId;
@@ -490,7 +501,7 @@ interface LocalAppVerifiedReleaseProjection {
 
 interface LocalAppAdminReceipt {
   receiptId: string;
-  action: "release-prepared" | "release-published" | "release-deleted" | "install-prepared" | "installed"
+  action: "release-prepared" | "release-published" | "release-deleted" | "release-restored" | "install-prepared" | "installed"
     | "update-prepared" | "updated" | "uninstalled" | "retained-data-purged" | "data-exported";
   projectId: ProjectId;
   runtimeInstanceId: RuntimeInstanceId | null;
@@ -1066,9 +1077,16 @@ export class RestrictedAppService {
     });
   }
 
+  /**
+   * Deletes one unused Release. When `keep` is given it receives the record
+   * and verified envelope after every blocker has passed and before anything
+   * is removed, so the host can place a recoverable copy in Recently deleted
+   * first (docs/receipts-not-gates.md, F20); a failing `keep` deletes nothing.
+   */
   async deleteLocalAppRelease(input: {
     workFolderId: string;
     releaseDigest: string;
+    keep?: (copy: LocalAppReleaseRecoveryCopy) => Promise<void>;
   }): Promise<LocalAppReleaseDeletionResult> {
     return await this.#mutate(async () => {
       const digest = releaseDigestValue(input.releaseDigest);
@@ -1101,6 +1119,10 @@ export class RestrictedAppService {
         );
       }
 
+      if (input.keep) {
+        const envelope = assertLocalRestrictedAppRelease(await this.#releaseStore.read(digest));
+        await input.keep({ record: structuredClone(release), release: envelope });
+      }
       const timestamp = this.#now().toISOString();
       await this.#writeRegistry({
         ...this.#registry,
@@ -1115,6 +1137,79 @@ export class RestrictedAppService {
       });
       const reconciled = await this.#reconcileReleaseStore();
       return { deleted: true, cleanupPending: !reconciled };
+    });
+  }
+
+  /**
+   * Puts a deleted Release back from the copy `deleteLocalAppRelease` handed
+   * to `keep`. The record must still belong to an App Project in this
+   * work-folder, its version must not have been prepared again since, and the
+   * envelope must verify against its content digest and match the record
+   * exactly — the same check startup applies to every stored Release. The
+   * Release returns in the state it was deleted in. Restoring a Release that
+   * is already back is a no-op.
+   */
+  async restoreLocalAppRelease(input: {
+    workFolderId: string;
+    record: unknown;
+    release: unknown;
+  }): Promise<LocalAppRelease> {
+    return await this.#mutate(async () => {
+      const record = restrictedAppInput(() => localAppReleaseRegistryEntry(input.record, 0));
+      if (record.sourceWorkFolderId !== input.workFolderId) {
+        throw new RestrictedAppError("INPUT_INVALID", "This Release belongs to a different work-folder.");
+      }
+      const existing = this.#registry.releases.find((item) => item.releaseDigest === record.releaseDigest);
+      if (existing) {
+        if (existing.sourceWorkFolderId !== input.workFolderId) {
+          throw new RestrictedAppError("INPUT_INVALID", "This Release belongs to a different work-folder.");
+        }
+        return copyLocalAppRelease(existing);
+      }
+      const project = this.#registry.projects.find((item) => item.projectId === record.projectId);
+      if (!project || project.workFolderId !== input.workFolderId) {
+        throw new RestrictedAppError("INPUT_INVALID", "The App Project this Release belongs to is no longer in this work-folder.");
+      }
+      if (this.#registry.releases.some((item) => item.projectId === record.projectId && item.displayVersion === record.displayVersion)) {
+        throw new RestrictedAppError(
+          "INPUT_INVALID",
+          `Another Release ${record.displayVersion} has been prepared since this one was deleted. Delete that one first, or keep it.`,
+        );
+      }
+      assertRestrictedAppRegistryCapacity("releases", this.#registry.releases.length, 1, "Release");
+      const envelope = restrictedAppInput(() => assertLocalRestrictedAppRelease(input.release));
+      if (envelope.releaseDigest !== record.releaseDigest
+        || envelope.manifest.projectId !== record.projectId
+        || envelope.manifest.displayVersion !== record.displayVersion
+        || JSON.stringify(envelope.manifest.presentation) !== JSON.stringify(record.presentation)
+        || envelope.manifest.features.map((feature) => feature.featureId).join("\0") !== record.featureIds.join("\0")) {
+        throw new RestrictedAppError("INPUT_INVALID", "The kept Release does not match its record.");
+      }
+      try {
+        await this.#releaseStore.put(envelope);
+      } catch (error) {
+        if (error instanceof LocalAppReleaseStoreError && error.code === "RELEASE_STORE_LIMIT_EXCEEDED") {
+          throw new RestrictedAppError("INPUT_INVALID", error.message);
+        }
+        throw error;
+      }
+      try {
+        await this.#writeRegistry({
+          ...this.#registry,
+          releases: [...this.#registry.releases, record],
+          adminReceipts: appendAdminReceipt(this.#registry.adminReceipts, {
+            action: "release-restored",
+            projectId: record.projectId,
+            runtimeInstanceId: null,
+            releaseDigest: record.releaseDigest,
+            createdAt: this.#now().toISOString(),
+          }),
+        });
+      } catch (error) {
+        await this.#reconcileReleaseStore();
+        throw error;
+      }
+      return copyLocalAppRelease(record);
     });
   }
 
@@ -3985,7 +4080,7 @@ function localAppAdminReceiptValue(value: unknown, index: number): LocalAppAdmin
   const receiptId = nonempty(item.receiptId, "Local App admin receipt id", 64);
   if (!/^admin_[0-9a-f-]{36}$/i.test(receiptId)) throw new Error("Local App admin receipt id is invalid.");
   const actions = new Set<LocalAppAdminReceipt["action"]>([
-    "release-prepared", "release-published", "release-deleted", "install-prepared", "installed", "update-prepared", "updated", "uninstalled", "retained-data-purged", "data-exported",
+    "release-prepared", "release-published", "release-deleted", "release-restored", "install-prepared", "installed", "update-prepared", "updated", "uninstalled", "retained-data-purged", "data-exported",
   ]);
   if (!actions.has(item.action as LocalAppAdminReceipt["action"])) throw new Error("Local App admin receipt action is invalid.");
   const action = item.action as LocalAppAdminReceipt["action"];

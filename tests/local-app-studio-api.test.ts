@@ -108,12 +108,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       packageVersion: "0.1.0",
       marker: "first-reviewed-revision",
     });
-    const firstReview = await inspect(api.origin, source.id);
-    const preview = await request<{ app: RestrictedAppInstalled }>(
-      api.origin,
-      `/api/work-folders/${source.id}/restricted-apps`,
-      { method: "POST", body: { sourcePath, expectedDigest: firstReview.digest } },
-    );
+    const preview = { app: await installPreview(service, source) };
     assert.equal(preview.app.runtimeInstanceKind, "development");
     assert.equal(preview.app.releaseDigest, null);
     assert.equal(preview.app.projectId, declared.project.projectId);
@@ -286,11 +281,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       packageVersion: "0.2.0",
       marker: "second-reviewed-revision",
     });
-    const secondReview = await inspect(api.origin, source.id);
-    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/work-folders/${source.id}/restricted-apps`, {
-      method: "POST",
-      body: { sourcePath, expectedDigest: secondReview.digest },
-    });
+    await installPreview(service, source);
     const secondPrepared = await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/prepare`, {
       method: "POST",
       body: { displayVersion: "2.0.0" },
@@ -519,23 +510,62 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       /no longer installed|Save a copy/i,
     );
 
-    const releaseDeletion = await request<{ deletion: { deleted: boolean; cleanupPending: boolean } }>(
+    type ReleaseDeletion = { deletion: { deleted: boolean; cleanupPending: boolean; recentlyDeleted: { entryId: string; restoreBy: string } | null } };
+    const releaseIsListed = async () => (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
+      .some((release) => release.releaseDigest === published.release.releaseDigest);
+    const releaseDeletion = await request<ReleaseDeletion>(
       api.origin,
       `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
       { method: "DELETE" },
     );
-    assert.deepEqual(releaseDeletion.deletion, { deleted: true, cleanupPending: false });
-    assert.equal(
-      (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
-        .some((release) => release.releaseDigest === published.release.releaseDigest),
-      false,
+    assert.equal(releaseDeletion.deletion.deleted, true);
+    assert.equal(releaseDeletion.deletion.cleanupPending, false);
+    assert.equal(await releaseIsListed(), false);
+    // Deleting a Release is reversible (docs/receipts-not-gates.md, F20): it
+    // waits in Recently deleted and comes back published, as it was.
+    const keptRelease = releaseDeletion.deletion.recentlyDeleted;
+    assert.ok(keptRelease, "the deleted Release waits in Recently deleted");
+    const listedRelease = (await request<{ entries: Array<{ id: string; kind: string; reason: string; name: string; restorable: string; receiptId: string | null }> }>(
+      api.origin,
+      "/api/settings/recently-deleted",
+    )).entries.find((entry) => entry.id === keptRelease.entryId);
+    assert.equal(listedRelease?.kind, "app-release");
+    assert.equal(listedRelease?.reason, "apps.release.delete");
+    assert.equal(listedRelease?.name, "Connected Inbox 1.0.0");
+    assert.equal(listedRelease?.restorable, "in-place");
+    assert.match(listedRelease?.receiptId ?? "", /\S/, "the deletion's receipt names the entry it produced");
+    const restoredRelease = await request<{ restored: { kind: string; releaseDigest: string; displayVersion: string } }>(
+      api.origin,
+      `/api/settings/recently-deleted/${keptRelease.entryId}/restore`,
+      { method: "POST", body: {} },
     );
-    const repeatedDeletion = await request<{ deletion: { deleted: boolean; cleanupPending: boolean } }>(
+    assert.deepEqual(
+      { kind: restoredRelease.restored.kind, releaseDigest: restoredRelease.restored.releaseDigest, displayVersion: restoredRelease.restored.displayVersion },
+      { kind: "app-release", releaseDigest: published.release.releaseDigest, displayVersion: "1.0.0" },
+    );
+    const back = (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
+      .find((release) => release.releaseDigest === published.release.releaseDigest);
+    assert.equal(back?.state, "published", "the Release returns in the state it was deleted in");
+    assert.equal(
+      (await api.recentlyDeleted.list()).entries.some((entry) => entry.id === keptRelease.entryId),
+      false,
+      "a restored Release leaves Recently deleted",
+    );
+
+    const secondDeletion = await request<ReleaseDeletion>(
+      api.origin,
+      `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
+      { method: "DELETE" },
+    );
+    assert.equal(secondDeletion.deletion.deleted, true);
+    assert.equal(await releaseIsListed(), false);
+    const repeatedDeletion = await request<ReleaseDeletion>(
       api.origin,
       `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
       { method: "DELETE" },
     );
     assert.equal(repeatedDeletion.deletion.deleted, false, "Release deletion is retry-safe after registry commit");
+    assert.equal(repeatedDeletion.deletion.recentlyDeleted, null, "a delete that removed nothing keeps nothing");
 
     const removedWorkFolder = await request<{ removed: boolean }>(api.origin, `/api/work-folders/${target.id}`, {
       method: "DELETE",
@@ -586,11 +616,7 @@ test("target-scoped uninstall survives an unavailable linked source work-folder"
       packageVersion: "1.0.0",
       marker: "linked-source-release",
     });
-    const review = await inspect(api.origin, source.id);
-    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/work-folders/${source.id}/restricted-apps`, {
-      method: "POST",
-      body: { sourcePath, expectedDigest: review.digest },
-    });
+    await installPreview(service, source);
     const prepared = await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/prepare`, {
       method: "POST",
       body: { displayVersion: "1.0.0" },
@@ -661,12 +687,10 @@ async function registerLinkedWorkFolder(
   })).workFolder;
 }
 
-async function inspect(origin: string, workFolderId: string): Promise<{ digest: string }> {
-  return (await request<{ review: { digest: string } }>(
-    origin,
-    `/api/work-folders/${workFolderId}/restricted-apps/inspect`,
-    { method: "POST", body: { sourcePath } },
-  )).review;
+/** Adds the package as a Local preview through the service's own inspect-then-install path. */
+async function installPreview(service: RestrictedAppService, workFolder: { id: string; workFolderRoot: string }): Promise<RestrictedAppInstalled> {
+  const review = await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath });
+  return await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath, expectedDigest: review.digest });
 }
 
 /** An installed or reset Feature comes up with the install defaults (docs/receipts-not-gates.md, F21). */

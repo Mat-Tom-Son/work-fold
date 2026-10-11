@@ -70,6 +70,37 @@ test("Settings Apps stops after a failed catalog read and retries only on reques
   assert.equal(retry(), undefined);
 });
 
+test("each work-folder group in Settings Apps opens that work-folder's App Studio", async (t) => {
+  const dom = await createDomHarness();
+  const originalFetch = globalThis.fetch;
+  t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (input, init) => {
+    if (String(input).endsWith("/api/events")) return pendingEvents(init?.signal);
+    throw new Error(`Unexpected API read: ${String(input)}`);
+  };
+  const app = (workFolder: WorkFolderSummary, id: string) => ({ workFolderId: workFolder.id, sourceWorkFolderId: workFolder.id, featureInstallationId: `feature-installation_${id}`,
+    runtimeInstanceKind: "development", runtimeInstanceId: `runtime-instance_${id}`, packageName: id, version: "1.0.0", digest: "a".repeat(64),
+    installedAt: "2026-10-11T00:00:00.000Z", updatedAt: "2026-10-11T00:00:00.000Z", networkGrants: [], fileGrants: [], notificationGrants: [], automations: [],
+    manifest: { id, title: id, version: 2, runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], automations: [],
+      permissions: { network: [], files: [], notifications: [] } } }) as unknown as RestrictedAppInstalled;
+  const installed = {
+    appsByWorkFolder: { [source.id]: [app(source, "quotes")], [target.id]: [app(target, "ledger")] },
+    knownWorkFolderIds: new Set(workFolders.map((workFolder) => workFolder.id)), loadingWorkFolderIds: new Set<string>(),
+    async refresh() {}, replaceApps() {}, replaceRuntimeInstanceApps() {}, upsertApp() {}, removeApp() {},
+  };
+  const opened: Array<[string, string | undefined]> = [];
+  await dom.render(createElement(SettingsAppsPane, {
+    workFolders, apps: installed as never,
+    onOpenAppStudio: (workFolderId: string, runtimeInstanceId?: string) => { opened.push([workFolderId, runtimeInstanceId]); },
+  }));
+  const studioButtons = [...dom.container.querySelectorAll<HTMLButtonElement>("button")].filter((button) => button.textContent === "App Studio");
+  assert.deepEqual(studioButtons.map((button) => button.getAttribute("aria-label")), [`Open App Studio for ${source.name}`, `Open App Studio for ${target.name}`],
+    "one App Studio button per work-folder that has apps, in its group heading");
+  assert.equal(dom.container.querySelector(`[aria-label="Apps in ${unrelated.name}"]`), null, "a work-folder without apps has no group");
+  await dom.act(() => studioButtons[1]!.click());
+  assert.deepEqual(opened, [[target.id, undefined]]);
+});
+
 test("an app result file leaves both Settings dialogs and activates the installation's work-folder", async (t) => {
   const dom = await createDomHarness();
   const originalFetch = globalThis.fetch;

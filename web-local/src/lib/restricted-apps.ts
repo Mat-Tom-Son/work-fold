@@ -1,10 +1,10 @@
 import { api } from "./api";
+import type { SharedPageView } from "./page-sharing";
 import type {
   RestrictedAppAutomationRunReceipt,
   RestrictedAppConnectionStatus,
   RestrictedAppCredential,
   RestrictedAppInstalled,
-  RestrictedAppReview,
   RestrictedAppStorageUsage,
   RestrictedAppDataRecovery,
   LocalAppInstallOperation,
@@ -167,18 +167,16 @@ export async function listRestrictedApps(workFolderId: string): Promise<Restrict
   return (await api<{ apps: RestrictedAppInstalled[] }>(collectionPath(workFolderId))).apps;
 }
 
-export async function inspectRestrictedApp(workFolderId: string, sourcePath: string): Promise<RestrictedAppReview> {
-  return (await api<{ review: RestrictedAppReview }>(`${collectionPath(workFolderId)}/inspect`, {
+/**
+ * Puts an installed Release-backed app at the person's address through the
+ * same domain path as `work-fold pages share-app` (docs/shared-pages.md,
+ * rung 3). The link is revealed from Settings → Shared Pages.
+ */
+export async function shareRestrictedAppAtAddress(app: RestrictedAppInstalled): Promise<{ publication: SharedPageView; revealable: boolean }> {
+  return await api<{ publication: SharedPageView; revealable: boolean }>("/api/settings/publications/share-app", {
     method: "POST",
-    body: { sourcePath },
-  })).review;
-}
-
-export async function installRestrictedApp(workFolderId: string, sourcePath: string, expectedDigest: string): Promise<RestrictedAppInstalled> {
-  return (await api<{ app: RestrictedAppInstalled }>(collectionPath(workFolderId), {
-    method: "POST",
-    body: { sourcePath, expectedDigest },
-  })).app;
+    body: { workFolderId: app.workFolderId, instance: app.featureInstallationId },
+  });
 }
 
 /**

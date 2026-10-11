@@ -5,9 +5,9 @@
  * Nothing work-fold destroys is permanent at the moment it happens. History
  * covers ordinary deletion; whatever History cannot capture (oversized,
  * unreadable, symbolic-link, or always-excluded content), a deleted managed
- * work-folder, and app data that was cleared or purged is moved here instead
- * of erased, and stays restorable for a retention window (default 30 days,
- * 1..365).
+ * work-folder, app data that was cleared or purged, and a deleted App Studio
+ * Release is moved here instead of erased, and stays restorable for a
+ * retention window (default 30 days, 1..365).
  *
  * Layout under `rootPath` (`workFoldRecentlyDeletedRoot()` in production):
  *
@@ -15,6 +15,7 @@
  *   entries/<entryId>/manifest.json            WorkFoldRecentlyDeletedManifest — the only commit marker
  *   entries/<entryId>/payload/<name>           file | folder | work-folder: the moved tree, original basename
  *   entries/<entryId>/payload/app-data.json    app-storage | app-retained: a RestrictedAppDataBackup
+ *   entries/<entryId>/payload/app-release.json app-release: the Release's registry record and its verified envelope
  *   entries/<entryId>/state/                   work-folder only: the work-folder's machine-local state dir (History)
  *   incoming/<uuid>/                           cross-device copy staging, swept on open()
  *
@@ -27,10 +28,12 @@
  *   WorkFoldRecentlyDeletedStore.open(options)   create the layout, load settings, sweep debris
  *   store.moveTreeToRecentlyDeleted(input)       move a file, folder, or work-folder in
  *   store.moveAppDataToRecentlyDeleted(input)    write a verified app-data export in
+ *   store.moveAppReleaseToRecentlyDeleted(input) write a deleted Release's record and envelope in
  *   store.list() / store.get(id)                 tolerant listing; damaged records are reported, never dropped
  *   store.attachWorkFolderState(id, path)        finish carrying History after an interrupted work-folder deletion
  *   store.restoreTree(id, destination)           move a tree back, collision-renaming like work-folder.ts
  *   store.readAppData(id)                        read and re-verify an app-data export
+ *   store.readAppRelease(id)                     read a kept Release back (the service re-verifies it)
  *   store.remove(id)                             "Delete now"; refuses (HELD) for legacy `.workspace/` trees
  *   store.purgeExpired(now)                      retention purge; fails closed on legacy trees
  *   store.purgeExpiredIfDue(intervalMs)          the wake-tolerant "once a day while awake" wrapper
@@ -90,7 +93,7 @@ export const WORKFOLD_RECENTLY_DELETED_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Shape of every entry id; CLI and route input must match it before any path join. */
 export const workFoldRecentlyDeletedEntryIdPattern = /^trash-\d{14}-[0-9a-f]{8}$/;
 
-export type WorkFoldRecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained";
+export type WorkFoldRecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release";
 
 export type WorkFoldRecentlyDeletedReason =
   | "files.delete"
@@ -105,7 +108,9 @@ export type WorkFoldRecentlyDeletedReason =
   | "apps.work-folder.removed"
   | "apps.storage.clear"
   | "apps.retained.purge"
-  | "apps.uninstall.purge";
+  | "apps.uninstall.purge"
+  /** Deleting an unused App Studio Release keeps its record and envelope recoverable. */
+  | "apps.release.delete";
 
 /** Why History alone could not keep a copy of one path inside a Recently deleted entry. */
 export interface WorkFoldRecentlyDeletedUncoveredPath {
@@ -129,10 +134,20 @@ export type WorkFoldRecentlyDeletedAppDataIdentity = {
   retainedDataId?: string;
 };
 
+/** Which Release an `app-release` entry keeps: enough to list it and to check the kept file against. */
+export type WorkFoldRecentlyDeletedAppReleaseIdentity = {
+  kind: "app-release";
+  projectId: string;
+  releaseDigest: string;
+  displayVersion: string;
+  sourceWorkFolderId: string;
+};
+
 export type WorkFoldRecentlyDeletedPayload =
   /** file | folder | work-folder: the basename of the moved tree under `payload/`. */
   | { kind: "tree"; name: string }
-  | WorkFoldRecentlyDeletedAppDataIdentity;
+  | WorkFoldRecentlyDeletedAppDataIdentity
+  | WorkFoldRecentlyDeletedAppReleaseIdentity;
 
 export interface WorkFoldRecentlyDeletedHold {
   /**
@@ -154,7 +169,7 @@ export interface WorkFoldRecentlyDeletedManifest {
   workFolderName?: string;
   /** Person-facing label; the payload name remains the recovery identity. */
   displayName?: string;
-  /** file/folder: work-folder-relative path. work-folder: absolute managed folder path. app-*: `<appId>/<dataNamespaceId>`. */
+  /** file/folder: work-folder-relative path. work-folder: absolute managed folder path. app-storage/app-retained: `<appId>/<dataNamespaceId>`. app-release: `<projectId>/<releaseDigest>`. */
   originalPath: string;
   sizeBytes: number;
   /** The measurement walk hit its budget, so `sizeBytes` is a lower bound. */
@@ -250,6 +265,30 @@ export interface WorkFoldRecentlyDeletedAppDataInput {
   receiptId: string | null;
 }
 
+export interface WorkFoldRecentlyDeletedAppReleaseInput {
+  reason: WorkFoldRecentlyDeletedReason;
+  identity: WorkFoldRecentlyDeletedAppReleaseIdentity;
+  /**
+   * The service's registry record for the Release and the canonical Release
+   * envelope read from its store, as plain JSON. The store checks only that
+   * both name the identity; the service re-verifies both before a restore.
+   */
+  record: unknown;
+  release: unknown;
+  workFolderId: string;
+  workFolderName?: string;
+  /** Person-facing label, such as the App title and version. */
+  displayName?: string;
+  receiptId: string | null;
+}
+
+/** A kept Release as `readAppRelease` returns it: still to be re-verified by the service. */
+export interface WorkFoldRecentlyDeletedAppRelease {
+  identity: WorkFoldRecentlyDeletedAppReleaseIdentity;
+  record: Record<string, unknown>;
+  release: Record<string, unknown>;
+}
+
 export interface WorkFoldRecentlyDeletedRestoreDestination {
   /** Where the tree goes back. An occupied path is collision-renamed (`stem (2).ext` / `name-2`). */
   absolutePath: string;
@@ -273,10 +312,10 @@ export interface WorkFoldRecentlyDeletedPurgeResult {
   failed: WorkFoldRecentlyDeletedDamagedRecord[];
 }
 
-const RECENTLY_DELETED_KINDS: readonly WorkFoldRecentlyDeletedKind[] = ["file", "folder", "work-folder", "app-storage", "app-retained"];
+const RECENTLY_DELETED_KINDS: readonly WorkFoldRecentlyDeletedKind[] = ["file", "folder", "work-folder", "app-storage", "app-retained", "app-release"];
 const RECENTLY_DELETED_REASONS: readonly WorkFoldRecentlyDeletedReason[] = [
   "files.delete", "agent.chat.delete", "chats.delete", "work-folders.delete", "apps.remove", "apps.work-folder.removed",
-  "apps.storage.clear", "apps.retained.purge", "apps.uninstall.purge",
+  "apps.storage.clear", "apps.retained.purge", "apps.uninstall.purge", "apps.release.delete",
 ];
 const UNCOVERED_REASONS: readonly WorkFoldRecentlyDeletedUncoveredPath["reason"][] = ["too_large", "unreadable", "symbolic_link", "excluded"];
 const HOLD_REASONS: readonly WorkFoldRecentlyDeletedHold["reason"][] = ["legacy-metadata", "unreadable"];
@@ -288,7 +327,10 @@ const APP_DATA_IDENTITY_KEYS = new Set([
   "kind", "appId", "appDigest", "featureInstallationId", "runtimeInstanceId", "dataNamespaceId",
   "sourceWorkFolderId", "projectId", "releaseDigest", "retainedDataId",
 ]);
+const APP_RELEASE_IDENTITY_KEYS = new Set(["kind", "projectId", "releaseDigest", "displayVersion", "sourceWorkFolderId"]);
 const APP_DATA_FILE = "app-data.json";
+const APP_RELEASE_FILE = "app-release.json";
+const APP_RELEASE_FORMAT = "work-fold.app-release-recovery";
 const MANIFEST_FILE = "manifest.json";
 const MEASURE_ENTRY_BUDGET = 64 * 1024;
 const MAX_UNCOVERED_PATHS = 65536;
@@ -551,6 +593,60 @@ export class WorkFoldRecentlyDeletedStore {
     });
   }
 
+  /**
+   * Writes a deleted Release's registry record and verified envelope as
+   * `payload/app-release.json`. Both must name the identity the entry claims;
+   * a mismatch is INPUT_INVALID and nothing is written. The bytes are a copy
+   * taken before the Release store prunes its object, so the restore path
+   * re-verifies the envelope's content digest before anything is reinstated.
+   */
+  async moveAppReleaseToRecentlyDeleted(input: WorkFoldRecentlyDeletedAppReleaseInput): Promise<WorkFoldRecentlyDeletedEntry> {
+    assertReason(input.reason);
+    const workFolderId = requireText(input.workFolderId, "work-folder id", 160);
+    const workFolderName = input.workFolderName === undefined ? undefined : requireText(input.workFolderName, "work-folder name", 200);
+    const displayName = input.displayName === undefined ? undefined : requireText(input.displayName, "Display name", 200);
+    const receiptId = requireReceiptId(input.receiptId);
+    const identity = normalizeAppReleaseIdentity(input.identity);
+    const kept = verifyKeptRelease({ format: APP_RELEASE_FORMAT, formatVersion: 1, record: input.record, release: input.release }, identity, "INPUT_INVALID");
+    const serialized = `${JSON.stringify({ format: APP_RELEASE_FORMAT, formatVersion: 1, record: kept.record, release: kept.release })}\n`;
+
+    return await this.#mutate(async () => {
+      const deletedAt = this.#now().toISOString();
+      const id = newEntryId(deletedAt);
+      const entryPath = join(this.rootPath, "entries", id);
+      const payloadDir = join(entryPath, "payload");
+      const payloadPath = join(payloadDir, APP_RELEASE_FILE);
+      const manifest: WorkFoldRecentlyDeletedManifest = {
+        version: 1,
+        id,
+        kind: "app-release",
+        reason: input.reason,
+        workFolderId,
+        ...(workFolderName === undefined ? {} : { workFolderName }),
+        ...(displayName === undefined ? {} : { displayName }),
+        originalPath: `${identity.projectId}/${identity.releaseDigest}`,
+        sizeBytes: Buffer.byteLength(serialized, "utf8"),
+        deletedAt,
+        restoreBy: addDays(deletedAt, this.#settings.retentionDays),
+        receiptId,
+        payload: identity,
+        complete: false,
+      };
+      try {
+        await mkdir(entryPath, { mode: 0o700 });
+        await mkdir(payloadDir, { mode: 0o700 });
+        await this.#writeManifest(entryPath, manifest);
+        await writeFileAtomic(payloadPath, serialized);
+        const completed = { ...manifest, complete: true };
+        await this.#writeManifest(entryPath, completed);
+        return { ...completed, entryPath, payloadPath };
+      } catch (error) {
+        await rm(entryPath, { recursive: true, force: true }).catch(() => undefined);
+        throw new WorkFoldRecentlyDeletedError("MOVE_FAILED", `work-fold could not keep a copy of the Release in ${RECENTLY_DELETED}: ${errorMessage(error)}.`, { cause: error });
+      }
+    });
+  }
+
   /** Every readable entry, newest first, plus the records that could not be trusted. Repairs missed commits. */
   async list(): Promise<WorkFoldRecentlyDeletedListing> {
     return await this.#mutate(async () => {
@@ -613,7 +709,7 @@ export class WorkFoldRecentlyDeletedStore {
     return await this.#mutate(async () => {
       const entry = await this.#requireEntry(id, true);
       if (entry.payload.kind !== "tree") {
-        throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `${id} holds app data, which cannot be put back as a file or folder this way.`);
+        throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `${id} holds ${entry.payload.kind === "app-release" ? "a Release" : "app data"}, which cannot be put back as a file or folder this way.`);
       }
       if (destination.onConflict === "error" && existsSync(desired)) {
         throw new WorkFoldRecentlyDeletedError(
@@ -691,6 +787,25 @@ export class WorkFoldRecentlyDeletedStore {
         throw new WorkFoldRecentlyDeletedError("STORE_DAMAGED", `The app data kept as ${id} in ${RECENTLY_DELETED} cannot be read: ${errorMessage(error)}`, { entryId: id, cause: error });
       }
       return verifyBackup(parsed, entry.payload, "STORE_DAMAGED", id);
+    });
+  }
+
+  /** Reads a kept Release back; a truncated file or one naming another Release is STORE_DAMAGED. */
+  async readAppRelease(id: string): Promise<WorkFoldRecentlyDeletedAppRelease> {
+    assertEntryId(id);
+    return await this.#mutate(async () => {
+      const entry = await this.#requireEntry(id, false);
+      if (entry.payload.kind !== "app-release") {
+        throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `${id} is a ${entry.kind}, not a Release.`);
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await readFile(entry.payloadPath, "utf8"));
+      } catch (error) {
+        throw new WorkFoldRecentlyDeletedError("STORE_DAMAGED", `The Release kept as ${id} in ${RECENTLY_DELETED} cannot be read: ${errorMessage(error)}`, { entryId: id, cause: error });
+      }
+      const kept = verifyKeptRelease(parsed, entry.payload, "STORE_DAMAGED", id);
+      return { identity: { ...entry.payload }, record: kept.record, release: kept.release };
     });
   }
 
@@ -899,7 +1014,9 @@ export class WorkFoldRecentlyDeletedStore {
       return { state: "damaged", id, error: `manifest.json is not a valid record: ${errorMessage(error)}` };
     }
     if (manifest.id !== id) return { state: "damaged", id, error: `manifest.json names ${manifest.id} instead of ${id}.` };
-    const payloadPath = join(entryPath, "payload", manifest.payload.kind === "tree" ? manifest.payload.name : APP_DATA_FILE);
+    const payloadPath = join(entryPath, "payload", manifest.payload.kind === "tree"
+      ? manifest.payload.name
+      : manifest.payload.kind === "app-release" ? APP_RELEASE_FILE : APP_DATA_FILE);
     const payloadInfo = await lstat(payloadPath).catch(() => null);
     if (!payloadInfo) {
       return { state: "damaged", id, error: manifest.complete ? "its content is missing." : "its content never arrived." };
@@ -980,7 +1097,7 @@ function assertEntryId(id: string): void {
 
 function assertReason(reason: unknown): asserts reason is WorkFoldRecentlyDeletedReason {
   if (!RECENTLY_DELETED_REASONS.includes(reason as WorkFoldRecentlyDeletedReason)) {
-    throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "The reason must name the delete, work-folder, or app-data command that produced the item.");
+    throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "The reason must name the delete, work-folder, app-data, or Release command that produced the item.");
   }
 }
 
@@ -1056,6 +1173,68 @@ function normalizeAppDataIdentity(value: unknown): WorkFoldRecentlyDeletedAppDat
   };
   if (raw.retainedDataId !== undefined) identity.retainedDataId = text(raw.retainedDataId);
   return identity;
+}
+
+function normalizeAppReleaseIdentity(value: unknown): WorkFoldRecentlyDeletedAppReleaseIdentity {
+  const invalid = (): never => {
+    throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "The Release identity must name its App Project, digest, version, and source work-folder.");
+  };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalid();
+  if (Object.keys(value).some((key) => !APP_RELEASE_IDENTITY_KEYS.has(key))) return invalid();
+  const raw = value as Partial<WorkFoldRecentlyDeletedAppReleaseIdentity>;
+  if (raw.kind !== "app-release") return invalid();
+  const text = (field: unknown): string => {
+    if (typeof field !== "string" || !field.trim() || field.length > 512 || FORBIDDEN_TEXT.test(field)) return invalid();
+    return field;
+  };
+  return {
+    kind: "app-release",
+    projectId: text(raw.projectId),
+    releaseDigest: text(raw.releaseDigest),
+    displayVersion: text(raw.displayVersion),
+    sourceWorkFolderId: text(raw.sourceWorkFolderId),
+  };
+}
+
+/**
+ * The closed shape of a kept Release, and that its record and envelope both
+ * name the identity the entry claims. The envelope's own content digest and
+ * the record's full shape are the service's to verify at restore time.
+ */
+function verifyKeptRelease(
+  value: unknown,
+  identity: WorkFoldRecentlyDeletedAppReleaseIdentity,
+  code: "INPUT_INVALID" | "STORE_DAMAGED",
+  entryId?: string,
+): { record: Record<string, unknown>; release: Record<string, unknown> } {
+  const fail = (reason: string): never => {
+    throw new WorkFoldRecentlyDeletedError(
+      code,
+      code === "INPUT_INVALID"
+        ? `The Release cannot be kept: ${reason}`
+        : `The Release kept as ${entryId} in ${RECENTLY_DELETED} failed its check: ${reason}`,
+      entryId === undefined ? {} : { entryId },
+    );
+  };
+  const object = (field: unknown): Record<string, unknown> | null => (
+    field && typeof field === "object" && !Array.isArray(field) ? field as Record<string, unknown> : null
+  );
+  const kept = object(value);
+  if (!kept || Object.keys(kept).some((key) => !["format", "formatVersion", "record", "release"].includes(key))
+    || kept.format !== APP_RELEASE_FORMAT || kept.formatVersion !== 1) {
+    return fail("it is not a kept Release.");
+  }
+  const record = object(kept.record);
+  const release = object(kept.release);
+  if (!record || !release) return fail("its record or Release envelope is missing.");
+  if (record.releaseDigest !== identity.releaseDigest || release.releaseDigest !== identity.releaseDigest) {
+    return fail("it names a different Release.");
+  }
+  if (record.projectId !== identity.projectId || record.sourceWorkFolderId !== identity.sourceWorkFolderId
+    || record.displayVersion !== identity.displayVersion) {
+    return fail("its record names a different App Project, work-folder, or version.");
+  }
+  return { record, release };
 }
 
 /**
@@ -1167,6 +1346,13 @@ function parsePayload(value: unknown, kind: WorkFoldRecentlyDeletedKind): WorkFo
       throw new Error("invalid tree payload");
     }
     return { kind: "tree", name: raw.name as string };
+  }
+  if (kind === "app-release") {
+    try {
+      return normalizeAppReleaseIdentity(raw);
+    } catch {
+      throw new Error("invalid Release payload");
+    }
   }
   try {
     return normalizeAppDataIdentity(raw);

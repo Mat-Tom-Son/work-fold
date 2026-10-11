@@ -11,9 +11,10 @@ export type RestrictedAppsState = ReturnType<typeof useRestrictedApps>;
  * Settings → Apps (2026-09-25): every installed app, listed by the work-folder it
  * belongs to, with the grants, connections, automations, data, update and
  * removal controls the retired work-folder-owned Apps tab used to hold. Opening
- * an app itself still happens from its rail entry.
+ * an app itself still happens from its rail entry; each work-folder's group
+ * heading opens that work-folder's App Studio.
  */
-export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onChangeApp, onOpenBuildChat, onOpenResultFile, onOpenAppStudio }: {
+export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onChangeApp, onOpenBuildChat, onOpenResultFile, onOpenAppStudio, onOpenSharedPages, onOpenWebAccess }: {
   workFolders: WorkFolderSummary[];
   apps: RestrictedAppsState | null;
   fixtureMode?: boolean;
@@ -21,6 +22,9 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
   onOpenBuildChat?: (workFolderId: string, conversationId: string) => void;
   onOpenResultFile?: (workFolderId: string, path: string) => void;
   onOpenAppStudio?: (workFolderId: string, runtimeInstanceId?: string) => void;
+  /** Where an app shared at the address shows its link: Settings → Shared Pages. */
+  onOpenSharedPages?: () => void;
+  onOpenWebAccess?: () => void;
 }) {
   const knownWorkFolderIds = apps?.knownWorkFolderIds;
   const loadingWorkFolderIds = apps?.loadingWorkFolderIds;
@@ -59,17 +63,23 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
       </p> : null}
       {foldersWithApps.map((workFolder) => (
         <section className="settings-apps-folder" aria-label={`Apps in ${workFolder.name}`} key={workFolder.id}>
-          <h4 className="settings-apps-folder-title">{workFolder.name}</h4>
+          <div className="settings-apps-folder-heading">
+            <h4 className="settings-apps-folder-title">{workFolder.name}</h4>
+            {/* App Studio is per work-folder, so each group offers it through
+                the same open path the details dialog's "Open App Studio" uses. */}
+            {onOpenAppStudio ? <button className="ui-control ui-control--quiet" type="button" aria-label={`Open App Studio for ${workFolder.name}`} onClick={() => onOpenAppStudio(workFolder.id)}>App Studio</button> : null}
+          </div>
           <RestrictedAppsSection
             workFolder={workFolder}
             apps={apps?.appsByWorkFolder[workFolder.id] ?? []}
             loading={Boolean(loadingWorkFolderIds?.has(workFolder.id))}
             fixtureMode={fixtureMode}
-            presentation="page"
             onChangeApp={onChangeApp ? async (app) => onChangeApp(app) : undefined}
             onOpenBuildChat={onOpenBuildChat ? async (workFolderId, conversationId) => onOpenBuildChat(workFolderId, conversationId) : undefined}
             onOpenResultFile={onOpenResultFile ? async (workFolderId, path) => onOpenResultFile(workFolderId, path) : undefined}
             onOpenAppStudio={(workFolderId, runtimeInstanceId) => onOpenAppStudio?.(workFolderId ?? workFolder.id, runtimeInstanceId)}
+            onOpenSharedPages={onOpenSharedPages}
+            onOpenWebAccess={onOpenWebAccess}
             onUpsertApp={(app) => apps?.upsertApp(app)}
             onRemoveApp={(featureInstallationId) => apps?.removeApp(workFolder.id, featureInstallationId)}
             onError={report}
