@@ -8,6 +8,7 @@ import {
   type WorkFoldCliActLegacySurface,
   type WorkFoldCliActSurface,
 } from "../cli/act-receipts.js";
+import type { AutomationCatchUpReason } from "../../shared/automation-presentation.js";
 import { workFoldStateRoot } from "../state-paths.js";
 import {
   assertWorkFoldAutomationAtAdmissionHorizon,
@@ -91,6 +92,12 @@ export type WorkFoldAutomationRunCause =
       changedCount: number;
       /** The first `maxChangedPathsRecorded` changed paths, sorted; `changedCount` keeps the true total. */
       changedPaths?: string[];
+      /**
+       * Present when the run catches up (`"ifMissed": "run"`): `count` of the
+       * changed paths were added or changed during `reason`'s gap; any others
+       * changed while work-fold was watching and coalesced into the same run.
+       */
+      catchUp?: { reason: AutomationCatchUpReason; count: number };
     }
   | { kind: "run-now"; requestId?: string; surface?: WorkFoldCliActSurface }
   | {

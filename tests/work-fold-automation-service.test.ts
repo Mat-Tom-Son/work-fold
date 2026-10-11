@@ -1719,3 +1719,33 @@ test("automation declarations accept more than the former sixteen-step default",
     "the queued run launched after a slot freed, never lost",
   );
 });
+
+test("a step's own model is checked when the automation is enabled and reaches only that step's port", async (t) => {
+  const harness = await createHarness(t);
+  const checked: Array<{ model: { provider: string; id: string }; scope: unknown }> = [];
+  (harness.ports as WorkFoldAutomationHopPorts).modelProblem = async (model, scope) => {
+    checked.push({ model, scope });
+    return model.id === "not-connected" ? "Vision Model needs Example connected in Settings → AI Models first." : null;
+  };
+  await assert.rejects(
+    harness.enable(declarationInput("automation-model-missing", {
+      steps: [{ id: "sort", kind: "chat", workFolder: workFolderA, message: "Sort the screenshots.", model: { provider: "example", id: "not-connected" } }],
+    })),
+    /Step "sort": Vision Model needs Example connected in Settings → AI Models first\./,
+    "an unattended run never meets an unusable model first",
+  );
+  assert.equal((await harness.service.getAutomation("automation-model-missing")), undefined, "nothing is enabled");
+
+  const models: unknown[] = [];
+  harness.ports.chatImpl = async (step, context) => { models.push(step.model); return harness.ports.defaultChat(step, context); };
+  await harness.enable(declarationInput("automation-model-chosen", {
+    steps: [
+      { id: "sort", kind: "chat", workFolder: workFolderA, message: "Sort the screenshots.", model: { provider: "example", id: "vision-1" } },
+      { id: "plain", kind: "chat", workFolder: workFolderA, message: "Summarize what moved." },
+    ],
+  }));
+  assert.deepEqual(checked.at(-1), { model: { provider: "example", id: "vision-1" }, scope: { workFolder: workFolderA } });
+  await harness.service.runNow("automation-model-chosen", { requestId: "request-model" });
+  await waitForCondition(() => models.length === 2, "both chat hops");
+  assert.deepEqual(models, [{ provider: "example", id: "vision-1" }, undefined], "a step without a model keeps the work-folder's own");
+});

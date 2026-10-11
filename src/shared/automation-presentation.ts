@@ -6,7 +6,7 @@
  */
 
 export type AutomationTriggerView =
-  | { kind: "files-changed"; workFolderId: string; watch: { kind: "tree"; path: string; recursive: boolean; extensions: string[] }; debounceSeconds: number; cooldownMinutes: number; summary?: string }
+  | { kind: "files-changed"; workFolderId: string; watch: { kind: "tree"; path: string; recursive: boolean; extensions: string[] }; debounceSeconds: number; cooldownMinutes: number; ifMissed?: "run" | "skip"; summary?: string }
   | { kind: "manual"; summary?: string }
   | { kind: "interval"; intervalMinutes: number; summary?: string }
   | { kind: "at"; at: string; ifMissed: "run" | "skip"; summary?: string }
@@ -26,9 +26,39 @@ export type AutomationTriggerView =
 
 export type AutomationOutcome = "accepted" | "succeeded" | "failed" | "stopped" | "interrupted" | "skipped" | "lapsed";
 
+/**
+ * Why a folder-change automation that declares `"ifMissed": "run"` caught up:
+ * the gap during which work-fold could not watch its folder
+ * (docs/automations.md, 2026-10-11 amendment).
+ */
+export type AutomationCatchUpReason = "closed" | "asleep" | "off" | "unavailable";
+export const automationCatchUpReasons: readonly AutomationCatchUpReason[] = ["closed", "asleep", "off", "unavailable"];
+
+/** The gap a catch-up covers, as the end of a plain sentence. */
+export function automationCatchUpGap(reason: AutomationCatchUpReason): string {
+  switch (reason) {
+    case "closed":
+      return "while work-fold was closed";
+    case "asleep":
+      return "while the computer was asleep";
+    case "off":
+      return "while this automation was off";
+    default:
+      return "while the folder could not be watched";
+  }
+}
+
+/** "Caught up on 3 files that changed while work-fold was closed", or the waiting form. */
+export function automationCatchUpSentence(count: number, reason: AutomationCatchUpReason, waiting = false): string {
+  return `${waiting ? "Catching up" : "Caught up"} on ${count} ${count === 1 ? "file" : "files"} that changed ${automationCatchUpGap(reason)}`;
+}
+
 export function automationTriggerSummary(trigger: AutomationTriggerView): string {
   if (trigger.summary) return trigger.summary;
-  if (trigger.kind === "files-changed") return `When ${trigger.watch.path} changes · wait ${trigger.debounceSeconds}s · ${trigger.cooldownMinutes} minute cooldown`;
+  if (trigger.kind === "files-changed") {
+    return `When ${trigger.watch.path} changes · wait ${trigger.debounceSeconds}s · ${trigger.cooldownMinutes} minute cooldown`
+      + (trigger.ifMissed === "run" ? " · catches up after work-fold was closed" : "");
+  }
   if (trigger.kind === "manual") return "Manual only";
   if (trigger.kind === "interval") return `Every ${formatAutomationMinutes(trigger.intervalMinutes)}`;
   if (trigger.kind === "at") return `Once · ${formatAutomationDateTime(trigger.at)}`;

@@ -23,8 +23,8 @@ import { workFoldCheckDigest } from "../checks/check-integrity.js";
  */
 export const workFoldAutomationProposalKind = "work-fold.automation-proposal" as const;
 export const workFoldAutomationDeclarationKind = "work-fold.automation" as const;
-export const workFoldAutomationContractVersion = 4 as const;
-export const workFoldAutomationSupportedContractVersions = [1, 2, 3, workFoldAutomationContractVersion] as const;
+export const workFoldAutomationContractVersion = 5 as const;
+export const workFoldAutomationSupportedContractVersions = [1, 2, 3, 4, workFoldAutomationContractVersion] as const;
 export type WorkFoldAutomationContractVersion = (typeof workFoldAutomationSupportedContractVersions)[number];
 
 /** Filename convention for inert automation proposals in the work-fold agent's working folder. */
@@ -110,6 +110,15 @@ export interface WorkFoldAutomationFilesChangedTrigger {
   watch: WorkFoldAutomationTreeSource;
   debounceSeconds: number;
   cooldownMinutes: number;
+  /**
+   * Version 5. `"run"` keeps a machine-local metadata snapshot of the watched
+   * files and, after work-fold was closed, asleep, turned off, or unable to
+   * watch the folder, starts one run for the files added or changed in that
+   * gap. Absent or `"skip"` keeps the original behavior: a fresh baseline
+   * after every gap. Absent stays absent, so older declarations keep their
+   * digests.
+   */
+  ifMissed?: "run" | "skip";
 }
 
 export type WorkFoldAutomationTrigger =
@@ -128,6 +137,17 @@ export interface WorkFoldAutomationChatStep {
   kind: "chat";
   workFolder: string;
   message: string;
+  /** The model this step's new Chat uses, instead of the work-folder's own (version 4, 2026-10-11). */
+  model?: WorkFoldAutomationStepModel;
+}
+
+/**
+ * A model named by provider and id, as Settings → AI Models lists them. It
+ * applies only to the Chat the step starts; nothing else's model changes.
+ */
+export interface WorkFoldAutomationStepModel {
+  provider: string;
+  id: string;
 }
 
 export interface WorkFoldAutomationExactPathsSource {
@@ -188,6 +208,8 @@ export interface WorkFoldAutomationAgentStep {
   id: string;
   kind: "agent";
   message: string;
+  /** The model this step's new work-fold agent chat uses, instead of the agent's own (2026-10-11). */
+  model?: WorkFoldAutomationStepModel;
 }
 
 export type WorkFoldAutomationStep =
@@ -386,6 +408,13 @@ export function workFoldAutomationDigest(value: unknown): string {
  * sorted and deduplicated. Removing any of them revokes the enablement grant
  * and suspends the automation.
  */
+/** True when a folder-change trigger declares the version-5 catch-up. */
+export function workFoldAutomationTriggerCatchesUp(
+  trigger: WorkFoldAutomationTrigger,
+): trigger is WorkFoldAutomationFilesChangedTrigger & { ifMissed: "run" } {
+  return trigger.kind === "files-changed" && trigger.ifMissed === "run";
+}
+
 export function workFoldAutomationReferencedWorkFolderIds(definition: WorkFoldAutomationDefinition): string[] {
   const ids = new Set<string>();
   if (definition.trigger.kind === "files-changed") ids.add(definition.trigger.workFolder);
@@ -551,12 +580,19 @@ function normalizeTrigger(value: unknown, version: WorkFoldAutomationContractVer
   }
   if (record.kind === "files-changed") {
     if (version < 3) throw new Error("folder-change triggers require contract version 3.");
-    assertKeys(record, ["kind", "workFolder", "watch", "debounceSeconds", "cooldownMinutes"], [], "folder-change trigger");
+    assertKeys(record, ["kind", "workFolder", "watch", "debounceSeconds", "cooldownMinutes"], ["ifMissed"], "folder-change trigger");
+    if (record.ifMissed !== undefined) {
+      if (version < 5) throw new Error("A folder-change trigger's ifMissed requires contract version 5.");
+      if (record.ifMissed !== "run" && record.ifMissed !== "skip") {
+        throw new Error('folder-change trigger ifMissed must be "run" or "skip".');
+      }
+    }
     const watch = normalizeFilesSource(record.watch, "Watched folder");
     if (watch.kind !== "tree") throw new Error("A folder-change trigger requires one bounded folder selector.");
     return { kind: "files-changed", workFolder: workFolderId(record.workFolder, "Watched work-folder"), watch,
       debounceSeconds: boundedInteger(record.debounceSeconds, "folder-change debounce seconds", 1, 3_600),
-      cooldownMinutes: boundedInteger(record.cooldownMinutes, "folder-change cooldown minutes", 0, 10_080) };
+      cooldownMinutes: boundedInteger(record.cooldownMinutes, "folder-change cooldown minutes", 0, 10_080),
+      ...(record.ifMissed !== undefined ? { ifMissed: record.ifMissed as "run" | "skip" } : {}) };
   }
   if (record.kind === "on-settled") {
     assertKeys(record, ["kind", "source"], [], "Automation on-settled trigger");
@@ -595,12 +631,13 @@ function normalizeStep(value: unknown, index: number, version: WorkFoldAutomatio
   const label = `Automation step ${index + 1}`;
   const record = objectRecord(value, `${label} must be a JSON object.`);
   if (record.kind === "chat") {
-    assertKeys(record, ["id", "kind", "workFolder", "message"], [], label);
+    assertKeys(record, ["id", "kind", "workFolder", "message"], ["model"], label);
     return {
       id: stepId(record.id, `${label} id`),
       kind: "chat",
       workFolder: workFolderId(record.workFolder, `${label} work-folder`),
       message: boundedMessage(record.message, `${label} message`),
+      ...(record.model !== undefined ? { model: stepModel(record.model, `${label} model`) } : {}),
     };
   }
   if (record.kind === "files") {
@@ -625,16 +662,29 @@ function normalizeStep(value: unknown, index: number, version: WorkFoldAutomatio
   }
   if (record.kind === "agent") {
     if (version < 4) throw new Error("Agent steps require contract version 4.");
-    assertKeys(record, ["id", "kind", "message"], [], label);
+    assertKeys(record, ["id", "kind", "message"], ["model"], label);
     return {
       id: stepId(record.id, `${label} id`),
       kind: "agent",
       message: boundedMessage(record.message, `${label} message`),
+      ...(record.model !== undefined ? { model: stepModel(record.model, `${label} model`) } : {}),
     };
   }
   throw new Error(version >= 4
     ? `${label} kind must be chat, files, check, or agent.`
     : `${label} kind must be chat, files, or check.`);
+}
+
+function stepModel(value: unknown, label: string): WorkFoldAutomationStepModel {
+  const record = objectRecord(value, `${label} must be a JSON object with provider and id.`);
+  assertKeys(record, ["provider", "id"], [], label);
+  const part = (raw: unknown, name: string): string => {
+    if (typeof raw !== "string" || !raw.trim() || raw.length > 200 || /[\u0000-\u001f\u007f]/.test(raw)) {
+      throw new Error(`${label} ${name} must be the ${name === "id" ? "model id" : "provider id"} Settings → AI Models shows.`);
+    }
+    return raw.trim();
+  };
+  return { provider: part(record.provider, "provider"), id: part(record.id, "id") };
 }
 
 function normalizeFilesSource(value: unknown, stepLabel: string): WorkFoldAutomationFilesSource {

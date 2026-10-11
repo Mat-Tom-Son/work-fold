@@ -539,7 +539,7 @@ export interface WorkFoldActAutomationSummary {
  * the files source exactly as declared.
  */
 export type WorkFoldActAutomationStepView =
-  | { id: string; kind: "chat"; workFolderId: string; workFolderName?: string; message: string }
+  | { id: string; kind: "chat"; workFolderId: string; workFolderName?: string; message: string; model?: { provider: string; id: string } }
   | {
     id: string;
     kind: "files";
@@ -554,7 +554,15 @@ export type WorkFoldActAutomationStepView =
     to: string;
   }
   | { id: string; kind: "check"; workFolderId: string; workFolderName?: string; checkId?: string }
-  | { id: string; kind: "agent"; message: string };
+  | { id: string; kind: "agent"; message: string; model?: { provider: string; id: string } };
+
+export interface WorkFoldActAutomationModel {
+  provider: string;
+  providerName: string;
+  id: string;
+  name: string;
+  seesImages: boolean;
+}
 
 /** The full review projection for `automations show`. */
 export interface WorkFoldActAutomationDetail extends WorkFoldActAutomationSummary {
@@ -1557,6 +1565,12 @@ export interface WorkFoldActFacade {
    * Enabling is `automationsEnable`, a direct receipted verb.
    */
   automationsList(): Promise<{ automations: WorkFoldActAutomationSummary[] }>;
+  /**
+   * The models a chat or agent step may name in its `model` field: only
+   * models whose provider is connected, each with whether it accepts images,
+   * so an automation that looks at pictures can pick one that sees them.
+   */
+  automationsModels(): Promise<{ models: WorkFoldActAutomationModel[] }>;
   automationsShow(input: { automation: string }): Promise<{ automation: WorkFoldActAutomationDetail }>;
   /**
    * Manual run-now for an enabled automation: receipted, never a schedule

@@ -74,8 +74,12 @@ const opaqueKeys = new Set([
 /** Fields that hold names or ids; only a machine-local Automation id changes there. */
 const identityKeys = new Set(["id", "value", "ids"]);
 
-/** Directories under a rewrite root that hold content rather than app records. */
-const contentDirectories = new Set(["conversations", "data", "staged", "releases", "payload", "objects", "checkpoints"]);
+/**
+ * Directories under a rewrite root that hold content rather than app records.
+ * `folder-snapshots` (an Automation's saved folder metadata) is keyed by the
+ * person's file paths and postdates the vocabulary it would translate.
+ */
+const contentDirectories = new Set(["conversations", "data", "staged", "releases", "payload", "objects", "checkpoints", "folder-snapshots"]);
 
 export interface VocabularyMigrationReport {
   alreadyMigrated: boolean;

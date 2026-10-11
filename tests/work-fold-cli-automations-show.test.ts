@@ -36,9 +36,9 @@ function automationWith(steps: unknown[]): Record<string, unknown> {
   };
 }
 
-async function showAutomation(steps: unknown[]): Promise<string> {
+async function showAutomation(steps: unknown[], trigger?: Record<string, unknown>): Promise<string> {
   const facade = {
-    automationsShow: async () => ({ automation: automationWith(steps) }),
+    automationsShow: async () => ({ automation: { ...automationWith(steps), ...(trigger ? { trigger } : {}) } }),
   } as unknown as WorkFoldActFacade;
   const outcome = await executeWorkFoldCliActRequest(
     createWorkFoldCliActRequest({ id: randomUUID(), argv: ["automations", "show", "--automation", "weekly-roundup"], cwd, actToken: token }),
@@ -102,4 +102,22 @@ test("a chat-only automation states the authority residual without inventing a c
   assert.match(stdout, /While this automation is on:/);
   assert.doesNotMatch(stdout, /Standing channel/);
   assert.match(stdout, /authority its work-folder's Worker holds at that moment/);
+});
+
+test("a folder trigger says when it catches up after work-fold was closed, and only then", async () => {
+  const folderTrigger = {
+    kind: "files-changed",
+    workFolderId: "work-folder-a",
+    watch: { kind: "tree", path: "Screenshots", recursive: false, extensions: [".png"] },
+    debounceSeconds: 5,
+    cooldownMinutes: 1,
+  };
+  const catchingUp = await showAutomation([checkStep], { ...folderTrigger, ifMissed: "run" });
+  assert.match(
+    catchingUp,
+    /folder changes in work-folder work-folder-a: Screenshots; debounce 5s; cooldown 1 minutes; catches up once on files added or changed while work-fold was closed, the computer was asleep, or this automation was off/,
+  );
+  const fresh = await showAutomation([checkStep], folderTrigger);
+  assert.match(fresh, /folder changes in work-folder work-folder-a: Screenshots; debounce 5s; cooldown 1 minutes/);
+  assert.doesNotMatch(fresh, /catches up/);
 });

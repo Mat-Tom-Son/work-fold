@@ -12,6 +12,7 @@ import {
 } from "../src/local/automations/automation-declarations.js";
 import type { WorkFoldAutomationReceiptV1 } from "../src/local/automations/automation-store.js";
 import { startLocalApi } from "../src/local/server.js";
+import { automationTriggerSummary, type AutomationTriggerView } from "../src/shared/automation-presentation.js";
 import { workFoldAgentRoot } from "../src/local/state-paths.js";
 
 test("trusted Settings manages automations with receipted enablement, bounded run history, and global receipts", async (t) => {
@@ -373,6 +374,102 @@ test("a stored one-time proposal stays out of pending files after its admission 
 
 // A wall-clock budget, not an attempt count: every attempt awaits a real API
 // call, so a count means nothing under full-suite load.
+test("a folder automation that declares ifMissed run catches up after a restart, and Settings says so", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-automation-catch-up-settings-"));
+  const stateRoot = join(sandbox, "state");
+  // The desktop's state root always exists before the first launch, so its
+  // one-time vocabulary migration records completion then; mirror that.
+  await mkdir(stateRoot, { recursive: true });
+  const launch = async () => await startLocalApi({
+    port: 0,
+    stateBase: stateRoot,
+    workFolderBase: join(sandbox, "work-folders"),
+    loadEnv: false,
+  });
+  let api = await launch();
+  t.after(async () => {
+    await api.close();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        await rm(sandbox, { recursive: true, force: true });
+        return;
+      } catch {
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      }
+    }
+  });
+
+  const desktop = await api.actFacade.createWorkFolder({ name: "Desktop" });
+  const filed = await api.actFacade.createWorkFolder({ name: "Filed screenshots" });
+  await mkdir(join(desktop.workFolder.workFolderRoot, "Screenshots"), { recursive: true });
+  await writeFile(join(desktop.workFolder.workFolderRoot, "Screenshots", "before.png"), "before", "utf8");
+  const declaration = normalizeWorkFoldAutomationDeclaration({
+    kind: "work-fold.automation",
+    version: 5,
+    id: "automation-settings-catch-up",
+    title: "File screenshots",
+    createdBy: "human",
+    createdAt: "2026-10-11T08:00:00.000Z",
+    trigger: {
+      kind: "files-changed",
+      workFolder: desktop.workFolder.id,
+      watch: { kind: "tree", path: "Screenshots", recursive: false, extensions: [".png"] },
+      debounceSeconds: 1,
+      cooldownMinutes: 0,
+      ifMissed: "run",
+    },
+    steps: [{
+      id: "file",
+      kind: "files",
+      fromWorkFolder: desktop.workFolder.id,
+      from: { kind: "tree", path: "Screenshots", recursive: false, extensions: [".png"] },
+      toWorkFolder: filed.workFolder.id,
+      to: "Inbox",
+    }],
+  });
+  await api.automations.enable({
+    declaration,
+    expectedDigest: workFoldAutomationDigest(declaration),
+    grant: { requestId: "request-catch-up-fixture", surface: "main-window" },
+  });
+  const snapshotPath = join(stateRoot, "automations", "folder-snapshots", `${declaration.id}.json`);
+  await waitFor(async () => (await readFile(snapshotPath, "utf8").catch(() => "")).includes("Screenshots/before.png"), "the first look to be saved");
+
+  const listed = await api.automationSettings.list();
+  const summary = listed.automations.find((automation) => automation.automationId === declaration.id);
+  assert.equal(summary?.trigger.ifMissed, "run");
+  assert.equal(
+    automationTriggerSummary(summary!.trigger as AutomationTriggerView),
+    "When Screenshots changes · wait 1s · 0 minute cooldown · catches up after work-fold was closed",
+  );
+  assert.equal(summary?.lastCatchUp, undefined);
+
+  // Quit, let a screenshot land while work-fold is closed, and launch again.
+  await api.close();
+  await writeFile(join(desktop.workFolder.workFolderRoot, "Screenshots", "while-closed.png"), "landed", "utf8");
+  api = await launch();
+  await waitFor(async () => {
+    const text = await readFile(join(filed.workFolder.workFolderRoot, "Inbox", "while-closed.png"), "utf8").catch(() => null);
+    return text === "landed";
+  }, "the catch-up run to file the screenshot", 30_000);
+  await waitFor(async () => (await api.automationSettings.history(declaration.id)).runs[0]?.outcome === "succeeded", "the catch-up receipt to settle");
+
+  const history = await api.automationSettings.history(declaration.id);
+  assert.equal(history.runs.length, 1, "one catch-up run, never a backlog");
+  assert.equal(history.runs[0]?.cause, "Caught up on 1 file that changed while work-fold was closed");
+  const caughtUp = (await api.automationSettings.list()).automations.find((automation) => automation.automationId === declaration.id);
+  assert.deepEqual(caughtUp?.lastCatchUp, {
+    runId: history.runs[0]!.runId,
+    at: history.runs[0]!.startedAt,
+    count: 1,
+    reason: "closed",
+  });
+  const receipts = await api.actFacade.automationsReceipts({ automationId: declaration.id });
+  const accepted = receipts.receipts.find((receipt) => receipt.scope === "run" && receipt.outcome === "accepted");
+  assert.deepEqual((accepted?.cause as { catchUp?: unknown; changedPaths?: unknown }).catchUp, { reason: "closed", count: 1 });
+  assert.deepEqual((accepted?.cause as { changedPaths?: unknown }).changedPaths, ["Screenshots/while-closed.png"]);
+});
+
 async function waitFor(predicate: () => Promise<boolean>, label: string, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
