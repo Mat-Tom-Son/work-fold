@@ -16,6 +16,7 @@ import {
   workFoldAutomationMessagePlaceholders,
   workFoldAutomationProposalFileSuffix,
   workFoldAutomationReferencedWorkFolderIds,
+  workFoldAutomationTriggerCatchesUp,
 } from "../src/local/automations/automation-declarations.js";
 
 const manuscriptWorkFolder = "space-0123456789abcdef";
@@ -305,8 +306,8 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
     value.kind = "work-fold.check-proposal";
   })), /kind must be work-fold\.automation-proposal/);
   assert.throws(() => normalizeWorkFoldAutomationProposal(mutated((value) => {
-    value.version = 5;
-  })), /unsupported version 5/);
+    value.version = 6;
+  })), /unsupported version 6/);
   assert.throws(() => normalizeWorkFoldAutomationProposal(mutated((value) => {
     value.enabled = true;
   })), /unsupported field: enabled/);
@@ -350,7 +351,7 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
 
   const declaration = declarationFromWorkFoldAutomationProposal(normalizeWorkFoldAutomationProposal(proposalValue), "automation-12345678");
   assert.throws(() => normalizeWorkFoldAutomationDeclaration({ ...declaration, enabled: true }), /unsupported field: enabled/);
-  assert.throws(() => normalizeWorkFoldAutomationDeclaration({ ...declaration, version: 5 }), /unsupported version 5/);
+  assert.throws(() => normalizeWorkFoldAutomationDeclaration({ ...declaration, version: 6 }), /unsupported version 6/);
   assert.throws(() => normalizeWorkFoldAutomationDeclaration({ ...declaration, id: "check-12345678" }), /Automation id is invalid/);
 });
 
@@ -470,4 +471,74 @@ test("a Check-run trigger admits {{trigger.findings}} and a fold-only automation
   });
   assert.deepEqual(workFoldAutomationReferencedWorkFolderIds(workFoldAgentStepOnly.automation), [collectorWorkFolder]);
   assert.equal(workFoldAgentStepOnly.automation.steps.length, 1);
+});
+
+// Version 5 (docs/automations.md, 2026-10-11 amendment): a folder-change
+// trigger may opt into one catch-up with `"ifMissed": "run"`. The field is
+// optional and never defaulted, so every older declaration normalizes to
+// exactly the shape — and the digest — it had before.
+test("version 5 lets a folder-change trigger catch up, and older versions keep their exact shape", () => {
+  const caughtUp = normalizeWorkFoldAutomationProposal(version4((value) => {
+    value.version = 5;
+    value.automation.trigger.ifMissed = "run";
+  }));
+  assert.equal(caughtUp.version, 5);
+  assert.deepEqual(caughtUp.automation.trigger, {
+    kind: "files-changed",
+    workFolder: manuscriptWorkFolder,
+    watch: { kind: "tree", path: "Ready", recursive: false, extensions: [".md"] },
+    debounceSeconds: 5,
+    cooldownMinutes: 1,
+    ifMissed: "run",
+  });
+  assert.equal(workFoldAutomationTriggerCatchesUp(caughtUp.automation.trigger), true);
+  // Everything version 4 admits still parses in version 5.
+  assert.deepEqual(
+    workFoldAutomationMessagePlaceholders((caughtUp.automation.steps[0] as { message: string }).message).map((entry) => entry.name),
+    ["trigger.summary", "trigger.changedFiles"],
+  );
+
+  const skipped = normalizeWorkFoldAutomationProposal(version4((value) => {
+    value.version = 5;
+    value.automation.trigger.ifMissed = "skip";
+  }));
+  assert.equal((skipped.automation.trigger as { ifMissed?: string }).ifMissed, "skip", "an explicit choice is kept as declared");
+  assert.equal(workFoldAutomationTriggerCatchesUp(skipped.automation.trigger), false);
+
+  const unset = normalizeWorkFoldAutomationProposal(version4((value) => { value.version = 5; }));
+  assert.equal("ifMissed" in unset.automation.trigger, false, "leaving it out keeps the fresh-baseline default");
+  assert.equal(workFoldAutomationTriggerCatchesUp(unset.automation.trigger), false);
+
+  assert.throws(() => normalizeWorkFoldAutomationProposal(version4((value) => {
+    value.automation.trigger.ifMissed = "run";
+  })), /ifMissed requires contract version 5/);
+  assert.throws(() => normalizeWorkFoldAutomationProposal(version4((value) => {
+    value.version = 3;
+    value.automation.trigger.ifMissed = "skip";
+  })), /ifMissed requires contract version 5/);
+  assert.throws(() => normalizeWorkFoldAutomationProposal(version4((value) => {
+    value.version = 5;
+    value.automation.trigger.ifMissed = "replay";
+  })), /ifMissed must be "run" or "skip"/);
+  assert.throws(() => normalizeWorkFoldAutomationProposal(version4((value) => {
+    value.version = 5;
+    value.automation.trigger = { kind: "interval", intervalMinutes: 60, ifMissed: "run" };
+    value.automation.steps = [{ id: "adopt", kind: "chat", workFolder: publisherWorkFolder, message: "Adopt the brief." }];
+  })), /unsupported field: ifMissed/);
+
+  // Older versions stay valid, and a stored declaration keeps its digest:
+  // nothing new appears in what they normalize to.
+  const version4Declaration = declarationFromWorkFoldAutomationProposal(
+    normalizeWorkFoldAutomationProposal(version4Proposal),
+    "automation-version4-brief",
+  );
+  assert.equal("ifMissed" in version4Declaration.trigger, false);
+  const reparsed = normalizeWorkFoldAutomationDeclaration(JSON.parse(JSON.stringify(version4Declaration)));
+  assert.equal(workFoldAutomationDigest(reparsed), workFoldAutomationDigest(version4Declaration));
+  const version3 = normalizeWorkFoldAutomationProposal(version4((value) => {
+    value.version = 3;
+    value.automation.steps = [{ id: "adopt", kind: "chat", workFolder: publisherWorkFolder, message: "Adopt the brief." }];
+  }));
+  assert.equal(version3.version, 3);
+  assert.equal("ifMissed" in version3.automation.trigger, false);
 });
