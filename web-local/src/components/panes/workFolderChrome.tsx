@@ -41,7 +41,7 @@ import {
   parseWorkFolderAppearanceProposal,
   upgradeWorkFolderAppearanceCustomization,
 } from "../../../../src/shared/work-folder-appearance";
-import { filterWorkFolderIconOptions, workFolderIconOptionFor, workFolderIconOptions, workFolderIconGroups, type WorkFolderIconGroupId } from "../../work-folder-icons";
+import { filterWorkFolderIconOptions, knownWorkFolderIconOption, workFolderIconOptions, workFolderIconGroups, type WorkFolderIconGroupId } from "../../work-folder-icons";
 import { workFolderBannerOptions } from "../../constants";
 import { errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
@@ -134,7 +134,8 @@ function WorkFolderModeRail({
         {surfaces.map((surface) => {
           const mode = `app:${surface.key}` as const;
           const SurfaceIcon = shownMode === mode ? Apps24Filled : Apps24Regular;
-          const contributedIcon = surface.icon ? workFolderIconOptionFor(surface.icon) : null;
+          // An icon name outside the catalog keeps the generic Apps glyph.
+          const contributedIcon = knownWorkFolderIconOption(surface.icon);
           return (
             <button
               className={["work-folder-rail-button", "work-folder-rail-app", shownMode === mode ? "active" : ""].filter(Boolean).join(" ")}
@@ -157,7 +158,7 @@ function WorkFolderModeRail({
           const mode = restrictedAppRailMode(workFolder.id, app.manifest.id, app.featureInstallationId);
           const label = restrictedAppRailLabel(app, apps);
           const AppIcon = shownMode === mode ? Apps24Filled : Apps24Regular;
-          const contributedIcon = app.manifest.ui.icon ? workFolderIconOptionFor(app.manifest.ui.icon) : null;
+          const contributedIcon = knownWorkFolderIconOption(app.manifest.ui.icon);
           return (
             <button
               className={["work-folder-rail-button", "work-folder-rail-app", shownMode === mode ? "active" : ""].filter(Boolean).join(" ")}

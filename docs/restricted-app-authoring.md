@@ -257,6 +257,11 @@ template exercises every current section:
 }
 ```
 
+`ui.icon` is optional presentation metadata naming an icon from the
+work-folder icon catalog (the names Customize work-folder offers, such as
+`mail`, `calendar`, or `briefcase`). The app's rail button shows it; a name the
+catalog does not know, or no name, shows the generic Apps glyph.
+
 `ui.cornerRadius` is optional presentation metadata. work-fold uses a rounded
 12px app canvas when it is omitted. Apps may request a whole-pixel radius from
 0 through 24; use `0` only when the app intentionally owns a square edge. The

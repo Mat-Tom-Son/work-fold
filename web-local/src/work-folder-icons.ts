@@ -867,8 +867,17 @@ for (const iconOption of workFolderIconOptions) {
 }
 
 export function workFolderIconOptionFor(iconName: string | null | undefined): WorkFolderIconOption {
+  return knownWorkFolderIconOption(iconName) ?? workFolderIconOptions[0];
+}
+
+/**
+ * The catalog entry an icon name or alias names, or null when it names none.
+ * Contributed rail entries use this so an unknown name falls back to their own
+ * generic glyph rather than to the first catalog entry (a folder).
+ */
+export function knownWorkFolderIconOption(iconName: string | null | undefined): WorkFolderIconOption | null {
   const normalizedIconName = iconName?.trim().toLowerCase();
-  return normalizedIconName ? workFolderIconLookup.get(normalizedIconName) ?? workFolderIconOptions[0] : workFolderIconOptions[0];
+  return normalizedIconName ? workFolderIconLookup.get(normalizedIconName) ?? null : null;
 }
 
 export function filterWorkFolderIconOptions(query: string, group: WorkFolderIconGroupId = "all"): WorkFolderIconOption[] {
