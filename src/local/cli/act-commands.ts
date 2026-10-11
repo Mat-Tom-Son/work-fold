@@ -134,6 +134,7 @@ export type WorkFoldCliActCommandName =
   | "apps.uninstall"
   | "automations.enable"
   | "automations.list"
+  | "automations.models"
   | "automations.show"
   | "automations.run"
   | "automations.stop"
@@ -1654,6 +1655,9 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "automations list":
       allowOnlyFlags();
       return { name: "automations.list", output };
+    case "automations models":
+      allowOnlyFlags();
+      return { name: "automations.models", output };
     case "automations show":
       allowOnlyFlags("--automation");
       return { name: "automations.show", output, automation: requireBoundedFlag("--automation", "automation-id") };
@@ -2559,6 +2563,8 @@ async function runActCommand(
       }));
     case "automations.list":
       return toChecksJson(await facade.automationsList());
+    case "automations.models":
+      return toChecksJson(await facade.automationsModels());
     case "automations.show":
       return toChecksJson(await facade.automationsShow({ automation: command.automation! }));
     case "automations.run":
@@ -3486,6 +3492,11 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         // rather than reported as a failure the person cannot retry.
         + `${restored.safetyCheckpointId === null ? "History could not record a restore point for this, so there is no undo point for it.\n" : ""}`;
     }
+    case "automations.models": {
+      const models = (Array.isArray(record.models) ? record.models : []) as Array<{ provider?: unknown; providerName?: unknown; id?: unknown; name?: unknown; seesImages?: unknown }>;
+      if (!models.length) return "No connected models. Connect a provider in Settings → AI Models.\n";
+      return models.map((model) => `- ${terminalText(model.name)} — "model": {"provider": "${terminalText(model.provider)}", "id": "${terminalText(model.id)}"} · ${model.seesImages === true ? "sees images" : "text only"}`).join("\n") + "\n";
+    }
     case "automations.list": {
       const automations = (Array.isArray(record.automations) ? record.automations : []) as Array<{
         automationId?: unknown;
@@ -3531,7 +3542,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const steps = (Array.isArray(automation.steps) ? automation.steps : []) as Array<Record<string, unknown>>;
       const stepLines = steps.map((step) => {
         if (step.kind === "chat") {
-          return `- ${terminalText(step.id)}: chat in ${workFolderRef(step.workFolderId, step.workFolderName)} — message (verbatim, becomes portable transcript content): ${terminalText(step.message)}`;
+          return `- ${terminalText(step.id)}: chat in ${workFolderRef(step.workFolderId, step.workFolderName)}${stepModelText(step.model)} — message (verbatim, becomes portable transcript content): ${terminalText(step.message)}`;
         }
         if (step.kind === "files") {
           const source = (step.source ?? {}) as Record<string, unknown>;
@@ -3543,7 +3554,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
           return `- ${terminalText(step.id)}: files from ${workFolderRef(step.fromWorkFolderId, step.fromWorkFolderName)} — ${sourceLabel} → ${workFolderRef(step.toWorkFolderId, step.toWorkFolderName)}:${terminalText(step.to)}`;
         }
         if (step.kind === "agent") {
-          return `- ${terminalText(step.id)}: message to the work-fold agent (verbatim, becomes work-fold agent transcript content): ${terminalText(step.message)}`;
+          return `- ${terminalText(step.id)}: message to the work-fold agent${stepModelText(step.model)} (verbatim, becomes work-fold agent transcript content): ${terminalText(step.message)}`;
         }
         return `- ${terminalText(step.id)}: check in ${workFolderRef(step.workFolderId, step.workFolderName)} — ${typeof step.checkId === "string" ? terminalText(step.checkId) : "all enabled Checks"}`;
       });
@@ -4449,4 +4460,11 @@ function usageError(message: string): WorkFoldCliError {
 function normalizeActError(error: unknown): WorkFoldCliError {
   if (error instanceof WorkFoldCliError) return error;
   return new WorkFoldCliError("failure", error instanceof Error ? error.message : String(error ?? "work-fold act command failed."), { cause: error });
+}
+
+/** " using <id> (<provider>)" when an automation step names its own model. */
+function stepModelText(model: unknown): string {
+  if (!model || typeof model !== "object") return "";
+  const { provider, id } = model as Record<string, unknown>;
+  return typeof provider === "string" && typeof id === "string" ? ` using ${terminalText(id)} (${terminalText(provider)})` : "";
 }

@@ -128,6 +128,17 @@ export interface WorkFoldAutomationChatStep {
   kind: "chat";
   workFolder: string;
   message: string;
+  /** The model this step's new Chat uses, instead of the work-folder's own (version 4, 2026-10-11). */
+  model?: WorkFoldAutomationStepModel;
+}
+
+/**
+ * A model named by provider and id, as Settings → AI Models lists them. It
+ * applies only to the Chat the step starts; nothing else's model changes.
+ */
+export interface WorkFoldAutomationStepModel {
+  provider: string;
+  id: string;
 }
 
 export interface WorkFoldAutomationExactPathsSource {
@@ -188,6 +199,8 @@ export interface WorkFoldAutomationAgentStep {
   id: string;
   kind: "agent";
   message: string;
+  /** The model this step's new work-fold agent chat uses, instead of the agent's own (2026-10-11). */
+  model?: WorkFoldAutomationStepModel;
 }
 
 export type WorkFoldAutomationStep =
@@ -595,12 +608,13 @@ function normalizeStep(value: unknown, index: number, version: WorkFoldAutomatio
   const label = `Automation step ${index + 1}`;
   const record = objectRecord(value, `${label} must be a JSON object.`);
   if (record.kind === "chat") {
-    assertKeys(record, ["id", "kind", "workFolder", "message"], [], label);
+    assertKeys(record, ["id", "kind", "workFolder", "message"], ["model"], label);
     return {
       id: stepId(record.id, `${label} id`),
       kind: "chat",
       workFolder: workFolderId(record.workFolder, `${label} work-folder`),
       message: boundedMessage(record.message, `${label} message`),
+      ...(record.model !== undefined ? { model: stepModel(record.model, `${label} model`) } : {}),
     };
   }
   if (record.kind === "files") {
@@ -625,16 +639,29 @@ function normalizeStep(value: unknown, index: number, version: WorkFoldAutomatio
   }
   if (record.kind === "agent") {
     if (version < 4) throw new Error("Agent steps require contract version 4.");
-    assertKeys(record, ["id", "kind", "message"], [], label);
+    assertKeys(record, ["id", "kind", "message"], ["model"], label);
     return {
       id: stepId(record.id, `${label} id`),
       kind: "agent",
       message: boundedMessage(record.message, `${label} message`),
+      ...(record.model !== undefined ? { model: stepModel(record.model, `${label} model`) } : {}),
     };
   }
   throw new Error(version >= 4
     ? `${label} kind must be chat, files, check, or agent.`
     : `${label} kind must be chat, files, or check.`);
+}
+
+function stepModel(value: unknown, label: string): WorkFoldAutomationStepModel {
+  const record = objectRecord(value, `${label} must be a JSON object with provider and id.`);
+  assertKeys(record, ["provider", "id"], [], label);
+  const part = (raw: unknown, name: string): string => {
+    if (typeof raw !== "string" || !raw.trim() || raw.length > 200 || /[\u0000-\u001f\u007f]/.test(raw)) {
+      throw new Error(`${label} ${name} must be the ${name === "id" ? "model id" : "provider id"} Settings → AI Models shows.`);
+    }
+    return raw.trim();
+  };
+  return { provider: part(record.provider, "provider"), id: part(record.id, "id") };
 }
 
 function normalizeFilesSource(value: unknown, stepLabel: string): WorkFoldAutomationFilesSource {
