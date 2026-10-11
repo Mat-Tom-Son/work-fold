@@ -578,6 +578,11 @@ test("machine-wide automation ledgers feed the overview and the restore fence, a
       true,
       "an accepted automation run reaches the overview's running digest",
     );
+    assert.equal(
+      runningOverview.running.find((item) => item.kind === "app-automation-run")?.headline,
+      'Mail automation "Refresh mail" running',
+      "the overview names the app and the automation's title, not its id",
+    );
     assert.deepEqual(
       await api.kernel.listExperimentalHistoryRestoreBlockers(workFolder.id),
       [],

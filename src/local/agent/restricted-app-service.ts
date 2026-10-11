@@ -278,6 +278,9 @@ export interface RestrictedAppActiveAutomationRun {
   workFolderId: string;
   appId: string;
   appAutomationId: string;
+  /** The app's and the automation's titles, while the installation still declares them. */
+  appTitle?: string;
+  automationTitle?: string;
   runId: string;
   reason: "scheduled" | "manual" | "resume";
   scheduledAt: string;
@@ -303,6 +306,8 @@ export interface RestrictedAppAutomationRunHistoryReceipt {
   workFolderId: string;
   appId: string;
   appAutomationId: string;
+  appTitle?: string;
+  automationTitle?: string;
   runId: string;
   reason: "scheduled" | "manual" | "resume";
   outcome: "success" | "failure" | "skipped" | "cancelled" | "interrupted";
@@ -2303,6 +2308,7 @@ export class RestrictedAppService {
         workFolderId: accepted.workFolderId,
         appId: accepted.appId,
         appAutomationId: accepted.appAutomationId,
+        ...this.#appAutomationTitles(accepted),
         runId: accepted.runId,
         reason: accepted.reason,
         scheduledAt: accepted.scheduledAt,
@@ -2310,6 +2316,25 @@ export class RestrictedAppService {
         fileGrantIds,
       };
     });
+  }
+
+  /**
+   * The titles a person knows a run by: the app's and the automation's, from
+   * the revision that ran it, or the installation's current revision after a
+   * code change. Nothing once the installation is gone; callers keep the id.
+   */
+  #appAutomationTitles(run: {
+    runtimeInstanceId: string;
+    featureInstallationId: string;
+    packageDigest: string;
+    appAutomationId: string;
+  }): { appTitle?: string; automationTitle?: string } {
+    const installation = this.#registry.installations.filter((item) => item.runtimeInstanceId === run.runtimeInstanceId
+      && item.featureInstallationId === run.featureInstallationId);
+    const entry = installation.find((item) => item.digest === run.packageDigest) ?? installation[0];
+    if (!entry) return {};
+    const declaration = entry.manifest.automations.find((item) => item.id === run.appAutomationId);
+    return { appTitle: entry.manifest.title, ...(declaration ? { automationTitle: declaration.title } : {}) };
   }
 
   /**
@@ -2329,6 +2354,7 @@ export class RestrictedAppService {
       workFolderId: receipt.workFolderId,
       appId: receipt.appId,
       appAutomationId: receipt.appAutomationId,
+      ...this.#appAutomationTitles(receipt),
       runId: receipt.runId,
       reason: receipt.reason,
       outcome: receipt.outcome,

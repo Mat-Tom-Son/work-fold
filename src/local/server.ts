@@ -13503,6 +13503,8 @@ function createServerOverviewSources(state: LocalApiState): WorkFoldOverviewSour
       (await state.restrictedApps.listActiveAppAutomationRuns()).map((run) => ({
         runId: run.runId,
         appAutomationId: run.appAutomationId,
+        ...(run.appTitle ? { appTitle: run.appTitle } : {}),
+        ...(run.automationTitle ? { automationTitle: run.automationTitle } : {}),
         workFolderId: run.workFolderId,
         startedAt: run.acceptedAt,
       })),
@@ -13511,6 +13513,8 @@ function createServerOverviewSources(state: LocalApiState): WorkFoldOverviewSour
         receiptId: receipt.receiptId,
         runId: receipt.runId,
         appAutomationId: receipt.appAutomationId,
+        ...(receipt.appTitle ? { appTitle: receipt.appTitle } : {}),
+        ...(receipt.automationTitle ? { automationTitle: receipt.automationTitle } : {}),
         workFolderId: receipt.workFolderId,
         outcome: receipt.outcome,
         finishedAt: receipt.finishedAt,

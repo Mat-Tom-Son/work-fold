@@ -1134,6 +1134,9 @@ test("RestrictedAppService's machine-wide run ledgers join active runs with scop
       ["exports"],
       "the join narrows the installation's grants to the automation's declared permissions",
     );
+    assert.equal(byAppAutomation.get(refreshAppAutomation)?.appTitle, "Connected inbox", "the overview can name the app");
+    assert.equal(byAppAutomation.get(refreshAppAutomation)?.automationTitle, "Refresh inbox", "and the automation's title");
+    assert.equal(byAppAutomation.get(exportAppAutomation)?.automationTitle, "Export digest");
     for (const run of active) {
       assert.equal(run.workFolderId, workFolderOne);
       assert.equal(run.appId, "connected-inbox");
@@ -1155,6 +1158,8 @@ test("RestrictedAppService's machine-wide run ledgers join active runs with scop
     for (const receipt of history) {
       assert.equal(receipt.workFolderId, workFolderOne);
       assert.equal(receipt.appId, "connected-inbox");
+      assert.equal(receipt.appTitle, "Connected inbox");
+      assert.equal(receipt.automationTitle, receipt.appAutomationId === refreshAppAutomation ? "Refresh inbox" : "Export digest");
       assert.equal(receipt.outcome, "success");
       assert.equal(receipt.reason, "manual");
       assert.match(receipt.finishedAt, /^\d{4}-\d{2}-\d{2}T/);
