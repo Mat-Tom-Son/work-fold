@@ -435,7 +435,9 @@ When a design is ambiguous, prefer the option that best preserves these properti
   uninstall it with an explicit data choice first. Keep the source blocked while
   its Project owns retained data; after explicit purge, source removal clears the
   machine-local Project/Release lineage and target removal cancels prepared
-  operations aimed at that work-folder.
+  operations aimed at that work-folder. Both keep what they clear in Recently
+  deleted as one App Studio item, which goes back once the work-folder is
+  registered again and brings its previews' data with it (2026-10-11).
 - Build, Developer ID-sign, notarize, and publish the macOS arm64 app, DMG, ZIP, blockmap, and update metadata, with a verified installed two-version updater lane. This is the only active desktop distribution lane.
 
 - Meet the whole product through the **work-fold agent** — the work-fold agent above all work-folders, its menu-bar/tray popover, and paired web chat — with capture in and publishing out. See [the work-fold agent](work-fold-agent-decisions.md).

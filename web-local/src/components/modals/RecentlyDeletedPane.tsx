@@ -13,7 +13,7 @@ import { recentlyDeletedSettings } from "../../ui-contract";
  * how long items are kept. Nothing here empties the whole store.
  */
 
-export type RecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release";
+export type RecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release" | "app-studio";
 
 export interface RecentlyDeletedEntry {
   id: string;
@@ -57,6 +57,7 @@ const kindLabels: Record<RecentlyDeletedKind, string> = {
   "app-storage": "App Data",
   "app-retained": "App Data",
   "app-release": "Release",
+  "app-studio": "App Studio",
 };
 
 const uncoveredLabels: Record<"too_large" | "unreadable" | "symbolic_link" | "excluded", string> = {

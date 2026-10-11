@@ -668,6 +668,103 @@ test("target-scoped uninstall survives an unavailable linked source work-folder"
   }
 });
 
+test("removing a work-folder keeps its App Studio history in Recently deleted and brings it back with its apps' data", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-removal-api-"));
+  const stateBase = join(sandbox, "state");
+  const restrictedAppRoot = join(stateBase, "restricted-apps");
+  const storage = new FileRestrictedAppStorage(join(restrictedAppRoot, "data"));
+  const service = await RestrictedAppService.create({ rootPath: restrictedAppRoot, storage });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase,
+    workFolderBase: join(sandbox, "managed-work-folders"),
+    loadEnv: false,
+    restrictedAppService: service,
+  });
+  type Listed = { id: string; kind: string; reason: string; name: string; restorable: string; note?: string; receiptId: string | null };
+  const listed = async () => (await request<{ entries: Listed[] }>(api.origin, "/api/settings/recently-deleted")).entries;
+
+  try {
+    const linkedRoot = join(sandbox, "linked-app-source");
+    await mkdir(linkedRoot, { recursive: true });
+    const source = await registerLinkedWorkFolder(api.origin, linkedRoot);
+    const studioPath = `/api/work-folders/${source.id}/app-studio`;
+    await request<{ project: LocalAppProject }>(api.origin, studioPath, {
+      method: "PUT",
+      body: { title: "Connected Inbox", description: "Kept through removal.", icon: "mail" },
+    });
+    await writePackage(join(linkedRoot, ...sourcePath.split("/")), { packageVersion: "1.0.0", marker: "kept-through-removal" });
+    const preview = await installPreview(service, source);
+    await storage.set(storageOwner(preview), "inbox", { unread: 4 });
+    const prepared = await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/prepare`, {
+      method: "POST",
+      body: { displayVersion: "1.0.0" },
+    });
+    await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/publish`, {
+      method: "POST",
+      body: { releaseDigest: prepared.release.releaseDigest },
+    });
+
+    const removal = await request<{
+      appRecentlyDeletedEntries: Array<{ entryId: string }>;
+      appStudioRecentlyDeleted: { entryId: string; restoreBy: string } | null;
+    }>(api.origin, `/api/work-folders/${source.id}`, { method: "DELETE" });
+    const studioEntryId = removal.appStudioRecentlyDeleted?.entryId;
+    assert.ok(studioEntryId, "the removal names the App Studio history it kept");
+    assert.equal(removal.appRecentlyDeletedEntries.length, 1, "the preview's data was kept as its own item");
+    const dataEntryId = removal.appRecentlyDeletedEntries[0]!.entryId;
+    assert.equal((await storage.usage(storageOwner(preview))).keyCount, 0, "the live data went with the preview");
+
+    // Until the work-folder is registered again, restore refuses plainly.
+    let entries = await listed();
+    const studioEntry = entries.find((entry) => entry.id === studioEntryId);
+    assert.equal(studioEntry?.kind, "app-studio");
+    assert.equal(studioEntry?.reason, "apps.work-folder.removed");
+    assert.equal(studioEntry?.name, "Connected Inbox");
+    assert.match(studioEntry?.receiptId ?? "", /\S/, "the removal's receipt names the entry it produced");
+    assert.equal(studioEntry?.restorable, "blocked");
+    assert.match(studioEntry?.note ?? "", /Put .* back first/);
+    const dataEntry = entries.find((entry) => entry.id === dataEntryId);
+    assert.equal(dataEntry?.restorable, "save-only");
+    assert.match(dataEntry?.note ?? "", /Restore this work-folder's App Studio history first/);
+    await expectFailure(api.origin, `/api/settings/recently-deleted/${studioEntryId}/restore`, 409, /Put .* back first/, { method: "POST", body: {} });
+
+    // The folder kept its portable identity, so adding it again brings the same work-folder back.
+    const again = await registerLinkedWorkFolder(api.origin, linkedRoot);
+    assert.equal(again.id, source.id);
+    assert.equal((await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.project, null);
+    entries = await listed();
+    assert.equal(entries.find((entry) => entry.id === studioEntryId)?.restorable, "in-place");
+
+    const restored = await request<{ restored: {
+      kind: string;
+      projectTitle: string | null;
+      previewCount: number;
+      releaseCount: number;
+      droppedOperationCount: number;
+      appDataEntryIds: string[];
+    } }>(api.origin, `/api/settings/recently-deleted/${studioEntryId}/restore`, { method: "POST", body: {} });
+    assert.equal(restored.restored.kind, "app-studio");
+    assert.equal(restored.restored.projectTitle, "Connected Inbox");
+    assert.equal(restored.restored.previewCount, 1);
+    assert.equal(restored.restored.releaseCount, 1);
+    assert.equal(restored.restored.droppedOperationCount, 0);
+    assert.deepEqual(restored.restored.appDataEntryIds, [dataEntryId], "the preview's data goes back into it in the same act");
+
+    const studio = (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio;
+    assert.equal(studio.project?.presentation.title, "Connected Inbox");
+    assert.deepEqual(studio.releases.map((release) => [release.releaseDigest, release.state]), [[prepared.release.releaseDigest, "published"]]);
+    const back = studio.previews[0]!;
+    assert.equal(back.featureInstallationId, preview.featureInstallationId);
+    assert.deepEqual(await storage.get(storageOwner(back), "inbox"), { unread: 4 });
+    entries = await listed();
+    assert.equal(entries.some((entry) => entry.id === studioEntryId || entry.id === dataEntryId), false, "both items leave Recently deleted");
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 async function createWorkFolder(origin: string, name: string): Promise<{ id: string; workFolderRoot: string }> {
   return (await request<{ workFolder: { id: string; workFolderRoot: string } }>(origin, "/api/work-folders", {
     method: "POST",

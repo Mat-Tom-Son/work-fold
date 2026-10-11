@@ -40,10 +40,10 @@ export function removeWorkFolderConfirmText(
       formatRemovalCount(appStudio.releases.length, "Release"),
       formatRemovalCount(appStudio.operations.length, "prepared operation"),
     ].join(", ");
-    consequences.push(`This also permanently clears this computer's App Studio history for it (${appState}), including its receipts and unreferenced Release objects. Keeping the folder does not preserve that state.`);
+    consequences.push(`Its App Studio history on this computer (${appState}, with their receipts) moves to Recently Deleted too. Once the work-folder is back, you can put that back from there.`);
   }
   if (appStudio.incomingPreparedOperationCount) {
-    consequences.push(`This also cancels ${formatRemovalCount(appStudio.incomingPreparedOperationCount, "prepared App operation")} aimed at this work-folder.`);
+    consequences.push(`This also cancels ${formatRemovalCount(appStudio.incomingPreparedOperationCount, "prepared App operation")} aimed at this work-folder; ${appStudio.incomingPreparedOperationCount === 1 ? "it waits" : "they wait"} in Recently Deleted until the work-folder is back.`);
   }
   return consequences.length ? `${folderOutcome} ${consequences.join(" ")}` : folderOutcome;
 }

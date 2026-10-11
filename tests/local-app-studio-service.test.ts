@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import { FileRestrictedAppStorage, type RestrictedAppStorageOwner } from "../src
 import { LocalAppReleaseStore } from "../src/local/agent/local-app-release-store.js";
 import {
   RestrictedAppService,
+  type LocalAppWorkFolderRecoveryCopy,
   type RestrictedAppInstalled,
   type RestrictedAppRuntimeDescriptor,
   type RestrictedAppRuntimeHost,
@@ -418,6 +419,214 @@ test("a deleted Release comes back from its kept copy, verified, in the state it
       service.restoreLocalAppRelease({ workFolderId: sourceWorkFolder, record: kept.record, release: kept.release }),
       /Another Release 1\.0\.0 has been prepared since/,
     );
+  } finally {
+    await service?.close().catch(() => undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Removing a work-folder hands everything it takes out of App Studio to
+ * `keep` before anything is removed, and `restoreWorkFolderAppStudio` puts
+ * the same values back (docs/receipts-not-gates.md, F20): packages and
+ * envelopes are re-checked, a newer App Project with its own work is never
+ * merged, and previews return under fresh authority with the person's
+ * narrowing intact. The restored history survives a restart.
+ */
+test("a removed work-folder's App Studio history comes back from its kept copy, re-checked", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-work-folder-restore-"));
+  const sourceRoot = join(sandbox, "source-work-folder");
+  const keptRoot = join(sandbox, "kept-packages");
+  const rootPath = join(sandbox, "state", "restricted-apps");
+  const storage = new FileRestrictedAppStorage(join(rootPath, "data"));
+  const connections = new MemoryConnectionStore();
+  let service: RestrictedAppService | undefined;
+  try {
+    await writePackage(join(sourceRoot, "apps", "connected-inbox"), { marker: "work-folder-restore" });
+    service = await RestrictedAppService.create({ rootPath, storage, connections, runtimeHost: new RecordingRuntimeHost() });
+    const project = await service.declareLocalAppProject({
+      workFolderId: sourceWorkFolder,
+      presentation: { title: "Connected Inbox", description: "Work-folder restore fixture.", icon: "mail" },
+    });
+    const review = await service.inspect({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
+    const preview = await service.install({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox", expectedDigest: review.digest });
+    // The person's narrowing is part of what comes back.
+    await service.revokeNotifications({ workFolderId: sourceWorkFolder, appId: featureId, expectedDigest: preview.digest, permissionId: "new-mail" });
+    const published = await prepareAndPublish(service, "1.0.0");
+    const prepared = await service.prepareLocalAppRelease({ workFolderId: sourceWorkFolder, displayVersion: "1.1.0" });
+    const operation = await service.prepareLocalAppInstall({
+      sourceWorkFolderId: sourceWorkFolder,
+      targetWorkFolderId: targetWorkFolder,
+      releaseDigest: published.releaseDigest,
+    });
+    const before = await service.localAppStudio(sourceWorkFolder);
+    const narrowed = before.previews[0]!;
+    assert.deepEqual(narrowed.notificationGrants, []);
+
+    // A failing keep removes nothing: the copy comes first.
+    await assert.rejects(
+      service.removeWorkFolder(sourceWorkFolder, { keep: async () => { throw new Error("Recently deleted is unavailable"); } }),
+      /Recently deleted is unavailable/,
+    );
+    assert.deepEqual(await service.localAppStudio(sourceWorkFolder), before);
+
+    let kept: LocalAppWorkFolderRecoveryCopy | undefined;
+    await service.removeWorkFolder(sourceWorkFolder, {
+      keep: async (copy) => {
+        // What the Recently deleted store does: a JSON copy of the records and
+        // a copy of each package folder, never the originals.
+        for (const item of copy.packages) await cp(item.root, join(keptRoot, item.digest), { recursive: true });
+        kept = JSON.parse(JSON.stringify(copy)) as LocalAppWorkFolderRecoveryCopy;
+      },
+    });
+    assert.ok(kept);
+    assert.equal(kept.project?.projectId, project.projectId);
+    assert.deepEqual(kept.releases.map((item) => item.record.releaseDigest).sort(), [published.releaseDigest, prepared.releaseDigest].sort());
+    assert.deepEqual(kept.operations.map((item) => item.operationId), [operation.operationId]);
+    assert.ok(kept.adminReceipts.length > 0, "the Project's receipts travel with it");
+    assert.deepEqual(await service.localAppStudio(sourceWorkFolder), {
+      project: null, previews: [], releases: [], instances: [], operations: [], retainedData: [],
+    });
+    await assert.rejects(access(releaseObjectPath(rootPath, published.releaseDigest)), (error: unknown) => isMissingError(error));
+    await assert.rejects(access(join(rootPath, "staged", preview.digest)), (error: unknown) => isMissingError(error));
+
+    const packageRoots = new Map(kept.packages.map((item) => [item.digest, join(keptRoot, item.digest)]));
+    const restoreInput = (overrides: Partial<Parameters<RestrictedAppService["restoreWorkFolderAppStudio"]>[0]> = {}) => ({
+      workFolderId: sourceWorkFolder,
+      studio: {
+        project: kept!.project,
+        runtimeInstances: kept!.runtimeInstances,
+        previews: kept!.previews,
+        operations: kept!.operations,
+        adminReceipts: kept!.adminReceipts,
+      },
+      releases: kept!.releases,
+      packageRoots,
+      registeredWorkFolderIds: new Set([sourceWorkFolder, targetWorkFolder]),
+      ...overrides,
+    });
+
+    // Every byte is re-checked: a changed package or envelope is refused.
+    const tamperedRoot = join(sandbox, "tampered-package");
+    await cp(join(keptRoot, preview.digest), tamperedRoot, { recursive: true });
+    await writeFile(join(tamperedRoot, "worker.js"), workerSource("tampered"), "utf8");
+    await assert.rejects(
+      service.restoreWorkFolderAppStudio(restoreInput({ packageRoots: new Map([[preview.digest, tamperedRoot]]) })),
+      (error: unknown) => errorCode(error) === "INPUT_INVALID" && /failed its check/.test(errorMessage(error)),
+    );
+    const tamperedReleases = structuredClone(kept.releases);
+    (tamperedReleases[0]!.release as unknown as { manifest: { displayVersion: string } }).manifest.displayVersion = "9.9.9";
+    await assert.rejects(
+      service.restoreWorkFolderAppStudio(restoreInput({ releases: tamperedReleases })),
+      (error: unknown) => errorCode(error) === "INPUT_INVALID",
+    );
+    await assert.rejects(
+      service.restoreWorkFolderAppStudio(restoreInput({ workFolderId: targetWorkFolder })),
+      (error: unknown) => errorCode(error) === "INPUT_INVALID",
+      "App Studio history goes back only into the work-folder it came from",
+    );
+    assert.equal((await service.localAppStudio(sourceWorkFolder)).project, null, "a refused restore changes nothing");
+
+    // A newer App Project with its own apps is never merged; once it is empty it gives way.
+    const newer = await service.install({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox", expectedDigest: review.digest });
+    assert.notEqual(newer.projectId, project.projectId);
+    assert.match(await service.workFolderAppStudioRestoreBlocker(sourceWorkFolder, project.projectId) ?? "", /started a new App Project/);
+    await assert.rejects(
+      service.restoreWorkFolderAppStudio(restoreInput()),
+      (error: unknown) => errorCode(error) === "INPUT_INVALID" && /does not merge two App Projects/.test(errorMessage(error)),
+    );
+    await service.remove({ workFolderId: sourceWorkFolder, appId: featureId, expectedDigest: newer.digest });
+    assert.equal(await service.workFolderAppStudioRestoreBlocker(sourceWorkFolder, project.projectId), null);
+
+    const restored = await service.restoreWorkFolderAppStudio(restoreInput());
+    assert.equal(restored.restored, true);
+    assert.equal(restored.droppedOperationCount, 0);
+    assert.deepEqual(restored.project, before.project);
+    assert.deepEqual(restored.releases.map((item) => [item.releaseDigest, item.state]).sort(), [
+      [published.releaseDigest, "published"],
+      [prepared.releaseDigest, "prepared"],
+    ].sort(), "each Release returns in the state it was removed in");
+    assert.deepEqual(restored.operations, [operation]);
+    const back = restored.previews[0]!;
+    assert.deepEqual(ids(back), ids(narrowed), "the preview keeps its installation and data identity, so its kept data can go back into it");
+    assert.equal(back.digest, narrowed.digest);
+    assert.deepEqual(back.notificationGrants, [], "the person's narrowing carries back");
+    assert.deepEqual(back.networkGrants, narrowed.networkGrants);
+    assert.equal(back.automations.find((item) => item.id === refreshAppAutomation)?.enabled, true);
+    for (const field of ["featureInstallationGeneration", "grantGeneration", "connectionGeneration", "jobGeneration", "dataGeneration", "runtimeInstanceGeneration"] as const) {
+      assert.notEqual(back.authority[field], narrowed.authority[field], `${field} is fresh, so nothing issued before the removal can act for it`);
+    }
+    assert.equal((await service.connectionStatus(sourceWorkFolder, featureId, back.digest))[0]?.configured, false,
+      "secrets went with the removal and are entered again");
+    await access(releaseObjectPath(rootPath, published.releaseDigest));
+    await access(join(rootPath, "staged", preview.digest));
+
+    const again = await service.restoreWorkFolderAppStudio(restoreInput());
+    assert.equal(again.restored, false, "restoring history that is already back changes nothing");
+
+    await service.close();
+    service = await RestrictedAppService.create({ rootPath, storage, connections, runtimeHost: new RecordingRuntimeHost() });
+    const reopened = await service.localAppStudio(sourceWorkFolder);
+    assert.equal(reopened.project?.projectId, project.projectId, "the restored history passes startup verification");
+    assert.equal(reopened.releases.length, 2);
+    assert.equal(reopened.previews.length, 1);
+
+    // The restored lineage works: the prepared Release still publishes against
+    // its source previews, and the prepared install still activates.
+    assert.equal((await service.publishLocalAppRelease({ workFolderId: sourceWorkFolder, releaseDigest: prepared.releaseDigest })).state, "published");
+    const activated = await service.activateLocalAppInstall(operation.operationId);
+    assert.equal(activated.instance.workFolderId, targetWorkFolder);
+  } finally {
+    await service?.close().catch(() => undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("a target work-folder's cancelled installs come back only while they still fit", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-target-restore-"));
+  const sourceRoot = join(sandbox, "source-work-folder");
+  const rootPath = join(sandbox, "state", "restricted-apps");
+  let service: RestrictedAppService | undefined;
+  try {
+    await writePackage(join(sourceRoot, "apps", "connected-inbox"), { marker: "target-restore" });
+    service = await RestrictedAppService.create({ rootPath });
+    const review = await service.inspect({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
+    await service.install({ workFolderId: sourceWorkFolder, workFolderRoot: sourceRoot, sourcePath: "apps/connected-inbox", expectedDigest: review.digest });
+    const published = await prepareAndPublish(service, "1.0.0");
+    const operation = await service.prepareLocalAppInstall({
+      sourceWorkFolderId: sourceWorkFolder,
+      targetWorkFolderId: targetWorkFolder,
+      releaseDigest: published.releaseDigest,
+    });
+
+    let kept: LocalAppWorkFolderRecoveryCopy | undefined;
+    await service.removeWorkFolder(targetWorkFolder, { keep: async (copy) => { kept = JSON.parse(JSON.stringify(copy)); } });
+    assert.ok(kept);
+    assert.equal(kept.project, null, "a target-only work-folder keeps no App Project");
+    assert.deepEqual(kept.operations.map((item) => item.operationId), [operation.operationId]);
+    assert.deepEqual((await service.localAppStudio(sourceWorkFolder)).operations, []);
+    const input = (registered: string[]) => ({
+      workFolderId: targetWorkFolder,
+      studio: { project: kept!.project, runtimeInstances: kept!.runtimeInstances, previews: kept!.previews, operations: kept!.operations, adminReceipts: kept!.adminReceipts },
+      releases: kept!.releases,
+      packageRoots: new Map<string, string>(),
+      registeredWorkFolderIds: new Set(registered),
+    });
+
+    // Aimed at a work-folder that is not registered, the install is counted, not guessed at.
+    const unregistered = await service.restoreWorkFolderAppStudio(input([sourceWorkFolder]));
+    assert.equal(unregistered.restored, false);
+    assert.equal(unregistered.droppedOperationCount, 1);
+    assert.deepEqual((await service.localAppStudio(sourceWorkFolder)).operations, []);
+
+    const restored = await service.restoreWorkFolderAppStudio(input([sourceWorkFolder, targetWorkFolder]));
+    assert.equal(restored.restored, true);
+    assert.equal(restored.droppedOperationCount, 0);
+    assert.deepEqual(restored.operations, [operation]);
+    assert.deepEqual((await service.localAppStudio(sourceWorkFolder)).operations, [operation]);
+    const repeated = await service.restoreWorkFolderAppStudio(input([sourceWorkFolder, targetWorkFolder]));
+    assert.equal(repeated.restored, false);
+    assert.equal(repeated.droppedOperationCount, 0, "an install already back is neither restored twice nor counted as lost");
   } finally {
     await service?.close().catch(() => undefined);
     await rm(sandbox, { recursive: true, force: true });

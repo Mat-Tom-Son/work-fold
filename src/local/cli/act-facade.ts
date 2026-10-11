@@ -40,7 +40,7 @@ export interface WorkFoldActWorkFolderRef {
 /** One Recently deleted item, as the act lane reports it: identifiers and paths only. */
 export interface WorkFoldActRecentlyDeletedEntry {
   id: string;
-  kind: "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release";
+  kind: "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release" | "app-studio";
   reason:
     | "files.delete"
     | "agent.chat.delete"
@@ -54,7 +54,7 @@ export interface WorkFoldActRecentlyDeletedEntry {
     | "apps.release.delete";
   workFolderId: string;
   workFolderName?: string;
-  /** work-folder-relative path, a deleted work-folder's original folder path, `<appId>/<namespace>`, or `<projectId>/<releaseDigest>`. */
+  /** work-folder-relative path, a deleted work-folder's original folder path, `<appId>/<namespace>`, `<projectId>/<releaseDigest>`, or an App Project id (App Studio history). */
   originalPath: string;
   name: string;
   sizeBytes: number;
@@ -1014,11 +1014,15 @@ export interface WorkFoldActFacade {
     workFolder: WorkFoldActWorkFolderRef;
     priorName: string;
   }>;
-  workFoldersUnregister(input: { workFolder: string; parentTaskId?: string }): Promise<{
+  workFoldersUnregister(input: { workFolder: string; parentTaskId?: string; requestId?: string }): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     storage: WorkFoldActWorkFolderStorage;
     removed: true;
     cleanupPending: boolean;
+    /** One recoverable copy per preview app in the work-folder that held local data. */
+    appRecentlyDeletedEntries: Array<{ entryId: string; restoreBy: string }>;
+    /** The work-folder's App Studio history, kept in Recently deleted; null when it had none. */
+    appStudioRecentlyDeleted: { entryId: string; restoreBy: string } | null;
   }>;
 
   /**
@@ -1270,6 +1274,8 @@ export interface WorkFoldActFacade {
     recentlyDeleted: { entryId: string; restoreBy: string } | null;
     /** One recoverable copy per preview app in the work-folder that held local data. */
     appRecentlyDeletedEntries: Array<{ entryId: string; restoreBy: string }>;
+    /** The work-folder's App Studio history, kept in Recently deleted; null when it had none. */
+    appStudioRecentlyDeleted: { entryId: string; restoreBy: string } | null;
   }>;
   /** Imports one skill bundle, pinning the exact inspected bytes. */
   toolsImportSkill(input: {
@@ -1462,8 +1468,10 @@ export interface WorkFoldActFacade {
    * path, renamed when something else took the name; a deleted work-folder's
    * folder returns and is re-registered with its portable identity; app data goes back into
    * the same installation at the same revision; a Release goes back into the
-   * App Project it came from. App data whose app is gone can only be saved as
-   * a file, which is what `--to` does.
+   * App Project it came from; a removed work-folder's App Studio history goes
+   * back once that work-folder is registered again, bringing its previews'
+   * data along. App data whose app is gone can only be saved as a file, which
+   * is what `--to` does.
    */
   recentlyDeletedRestore(input: { entry: string; toPath?: string; parentTaskId?: string; requestId?: string }): Promise<{
     entry: WorkFoldActRecentlyDeletedEntry | null;
@@ -1473,6 +1481,18 @@ export interface WorkFoldActFacade {
       | { kind: "work-folder"; workFolder: WorkFoldActWorkFolderRef; workFolderRoot: string; renamed: boolean }
       | { kind: "app-storage"; workFolder: WorkFoldActWorkFolderRef; appId: string; usage: { revision: number; usageBytes: number } }
       | { kind: "app-release"; workFolder: WorkFoldActWorkFolderRef; releaseDigest: string; displayVersion: string }
+      | {
+        kind: "app-studio";
+        workFolder: WorkFoldActWorkFolderRef;
+        projectTitle: string | null;
+        previewCount: number;
+        releaseCount: number;
+        operationCount: number;
+        /** Prepared operations whose Release, target, or App Instance changed since the removal. */
+        droppedOperationCount: number;
+        /** The Recently deleted items holding the previews' data that went back with them. */
+        appDataEntryIds: string[];
+      }
       | { kind: "saved-copy"; path: string };
   }>;
   /**

@@ -172,6 +172,39 @@ export interface LocalAppReleaseRecoveryCopy {
   release: AppReleaseEnvelope;
 }
 
+/**
+ * What removing a work-folder takes out of App Studio, kept for Recently
+ * deleted (docs/receipts-not-gates.md, F20): the App Project whose source it
+ * was with its Development Instance, Local previews, and their staged package
+ * folders; every Release, as record and verified envelope; the prepared
+ * operations the removal cancels, including other Projects' installs aimed at
+ * it; and the Project's receipts. The registry records are plain JSON copies;
+ * `restoreWorkFolderAppStudio` re-validates each one.
+ */
+export interface LocalAppWorkFolderRecoveryCopy {
+  workFolderId: string;
+  project: LocalAppProject | null;
+  runtimeInstances: unknown[];
+  previews: unknown[];
+  /** Each preview's staged package folder by package digest; the host copies them, never moves them. */
+  packages: Array<{ digest: string; root: string }>;
+  releases: LocalAppReleaseRecoveryCopy[];
+  operations: LocalAppOperation[];
+  adminReceipts: unknown[];
+}
+
+/** What putting a work-folder's App Studio history back returned to it. */
+export interface LocalAppWorkFolderRestoreResult {
+  /** False when the history was already back, so nothing changed. */
+  restored: boolean;
+  project: LocalAppProject | null;
+  previews: RestrictedAppInstalled[];
+  releases: LocalAppRelease[];
+  operations: LocalAppOperation[];
+  /** Prepared operations whose Release, target work-folder, or App Instance changed since; prepare them again. */
+  droppedOperationCount: number;
+}
+
 export interface LocalAppInstance {
   runtimeInstanceId: RuntimeInstanceId;
   projectId: ProjectId;
@@ -502,7 +535,7 @@ interface LocalAppVerifiedReleaseProjection {
 interface LocalAppAdminReceipt {
   receiptId: string;
   action: "release-prepared" | "release-published" | "release-deleted" | "release-restored" | "install-prepared" | "installed"
-    | "update-prepared" | "updated" | "uninstalled" | "retained-data-purged" | "data-exported";
+    | "update-prepared" | "updated" | "uninstalled" | "retained-data-purged" | "data-exported" | "project-restored";
   projectId: ProjectId;
   runtimeInstanceId: RuntimeInstanceId | null;
   releaseDigest: Sha256Digest | null;
@@ -1177,14 +1210,7 @@ export class RestrictedAppService {
         );
       }
       assertRestrictedAppRegistryCapacity("releases", this.#registry.releases.length, 1, "Release");
-      const envelope = restrictedAppInput(() => assertLocalRestrictedAppRelease(input.release));
-      if (envelope.releaseDigest !== record.releaseDigest
-        || envelope.manifest.projectId !== record.projectId
-        || envelope.manifest.displayVersion !== record.displayVersion
-        || JSON.stringify(envelope.manifest.presentation) !== JSON.stringify(record.presentation)
-        || envelope.manifest.features.map((feature) => feature.featureId).join("\0") !== record.featureIds.join("\0")) {
-        throw new RestrictedAppError("INPUT_INVALID", "The kept Release does not match its record.");
-      }
+      const envelope = keptReleaseEnvelope(record, input.release);
       try {
         await this.#releaseStore.put(envelope);
       } catch (error) {
@@ -2069,7 +2095,17 @@ export class RestrictedAppService {
     });
   }
 
-  async removeWorkFolder(workFolderId: string): Promise<void> {
+  /**
+   * Clears a removed work-folder's App Studio state. When `keep` is given it
+   * receives everything that goes — after every blocker has passed and before
+   * anything is stopped or removed — so the host can place a recoverable copy
+   * in Recently deleted first (docs/receipts-not-gates.md, F20); a failing
+   * `keep` removes nothing.
+   */
+  async removeWorkFolder(
+    workFolderId: string,
+    options: { keep?: (copy: LocalAppWorkFolderRecoveryCopy) => Promise<void> } = {},
+  ): Promise<void> {
     await this.#mutate(async () => {
       const attachedInstance = this.#registry.runtimeInstances.find((item) => item.kind === "app" && item.workFolderId === workFolderId);
       const sourceProject = this.#registry.projects.find((item) => item.workFolderId === workFolderId);
@@ -2090,10 +2126,35 @@ export class RestrictedAppService {
         || this.#registry.runtimeInstances.some((item) => item.kind === "development" && item.workFolderId === workFolderId)
         || this.#registry.operations.some((item) => item.targetWorkFolderId === workFolderId);
       if (!removed.length && !hasContext) return;
+      const project = sourceProject;
+      const removedOperations = this.#registry.operations.filter((item) => item.targetWorkFolderId === workFolderId
+        || (project !== undefined && item.projectId === project.projectId));
+      if (options.keep) {
+        const releases: LocalAppReleaseRecoveryCopy[] = [];
+        for (const release of project ? this.#registry.releases.filter((item) => item.projectId === project.projectId) : []) {
+          releases.push({
+            record: structuredClone(release),
+            release: assertLocalRestrictedAppRelease(await this.#releaseStore.read(release.releaseDigest)),
+          });
+        }
+        await options.keep({
+          workFolderId,
+          project: project ? structuredClone(project) : null,
+          runtimeInstances: structuredClone(this.#registry.runtimeInstances.filter((item) => (
+            item.kind === "development" && item.workFolderId === workFolderId
+          ))),
+          previews: structuredClone(removed),
+          packages: [...new Set(removed.map((app) => app.digest))].map((digest) => ({ digest, root: this.#digestRoot(digest) })),
+          releases,
+          operations: structuredClone(removedOperations),
+          adminReceipts: project
+            ? structuredClone(this.#registry.adminReceipts.filter((item) => item.projectId === project.projectId))
+            : [],
+        });
+      }
       await Promise.all(removed.map((app) => this.#runtimeHost?.stop(workFolderId, app.manifest.id, app.digest, app.featureInstallationId)));
       await Promise.all(removed.map((app) => this.#invalidateOAuthApp(app)));
       const timestamp = this.#now().toISOString();
-      const project = sourceProject;
       await this.#writeRegistry({
         ...this.#registry,
         projects: this.#registry.projects.filter((item) => item.workFolderId !== workFolderId),
@@ -2102,8 +2163,7 @@ export class RestrictedAppService {
         releases: project
           ? this.#registry.releases.filter((item) => item.projectId !== project.projectId)
           : this.#registry.releases,
-        operations: this.#registry.operations.filter((item) => item.targetWorkFolderId !== workFolderId
-          && (!project || item.projectId !== project.projectId)),
+        operations: this.#registry.operations.filter((item) => !removedOperations.includes(item)),
         adminReceipts: project
           ? this.#registry.adminReceipts.filter((item) => item.projectId !== project.projectId)
           : this.#registry.adminReceipts,
@@ -2118,6 +2178,274 @@ export class RestrictedAppService {
       for (const app of removed) this.#unregisterAppAutomations(app);
       await this.#drainPendingCleanups();
     });
+  }
+
+  /**
+   * Why a removed work-folder's App Studio history cannot go back right now,
+   * or null when it can. A different App Project that has since started in
+   * the work-folder is never merged with the kept one; only an empty one —
+   * no previews, Releases, prepared operations, App Instances, or retained
+   * data — gives way to it.
+   */
+  async workFolderAppStudioRestoreBlocker(workFolderId: string, projectId: string | null): Promise<string | null> {
+    this.#assertOpen();
+    await this.#queue.catch(() => undefined);
+    return this.#appStudioRestoreBlocker(workFolderId, projectId);
+  }
+
+  /**
+   * Puts a removed work-folder's App Studio history back from the copy
+   * `removeWorkFolder` handed to `keep` (docs/receipts-not-gates.md, F20).
+   * Every record is re-validated; each preview's package is re-staged from the
+   * kept folder and must match its content digest and its record; each
+   * Release envelope must match its digest and record, exactly as startup
+   * checks stored Releases. Previews come back with their grants, automation
+   * states, and run receipts under fresh authority generations, so nothing
+   * started before the removal can act for them; secrets for their
+   * connections were removed with them and are entered again. A prepared
+   * operation comes back only while its Release, target, and App Instance
+   * still fit; the rest are counted, not guessed at. Restoring history that
+   * is already back changes nothing.
+   */
+  async restoreWorkFolderAppStudio(input: {
+    workFolderId: string;
+    studio: { project: unknown; runtimeInstances: unknown[]; previews: unknown[]; operations: unknown[]; adminReceipts: unknown[] };
+    releases: ReadonlyArray<{ record: unknown; release: unknown }>;
+    packageRoots: ReadonlyMap<string, string>;
+    /** Prepared operations aimed at a work-folder outside this set are not brought back. */
+    registeredWorkFolderIds: ReadonlySet<string>;
+  }): Promise<LocalAppWorkFolderRestoreResult> {
+    return await this.#mutate(async () => {
+      const workFolderId = restrictedAppInput(() => nonempty(input.workFolderId, "work-folder id", 200));
+      const kept = restrictedAppInput(() => keptWorkFolderAppStudio(input.studio, input.releases, workFolderId));
+      const projectId = kept.project?.projectId ?? null;
+
+      const current = projectId ? this.#registry.projects.find((item) => item.projectId === projectId) : undefined;
+      if (current) {
+        if (current.workFolderId !== workFolderId) {
+          throw new RestrictedAppError("INPUT_INVALID", "This App Project now belongs to a different work-folder.");
+        }
+        return this.#workFolderRestoreResult(false, workFolderId, 0);
+      }
+      const blocker = this.#appStudioRestoreBlocker(workFolderId, projectId);
+      if (blocker) throw new RestrictedAppError("INPUT_INVALID", blocker);
+      const replaced = projectId ? this.#registry.projects.find((item) => item.workFolderId === workFolderId) : undefined;
+
+      for (const preview of kept.previews) {
+        const occupied = this.#registry.installations.find((item) => item.workFolderId === workFolderId && item.manifest.id === preview.manifest.id);
+        if (occupied) {
+          throw new RestrictedAppError(
+            "INPUT_INVALID",
+            `Another App in this work-folder now uses the Feature id "${preview.manifest.id}". Uninstall it first, then put this back.`,
+          );
+        }
+        if (this.#registry.installations.some((item) => item.featureInstallationId === preview.featureInstallationId
+          || item.dataNamespaceId === preview.dataNamespaceId)
+          || this.#registry.retainedData.some((item) => item.dataNamespaceId === preview.dataNamespaceId)) {
+          throw new RestrictedAppError("INPUT_INVALID", `${preview.manifest.title} is already installed again.`);
+        }
+        // A removal's cleanup that has not finished still holds the old
+        // secrets or data, and restoring would make them reachable again.
+        // Without a connection or storage host there is nothing for it to
+        // remove, so such an obligation is moot and is dropped below.
+        const cleanupPending = this.#registry.pendingCleanups.some((cleanup) => (
+          (this.#storage && cleanup.storageOwner?.featureInstallationId === preview.featureInstallationId)
+          || (this.#connections && cleanup.connectionScope?.featureInstallationId === preview.featureInstallationId)
+        ));
+        if (cleanupPending) {
+          throw new RestrictedAppError(
+            "APP_UNAVAILABLE",
+            `work-fold is still finishing the cleanup of ${preview.manifest.title} from when the work-folder was removed. Try again in a moment.`,
+          );
+        }
+      }
+      if (kept.runtimeInstances.some((runtime) => this.#registry.runtimeInstances.some((item) => item.runtimeInstanceId === runtime.runtimeInstanceId))) {
+        throw new RestrictedAppError("INPUT_INVALID", "This App Project's Development Instance is already in use.");
+      }
+      const keptReleases = kept.releases.filter((item) => !this.#registry.releases.some((release) => release.releaseDigest === item.record.releaseDigest));
+      assertRestrictedAppRegistryCapacity("projects", this.#registry.projects.length - (replaced ? 1 : 0), kept.project ? 1 : 0, "App Project");
+      assertRestrictedAppRegistryCapacity("runtimeInstances", this.#registry.runtimeInstances.length, kept.runtimeInstances.length, "Runtime Instance");
+      assertRestrictedAppRegistryCapacity("installations", this.#registry.installations.length, kept.previews.length, "Feature Installation");
+      assertRestrictedAppRegistryCapacity("releases", this.#registry.releases.length, keptReleases.length, "Release");
+
+      // Re-check every byte before anything is written: packages against
+      // their content digests and records, envelopes against theirs.
+      const envelopes = keptReleases.map((item) => keptReleaseEnvelope(item.record, item.release));
+      await assertRestrictedAppStagingRoot(this.#stagingPath);
+      const staged: string[] = [];
+      const timestamp = this.#now().toISOString();
+      try {
+        for (const preview of kept.previews) {
+          const root = input.packageRoots.get(preview.digest);
+          if (!root) throw new RestrictedAppError("INPUT_INVALID", `The kept copy of ${preview.manifest.title} is missing its package.`);
+          let receipt: Awaited<ReturnType<typeof stageRestrictedAppPackage>>;
+          try {
+            receipt = await stageRestrictedAppPackage(root, this.#stagingPath, preview.digest);
+          } catch (error) {
+            throw new RestrictedAppError("INPUT_INVALID", `The kept package of ${preview.manifest.title} failed its check: ${errorMessage(error)}`);
+          }
+          staged.push(receipt.digest);
+          if (receipt.artifactDigest !== preview.artifactDigest || receipt.packageName !== preview.packageName
+            || receipt.version !== preview.version || receipt.fileCount !== preview.fileCount || receipt.totalBytes !== preview.totalBytes
+            || JSON.stringify(receipt.manifest) !== JSON.stringify(preview.manifest)) {
+            throw new RestrictedAppError("INPUT_INVALID", `The kept package of ${preview.manifest.title} does not match its record.`);
+          }
+        }
+        for (const envelope of envelopes) {
+          try {
+            await this.#releaseStore.put(envelope);
+          } catch (error) {
+            if (error instanceof LocalAppReleaseStoreError && error.code === "RELEASE_STORE_LIMIT_EXCEEDED") {
+              throw new RestrictedAppError("INPUT_INVALID", error.message);
+            }
+            throw error;
+          }
+        }
+
+        // Fresh generations: the Development Instance and every preview come
+        // back under authority nothing issued before the removal can match.
+        const runtimeGenerations = new Map(kept.runtimeInstances.map((runtime) => [runtime.runtimeInstanceId, createAuthorityGeneration()]));
+        const runtimeInstances = kept.runtimeInstances.map((runtime) => ({
+          ...runtime,
+          runtimeInstanceGeneration: runtimeGenerations.get(runtime.runtimeInstanceId)!,
+          updatedAt: timestamp,
+        }));
+        const previews = kept.previews.map((preview): RestrictedAppRegistryEntry => ({
+          ...preview,
+          authority: parseAuthorityStamp({
+            ...advanceAuthorityStamp(preview.authority, [
+              "featureInstallationGeneration", "grantGeneration", "connectionGeneration", "jobGeneration", "dataGeneration",
+            ]),
+            runtimeInstanceGeneration: runtimeGenerations.get(preview.runtimeInstanceId) ?? preview.authority.runtimeInstanceGeneration,
+            principalGeneration: this.#registry.localIdentity.principalGeneration,
+          }),
+          updatedAt: timestamp,
+        }));
+        const projects = [
+          ...this.#registry.projects.filter((item) => item !== replaced),
+          ...(kept.project ? [kept.project] : []),
+        ];
+        const nextRuntimeInstances = [
+          ...this.#registry.runtimeInstances.filter((item) => !(replaced && item.kind === "development" && item.projectId === replaced.projectId)),
+          ...runtimeInstances,
+        ];
+        const releases = [...this.#registry.releases, ...keptReleases.map((item) => item.record)];
+        const operations = [...this.#registry.operations];
+        for (const operation of kept.operations) {
+          if (this.#restorableOperation(operation, operations, releases, nextRuntimeInstances, input.registeredWorkFolderIds)) operations.push(operation);
+        }
+        const restoredOperations = operations.slice(this.#registry.operations.length);
+        const alreadyBack = kept.operations.filter((operation) => this.#registry.operations
+          .some((item) => item.operationId === operation.operationId)).length;
+        const keptReceiptIds = new Set(this.#registry.adminReceipts.map((item) => item.receiptId));
+        const receipts = [...kept.adminReceipts.filter((item) => !keptReceiptIds.has(item.receiptId)), ...this.#registry.adminReceipts];
+        const restoredInstallations = new Set(previews.map((item) => item.featureInstallationId));
+        const pendingCleanups = this.#registry.pendingCleanups.flatMap((cleanup) => {
+          const moot = (cleanup.storageOwner && restoredInstallations.has(cleanup.storageOwner.featureInstallationId))
+            || (cleanup.connectionScope && restoredInstallations.has(cleanup.connectionScope.featureInstallationId));
+          if (!moot) return [cleanup];
+          return cleanup.packageDigest ? [{ ...cleanup, storageOwner: null, connectionScope: null }] : [];
+        });
+        await this.#writeRegistry({
+          ...this.#registry,
+          pendingCleanups,
+          projects,
+          runtimeInstances: nextRuntimeInstances,
+          installations: [...this.#registry.installations, ...previews],
+          releases,
+          operations,
+          adminReceipts: kept.project
+            ? appendAdminReceipt(receipts, {
+              action: "project-restored",
+              projectId: kept.project.projectId,
+              runtimeInstanceId: null,
+              releaseDigest: null,
+              createdAt: timestamp,
+            })
+            : receipts.slice(-restrictedAppRegistryLimits.adminReceipts),
+        });
+        for (const preview of previews) this.#syncAppAutomations(preview);
+        return {
+          ...this.#workFolderRestoreResult(
+            Boolean(kept.project) || restoredOperations.length > 0,
+            workFolderId,
+            kept.operations.length - restoredOperations.length - alreadyBack,
+          ),
+          operations: structuredClone(restoredOperations),
+        };
+      } catch (error) {
+        // Nothing was committed: release whatever this attempt staged.
+        await this.#reconcileReleaseStore();
+        for (const digest of staged) await this.#garbageCollectDigest(digest).catch(() => undefined);
+        throw error;
+      }
+    });
+  }
+
+  #appStudioRestoreBlocker(workFolderId: string, projectId: string | null): string | null {
+    if (!projectId) return null;
+    const other = this.#registry.projects.find((item) => item.workFolderId === workFolderId && item.projectId !== projectId);
+    if (!other) return null;
+    const previews = this.#registry.installations.filter((item) => item.projectId === other.projectId).length;
+    const releases = this.#registry.releases.filter((item) => item.projectId === other.projectId).length;
+    const busy = previews > 0 || releases > 0
+      || this.#registry.operations.some((item) => item.projectId === other.projectId)
+      || this.#registry.runtimeInstances.some((item) => item.kind === "app" && item.projectId === other.projectId)
+      || this.#registry.retainedData.some((item) => item.projectId === other.projectId);
+    if (!busy) return null;
+    const holds = [
+      previews ? `${previews} app${previews === 1 ? "" : "s"}` : "",
+      releases ? `${releases} Release${releases === 1 ? "" : "s"}` : "",
+    ].filter(Boolean).join(" and ") || "its own App Studio work";
+    return `This work-folder has started a new App Project, "${other.presentation.title}", with ${holds}. `
+      + "work-fold does not merge two App Projects. Remove its apps in Settings → Apps and delete its Releases in App Studio, "
+      + "then put this back.";
+  }
+
+  /** Whether one kept prepared operation still fits the registry it would return to. */
+  #restorableOperation(
+    operation: LocalAppOperation,
+    operations: readonly LocalAppOperation[],
+    releases: readonly LocalAppReleaseRegistryEntry[],
+    runtimeInstances: readonly RestrictedAppRuntimeInstanceRegistryEntry[],
+    registeredWorkFolderIds: ReadonlySet<string>,
+  ): boolean {
+    if (!registeredWorkFolderIds.has(operation.targetWorkFolderId)) return false;
+    if (operations.some((item) => item.operationId === operation.operationId
+      || (item.projectId === operation.projectId && item.targetWorkFolderId === operation.targetWorkFolderId))) return false;
+    const release = releases.find((item) => item.releaseDigest === operation.releaseDigest);
+    if (!release || release.projectId !== operation.projectId || release.state !== "published") return false;
+    const runtime = runtimeInstances.find((item) => item.runtimeInstanceId === operation.runtimeInstanceId);
+    if (operation.kind === "install") {
+      if (runtime) return false;
+      if (runtimeInstances.some((item) => item.kind === "app" && item.projectId === operation.projectId
+        && item.workFolderId === operation.targetWorkFolderId)) return false;
+      const featureIds = new Set(operation.features.map((feature) => feature.featureInstallationId));
+      const namespaces = new Set(operation.features.map((feature) => feature.dataNamespaceId));
+      return !this.#registry.installations.some((item) => featureIds.has(item.featureInstallationId) || namespaces.has(item.dataNamespaceId));
+    }
+    const fromRelease = releases.find((item) => item.releaseDigest === operation.plan.fromReleaseDigest);
+    return Boolean(runtime && runtime.kind === "app" && runtime.workFolderId === operation.targetWorkFolderId
+      && runtime.activeReleaseDigest === operation.plan.fromReleaseDigest
+      && fromRelease && fromRelease.projectId === operation.projectId && fromRelease.state === "published");
+  }
+
+  #workFolderRestoreResult(restored: boolean, workFolderId: string, droppedOperationCount: number): LocalAppWorkFolderRestoreResult {
+    const project = this.#registry.projects.find((item) => item.workFolderId === workFolderId);
+    return {
+      restored,
+      project: project ? structuredClone(project) : null,
+      previews: this.#registry.installations
+        .filter((item) => item.workFolderId === workFolderId && item.runtimeInstanceKind === "development")
+        .map((item) => this.#copyInstalled(item)),
+      releases: project
+        ? this.#registry.releases.filter((item) => item.projectId === project.projectId).map(copyLocalAppRelease)
+        : [],
+      operations: this.#registry.operations
+        .filter((item) => item.targetWorkFolderId === workFolderId || item.projectId === project?.projectId)
+        .map((item) => structuredClone(item)),
+      droppedOperationCount,
+    };
   }
 
   async invoke(input: { workFolderId: string; appId: string; featureInstallationId?: string; expectedDigest: string; action: string; input: unknown }): Promise<unknown> {
@@ -3263,38 +3591,47 @@ export class RestrictedAppService {
 
   async #drainPendingCleanups(): Promise<void> {
     for (const cleanup of [...this.#registry.pendingCleanups]) {
-      let complete = true;
-      if (cleanup.connectionScope) {
-        if (!this.#connections) complete = false;
-        else {
-          try {
-            await this.#connections.deleteFeature(cleanup.connectionScope);
-          } catch {
-            complete = false;
-          }
-        }
+      let connectionDone = !cleanup.connectionScope;
+      let storageDone = !cleanup.storageOwner;
+      let packageDone = !cleanup.packageDigest;
+      if (cleanup.connectionScope && this.#connections) {
+        try {
+          await this.#connections.deleteFeature(cleanup.connectionScope);
+          connectionDone = true;
+        } catch { /* retried before later mutations and at startup */ }
       }
-      if (cleanup.storageOwner) {
-        if (!this.#storage) complete = false;
-        else {
-          try {
-            await this.#storage.deleteApp(cleanup.storageOwner);
-          } catch {
-            complete = false;
-          }
-        }
+      if (cleanup.storageOwner && this.#storage) {
+        try {
+          await this.#storage.deleteApp(cleanup.storageOwner);
+          storageDone = true;
+        } catch { /* retried before later mutations and at startup */ }
       }
       if (cleanup.packageDigest) {
         try {
           await this.#garbageCollectDigest(cleanup.packageDigest);
-        } catch {
-          complete = false;
-        }
+          packageDone = true;
+        } catch { /* retried before later mutations and at startup */ }
       }
-      if (!complete) continue;
+      if (connectionDone && storageDone && packageDone) {
+        await this.#writeRegistry({
+          ...this.#registry,
+          pendingCleanups: this.#registry.pendingCleanups.filter((item) => item.cleanupId !== cleanup.cleanupId),
+        });
+        continue;
+      }
+      // Record the parts that finished, so the obligation left names only
+      // what still exists — an erased namespace is not pending just because
+      // its connection store was unavailable.
+      const remaining: RestrictedAppPendingCleanup = {
+        ...cleanup,
+        connectionScope: connectionDone ? null : cleanup.connectionScope,
+        storageOwner: storageDone ? null : cleanup.storageOwner,
+        packageDigest: packageDone ? null : cleanup.packageDigest,
+      };
+      if (JSON.stringify(remaining) === JSON.stringify(cleanup)) continue;
       await this.#writeRegistry({
         ...this.#registry,
-        pendingCleanups: this.#registry.pendingCleanups.filter((item) => item.cleanupId !== cleanup.cleanupId),
+        pendingCleanups: this.#registry.pendingCleanups.map((item) => item.cleanupId === cleanup.cleanupId ? remaining : item),
       });
     }
   }
@@ -4081,6 +4418,7 @@ function localAppAdminReceiptValue(value: unknown, index: number): LocalAppAdmin
   if (!/^admin_[0-9a-f-]{36}$/i.test(receiptId)) throw new Error("Local App admin receipt id is invalid.");
   const actions = new Set<LocalAppAdminReceipt["action"]>([
     "release-prepared", "release-published", "release-deleted", "release-restored", "install-prepared", "installed", "update-prepared", "updated", "uninstalled", "retained-data-purged", "data-exported",
+    "project-restored",
   ]);
   if (!actions.has(item.action as LocalAppAdminReceipt["action"])) throw new Error("Local App admin receipt action is invalid.");
   const action = item.action as LocalAppAdminReceipt["action"];
@@ -4278,6 +4616,88 @@ function assertLocalRestrictedAppRelease(value: unknown): AppReleaseEnvelope {
     }
   }
   return release;
+}
+
+/**
+ * Re-validates kept App Studio history with the registry's own record parsers
+ * and checks that it hangs together: one Project from this work-folder, its
+ * Development Instance, previews installed there, Releases of that Project,
+ * and operations that belong to it or were aimed at this work-folder.
+ */
+function keptWorkFolderAppStudio(
+  studio: { project: unknown; runtimeInstances: unknown[]; previews: unknown[]; operations: unknown[]; adminReceipts: unknown[] },
+  releases: ReadonlyArray<{ record: unknown; release: unknown }>,
+  workFolderId: string,
+): {
+  project: RestrictedAppProjectRegistryEntry | null;
+  runtimeInstances: Extract<RestrictedAppRuntimeInstanceRegistryEntry, { kind: "development" }>[];
+  previews: RestrictedAppRegistryEntry[];
+  releases: Array<{ record: LocalAppReleaseRegistryEntry; release: unknown }>;
+  operations: LocalAppOperation[];
+  adminReceipts: LocalAppAdminReceipt[];
+} {
+  const value = objectValue(studio, "Kept App Studio history");
+  const project = value.project === null ? null : projectRegistryEntry(value.project, 0);
+  if (project && project.workFolderId !== workFolderId) throw new Error("The kept App Project belongs to a different work-folder.");
+  const runtimeInstances = arrayValue(value.runtimeInstances, "Kept Development Instances").map((item, index) => {
+    const runtime = runtimeInstanceRegistryEntry(item, index);
+    if (runtime.kind !== "development" || runtime.workFolderId !== workFolderId || runtime.projectId !== project?.projectId) {
+      throw new Error("A kept Development Instance does not belong to this work-folder's App Project.");
+    }
+    return runtime;
+  });
+  const previews = arrayValue(value.previews, "Kept Local previews").map((item, index) => {
+    const preview = registryEntry(item, index);
+    if (preview.workFolderId !== workFolderId || preview.runtimeInstanceKind !== "development" || preview.releaseDigest !== null
+      || preview.projectId !== project?.projectId
+      || !runtimeInstances.some((runtime) => runtime.runtimeInstanceId === preview.runtimeInstanceId)) {
+      throw new Error("A kept Local preview does not belong to this work-folder's Development Instance.");
+    }
+    return preview;
+  });
+  const keptReleases = releases.map((item, index) => {
+    const entry = objectValue(item, `Kept Release ${index + 1}`);
+    const record = localAppReleaseRegistryEntry(entry.record, index);
+    if (record.projectId !== project?.projectId || record.sourceWorkFolderId !== workFolderId) {
+      throw new Error("A kept Release does not belong to this work-folder's App Project.");
+    }
+    return { record, release: entry.release };
+  });
+  const operations = arrayValue(value.operations, "Kept prepared operations").map((item, index) => {
+    const operation = localAppOperationValue(item, index);
+    if (operation.projectId !== project?.projectId && operation.targetWorkFolderId !== workFolderId) {
+      throw new Error("A kept prepared operation belongs to neither this App Project nor this work-folder.");
+    }
+    return operation;
+  });
+  const adminReceipts = arrayValue(value.adminReceipts, "Kept App Studio receipts").map((item, index) => {
+    const receipt = localAppAdminReceiptValue(item, index);
+    if (receipt.projectId !== project?.projectId) throw new Error("A kept App Studio receipt names a different App Project.");
+    return receipt;
+  });
+  assertUnique(runtimeInstances.map((item) => item.workFolderId), "Kept App Studio history holds two Development Instances.");
+  assertUnique(previews.map((item) => item.manifest.id), "Kept App Studio history holds the same Feature twice.");
+  assertUnique(previews.map((item) => item.featureInstallationId), "Kept App Studio history holds the same Feature Installation twice.");
+  assertUnique(keptReleases.map((item) => item.record.releaseDigest), "Kept App Studio history holds the same Release twice.");
+  assertUnique(operations.map((item) => item.operationId), "Kept App Studio history holds the same operation twice.");
+  return { project, runtimeInstances, previews, releases: keptReleases, operations, adminReceipts };
+}
+
+/**
+ * A kept Release envelope, verified against its own content digest and
+ * matched exactly against the registry record it was kept with — the same
+ * check startup applies to every stored Release.
+ */
+function keptReleaseEnvelope(record: LocalAppReleaseRegistryEntry, value: unknown): AppReleaseEnvelope {
+  const envelope = restrictedAppInput(() => assertLocalRestrictedAppRelease(value));
+  if (envelope.releaseDigest !== record.releaseDigest
+    || envelope.manifest.projectId !== record.projectId
+    || envelope.manifest.displayVersion !== record.displayVersion
+    || JSON.stringify(envelope.manifest.presentation) !== JSON.stringify(record.presentation)
+    || envelope.manifest.features.map((feature) => feature.featureId).join("\0") !== record.featureIds.join("\0")) {
+    throw new RestrictedAppError("INPUT_INVALID", "The kept Release does not match its record.");
+  }
+  return envelope;
 }
 
 function assertLocalRestrictedAppReleaseProjection(

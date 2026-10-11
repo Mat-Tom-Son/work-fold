@@ -353,7 +353,15 @@ test("work-folder lifecycle renames external metadata and removes linked versus 
   const removedLinked = await json(`${api.origin}/api/work-folders/${linked.workFolder.id}`, { method: "DELETE" }) as { removed: true; deleted: boolean };
   // Removing a linked registration destroys nothing, so nothing is kept —
   // neither the folder nor any app data belonging to it.
-  assert.deepEqual(removedLinked, { removed: true, deleted: false, workFolderRoot: linkedRoot, cleanupPending: false, recentlyDeleted: null, appRecentlyDeletedEntries: [] });
+  assert.deepEqual(removedLinked, {
+    removed: true,
+    deleted: false,
+    workFolderRoot: linkedRoot,
+    cleanupPending: false,
+    recentlyDeleted: null,
+    appRecentlyDeletedEntries: [],
+    appStudioRecentlyDeleted: null,
+  });
   assert.equal(existsSync(linkedRoot), true);
   assert.equal(existsSync(workFolderManifestFile(linkedRoot)), true);
   assert.equal(existsSync(workFolderStateDir(linkedRoot)), false);

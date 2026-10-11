@@ -95,7 +95,10 @@ test("managed-folder deletion failure returns committed removal and startup reco
       cleanupPending: boolean;
       recentlyDeleted: { entryId: string } | null;
     }>(api, `/api/work-folders/${workFolder.id}`, { method: "DELETE" });
-    assert.deepEqual(removal, { removed: true, deleted: false, workFolderRoot: workFolder.workFolderRoot, cleanupPending: true, recentlyDeleted: null, appRecentlyDeletedEntries: [] });
+    // The App Project went with the App state, after its copy reached Recently deleted.
+    const { appStudioRecentlyDeleted, ...rest } = removal as typeof removal & { appStudioRecentlyDeleted?: { entryId: string } | null };
+    assert.deepEqual(rest, { removed: true, deleted: false, workFolderRoot: workFolder.workFolderRoot, cleanupPending: true, recentlyDeleted: null, appRecentlyDeletedEntries: [] });
+    assert.equal((await api.recentlyDeleted.get(appStudioRecentlyDeleted?.entryId ?? ""))?.kind, "app-studio");
     assert.equal(existsSync(workFolder.workFolderRoot), true);
     assert.equal((await service.localAppStudio(workFolder.id)).project, null);
     assert.equal((await request<{ workFolders: Array<{ id: string }> }>(api, "/api/bootstrap")).workFolders.some((item) => item.id === workFolder.id), false);
@@ -187,7 +190,7 @@ test("post-intent Check cleanup failure returns committed pending removal and re
       `/api/work-folders/${workFolder.id}`,
       { method: "DELETE" },
     );
-    assert.deepEqual(removal, { removed: true, deleted: false, workFolderRoot: workFolder.workFolderRoot, cleanupPending: true, recentlyDeleted: null, appRecentlyDeletedEntries: [] });
+    assert.deepEqual(removal, { removed: true, deleted: false, workFolderRoot: workFolder.workFolderRoot, cleanupPending: true, recentlyDeleted: null, appRecentlyDeletedEntries: [], appStudioRecentlyDeleted: null });
     assert.equal((await listPendingWorkFolderRemovals())[0]?.phase, "requested");
     assert.deepEqual((await request<{ workFolders: unknown[] }>(api, "/api/bootstrap")).workFolders, []);
 
@@ -347,11 +350,12 @@ test("final registry persistence failure keeps a retryable intent after App and 
     assert.equal(removal.cleanupPending, true);
     assert.equal(existsSync(workFolder.workFolderRoot), false);
     // The claimed folder was moved, not erased (docs/receipts-not-gates.md, F20).
-    const kept = (await api.recentlyDeleted.list()).entries;
+    const kept = (await api.recentlyDeleted.list()).entries.filter((entry) => entry.kind === "work-folder");
     assert.equal(kept.length, 1);
-    assert.equal(kept[0]?.kind, "work-folder");
     assert.equal(kept[0]?.originalPath, workFolder.workFolderRoot);
     assert.equal(removal.recentlyDeleted?.entryId, kept[0]?.id);
+    // Its App Studio history waits beside it as its own item.
+    assert.equal((await api.recentlyDeleted.list()).entries.filter((entry) => entry.kind === "app-studio").length, 1);
     assert.equal((await service.localAppStudio(workFolder.id)).project, null);
     assert.equal((await listPendingWorkFolderRemovals())[0]?.phase, "app-state-removed");
 
@@ -462,7 +466,7 @@ test("post-intent App cleanup failure reports pending and cannot block later API
       `/api/work-folders/${workFolder.id}`,
       { method: "DELETE" },
     );
-    assert.deepEqual(removal, { removed: true, deleted: false, workFolderRoot: workFolder.workFolderRoot, cleanupPending: true, recentlyDeleted: null, appRecentlyDeletedEntries: [] });
+    assert.deepEqual(removal, { removed: true, deleted: false, workFolderRoot: workFolder.workFolderRoot, cleanupPending: true, recentlyDeleted: null, appRecentlyDeletedEntries: [], appStudioRecentlyDeleted: null });
     assert.equal((await listPendingWorkFolderRemovals())[0]?.phase, "requested");
     assert.equal(existsSync(workFolder.workFolderRoot), true);
     assert.deepEqual(runtime.authorities, [], "the durable removal intent must fence live broker authority");
@@ -500,6 +504,11 @@ test("post-intent App cleanup failure reports pending and cannot block later API
     });
     assert.equal(existsSync(workFolder.workFolderRoot), false);
     assert.deepEqual(await listPendingWorkFolderRemovals(), []);
+    // The retried removal owes the same copy the live one did: the App Studio
+    // history reaches Recently deleted before startup clears it.
+    const kept = (await api.recentlyDeleted.list()).entries.filter((entry) => entry.kind === "app-studio");
+    assert.deepEqual(kept.map((entry) => [entry.workFolderId, entry.reason, entry.receiptId]), [[workFolder.id, "apps.work-folder.removed", null]]);
+    assert.equal((await api.recentlyDeleted.readAppStudio(kept[0]!.id)).studio.previews.length, 1);
   } finally {
     await api?.close();
     await rm(sandbox, { recursive: true, force: true });

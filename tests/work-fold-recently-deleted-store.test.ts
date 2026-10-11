@@ -598,6 +598,136 @@ test("a deleted Release round-trips with its record and envelope, and a mismatch
   assert.deepEqual(await store.remove(entry.id), { removed: true });
 });
 
+test("a removed work-folder's App Studio history round-trips with its Releases and package copies, and a mismatched or damaged copy is named", async (t) => {
+  const root = await sandbox(t);
+  const store = await openStore(root);
+  const projectId = "project_11111111-2222-4333-8444-555555555555";
+  const releaseDigest = `sha256:${"c".repeat(64)}`;
+  const packageDigest = "a".repeat(64);
+  const identity = { kind: "app-studio" as const, workFolderId: "work-folder-1", projectId };
+  const studio = {
+    project: { workFolderId: "work-folder-1", projectId, presentation: { title: "Quotes" } },
+    runtimeInstances: [{ kind: "development", workFolderId: "work-folder-1", projectId }],
+    previews: [{ workFolderId: "work-folder-1", projectId, digest: packageDigest }],
+    operations: [
+      { operationId: "operation_1", projectId, targetWorkFolderId: "work-folder-2" },
+      { operationId: "operation_2", projectId: "project_other", targetWorkFolderId: "work-folder-1" },
+    ],
+    adminReceipts: [{ receiptId: "admin_1", projectId }],
+  };
+  const releases = [{
+    record: { projectId, sourceWorkFolderId: "work-folder-1", releaseDigest, displayVersion: "1.0.0", state: "published" },
+    release: { releaseDigest, manifest: { displayVersion: "1.0.0" } },
+  }];
+  const packageRoot = join(root, "staged", packageDigest);
+  await mkdir(join(packageRoot, "nested"), { recursive: true });
+  await writeFile(join(packageRoot, "package.json"), "{\"name\":\"quotes\"}");
+  await writeFile(join(packageRoot, "nested", "app.js"), "export {};\n");
+
+  const entry = await store.moveAppStudioToRecentlyDeleted({
+    reason: "apps.work-folder.removed",
+    identity,
+    studio,
+    releases,
+    packages: [{ digest: packageDigest, root: packageRoot }],
+    workFolderId: "work-folder-1",
+    workFolderName: "Fold work-folder",
+    displayName: "Quotes (App Studio)",
+    receiptId: "settings:11111111-2222-4333-8444-555555555555",
+  });
+  assert.equal(entry.kind, "app-studio");
+  assert.equal(entry.reason, "apps.work-folder.removed");
+  assert.equal(entry.displayName, "Quotes (App Studio)");
+  assert.equal(entry.originalPath, projectId);
+  assert.equal(entry.payloadPath, join(entry.entryPath, "payload", "app-studio"));
+  assert.deepEqual(entry.payload, identity);
+  assert.equal(entry.complete, true);
+  assert.ok(entry.sizeBytes > 0);
+  assert.equal(await readFile(join(packageRoot, "nested", "app.js"), "utf8"), "export {};\n", "the original package folder is copied, never moved");
+  assert.deepEqual(await readdir(join(root, "recently-deleted", "incoming")), [], "nothing is left half-assembled");
+
+  const reopened = await openStore(root);
+  assert.deepEqual((await reopened.list()).entries.map((item) => [item.id, item.kind]), [[entry.id, "app-studio"]], "the manifest parses back");
+  const read = await reopened.readAppStudio(entry.id);
+  assert.deepEqual(read.identity, identity);
+  assert.deepEqual(read.studio, studio);
+  assert.deepEqual(read.releases, releases);
+  assert.deepEqual([...read.packageRoots.keys()], [packageDigest]);
+  assert.equal(await readFile(join(read.packageRoots.get(packageDigest)!, "nested", "app.js"), "utf8"), "export {};\n");
+  await rejectsRecentlyDeletedError(reopened.readAppData(entry.id), "INPUT_INVALID", /not app data/);
+  await rejectsRecentlyDeletedError(reopened.readAppRelease(entry.id), "INPUT_INVALID", /not a Release/);
+  await rejectsRecentlyDeletedError(reopened.restoreTree(entry.id, { absolutePath: join(root, "anywhere") }), "INPUT_INVALID", /App Studio history/);
+
+  // A target-only work-folder keeps just the installs that were aimed at it.
+  const targetOnly = await store.moveAppStudioToRecentlyDeleted({
+    reason: "apps.work-folder.removed",
+    identity: { kind: "app-studio", workFolderId: "work-folder-2", projectId: null },
+    studio: { project: null, runtimeInstances: [], previews: [], operations: [studio.operations[0]], adminReceipts: [] },
+    releases: [],
+    packages: [],
+    workFolderId: "work-folder-2",
+    receiptId: null,
+  });
+  assert.equal(targetOnly.originalPath, "work-folder-2");
+  assert.deepEqual((await store.readAppStudio(targetOnly.id)).studio.operations, [studio.operations[0]]);
+
+  // Anything naming another Project or work-folder is refused before anything is written.
+  const base = {
+    reason: "apps.work-folder.removed" as const, identity, studio, releases,
+    packages: [{ digest: packageDigest, root: packageRoot }], workFolderId: "work-folder-1", receiptId: null,
+  };
+  for (const [mismatch, pattern] of [
+    [{ studio: { ...studio, project: { ...studio.project, projectId: "project_other" } } }, /different Project or work-folder/],
+    [{ studio: { ...studio, previews: [{ ...studio.previews[0], projectId: "project_other" }] } }, /different App Project/],
+    [{ studio: { ...studio, operations: [{ operationId: "operation_3", projectId: "project_other", targetWorkFolderId: "work-folder-9" }] } }, /neither this App Project nor this work-folder/],
+    [{ studio: { ...studio, extra: [] } }, /not complete/],
+    [{ releases: [{ ...releases[0], record: { ...releases[0]!.record, sourceWorkFolderId: "work-folder-9" } }] }, /different App Project or work-folder/],
+    [{ releases: [{ ...releases[0], release: { releaseDigest: `sha256:${"d".repeat(64)}` } }] }, /different Release/],
+    [{ packages: [{ digest: "not-a-digest", root: packageRoot }] }, /content digest/],
+    [{ packages: [{ digest: packageDigest, root: join(root, "missing") }] }, /not a real folder/],
+    [{ workFolderId: "work-folder-9" }, /work-folder it is kept for/],
+  ] as const) {
+    await rejectsRecentlyDeletedError(store.moveAppStudioToRecentlyDeleted({ ...base, ...mismatch } as never), "INPUT_INVALID", pattern);
+  }
+  assert.equal((await store.list()).entries.length, 2);
+
+  // Damaged content on disk is STORE_DAMAGED on read; the entry stays listed.
+  const releaseFile = join(entry.payloadPath, "releases", `${"c".repeat(64)}.json`);
+  const releaseText = await readFile(releaseFile, "utf8");
+  await writeFile(releaseFile, releaseText.replace(`"sourceWorkFolderId":"work-folder-1"`, `"sourceWorkFolderId":"work-folder-9"`));
+  await rejectsRecentlyDeletedError(store.readAppStudio(entry.id), "STORE_DAMAGED", /different App Project or work-folder/);
+  await writeFile(releaseFile, releaseText);
+  await rm(join(entry.payloadPath, "packages", packageDigest), { recursive: true });
+  await rejectsRecentlyDeletedError(store.readAppStudio(entry.id), "STORE_DAMAGED", /package .* is missing/);
+  await writeFile(join(entry.payloadPath, "studio.json"), "{\"format\":");
+  await rejectsRecentlyDeletedError(store.readAppStudio(entry.id), "STORE_DAMAGED", /cannot be read/);
+  assert.equal((await store.list()).entries.length, 2);
+  assert.deepEqual(await store.remove(entry.id), { removed: true });
+});
+
+test("an interrupted App Studio copy never becomes a complete entry", async (t) => {
+  const root = await sandbox(t);
+  const packageDigest = "b".repeat(64);
+  const packageRoot = join(root, "staged", packageDigest);
+  await mkdir(packageRoot, { recursive: true });
+  await writeFile(join(packageRoot, "package.json"), "{}");
+  // The package copy fails part-way: nothing is kept, and nothing half-written is listed.
+  const store = await openStore(root, { io: { cp: async () => { throw new Error("disk full"); } } });
+  await rejectsRecentlyDeletedError(store.moveAppStudioToRecentlyDeleted({
+    reason: "apps.work-folder.removed",
+    identity: { kind: "app-studio", workFolderId: "work-folder-1", projectId: null },
+    studio: { project: null, runtimeInstances: [], previews: [], operations: [], adminReceipts: [] },
+    releases: [],
+    packages: [{ digest: packageDigest, root: packageRoot }],
+    workFolderId: "work-folder-1",
+    receiptId: null,
+  }), "MOVE_FAILED", /could not keep a copy of the App Studio history/);
+  const listing = await store.list();
+  assert.deepEqual(listing.entries, []);
+  assert.deepEqual(listing.damaged, []);
+  assert.deepEqual(await readdir(join(root, "recently-deleted", "incoming")), []);
+});
+
 test("retention purge erases only expired entries, holds legacy trees, and runs once per interval", async (t) => {
   const root = await sandbox(t);
   let clock = new Date("2026-09-10T00:00:00.000Z");

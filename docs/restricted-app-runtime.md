@@ -608,9 +608,28 @@ Removing a source work-folder is blocked while its Project has any active local 
 Instance or retained data; removing a target work-folder is blocked only while an App
 Instance is attached there. work-fold requires the whole App Instance to be
 uninstalled first so a work-folder-removal shortcut cannot silently choose a data
-disposition. After explicit purge, source removal clears the machine-local App
-Project and Release lineage. Target removal cancels unactivated operations
-prepared for that work-folder.
+disposition. After explicit purge, source removal takes the machine-local App
+Project with it — its Development Instance and previews, every Release, its
+prepared operations, and its receipts — and target removal cancels unactivated
+operations prepared for that work-folder.
+
+Neither is erased (2026-10-11). Before anything is cleared, the host writes it
+all into Recently deleted as one **App Studio** item: the registry records, a
+copy of each preview's package folder, and each Release's record and verified
+envelope. If that copy cannot be written, nothing is cleared and the removal
+stays pending; startup recovery of an interrupted removal writes the same
+copies, the previews' data included, before it clears anything. Restoring the
+item needs the work-folder registered again (restore it from Recently deleted,
+or add its folder again) and refuses plainly until it is. It re-validates every
+record, re-places each package only if it matches its content digest and its
+record, re-verifies each envelope as startup does, and brings the previews back
+with their grants, automation states, and run receipts under fresh authority
+generations; connection secrets were removed with them and are entered again.
+A prepared operation returns only while its Release, target work-folder, and
+App Instance still fit; the rest are counted, not guessed at. Each preview's
+kept data goes back into it in the same act. A different App Project started in
+the work-folder since is never merged with the kept one; only an empty one —
+no apps, Releases, operations, App Instances, or retained data — gives way.
 
 The restricted app itself appears directly in the contributed rail. Selecting
 it mounts its navigator; the app decides which persistent work tabs to open.

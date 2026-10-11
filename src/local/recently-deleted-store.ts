@@ -5,9 +5,10 @@
  * Nothing work-fold destroys is permanent at the moment it happens. History
  * covers ordinary deletion; whatever History cannot capture (oversized,
  * unreadable, symbolic-link, or always-excluded content), a deleted managed
- * work-folder, app data that was cleared or purged, and a deleted App Studio
- * Release is moved here instead of erased, and stays restorable for a
- * retention window (default 30 days, 1..365).
+ * work-folder, app data that was cleared or purged, a deleted App Studio
+ * Release, and the App Studio history a removed work-folder takes with it is
+ * moved here instead of erased, and stays restorable for a retention window
+ * (default 30 days, 1..365).
  *
  * Layout under `rootPath` (`workFoldRecentlyDeletedRoot()` in production):
  *
@@ -16,6 +17,9 @@
  *   entries/<entryId>/payload/<name>           file | folder | work-folder: the moved tree, original basename
  *   entries/<entryId>/payload/app-data.json    app-storage | app-retained: a RestrictedAppDataBackup
  *   entries/<entryId>/payload/app-release.json app-release: the Release's registry record and its verified envelope
+ *   entries/<entryId>/payload/app-studio/      app-studio: studio.json (the Project, Development Instance, previews,
+ *                                              operations, receipts), releases/<hex>.json (record and envelope
+ *                                              per Release), packages/<digest>/ (each preview's staged package)
  *   entries/<entryId>/state/                   work-folder only: the work-folder's machine-local state dir (History)
  *   incoming/<uuid>/                           cross-device copy staging, swept on open()
  *
@@ -29,11 +33,13 @@
  *   store.moveTreeToRecentlyDeleted(input)       move a file, folder, or work-folder in
  *   store.moveAppDataToRecentlyDeleted(input)    write a verified app-data export in
  *   store.moveAppReleaseToRecentlyDeleted(input) write a deleted Release's record and envelope in
+ *   store.moveAppStudioToRecentlyDeleted(input)  write a removed work-folder's App Studio history in
  *   store.list() / store.get(id)                 tolerant listing; damaged records are reported, never dropped
  *   store.attachWorkFolderState(id, path)        finish carrying History after an interrupted work-folder deletion
  *   store.restoreTree(id, destination)           move a tree back, collision-renaming like work-folder.ts
  *   store.readAppData(id)                        read and re-verify an app-data export
  *   store.readAppRelease(id)                     read a kept Release back (the service re-verifies it)
+ *   store.readAppStudio(id)                      read kept App Studio history back (the service re-verifies it)
  *   store.remove(id)                             "Delete now"; refuses (HELD) for legacy `.workspace/` trees
  *   store.purgeExpired(now)                      retention purge; fails closed on legacy trees
  *   store.purgeExpiredIfDue(intervalMs)          the wake-tolerant "once a day while awake" wrapper
@@ -93,7 +99,7 @@ export const WORKFOLD_RECENTLY_DELETED_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Shape of every entry id; CLI and route input must match it before any path join. */
 export const workFoldRecentlyDeletedEntryIdPattern = /^trash-\d{14}-[0-9a-f]{8}$/;
 
-export type WorkFoldRecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release";
+export type WorkFoldRecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release" | "app-studio";
 
 export type WorkFoldRecentlyDeletedReason =
   | "files.delete"
@@ -104,7 +110,7 @@ export type WorkFoldRecentlyDeletedReason =
   | "work-folders.delete"
   /** Removing a Development preview, which takes its namespace with it. */
   | "apps.remove"
-  /** Unregistering a work-folder removes the previews installed in it. */
+  /** Unregistering a work-folder removes the previews installed in it, and its App Studio history. */
   | "apps.work-folder.removed"
   | "apps.storage.clear"
   | "apps.retained.purge"
@@ -143,11 +149,24 @@ export type WorkFoldRecentlyDeletedAppReleaseIdentity = {
   sourceWorkFolderId: string;
 };
 
+/**
+ * Whose App Studio history an `app-studio` entry keeps: the work-folder it was
+ * removed with and the App Project whose source that work-folder was. A
+ * work-folder that only had prepared installs aimed at it keeps those with
+ * `projectId: null`.
+ */
+export type WorkFoldRecentlyDeletedAppStudioIdentity = {
+  kind: "app-studio";
+  workFolderId: string;
+  projectId: string | null;
+};
+
 export type WorkFoldRecentlyDeletedPayload =
   /** file | folder | work-folder: the basename of the moved tree under `payload/`. */
   | { kind: "tree"; name: string }
   | WorkFoldRecentlyDeletedAppDataIdentity
-  | WorkFoldRecentlyDeletedAppReleaseIdentity;
+  | WorkFoldRecentlyDeletedAppReleaseIdentity
+  | WorkFoldRecentlyDeletedAppStudioIdentity;
 
 export interface WorkFoldRecentlyDeletedHold {
   /**
@@ -169,7 +188,7 @@ export interface WorkFoldRecentlyDeletedManifest {
   workFolderName?: string;
   /** Person-facing label; the payload name remains the recovery identity. */
   displayName?: string;
-  /** file/folder: work-folder-relative path. work-folder: absolute managed folder path. app-storage/app-retained: `<appId>/<dataNamespaceId>`. app-release: `<projectId>/<releaseDigest>`. */
+  /** file/folder: work-folder-relative path. work-folder: absolute managed folder path. app-storage/app-retained: `<appId>/<dataNamespaceId>`. app-release: `<projectId>/<releaseDigest>`. app-studio: the project id, or the work-folder id when there is no Project. */
   originalPath: string;
   sizeBytes: number;
   /** The measurement walk hit its budget, so `sizeBytes` is a lower bound. */
@@ -289,6 +308,39 @@ export interface WorkFoldRecentlyDeletedAppRelease {
   release: Record<string, unknown>;
 }
 
+/** The registry records an `app-studio` entry keeps, as plain JSON; the service re-validates each before a restore. */
+export interface WorkFoldRecentlyDeletedAppStudioRecords {
+  project: unknown;
+  runtimeInstances: unknown[];
+  previews: unknown[];
+  operations: unknown[];
+  adminReceipts: unknown[];
+}
+
+export interface WorkFoldRecentlyDeletedAppStudioInput {
+  reason: WorkFoldRecentlyDeletedReason;
+  identity: WorkFoldRecentlyDeletedAppStudioIdentity;
+  studio: WorkFoldRecentlyDeletedAppStudioRecords;
+  /** One registry record and verified envelope per Release, like an `app-release` entry. */
+  releases: ReadonlyArray<{ record: unknown; release: unknown }>;
+  /** Each preview's staged package folder, by package digest. The store copies them; it never moves the originals. */
+  packages: ReadonlyArray<{ digest: string; root: string }>;
+  workFolderId: string;
+  workFolderName?: string;
+  /** Person-facing label, such as the App Project's title. */
+  displayName?: string;
+  receiptId: string | null;
+}
+
+/** Kept App Studio history as `readAppStudio` returns it: still to be re-verified by the service. */
+export interface WorkFoldRecentlyDeletedAppStudio {
+  identity: WorkFoldRecentlyDeletedAppStudioIdentity;
+  studio: WorkFoldRecentlyDeletedAppStudioRecords;
+  releases: Array<{ record: Record<string, unknown>; release: Record<string, unknown> }>;
+  /** Package digest → the kept package folder inside the entry; the service re-stages each from here. */
+  packageRoots: Map<string, string>;
+}
+
 export interface WorkFoldRecentlyDeletedRestoreDestination {
   /** Where the tree goes back. An occupied path is collision-renamed (`stem (2).ext` / `name-2`). */
   absolutePath: string;
@@ -312,7 +364,7 @@ export interface WorkFoldRecentlyDeletedPurgeResult {
   failed: WorkFoldRecentlyDeletedDamagedRecord[];
 }
 
-const RECENTLY_DELETED_KINDS: readonly WorkFoldRecentlyDeletedKind[] = ["file", "folder", "work-folder", "app-storage", "app-retained", "app-release"];
+const RECENTLY_DELETED_KINDS: readonly WorkFoldRecentlyDeletedKind[] = ["file", "folder", "work-folder", "app-storage", "app-retained", "app-release", "app-studio"];
 const RECENTLY_DELETED_REASONS: readonly WorkFoldRecentlyDeletedReason[] = [
   "files.delete", "agent.chat.delete", "chats.delete", "work-folders.delete", "apps.remove", "apps.work-folder.removed",
   "apps.storage.clear", "apps.retained.purge", "apps.uninstall.purge", "apps.release.delete",
@@ -328,9 +380,16 @@ const APP_DATA_IDENTITY_KEYS = new Set([
   "sourceWorkFolderId", "projectId", "releaseDigest", "retainedDataId",
 ]);
 const APP_RELEASE_IDENTITY_KEYS = new Set(["kind", "projectId", "releaseDigest", "displayVersion", "sourceWorkFolderId"]);
+const APP_STUDIO_IDENTITY_KEYS = new Set(["kind", "workFolderId", "projectId"]);
+const APP_STUDIO_RECORD_KEYS = ["project", "runtimeInstances", "previews", "operations", "adminReceipts"] as const;
 const APP_DATA_FILE = "app-data.json";
 const APP_RELEASE_FILE = "app-release.json";
 const APP_RELEASE_FORMAT = "work-fold.app-release-recovery";
+const APP_STUDIO_DIR = "app-studio";
+const APP_STUDIO_FILE = "studio.json";
+const APP_STUDIO_FORMAT = "work-fold.app-studio-recovery";
+const RELEASE_DIGEST_PATTERN = /^sha256:([0-9a-f]{64})$/;
+const PACKAGE_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const MANIFEST_FILE = "manifest.json";
 const MEASURE_ENTRY_BUDGET = 64 * 1024;
 const MAX_UNCOVERED_PATHS = 65536;
@@ -647,6 +706,119 @@ export class WorkFoldRecentlyDeletedStore {
     });
   }
 
+  /**
+   * Writes the App Studio history a removed work-folder takes with it as
+   * `payload/app-studio/`: the registry records, one file per Release, and a
+   * copy of each preview's staged package folder. Everything must name the
+   * identity the entry claims; a mismatch is INPUT_INVALID and nothing is
+   * written. The package folders are copied, never moved, so the service's
+   * own cleanup stays the only thing that removes them; the restore path
+   * re-stages each one against its content digest.
+   */
+  async moveAppStudioToRecentlyDeleted(input: WorkFoldRecentlyDeletedAppStudioInput): Promise<WorkFoldRecentlyDeletedEntry> {
+    assertReason(input.reason);
+    const workFolderId = requireText(input.workFolderId, "work-folder id", 160);
+    const workFolderName = input.workFolderName === undefined ? undefined : requireText(input.workFolderName, "work-folder name", 200);
+    const displayName = input.displayName === undefined ? undefined : requireText(input.displayName, "Display name", 200);
+    const receiptId = requireReceiptId(input.receiptId);
+    const identity = normalizeAppStudioIdentity(input.identity);
+    if (identity.workFolderId !== workFolderId) {
+      throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "The App Studio history must belong to the work-folder it is kept for.");
+    }
+    const studio = verifyKeptStudio(input.studio, identity, "INPUT_INVALID");
+    if (!Array.isArray(input.releases) || !Array.isArray(input.packages)) {
+      throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "The App Studio history must list its Releases and packages.");
+    }
+    const releases = input.releases.map((item) => {
+      const kept = verifyKeptStudioRelease(item, identity, "INPUT_INVALID");
+      return { hex: RELEASE_DIGEST_PATTERN.exec(kept.record.releaseDigest as string)![1]!, kept };
+    });
+    assertUniqueText(releases.map((item) => item.hex), "Release");
+    const packages: Array<{ digest: string; root: string }> = [];
+    for (const item of input.packages) {
+      const digest = typeof item?.digest === "string" && PACKAGE_DIGEST_PATTERN.test(item.digest) ? item.digest : null;
+      if (!digest) throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "A kept package needs its content digest.");
+      const root = requireAbsolutePath(item.root, "The package folder");
+      const info = await lstat(root).catch(() => null);
+      if (!info?.isDirectory() || info.isSymbolicLink()) {
+        throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `The package folder for ${digest} is not a real folder.`);
+      }
+      packages.push({ digest, root });
+    }
+    assertUniqueText(packages.map((item) => item.digest), "package");
+    const studioFile = `${JSON.stringify({
+      format: APP_STUDIO_FORMAT,
+      formatVersion: 1,
+      studio,
+      releases: releases.map((item) => item.kept.record.releaseDigest),
+      packages: packages.map((item) => item.digest),
+    })}\n`;
+
+    return await this.#mutate(async () => {
+      const deletedAt = this.#now().toISOString();
+      const id = newEntryId(deletedAt);
+      const entryPath = join(this.rootPath, "entries", id);
+      const payloadPath = join(entryPath, "payload", APP_STUDIO_DIR);
+      const manifest: WorkFoldRecentlyDeletedManifest = {
+        version: 1,
+        id,
+        kind: "app-studio",
+        reason: input.reason,
+        workFolderId,
+        ...(workFolderName === undefined ? {} : { workFolderName }),
+        ...(displayName === undefined ? {} : { displayName }),
+        originalPath: identity.projectId ?? identity.workFolderId,
+        sizeBytes: 0,
+        deletedAt,
+        restoreBy: addDays(deletedAt, this.#settings.retentionDays),
+        receiptId,
+        payload: identity,
+        complete: false,
+      };
+      // The copy is assembled under `incoming/` and renamed into the entry
+      // whole, so `payload/app-studio` exists only once everything it names
+      // does, and an interrupted copy is never repaired into a complete entry.
+      const stagingDir = this.#newStagingDir();
+      const building = join(stagingDir, APP_STUDIO_DIR);
+      try {
+        await mkdir(entryPath, { mode: 0o700 });
+        await mkdir(join(entryPath, "payload"), { mode: 0o700 });
+        await this.#writeManifest(entryPath, manifest);
+        await mkdir(join(building, "releases"), { recursive: true, mode: 0o700 });
+        await mkdir(join(building, "packages"), { mode: 0o700 });
+        for (const { hex, kept } of releases) {
+          await writeFileAtomic(
+            join(building, "releases", `${hex}.json`),
+            `${JSON.stringify({ format: APP_RELEASE_FORMAT, formatVersion: 1, record: kept.record, release: kept.release })}\n`,
+          );
+        }
+        for (const item of packages) {
+          const destination = join(building, "packages", item.digest);
+          await this.#io.cp(item.root, destination, {
+            recursive: true, force: false, errorOnExist: true, dereference: false, verbatimSymlinks: true, preserveTimestamps: true,
+          });
+          await syncTree(destination);
+        }
+        await writeFileAtomic(join(building, APP_STUDIO_FILE), studioFile);
+        await this.#io.rename(building, payloadPath);
+        await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+        const measured = await measureTree(payloadPath);
+        const completed: WorkFoldRecentlyDeletedManifest = {
+          ...manifest,
+          sizeBytes: measured.sizeBytes,
+          ...(measured.approximate ? { sizeApproximate: true as const } : {}),
+          complete: true,
+        };
+        await this.#writeManifest(entryPath, completed);
+        return { ...completed, entryPath, payloadPath };
+      } catch (error) {
+        await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+        await rm(entryPath, { recursive: true, force: true }).catch(() => undefined);
+        throw new WorkFoldRecentlyDeletedError("MOVE_FAILED", `work-fold could not keep a copy of the App Studio history in ${RECENTLY_DELETED}: ${errorMessage(error)}.`, { cause: error });
+      }
+    });
+  }
+
   /** Every readable entry, newest first, plus the records that could not be trusted. Repairs missed commits. */
   async list(): Promise<WorkFoldRecentlyDeletedListing> {
     return await this.#mutate(async () => {
@@ -709,7 +881,8 @@ export class WorkFoldRecentlyDeletedStore {
     return await this.#mutate(async () => {
       const entry = await this.#requireEntry(id, true);
       if (entry.payload.kind !== "tree") {
-        throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `${id} holds ${entry.payload.kind === "app-release" ? "a Release" : "app data"}, which cannot be put back as a file or folder this way.`);
+        const holds = entry.payload.kind === "app-release" ? "a Release" : entry.payload.kind === "app-studio" ? "App Studio history" : "app data";
+        throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `${id} holds ${holds}, which cannot be put back as a file or folder this way.`);
       }
       if (destination.onConflict === "error" && existsSync(desired)) {
         throw new WorkFoldRecentlyDeletedError(
@@ -806,6 +979,72 @@ export class WorkFoldRecentlyDeletedStore {
       }
       const kept = verifyKeptRelease(parsed, entry.payload, "STORE_DAMAGED", id);
       return { identity: { ...entry.payload }, record: kept.record, release: kept.release };
+    });
+  }
+
+  /**
+   * Reads kept App Studio history back: its records, every Release file, and
+   * where each kept package folder is. A truncated file, a Release or record
+   * naming another Project or work-folder, or a missing package is
+   * STORE_DAMAGED. The package bytes themselves are the service's to verify
+   * when it re-stages them.
+   */
+  async readAppStudio(id: string): Promise<WorkFoldRecentlyDeletedAppStudio> {
+    assertEntryId(id);
+    return await this.#mutate(async () => {
+      const entry = await this.#requireEntry(id, false);
+      if (entry.payload.kind !== "app-studio") {
+        throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `${id} is a ${entry.kind}, not App Studio history.`);
+      }
+      const identity = entry.payload;
+      const damaged = (reason: string, cause?: unknown): never => {
+        throw new WorkFoldRecentlyDeletedError(
+          "STORE_DAMAGED",
+          `The App Studio history kept as ${id} in ${RECENTLY_DELETED} failed its check: ${reason}`,
+          { entryId: id, ...(cause === undefined ? {} : { cause }) },
+        );
+      };
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await readFile(join(entry.payloadPath, APP_STUDIO_FILE), "utf8"));
+      } catch (error) {
+        return damaged(`it cannot be read: ${errorMessage(error)}`, error);
+      }
+      const file = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+      if (!file || Object.keys(file).some((key) => !["format", "formatVersion", "studio", "releases", "packages"].includes(key))
+        || file.format !== APP_STUDIO_FORMAT || file.formatVersion !== 1
+        || !Array.isArray(file.releases) || !Array.isArray(file.packages)) {
+        return damaged("it is not kept App Studio history.");
+      }
+      const studio = verifyKeptStudio(file.studio, identity, "STORE_DAMAGED", id);
+      const releases: WorkFoldRecentlyDeletedAppStudio["releases"] = [];
+      for (const digest of file.releases) {
+        const match = typeof digest === "string" ? RELEASE_DIGEST_PATTERN.exec(digest) : null;
+        if (!match) return damaged("it lists an invalid Release.");
+        let release: unknown;
+        try {
+          release = JSON.parse(await readFile(join(entry.payloadPath, "releases", `${match[1]}.json`), "utf8"));
+        } catch (error) {
+          return damaged(`Release ${digest} cannot be read: ${errorMessage(error)}`, error);
+        }
+        const keptRelease = release && typeof release === "object" && !Array.isArray(release) ? release as Record<string, unknown> : null;
+        if (!keptRelease || keptRelease.format !== APP_RELEASE_FORMAT || keptRelease.formatVersion !== 1
+          || Object.keys(keptRelease).some((key) => !["format", "formatVersion", "record", "release"].includes(key))) {
+          return damaged(`Release ${digest} is not a kept Release.`);
+        }
+        const kept = verifyKeptStudioRelease({ record: keptRelease.record, release: keptRelease.release }, identity, "STORE_DAMAGED", id);
+        if (kept.record.releaseDigest !== digest) return damaged(`Release ${digest} names a different Release.`);
+        releases.push(kept);
+      }
+      const packageRoots = new Map<string, string>();
+      for (const digest of file.packages) {
+        if (typeof digest !== "string" || !PACKAGE_DIGEST_PATTERN.test(digest)) return damaged("it lists an invalid package.");
+        const root = join(entry.payloadPath, "packages", digest);
+        const info = await lstat(root).catch(() => null);
+        if (!info?.isDirectory() || info.isSymbolicLink()) return damaged(`the package ${digest} is missing.`);
+        packageRoots.set(digest, root);
+      }
+      return { identity: { ...identity }, studio, releases, packageRoots };
     });
   }
 
@@ -1016,7 +1255,9 @@ export class WorkFoldRecentlyDeletedStore {
     if (manifest.id !== id) return { state: "damaged", id, error: `manifest.json names ${manifest.id} instead of ${id}.` };
     const payloadPath = join(entryPath, "payload", manifest.payload.kind === "tree"
       ? manifest.payload.name
-      : manifest.payload.kind === "app-release" ? APP_RELEASE_FILE : APP_DATA_FILE);
+      : manifest.payload.kind === "app-release"
+        ? APP_RELEASE_FILE
+        : manifest.payload.kind === "app-studio" ? APP_STUDIO_DIR : APP_DATA_FILE);
     const payloadInfo = await lstat(payloadPath).catch(() => null);
     if (!payloadInfo) {
       return { state: "damaged", id, error: manifest.complete ? "its content is missing." : "its content never arrived." };
@@ -1043,7 +1284,9 @@ export class WorkFoldRecentlyDeletedStore {
     }
     if (!manifest.complete) {
       // The move landed but the commit never happened (a crash between the two manifest writes).
-      const measured = manifest.payload.kind === "tree" ? await measureTree(payloadPath) : { sizeBytes: payloadInfo.size, approximate: false };
+      const measured = manifest.payload.kind === "tree" || manifest.payload.kind === "app-studio"
+        ? await measureTree(payloadPath)
+        : { sizeBytes: payloadInfo.size, approximate: false };
       manifest = {
         ...manifest,
         sizeBytes: measured.sizeBytes,
@@ -1237,6 +1480,120 @@ function verifyKeptRelease(
   return { record, release };
 }
 
+function normalizeAppStudioIdentity(value: unknown): WorkFoldRecentlyDeletedAppStudioIdentity {
+  const invalid = (): never => {
+    throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "The App Studio identity must name its work-folder and App Project.");
+  };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalid();
+  if (Object.keys(value).some((key) => !APP_STUDIO_IDENTITY_KEYS.has(key))) return invalid();
+  const raw = value as Partial<WorkFoldRecentlyDeletedAppStudioIdentity>;
+  if (raw.kind !== "app-studio" || !Object.hasOwn(raw, "projectId")) return invalid();
+  const text = (field: unknown): string => {
+    if (typeof field !== "string" || !field.trim() || field.length > 512 || FORBIDDEN_TEXT.test(field)) return invalid();
+    return field;
+  };
+  return {
+    kind: "app-studio",
+    workFolderId: text(raw.workFolderId),
+    projectId: raw.projectId === null ? null : text(raw.projectId),
+  };
+}
+
+/**
+ * The closed shape of kept App Studio records, and that each one names the
+ * entry's work-folder and App Project. Their full shapes and the links between
+ * them are the service's to verify at restore time.
+ */
+function verifyKeptStudio(
+  value: unknown,
+  identity: WorkFoldRecentlyDeletedAppStudioIdentity,
+  code: "INPUT_INVALID" | "STORE_DAMAGED",
+  entryId?: string,
+): WorkFoldRecentlyDeletedAppStudioRecords {
+  const fail = (reason: string): never => {
+    throw new WorkFoldRecentlyDeletedError(
+      code,
+      code === "INPUT_INVALID"
+        ? `The App Studio history cannot be kept: ${reason}`
+        : `The App Studio history kept as ${entryId} in ${RECENTLY_DELETED} failed its check: ${reason}`,
+      entryId === undefined ? {} : { entryId },
+    );
+  };
+  const object = (field: unknown): Record<string, unknown> | null => (
+    field && typeof field === "object" && !Array.isArray(field) ? field as Record<string, unknown> : null
+  );
+  const studio = object(value);
+  if (!studio || Object.keys(studio).some((key) => !(APP_STUDIO_RECORD_KEYS as readonly string[]).includes(key))
+    || APP_STUDIO_RECORD_KEYS.some((key) => key !== "project" && !Array.isArray(studio[key]))) {
+    return fail("its records are not complete.");
+  }
+  const project = studio.project === null ? null : object(studio.project);
+  if (studio.project !== null && !project) return fail("its App Project record is invalid.");
+  if ((project?.projectId ?? null) !== identity.projectId || (project && project.workFolderId !== identity.workFolderId)) {
+    return fail("its App Project names a different Project or work-folder.");
+  }
+  const owned = [
+    ...(studio.runtimeInstances as unknown[]),
+    ...(studio.previews as unknown[]),
+    ...(studio.adminReceipts as unknown[]),
+  ];
+  if (owned.some((record) => object(record)?.projectId !== identity.projectId)) {
+    return fail("a record names a different App Project.");
+  }
+  if ((studio.operations as unknown[]).some((record) => {
+    const operation = object(record);
+    return !operation || (operation.projectId !== identity.projectId && operation.targetWorkFolderId !== identity.workFolderId);
+  })) {
+    return fail("a prepared operation belongs to neither this App Project nor this work-folder.");
+  }
+  return {
+    project: project ?? null,
+    runtimeInstances: studio.runtimeInstances as unknown[],
+    previews: studio.previews as unknown[],
+    operations: studio.operations as unknown[],
+    adminReceipts: studio.adminReceipts as unknown[],
+  };
+}
+
+/** One kept Release inside App Studio history: its record and envelope name the same Release of this Project. */
+function verifyKeptStudioRelease(
+  value: unknown,
+  identity: WorkFoldRecentlyDeletedAppStudioIdentity,
+  code: "INPUT_INVALID" | "STORE_DAMAGED",
+  entryId?: string,
+): { record: Record<string, unknown>; release: Record<string, unknown> } {
+  const fail = (reason: string): never => {
+    throw new WorkFoldRecentlyDeletedError(
+      code,
+      code === "INPUT_INVALID"
+        ? `The App Studio history cannot be kept: ${reason}`
+        : `The App Studio history kept as ${entryId} in ${RECENTLY_DELETED} failed its check: ${reason}`,
+      entryId === undefined ? {} : { entryId },
+    );
+  };
+  const object = (field: unknown): Record<string, unknown> | null => (
+    field && typeof field === "object" && !Array.isArray(field) ? field as Record<string, unknown> : null
+  );
+  const item = object(value);
+  const record = object(item?.record);
+  const release = object(item?.release);
+  if (!item || !record || !release) return fail("a Release record or envelope is missing.");
+  if (typeof record.releaseDigest !== "string" || !RELEASE_DIGEST_PATTERN.test(record.releaseDigest)
+    || release.releaseDigest !== record.releaseDigest) {
+    return fail("a Release envelope names a different Release.");
+  }
+  if (identity.projectId === null || record.projectId !== identity.projectId || record.sourceWorkFolderId !== identity.workFolderId) {
+    return fail("a Release belongs to a different App Project or work-folder.");
+  }
+  return { record, release };
+}
+
+function assertUniqueText(values: readonly string[], label: string): void {
+  if (new Set(values).size !== values.length) {
+    throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `The App Studio history lists the same ${label} twice.`);
+  }
+}
+
 /**
  * Re-validates a backup exactly as the storage layer does (closed shape,
  * owner identity taken from the export itself, sha256) and checks it names
@@ -1352,6 +1709,13 @@ function parsePayload(value: unknown, kind: WorkFoldRecentlyDeletedKind): WorkFo
       return normalizeAppReleaseIdentity(raw);
     } catch {
       throw new Error("invalid Release payload");
+    }
+  }
+  if (kind === "app-studio") {
+    try {
+      return normalizeAppStudioIdentity(raw);
+    } catch {
+      throw new Error("invalid App Studio payload");
     }
   }
   try {
