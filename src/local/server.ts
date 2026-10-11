@@ -129,6 +129,7 @@ import {
   installPiPackage,
   isPiProjectMutationTrusted,
   listPiModelCatalogs,
+  listPiImageModels,
   listPiModels,
   listPiPackages,
   loginPiProvider,
@@ -144,6 +145,7 @@ import {
   type PiOAuthHooks,
   type PiSetupStatus,
 } from "./agent/pi-runtime-config.js";
+import { ImageModelPreference, imageModelPreferencePath, normalizeImageModelChoice } from "./agent/image-model-preference.js";
 import { getAzureOpenAIConnection, saveAzureOpenAIConnection } from "./agent/azure-openai-connection.js";
 import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, type AzureOpenAIConnection } from "../shared/azure-openai.js";
 import { loadConversationContextReferencesForTurn, previewConversationContextReference } from "./conversation-context.js";
@@ -758,6 +760,8 @@ interface LocalApiState {
   capabilityMutations: Set<string>;
   /** Turn clients whose work-folder changed under them; rebuilt when their turn settles. */
   clientsToRefresh: Set<string>;
+  /** Settings → AI Models → Image model: one machine-wide choice, absent for Automatic. */
+  imageModelPreference: ImageModelPreference;
   checkRunReservations: Set<string>;
   workFolderIdsByRoot: Map<string, string>;
   extensionRequests: Map<string, PiExtensionUiRequest>;
@@ -1069,6 +1073,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     compactingConversations: new Set(),
     capabilityMutations: new Set(),
     clientsToRefresh: new Set(),
+    imageModelPreference: new ImageModelPreference(imageModelPreferencePath(workFoldStateRoot())),
     checkRunReservations: new Set(),
     workFolderIdsByRoot: new Map(),
     extensionRequests: new Map(),
@@ -2706,6 +2711,29 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  // Settings → AI Models → Image model (2026-10-11): one choice for every Worker
+  // and the work-fold agent; null is Automatic. Credentials are machine-wide, so
+  // the work-fold agent's runtime lists what every scope can use.
+  if (method === "GET" && url.pathname === "/api/agent/image-models") {
+    sendJson(res, await imageModelSettings(state));
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/image-model") {
+    const body = await readJsonBody<{ model?: unknown }>(state, req);
+    if (body.model === null) {
+      await state.imageModelPreference.set(null);
+    } else {
+      const model = normalizeImageModelChoice(body.model);
+      if (!model) throw badRequest("Choose an image model, or null for Automatic.");
+      const { models } = await listPiImageModels(workFoldAgentRoot(), state.runtimeProvider);
+      if (!models.some((item) => item.provider === model.provider && item.id === model.id)) {
+        throw badRequest("That image model is not connected. Connect its provider first, or choose another.");
+      }
+      await state.imageModelPreference.set(model);
+    }
+    sendJson(res, await imageModelSettings(state));
+    return;
+  }
   if (method === "GET" && url.pathname === "/api/agent/models") {
     const workFolderId = url.searchParams.get("workFolderId");
     const scope = await modelScope(url.searchParams.get("scope"), workFolderId);
@@ -12061,6 +12089,7 @@ async function getClient(
   const operationsGuide = workFolderOperationsGuideForScope(workFolderId);
   const client = new PiConversationClient(conversationId, workFolderRoot, state.runtimeProvider, hostCapabilities, {
     ...(operationsGuide ? { operationsGuide } : {}),
+    imageModel: () => state.imageModelPreference.get(),
   });
   client.on("event", (event: PiChatEvent) => {
     broadcast(state, streamKey(workFolderId, conversationId), assistantEventForRenderer(event));
@@ -12187,6 +12216,18 @@ async function saveWorkerInstructions(
     state.clients.delete(key);
   }
   publishControlHint(state, "models");
+}
+
+async function imageModelSettings(state: LocalApiState) {
+  const { models, automatic } = await listPiImageModels(workFoldAgentRoot(), state.runtimeProvider);
+  const selected = await state.imageModelPreference.get();
+  return {
+    selected: selected ?? null,
+    // A saved model whose provider was disconnected falls back to Automatic until it returns.
+    selectedAvailable: selected ? models.some((item) => item.provider === selected.provider && item.id === selected.id) : true,
+    automatic,
+    models,
+  };
 }
 
 /** Rebuilds a Chat's client that was marked while it was busy. */

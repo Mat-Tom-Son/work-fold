@@ -574,6 +574,9 @@ Owner decisions, recorded here in dated form; the body of this document and
 - The Skill is listed under **Everywhere** as Included with work-fold. It can
   be turned off but not removed, and typing a request such as "set up this
   folder" in any Chat uses it too.
+- Settings → AI Models gains an **Image model** section: one machine-wide
+  choice for every Worker and the work-fold agent, with **Automatic** first
+  (see [Image generation](image-generation.md)).
 
 ### 2026-10-11 window strip, agent panel, and Files sort
 

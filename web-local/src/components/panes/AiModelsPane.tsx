@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ModelCatalogList, modelCatalogKey } from "./ModelCatalogList";
+import { ImageModelSection } from "./ImageModelSection";
 import { RefreshCw } from "lucide-react";
 import { Eye20Regular, EyeOff20Regular } from "@fluentui/react-icons";
 import { api, errorText } from "../../lib/api";
@@ -144,6 +145,7 @@ export function AiModelsPane(props: AiModelsProps) {
         onSnapshot={(result) => loaded.current.set(target, result)}
         onLoaded={() => setPrefetchTick((current) => current + 1)}
       />
+      <ImageModelSection fixtureMode={props.fixtureMode} />
     </div>
   );
 }
