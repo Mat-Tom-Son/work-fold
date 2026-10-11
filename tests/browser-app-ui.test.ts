@@ -92,6 +92,7 @@ test("offline and updated app views require an explicit fresh open and preserve 
     await controller.open(app);
     assert.equal(document.querySelectorAll("iframe").length, 0);
     assert.match(document.body.textContent!, /no longer installed/);
+    assert.doesNotMatch(document.body.textContent!, /Open Apps/, "the browser has no Apps list to return to");
     current = { ...app, webView: false };
     await controller.open(app);
     assert.match(document.body.textContent!, /no web view yet/);

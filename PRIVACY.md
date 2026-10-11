@@ -219,10 +219,12 @@ code which may use a paired browser's non-exportable key, an active compromise
 of the hosted service can read displayed content or issue authorized requests.
 The envelope design protects passive relay handling and persisted state; it is
 not a guarantee against a malicious hosted origin. The browser renders bounded
-saved work-fold agent transcripts and filtered, bounded work-folder-relative file-tree
-projections in memory and starts fresh by fetching them again after sign-in.
-Explicit file previews read bounded text or images from a selected visible
-work-folder-relative path without invoking a model or publishing the file. They use
+saved work-fold agent transcripts in memory and starts fresh by fetching them
+again after sign-in. It has no work-folder file browser; the desktop's older
+file-tree projection remains only for older clients.
+Explicit file previews read bounded text or images from a visible
+work-folder-relative path named by a Chat's result link, without invoking a
+model or publishing the file. They use
 the same encrypted lane, remain in browser memory and clear on close, sign-out
 or detected disconnection; reconnect requires Refresh. See
 [file preview limits](docs/browser-file-previews.md).
@@ -244,8 +246,7 @@ result. A request runs the installed worker with its existing grants as soon as
 the desktop accepts it; it does not publish data or start a model. Only the
 requesting app view and the trusted browser UI outside the frame can stop a
 request, and shared viewers remain read-only.
-Selecting a work-folder changes only the displayed file tree; it does not select a
-different agent or transcript.
+Opening a result file or app never selects a different agent or transcript.
 Removing Web Access deletes its server-side account records; browser
 IndexedDB may retain an unusable local key until that site's data is cleared.
 

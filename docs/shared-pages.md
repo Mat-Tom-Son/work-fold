@@ -131,8 +131,10 @@ Consequences, consistent with the work-fold agent decision register:
 ## Rung 1 — paired access to your own work
 
 Rung 1 is not a publishing feature and introduces no viewer. The paired
-client keeps work and questions inside Chats and offers work-folder file and App
-browsing. Its earlier Needs you screen, which showed
+client keeps work and questions inside Chats. It has no work-folder file or
+App browser (removed 2026-10-09); files and apps open only from a Chat's
+result links, as bounded previews and exact-installation app views. Its
+earlier Needs you screen, which showed
 [the overview](work-fold-agent-overview.md), has been retired; the host overview operations
 remain compatible with older clients. The paired-browser grant and envelope
 encryption stay the same, with no new audience.

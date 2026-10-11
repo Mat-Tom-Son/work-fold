@@ -28,7 +28,11 @@ publication. The private adapter requires a paired browser and pins the
 work-folder, app, Feature Installation, revision and current authority digest.
 
 `management.summary`, `management.chats`, and `work-folders.list` advertise
-`capabilities.appViews`. The closed management lane
+`capabilities.appViews`. The current client reads neither that flag nor
+`work-folders.list` or `work-folders.tree`: since its work-folder Files and
+Apps browser was removed (2026-10-09), it opens app views only from result
+links. The desktop keeps advertising the flag and answering both operations
+for older clients. The closed management lane
 adds `apps.list` for one registered work-folder and `apps.read` for one exact installed
 web view. Listings contain at most 64 compact descriptors and report truncation.
 They omit absolute roots, credentials, grants and data. Read calls accept only
