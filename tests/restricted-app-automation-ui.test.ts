@@ -52,26 +52,30 @@ test("turning an automation back on acts on the click and leaves a receipt, with
   await writeFile(entry, [
     `export { RestrictedAppsSection } from ${JSON.stringify(resolve("web-local/src/components/panes/RestrictedAppsSection.tsx"))};`,
     `export { ConfirmDialogHost } from ${JSON.stringify(resolve("web-local/src/ui/feedback.tsx"))};`,
+    `export { AppErrorText } from ${JSON.stringify(resolve("web-local/src/components/panes/RestrictedAppsSection.tsx"))};`,
   ].join("\n"));
   await build({ entryPoints: [entry], outfile,
     bundle: true, platform: "node", format: "esm", packages: "external", jsx: "automatic",
     plugins: [{ name: "renderer-icons", setup(builder) {
       builder.onResolve({ filter: /^@fluentui\/react-icons$/ }, () => ({ path: resolve("node_modules/@fluentui/react-icons/lib/index.js") }));
     } }], logLevel: "silent" });
-  const { RestrictedAppsSection, ConfirmDialogHost } = await import(pathToFileURL(outfile).href) as {
+  const { RestrictedAppsSection, ConfirmDialogHost, AppErrorText } = await import(pathToFileURL(outfile).href) as {
     RestrictedAppsSection: typeof import("../web-local/src/components/panes/RestrictedAppsSection.js").RestrictedAppsSection;
     ConfirmDialogHost: typeof import("../web-local/src/ui/feedback.js").ConfirmDialogHost;
+    AppErrorText: typeof import("../web-local/src/components/panes/RestrictedAppsSection.js").AppErrorText;
   };
 
   const dom = await createDomHarness();
   const originalFetch = globalThis.fetch;
   t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; });
 
+  // Receipts keep up to 16 KiB of error text; the card folds it until opened.
+  const longError = `Error: digest failed\n${"    at digest (worker.js:4:2)\n".repeat(400)}`;
   const automation = { id: "digest", title: "Daily digest", handler: "digest", trigger: { kind: "interval", intervalMinutes: 1440 },
     permissions: { network: ["mail"], files: [], notifications: [] }, catchUp: "latest", overlap: "skip" } as const;
   const app = { workFolderId: "work-folder-one", sourceWorkFolderId: "work-folder-one", featureInstallationId: "feature-one", runtimeInstanceKind: "development", runtimeInstanceId: "runtime-one",
     packageName: "digests", version: "1.0.0", digest: "b".repeat(64), installedAt: "2026-09-09T00:00:00.000Z", updatedAt: "2026-09-09T00:00:00.000Z",
-    networkGrants: ["mail"], fileGrants: [], notificationGrants: [], automations: [{ id: automation.id, enabled: false }],
+    networkGrants: ["mail"], fileGrants: [], notificationGrants: [], automations: [{ id: automation.id, enabled: false, lastError: longError }],
     manifest: { id: "digests", title: "Digests", version: 1, runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" }, ui: {}, tools: [],
       automations: [automation], permissions: { network: [], files: [], notifications: [] } } } as unknown as RestrictedAppInstalled;
 
@@ -112,6 +116,16 @@ test("turning an automation back on acts on the click and leaves a receipt, with
   const button = (label: string) => Array.from(document.querySelectorAll("button")).find((item) => item.textContent === label);
   await dom.act(() => button("Review Access")!.click());
   await dom.waitFor(() => Boolean(button("Enable")));
+  const lastError = document.querySelector(".restricted-app-last-error .restricted-app-error-text")!;
+  assert.ok(lastError, "the card shows the last error");
+  assert.ok(lastError.classList.contains("folded"), "a long error starts folded");
+  assert.equal(lastError.querySelector(".restricted-app-error-body")?.textContent, longError, "the whole text is there to open");
+  const toggle = lastError.querySelector<HTMLButtonElement>(".restricted-app-error-toggle")!;
+  assert.equal(toggle.textContent, "Show all");
+  await dom.act(() => toggle.click());
+  assert.equal(lastError.classList.contains("folded"), false);
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(toggle.textContent, "Show less");
   await dom.act(() => button("Enable")!.click());
   await dom.waitFor(() => writes.length > 0);
   await dom.settle();
@@ -123,4 +137,14 @@ test("turning an automation back on acts on the click and leaves a receipt, with
   const dialogTitles = Array.from(document.querySelectorAll('[role="dialog"] h2')).map((heading) => heading.textContent);
   assert.ok(!dialogTitles.some((title) => title?.startsWith("Enable ")), `no second question was asked: ${dialogTitles.join(", ")}`);
   assert.equal(document.body.textContent?.includes("still require their separate grants"), false, "the retired separate-grants warning is gone");
+
+  // A short error is shown as it is, with nothing to open.
+  const short = document.createElement("div");
+  document.body.append(short);
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(short);
+  await dom.act(() => root.render(createElement(AppErrorText, { text: "Mail server refused the connection." })));
+  assert.equal(short.querySelector(".restricted-app-error-text")?.classList.contains("folded"), false);
+  assert.equal(short.querySelector("button"), null);
+  await dom.act(() => root.unmount());
 });

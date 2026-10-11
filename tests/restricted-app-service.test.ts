@@ -34,6 +34,8 @@ import {
   type RestrictedAppOAuthConnection,
   type RestrictedAppOAuthPublicHttpsTransport,
 } from "../src/local/agent/restricted-app-oauth.js";
+import { workFoldSchedulerMaxErrorLength } from "../src/local/agent/work-fold-scheduler-service.js";
+import { workFoldAppErrorTextMaxLength } from "../src/shared/work-fold-limits.js";
 
 const workFolderOne = "ws-1111111111111111";
 const workFolderTwo = "ws-2222222222222222";
@@ -1219,6 +1221,62 @@ test("RestrictedAppService persists a nonempty fallback for an empty worker fail
       (await service.listAppAutomationRuns(workFolderOne, "connected-inbox", review.digest, refreshAppAutomation))[0]?.error,
       "Automation run failed.",
     );
+    await service.close();
+    service = undefined;
+  } finally {
+    await service?.close().catch(() => undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("RestrictedAppService keeps an automation's whole error, up to the app host's 16 KiB, across a restart", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-service-long-automation-error-"));
+  const workFolderRoot = join(sandbox, "work-folder");
+  const rootPath = join(sandbox, "state", "restricted-apps");
+  let service: RestrictedAppService | undefined;
+  // Longer than the old 300-character cut, with a pair the cut must not split
+  // and a lone surrogate that would otherwise make the receipt unpersistable.
+  const stack = `Error: inbox refresh failed 📬 \uD800\n${"    at refresh (worker.js:12:7)\n".repeat(200)}`;
+  let thrown = stack;
+  try {
+    await writePackage(join(workFolderRoot, "apps", "inbox"));
+    const runtimeHost: RestrictedAppRuntimeHost = {
+      async invoke() { return {}; },
+      async runAppAutomation() { throw new Error(thrown); },
+      async close() {},
+    };
+    service = await RestrictedAppService.create({ rootPath, runtimeHost, deferAppAutomationStart: false });
+    const review = await service.inspect({ workFolderId: workFolderOne, workFolderRoot, sourcePath: "apps/inbox" });
+    await service.install({ workFolderId: workFolderOne, workFolderRoot, sourcePath: "apps/inbox", expectedDigest: review.digest });
+    const run = () => service!.runAppAutomationNow({
+      workFolderId: workFolderOne,
+      appId: "connected-inbox",
+      expectedDigest: review.digest,
+      appAutomationId: refreshAppAutomation,
+    });
+    const failed = await run();
+    const expected = stack.replace("\uD800", "\uFFFD");
+    assert.ok(stack.length > 6_000);
+    assert.equal(failed.run.error, expected, "the receipt keeps the whole error, well-formed");
+    assert.equal(failed.app.automations.find(({ id }) => id === refreshAppAutomation)?.lastError, expected);
+
+    // Past the shared bound the text is cut, and never inside a surrogate pair.
+    thrown = `${"x".repeat(workFoldAppErrorTextMaxLength - 1)}📬 and more`;
+    const cut = await run();
+    assert.equal(cut.run.error, "x".repeat(workFoldAppErrorTextMaxLength - 1));
+    assert.equal(workFoldSchedulerMaxErrorLength, workFoldAppErrorTextMaxLength, "the receipt bound is the app host's bound");
+
+    // The machine-wide ledger is read only for outcomes and keeps a short copy.
+    const history = await service.listAppAutomationRunHistory();
+    assert.ok(history.every((receipt) => (receipt.error?.length ?? 0) <= 300), "the machine-wide ledger stays small");
+    assert.match(history[0]?.error ?? "", /^Error: inbox refresh failed 📬 \uFFFD[\s\S]*…$/);
+    await service.close();
+    service = undefined;
+
+    service = await RestrictedAppService.create({ rootPath, runtimeHost });
+    const runs = await service.listAppAutomationRuns(workFolderOne, "connected-inbox", review.digest, refreshAppAutomation);
+    assert.deepEqual(runs.map((item) => item.error), [cut.run.error, expected], "a reopened registry still holds both whole errors");
+    assert.equal((await service.list(workFolderOne))[0]?.automations.find(({ id }) => id === refreshAppAutomation)?.lastError, cut.run.error);
     await service.close();
     service = undefined;
   } finally {

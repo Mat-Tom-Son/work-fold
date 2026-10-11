@@ -10,7 +10,7 @@ import {
   type WorkFoldSchedulerJobKey,
   type WorkFoldSchedulerRunContext,
 } from "../src/local/agent/work-fold-scheduler-service.js";
-import { workFoldAppAutomationDefaultConcurrency } from "../src/shared/work-fold-limits.js";
+import { workFoldAppAutomationDefaultConcurrency, workFoldAppErrorTextMaxLength } from "../src/shared/work-fold-limits.js";
 
 const startTime = Date.parse("2026-07-14T12:00:00.000Z");
 const minute = 60_000;
@@ -398,18 +398,29 @@ test("WorkFoldAutomationService records bounded failures and isolates observable
       throw new Error(`receipt failure for ${result.runId}`);
     },
   });
-  service.register(job(failing, () => { throw new Error("x".repeat(500)); }));
+  let thrown = "x".repeat(20_000);
+  service.register(job(failing, () => { throw new Error(thrown); }));
 
   const first = await service.runNow(failing);
   const second = await service.runNow(failing);
   const third = await service.runNow(failing);
   assert.equal(first.outcome, "failure");
+  assert.equal(workFoldSchedulerMaxErrorLength, workFoldAppErrorTextMaxLength, "a receipt keeps as much as the app host does");
   assert.equal(first.error?.length, workFoldSchedulerMaxErrorLength);
+  assert.ok(workFoldSchedulerMaxErrorLength > 300, "an error is no longer cut to 300 characters");
   assert.deepEqual(observed, [first.runId, second.runId, third.runId]);
   assert.deepEqual(service.listRunResults().map(({ runId }) => runId), [second.runId, third.runId], "the in-memory ledger must remain bounded");
   assert.equal(service.listRunResults()[0]?.key.ownerId, "owner", "observers must receive defensive result copies");
   assert.deepEqual(service.listResultCallbackErrors().map(({ runId }) => runId), [second.runId, third.runId]);
   assert.match(service.listResultCallbackErrors()[0]?.error ?? "", /receipt failure/);
+  // The bound never splits a surrogate pair, and a lone surrogate becomes
+  // U+FFFD, so the text always persists as well-formed UTF-16.
+  thrown = `${"y".repeat(workFoldSchedulerMaxErrorLength - 1)}📬`;
+  assert.equal((await service.runNow(failing)).error, "y".repeat(workFoldSchedulerMaxErrorLength - 1));
+  thrown = "broken \uDC00 text \uD83D";
+  assert.equal((await service.runNow(failing)).error, "broken � text �");
+  thrown = "6".repeat(500);
+  assert.equal((await service.runNow(failing)).error, "6".repeat(500), "an error under the bound is kept whole");
   service.close();
 });
 

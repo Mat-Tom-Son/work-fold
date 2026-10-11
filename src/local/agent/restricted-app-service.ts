@@ -2821,7 +2821,10 @@ export class RestrictedAppService {
             appId: _appId,
             ...receipt
           } = historicalDuplicate;
-          recorded = structuredClone(receipt);
+          // The installation's own copy keeps the whole error; the
+          // machine-wide ledger's copy is shortened.
+          const whole = this.#registry.installations.flatMap((item) => item.appAutomationRuns).find((run) => run.runId === result.runId);
+          recorded = structuredClone(whole ? { ...receipt, ...(whole.error !== undefined ? { error: whole.error } : {}) } : receipt);
           return;
         }
         const existing = this.#registry.installations.find((item) => item.runtimeInstanceId === owner.runtimeInstanceId
@@ -2849,6 +2852,7 @@ export class RestrictedAppService {
         const receipt: RestrictedAppAutomationRegistryReceipt = { ...publicReceipt, packageDigest };
         const historical: RestrictedAppHistoricalAutomationRegistryReceipt = {
           ...receipt,
+          ...(receipt.error !== undefined ? { error: historicalAppAutomationError(receipt.error) } : {}),
           workFolderId,
           appId,
         };
@@ -3349,6 +3353,20 @@ function freshRegistry(): RestrictedAppRegistryFile {
     acceptedAppAutomationRuns: [],
     historicalAppAutomationRuns: [],
   };
+}
+
+/**
+ * The machine-wide historical ledger (up to 1,000 receipts) is read only for
+ * identities and outcomes, by the overview. It keeps a short error so it
+ * cannot grow the one registry document by 16 KiB a receipt; the
+ * installation's own run receipts and its Last error keep the whole text.
+ */
+const historicalAppAutomationErrorLength = 300;
+
+function historicalAppAutomationError(error: string): string {
+  if (error.length <= historicalAppAutomationErrorLength) return error;
+  const cut = error.slice(0, historicalAppAutomationErrorLength - 1).replace(/[\uD800-\uDBFF]$/, "").trimEnd();
+  return cut ? `${cut}…` : "Automation run failed.";
 }
 
 function reconcileInterruptedAppAutomationRuns(
@@ -4767,7 +4785,7 @@ function appAutomationRegistryStateValue(
     : isoDate(item.lastRunAt, "Restricted app automation run time");
   const lastError = item.lastError === undefined
     ? undefined
-    : nonempty(item.lastError, "Restricted app automation error", 300);
+    : nonempty(item.lastError, "Restricted app automation error", workFoldSchedulerMaxErrorLength);
   return {
     id,
     enabled: item.enabled,
@@ -4874,7 +4892,7 @@ function appAutomationRunReceiptValue(
   const startedAt = isoDate(item.startedAt, "Restricted app automation start time");
   const finishedAt = isoDate(item.finishedAt, "Restricted app automation finish time");
   if (Date.parse(finishedAt) < Date.parse(startedAt)) throw new Error("Restricted app automation run times are invalid.");
-  const error = item.error === undefined ? undefined : nonempty(item.error, "Restricted app automation run error", 300);
+  const error = item.error === undefined ? undefined : nonempty(item.error, "Restricted app automation run error", workFoldSchedulerMaxErrorLength);
   if (item.outcome === "success" ? error !== undefined : error === undefined) {
     throw new Error("Restricted app automation run error does not match its outcome.");
   }

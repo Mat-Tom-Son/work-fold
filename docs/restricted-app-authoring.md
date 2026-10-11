@@ -766,7 +766,7 @@ time the worker spends in its own code: waiting on a network request, an
 agent request, or `assistant.infer` never counts. One worker runs one
 action or automation at a time; a second one queues and starts when the first
 finishes, instead of being refused. Error text a worker reports is kept up to
-16,384 characters. Automation
+16,384 characters, in an automation's run receipts and **Last error** too. Automation
 events contain `runId`, `appAutomationId`, `handler`, `reason` (`scheduled`,
 `manual`, or `resume`), and ISO `scheduledAt`. Treat `appAutomationId` and
 `handler` as the reviewed dispatch pair and reject unknown values.

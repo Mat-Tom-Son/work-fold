@@ -321,7 +321,14 @@ That 32 is this document's number to own: it lives as
 `workFoldAppAutomationDefaultConcurrency` in `src/shared/work-fold-limits.ts`, is read
 by `src/local/agent/work-fold-scheduler-service.ts`, and is shown read-only
 in Settings → Automations → Limits. Scheduled, manual, skipped, cancelled, and
-failed attempts produce durable run receipts. The cadence anchor is persisted
+failed attempts produce durable run receipts. A failed run's receipt and the
+automation's **Last error** keep the worker's error text whole, up to the same
+16,384 characters the worker host keeps (`workFoldAppErrorTextMaxLength`;
+before 2026-10-11 they were cut to 300). The text is made well-formed (a lone
+surrogate becomes U+FFFD) and never cut inside a character pair, so it always
+persists. The machine-wide history the overview reads keeps a 300-character
+copy, since it is read only for outcomes. Settings → Apps folds a long error
+to four lines with **Show all**. The cadence anchor is persisted
 separately from one-off manual runs, so **Run now** does not shift the next
 scheduled occurrence. A manual run is allowed while its schedule is disabled,
 but it receives no notification authority. At launch, work-fold re-reads the

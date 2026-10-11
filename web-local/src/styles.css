@@ -14029,6 +14029,32 @@ textarea:focus-visible,
   justify-content: flex-end;
 }
 
+/* An app's error text is kept whole, so a long one folds to four lines until
+   opened; it wraps anywhere so a long token or path never widens the card. */
+.restricted-app-error-text {
+  display: block;
+  min-width: 0;
+  margin-top: 3px;
+}
+
+.restricted-app-error-body {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.restricted-app-error-text.folded .restricted-app-error-body {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+.restricted-app-error-text .restricted-app-error-toggle {
+  padding: 3px 0 0;
+}
+
 @container space-pane (max-width: 900px) {
 }
 
