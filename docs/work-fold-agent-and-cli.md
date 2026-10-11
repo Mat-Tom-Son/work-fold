@@ -238,12 +238,13 @@ specified under
 `work-fold recently-deleted …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:
 files and folders the safety restore point could not keep a copy of, deleted
-managed work-folders, and app data that was cleared or purged
-([Receipts, not gates](receipts-not-gates.md), F20). Like `automations` and
+managed work-folders, app data that was cleared or purged, and deleted App
+Studio Releases ([Receipts, not gates](receipts-not-gates.md), F20). Like `automations` and
 `pages` it sits above work-folders, so neither verb takes `--work-folder`; each item names
 the work-folder it came from. `recently-deleted list` is content-free — ids, kinds, paths,
 sizes, and dates. `recently-deleted restore` puts one item back where it came from,
-renaming it when something else took the name, and app data whose app is gone
+renaming it when something else took the name; a Release goes back into its App
+Project, re-verified, unless that version has been prepared again; and app data whose app is gone
 is saved as a file with `--to <absolute-path>`. Nothing empties the store: the
 retention window in Settings → Recently deleted does, and a tree
 holding legacy `.workspace/` records is never erased.

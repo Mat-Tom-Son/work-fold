@@ -40,7 +40,7 @@ export interface WorkFoldActWorkFolderRef {
 /** One Recently deleted item, as the act lane reports it: identifiers and paths only. */
 export interface WorkFoldActRecentlyDeletedEntry {
   id: string;
-  kind: "file" | "folder" | "work-folder" | "app-storage" | "app-retained";
+  kind: "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release";
   reason:
     | "files.delete"
     | "agent.chat.delete"
@@ -50,10 +50,11 @@ export interface WorkFoldActRecentlyDeletedEntry {
     | "apps.work-folder.removed"
     | "apps.storage.clear"
     | "apps.retained.purge"
-    | "apps.uninstall.purge";
+    | "apps.uninstall.purge"
+    | "apps.release.delete";
   workFolderId: string;
   workFolderName?: string;
-  /** work-folder-relative path, a deleted work-folder's original folder path, or `<appId>/<namespace>`. */
+  /** work-folder-relative path, a deleted work-folder's original folder path, `<appId>/<namespace>`, or `<projectId>/<releaseDigest>`. */
   originalPath: string;
   name: string;
   sizeBytes: number;
@@ -1198,11 +1199,18 @@ export interface WorkFoldActFacade {
     workFolder: WorkFoldActWorkFolderRef;
     release: WorkFoldActAppReleaseRef;
   }>;
-  appsReleaseDelete(input: { workFolder: string; release: string; parentTaskId?: string }): Promise<{
+  /**
+   * Deletes one unused Release. Its record and verified envelope go to
+   * Recently deleted first (docs/receipts-not-gates.md, F20), so
+   * `recently-deleted restore` puts it back in the state it was deleted in.
+   */
+  appsReleaseDelete(input: { workFolder: string; release: string; parentTaskId?: string; requestId?: string }): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     releaseDigest: string;
     deleted: boolean;
     cleanupPending: boolean;
+    /** The Recently deleted item holding the Release; null when nothing was deleted. */
+    recentlyDeleted: WorkFoldActRecentlyDeletedRef | null;
   }>;
   appsInstallPrepare(input: { workFolder: string; release: string; targetWorkFolder: string; parentTaskId?: string }): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
@@ -1453,8 +1461,9 @@ export interface WorkFoldActFacade {
    * Puts one item back. A file or folder returns to its work-folder at its original
    * path, renamed when something else took the name; a deleted work-folder's
    * folder returns and is re-registered with its portable identity; app data goes back into
-   * the same installation at the same revision. App data whose app is gone
-   * can only be saved as a file, which is what `--to` does.
+   * the same installation at the same revision; a Release goes back into the
+   * App Project it came from. App data whose app is gone can only be saved as
+   * a file, which is what `--to` does.
    */
   recentlyDeletedRestore(input: { entry: string; toPath?: string; parentTaskId?: string; requestId?: string }): Promise<{
     entry: WorkFoldActRecentlyDeletedEntry | null;
@@ -1463,6 +1472,7 @@ export interface WorkFoldActFacade {
       | { kind: "file" | "folder"; workFolder: WorkFoldActWorkFolderRef; path: string; renamed: boolean; safetyCheckpointId: string | null }
       | { kind: "work-folder"; workFolder: WorkFoldActWorkFolderRef; workFolderRoot: string; renamed: boolean }
       | { kind: "app-storage"; workFolder: WorkFoldActWorkFolderRef; appId: string; usage: { revision: number; usageBytes: number } }
+      | { kind: "app-release"; workFolder: WorkFoldActWorkFolderRef; releaseDigest: string; displayVersion: string }
       | { kind: "saved-copy"; path: string };
   }>;
   /**

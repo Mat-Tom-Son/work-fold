@@ -107,6 +107,7 @@ import {
   type LocalAppInstance,
   type LocalAppOperation,
   type LocalAppRelease,
+  type LocalAppReleaseDeletionResult,
   type LocalAppRetainedData,
   type RestrictedAppAutomationRunReceipt,
   type RestrictedAppInstallationNeeds,
@@ -1806,11 +1807,16 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (localAppReleaseMatch && method === "DELETE") {
     const workFolder = await getWorkFolder(localAppReleaseMatch[1]);
     const releaseDigest = localAppReleaseMatch[2];
-    const deletion = await runRestrictedAppMutation(state, workFolder.id, () => state.restrictedApps.deleteLocalAppRelease({
-      workFolderId: workFolder.id,
-      releaseDigest,
-    }));
-    sendJson(res, { deletion });
+    // A copy of the Release lands in Recently deleted before it goes
+    // (docs/receipts-not-gates.md, F20), the same order the CLI verb uses.
+    const deleted = await runDesktopSettingsAct(state, "apps.release.delete", async (requestId) => {
+      const deletion = await deleteLocalAppReleaseIntoRecentlyDeleted(state, workFolder, releaseDigest, requestId);
+      return {
+        value: deletion,
+        detail: `release ${releaseDigest}${deletion.recentlyDeleted ? `; trash ${deletion.recentlyDeleted.entryId}` : deletion.deleted ? "" : " (not found)"}`,
+      };
+    });
+    sendJson(res, { deletion: deleted.value });
     return;
   }
 
@@ -4316,6 +4322,7 @@ export type WorkFoldRecentlyDeletedRestoreResult =
   | { kind: "file" | "folder"; entryId: string; workFolder: WorkFoldActWorkFolderRef; path: string; renamed: boolean; safetyCheckpointId: string | null }
   | { kind: "work-folder"; entryId: string; workFolder: WorkFoldActWorkFolderRef; workFolderRoot: string; renamed: boolean }
   | { kind: "app-storage"; entryId: string; workFolder: WorkFoldActWorkFolderRef; appId: string; usage: { revision: number; usageBytes: number } }
+  | { kind: "app-release"; entryId: string; workFolder: WorkFoldActWorkFolderRef; releaseDigest: string; displayVersion: string }
   | { kind: "saved-copy"; entryId: string; path: string };
 
 /**
@@ -4336,7 +4343,9 @@ async function recentlyDeletedEntryView(
     workFolderId: entry.workFolderId,
     ...(entry.workFolderName === undefined ? {} : { workFolderName: entry.workFolderName }),
     originalPath: entry.originalPath,
-    name: entry.displayName ?? (entry.payload.kind === "tree" ? entry.payload.name : entry.payload.appId),
+    name: entry.displayName ?? (entry.payload.kind === "tree"
+      ? entry.payload.name
+      : entry.payload.kind === "app-release" ? `Release ${entry.payload.displayVersion}` : entry.payload.appId),
     sizeBytes: entry.sizeBytes,
     ...(entry.sizeApproximate ? { sizeApproximate: true as const } : {}),
     deletedAt: entry.deletedAt,
@@ -4356,6 +4365,20 @@ async function recentlyDeletedEntryView(
       : { ...base, restorable: "blocked", note: "The work-folder this came from is no longer registered." };
   }
   if (entry.kind === "work-folder") return base;
+  if (entry.kind === "app-release") {
+    // A Release goes back only into the App Project it came from, and only
+    // while its version has not been prepared again in the meantime.
+    const payload = entry.payload;
+    if (payload.kind !== "app-release") return { ...base, restorable: "blocked" };
+    const studio = await state.restrictedApps.localAppStudio(entry.workFolderId).catch(() => null);
+    if (!studio?.project || studio.project.projectId !== payload.projectId) {
+      return { ...base, restorable: "blocked", note: "The App Project this Release came from is no longer in that work-folder." };
+    }
+    if (studio.releases.some((release) => release.displayVersion === payload.displayVersion && release.releaseDigest !== payload.releaseDigest)) {
+      return { ...base, restorable: "blocked", note: `Another Release ${payload.displayVersion} has been prepared since this one was deleted.` };
+    }
+    return base;
+  }
   if (entry.kind === "app-retained") {
     return { ...base, restorable: "save-only", note: "Retained app data has no app to go back into." };
   }
@@ -4394,8 +4417,9 @@ async function restoreRecentlyDeletedEntry(
     return restoreRecentlyDeletedAppData(state, entry, context);
   }
   if (context.toPath !== undefined) {
-    throw new WorkFoldCliError("usage", "'--to' saves a copy of app data; files, folders, and work-folders go back where they came from.");
+    throw new WorkFoldCliError("usage", "'--to' saves a copy of app data; files, folders, work-folders, and Releases go back where they came from.");
   }
+  if (entry.kind === "app-release") return restoreRecentlyDeletedAppRelease(state, entry);
   if (entry.kind === "work-folder") return restoreRecentlyDeletedWorkFolder(state, entry);
   if (isWorkFoldAgentConversationRecentlyDeletedEntry(entry)) return restoreWorkFoldAgentConversationRecentlyDeletedEntry(state, entry);
   if (isWorkFolderConversationRecentlyDeletedEntry(entry)) return restoreWorkFolderConversationRecentlyDeletedEntry(state, entry);
@@ -4560,6 +4584,40 @@ async function restoreRecentlyDeletedWorkFolder(state: LocalApiState, entry: Wor
     workFolder: toActWorkFolderRef(workFolder),
     workFolderRoot: workFolder.workFolderRoot,
     renamed: restored.renamed,
+  };
+}
+
+/**
+ * Puts a deleted Release back into the App Project it came from, through the
+ * service's own verification: the envelope must match its content digest and
+ * its record, and the record must still fit the Project (docs/receipts-not-gates.md, F20).
+ */
+async function restoreRecentlyDeletedAppRelease(
+  state: LocalApiState,
+  entry: WorkFoldRecentlyDeletedEntry,
+): Promise<WorkFoldRecentlyDeletedRestoreResult> {
+  const kept = await state.recentlyDeleted.readAppRelease(entry.id).catch((error: unknown) => {
+    throw recentlyDeletedCliError(error);
+  });
+  const workFolder = await getWorkFolder(entry.workFolderId).catch(() => null);
+  if (!workFolder) {
+    throw new WorkFoldCliError(
+      "conflict",
+      "The work-folder this Release came from is no longer registered, so there is nowhere to put it back. Register that work-folder again first.",
+    );
+  }
+  const release = await runRestrictedAppMutation(state, workFolder.id, () => state.restrictedApps.restoreLocalAppRelease({
+    workFolderId: workFolder.id,
+    record: kept.record,
+    release: kept.release,
+  }));
+  await state.recentlyDeleted.remove(entry.id).catch(() => undefined);
+  return {
+    kind: "app-release",
+    entryId: entry.id,
+    workFolder: toActWorkFolderRef(workFolder),
+    releaseDigest: release.releaseDigest,
+    displayVersion: release.displayVersion,
   };
 }
 
@@ -7198,14 +7256,14 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async appsReleaseDelete(input) {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
       const workFolder = await resolveWorkFolder(input.workFolder);
-      const deletion = await runActOperation(() => runRestrictedAppMutation(state, workFolder.id, () =>
-        state.restrictedApps.deleteLocalAppRelease({ workFolderId: workFolder.id, releaseDigest: input.release })));
+      const deletion = await runActOperation(() => deleteLocalAppReleaseIntoRecentlyDeleted(state, workFolder, input.release, input.requestId ?? null));
       await recordFacadeAction(state, input.parentTaskId, { command: "apps.release.delete", workFolder });
       return {
         workFolder: toActWorkFolderRef(workFolder),
         releaseDigest: input.release,
         deleted: deletion.deleted,
         cleanupPending: deletion.cleanupPending,
+        recentlyDeleted: deletion.recentlyDeleted,
       };
     },
     async appsInstallPrepare(input) {
@@ -7997,7 +8055,9 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           ? { kind: restored.kind, workFolder: restored.workFolder, workFolderRoot: restored.workFolderRoot, renamed: restored.renamed }
           : restored.kind === "app-storage"
             ? { kind: restored.kind, workFolder: restored.workFolder, appId: restored.appId, usage: restored.usage }
-            : {
+            : restored.kind === "app-release"
+              ? { kind: restored.kind, workFolder: restored.workFolder, releaseDigest: restored.releaseDigest, displayVersion: restored.displayVersion }
+              : {
               kind: restored.kind,
               workFolder: restored.workFolder,
               path: restored.path,
@@ -9213,6 +9273,68 @@ async function moveRemovedAppStorageToRecentlyDeleted(
   ));
   if (!app) return null;
   return await moveAppStorageExportToRecentlyDeleted(state, app, reason, receiptId, { skipWhenStorageUnavailable: true });
+}
+
+/**
+ * Deleting an unused App Studio Release keeps its registry record and verified
+ * envelope in Recently deleted first (docs/receipts-not-gates.md, F20); the
+ * Release comes back from there in the state it was deleted in. The service
+ * hands over the copy only once every blocker has passed, so a refused delete
+ * leaves nothing behind. If the copy landed but the Release is still there
+ * afterwards, the copy is withdrawn so Recently deleted never shows a Release
+ * that was not deleted.
+ */
+async function deleteLocalAppReleaseIntoRecentlyDeleted(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  releaseDigest: string,
+  receiptId: string | null,
+): Promise<LocalAppReleaseDeletionResult & { recentlyDeleted: { entryId: string; restoreBy: string } | null }> {
+  return await runRestrictedAppMutation(state, workFolder.id, async () => {
+    let kept: { entry: WorkFoldRecentlyDeletedEntry; releaseDigest: string } | null = null;
+    try {
+      const deletion = await state.restrictedApps.deleteLocalAppRelease({
+        workFolderId: workFolder.id,
+        releaseDigest,
+        keep: async (copy) => {
+          const entry = await state.recentlyDeleted.moveAppReleaseToRecentlyDeleted({
+            reason: "apps.release.delete",
+            identity: {
+              kind: "app-release",
+              projectId: copy.record.projectId,
+              releaseDigest: copy.record.releaseDigest,
+              displayVersion: copy.record.displayVersion,
+              sourceWorkFolderId: copy.record.sourceWorkFolderId,
+            },
+            record: copy.record,
+            release: copy.release,
+            workFolderId: workFolder.id,
+            workFolderName: workFolder.name,
+            ...recentlyDeletedDisplayName(`${copy.record.presentation.title} ${copy.record.displayVersion}`),
+            receiptId,
+          });
+          kept = { entry, releaseDigest: copy.record.releaseDigest };
+        },
+      });
+      const landed = kept as { entry: WorkFoldRecentlyDeletedEntry } | null;
+      return { ...deletion, recentlyDeleted: landed ? { entryId: landed.entry.id, restoreBy: landed.entry.restoreBy } : null };
+    } catch (error) {
+      const landed = kept as { entry: WorkFoldRecentlyDeletedEntry; releaseDigest: string } | null;
+      if (landed) {
+        const stillThere = await state.restrictedApps.localAppStudio(workFolder.id)
+          .then((studio) => studio.releases.some((release) => release.releaseDigest === landed.releaseDigest))
+          .catch(() => false);
+        if (stillThere) await state.recentlyDeleted.remove(landed.entry.id).catch(() => undefined);
+      }
+      throw error;
+    }
+  });
+}
+
+/** A person-facing Recently deleted label, or none when the text has nothing printable left. */
+function recentlyDeletedDisplayName(text: string): { displayName?: string } {
+  const printable = text.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, 200).trim();
+  return printable ? { displayName: printable } : {};
 }
 
 async function moveRetainedExportToRecentlyDeleted(

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -245,6 +245,52 @@ test("--to saves app data as a file and refuses a path inside a work-folder or w
     assert.equal(errorCodeOf(refusedForFile.stderr), "usage");
     assert.match(refusedForFile.stderr, /go back where they came from/);
     assert.equal((await h.api.recentlyDeleted.list()).entries.length, 1, "a refused restore leaves the item alone");
+  } finally {
+    await h.close();
+  }
+});
+
+/**
+ * `apps release delete` keeps the Release in Recently deleted first
+ * (docs/receipts-not-gates.md, F20): the receipt's undo reference is that
+ * item, and `recently-deleted restore` puts the Release back into App Studio.
+ */
+test("apps release delete leaves the Release in Recently deleted and recently-deleted restore brings it back", async () => {
+  const h = await recentlyDeletedHarness("release");
+  try {
+    const created = await h.api.actFacade.createWorkFolder({ name: "Release work-folder" });
+    const workFolder = created.workFolder;
+    const packageRoot = join(workFolder.workFolderRoot, "apps", "quotes");
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "quotes", version: "1.0.0", private: true, type: "module", agentApp: "agent-app.json" }), "utf8");
+    await writeFile(join(packageRoot, "agent-app.json"), JSON.stringify({
+      version: 2, id: "quotes", title: "Quotes", description: "A Release fixture.",
+      runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: { icon: "shield" }, tools: [], automations: [],
+      permissions: { network: [], files: [], notifications: [] },
+    }), "utf8");
+    await writeFile(join(packageRoot, "index.html"), "<!doctype html><title>Quotes</title>", "utf8");
+    const installed = await h.execute(["apps", "install-preview", "--work-folder", workFolder.id, "--package", "apps/quotes", "--json"]);
+    assert.equal(installed.exitCode, 0, installed.stderr);
+    const prepared = await h.execute(["apps", "release", "prepare", "--work-folder", workFolder.id, "--version", "1.0.0", "--json"]);
+    assert.equal(prepared.exitCode, 0, prepared.stderr);
+    const releaseDigest = (JSON.parse(prepared.stdout) as { data: { release: { releaseDigest: string } } }).data.release.releaseDigest;
+
+    const deleted = await h.execute(["apps", "release", "delete", "--work-folder", workFolder.id, "--release", releaseDigest]);
+    assert.equal(deleted.exitCode, 0, deleted.stderr);
+    assert.match(deleted.stdout, /It is in Recently deleted until .* — put it back with 'recently-deleted restore --entry trash-/);
+    const receipt = h.lastOk();
+    assert.equal(receipt.undoRef?.kind, "recently-deleted-entry");
+    const entryId = receipt.undoRef!.value;
+
+    const listed = await h.execute(["recently-deleted", "list"]);
+    assert.match(listed.stdout, new RegExp(`${entryId} — Release "Quotes 1\\.0\\.0" from Release work-folder`));
+
+    const restored = await h.execute(["recently-deleted", "restore", "--entry", entryId]);
+    assert.equal(restored.exitCode, 0, restored.stderr);
+    assert.match(restored.stdout, new RegExp(`^Restored Release 1\\.0\\.0 \\[${releaseDigest}\\] to App Studio in Release work-folder`));
+    assert.equal((await h.api.recentlyDeleted.list()).entries.length, 0, "a restored Release leaves Recently deleted");
+    const deletedAgain = await h.execute(["apps", "release", "delete", "--work-folder", workFolder.id, "--release", releaseDigest, "--json"]);
+    assert.equal((JSON.parse(deletedAgain.stdout) as { data: { deleted: boolean } }).data.deleted, true, "the restored Release is back in App Studio");
   } finally {
     await h.close();
   }

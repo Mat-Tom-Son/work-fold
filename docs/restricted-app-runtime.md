@@ -489,8 +489,11 @@ group heading and from an app's details. The shipped lifecycle is:
    selected ordinary work-folder files are never deleted.
 7. Delete an individual Release only after it is unused. The host refuses while
    an active App Instance, either side of a prepared install/update/rollback, or
-   retained-data lineage still references it. Registry deletion commits before
-   safe object pruning, and interrupted pruning is retried.
+   retained-data lineage still references it. The Release's record and verified
+   envelope go to Recently deleted first, registry deletion commits before safe
+   object pruning, and interrupted pruning is retried. Restoring from Recently
+   deleted re-verifies the envelope and returns the Release in the state it was
+   deleted in.
 
 The current local host admits at most one App Instance for a `(projectId,
 target work-folder)` pair. In the Project's source work-folder, its Development preview may

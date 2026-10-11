@@ -112,10 +112,13 @@ it; competing History copies are never merged or replaced.
 
 - New machine-local store under the state root (`recently-deleted/`), with a manifest
   per entry: source work-folder id, original work-folder-relative path or folder, kind
-  (file, folder, work-folder, app-storage, app-retained), size, deleted-at,
+  (file, folder, work-folder, app-storage, app-retained, app-release), size, deleted-at,
   restore-by, and the receipt id that produced it.
 - Producers: `files delete` for uncoverable paths, `work-folders delete`,
-  `apps storage clear`, `apps retained purge`, `apps uninstall --purge-data`.
+  `apps storage clear`, `apps retained purge`, `apps uninstall --purge-data`,
+  and (2026-10-11) `apps release delete` / App Studio's **Delete Release**, which
+  keeps the Release's record and verified envelope so it returns to its App
+  Project in the state it was deleted in.
   The desktop's Delete action and Undo toast keep working; Undo restores from
   History or trash as appropriate.
 - Consumers: Settings → Recently deleted (list, Restore, Delete now), and

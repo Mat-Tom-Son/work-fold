@@ -510,23 +510,62 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       /no longer installed|Save a copy/i,
     );
 
-    const releaseDeletion = await request<{ deletion: { deleted: boolean; cleanupPending: boolean } }>(
+    type ReleaseDeletion = { deletion: { deleted: boolean; cleanupPending: boolean; recentlyDeleted: { entryId: string; restoreBy: string } | null } };
+    const releaseIsListed = async () => (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
+      .some((release) => release.releaseDigest === published.release.releaseDigest);
+    const releaseDeletion = await request<ReleaseDeletion>(
       api.origin,
       `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
       { method: "DELETE" },
     );
-    assert.deepEqual(releaseDeletion.deletion, { deleted: true, cleanupPending: false });
-    assert.equal(
-      (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
-        .some((release) => release.releaseDigest === published.release.releaseDigest),
-      false,
+    assert.equal(releaseDeletion.deletion.deleted, true);
+    assert.equal(releaseDeletion.deletion.cleanupPending, false);
+    assert.equal(await releaseIsListed(), false);
+    // Deleting a Release is reversible (docs/receipts-not-gates.md, F20): it
+    // waits in Recently deleted and comes back published, as it was.
+    const keptRelease = releaseDeletion.deletion.recentlyDeleted;
+    assert.ok(keptRelease, "the deleted Release waits in Recently deleted");
+    const listedRelease = (await request<{ entries: Array<{ id: string; kind: string; reason: string; name: string; restorable: string; receiptId: string | null }> }>(
+      api.origin,
+      "/api/settings/recently-deleted",
+    )).entries.find((entry) => entry.id === keptRelease.entryId);
+    assert.equal(listedRelease?.kind, "app-release");
+    assert.equal(listedRelease?.reason, "apps.release.delete");
+    assert.equal(listedRelease?.name, "Connected Inbox 1.0.0");
+    assert.equal(listedRelease?.restorable, "in-place");
+    assert.match(listedRelease?.receiptId ?? "", /\S/, "the deletion's receipt names the entry it produced");
+    const restoredRelease = await request<{ restored: { kind: string; releaseDigest: string; displayVersion: string } }>(
+      api.origin,
+      `/api/settings/recently-deleted/${keptRelease.entryId}/restore`,
+      { method: "POST", body: {} },
     );
-    const repeatedDeletion = await request<{ deletion: { deleted: boolean; cleanupPending: boolean } }>(
+    assert.deepEqual(
+      { kind: restoredRelease.restored.kind, releaseDigest: restoredRelease.restored.releaseDigest, displayVersion: restoredRelease.restored.displayVersion },
+      { kind: "app-release", releaseDigest: published.release.releaseDigest, displayVersion: "1.0.0" },
+    );
+    const back = (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
+      .find((release) => release.releaseDigest === published.release.releaseDigest);
+    assert.equal(back?.state, "published", "the Release returns in the state it was deleted in");
+    assert.equal(
+      (await api.recentlyDeleted.list()).entries.some((entry) => entry.id === keptRelease.entryId),
+      false,
+      "a restored Release leaves Recently deleted",
+    );
+
+    const secondDeletion = await request<ReleaseDeletion>(
+      api.origin,
+      `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
+      { method: "DELETE" },
+    );
+    assert.equal(secondDeletion.deletion.deleted, true);
+    assert.equal(await releaseIsListed(), false);
+    const repeatedDeletion = await request<ReleaseDeletion>(
       api.origin,
       `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
       { method: "DELETE" },
     );
     assert.equal(repeatedDeletion.deletion.deleted, false, "Release deletion is retry-safe after registry commit");
+    assert.equal(repeatedDeletion.deletion.recentlyDeleted, null, "a delete that removed nothing keeps nothing");
 
     const removedWorkFolder = await request<{ removed: boolean }>(api.origin, `/api/work-folders/${target.id}`, {
       method: "DELETE",

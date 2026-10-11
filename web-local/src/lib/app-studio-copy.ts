@@ -51,6 +51,8 @@ export function releaseDeletionResultToast(input: {
   displayVersion: string;
   deleted: boolean;
   cleanupPending: boolean;
+  /** True when a copy of the Release is waiting in Recently deleted. */
+  recentlyDeleted?: boolean;
 }): AppStudioResultToast {
   if (!input.deleted) {
     return {
@@ -59,6 +61,12 @@ export function releaseDeletionResultToast(input: {
         : `Release ${input.displayVersion} was already removed`,
       tone: "info",
     };
+  }
+  if (input.recentlyDeleted) {
+    const moved = `Release ${input.displayVersion} moved to Recently Deleted`;
+    return input.cleanupPending
+      ? { text: `${moved} · stored-byte cleanup will retry`, tone: "info" }
+      : { text: moved, tone: "success" };
   }
   return input.cleanupPending
     ? { text: `Release ${input.displayVersion} removed · stored-byte cleanup will retry`, tone: "info" }

@@ -124,7 +124,8 @@ new content-addressed put. Startup performs one bounded full verification pass,
 uses compact verified projections for registry/install integrity, and only then
 prunes unreferenced objects. Explicit Release deletion is denied while an active
 Instance, a prepared operation's source or target, or retained data requires the
-digest; registry removal commits before restart-retried physical pruning.
+digest; it keeps the record and verified envelope in Recently deleted first, and
+registry removal commits before restart-retried physical pruning.
 
 Install and update preparation persist operation ids, target work-folder, exact
 Release digest, Runtime Instance identity, new Feature/Data allocations, and the

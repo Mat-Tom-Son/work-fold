@@ -177,6 +177,16 @@ export function AppStudioPane({
     window.requestAnimationFrame(() => focusOperation(operationId));
   }, [studio?.operations]);
 
+  // A Release restored from Settings → Recently Deleted belongs back in this list.
+  useEffect(() => {
+    if (fixtureMode) return;
+    function onRestored(event: Event): void {
+      if ((event as CustomEvent<{ kind?: string }>).detail?.kind === "app-release") void refreshStudio();
+    }
+    window.addEventListener("work-fold:recently-deleted-restored", onRestored);
+    return () => window.removeEventListener("work-fold:recently-deleted-restored", onRestored);
+  }, [fixtureMode, workFolder.id]);
+
   async function refreshStudio(): Promise<LocalAppStudioSnapshot | null> {
     if (fixtureMode) return studio;
     const sequence = ++requestSequence.current;
@@ -291,13 +301,13 @@ export function AppStudioPane({
     }
     const confirmed = await requestConfirm({
       title: `Delete Release ${release.displayVersion}?`,
-      body: "This permanently removes the immutable Release from this device. Development previews and other Releases do not change.",
+      body: "Moves this Release to Recently Deleted, where you can restore it. Development previews and other Releases do not change.",
       confirmLabel: "Delete Release",
       tone: "danger",
     });
     if (!confirmed) return;
     await runMutation(`release:delete:${release.releaseDigest}`, async () => {
-      let result = { deleted: true, cleanupPending: false };
+      let result: { deleted: boolean; cleanupPending: boolean; recentlyDeleted?: { entryId: string; restoreBy: string } | null } = { deleted: true, cleanupPending: false };
       if (fixtureMode) {
         updateFixture((current) => ({
           ...current,
@@ -307,7 +317,12 @@ export function AppStudioPane({
         result = await deleteLocalAppRelease(workFolder.id, release.releaseDigest);
         await refreshStudio();
       }
-      showToast(releaseDeletionResultToast({ displayVersion: release.displayVersion, ...result }));
+      showToast(releaseDeletionResultToast({
+        displayVersion: release.displayVersion,
+        deleted: result.deleted,
+        cleanupPending: result.cleanupPending,
+        recentlyDeleted: Boolean(result.recentlyDeleted),
+      }));
     });
   }
 

@@ -618,6 +618,8 @@ export interface LocalAppRelease {
 export interface LocalAppReleaseDeletionResult {
   deleted: boolean;
   cleanupPending: boolean;
+  /** Where the deleted Release waits to be restored (docs/receipts-not-gates.md, F20). */
+  recentlyDeleted?: { entryId: string; restoreBy: string } | null;
 }
 
 export interface LocalAppInstance {

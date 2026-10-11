@@ -534,6 +534,70 @@ test("app data round-trips through the recently-deleted and every integrity fail
   assert.deepEqual((await store.list()).entries.map((item) => item.id), [retained.id, entry.id], "newest first");
 });
 
+test("a deleted Release round-trips with its record and envelope, and a mismatched or damaged copy is named", async (t) => {
+  const root = await sandbox(t);
+  const store = await openStore(root);
+  const releaseDigest = `sha256:${"c".repeat(64)}`;
+  const identity = {
+    kind: "app-release" as const,
+    projectId: "project_11111111-2222-4333-8444-555555555555",
+    releaseDigest,
+    displayVersion: "1.2.0",
+    sourceWorkFolderId: "work-folder-1",
+  };
+  const record = { projectId: identity.projectId, sourceWorkFolderId: "work-folder-1", releaseDigest, displayVersion: "1.2.0", state: "published" };
+  const release = { releaseDigest, manifest: { displayVersion: "1.2.0" } };
+
+  const entry = await store.moveAppReleaseToRecentlyDeleted({
+    reason: "apps.release.delete",
+    identity,
+    record,
+    release,
+    workFolderId: "work-folder-1",
+    workFolderName: "Fold work-folder",
+    displayName: "Quotes 1.2.0",
+    receiptId: "settings:11111111-2222-4333-8444-555555555555",
+  });
+  assert.equal(entry.kind, "app-release");
+  assert.equal(entry.reason, "apps.release.delete");
+  assert.equal(entry.displayName, "Quotes 1.2.0");
+  assert.equal(entry.originalPath, `${identity.projectId}/${releaseDigest}`);
+  assert.equal(entry.payloadPath, join(entry.entryPath, "payload", "app-release.json"));
+  assert.deepEqual(entry.payload, identity);
+  assert.equal(entry.sizeBytes, (await stat(entry.payloadPath)).size);
+  assert.equal(entry.complete, true);
+
+  const reopened = await openStore(root);
+  assert.deepEqual((await reopened.list()).entries.map((item) => [item.id, item.kind]), [[entry.id, "app-release"]], "the manifest parses back");
+  assert.deepEqual(await reopened.readAppRelease(entry.id), { identity, record, release });
+  await rejectsRecentlyDeletedError(reopened.readAppData(entry.id), "INPUT_INVALID", /not app data/);
+  await rejectsRecentlyDeletedError(reopened.restoreTree(entry.id, { absolutePath: join(root, "anywhere") }), "INPUT_INVALID", /a Release/);
+
+  // A record or envelope naming another Release is refused before anything is written.
+  for (const [mismatch, pattern] of [
+    [{ record: { ...record, releaseDigest: `sha256:${"d".repeat(64)}` } }, /different Release/],
+    [{ release: { ...release, releaseDigest: `sha256:${"d".repeat(64)}` } }, /different Release/],
+    [{ record: { ...record, displayVersion: "1.3.0" } }, /different App Project, work-folder, or version/],
+    [{ record: "not a record" }, /missing/],
+  ] as const) {
+    await rejectsRecentlyDeletedError(store.moveAppReleaseToRecentlyDeleted({
+      reason: "apps.release.delete", identity, record, release, workFolderId: "work-folder-1", receiptId: null, ...mismatch,
+    }), "INPUT_INVALID", pattern);
+  }
+  await rejectsRecentlyDeletedError(store.moveAppReleaseToRecentlyDeleted({
+    reason: "apps.release.delete", identity: { ...identity, appId: "quotes" } as never, record, release, workFolderId: "work-folder-1", receiptId: null,
+  }), "INPUT_INVALID", /Release identity/);
+  assert.equal((await store.list()).entries.length, 1);
+
+  // Damaged content on disk is STORE_DAMAGED on read; the entry stays listed.
+  await writeFile(entry.payloadPath, JSON.stringify({ format: "work-fold.app-release-recovery", formatVersion: 1, record, release: { ...release, releaseDigest: `sha256:${"e".repeat(64)}` } }));
+  await rejectsRecentlyDeletedError(store.readAppRelease(entry.id), "STORE_DAMAGED", /different Release/);
+  await writeFile(entry.payloadPath, "{\"format\":");
+  await rejectsRecentlyDeletedError(store.readAppRelease(entry.id), "STORE_DAMAGED", /cannot be read/);
+  assert.equal((await store.list()).entries.length, 1);
+  assert.deepEqual(await store.remove(entry.id), { removed: true });
+});
+
 test("retention purge erases only expired entries, holds legacy trees, and runs once per interval", async (t) => {
   const root = await sandbox(t);
   let clock = new Date("2026-09-10T00:00:00.000Z");
