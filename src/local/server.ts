@@ -734,6 +734,8 @@ interface LocalApiState {
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
   activeTurnPromises: Set<Promise<void>>;
+  /** Acceptances past the closing check whose turns are not yet in activeTurnPromises; close() waits for them. */
+  turnAcceptances: Set<Promise<unknown>>;
   activeTurnTasks: Map<string, { workFolderId: string; conversationId: string }>;
   cancelledTurnTasks: Set<string>;
   settledTurns: Map<string, SettledTurnRecord>;
@@ -1045,6 +1047,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     clients: new Map(),
     runningTurns: new Set(),
     activeTurnPromises: new Set(),
+    turnAcceptances: new Set(),
     activeTurnTasks: new Map(),
     cancelledTurnTasks: new Set(),
     settledTurns: new Map(),
@@ -1365,6 +1368,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       // turn this instant; let it finish so that turn is in the drained set
       // below or was refused by the flag above, never left running unseen.
       await state.requestSettleChain.catch(() => undefined);
+      // So may any other acceptance already past the flag (acceptConversationTurn).
+      await Promise.allSettled([...state.turnAcceptances]);
       await Promise.allSettled([...state.clients.values()].map((client) => client.stop()));
       await Promise.allSettled([...state.activeTurnPromises]);
       await shutdownIncludedToolHost(workFoldAgentRoot(), state.runtimeProvider).catch((error) => console.warn("Computer helper shutdown:", errorMessage(error)));
@@ -3891,6 +3896,23 @@ interface AcceptedTurnRequestInput {
 }
 
 async function acceptConversationTurn(
+  ...args: Parameters<typeof admitConversationTurn>
+): ReturnType<typeof admitConversationTurn> {
+  const [state] = args;
+  if (!state.acceptingTurns) throw httpError(503, "work-fold is closing and cannot accept another turn.");
+  // An acceptance already past this check finishes before close() drains
+  // turns, so its turn is drained too rather than dispatched afterwards and
+  // left running unseen.
+  const acceptance = admitConversationTurn(...args);
+  state.turnAcceptances.add(acceptance);
+  try {
+    return await acceptance;
+  } finally {
+    state.turnAcceptances.delete(acceptance);
+  }
+}
+
+async function admitConversationTurn(
   state: LocalApiState,
   workFolder: { id: string; workFolderRoot: string; name?: string },
   conversationId: string,
@@ -3920,7 +3942,6 @@ async function acceptConversationTurn(
     addressedWorkFolderIds?: string[];
   },
 ): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string; replayed: boolean }> {
-  if (!state.acceptingTurns) throw httpError(503, "work-fold is closing and cannot accept another turn.");
   const turnKey = clientKey(workFolder.id, conversationId);
   const existing = await readConversationSummary(workFolder.workFolderRoot, conversationId);
   if (!existing) throw notFound("Conversation not found.");
@@ -11901,8 +11922,14 @@ function settleTurnTask(
 }
 
 function throwIfTurnCancelled(state: LocalApiState, taskId: string): void {
-  if (!state.cancelledTurnTasks.has(taskId)) return;
-  const error = new Error("Agent turn cancelled by the user.");
+  // Closing stops a turn that has not prompted yet too. Stopping clients
+  // reaches only a prompt already in flight; this turn would otherwise start a
+  // fresh provider request on its stopped client, and close() would wait on it.
+  const reason = state.cancelledTurnTasks.has(taskId)
+    ? "Agent turn cancelled by the user."
+    : state.acceptingTurns ? null : "The turn stopped because work-fold is closing.";
+  if (!reason) return;
+  const error = new Error(reason);
   error.name = "PiTurnCancelledError";
   throw error;
 }
