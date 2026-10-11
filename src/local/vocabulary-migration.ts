@@ -97,7 +97,14 @@ export async function migrateVocabularyState(stateRoot: string): Promise<Vocabul
   const report: VocabularyMigrationReport = { alreadyMigrated: false, moved: [], rewritten: [], workFolders: [] };
   const marker = join(stateRoot, vocabularyMigrationMarker);
   if (await exists(marker)) return { ...report, alreadyMigrated: true };
-  if (!(await exists(stateRoot))) return report;
+  // A state root that does not exist yet is a fresh install: there is nothing
+  // in the old vocabulary to migrate. Mark it done now, or the next launch
+  // would "migrate" data this version just wrote and rename its fresh keys.
+  if (!(await exists(stateRoot))) {
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(marker, `${JSON.stringify({ version: vocabularyMigrationVersion, migratedAt: new Date().toISOString(), fresh: true, ...report }, null, 2)}\n`, { mode: 0o600 });
+    return report;
+  }
 
   for (const [from, to] of stateMoves) {
     if (await moveIfPresent(join(stateRoot, from), join(stateRoot, to))) report.moved.push(`${from} → ${to}`);

@@ -187,3 +187,20 @@ test("an Automation's saved folder snapshots are keyed by file paths and never r
     "app records beside it still migrate",
   );
 });
+
+test("a fresh install is marked migrated at once, so a later launch never rewrites data this version wrote", async (t) => {
+  const base = await mkdtemp(join(tmpdir(), "work-fold-fresh-state-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const stateRoot = join(base, "work-fold");
+  const first = await migrateVocabularyState(stateRoot);
+  assert.equal(first.alreadyMigrated, false);
+  assert.deepEqual([first.moved, first.rewritten], [[], []]);
+  // This version then writes data that already uses the new words, including
+  // keys an older vocabulary also used, such as an app automation's id.
+  await mkdir(join(stateRoot, "automations"), { recursive: true });
+  const receipt = `${JSON.stringify({ v: 1, scope: "automation", outcome: "enabled", automationId: "automation-0123456789abcdef" })}\n`;
+  await writeFile(join(stateRoot, "automations", "receipts.jsonl"), receipt);
+  const second = await migrateVocabularyState(stateRoot);
+  assert.equal(second.alreadyMigrated, true, "the second launch does nothing");
+  assert.equal(await readFile(join(stateRoot, "automations", "receipts.jsonl"), "utf8"), receipt, "fresh data keeps its keys");
+});

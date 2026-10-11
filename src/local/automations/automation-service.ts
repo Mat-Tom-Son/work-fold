@@ -440,6 +440,9 @@ export class WorkFoldAutomationService {
     this.stopRun(automationId);
     this.#disarm(automationId);
     this.#arm(record, "off", inherited);
+    // Take the first look now, before the person can drop anything in: a
+    // file that lands after Turn on is a change, never part of the baseline.
+    if (trigger.kind === "files-changed" && !inherited) await this.pollFileChanges();
     return record;
   }
 
