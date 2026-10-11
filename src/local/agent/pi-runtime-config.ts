@@ -29,6 +29,7 @@ import { defaultAgentSdkDir, workFolderSessionDir } from "./agent-data-dir.js";
 import type { PiExtensionUiBridge } from "./extension-ui.js";
 import type { ModelContextInspector } from "./model-context-inspector.js";
 import { includedResourceOptions, type IncludedToolsConfiguration } from "./included-tools.js";
+import { chooseImageModel, listImageModels } from "./image-generation-tool.js";
 
 export interface PiPreferredModel {
   provider: string;
@@ -382,6 +383,36 @@ export async function getPiSetupStatus(
     projectTrust: runtime.projectTrust,
     errors,
   };
+}
+
+export interface PiImageModelSummary {
+  provider: string;
+  providerName: string;
+  id: string;
+  name: string;
+}
+
+/**
+ * The image models every Worker can use (Settings → AI Models → Image model):
+ * Pi's connected image models plus the direct OpenAI and Google ones, and the
+ * one Automatic would pick right now.
+ */
+export async function listPiImageModels(
+  workFolderRoot: string,
+  provider?: PiRuntimeProvider,
+): Promise<{ models: PiImageModelSummary[]; automatic: PiImageModelSummary | null }> {
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  await loadRuntimeProviders(workFolderRoot, runtime);
+  const summary = (model: { provider: string; id: string; name: string }): PiImageModelSummary => ({
+    provider: model.provider,
+    providerName: runtime.modelRuntime.getProvider(model.provider)?.name ?? model.provider,
+    id: model.id,
+    name: model.name,
+  });
+  const models = (await listImageModels(runtime.modelRuntime)).map(summary)
+    .sort((left, right) => left.providerName.localeCompare(right.providerName) || left.name.localeCompare(right.name));
+  const automatic = await chooseImageModel(runtime.modelRuntime).then(summary, () => null);
+  return { models, automatic };
 }
 
 export async function listPiModels(

@@ -52,7 +52,15 @@ When Pi lists image models for a provider, work-fold uses Pi's and drops its own
 for that provider. A ChatGPT account sign-in (`openai-codex`) is a different
 provider and has no image models here.
 
-With no model named, work-fold uses the first connected model from a short
+**Choosing the model.** Settings → AI Models → **Image model** holds one
+machine-wide choice for every Worker and the work-fold agent, saved as soon as
+it is picked (`image-model.json` in work-fold's app state, never in a
+work-folder). Its first entry, **Automatic**, shows the model Automatic would
+use right now. A chosen model whose provider is later disconnected falls back
+to Automatic until it is connected again, and the section says so. A model the
+Worker names for one picture still wins.
+
+With no model named or chosen, work-fold uses the first connected model from a short
 preference list: Gemini 3.1 Flash Image, GPT Image 2, Gemini 2.5 Flash Image,
 GPT Image 1 Mini, then FLUX.2 Pro, matched with or without a vendor prefix so a
 provider's own copy of a model counts too. It never picks a router such as

@@ -166,6 +166,8 @@ export interface PiTurnContext {
 export interface PiConversationClientOptions {
   /** Appended after this work-folder's instructions; absent for the work-fold agent scope. */
   operationsGuide?: string;
+  /** The image model chosen in Settings → AI Models, read when a picture is made. */
+  imageModel?: () => Promise<{ provider: string; id: string } | undefined>;
 }
 
 export interface PiConversationState {
@@ -749,7 +751,11 @@ export class PiConversationClient extends EventEmitter {
       this.appToolTitles = restrictedAppToolTitles(restrictedApps);
       const customTools = [
         // Every session can make pictures with a connected image model, saved in its own folder.
-        createImageGenerationTool({ root: options.cwd, models: runtime.modelRuntime }),
+        createImageGenerationTool({
+          root: options.cwd,
+          models: runtime.modelRuntime,
+          ...(this.options.imageModel ? { preferredModel: this.options.imageModel } : {}),
+        }),
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
             workFolderId: this.hostCapabilities.workFolderId,

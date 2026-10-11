@@ -75,8 +75,14 @@ export interface GeneratedImage {
 export async function chooseImageModel(
   source: ImageModelSource,
   requested?: { provider: string; id: string },
+  /** The person's Settings choice; used while connected, otherwise Automatic. */
+  preferred?: { provider: string; id: string },
 ): Promise<ChosenImageModel> {
   const available = await listImageModels(source);
+  if (!requested && preferred) {
+    const saved = available.find((model) => model.provider === preferred.provider && model.id === preferred.id);
+    if (saved) return saved;
+  }
   if (requested) {
     const named = available.find((model) => model.provider === requested.provider && model.id === requested.id);
     if (!named) {
@@ -123,6 +129,8 @@ export async function generateImageFile(input: {
   path: string;
   shape?: ImageShape;
   model?: { provider: string; id: string };
+  /** The person's Settings choice (Settings → AI Models → Image model). */
+  preferred?: { provider: string; id: string };
   includePreview?: boolean;
   /** Save outside the folder, in work-fold's temporary space: for a picture used once, such as a banner. */
   temporary?: boolean;
@@ -132,7 +140,7 @@ export async function generateImageFile(input: {
   if (!prompt) throw new Error("Describe the image to make.");
   if (prompt.length > maxPromptCharacters) throw new Error(`Keep the description under ${maxPromptCharacters.toLocaleString("en-US")} characters.`);
   const shape = input.shape ?? "square";
-  const model = await chooseImageModel(input.source, input.model);
+  const model = await chooseImageModel(input.source, input.model, input.preferred);
   const context: ImagesContext = { input: [{ type: "text", text: prompt }] };
   const aspectRatio = imageShapeAspectRatios[shape];
   const result: AssistantImages = isDirectImageModel(model)
@@ -200,7 +208,12 @@ async function generateWithProviderCredential(
   });
 }
 
-export function createImageGenerationTool(input: { root: string; models: ImageModelSource }): ToolDefinition<any> {
+export function createImageGenerationTool(input: {
+  root: string;
+  models: ImageModelSource;
+  /** Reads the person's image model choice at call time, so a change applies to the next picture. */
+  preferredModel?: () => Promise<{ provider: string; id: string } | undefined>;
+}): ToolDefinition<any> {
   return {
     name: "generate_image",
     label: "Generate image",
@@ -208,7 +221,7 @@ export function createImageGenerationTool(input: { root: string; models: ImageMo
     promptSnippet: "Make an image from a description and save it in this folder",
     promptGuidelines: [
       "generate_image saves to the path you give, relative to this folder (png, jpg, or webp; the extension follows the format the model returns). Use shape \"wide\" for a work-folder banner, \"square\" for an icon-like picture, and \"tall\" for a poster. Describe the subject, style, mood, and colors. Say \"no text, no letters\" unless words are wanted, because image models misspell text.",
-      "With no model named it uses a connected image model work-fold prefers; name one as {provider, id} only when the person asks for it. If no image model is connected, tell the person to connect a provider with image models in Settings → AI Models.",
+      "With no model named it uses the image model chosen in Settings → AI Models, or a connected one work-fold prefers; name one as {provider, id} only when the person asks for it. If no image model is connected, tell the person to connect a provider with image models in Settings → AI Models.",
       "To make a generated picture this work-folder's banner, make it with temporary: true so it never lands in the person's folder, then apply the absolute path it returns with work-fold work-folders appearance apply --work-folder <id> --banner-image <path>; it can be undone with work-folders appearance undo.",
     ],
     parameters: {
@@ -240,6 +253,7 @@ export function createImageGenerationTool(input: { root: string; models: ImageMo
         ? { provider: value.model.provider, id: value.model.id }
         : undefined;
       const sees = Boolean(ctx?.model?.input?.includes("image"));
+      const preferred = model ? undefined : await input.preferredModel?.().catch(() => undefined);
       const made = await generateImageFile({
         root: input.root,
         source: input.models,
@@ -247,6 +261,7 @@ export function createImageGenerationTool(input: { root: string; models: ImageMo
         path: typeof value.path === "string" ? value.path : "",
         ...(shape ? { shape } : {}),
         ...(model ? { model } : {}),
+        ...(preferred ? { preferred } : {}),
         includePreview: sees,
         ...(value.temporary === true ? { temporary: true } : {}),
         ...(signal ? { signal } : {}),
