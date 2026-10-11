@@ -1058,8 +1058,8 @@ function renderMessages() {
     ${working && !visibleWork && !state.liveAssistantText ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working…")}</span></div>` : ""}
     ${!visibleWork && requestPhase === "failed" ? `<p class="request-outcome">Couldn’t finish${request.error ? `: ${escapeHtml(request.error)}` : "."}</p>` : ""}
     ${results.length ? `<details class="request-deliverables"${resultsOpen ? " open" : ""}><summary>Files and apps</summary><div class="request-result-links">${results.map((result) => result.kind === "file"
-      ? `<button type="button" data-space-id="${escapeAttribute(result.workFolderId)}" data-result-file="${escapeAttribute(result.path)}" title="${escapeAttribute(result.workFolderName)} · ${escapeAttribute(result.path)}">${escapeHtml(result.label)}</button>`
-      : `<button type="button" data-space-id="${escapeAttribute(result.workFolderId)}" data-result-app="${escapeAttribute(result.featureInstallationId)}">${escapeHtml(result.label)}</button>`).join("")}</div></details>` : ""}
+      ? `<button type="button" data-work-folder-id="${escapeAttribute(result.workFolderId)}" data-result-file="${escapeAttribute(result.path)}" title="${escapeAttribute(result.workFolderName)} · ${escapeAttribute(result.path)}">${escapeHtml(result.label)}</button>`
+      : `<button type="button" data-work-folder-id="${escapeAttribute(result.workFolderId)}" data-result-app="${escapeAttribute(result.featureInstallationId)}">${escapeHtml(result.label)}</button>`).join("")}</div></details>` : ""}
   `);
   if (workChanged) {
     const resultLinks = requestResultLinks(request);
