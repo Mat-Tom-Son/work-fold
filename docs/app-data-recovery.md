@@ -71,6 +71,11 @@ single recovery point available to undo the restore itself. A copy whose app
 is no longer installed — every purged retained record among them — can only be
 saved as a file, from Recently deleted or with
 `work-fold recently-deleted restore --entry <id> --to <absolute-file-path>`.
+The exception is a preview removed with its work-folder (2026-10-11): restoring
+that work-folder's App Studio history brings the preview back with its original
+installation and Data Namespace and puts its newest kept data back into it in
+the same act. Until then, the data item says to restore the App Studio history
+first.
 
 Recovery is not automatic backup or cross-installation adoption. Save exports
 outside the app before removing it when long-term access matters. Schema

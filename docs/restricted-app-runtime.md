@@ -218,8 +218,9 @@ The `work-fold.restricted-app-bridge` preload exposes only the frozen
 `workFoldRestrictedApp` global:
 
 - `context.get()` and `context.onChanged()` report placement (`navigator` or
-  `tab`), route, host-owned app identity, theme, active state, and bounded tab
-  state;
+  `tab`), route, host-owned app identity, theme, active state, bounded tab
+  state, and `openedFrom` — `{ kind: "notification", permissionId }` when a
+  notification click opened the left-pane view, otherwise null (2026-10-11);
 - `tabs.open(...)` asks work-fold to create or activate a work-folder-owned work
   tab. Only the left-pane (`navigator`) view may ask, and only within five
   seconds of the person pressing a mouse button or key in it, as Electron main
@@ -233,9 +234,10 @@ The `work-fold.restricted-app-bridge` preload exposes only the frozen
 - `files` lists, reads, or writes only through current reviewed grants;
 - `checks.read` returns locally re-verified results from one explicitly selected
   Check revision in the owning work-folder, only in an active visible desktop view; and
-- `notifications.show({ permissionId })` selects reviewed static copy, only
-  during an enabled automation invocation whose permission subset includes a
-  separately granted category;
+- `notifications.show({ permissionId, route, state })` selects reviewed static
+  copy, only during an enabled automation invocation whose permission subset
+  includes a separately granted category; the optional route and state say
+  where a click opens the app (2026-10-11);
 - `attention.set({ count })` and `attention.clear()` put or remove a dot on the
   app's rail button, from a mounted view or a worker holding an operation
   (2026-10-11); the shell keeps the current set across a window reload; and
@@ -353,7 +355,10 @@ quitting stops stale launches before authority changes take effect.
 
 Notifications are host-owned system notifications, not arbitrary renderer
 UI. The manifest title and category copy are single-line reviewed text; the
-runtime cannot add dynamic copy, actions, or URLs. A category grant, an enabled
+runtime cannot add dynamic copy, actions, or URLs. It may name only where a
+click opens the app (2026-10-11): an origin-relative route of at most 2,048
+characters (default `/`) and JSON state of at most 64 KiB, validated exactly
+like a tab's route and state. Neither reaches the notification's text. A category grant, an enabled
 automation, and inclusion in that automation's permission subset are all
 required. The host limits each invocation (20),
 category frequency (one per category every 30 seconds), hourly app volume
@@ -363,18 +368,37 @@ from spam rather than ration the app. Rate
 history is keyed by work-folder and app so renderer restarts, permission churn, and
 digest updates cannot reset the anti-spam budget. Clicking revalidates the
 current digest, declaration, grant, and automation authority before opening
-the exact owning work-folder and app. Suspend, disable, update, removal, and shutdown
+the exact owning work-folder and the app's left-pane view — never a tab, the
+same rule as the rail — at that route and state, with `context.openedFrom`
+naming the category. A left pane that is already open receives the route,
+state, and origin through `context.onChanged`; the rail button still opens the
+app at `/` with no origin. Suspend, disable, update, removal, and shutdown
 close outstanding notifications. Notification handles and click targets retain
 the exact Feature Installation; category replacement and scoped cleanup cannot
 close another installation's notification. The aggregate hourly app budget
 continues to span installations.
+
+Every call the host answers with a status — `shown`, `rate-limited`, or
+`unsupported` — lands in a bounded machine-local record (2026-10-11),
+`restricted-apps/notification-receipts.jsonl` under the state root and outside
+every work-folder, like the inference receipts. A line holds the time, work-folder,
+app, installation, revision, category id and its reviewed title, and the
+status; never the route or state the app attached. A refused call has no
+status and is not recorded. The record keeps each installation's newest 1,000
+and the newest 20,000 overall, for at most 90 days; a torn or damaged line is
+skipped, and a line that cannot be written is lost rather than delaying the
+notification. Settings → Apps shows each app's recent ones under its
+notification categories, such as "Shown Oct 11, 3:02 PM · New screenshots
+sorted", across code changes.
 
 The real-Electron preparation probe covers both hosts: missing Node globals,
 rejected Node imports, direct loopback HTTP/WebSocket denial, WebRTC and popup
 denial, sender-bound broker failure, bounded results, timeout recovery, visible
 UI loading, durable storage, active-only storage invalidation, a
 History-covered work-folder-file write, automation execution, static notification
-delivery and cleanup, and an app-requested host-owned tab.
+delivery and cleanup, a notification click's route, state, and origin reaching a
+mounted and an already-open left pane (and refused for a tab), and an
+app-requested host-owned tab.
 
 ## Network and credentials
 
@@ -608,9 +632,28 @@ Removing a source work-folder is blocked while its Project has any active local 
 Instance or retained data; removing a target work-folder is blocked only while an App
 Instance is attached there. work-fold requires the whole App Instance to be
 uninstalled first so a work-folder-removal shortcut cannot silently choose a data
-disposition. After explicit purge, source removal clears the machine-local App
-Project and Release lineage. Target removal cancels unactivated operations
-prepared for that work-folder.
+disposition. After explicit purge, source removal takes the machine-local App
+Project with it — its Development Instance and previews, every Release, its
+prepared operations, and its receipts — and target removal cancels unactivated
+operations prepared for that work-folder.
+
+Neither is erased (2026-10-11). Before anything is cleared, the host writes it
+all into Recently deleted as one **App Studio** item: the registry records, a
+copy of each preview's package folder, and each Release's record and verified
+envelope. If that copy cannot be written, nothing is cleared and the removal
+stays pending; startup recovery of an interrupted removal writes the same
+copies, the previews' data included, before it clears anything. Restoring the
+item needs the work-folder registered again (restore it from Recently deleted,
+or add its folder again) and refuses plainly until it is. It re-validates every
+record, re-places each package only if it matches its content digest and its
+record, re-verifies each envelope as startup does, and brings the previews back
+with their grants, automation states, and run receipts under fresh authority
+generations; connection secrets were removed with them and are entered again.
+A prepared operation returns only while its Release, target work-folder, and
+App Instance still fit; the rest are counted, not guessed at. Each preview's
+kept data goes back into it in the same act. A different App Project started in
+the work-folder since is never merged with the kept one; only an empty one —
+no apps, Releases, operations, App Instances, or retained data — gives way.
 
 The restricted app itself appears directly in the contributed rail. Selecting
 it mounts its navigator; the app decides which persistent work tabs to open.

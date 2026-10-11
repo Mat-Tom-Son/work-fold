@@ -13515,6 +13515,43 @@ textarea:focus-visible,
   font-size: 10px;
 }
 
+/* The app's recent notifications, under its categories in Settings → Apps. */
+.restricted-app-notification-history {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  color: var(--ui-text-subtle);
+  font-size: 11px;
+}
+
+.restricted-app-notification-history h4 {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.restricted-app-notification-history ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.restricted-app-notification-history li {
+  color: var(--ui-text);
+  overflow-wrap: anywhere;
+}
+
+.restricted-app-notification-history li.not-shown {
+  color: var(--ui-text-subtle);
+}
+
+.restricted-app-notification-history > button {
+  justify-self: start;
+}
+
 .restricted-app-destination-card {
   display: grid;
   gap: 10px;

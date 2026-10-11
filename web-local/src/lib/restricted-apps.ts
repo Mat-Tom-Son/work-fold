@@ -249,6 +249,21 @@ export async function listRestrictedAppInferenceReceipts(app: RestrictedAppInsta
   )).receipts;
 }
 
+/**
+ * What this installation's notifications did, newest first, across code
+ * changes: shown, held back by the spam guard, or unavailable on this computer.
+ */
+export async function listRestrictedAppNotificationRecord(app: RestrictedAppInstalled, limit?: number) {
+  const query = new URLSearchParams({
+    featureInstallationId: app.featureInstallationId,
+    expectedDigest: app.digest,
+    ...(limit === undefined ? {} : { limit: String(limit) }),
+  });
+  return (await api<{ receipts: import("../../../src/shared/restricted-app-notification-record").RestrictedAppNotificationRecordEntry[] }>(
+    `${appPath(app.workFolderId, app.manifest.id)}/notification-receipts?${query}`,
+  )).receipts;
+}
+
 export async function setRestrictedAppCheckGrant(app: RestrictedAppInstalled, permissionId: string, selection: { checkId: string; declarationDigest: string } | null): Promise<RestrictedAppInstalled> {
   return (await api<{ app: RestrictedAppInstalled }>(`${appPath(app.workFolderId, app.manifest.id)}/permissions/checks/${encodeURIComponent(permissionId)}`, {
     method: selection ? "PUT" : "DELETE",

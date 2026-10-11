@@ -2,6 +2,7 @@ import { RestrictedAppCheckAccess } from "./RestrictedAppCheckAccess";
 import { openWorkFile } from "../chat/WorkRequest";
 import { RestrictedAppAssistantTasks } from "./RestrictedAppAssistantTasks";
 import { RestrictedAppInferenceReceipts } from "./RestrictedAppInferenceReceipts";
+import { RestrictedAppNotificationHistory } from "./RestrictedAppNotificationHistory";
 import { reloadSharedPages, useSharedPages } from "../../hooks/useSharedPages";
 import { activeSharedAppFor, appCanBeSharedAtAddress } from "../../lib/page-sharing";
 import { appSharing } from "../../ui-contract";
@@ -514,6 +515,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
               <div className="restricted-app-destination-actions"><button className={granted ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={Boolean(actionBusy)} onClick={() => void changeNotificationGrant(permission, !granted)}>{actionBusy === `notification:${permission.id}` ? <ArrowSync16Regular className="spin" /> : null}{granted ? "Revoke notifications" : "Allow notifications"}</button></div>
             </article>;
           })}
+          <RestrictedAppNotificationHistory key={`notifications:${app.featureInstallationId}`} app={app} disabled={fixtureMode} />
         </section> : null}
         {app.manifest.automations.length ? <section className="restricted-app-connections" aria-labelledby="restricted-app-automations-title">
           <div className="restricted-app-connections-heading"><div><Clock20Regular aria-hidden="true" /><h3 id="restricted-app-automations-title">Automations</h3></div></div>

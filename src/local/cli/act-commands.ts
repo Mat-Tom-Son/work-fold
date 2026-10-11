@@ -2269,6 +2269,7 @@ async function runActCommand(
       return toJson(await facade.workFoldersUnregister({
         workFolder: command.workFolder!,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+        requestId: request.id,
       }));
     case "work-folders.appearance.apply":
       return toJson(await facade.workFoldersAppearanceApply({
@@ -3235,7 +3236,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         : "";
       return `Unregistered ${terminalText(record.storage)} work-folder ${workFolderLabel}. `
         + `The folder remains at ${terminalText(record.workFolder?.workFolderRoot)} with its portable .work-fold identity; `
-        + `register it again to restore it.${cleanup}\n`;
+        + `register it again to restore it.${cleanup}\n${removedAppStateText(record)}`;
     }
     case "work-folders.appearance.apply": {
       const prior = typeof record.priorAppearanceRef === "string"
@@ -3338,11 +3339,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const recentlyDeleted = (record.recentlyDeleted ?? null) as { entryId?: unknown; restoreBy?: unknown } | null;
       // The work-folder's preview apps go with it, so their data copies are named
       // too: the folder coming back is not the whole recovery.
-      const appRecentlyDeletedEntries = (Array.isArray(record.appRecentlyDeletedEntries) ? record.appRecentlyDeletedEntries : []) as Array<{ entryId?: unknown }>;
-      const apps = appRecentlyDeletedEntries.length
-        ? `The data of ${appRecentlyDeletedEntries.length} app${appRecentlyDeletedEntries.length === 1 ? "" : "s"} installed here is in Recently deleted too `
-          + `[${appRecentlyDeletedEntries.map((item) => terminalText(item.entryId)).join(", ")}].\n`
-        : "";
+      const apps = removedAppStateText(record);
       if (!recentlyDeleted) return `Deleted the managed folder of ${workFolderLabel}.${cleanup}\n${apps}`;
       return `Deleted ${workFolderLabel}. Its folder is in Recently deleted until ${terminalText(recentlyDeleted.restoreBy)}; `
         + `put it back with 'recently-deleted restore --entry ${terminalText(recentlyDeleted.entryId)}'.${cleanup}\n${apps}`;
@@ -3472,6 +3469,12 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         releaseDigest?: unknown;
         displayVersion?: unknown;
         safetyCheckpointId?: unknown;
+        projectTitle?: unknown;
+        previewCount?: unknown;
+        releaseCount?: unknown;
+        operationCount?: unknown;
+        droppedOperationCount?: unknown;
+        appDataEntryIds?: unknown;
         workFolder?: { name?: unknown; id?: unknown };
       };
       const where = typeof restored.workFolder?.name === "string"
@@ -3485,6 +3488,17 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       if (restored.kind === "app-storage") return `Restored ${terminalText(restored.appId)}'s data in ${where}.\n`;
       if (restored.kind === "app-release") {
         return `Restored Release ${terminalText(restored.displayVersion)} [${terminalText(restored.releaseDigest)}] to App Studio in ${where}.\n`;
+      }
+      if (restored.kind === "app-studio") {
+        const count = (value: unknown, noun: string) => `${Number(value) || 0} ${noun}${Number(value) === 1 ? "" : "s"}`;
+        const dataIds = Array.isArray(restored.appDataEntryIds) ? restored.appDataEntryIds : [];
+        const dropped = Number(restored.droppedOperationCount) || 0;
+        return `Restored the App Studio history of ${where}`
+          + `${typeof restored.projectTitle === "string" ? ` (${terminalText(restored.projectTitle)})` : ""}: `
+          + `${count(restored.previewCount, "app preview")}, ${count(restored.releaseCount, "Release")}, `
+          + `${count(restored.operationCount, "prepared operation")}.\n`
+          + (dataIds.length ? `The data of ${count(dataIds.length, "app")} went back with them [${dataIds.map((id) => terminalText(id)).join(", ")}].\n` : "")
+          + (dropped ? `${count(dropped, "prepared operation")} no longer fit what changed since and did not come back; prepare them again in App Studio.\n` : "");
       }
       return `Restored ${restored.kind === "folder" ? "folder" : "file"} ${terminalText(restored.path)} to ${where}`
         + `${restored.renamed === true ? " under a new name, because the old one was taken" : ""}.\n`
@@ -3770,8 +3784,38 @@ function recentlyDeletedKindLabel(kind: unknown): string {
     case "app-storage":
     case "app-retained": return "app data";
     case "app-release": return "Release";
+    case "app-studio": return "App Studio history";
     default: return "item";
   }
+}
+
+/** The Recently deleted ids a work-folder removal's receipt names for its apps. */
+function removedAppStateReceiptDetail(value: object): string {
+  const record = value as { appRecentlyDeletedEntries?: unknown; appStudioRecentlyDeleted?: unknown };
+  const appEntries = (Array.isArray(record.appRecentlyDeletedEntries) ? record.appRecentlyDeletedEntries : []) as Array<{ entryId?: unknown }>;
+  const appIds = appEntries.map((item) => String(item?.entryId ?? "")).filter(Boolean);
+  const studio = record.appStudioRecentlyDeleted && typeof record.appStudioRecentlyDeleted === "object"
+    ? String((record.appStudioRecentlyDeleted as { entryId?: unknown }).entryId ?? "")
+    : "";
+  return (appIds.length ? `; app data ${appIds.join(", ")}` : "") + (studio ? `; App Studio ${studio}` : "");
+}
+
+/**
+ * What a work-folder removal kept of its apps: each preview's data and the
+ * work-folder's App Studio history wait in Recently deleted too, because the
+ * folder coming back is not the whole recovery.
+ */
+function removedAppStateText(value: object): string {
+  const record = value as { appRecentlyDeletedEntries?: unknown; appStudioRecentlyDeleted?: unknown };
+  const appEntries = (Array.isArray(record.appRecentlyDeletedEntries) ? record.appRecentlyDeletedEntries : []) as Array<{ entryId?: unknown }>;
+  const studio = (record.appStudioRecentlyDeleted ?? null) as { entryId?: unknown } | null;
+  const apps = appEntries.length
+    ? `The data of ${appEntries.length} app${appEntries.length === 1 ? "" : "s"} installed here is in Recently deleted too `
+      + `[${appEntries.map((item) => terminalText(item.entryId)).join(", ")}].\n`
+    : "";
+  return apps + (studio
+    ? `Its App Studio history is in Recently deleted too [${terminalText(studio.entryId)}]; put it back once the work-folder is registered again.\n`
+    : "");
 }
 
 /** Why History alone could not keep a copy of one path. */
@@ -4020,14 +4064,11 @@ function actReceiptDetail(
     case "recently-deleted.restore":
       return `entry ${String(record.entry?.id ?? "")}; kind ${String(record.restored?.kind ?? "")}; `
         + `restored ${boundedReceiptText(String(
-          record.restored?.path ?? record.restored?.workFolderRoot ?? record.restored?.appId ?? "",
+          record.restored?.path ?? record.restored?.workFolderRoot ?? record.restored?.appId ?? record.restored?.workFolder?.id ?? "",
         ))}`;
-    case "work-folders.delete": {
-      const appEntries = (Array.isArray(record.appRecentlyDeletedEntries) ? record.appRecentlyDeletedEntries : []) as Array<{ entryId?: unknown }>;
-      const appIds = appEntries.map((item) => String(item?.entryId ?? "")).filter(Boolean);
+    case "work-folders.delete":
       return `work-folder.delete-folder${recentlyDeletedRef(record.recentlyDeleted) ? `; ${recentlyDeletedRef(record.recentlyDeleted)}` : ""}`
-        + (appIds.length ? `; app data ${appIds.join(", ")}` : "");
-    }
+        + removedAppStateReceiptDetail(record);
     case "tools.import-skill":
       return `capability.skills.import; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; digest ${String(record.contentDigest)}`;
     case "tools.install":
@@ -4131,7 +4172,7 @@ function actReceiptDetail(
         ? `app ${record.appId}; automation ${record.appAutomationId}; run ${record.run.runId}; outcome ${String(record.run.outcome)}`
         : undefined;
     case "work-folders.unregister":
-      return typeof record.storage === "string" ? `storage ${record.storage}` : undefined;
+      return typeof record.storage === "string" ? `storage ${record.storage}${removedAppStateReceiptDetail(record)}` : undefined;
     case "work-folders.appearance.apply":
       return typeof record.appearanceRef === "string" ? `applied ${record.appearanceRef}` : "applied default";
     case "work-folders.appearance.reset":

@@ -14,6 +14,7 @@ export function RestrictedAppViewport({
   appTabId,
   route = "/",
   state,
+  openedFrom,
   active,
 }: {
   app: RestrictedAppInstalled;
@@ -21,17 +22,19 @@ export function RestrictedAppViewport({
   appTabId?: string;
   route?: string;
   state?: unknown;
+  /** Left-pane views only: the notification click that opened it at this route and state. */
+  openedFrom?: { kind: "notification"; permissionId: string };
   active: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mountIdRef = useRef(crypto.randomUUID());
   const sequenceRef = useRef(0);
-  const latestRef = useRef({ app, placement, appTabId, route, state, active });
+  const latestRef = useRef({ app, placement, appTabId, route, state, openedFrom, active });
   const [generation, setGeneration] = useState(0);
   const [viewState, setViewState] = useState<"loading" | "ready" | "crashed">("loading");
   const [message, setMessage] = useState("");
   const cornerRadius = resolveRestrictedAppCornerRadius(app.manifest.ui.cornerRadius);
-  latestRef.current = { app, placement, appTabId, route, state, active };
+  latestRef.current = { app, placement, appTabId, route, state, openedFrom, active };
   const desktop = window.workFoldDesktop?.restrictedApps;
 
   useEffect(() => {
@@ -109,7 +112,7 @@ export function RestrictedAppViewport({
     const element = hostRef.current;
     if (!desktop || !element) return;
     desktop.layoutView(viewRequest(element, mountIdRef.current, sequenceRef.current++, latestRef.current));
-  }, [active, appTabId, desktop, placement, route, state]);
+  }, [active, appTabId, desktop, openedFrom, placement, route, state]);
 
   if (!desktop) {
     return <div className="restricted-app-view restricted-app-view-fallback" style={{ borderRadius: cornerRadius }}><Apps24Regular /><strong>{app.manifest.title}</strong><span>Interactive app views run in the work-fold desktop app.</span></div>;
@@ -140,6 +143,7 @@ function viewRequest(
     appTabId?: string;
     route: string;
     state?: unknown;
+    openedFrom?: { kind: "notification"; permissionId: string };
     active: boolean;
   },
 ): RestrictedAppViewRequest {
@@ -156,6 +160,7 @@ function viewRequest(
     ...(latest.appTabId ? { appTabId: latest.appTabId } : {}),
     route: latest.route,
     ...(latest.state !== undefined ? { state: latest.state } : {}),
+    ...(latest.openedFrom && latest.placement === "navigator" ? { openedFrom: latest.openedFrom } : {}),
     sequence,
     bounds,
     active,

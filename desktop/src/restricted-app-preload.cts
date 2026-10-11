@@ -30,6 +30,18 @@ function initialState(): unknown {
   try { return JSON.parse(value); } catch { return null; }
 }
 
+/** The notification click that opened this left-pane view, or null; the host already checked it. */
+function initialOpenedFrom(): { kind: "notification"; permissionId: string } | null {
+  const value = argumentValue("opened-from");
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { kind?: unknown; permissionId?: unknown };
+    return parsed?.kind === "notification" && typeof parsed.permissionId === "string"
+      ? Object.freeze({ kind: "notification" as const, permissionId: parsed.permissionId })
+      : null;
+  } catch { return null; }
+}
+
 /**
  * Host-declared runtime bounds. These are constant for the lifetime of the
  * mount, so they arrive as a launch argument and `limits.get()` stays
@@ -92,6 +104,7 @@ let context = Object.freeze({
   appTabId: argumentValue("app-tab-id") || null,
   route: argumentValue("route") || "/",
   state: initialState(),
+  openedFrom: initialOpenedFrom(),
   theme: argumentValue("theme") === "dark" ? "dark" as const : "light" as const,
   active: true,
 });
@@ -153,7 +166,9 @@ const tabRequest = async (command: Record<string, unknown>): Promise<void> => {
 const attentionRequest = (count: unknown) => invokeHost(attentionChannel, { count }, 1_024, "APP_ERROR");
 const storageRequest = (operation: string, fields: Record<string, unknown> = {}) => invokeHost(storageChannel, { operation, ...fields }, maximumStorageEnvelopeBytes, "STORAGE_FAILED");
 const fileRequest = (operation: string, request: unknown) => invokeHost(filesChannel, { operation, request }, maximumFileEnvelopeBytes, "FILE_FAILED");
-const notificationRequest = (request: unknown) => invokeHost(notificationsChannel, request, 4 * 1024, "NOTIFICATION_FAILED");
+// A category id plus an optional route (2,048 characters) and 64 KiB of state;
+// the host re-checks every field (docs/restricted-app-runtime.md).
+const notificationRequest = (request: unknown) => invokeHost(notificationsChannel, request, 80 * 1024, "NOTIFICATION_FAILED");
 
 const storageListeners = new Set<(event: { revision: number; keys: string[]; reset: boolean }) => void>();
 ipcRenderer.on(storageChangedChannel, (_event, value: unknown) => {
@@ -314,7 +329,7 @@ const appBridge = Object.freeze({
     },
   }),
   notifications: Object.freeze({
-    show: (request: { permissionId: string }) => notificationRequest(request),
+    show: (request: { permissionId: string; route?: string; state?: unknown }) => notificationRequest(request),
   }),
   limits: Object.freeze({
     get: () => limits,

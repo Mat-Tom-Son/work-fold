@@ -54,6 +54,13 @@ test("propose_space_app exposes only a work-folder-relative path and reports wha
   assert.match(guidance, /Inline <script> blocks, inline event handlers such as onclick=, eval, new Function, and WebAssembly are blocked/);
   assert.match(guidance, /declare viewer \{entry:'viewer\.html', readable:/);
   assert.match(guidance, /context\.get\(\)\.theme/);
+  // A notification names where a click opens the app, never its copy, and
+  // the left pane renders from the route it is opened at.
+  assert.match(guidance, /notifications\.show\(\{permissionId, route\?, state\?\}\)/);
+  assert.match(guidance, /always its left-pane view, never a tab/);
+  assert.match(guidance, /context\.get\(\)\.openedFrom set to \{kind:'notification', permissionId\}/);
+  assert.match(guidance, /at most 2,048 characters/);
+  assert.match(guidance, /render from context\.get\(\)\.route and state/);
   assert.doesNotMatch(guidance, /checks\.read\/onChanged; and notifications\.show/, "views cannot show notifications");
   // The guidance states the live bounds, not copies of them.
   assert.ok(guidance.includes(`Input is at most ${restrictedAppLimitSize(restrictedAppAssistantLimits.inputBytes)}`));

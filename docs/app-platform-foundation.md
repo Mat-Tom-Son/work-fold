@@ -249,11 +249,15 @@ keeps the source registered until that data is explicitly purged; it does not
 keep the former target registered. Once nothing remains live or retained,
 removing the source also removes its machine-local Project, Development
 Instance, and Release lineage, then safely reconciles unreferenced Release-store
-objects. A transient reconciliation failure is retried before later App
+objects. That lineage is kept in Recently deleted first, with its previews'
+packages and verified Release envelopes, and comes back re-verified once the
+work-folder is registered again (2026-10-11; see
+[Restricted app runtime](restricted-app-runtime.md#review-and-lifecycle)). A transient reconciliation failure is retried before later App
 mutations and at startup. Startup still fails closed when a referenced object or
 security invariant cannot be validated, but a validated orphan that is merely
 locked remains inert and pending without preventing work-fold from opening.
-Removing a target cancels prepared operations aimed at that work-folder.
+Removing a target cancels prepared operations aimed at that work-folder; they
+wait in Recently deleted too and return only while they still fit.
 
 App Studio may also explicitly delete an individual prepared or published
 Release after proving it is unused. Deletion is blocked while any active Runtime

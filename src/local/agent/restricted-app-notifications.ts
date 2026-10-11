@@ -1,4 +1,6 @@
+import { restrictedAppNavigationLimits, restrictedAppRoute, restrictedAppState } from "../../shared/restricted-app-navigation.js";
 import type { RestrictedAppNotificationDeclaration } from "./restricted-app-manifest.js";
+import type { RestrictedAppNotificationOutcome } from "./restricted-app-notification-record.js";
 
 /**
  * A spam guard for the person, not a budget for the app: a notification over
@@ -33,8 +35,16 @@ export interface RestrictedAppNotificationDisplay extends RestrictedAppNotificat
   body: string;
 }
 
+/**
+ * What a click opens: the app's left-pane view at the route and state the
+ * app named when it showed the notification ("/" and no state otherwise).
+ * The copy the person saw stays the reviewed static copy; only this
+ * destination comes from the app.
+ */
 export interface RestrictedAppNotificationOpenRequest extends RestrictedAppNotificationOwner {
   permissionId: string;
+  route: string;
+  state?: unknown;
 }
 
 export interface RestrictedAppNotificationHandle {
@@ -61,6 +71,13 @@ export class RestrictedAppNotificationError extends Error {
 export interface RestrictedAppNotificationBrokerOptions {
   sink: RestrictedAppNotificationSink;
   now?: () => number;
+  /**
+   * Told about every call the broker answers with a status — shown,
+   * rate-limited, or unsupported — for the machine-local notification record.
+   * A refused call has no status and is not reported. Failures are ignored:
+   * recording never stands between an app and its notification.
+   */
+  record?: (outcome: RestrictedAppNotificationOutcome) => void | Promise<void>;
 }
 
 interface OutstandingNotification {
@@ -79,6 +96,7 @@ interface OutstandingNotification {
 export class RestrictedAppNotificationBroker {
   readonly #sink: RestrictedAppNotificationSink;
   readonly #now: () => number;
+  readonly #record?: (outcome: RestrictedAppNotificationOutcome) => void | Promise<void>;
   readonly #hourly = new Map<string, number[]>();
   readonly #categoryLastShown = new Map<string, number>();
   readonly #invocations = new Map<string, { count: number; usedAt: number }>();
@@ -88,6 +106,7 @@ export class RestrictedAppNotificationBroker {
   constructor(options: RestrictedAppNotificationBrokerOptions) {
     this.#sink = options.sink;
     this.#now = options.now ?? Date.now;
+    this.#record = options.record;
   }
 
   show(
@@ -104,7 +123,7 @@ export class RestrictedAppNotificationBroker {
     if (!declaration || !context.grants.includes(declaration.id)) {
       throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "This notification category is not granted to the app.");
     }
-    if (!this.#sink.isSupported()) return { status: "unsupported" };
+    if (!this.#sink.isSupported()) return this.#answer(context, declaration, "unsupported", this.#now());
 
     const now = this.#now();
     this.#prune(now);
@@ -118,7 +137,7 @@ export class RestrictedAppNotificationBroker {
     if (invocation.count >= restrictedAppNotificationLimits.perInvocation
       || hourly.length >= restrictedAppNotificationLimits.perHour
       || (lastCategory !== undefined && now - lastCategory < restrictedAppNotificationLimits.categoryIntervalMs)) {
-      return { status: "rate-limited" };
+      return this.#answer(context, declaration, "rate-limited", now);
     }
 
     const appOutstanding = [...this.#outstanding.values()]
@@ -143,7 +162,12 @@ export class RestrictedAppNotificationBroker {
         onClick: () => {
           if (!outstanding || this.#outstanding.get(categoryKey) !== outstanding) return;
           this.#closeOutstanding(outstanding);
-          onOpen({ ...owner, permissionId: declaration.id });
+          onOpen({
+            ...owner,
+            permissionId: declaration.id,
+            route: request.route,
+            ...(request.state !== undefined ? { state: structuredClone(request.state) } : {}),
+          });
         },
         onClose: () => {
           if (outstanding && this.#outstanding.get(categoryKey) === outstanding) this.#outstanding.delete(categoryKey);
@@ -163,7 +187,30 @@ export class RestrictedAppNotificationBroker {
     this.#hourly.set(appKey, hourly);
     this.#categoryLastShown.set(categoryKey, now);
     this.#schedulePrune(now);
-    return { status: "shown" };
+    return this.#answer(context, declaration, "shown", now);
+  }
+
+  #answer(
+    context: RestrictedAppNotificationContext,
+    declaration: RestrictedAppNotificationDeclaration,
+    status: RestrictedAppNotificationStatus,
+    at: number,
+  ): { status: RestrictedAppNotificationStatus } {
+    const record = this.#record;
+    if (record) {
+      const outcome: RestrictedAppNotificationOutcome = {
+        at: new Date(at).toISOString(),
+        workFolderId: context.workFolderId,
+        appId: context.appId,
+        featureInstallationId: context.featureInstallationId ?? null,
+        digest: context.digest,
+        permissionId: declaration.id,
+        title: declaration.title,
+        status,
+      };
+      void Promise.resolve().then(() => record(outcome)).catch(() => undefined);
+    }
+    return { status };
   }
 
   closeApp(owner: Pick<RestrictedAppNotificationOwner, "workFolderId" | "appId" | "featureInstallationId">, digest?: string): void {
@@ -231,17 +278,44 @@ export class RestrictedAppNotificationBroker {
   }
 }
 
-function notificationRequest(value: unknown): { permissionId: string } {
+/**
+ * A notification request names a reviewed category and, optionally, where a
+ * click should open the app's left-pane view: a route validated like a tab
+ * route and JSON state validated like tab state. Nothing in it reaches the
+ * notification's copy.
+ */
+function notificationRequest(value: unknown): { permissionId: string; route: string; state?: unknown } {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "Notification request must be an object.");
   }
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record);
-  if (keys.length !== 1 || keys[0] !== "permissionId" || typeof record.permissionId !== "string"
-    || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(record.permissionId)) {
-    throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "Notification request may contain only a valid permissionId.");
+  if (Object.keys(record).some((key) => key !== "permissionId" && key !== "route" && key !== "state")
+    || typeof record.permissionId !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(record.permissionId)) {
+    throw new RestrictedAppNotificationError(
+      "NOTIFICATION_DENIED",
+      "Notification request may contain only a valid permissionId, an optional route, and optional state.",
+    );
   }
-  return { permissionId: record.permissionId };
+  let route = "/";
+  if (record.route !== undefined) {
+    try {
+      route = restrictedAppRoute(record.route);
+    } catch {
+      throw new RestrictedAppNotificationError(
+        "NOTIFICATION_DENIED",
+        `Notification route must be a path inside the app, such as "/items/42", of at most ${restrictedAppNavigationLimits.routeLength.toLocaleString("en-US")} characters.`,
+      );
+    }
+  }
+  let state: unknown;
+  if (record.state !== undefined) {
+    try {
+      state = restrictedAppState(record.state);
+    } catch {
+      throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "Notification state must be JSON of at most 64 KiB.");
+    }
+  }
+  return { permissionId: record.permissionId, route, ...(state !== undefined ? { state } : {}) };
 }
 
 function validateContext(context: RestrictedAppNotificationContext): void {

@@ -1700,7 +1700,14 @@ test("work-folder, appearance, tools, and App Studio acts dispatch to the facade
     },
     workFoldersUnregister: async (input: unknown) => {
       calls.push({ method: "workFoldersUnregister", input });
-      return { workFolder: workFolderRef, storage: "linked" as const, removed: true, cleanupPending: false };
+      return {
+        workFolder: workFolderRef,
+        storage: "linked" as const,
+        removed: true,
+        cleanupPending: false,
+        appRecentlyDeletedEntries: [],
+        appStudioRecentlyDeleted: { entryId: "trash-20261011120000-abcdef12", restoreBy: "2026-11-10T12:00:00.000Z" },
+      };
     },
     workFoldersAppearanceApply: async (input: unknown) => {
       calls.push({ method: "workFoldersAppearanceApply", input });
@@ -1973,9 +1980,11 @@ test("work-folder, appearance, tools, and App Studio acts dispatch to the facade
   const unregistered = await execute(["work-folders", "unregister", "--work-folder", "work-folder-1", "--parent-task", "task-9"]);
   assert.match(unregistered.stdout, /Unregistered linked work-folder Fold work-folder \[work-folder-1\]\./);
   assert.match(unregistered.stdout, /The folder remains at \/tmp\/fold with its portable \.work-fold identity/);
-  assert.deepEqual(calls.at(-1)?.input, { workFolder: "work-folder-1", parentTaskId: "task-9" });
+  // The work-folder's App Studio history waits in Recently deleted, and the receipt names it.
+  assert.match(unregistered.stdout, /Its App Studio history is in Recently deleted too \[trash-20261011120000-abcdef12\]/);
+  assert.deepEqual(calls.at(-1)?.input, { workFolder: "work-folder-1", parentTaskId: "task-9", requestId: lastOk().requestId });
   assert.equal(lastOk().parentTaskId, "task-9");
-  assert.equal(lastOk().detail, "storage linked");
+  assert.equal(lastOk().detail, "storage linked; App Studio trash-20261011120000-abcdef12");
   assert.deepEqual(lastOk().undoRef, { kind: "work-folder-root", value: "/tmp/fold" });
 
   const assistant = await execute(["work-folders", "worker", "show", "--work-folder", "work-folder-1"]);

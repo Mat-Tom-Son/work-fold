@@ -295,3 +295,53 @@ test("apps release delete leaves the Release in Recently deleted and recently-de
     await h.close();
   }
 });
+
+/**
+ * Deleting a work-folder keeps its App Studio history in Recently deleted as
+ * its own item (docs/receipts-not-gates.md, F20). Restoring that item refuses
+ * plainly until the work-folder is back, then returns the App Project, its
+ * preview, and its Release in one act.
+ */
+test("work-folders delete keeps the App Studio history and recently-deleted restore brings it back after the work-folder", async () => {
+  const h = await recentlyDeletedHarness("app-studio");
+  try {
+    const created = await h.api.actFacade.createWorkFolder({ name: "Studio work-folder" });
+    const workFolder = created.workFolder;
+    const packageRoot = join(workFolder.workFolderRoot, "apps", "quotes");
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "quotes", version: "1.0.0", private: true, type: "module", agentApp: "agent-app.json" }), "utf8");
+    await writeFile(join(packageRoot, "agent-app.json"), JSON.stringify({
+      version: 2, id: "quotes", title: "Quotes", description: "An App Studio fixture.",
+      runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: { icon: "shield" }, tools: [], automations: [],
+      permissions: { network: [], files: [], notifications: [] },
+    }), "utf8");
+    await writeFile(join(packageRoot, "index.html"), "<!doctype html><title>Quotes</title>", "utf8");
+    assert.equal((await h.execute(["apps", "install-preview", "--work-folder", workFolder.id, "--package", "apps/quotes", "--json"])).exitCode, 0);
+    assert.equal((await h.execute(["apps", "release", "prepare", "--work-folder", workFolder.id, "--version", "1.0.0", "--json"])).exitCode, 0);
+
+    const deleted = await h.execute(["work-folders", "delete", "--work-folder", workFolder.id]);
+    assert.equal(deleted.exitCode, 0, deleted.stderr);
+    assert.match(deleted.stdout, /Its App Studio history is in Recently deleted too \[trash-[^\]]+\]; put it back once the work-folder is registered again\./);
+    const studioId = /App Studio history is in Recently deleted too \[(trash-[^\]]+)\]/.exec(deleted.stdout)![1]!;
+    assert.match(h.lastOk().detail ?? "", new RegExp(`App Studio ${studioId}`), "the receipt names the App Studio item");
+    const folderId = h.lastOk().undoRef!.value;
+
+    const listed = await h.execute(["recently-deleted", "list"]);
+    assert.match(listed.stdout, new RegExp(`${studioId} — App Studio history "Quotes" from Studio work-folder`));
+
+    const early = await h.execute(["recently-deleted", "restore", "--entry", studioId, "--json"]);
+    assert.notEqual(early.exitCode, 0);
+    assert.equal(errorCodeOf(early.stderr), "conflict");
+    assert.match(early.stderr, /back first/);
+
+    assert.equal((await h.execute(["recently-deleted", "restore", "--entry", folderId])).exitCode, 0);
+    const restored = await h.execute(["recently-deleted", "restore", "--entry", studioId]);
+    assert.equal(restored.exitCode, 0, restored.stderr);
+    assert.match(restored.stdout, /^Restored the App Studio history of Studio work-folder \[[^\]]+\] \(Quotes\): 1 app preview, 1 Release, 0 prepared operations\./);
+    assert.equal((await h.api.recentlyDeleted.list()).entries.length, 0, "both items leave Recently deleted");
+    const listedApps = await h.execute(["apps", "list", "--work-folder", workFolder.id, "--json"]);
+    assert.match(listedApps.stdout, /"quotes"/, "the preview is back in its work-folder");
+  } finally {
+    await h.close();
+  }
+});

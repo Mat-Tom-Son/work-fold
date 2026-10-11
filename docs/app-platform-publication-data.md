@@ -113,7 +113,9 @@ until the App Instance is explicitly uninstalled. A retain choice keeps the sour
 registered until its inactive Data Namespaces are explicitly purged; the former
 target may then be removed. Source removal without live or retained data clears
 the machine-local Project and its Release lineage, while target removal cancels
-prepared operations aimed at that registration.
+prepared operations aimed at that registration. Both keep what they clear in
+Recently deleted first, restorable once the work-folder is registered again
+(2026-10-11).
 
 The local registry is a clean work-fold registry. Legacy Workspace profiles,
 portable `.workspace/` records, restricted-app registries, storage,

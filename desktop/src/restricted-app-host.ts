@@ -76,6 +76,12 @@ import {
   type EffectivePrincipal,
 } from "../../src/local/agent/app-platform-contract.js";
 import { resolveRestrictedAppCornerRadius } from "../../src/shared/restricted-app-presentation.js";
+import {
+  restrictedAppNavigationLimits,
+  restrictedAppOpenedFrom,
+  restrictedAppRoute,
+  type RestrictedAppOpenedFrom,
+} from "../../src/shared/restricted-app-navigation.js";
 import { loadRestrictedAppKit, parseRestrictedAppAppearance, restrictedAppAppearanceCss, type RestrictedAppAppearance, type RestrictedAppKitAsset } from "./restricted-app-appearance.js";
 
 export const restrictedAppProtocol = "agent-app";
@@ -113,7 +119,8 @@ const indexPath = "/__work-fold/index.html";
 const bootstrapPath = "/__work-fold/bootstrap.js";
 /** Tool input and output, and an automation event, as serialized JSON. */
 const maxInvocationBytes = 64 * 1024 * 1024;
-const maxNotificationEnvelopeBytes = 4 * 1024;
+/** A category id, a route, and JSON state for where a click opens the app (docs/restricted-app-runtime.md). */
+const maxNotificationEnvelopeBytes = restrictedAppNavigationLimits.stateBytes + 16 * 1024;
 /**
  * Request input is bounded by the task service; the envelope adds the
  * JSON-escaping allowance so that published bound stays reachable and the
@@ -200,6 +207,8 @@ export interface RestrictedAppUiMountRequest {
   theme: "light" | "dark";
   /** The shell's current look, read by the trusted renderer from its own styles. */
   appearance?: RestrictedAppAppearance;
+  /** Left-pane views only: the notification click that opened it at this route and state. */
+  openedFrom?: RestrictedAppOpenedFrom;
 }
 
 interface RestrictedAppInstance {
@@ -274,6 +283,8 @@ interface RestrictedAppUiInstance {
   appTabId?: string;
   route: string;
   state?: unknown;
+  /** Reported to the app as `context.openedFrom`; null when the person opened the view themselves. */
+  openedFrom: RestrictedAppOpenedFrom | null;
   theme: "light" | "dark";
   active: boolean;
   occluded: boolean;
@@ -711,6 +722,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
 
     const token = randomUUID().replace(/-/g, "");
     const origin = `${restrictedAppProtocol}://${token}`;
+    const openedFrom = declaredOpenedFrom(app, request.openedFrom);
     const isolatedSession = session.fromPartition(`restricted-app-ui-${randomUUID()}`, { cache: false });
     isolatedSession.protocol.handle(restrictedAppProtocol, (protocolRequest) => this.#uiProtocolResponse(snapshot, token, protocolRequest));
     configureRestrictedSession(isolatedSession, token);
@@ -747,6 +759,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
           rendererArgument("route", request.route),
           rendererArgument("theme", request.theme),
           rendererArgument("state", request.state === undefined ? "" : JSON.stringify(request.state)),
+          rendererArgument("opened-from", openedFrom ? JSON.stringify(openedFrom) : ""),
           this.#limitsArgument,
         ],
       },
@@ -773,6 +786,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       ...(request.appTabId ? { appTabId: request.appTabId } : {}),
       route: request.route,
       ...(request.state !== undefined ? { state: structuredClone(request.state) } : {}),
+      openedFrom,
       theme: request.theme,
       active: request.active,
       occluded: request.occluded,
@@ -1114,6 +1128,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     void this.#applyAppearance(instance);
     instance.route = request.route;
     instance.state = request.state === undefined ? undefined : structuredClone(request.state);
+    instance.openedFrom = declaredOpenedFrom(instance.app, request.openedFrom);
     this.#applyUiLayout(instance, request.bounds);
     if (!instance.view.webContents.isDestroyed()) {
       instance.view.webContents.send(contextChannel, {
@@ -1121,6 +1136,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         appTabId: instance.appTabId ?? null,
         route: instance.route,
         state: instance.state ?? null,
+        openedFrom: instance.openedFrom,
         theme: instance.theme,
         active: instance.active && !instance.occluded,
       });
@@ -2069,7 +2085,7 @@ function configureRestrictedSession(isolatedSession: Session, token: string): vo
 
 function parseUiMountRequest(value: unknown): RestrictedAppUiMountRequest {
   const record = strictRecord(value, "Restricted app view", [
-    "mountId", "placement", "appTabId", "route", "state", "sequence", "bounds", "active", "occluded", "theme", "appearance",
+    "mountId", "placement", "appTabId", "route", "state", "sequence", "bounds", "active", "occluded", "theme", "appearance", "openedFrom",
   ]);
   const placement = record.placement;
   if (placement !== "navigator" && placement !== "tab") throw new Error("Restricted app view placement is invalid.");
@@ -2078,6 +2094,9 @@ function parseUiMountRequest(value: unknown): RestrictedAppUiMountRequest {
     : appTabIdValue(record.appTabId);
   if (placement === "tab" && !appTabId) throw new Error("Restricted app tabs require an app tab id.");
   if (placement === "navigator" && appTabId) throw new Error("Restricted app navigators cannot claim an app tab id.");
+  const openedFrom = restrictedAppOpenedFrom(record.openedFrom);
+  // A notification click opens the left pane, never a tab (2026-10-11).
+  if (openedFrom && placement !== "navigator") throw new Error("Only the left-pane view opens from a notification.");
   const state = jsonStateValue(record.state);
   return {
     mountId: mountIdValue(record.mountId),
@@ -2091,7 +2110,17 @@ function parseUiMountRequest(value: unknown): RestrictedAppUiMountRequest {
     occluded: booleanValue(record.occluded, "Restricted app view occlusion state"),
     theme: themeValue(record.theme),
     ...(record.appearance !== undefined ? { appearance: parseRestrictedAppAppearance(record.appearance) } : {}),
+    ...(openedFrom ? { openedFrom } : {}),
   };
+}
+
+/**
+ * The notification origin a left-pane view reports, only for a category this
+ * exact revision declares; anything else reads as an ordinary open.
+ */
+function declaredOpenedFrom(app: RestrictedAppRuntimeDescriptor, openedFrom: RestrictedAppOpenedFrom | undefined): RestrictedAppOpenedFrom | null {
+  if (!openedFrom) return null;
+  return app.manifest.permissions.notifications.some((item) => item.id === openedFrom.permissionId) ? { ...openedFrom } : null;
 }
 
 function parseUiLayoutRequest(value: unknown): RestrictedAppUiMountRequest {
@@ -2201,17 +2230,12 @@ function appTabIdValue(value: unknown): string {
 }
 
 function appRouteValue(value: unknown): string {
-  if (typeof value !== "string" || value.length > 2_048 || /[\\\0\r\n]/.test(value) || !value.startsWith("/") || value.startsWith("//")) {
-    throw new Error("Restricted app route must be an origin-relative path.");
-  }
-  const parsed = new URL(value, "https://restricted-app.invalid");
-  if (parsed.origin !== "https://restricted-app.invalid") throw new Error("Restricted app route escapes its app.");
-  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  return restrictedAppRoute(value);
 }
 
 function jsonStateValue(value: unknown): unknown {
   if (value === undefined) return undefined;
-  assertBoundedJson(value, "Restricted app tab state", 64 * 1024);
+  assertBoundedJson(value, "Restricted app tab state", restrictedAppNavigationLimits.stateBytes);
   return structuredClone(value);
 }
 

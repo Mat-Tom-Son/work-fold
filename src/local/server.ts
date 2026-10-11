@@ -113,6 +113,7 @@ import {
   type LocalAppRelease,
   type LocalAppReleaseDeletionResult,
   type LocalAppRetainedData,
+  type LocalAppWorkFolderRecoveryCopy,
   type RestrictedAppAutomationRunReceipt,
   type RestrictedAppInstallationNeeds,
   type RestrictedAppInstalled,
@@ -120,6 +121,7 @@ import {
 import type { RestrictedAppNetworkDeclaration } from "./agent/restricted-app-manifest.js";
 import type { RestrictedAppConnectionStatus } from "./agent/restricted-app-connections.js";
 import type { RestrictedAppDataBackup } from "./agent/restricted-app-storage.js";
+import { RestrictedAppNotificationRecord } from "./agent/restricted-app-notification-record.js";
 import {
   getPiComposerState,
   getPiWorkerInstructions,
@@ -460,6 +462,12 @@ export interface LocalApiOptions {
   workFolderRemovalIo?: Partial<WorkFolderRemovalIo>;
   /** Test seam for the machine-local trash behind Recently deleted (docs/receipts-not-gates.md, F20). */
   recentlyDeletedStore?: WorkFoldRecentlyDeletedStore;
+  /**
+   * The record of what apps' notifications did. The desktop host owns the one
+   * instance its notification broker writes; without one the API opens the
+   * same file itself.
+   */
+  appNotificationRecord?: RestrictedAppNotificationRecord;
   /** Failure-injection seam that runs immediately before mandatory post-reservation work-folder validation. */
   beforeRestrictedAppWorkFolderRevalidation?: (workFolderId: string) => Promise<void>;
   maxBodyBytes?: number;
@@ -651,6 +659,7 @@ interface LocalApiState {
   browserAppActions: BrowserAppActionService;
   appAssistantTasks: RestrictedAppTaskService;
   appInference: RestrictedAppInferenceService;
+  appNotificationRecord: RestrictedAppNotificationRecord;
   appMode: "dev" | "desktop";
   workFolderBase?: string;
   allowedOrigins: string[];
@@ -978,6 +987,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     browserAppActions: undefined as unknown as BrowserAppActionService,
     appAssistantTasks: undefined as unknown as RestrictedAppTaskService,
     appInference: undefined as unknown as RestrictedAppInferenceService,
+    appNotificationRecord: options.appNotificationRecord ?? await RestrictedAppNotificationRecord.open({
+      path: join(workFoldStateRoot(), "restricted-apps", "notification-receipts.jsonl"),
+    }),
     appMode,
     workFolderBase: options.workFolderBase ? resolve(options.workFolderBase) : undefined,
     allowedOrigins: options.allowedOrigins ?? ["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -1187,6 +1199,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     });
   };
   state.appInference.on("changed", appInferenceChanged);
+  // Settings → Apps shows each app's recent notifications.
+  const appNotificationsChanged = () => publishControlHint(state, "apps");
+  state.appNotificationRecord.on("changed", appNotificationsChanged);
   const unsubscribeAppCatalog = restrictedApps.subscribeCatalog(() => publishControlHint(state, "apps"));
   state.automations = await WorkFoldAutomationService.create({
     store: automationStore,
@@ -1330,6 +1345,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       unsubscribeAppCatalog();
       state.appAssistantTasks.off("changed", appTasksChanged);
       state.appInference.off("changed", appInferenceChanged);
+      state.appNotificationRecord.off("changed", appNotificationsChanged);
       for (const response of state.localEventStreams) response.close();
       for (const response of state.controlStreams) response.close();
       extensionUi.off("request", requestListener);
@@ -1672,7 +1688,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       return {
         value,
         detail: `work-folder ${workFolder.id}${value.recentlyDeleted ? `; trash ${value.recentlyDeleted.entryId}` : ""}`
-          + (value.appRecentlyDeletedEntries.length ? `; app data ${value.appRecentlyDeletedEntries.map((item) => item.entryId).join(", ")}` : ""),
+          + (value.appRecentlyDeletedEntries.length ? `; app data ${value.appRecentlyDeletedEntries.map((item) => item.entryId).join(", ")}` : "")
+          + (value.appStudioRecentlyDeleted ? `; App Studio ${value.appStudioRecentlyDeleted.entryId}` : ""),
       };
     });
     sendJson(res, removal.value);
@@ -2145,6 +2162,32 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const scope = { workFolderId: workFolder.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
       digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
     sendJson(res, { receipts: await state.appInference.list(scope, { ownership: "installation" }) });
+    return;
+  }
+
+  // Settings → Apps: what this installation's notifications did, newest first,
+  // across code changes. The record names the category, never the route or
+  // state the app attached.
+  const appNotificationRecordMatch = /^\/api\/work-folders\/([^/]+)\/restricted-apps\/([^/]+)\/notification-receipts$/.exec(url.pathname)
+    ?.map((value) => value === undefined ? "" : decodeURIComponent(value));
+  if (appNotificationRecordMatch && method === "GET") {
+    const workFolder = await getWorkFolder(appNotificationRecordMatch[1]);
+    const query = Object.fromEntries(url.searchParams);
+    if (typeof query.featureInstallationId !== "string" || typeof query.expectedDigest !== "string") {
+      throw badRequest("An exact app installation and revision are required.");
+    }
+    if (Object.keys(query).some((key) => !["featureInstallationId", "expectedDigest", "limit"].includes(key))) {
+      throw badRequest("Notification record fields are invalid.");
+    }
+    const limit = query.limit === undefined ? undefined : Number(query.limit);
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) throw badRequest("Choose how many notifications to show.");
+    const app = await state.restrictedApps.runtimeDescriptor(workFolder.id, appNotificationRecordMatch[2], query.expectedDigest, query.featureInstallationId);
+    sendJson(res, {
+      receipts: await state.appNotificationRecord.list(
+        { workFolderId: workFolder.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId },
+        limit,
+      ),
+    });
     return;
   }
 
@@ -3720,8 +3763,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (url.pathname === "/api/settings/recently-deleted" && method === "GET") {
     const listing = await state.recentlyDeleted.list();
     const registered = new Set((await listWorkFolders()).map((workFolder) => workFolder.id));
+    const appStudioWaiting = appStudioWaitingWorkFolders(listing.entries);
     const entries = [];
-    for (const entry of listing.entries) entries.push(await recentlyDeletedEntryView(state, entry, registered));
+    for (const entry of listing.entries) entries.push(await recentlyDeletedEntryView(state, entry, registered, appStudioWaiting));
     sendJson(res, { entries, damaged: listing.damaged, retentionDays: listing.retentionDays });
     return;
   }
@@ -4379,6 +4423,20 @@ export type WorkFoldRecentlyDeletedRestoreResult =
   | { kind: "work-folder"; entryId: string; workFolder: WorkFoldActWorkFolderRef; workFolderRoot: string; renamed: boolean }
   | { kind: "app-storage"; entryId: string; workFolder: WorkFoldActWorkFolderRef; appId: string; usage: { revision: number; usageBytes: number } }
   | { kind: "app-release"; entryId: string; workFolder: WorkFoldActWorkFolderRef; releaseDigest: string; displayVersion: string }
+  | {
+    kind: "app-studio";
+    entryId: string;
+    workFolder: WorkFoldActWorkFolderRef;
+    /** The App Project's title, or null when only prepared installs aimed at the work-folder were kept. */
+    projectTitle: string | null;
+    previewCount: number;
+    releaseCount: number;
+    operationCount: number;
+    /** Prepared operations whose Release, target, or App Instance changed since the removal; prepare them again. */
+    droppedOperationCount: number;
+    /** The previews' own data, put back from Recently deleted with them. */
+    appDataEntryIds: string[];
+  }
   | { kind: "saved-copy"; entryId: string; path: string };
 
 /**
@@ -4391,6 +4449,8 @@ async function recentlyDeletedEntryView(
   state: LocalApiState,
   entry: WorkFoldRecentlyDeletedEntry,
   registered?: ReadonlySet<string>,
+  /** work-folders whose App Studio history is waiting in Recently deleted too. */
+  appStudioWaiting?: ReadonlySet<string>,
 ): Promise<WorkFoldRecentlyDeletedEntryView> {
   const base: WorkFoldRecentlyDeletedEntryView = {
     id: entry.id,
@@ -4401,7 +4461,9 @@ async function recentlyDeletedEntryView(
     originalPath: entry.originalPath,
     name: entry.displayName ?? (entry.payload.kind === "tree"
       ? entry.payload.name
-      : entry.payload.kind === "app-release" ? `Release ${entry.payload.displayVersion}` : entry.payload.appId),
+      : entry.payload.kind === "app-release"
+        ? `Release ${entry.payload.displayVersion}`
+        : entry.payload.kind === "app-studio" ? "App Studio history" : entry.payload.appId),
     sizeBytes: entry.sizeBytes,
     ...(entry.sizeApproximate ? { sizeApproximate: true as const } : {}),
     deletedAt: entry.deletedAt,
@@ -4435,12 +4497,27 @@ async function recentlyDeletedEntryView(
     }
     return base;
   }
+  if (entry.kind === "app-studio") {
+    // App Studio history goes back only into its own work-folder, and never
+    // over a different App Project that has work of its own there.
+    const payload = entry.payload;
+    if (payload.kind !== "app-studio") return { ...base, restorable: "blocked" };
+    const present = registered ? registered.has(entry.workFolderId) : Boolean(await getWorkFolder(entry.workFolderId).catch(() => null));
+    if (!present) return { ...base, restorable: "blocked", note: appStudioWorkFolderMissingNote(entry) };
+    const blocker = await state.restrictedApps.workFolderAppStudioRestoreBlocker(entry.workFolderId, payload.projectId).catch(() => null);
+    return blocker ? { ...base, restorable: "blocked", note: blocker } : base;
+  }
   if (entry.kind === "app-retained") {
     return { ...base, restorable: "save-only", note: "Retained app data has no app to go back into." };
   }
   const payload = entry.payload;
   if (payload.kind !== "app-data") return { ...base, restorable: "blocked" };
   const app = await state.restrictedApps.findByFeatureInstallation(entry.workFolderId, payload.featureInstallationId).catch(() => undefined);
+  if (!app && entry.reason === "apps.work-folder.removed" && appStudioWaiting?.has(entry.workFolderId)) {
+    // The app went with its work-folder's App Studio history; putting that
+    // back brings the app back and this data with it.
+    return { ...base, restorable: "save-only", note: "Restore this work-folder's App Studio history first; this app and its data come back with it." };
+  }
   if (!app) return { ...base, restorable: "save-only", note: "That app is no longer installed." };
   if (app.digest !== payload.appDigest || app.dataNamespaceId !== payload.dataNamespaceId) {
     return { ...base, restorable: "save-only", note: "That app changed since this copy was kept." };
@@ -4473,9 +4550,13 @@ async function restoreRecentlyDeletedEntry(
     return restoreRecentlyDeletedAppData(state, entry, context);
   }
   if (context.toPath !== undefined) {
-    throw new WorkFoldCliError("usage", "'--to' saves a copy of app data; files, folders, work-folders, and Releases go back where they came from.");
+    throw new WorkFoldCliError(
+      "usage",
+      "'--to' saves a copy of app data; files, folders, work-folders, Releases, and App Studio history go back where they came from.",
+    );
   }
   if (entry.kind === "app-release") return restoreRecentlyDeletedAppRelease(state, entry);
+  if (entry.kind === "app-studio") return restoreRecentlyDeletedAppStudio(state, entry);
   if (entry.kind === "work-folder") return restoreRecentlyDeletedWorkFolder(state, entry);
   if (isWorkFoldAgentConversationRecentlyDeletedEntry(entry)) return restoreWorkFoldAgentConversationRecentlyDeletedEntry(state, entry);
   if (isWorkFolderConversationRecentlyDeletedEntry(entry)) return restoreWorkFolderConversationRecentlyDeletedEntry(state, entry);
@@ -4677,6 +4758,113 @@ async function restoreRecentlyDeletedAppRelease(
   };
 }
 
+/** The work-folders whose App Studio history is waiting in this listing. */
+function appStudioWaitingWorkFolders(entries: readonly WorkFoldRecentlyDeletedEntry[]): Set<string> {
+  return new Set(entries.filter((entry) => entry.kind === "app-studio").map((entry) => entry.workFolderId));
+}
+
+function appStudioWorkFolderMissingNote(entry: WorkFoldRecentlyDeletedEntry): string {
+  const name = entry.workFolderName ? `"${entry.workFolderName}"` : "the work-folder it came from";
+  return `Put ${name} back first — restore it here, or add its folder again with Use existing folder — then restore this.`;
+}
+
+/**
+ * Puts a removed work-folder's App Studio history back (docs/receipts-not-gates.md,
+ * F20): its App Project, Development Instance and previews, Releases,
+ * prepared operations, and receipts, each re-checked by the service. It needs
+ * the work-folder registered again and refuses plainly until it is. The
+ * previews' own data, which the removal kept as separate items, goes back
+ * into them in the same act; any that cannot stays in Recently deleted.
+ */
+async function restoreRecentlyDeletedAppStudio(
+  state: LocalApiState,
+  entry: WorkFoldRecentlyDeletedEntry,
+): Promise<WorkFoldRecentlyDeletedRestoreResult> {
+  const workFolder = await getWorkFolder(entry.workFolderId).catch(() => null);
+  if (!workFolder) throw new WorkFoldCliError("conflict", appStudioWorkFolderMissingNote(entry));
+  const kept = await state.recentlyDeleted.readAppStudio(entry.id).catch((error: unknown) => {
+    throw recentlyDeletedCliError(error);
+  });
+  const registered = new Set((await listWorkFolders()).map((item) => item.id));
+  const targets = kept.studio.operations
+    .map((operation) => (operation && typeof operation === "object" ? (operation as { targetWorkFolderId?: unknown }).targetWorkFolderId : undefined))
+    .filter((id): id is string => typeof id === "string" && registered.has(id));
+  const result = await runRestrictedAppMutations(state, [workFolder.id, ...targets], () => state.restrictedApps.restoreWorkFolderAppStudio({
+    workFolderId: workFolder.id,
+    studio: kept.studio,
+    releases: kept.releases,
+    packageRoots: kept.packageRoots,
+    registeredWorkFolderIds: registered,
+  }), { requiredWorkFolderIds: [workFolder.id] });
+  const appDataEntryIds: string[] = [];
+  if (result.restored && result.previews.length) {
+    const handled = new Set<string>();
+    // Newest first, so a removal retried after an interruption brings back its latest copy.
+    for (const candidate of (await state.recentlyDeleted.list()).entries) {
+      const payload = candidate.payload;
+      if (candidate.kind !== "app-storage" || candidate.reason !== "apps.work-folder.removed"
+        || candidate.workFolderId !== workFolder.id || payload.kind !== "app-data" || handled.has(payload.featureInstallationId)) continue;
+      const preview = result.previews.find((app) => app.featureInstallationId === payload.featureInstallationId
+        && app.digest === payload.appDigest && app.dataNamespaceId === payload.dataNamespaceId);
+      if (!preview) continue;
+      handled.add(payload.featureInstallationId);
+      try {
+        await restoreRecentlyDeletedAppData(state, candidate, {});
+        appDataEntryIds.push(candidate.id);
+      } catch {
+        // The copy stays in Recently deleted, restorable on its own.
+      }
+    }
+  }
+  await state.recentlyDeleted.remove(entry.id).catch(() => undefined);
+  publishControlHint(state, "apps");
+  return {
+    kind: "app-studio",
+    entryId: entry.id,
+    workFolder: toActWorkFolderRef(workFolder),
+    projectTitle: result.project?.presentation.title ?? null,
+    previewCount: result.previews.length,
+    releaseCount: result.releases.length,
+    operationCount: result.operations.length,
+    droppedOperationCount: result.droppedOperationCount,
+    appDataEntryIds,
+  };
+}
+
+/**
+ * Writes what removing a work-folder takes out of App Studio into Recently
+ * deleted (docs/receipts-not-gates.md, F20), before the service removes it.
+ */
+async function keepWorkFolderAppStudioInRecentlyDeleted(
+  recentlyDeleted: WorkFoldRecentlyDeletedStore,
+  copy: LocalAppWorkFolderRecoveryCopy,
+  context: { workFolderName?: string; receiptId: string | null },
+): Promise<WorkFoldRecentlyDeletedEntry> {
+  return await recentlyDeleted.moveAppStudioToRecentlyDeleted({
+    reason: "apps.work-folder.removed",
+    identity: { kind: "app-studio", workFolderId: copy.workFolderId, projectId: copy.project?.projectId ?? null },
+    studio: {
+      project: copy.project,
+      runtimeInstances: copy.runtimeInstances,
+      previews: copy.previews,
+      operations: copy.operations,
+      adminReceipts: copy.adminReceipts,
+    },
+    releases: copy.releases,
+    packages: copy.packages,
+    workFolderId: copy.workFolderId,
+    ...(context.workFolderName ? recentlyDeletedWorkFolderName(context.workFolderName) : {}),
+    ...recentlyDeletedDisplayName(copy.project ? copy.project.presentation.title : "Prepared App installs"),
+    receiptId: context.receiptId,
+  });
+}
+
+/** A work-folder name the Recently deleted manifest accepts, or none. */
+function recentlyDeletedWorkFolderName(text: string): { workFolderName?: string } {
+  const printable = text.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, 200).trim();
+  return printable ? { workFolderName: printable } : {};
+}
+
 async function restoreRecentlyDeletedAppData(
   state: LocalApiState,
   entry: WorkFoldRecentlyDeletedEntry,
@@ -4856,6 +5044,7 @@ async function removeWorkFolderRegistrationInternal(
 ): Promise<WorkFolderRemovalResult & {
   recentlyDeleted: { entryId: string; restoreBy: string } | null;
   appRecentlyDeletedEntries: Array<{ entryId: string; restoreBy: string }>;
+  appStudioRecentlyDeleted: { entryId: string; restoreBy: string } | null;
 }> {
   const affectedWorkFolderIds = await state.restrictedApps.workFolderRemovalMutationWorkFolderIds(workFolder.id);
   // A preserve removal keeps the folder, so it keeps the plain state-directory
@@ -4874,16 +5063,23 @@ async function removeWorkFolderRegistrationInternal(
   // before the registry drops them (docs/receipts-not-gates.md, F20), so
   // restoring the folder never restores a work-folder whose app data is gone. The
   // entry ids ride on the result so the `work-folders delete` receipt names them.
+  // The work-folder's App Studio history — its App Project, previews,
+  // Releases, prepared operations, and receipts — goes the same way, as one
+  // more item.
   const appEntries: WorkFoldRecentlyDeletedEntry[] = [];
+  let appStudioEntry: WorkFoldRecentlyDeletedEntry | null = null;
   const withRecentlyDeleted = <T extends WorkFolderRemovalResult>(result: T): T & {
     recentlyDeleted: { entryId: string; restoreBy: string } | null;
     appRecentlyDeletedEntries: Array<{ entryId: string; restoreBy: string }>;
+    appStudioRecentlyDeleted: { entryId: string; restoreBy: string } | null;
   } => {
     const entry = removal.entry();
+    const studio = appStudioEntry as WorkFoldRecentlyDeletedEntry | null;
     return {
       ...result,
       recentlyDeleted: entry ? { entryId: entry.id, restoreBy: entry.restoreBy } : null,
       appRecentlyDeletedEntries: appEntries.map((item) => ({ entryId: item.id, restoreBy: item.restoreBy })),
+      appStudioRecentlyDeleted: studio ? { entryId: studio.id, restoreBy: studio.restoreBy } : null,
     };
   };
   return runRestrictedAppMutations(state, affectedWorkFolderIds, () => runSettledWorkFolderDeletion(state, workFolder.id, async () => {
@@ -4946,7 +5142,11 @@ async function removeWorkFolderRegistrationInternal(
           const entry = await moveAppStorageExportToRecentlyDeleted(state, app, "apps.work-folder.removed", options.receiptId ?? null, { skipWhenStorageUnavailable: true });
           if (entry) appEntries.push(entry);
         }
-        await state.restrictedApps.removeWorkFolder(workFolder.id);
+        await removeWorkFolderAppStudioIntoRecentlyDeleted(state.restrictedApps, state.recentlyDeleted, workFolder.id, {
+          workFolderName: workFolder.name,
+          receiptId: options.receiptId ?? null,
+          onKept: (entry) => { appStudioEntry = entry; },
+        });
         await state.restrictedAppProposals.removeWorkFolder(workFolder.id);
       } catch {
         return withRecentlyDeleted(await workFolderRemovalPendingResult(intent));
@@ -6938,7 +7138,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       // remain exactly as they do for a linked registration; deleting the
       // managed folder is `work-folders delete`, a receipted act of its own.
       const removal = await runActOperation(() =>
-        removeWorkFolderRegistrationInternal(state, workFolder, { managedFolderDisposition: "preserve" }));
+        removeWorkFolderRegistrationInternal(state, workFolder, {
+          managedFolderDisposition: "preserve",
+          receiptId: input.requestId ?? null,
+        }));
       appearanceUndoSlots.delete(workFolder.id);
       await recordFacadeAction(state, input.parentTaskId, { command: "work-folders.unregister", workFolder });
       return {
@@ -6946,6 +7149,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         storage,
         removed: true as const,
         cleanupPending: removal.cleanupPending,
+        appRecentlyDeletedEntries: removal.appRecentlyDeletedEntries,
+        appStudioRecentlyDeleted: removal.appStudioRecentlyDeleted,
       };
     },
     async workFoldersAppearanceApply(input) {
@@ -7459,6 +7664,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const context: PreparedActOutcome<WorkFolderRemovalResult & {
         recentlyDeleted: { entryId: string; restoreBy: string } | null;
         appRecentlyDeletedEntries: Array<{ entryId: string; restoreBy: string }>;
+        appStudioRecentlyDeleted: { entryId: string; restoreBy: string } | null;
       }> = {};
       await runPreparedAct({
         kind: "work-folder.delete-folder",
@@ -7475,6 +7681,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         cleanupPending: context.outcome?.cleanupPending ?? false,
         recentlyDeleted: context.outcome?.recentlyDeleted ?? null,
         appRecentlyDeletedEntries: context.outcome?.appRecentlyDeletedEntries ?? [],
+        appStudioRecentlyDeleted: context.outcome?.appStudioRecentlyDeleted ?? null,
       };
     },
     async toolsImportSkill(input) {
@@ -8046,8 +8253,9 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async recentlyDeletedList() {
       const listing = await runActOperation(() => state.recentlyDeleted.list());
       const registered = new Set((await listWorkFolders()).map((workFolder) => workFolder.id));
+      const appStudioWaiting = appStudioWaitingWorkFolders(listing.entries);
       const entries: WorkFoldActRecentlyDeletedEntry[] = [];
-      for (const entry of listing.entries) entries.push(await recentlyDeletedEntryView(state, entry, registered));
+      for (const entry of listing.entries) entries.push(await recentlyDeletedEntryView(state, entry, registered, appStudioWaiting));
       return { entries, retentionDays: listing.retentionDays, damagedCount: listing.damaged.length };
     },
     async recentlyDeletedRestore(input) {
@@ -8076,7 +8284,18 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
             ? { kind: restored.kind, workFolder: restored.workFolder, appId: restored.appId, usage: restored.usage }
             : restored.kind === "app-release"
               ? { kind: restored.kind, workFolder: restored.workFolder, releaseDigest: restored.releaseDigest, displayVersion: restored.displayVersion }
-              : {
+              : restored.kind === "app-studio"
+                ? {
+                  kind: restored.kind,
+                  workFolder: restored.workFolder,
+                  projectTitle: restored.projectTitle,
+                  previewCount: restored.previewCount,
+                  releaseCount: restored.releaseCount,
+                  operationCount: restored.operationCount,
+                  droppedOperationCount: restored.droppedOperationCount,
+                  appDataEntryIds: restored.appDataEntryIds,
+                }
+                : {
               kind: restored.kind,
               workFolder: restored.workFolder,
               path: restored.path,
@@ -9249,19 +9468,30 @@ async function moveAppStorageExportToRecentlyDeleted(
   receiptId: string | null,
   options: { skipWhenStorageUnavailable?: boolean } = {},
 ): Promise<WorkFoldRecentlyDeletedEntry | null> {
+  return await keepAppStorageInRecentlyDeleted(state.restrictedApps, state.recentlyDeleted, app, reason, receiptId, options);
+}
+
+async function keepAppStorageInRecentlyDeleted(
+  restrictedApps: RestrictedAppService,
+  recentlyDeleted: WorkFoldRecentlyDeletedStore,
+  app: RestrictedAppInstalled,
+  reason: WorkFoldRecentlyDeletedReason,
+  receiptId: string | null,
+  options: { skipWhenStorageUnavailable?: boolean } = {},
+): Promise<WorkFoldRecentlyDeletedEntry | null> {
   // Removal paths must never fail because this process has no storage host:
   // without one there is no live app data in it to lose, so there is nothing
   // to export and the removal proceeds. Every other failure still fails the
   // removal, so data is never destroyed without a recoverable copy.
-  const usage = await state.restrictedApps
+  const usage = await restrictedApps
     .storageUsage(app.workFolderId, app.manifest.id, app.digest, app.featureInstallationId)
     .catch((error: unknown) => {
       if (options.skipWhenStorageUnavailable && error instanceof RestrictedAppError && error.code === "APP_UNAVAILABLE") return null;
       throw error;
     });
   if (!usage || usage.usageBytes === 0) return null;
-  const backup = await state.restrictedApps.exportStorage(app.workFolderId, app.manifest.id, app.digest, app.featureInstallationId);
-  return state.recentlyDeleted.moveAppDataToRecentlyDeleted({
+  const backup = await restrictedApps.exportStorage(app.workFolderId, app.manifest.id, app.digest, app.featureInstallationId);
+  return recentlyDeleted.moveAppDataToRecentlyDeleted({
     kind: "app-storage",
     reason,
     backup,
@@ -9304,6 +9534,45 @@ async function moveRemovedAppStorageToRecentlyDeleted(
   ));
   if (!app) return null;
   return await moveAppStorageExportToRecentlyDeleted(state, app, reason, receiptId, { skipWhenStorageUnavailable: true });
+}
+
+/**
+ * Clears a removed work-folder's App Studio state after its copy is in
+ * Recently deleted (docs/receipts-not-gates.md, F20). The service hands over
+ * the copy only once every blocker has passed; if the copy cannot be written,
+ * nothing is cleared. If the copy landed but the history is still in App
+ * Studio afterwards, the copy is withdrawn so Recently deleted never shows
+ * something that was not removed.
+ */
+async function removeWorkFolderAppStudioIntoRecentlyDeleted(
+  restrictedApps: RestrictedAppService,
+  recentlyDeleted: WorkFoldRecentlyDeletedStore,
+  workFolderId: string,
+  context: { workFolderName?: string; receiptId: string | null; onKept?: (entry: WorkFoldRecentlyDeletedEntry) => void },
+): Promise<void> {
+  let kept: { entry: WorkFoldRecentlyDeletedEntry; copy: LocalAppWorkFolderRecoveryCopy } | null = null;
+  try {
+    await restrictedApps.removeWorkFolder(workFolderId, {
+      keep: async (copy) => {
+        const entry = await keepWorkFolderAppStudioInRecentlyDeleted(recentlyDeleted, copy, context);
+        kept = { entry, copy };
+        context.onKept?.(entry);
+      },
+    });
+  } catch (error) {
+    const landed = kept as { entry: WorkFoldRecentlyDeletedEntry; copy: LocalAppWorkFolderRecoveryCopy } | null;
+    if (landed) {
+      const stillThere = landed.copy.project
+        ? await restrictedApps.localAppStudio(workFolderId)
+          .then((studio) => studio.project?.projectId === landed.copy.project?.projectId)
+          .catch(() => false)
+        : await restrictedApps.workFolderRemovalImpact(workFolderId)
+          .then((impact) => impact.incomingPreparedOperationCount > 0)
+          .catch(() => false);
+      if (stillThere) await recentlyDeleted.remove(landed.entry.id).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -11935,7 +12204,16 @@ async function recoverPendingWorkFolderRemovals(
         managedDeletion: intent.storage === "managed" && intent.folderDisposition !== "preserve",
       });
       if (intent.phase === "requested") {
-        await restrictedApps.removeWorkFolder(intent.workFolderId);
+        // The same copies the interrupted removal owed: each preview's data
+        // and the work-folder's App Studio history reach Recently deleted
+        // before anything is cleared, or nothing is cleared and a later start
+        // tries again (docs/receipts-not-gates.md, F20).
+        for (const app of await restrictedApps.list(intent.workFolderId)) {
+          await keepAppStorageInRecentlyDeleted(restrictedApps, recentlyDeleted, app, "apps.work-folder.removed", null, {
+            skipWhenStorageUnavailable: true,
+          });
+        }
+        await removeWorkFolderAppStudioIntoRecentlyDeleted(restrictedApps, recentlyDeleted, intent.workFolderId, { receiptId: null });
         await restrictedAppProposals.removeWorkFolder(intent.workFolderId);
         intent = await markWorkFolderRemovalAppStateRemoved(intent.workFolderId, removalIo.io);
       }
@@ -13332,6 +13610,7 @@ function createManagedWorkFolderDeletionAdapter(
 ): PreparedActAdapter<PreparedActOutcome<WorkFolderRemovalResult & {
   recentlyDeleted: { entryId: string; restoreBy: string } | null;
   appRecentlyDeletedEntries: Array<{ entryId: string; restoreBy: string }>;
+  appStudioRecentlyDeleted: { entryId: string; restoreBy: string } | null;
 }> | undefined> {
   return {
     fenceScope: () => null,
@@ -13346,7 +13625,8 @@ function createManagedWorkFolderDeletionAdapter(
       const result = await removeWorkFolderRegistrationInternal(state, workFolder, { receiptId: context?.requestId ?? null });
       if (context) context.outcome = result;
       const trashed = (result.recentlyDeleted ? `; trash ${result.recentlyDeleted.entryId}` : "")
-        + (result.appRecentlyDeletedEntries.length ? `; app data ${result.appRecentlyDeletedEntries.map((item) => item.entryId).join(", ")}` : "");
+        + (result.appRecentlyDeletedEntries.length ? `; app data ${result.appRecentlyDeletedEntries.map((item) => item.entryId).join(", ")}` : "")
+        + (result.appStudioRecentlyDeleted ? `; App Studio ${result.appStudioRecentlyDeleted.entryId}` : "");
       return {
         detail: result.cleanupPending
           ? `Moved the managed work-folder's folder ${workFolder.workFolderRoot} to Recently deleted${trashed}; final cleanup completes at the next start.`

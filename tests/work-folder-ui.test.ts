@@ -31,7 +31,10 @@ test("managed work-folder deletion names what moves and where it waits", () => {
   assert.doesNotMatch(copy, /cannot be undone/i);
 });
 
-test("work-folder removal warns when it will erase machine-local App Studio lineage", () => {
+test("work-folder removal says where its App Studio history waits instead of promising an erase", () => {
+  // Removing a work-folder keeps its App Studio history in Recently deleted
+  // (docs/receipts-not-gates.md, F20), so the confirm names what moves, where
+  // it waits, and what has to come back first — never "permanently".
   const copy = removeWorkFolderConfirmText(linkedWorkFolder, {
     project: { projectId: "project_fixture" },
     previews: [{}],
@@ -39,9 +42,11 @@ test("work-folder removal warns when it will erase machine-local App Studio line
     operations: [{}],
   });
   assert.match(copy, /original folder and everything inside it will stay/i);
-  assert.match(copy, /permanently clears this computer's App Studio history for it/i);
-  assert.match(copy, /1 Development preview, 2 Releases, 1 prepared operation/i);
-  assert.match(copy, /Keeping the folder does not preserve that state/i);
+  assert.match(copy, /App Studio history on this computer/i);
+  assert.match(copy, /1 Development preview, 2 Releases, 1 prepared operation, with their receipts/i);
+  assert.match(copy, /moves to Recently Deleted too/);
+  assert.match(copy, /Once the work-folder is back, you can put that back from there/);
+  assert.doesNotMatch(copy, /permanent/i);
 });
 
 test("ordinary linked work-folder removal keeps the concise folder-preservation copy", () => {
@@ -64,5 +69,5 @@ test("target work-folder removal discloses incoming prepared App operations", ()
     operations: [],
     incomingPreparedOperationCount: 2,
   });
-  assert.match(copy, /cancels 2 prepared App operations aimed at this work-folder/i);
+  assert.match(copy, /cancels 2 prepared App operations aimed at this work-folder; they wait in Recently Deleted until the work-folder is back/i);
 });

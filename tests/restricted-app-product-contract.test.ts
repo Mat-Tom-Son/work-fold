@@ -81,6 +81,8 @@ test("Skills & Extensions owns access, connection, and lifecycle management with
   assert.match(apps, /work-fold · \{app\.manifest\.title\} — \{permission\.title\}/);
   assert.match(apps, /Allow notifications/);
   assert.match(apps, /Revoke notifications/);
+  // The app's recent notifications sit under its categories.
+  assert.match(apps, /<RestrictedAppNotificationHistory key=\{`notifications:\$\{app\.featureInstallationId\}`\} app=\{app\} disabled=\{fixtureMode\} \/>\s*<\/section> : null\}/);
   assert.doesNotMatch(apps, /Delete credential|Credential saved|Credential needed/);
   assert.match(apps, /Provider compatibility \{status\.diagnostics\.length === 1 \? "note" : "notes"\}/);
 });
@@ -97,6 +99,14 @@ test("notification clicks target their exact work-folder and stopped native view
   assert.match(workFolderApp, /resolveRestrictedAppOpenRequest\(request, workFolders\)/);
   assert.match(workFolderApp, /onSwitchWorkFolder\(target\.workFolder\)/);
   assert.match(workFolderApp, /setActiveMode\(target\.mode\)/);
+  // A notification click opens the left pane — never a tab — at the app's
+  // named route and state, and the rail button returns the app to its home.
+  assert.match(workFolderApp, /setRestrictedAppNavigatorTarget\(target\.target\)/);
+  assert.match(workFolderApp, /placement="navigator"\s+route=\{restrictedAppNavigatorTarget\?\.mode === activeMode \? restrictedAppNavigatorTarget\.route : "\/"\}/);
+  assert.match(workFolderApp, /openedFrom: restrictedAppNavigatorTarget\.openedFrom/);
+  assert.match(workFolderApp, /function selectRailMode[\s\S]*?setRestrictedAppNavigatorTarget\(null\)/);
+  assert.match(viewport, /latest\.openedFrom && latest\.placement === "navigator"/);
+  assert.match(desktopHost, /Only the left-pane view opens from a notification\./);
   assert.match(viewport, /event\.state === "stopped"/);
   assert.match(viewport, /mountIdRef\.current = crypto\.randomUUID\(\)/);
   assert.match(viewport, /setGeneration\(\(value\) => value \+ 1\)/);
