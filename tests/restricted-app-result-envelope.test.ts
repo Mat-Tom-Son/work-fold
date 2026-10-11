@@ -48,7 +48,7 @@ const blobAction: RestrictedAppAssistantAction = {
 };
 
 const scope: RestrictedAppTaskScope = {
-  spaceId: "space-one",
+  workFolderId: "work-folder-one",
   appId: "quotes",
   featureInstallationId: "feature-one",
   digest: "a".repeat(64),
@@ -69,7 +69,7 @@ async function fixture(t: test.TestContext, options: { actions?: RestrictedAppAs
       turns.set(record.id, {
         schema: "work-fold.turn.v1", turnId: `turn-${record.id}`, requestId: restrictedAppTaskTurnRequestId(record),
         requestDigest: "d".repeat(64), userMessageId: `message-${record.id}`, userMessageCreatedAt: now.toISOString(),
-        spaceId: record.scope.spaceId, conversationId: record.conversationId, actorKind: "system", status: "running",
+        workFolderId: record.scope.workFolderId, conversationId: record.conversationId, actorKind: "system", status: "running",
         userMessagePersisted: true, acceptedAt: now.toISOString(), updatedAt: now.toISOString(), assistantText: "",
       });
     },
@@ -120,7 +120,7 @@ test("a filed report carries its summary, its outcome, validated details and the
   f.settle(task.id, "ignored once a report exists");
   const result = (await f.service.get(scope, task.requestId)).result!;
   assert.equal(result.summary, "North is cheaper by $8.");
-  assert.equal(result.outcome, "partial", "the Assistant's own account of the outcome survives");
+  assert.equal(result.outcome, "partial", "the agent's own account of the outcome survives");
   assert.deepEqual(result.data, { cheapest: "North", total: 42 });
   assert.deepEqual(result.files, [{ path: "exports/comparison.md", sha256: sha256("comparison"), sizeBytes: 512 }]);
   assert.equal((await f.service.list(scope))[0].result, undefined, "the sandbox list stays content-free");
@@ -139,24 +139,24 @@ test("the declared shape is findable from the running turn, so `chat report` can
   const turn = f.turns.get(task.id)!;
 
   // `chat report` resolves the pinned shape from the turn it is reporting for,
-  // so a mismatched report is refused while the Assistant can still correct it
+  // so a mismatched report is refused while the agent can still correct it
   // (docs/collaboration-contract.md, F29 — validated at report time, and again
   // when the result is projected to the app).
   assert.deepEqual(
-    f.service.outputSchemaForTurn({ spaceId: scope.spaceId, conversationId: turn.conversationId, taskId: turn.turnId }),
+    f.service.outputSchemaForTurn({ workFolderId: scope.workFolderId, conversationId: turn.conversationId, taskId: turn.turnId }),
     outputSchema,
   );
-  // The pin is per task, not per manifest: another Space, another Chat, and
+  // The pin is per task, not per manifest: another work-folder, another Chat, and
   // another turn id all answer nothing.
-  assert.equal(f.service.outputSchemaForTurn({ spaceId: "space-two", conversationId: turn.conversationId, taskId: turn.turnId }), null);
-  assert.equal(f.service.outputSchemaForTurn({ spaceId: scope.spaceId, conversationId: "chat-other", taskId: turn.turnId }), null);
-  assert.equal(f.service.outputSchemaForTurn({ spaceId: scope.spaceId, conversationId: turn.conversationId, taskId: "turn-other" }), null);
+  assert.equal(f.service.outputSchemaForTurn({ workFolderId: "work-folder-two", conversationId: turn.conversationId, taskId: turn.turnId }), null);
+  assert.equal(f.service.outputSchemaForTurn({ workFolderId: scope.workFolderId, conversationId: "chat-other", taskId: turn.turnId }), null);
+  assert.equal(f.service.outputSchemaForTurn({ workFolderId: scope.workFolderId, conversationId: turn.conversationId, taskId: "turn-other" }), null);
 
   // An action that declared no shape has nothing to check against.
   const plain = await f.file(plainAction.id);
   const plainTurn = f.turns.get(plain.id)!;
   assert.equal(
-    f.service.outputSchemaForTurn({ spaceId: scope.spaceId, conversationId: plainTurn.conversationId, taskId: plainTurn.turnId }),
+    f.service.outputSchemaForTurn({ workFolderId: scope.workFolderId, conversationId: plainTurn.conversationId, taskId: plainTurn.turnId }),
     null,
   );
 });
@@ -170,7 +170,7 @@ test("details that do not match the declared shape are dropped, said plainly, an
   assert.equal(result.data, undefined);
   assert.equal(result.outcome, "failed");
   assert.match(result.summary, /did not match the object shape this action declared/);
-  assert.match(result.summary, /Compared the quotes\./, "the Assistant's own words are kept");
+  assert.match(result.summary, /Compared the quotes\./, "the agent's own words are kept");
 });
 
 test("details reported for an action that declared no shape never reach the app", async (t) => {
@@ -184,7 +184,7 @@ test("details reported for an action that declared no shape never reach the app"
   assert.match(result.summary, /declared no shape for reported details/);
 });
 
-test("deliverables are bounded and each entry must name a safe Space-relative path", async (t) => {
+test("deliverables are bounded and each entry must name a safe work-folder-relative path", async (t) => {
   const f = await fixture(t);
   const task = await f.file();
   f.setReport({
@@ -193,7 +193,7 @@ test("deliverables are bounded and each entry must name a safe Space-relative pa
     outcome: "succeeded",
     files: [
       { path: "../outside.md", sha256: sha256("a"), sizeBytes: 1 },
-      { path: ".work-fold/space.json", sha256: sha256("b"), sizeBytes: 1 },
+      { path: ".work-fold/work-folder.json", sha256: sha256("b"), sizeBytes: 1 },
       { path: "/absolute.md", sha256: sha256("c"), sizeBytes: 1 },
       { path: "ok.md", sha256: "not-a-fingerprint", sizeBytes: 1 },
       { path: "ok.md", sha256: sha256("d"), sizeBytes: -1 },
@@ -205,7 +205,7 @@ test("deliverables are bounded and each entry must name a safe Space-relative pa
   f.settle(task.id, "ignored");
   const files = (await f.service.get(scope, task.requestId)).result!.files!;
   assert.equal(files.length, 100);
-  assert.ok(files.every((file) => file.path.startsWith("exports/")), "nothing outside the Space survives");
+  assert.ok(files.every((file) => file.path.startsWith("exports/")), "nothing outside the work-folder survives");
 });
 
 test("full-size details and a full-size summary now fit the envelope untouched", async (t) => {

@@ -200,7 +200,7 @@ function rewriteScript(file, text, stats, prose) {
     const cls = region.cls === "string" ? (isProse ? "prose" : "idstring") : region.cls;
     let next = value;
     if (protectedLines.some((pattern) => pattern.test(lineAt(text, region.start)))) next = value;
-    else if (isProse ? prose : codeClasses.has(cls)) next = isProse ? rewriteProse(value, stats) : rewriteTokens(value, cls, stats);
+    else if (prose ? isProse : codeClasses.has(cls) && !isProse) next = isProse ? rewriteProse(value, stats) : rewriteTokens(value, cls, stats);
     out += text.slice(cursor, region.start) + next;
     cursor = region.end;
   }
@@ -229,11 +229,20 @@ export const proseRules = [
   [/\bthe Apps tab\b/g, "Settings → Apps"],
   [/\bSpace Assistants\b/g, "Workers"],
   [/\bSpace Assistant\b/g, "Worker"],
+  [/\bmanagement conversations\b/g, "work-fold agent chats"],
   [/\bmanagement conversation\b/g, "work-fold agent"],
+  [/(?<!work-fold )\bmanagement (request|turn|Chat|chat|popover|instructions|parent|scope|transcript|folder|layer)(s?)\b/g, "work-fold agent $1$2"],
+  [/\ba fold step\b/g, "an agent step"],
+  [/(?<!work-)\bfold steps?\b/g, (match) => match.replace("fold", "agent")],
+  [/(?<!work-)\bfold (model|turn|thread|transcript|conversation)\b/g, "work-fold agent $1"],
+  [/`fold`/g, "`agent`"],
+  [/\bPersonal and Space capabilities\b/g, "Everywhere and work-folder capabilities"],
+  [/--scope personal\b/g, "--scope everywhere"],
+  [/\bpersonal scope\b/g, "everywhere scope"],
   [/\bThe fold\b/g, "The work-fold agent"],
   [/\bthe fold\b/g, "the work-fold agent"],
-  [/\bfold's\b/g, "work-fold agent's"],
-  [/\bfold’s\b/g, "work-fold agent’s"],
+  [/(?<!work-)\bfold's\b/g, "work-fold agent's"],
+  [/(?<!work-)\bfold’s\b/g, "work-fold agent’s"],
   [/\ba routing\b/g, "an automation"],
   [/\bA routing\b/g, "An automation"],
   [/\ba Routing\b/g, "an Automation"],
@@ -251,9 +260,12 @@ export const proseRules = [
 function rewriteProse(text, stats) {
   let next = text;
   for (const [pattern, replacement] of proseRules) next = next.replace(pattern, replacement);
-  // Code-shaped tokens inside prose (flags, verbs, placeholders) follow the word rules.
-  next = next.replace(/(--|<|`)([a-z][a-z0-9-]*)/g, (match, lead, word) => lead + applyWordRules(word, "idstring"));
-  next = next.replace(/\b(spaces|space)(?=[ .:]|$)/g, (word) => applyWordRules(word, "idstring"));
+  // Code-shaped tokens inside prose (flags, verbs, placeholders) follow the full mapping.
+  next = next.replace(/(--|<|`|\|)([a-z][a-z0-9.-]*)/g, (match, lead, word) => lead + mapToken(word, "idstring"));
+  // CLI words after the executable: `${executable} trash list`, `work-fold routings run`.
+  next = next.replace(/((?:\$\{(?:executable|cmd)\}|work-fold) )([a-z][a-z-]*)((?: [a-z][a-z-]*)?)/g,
+    (match, lead, first, second) => lead + mapToken(first, "idstring") + (second ? " " + mapToken(second.trim(), "idstring") : ""));
+  next = next.replace(/\b(spaces|space)(?=[ .:,|>)\]]|$)/g, (word) => applyWordRules(word, "idstring"));
   if (next !== text) stats.set(`prose\t${text.slice(0, 40)}`, 1);
   return next;
 }
@@ -264,9 +276,9 @@ function rewriteProse(text, stats) {
 function rewriteMarkdownBody(text, stats, prose) {
   const parts = text.split(/(```[\s\S]*?```)/);
   return parts.map((part) => {
-    if (part.startsWith("```")) return rewriteTokens(part, "idstring", stats);
+    if (part.startsWith("```")) return prose ? part : rewriteTokens(part, "idstring", stats);
     return part.split(/(`[^`\n]+`)/).map((piece) => {
-      if (piece.startsWith("`") && piece.endsWith("`")) return rewriteTokens(piece, "idstring", stats);
+      if (piece.startsWith("`") && piece.endsWith("`")) return prose ? piece : rewriteTokens(piece, "idstring", stats);
       return prose ? rewriteProse(piece, stats) : piece;
     }).join("");
   }).join("");
@@ -330,7 +342,7 @@ function main() {
 
   // Plan every move first, and refuse a collision before touching anything.
   const renames = new Map();
-  for (const file of files) {
+  for (const file of prose ? [] : files) {
     const target = mapPath(file);
     if (target !== file) renames.set(file, target);
   }
@@ -351,8 +363,9 @@ function main() {
     let next = text;
     if (/\.md$/.test(file)) {
       if (!dated) next = rewriteMarkdownBody(next, stats, prose);
-      next = rewriteLinks(file, next, renames);
+      if (!prose) next = rewriteLinks(file, next, renames);
     } else if (scriptExtensions.test(file)) next = rewriteScript(file, text, stats, prose);
+    else if (prose) next = text;
     else if (/\.css$/.test(file)) next = rewriteCss(text, stats);
     else if (/\.(json|webmanifest|ps1|cmd|sh)$/.test(file) || /(^|\/)work-fold$/.test(file)) next = rewriteTokens(text, "idstring", stats);
     else if (/\.html$/.test(file)) next = rewriteLinks(file, rewriteTokens(text, "idstring", stats), renames);

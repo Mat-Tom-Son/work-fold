@@ -253,12 +253,12 @@ test("restricted app storage reauthorizes immediately before an atomic commit", 
   });
 });
 
-test("restricted app storage ignores old Space/app stores", async (t) => {
+test("restricted app storage ignores old work-folder/app stores", async (t) => {
   const { root, store } = await temporaryStore(t);
-  const legacyOwner = { spaceId: "space-one", appId: "mail-app" };
+  const legacyOwner = { workFolderId: "work-folder-one", appId: "mail-app" };
   const legacyHash = createHash("sha256")
     .update("work-fold-restricted-app-storage-v1\0")
-    .update(legacyOwner.spaceId)
+    .update(legacyOwner.workFolderId)
     .update("\0")
     .update(legacyOwner.appId)
     .digest("hex");

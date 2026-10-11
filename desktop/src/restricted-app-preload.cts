@@ -55,7 +55,7 @@ const limits = initialLimits();
 const networkRequestBytes = nestedPositiveInteger(limits, "network", "maxRequestBytes", 16 * 1024 * 1024);
 const maximumNetworkEnvelopeBytes = networkRequestBytes * 6 + 64 * 1024;
 const maximumStorageEnvelopeBytes = nestedPositiveInteger(limits, "storage", "maxTransactionBytes", 64 * 1024 * 1024) + 64 * 1024;
-// JSON escaping can expand one byte into six, so the file, Assistant, and
+// JSON escaping can expand one byte into six, so the file, Worker-request, and
 // inference envelopes leave that headroom over every published input bound.
 const maximumFileEnvelopeBytes = nestedPositiveInteger(limits, "files", "maxWriteBytes", 64 * 1024 * 1024) * 6 + 64 * 1024;
 const maximumAssistantEnvelopeBytes = nestedPositiveInteger(limits, "assistant", "inputBytes", 4 * 1024 * 1024) * 6 + 64 * 1024;
@@ -83,7 +83,7 @@ function codedError(code: string, message: string): Error {
 }
 
 let context = Object.freeze({
-  spaceId: argumentValue("space-id"),
+  workFolderId: argumentValue("work-folder-id"),
   appId: argumentValue("app-id"),
   digest: argumentValue("digest"),
   mountId: argumentValue("mount-id"),
@@ -217,7 +217,7 @@ const filesChangedListeners = new Set<(event: FilesChangedEvent) => void>();
  * Tells the host whether this app is listening for granted-root changes.
  * Registration is preload-local, so without this notice the host cannot tell
  * a subscribing app from one that never called `files.onChanged` — and a
- * directory permission binds to the whole Space, so it would walk that Space
+ * directory permission binds to the whole work-folder, so it would walk that work-folder
  * on every poll for the life of the view. Sent only when the answer changes.
  */
 let filesSubscribed = false;
@@ -275,7 +275,7 @@ const appBridge = Object.freeze({
   }),
   tasks: Object.freeze({
     onChanged: (listener: (event: TasksChangedEvent) => void) => {
-      if (typeof listener !== "function") throw new TypeError("Assistant task listener must be a function.");
+      if (typeof listener !== "function") throw new TypeError("Task listener must be a function.");
       tasksListeners.add(listener);
       return () => tasksListeners.delete(listener);
     },
@@ -336,7 +336,7 @@ const synchronousBridgePaths = [
 // last line for anything that reaches them another way.
 const listenerRegistrationMessages: Record<string, string> = {
   "storage.onChanged": "Storage listener must be a function.",
-  "tasks.onChanged": "Assistant task listener must be a function.",
+  "tasks.onChanged": "Task listener must be a function.",
   "checks.onChanged": "Check listener must be a function.",
   "files.onChanged": "File listener must be a function.",
 };

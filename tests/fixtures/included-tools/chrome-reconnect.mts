@@ -32,7 +32,7 @@ service = await IncludedChromeConnectionService.create({ stateRoot: root, distri
   }),
   probe: async () => { await chrome.probeIncludedChromeConnection(service); },
 });
-const cwd = join(root, "space"); await mkdir(cwd);
+const cwd = join(root, "work-folder"); await mkdir(cwd);
 const eventBus = createEventBus();
 eventBus.on("work-fold:extension-host:v1", (event: any) => { event.context = {
   version: 1, mode: "session", cwd, agentDir: process.env.PI_CODING_AGENT_DIR, stateRoot: root,

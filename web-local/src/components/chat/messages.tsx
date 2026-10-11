@@ -8,14 +8,14 @@ import { copyToClipboard } from "../../lib/clipboard";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
 import { assistantTurnView, savedWorkTrailPreviews } from "../../lib/chat-work-trail";
-import { collectSpacePathCandidates, findSpacePathMentions, spacePathCandidate } from "../../lib/space-path-links";
+import { collectWorkFolderPathCandidates, findWorkFolderPathMentions, workFolderPathCandidate } from "../../lib/work-folder-path-links";
 import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
-import { RuntimeContextPreview, type SpacePathLinkResolver } from "./activity";
+import { RuntimeContextPreview, type WorkFolderPathLinkResolver } from "./activity";
 
-export type { SpacePathLinkResolver };
+export type { WorkFolderPathLinkResolver };
 
-const assistantMessageSpacePathCache = new Map<string, {
+const assistantMessageWorkFolderPathCache = new Map<string, {
   content: string;
   resolved: Map<string, string>;
   promise: Promise<Map<string, string>> | null;
@@ -28,10 +28,10 @@ interface ChatMessageRowProps {
   suppressEnterAnimation: boolean;
   showRuntimePreview: boolean;
   runtimePreviews: RuntimePreviewEntry[];
-  spaceId: string;
-  spaceRoot: string;
-  onOpenSpaceFile?: (path: string) => void;
-  resolveSpacePathLinks?: SpacePathLinkResolver;
+  workFolderId: string;
+  workFolderRoot: string;
+  onOpenWorkFolderFile?: (path: string) => void;
+  resolveWorkFolderPathLinks?: WorkFolderPathLinkResolver;
   onCopyMessage: (messageId: string, content: string) => void | Promise<void>;
 }
 
@@ -42,16 +42,16 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   suppressEnterAnimation,
   showRuntimePreview,
   runtimePreviews,
-  spaceId,
-  spaceRoot,
-  onOpenSpaceFile,
-  resolveSpacePathLinks,
+  workFolderId,
+  workFolderRoot,
+  onOpenWorkFolderFile,
+  resolveWorkFolderPathLinks,
   onCopyMessage,
 }: ChatMessageRowProps) {
-  const [spaceLinkVersion, setSpaceLinkVersion] = useState(0);
-  const spaceLinkCacheKey = `${spaceId}:${message.id}`;
-  const cachedSpaceLinks = assistantMessageSpacePathCache.get(spaceLinkCacheKey);
-  const spaceLinks = cachedSpaceLinks?.content === message.content ? cachedSpaceLinks.resolved : null;
+  const [workFolderLinkVersion, setWorkFolderLinkVersion] = useState(0);
+  const workFolderLinkCacheKey = `${workFolderId}:${message.id}`;
+  const cachedWorkFolderLinks = assistantMessageWorkFolderPathCache.get(workFolderLinkCacheKey);
+  const workFolderLinks = cachedWorkFolderLinks?.content === message.content ? cachedWorkFolderLinks.resolved : null;
   const messageTime = message.createdAt ? formatDateTime(message.createdAt) : "";
   const savedRuntimePreviews = savedWorkTrailPreviews(message);
   const visibleRuntimePreviews = showRuntimePreview && runtimePreviews.length
@@ -60,18 +60,18 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   const turnView = assistantTurnView(message.content, message.role === "assistant" ? message.assistantPresentation : undefined, visibleRuntimePreviews);
 
   useEffect(() => {
-    if (message.role !== "assistant" || !resolveSpacePathLinks || !onOpenSpaceFile) return;
-    const candidates = collectSpacePathCandidates(message.content);
+    if (message.role !== "assistant" || !resolveWorkFolderPathLinks || !onOpenWorkFolderFile) return;
+    const candidates = collectWorkFolderPathCandidates(message.content);
     if (!candidates.length) return;
     let cancelled = false;
-    void resolveMessageSpaceLinks(spaceLinkCacheKey, message.content, candidates, resolveSpacePathLinks)
+    void resolveMessageWorkFolderLinks(workFolderLinkCacheKey, message.content, candidates, resolveWorkFolderPathLinks)
       .then(() => {
-        if (!cancelled) setSpaceLinkVersion((current) => current + 1);
+        if (!cancelled) setWorkFolderLinkVersion((current) => current + 1);
       });
     return () => {
       cancelled = true;
     };
-  }, [message.content, message.id, message.role, onOpenSpaceFile, resolveSpacePathLinks, spaceLinkCacheKey]);
+  }, [message.content, message.id, message.role, onOpenWorkFolderFile, resolveWorkFolderPathLinks, workFolderLinkCacheKey]);
 
   if (message.kind === "assistant_continuation") return <p className="work-continuation" role="note">Continuing with the results from delegated work.</p>;
 
@@ -81,17 +81,17 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         {turnView.steps.length ? (
           <RuntimeContextPreview
             entries={turnView.steps}
-            spaceRoot={spaceRoot}
-            onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
-            resolveSpacePathLinks={message.role === "assistant" ? resolveSpacePathLinks : undefined}
-            renderText={(content, links) => <MarkdownMessage content={content} spaceLinks={links} onOpenSpaceFile={onOpenSpaceFile} />}
+            workFolderRoot={workFolderRoot}
+            onOpenWorkFolderFile={message.role === "assistant" ? onOpenWorkFolderFile : undefined}
+            resolveWorkFolderPathLinks={message.role === "assistant" ? resolveWorkFolderPathLinks : undefined}
+            renderText={(content, links) => <MarkdownMessage content={content} workFolderLinks={links} onOpenWorkFolderFile={onOpenWorkFolderFile} />}
           />
         ) : null}
         {turnView.answer ? <MarkdownMessage
           content={turnView.answer}
-          spaceLinks={message.role === "assistant" ? spaceLinks : null}
-          onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
-          key={spaceLinkVersion}
+          workFolderLinks={message.role === "assistant" ? workFolderLinks : null}
+          onOpenWorkFolderFile={message.role === "assistant" ? onOpenWorkFolderFile : undefined}
+          key={workFolderLinkVersion}
         /> : null}
         {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
         {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
@@ -108,7 +108,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             </time>
           ) : null}
           {message.role === "user" && message.delivery === "steer" ? (
-            <span className="message-delivery" title="Sent while the Assistant was working; it applied after the step in progress.">Sent mid-turn</span>
+            <span className="message-delivery" title="Sent while the Worker was working; it applied after the step in progress.">Sent mid-turn</span>
           ) : null}
         </span>
       </footer>
@@ -140,10 +140,10 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previous.suppressEnterAnimation === next.suppressEnterAnimation
     && previous.showRuntimePreview === next.showRuntimePreview
     && sameRuntimePreview
-    && previous.spaceId === next.spaceId
-    && previous.spaceRoot === next.spaceRoot
-    && previous.onOpenSpaceFile === next.onOpenSpaceFile
-    && previous.resolveSpacePathLinks === next.resolveSpacePathLinks
+    && previous.workFolderId === next.workFolderId
+    && previous.workFolderRoot === next.workFolderRoot
+    && previous.onOpenWorkFolderFile === next.onOpenWorkFolderFile
+    && previous.resolveWorkFolderPathLinks === next.resolveWorkFolderPathLinks
     && previous.onCopyMessage === next.onCopyMessage;
 }
 
@@ -185,15 +185,15 @@ export function TurnLanding({ landing }: { landing: ChatMessageLanding }) {
 function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessage["interruption"]> }) {
   if (interruption.reason === "setup_error") {
     return (
-      <section className="turn-interruption" role="status" aria-label="Assistant setup needed">
-        <strong>Assistant setup needed</strong>
+      <section className="turn-interruption" role="status" aria-label="Worker setup needed">
+        <strong>Worker setup needed</strong>
         <span>Open Settings → AI Models to choose a provider and model, then try again.</span>
       </section>
     );
   }
   if (interruption.reason === "assistant_error") {
     return (
-      <section className="turn-interruption" role="status" aria-label="Failed Assistant request">
+      <section className="turn-interruption" role="status" aria-label="Failed Worker response">
         <strong>Request stopped</strong>
         <span>work-fold saved this result with your Chat. You can try again whenever you’re ready.</span>
       </section>
@@ -201,15 +201,15 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
   }
   if (interruption.reason === "cancelled") {
     return (
-      <section className="turn-interruption" role="status" aria-label="Stopped Assistant response">
+      <section className="turn-interruption" role="status" aria-label="Stopped Worker response">
         <strong>Response stopped</strong>
-        <span>work-fold saved the response produced before you stopped the Assistant.</span>
+        <span>work-fold saved the response produced before you stopped the Worker.</span>
       </section>
     );
   }
   if (interruption.reason === "app_interrupted") {
     return (
-      <section className="turn-interruption" role="status" aria-label="Assistant response interrupted by app close">
+      <section className="turn-interruption" role="status" aria-label="Worker response interrupted by app close">
         <strong>App interrupted this response</strong>
         <span>work-fold saved the partial response and did not rerun the turn because tools may already have changed something.</span>
       </section>
@@ -219,7 +219,7 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
     ? `${interruption.retryAttempts} automatic ${interruption.retryAttempts === 1 ? "retry" : "retries"} were attempted.`
     : "The provider did not identify this as safely retryable.";
   return (
-    <section className="turn-interruption" role="status" aria-label="Interrupted Assistant response">
+    <section className="turn-interruption" role="status" aria-label="Interrupted Worker response">
       <strong>Response interrupted</strong>
       <span>work-fold preserved the partial response. {retryText}</span>
     </section>
@@ -228,14 +228,14 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
 
 export function MarkdownMessage({
   content,
-  spaceLinks = null,
-  onOpenSpaceFile,
+  workFolderLinks = null,
+  onOpenWorkFolderFile,
 }: {
   content: string;
-  spaceLinks?: Map<string, string> | null;
-  onOpenSpaceFile?: (path: string) => void;
+  workFolderLinks?: Map<string, string> | null;
+  onOpenWorkFolderFile?: (path: string) => void;
 }) {
-  const linkChildren = (children: ReactNode) => linkSpacePathText(children, spaceLinks, onOpenSpaceFile);
+  const linkChildren = (children: ReactNode) => linkWorkFolderPathText(children, workFolderLinks, onOpenWorkFolderFile);
   return (
     <div className="message-body">
       <ReactMarkdown
@@ -250,14 +250,14 @@ export function MarkdownMessage({
           code: ({ children, className }) => {
             const text = reactNodeText(children);
             if (className || text.includes("\n")) return <code className={className}>{children}</code>;
-            const normalizedPath = spacePathCandidate(text, { allowSpaces: true });
-            const resolvedPath = normalizedPath ? spaceLinks?.get(normalizedPath) ?? null : null;
-            if (!resolvedPath || !onOpenSpaceFile) return <code>{children}</code>;
+            const normalizedPath = workFolderPathCandidate(text, { allowWorkFolders: true });
+            const resolvedPath = normalizedPath ? workFolderLinks?.get(normalizedPath) ?? null : null;
+            if (!resolvedPath || !onOpenWorkFolderFile) return <code>{children}</code>;
             return (
               <button
-                className="space-file-link space-file-link-code"
+                className="work-folder-file-link work-folder-file-link-code"
                 type="button"
-                onClick={() => onOpenSpaceFile(resolvedPath)}
+                onClick={() => onOpenWorkFolderFile(resolvedPath)}
                 title={resolvedPath}
               >
                 {text}
@@ -265,19 +265,19 @@ export function MarkdownMessage({
             );
           },
           a: ({ href, children }) => {
-            const spacePath = spacePathCandidate(href ?? "", { allowSpaces: true });
-            const resolvedPath = spacePath ? spaceLinks?.get(spacePath) ?? null : null;
-            if (resolvedPath && onOpenSpaceFile) {
-              return <button className="space-file-link" type="button" onClick={() => onOpenSpaceFile(resolvedPath)} title={resolvedPath}>{children}</button>;
+            const workFolderPath = workFolderPathCandidate(href ?? "", { allowWorkFolders: true });
+            const resolvedPath = workFolderPath ? workFolderLinks?.get(workFolderPath) ?? null : null;
+            if (resolvedPath && onOpenWorkFolderFile) {
+              return <button className="work-folder-file-link" type="button" onClick={() => onOpenWorkFolderFile(resolvedPath)} title={resolvedPath}>{children}</button>;
             }
             const safeHref = safeExternalHref(href);
             return safeHref ? <a className="message-external-link" href={safeHref} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>;
           },
           img: ({ src, alt }) => {
-            const spacePath = spacePathCandidate(src ?? "", { allowSpaces: true });
-            const resolvedPath = spacePath ? spaceLinks?.get(spacePath) ?? null : null;
-            if (resolvedPath && onOpenSpaceFile) {
-              return <button className="message-image-file" type="button" onClick={() => onOpenSpaceFile(resolvedPath)} title={resolvedPath}>{alt || resolvedPath.split("/").pop() || "Open image"}</button>;
+            const workFolderPath = workFolderPathCandidate(src ?? "", { allowWorkFolders: true });
+            const resolvedPath = workFolderPath ? workFolderLinks?.get(workFolderPath) ?? null : null;
+            if (resolvedPath && onOpenWorkFolderFile) {
+              return <button className="message-image-file" type="button" onClick={() => onOpenWorkFolderFile(resolvedPath)} title={resolvedPath}>{alt || resolvedPath.split("/").pop() || "Open image"}</button>;
             }
             const resolution = resolveMessageImageSource(src, window.location.href);
             if (resolution.kind === "embed") return <img className="message-image" src={resolution.src} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" />;
@@ -325,13 +325,13 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   );
 }
 
-async function resolveMessageSpaceLinks(
+async function resolveMessageWorkFolderLinks(
   cacheKey: string,
   content: string,
   candidates: string[],
-  resolver: SpacePathLinkResolver,
+  resolver: WorkFolderPathLinkResolver,
 ): Promise<Map<string, string>> {
-  const cached = assistantMessageSpacePathCache.get(cacheKey);
+  const cached = assistantMessageWorkFolderPathCache.get(cacheKey);
   if (cached?.content === content) {
     if (cached.promise) return cached.promise;
     return cached.resolved;
@@ -340,51 +340,51 @@ async function resolveMessageSpaceLinks(
     .then((resolved) => {
       // Empty results are not cached: the tree (fixture mode) or the API may simply
       // not be ready yet, and a poisoned empty entry would never be retried.
-      if (resolved.size) assistantMessageSpacePathCache.set(cacheKey, { content, resolved, promise: null });
-      else assistantMessageSpacePathCache.delete(cacheKey);
+      if (resolved.size) assistantMessageWorkFolderPathCache.set(cacheKey, { content, resolved, promise: null });
+      else assistantMessageWorkFolderPathCache.delete(cacheKey);
       return resolved;
     })
     .catch(() => {
-      assistantMessageSpacePathCache.delete(cacheKey);
+      assistantMessageWorkFolderPathCache.delete(cacheKey);
       return new Map<string, string>();
     });
-  assistantMessageSpacePathCache.set(cacheKey, { content, resolved: new Map(), promise });
+  assistantMessageWorkFolderPathCache.set(cacheKey, { content, resolved: new Map(), promise });
   return promise;
 }
 
-function linkSpacePathText(
+function linkWorkFolderPathText(
   children: ReactNode,
-  spaceLinks: Map<string, string> | null | undefined,
-  onOpenSpaceFile: ((path: string) => void) | undefined,
+  workFolderLinks: Map<string, string> | null | undefined,
+  onOpenWorkFolderFile: ((path: string) => void) | undefined,
 ): ReactNode {
-  if (!spaceLinks?.size || !onOpenSpaceFile) return children;
+  if (!workFolderLinks?.size || !onOpenWorkFolderFile) return children;
   return Children.map(children, (child) => {
-    if (typeof child === "string") return linkSpacePathString(child, spaceLinks, onOpenSpaceFile);
+    if (typeof child === "string") return linkWorkFolderPathString(child, workFolderLinks, onOpenWorkFolderFile);
     if (!isValidElement(child) || child.type === "a" || child.type === "code" || child.type === "button") return child;
     const element = child as ReactElement<{ children?: ReactNode }>;
     if (element.props.children === undefined) return child;
-    return cloneElement(element, undefined, linkSpacePathText(element.props.children, spaceLinks, onOpenSpaceFile));
+    return cloneElement(element, undefined, linkWorkFolderPathText(element.props.children, workFolderLinks, onOpenWorkFolderFile));
   });
 }
 
-function linkSpacePathString(
+function linkWorkFolderPathString(
   text: string,
-  spaceLinks: Map<string, string>,
-  onOpenSpaceFile: (path: string) => void,
+  workFolderLinks: Map<string, string>,
+  onOpenWorkFolderFile: (path: string) => void,
 ): ReactNode {
-  const mentions = findSpacePathMentions(text).filter((mention) => spaceLinks.has(mention.normalizedPath));
+  const mentions = findWorkFolderPathMentions(text).filter((mention) => workFolderLinks.has(mention.normalizedPath));
   if (!mentions.length) return text;
   const parts: ReactNode[] = [];
   let cursor = 0;
   mentions.forEach((mention, index) => {
-    const resolvedPath = spaceLinks.get(mention.normalizedPath);
+    const resolvedPath = workFolderLinks.get(mention.normalizedPath);
     if (!resolvedPath) return;
     if (mention.start > cursor) parts.push(text.slice(cursor, mention.start));
     parts.push(
       <button
-        className="space-file-link"
+        className="work-folder-file-link"
         type="button"
-        onClick={() => onOpenSpaceFile(resolvedPath)}
+        onClick={() => onOpenWorkFolderFile(resolvedPath)}
         title={resolvedPath}
         key={`${mention.start}:${mention.normalizedPath}:${index}`}
       >

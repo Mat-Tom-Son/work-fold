@@ -46,15 +46,15 @@ npm run desktop:make
 
 Both package lanes place the public `work-fold.cmd` launcher, an extensionless `work-fold` shim for Pi/Git Bash, and the private `work-fold-cli.ps1` helper in `<package>\bin`, outside `app.asar`; packaged-asset verification rejects missing or accidentally archived shims. PowerShell and Command Prompt resolve the CMD launcher, which explicitly invokes the private helper with `-ExecutionPolicy Bypass`; POSIX-style shells resolve the extensionless shim and delegate to that same CMD entry point. Electron Builder copies the directory with `extraFiles`, and the retained Forge diagnostic lane mirrors it with an `afterComplete` hook. `RunAsNode` stays disabled—the command communicates with the desktop process through protocol-v1 request and response files instead of executing JavaScript through Electron.
 
-The NSIS include adds `<install>\bin` idempotently to the current user's `HKCU\Environment\Path`, broadcasts `WM_SETTINGCHANGE`, and removes only that entry during uninstall. It does not modify any shell profile. The shim normally launches the parent `work-fold.exe`; `WORKFOLD_CLI_APP` and the bounded `WORKFOLD_CLI_TIMEOUT_MS` override exist for unpacked automated tests and should not be set by the installer.
+The NSIS include adds `<install>\bin` idempotently to the current user's `HKCU\Environment\Path`, broadcasts `WM_SETTINGCHANGE`, and removes only that entry during uninstall. It does not modify any shell profile. The shim normally launches the parent `work-fold.exe`; `WORKFOLD_CLI_APP` and the `WORKFOLD_CLI_TIMEOUT_MS` override (default 30 minutes, at least 100 ms) exist for unpacked automated tests and should not be set by the installer.
 
 The NSIS product must keep `deleteAppDataOnUninstall: false`. Uninstall removes
-the installed application and its PATH entry, not the work-fold profile, Space
-metadata, or any preserved legacy Workspace data.
+the installed application and its PATH entry, not the work-fold profile,
+work-folder metadata, or any preserved legacy Workspace data.
 
-Protocol v1 exposes only read operations (`context`, `spaces list`, `tasks list`, and `capabilities list`). Its request directory is a same-user coordination channel, not an authenticated caller boundary. Do not add mutations to this protocol without caller authorization and an authenticated transport or equivalent per-launch request authentication.
+Protocol v1 exposes only read operations (`context`, `work-folders list`, `tasks list`, and `capabilities list`). Its request directory is a same-user coordination channel, not an authenticated caller boundary. Do not add mutations to this protocol without caller authorization and an authenticated transport or equivalent per-launch request authentication.
 
-The CLI is an adapter over the shared `WorkFoldKernel`, not a packaging-only utility. See [work-fold management layer](management-layer.md) before changing its snapshots, commands, shims, or broker.
+The CLI is an adapter over the shared `WorkFoldKernel`, not a packaging-only utility. See [the work-fold agent and CLI](work-fold-agent-and-cli.md) before changing its snapshots, commands, shims, or broker.
 
 ## Candidate outputs
 
@@ -92,12 +92,12 @@ Use Node 22.19.0 or newer. On the primary development workstation, `build-signed
 - Launch the exact `win-unpacked` binary rather than an older installed copy and confirm **About work-fold** reports the candidate version. It must use `%APPDATA%\work-fold Development` even when the release candidate contains `app-update.yml`; install through NSIS for any test that intentionally requires production state.
 - Exercise Files, Chats, History, the Skills & Extensions popup, Settings including Settings → Apps, native menus, close-to-tray, and background-turn continuity.
 - Confirm the `desktop:prepare` output reports a passing restricted-app Electron smoke. Treat a skipped, mocked, or Node-only substitute as a failed release gate.
-- In a disposable Space, add the checked-in restricted Connected inbox example through the advanced local-preview path. Confirm adding it grants no network destination, Space file, notification category, connection, or automation schedule; then exercise its rail navigator, persistent Space-owned tab, storage refresh, and explicit grant/revoke controls.
-- Enable **Refresh inbox** and its reviewed notification category separately, then run it once. Confirm the durable receipt and app result reach the active view, inactive views recover app state from storage when reopened, and clicking a Windows notification targets the exact owning Space and app. Disable the automation and confirm **Run now** still works but cannot notify. Windows Focus Assist may suppress presentation, but the host-accepted versus denied outcome must remain honest.
+- In a disposable work-folder, add the checked-in restricted Connected inbox example through the advanced local-preview path. Confirm it comes up able to work: every declared network destination, directory permission, and notification category is granted and its automation is enabled, while a connection secret still waits for the person. Then exercise its rail navigator, persistent work-folder-owned tab, storage refresh, and the revoke and disable controls in Settings → Apps.
+- Run **Refresh inbox** once. Confirm the durable receipt and app result reach the active view, inactive views recover app state from storage when reopened, and clicking a Windows notification targets the exact owning work-folder and app. Disable the automation and confirm **Run now** still works but cannot notify. Windows Focus Assist may suppress presentation, but the host-accepted versus denied outcome must remain honest.
 - Revoke the example's grants, stop or remove it, suspend/resume Windows when practical, and confirm its views, workers, pending notifications, and brokered authority do not survive their lifecycle.
 - Verify Mica on Windows 11 22H2+ and the solid fallback where reduced transparency or an older host disables it; exercise light, dark, and system themes.
 - Verify unpacked smoke builds report updates as unsupported without a red missing-feed error, while the NSIS candidate contains `resources/app-update.yml` and exposes **Help > Check for Updates…**.
-- Exercise a Space through both its normal path and any available Windows 8.3 short-path alias; the watcher must canonicalize the native watch root without changing the logical policy root.
+- Exercise a work-folder through both its normal path and any available Windows 8.3 short-path alias; the watcher must canonicalize the native watch root without changing the logical policy root.
 - Run `desktop:verify:release`, inspect Authenticode status, and compare installer size/hash to `latest.yml` before handoff.
 
 See [Windows releases and signing](windows-release.md) for the public tag workflow.

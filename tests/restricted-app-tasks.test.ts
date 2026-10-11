@@ -11,7 +11,7 @@ import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks
 
 const action: RestrictedAppAssistantAction = { id: "compare", title: "Compare quotes", instructions: "Compare the submitted quotes and write comparison.md.",
   inputSchema: { type: "object", properties: { quote: { type: "string", maxLength: 70_000 } }, required: ["quote"], additionalProperties: false } };
-const scope: RestrictedAppTaskScope = { spaceId: "space-one", appId: "quotes", featureInstallationId: "feature-one", digest: "a".repeat(64), authorityDigest: restrictedAppTaskAuthorityDigest({ generation: 1 }) };
+const scope: RestrictedAppTaskScope = { workFolderId: "work-folder-one", appId: "quotes", featureInstallationId: "feature-one", digest: "a".repeat(64), authorityDigest: restrictedAppTaskAuthorityDigest({ generation: 1 }) };
 
 async function fixture(t: test.TestContext) {
   const root = await mkdtemp(join(tmpdir(), "work-fold-app-tasks-"));
@@ -35,7 +35,7 @@ async function fixture(t: test.TestContext) {
       if (dispatchBehavior === "before-failure") throw new Error("private provider secret");
       if (dispatchBehavior !== "missing") turns.set(record.id, { schema: "work-fold.turn.v1", turnId: `turn-${record.id}`,
         requestId: restrictedAppTaskTurnRequestId(record), requestDigest: "d".repeat(64), userMessageId: `message-${record.id}`,
-        userMessageCreatedAt: now.toISOString(), spaceId: record.scope.spaceId, conversationId: record.conversationId,
+        userMessageCreatedAt: now.toISOString(), workFolderId: record.scope.workFolderId, conversationId: record.conversationId,
         actorKind: "system", status: "running", userMessagePersisted: true, acceptedAt: now.toISOString(), updatedAt: now.toISOString(), assistantText: "" });
       if (dispatchBehavior === "after-failure") throw new Error("uncertain transport failure");
     },
@@ -62,17 +62,17 @@ test("the dispatched Chat is told the app's name, not the action's label", async
   assert.equal(receipt.title, "Compare quotes", "the receipt title stays the per-request action label");
   const prompt = restrictedAppTaskPrompt(receipt, f.dispatchedAppTitles[0]);
   assert.match(prompt, /^App request: Compare quotes\n/);
-  assert.match(prompt, /This request came from the app “Quote board” installed in this Space\./);
+  assert.match(prompt, /This request came from the app “Quote board” installed in this work-folder\./);
   assert.doesNotMatch(prompt, /the app “Compare quotes”/, "the action label is never presented as the app's name");
 
   // Without a resolved app title the sentence says less rather than something false.
   assert.match(
     restrictedAppTaskPrompt(receipt),
-    /This request came from an app installed in this Space\./,
+    /This request came from an app installed in this work-folder\./,
   );
 });
 
-test("app Assistant requests are journaled then dispatched once into their own Chat, and replay returns the same record", async (t) => {
+test("app Worker requests are journaled then dispatched once into their own Chat, and replay returns the same record", async (t) => {
   const f = await fixture(t);
   const request = f.request();
   const [first, replay] = await Promise.all([f.service.request(scope, request), f.service.request(scope, request)]);
@@ -97,14 +97,14 @@ test("app Assistant requests are journaled then dispatched once into their own C
   assert.equal(f.dispatched.length, 1, "restart never redispatches");
 });
 
-test("app Assistant requests deny malformed, oversized, undeclared, stale and foreign inputs before any journal entry", async (t) => {
+test("app Worker requests deny malformed, oversized, undeclared, stale and foreign inputs before any journal entry", async (t) => {
   const f = await fixture(t);
   for (const bad of [null, {}, f.request({ requestId: "" }), f.request({ requestedAt: "yesterday" }), f.request({ actionId: "fold" }),
-    f.request({ spaceId: "other" }), f.request({ input: { quote: "x", arbitrary: true } }),
+    f.request({ workFolderId: "other" }), f.request({ input: { quote: "x", arbitrary: true } }),
     f.request({ requestedAt: "2026-09-07T13:00:00.000Z" })]) await assert.rejects(f.service.request(scope, bad));
   const request = f.request();
   await f.service.request(scope, request);
-  for (const key of ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest"] as const) {
+  for (const key of ["workFolderId", "appId", "featureInstallationId", "digest", "authorityDigest"] as const) {
     const foreign = { ...scope, [key]: `different-${key}` };
     f.changeScope(foreign);
     await assert.rejects(f.service.get(foreign, request.requestId), /unavailable to this app revision/);
@@ -154,7 +154,7 @@ test("the published number of requests run per installation, the next names the 
   await f.service.request(scope, original);
   const others = [];
   for (let index = 0; index < perApp - 1; index++) others.push(await f.service.request(scope, f.request()));
-  await assert.rejects(f.service.request(scope, f.request()), (error: any) => error.code === "TASK_CONFLICT" && new RegExp(`${perApp} Assistant requests`).test(error.message) && /Limits/.test(error.message));
+  await assert.rejects(f.service.request(scope, f.request()), (error: any) => error.code === "TASK_CONFLICT" && new RegExp(`${perApp} Worker requests`).test(error.message) && /Limits/.test(error.message));
   f.turns.get(others[0]!.id)!.status = "succeeded";
   f.turns.get(others[0]!.id)!.assistantText = "done";
   const admitted = await f.service.request(scope, f.request());
@@ -239,9 +239,9 @@ test("a turn without pricing leaves the cost unknown, and a failed turn still re
 test("foreign turn responses fail closed; damaged journals disable only the task lane without overwriting evidence", async (t) => {
   const f = await fixture(t);
   const first = await f.service.request(scope, f.request());
-  f.turns.get(first.id)!.spaceId = "foreign";
+  f.turns.get(first.id)!.workFolderId = "foreign";
   await assert.rejects(f.service.get(scope, first.requestId), /outcome is unavailable/);
-  f.turns.get(first.id)!.spaceId = scope.spaceId;
+  f.turns.get(first.id)!.workFolderId = scope.workFolderId;
   const file = join(f.root, "tasks.json");
   const good = JSON.parse(await readFile(file, "utf8"));
   assert.equal(good.schema, "work-fold.app-assistant-tasks.v3");

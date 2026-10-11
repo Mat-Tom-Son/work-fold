@@ -48,9 +48,9 @@ export function createFilePreview({ fetchPreview, available, online }) {
     const requestVersion = version;
     const target = selected;
     try {
-      const preview = await fetchPreview(target.spaceId, target.path);
+      const preview = await fetchPreview(target.workFolderId, target.path);
       if (requestVersion !== version || !opened || !online()) return;
-      if (preview.spaceId !== target.spaceId || preview.path !== target.path) throw new Error("The file preview does not match the selected file.");
+      if (preview.workFolderId !== target.workFolderId || preview.path !== target.path) throw new Error("The file preview does not match the selected file.");
       content.innerHTML = filePreviewMarkup(preview);
       const image = content.querySelector("img");
       image?.addEventListener("error", () => { if (requestVersion === version) content.textContent = "This image could not be displayed. Open it on your desktop."; }, { once: true });
@@ -67,7 +67,7 @@ export function createFilePreview({ fetchPreview, available, online }) {
       opener = document.activeElement;
       selected = { ...target };
       dialog.querySelector("h2").textContent = target.path.split("/").at(-1);
-      dialog.querySelector(".file-preview-location").textContent = `${target.spaceName} · ${target.path}`;
+      dialog.querySelector(".file-preview-location").textContent = `${target.workFolderName} · ${target.path}`;
       opened = true;
       if (!dialog.open) dialog.showModal();
       await load();

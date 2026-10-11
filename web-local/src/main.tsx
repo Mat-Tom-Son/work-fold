@@ -14,6 +14,10 @@ import "./components/chat/model-context-inspector.css";
 import "./application-appearance.css";
 import { App } from "./App";
 import { ModelContextInspector } from "./components/chat/ModelContextInspector";
+import { migrateRendererStorage } from "./lib/storage-migration";
+
+// Before any component reads a saved tab, draft, or preference.
+migrateRendererStorage();
 
 const platform = window.workFoldDesktop?.app.platform;
 if (platform) document.documentElement.dataset.platform = platform;

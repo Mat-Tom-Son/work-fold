@@ -1,4 +1,4 @@
-import { workFoldRequestLimits } from "./fold-limits.js";
+import { workFoldRequestLimits } from "./work-fold-limits.js";
 import type { RestrictedAppInferenceModelRef, RestrictedAppInferenceUsage } from "./restricted-app-inference.js";
 
 /**
@@ -15,10 +15,10 @@ export type RestrictedAppAssistantModelRef = RestrictedAppInferenceModelRef;
  */
 export type RestrictedAppAssistantUsage = RestrictedAppInferenceUsage & { amountUsd?: number };
 
-/** How the Assistant itself described the outcome of the work it reported. */
+/** How the agent itself described the outcome of the work it reported. */
 export type RestrictedAppResultOutcome = "succeeded" | "partial" | "failed";
 
-/** One deliverable the Assistant chose to hand back, named relative to the Space. */
+/** One deliverable the agent chose to hand back, named relative to the work-folder. */
 export interface RestrictedAppResultFile {
   path: string;
   /** Lowercase hex SHA-256 of the file's bytes when the result was recorded. */
@@ -28,15 +28,15 @@ export interface RestrictedAppResultFile {
 
 /**
  * The one result shape (docs/collaboration-contract.md, F29): a bounded
- * `summary`, the Assistant's own `outcome`, optional `data` when the action
- * declared an output shape, and optional `files` the Assistant chose to hand
+ * `summary`, the agent's own `outcome`, optional `data` when the action
+ * declared an output shape, and optional `files` the agent chose to hand
  * back. `truncated` is the app-side addition: it says the envelope did not fit
  * the published bound and what the app holds is the trimmed version.
  *
  * Field names match `WorkFoldResultEnvelope`
- * (src/local/requests/request-records.ts) exactly, so a report filed by a Space
- * Assistant projects onto an app task without translation. Turn `fileChanges`
- * evidence never becomes `files`: those are the deliverables the Assistant
+ * (src/local/requests/request-records.ts) exactly, so a report filed by a work-folder
+ * Agent projects onto an app task without translation. Turn `fileChanges`
+ * evidence never becomes `files`: those are the deliverables the agent
  * named, not everything the turn happened to touch.
  */
 export interface RestrictedAppTaskResult {
@@ -47,7 +47,7 @@ export interface RestrictedAppTaskResult {
   files?: RestrictedAppResultFile[];
 }
 
-/** Public projection of one app-requested Space Assistant task. */
+/** Public projection of one app-requested Worker task. */
 export interface RestrictedAppAssistantTask {
   id: string;
   requestId: string;
@@ -79,7 +79,7 @@ export interface RestrictedAppTaskDetail {
 
 /**
  * These bounds keep one request's memory and journal footprint finite; they
- * are not a filesystem or tool sandbox for the Assistant and they are not a
+ * are not a filesystem or tool sandbox for the agent and they are not a
  * quota on how much an app may ask for. Settings → Automations → Limits
  * presents these numbers, and every limit hit names that section.
  */
@@ -118,9 +118,9 @@ export function restrictedAppLimitSize(bytes: number): string {
 }
 
 /**
- * `bridge.tasks.onChanged`: this installation's own Assistant tasks and
+ * `bridge.tasks.onChanged`: this installation's own Worker tasks and
  * inference receipts moved. Ids only — the app re-reads with
- * `assistant.list()` or the Apps tab does.
+ * `assistant.list()` or Settings → Apps does.
  */
 export interface RestrictedAppTasksChangedHint {
   revision: number;

@@ -22,8 +22,8 @@ test("first-run onboarding offers only the two folder actions", async () => {
   assert.match(source, /Create new work-folder/);
   assert.match(source, /<FolderOpen/);
   assert.match(source, /<FolderPlus/);
-  assert.match(app, /body:\s*\{ spaceRoot: selected\.path, folderGrantId: selected\.folderGrantId \}/);
-  assert.match(app, /await checksControl\?\.suspend\(\);[\s\S]*?\/api\/spaces\/local-folder/);
+  assert.match(app, /body:\s*\{ workFolderRoot: selected\.path, folderGrantId: selected\.folderGrantId \}/);
+  assert.match(app, /await checksControl\?\.suspend\(\);[\s\S]*?\/api\/work-folders\/local-folder/);
   assert.match(app, /finally \{ void checksControl\?\.resume\(\); \}/);
   assert.doesNotMatch(app, /body:\s*\{ rootPath: selected\.path, folderGrantId:/);
   assert.doesNotMatch(source, /menubar|popover|walkthrough|Register it in place|ordinary folder|onboarding-(?:identity|start|choice)/i);

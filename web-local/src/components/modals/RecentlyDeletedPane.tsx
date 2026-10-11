@@ -13,23 +13,23 @@ import { recentlyDeletedSettings } from "../../ui-contract";
  * how long items are kept. Nothing here empties the whole store.
  */
 
-export type RecentlyDeletedKind = "file" | "folder" | "space" | "app-storage" | "app-retained";
+export type RecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained";
 
 export interface RecentlyDeletedEntry {
   id: string;
   kind: RecentlyDeletedKind;
   reason:
     | "files.delete"
-    | "management.chat.delete"
+    | "agent.chat.delete"
     | "chats.delete"
-    | "spaces.delete"
+    | "work-folders.delete"
     | "apps.remove"
-    | "apps.space.removed"
+    | "apps.work-folder.removed"
     | "apps.storage.clear"
     | "apps.retained.purge"
     | "apps.uninstall.purge";
-  spaceId: string;
-  spaceName?: string;
+  workFolderId: string;
+  workFolderName?: string;
   originalPath: string;
   name: string;
   sizeBytes: number;
@@ -52,7 +52,7 @@ export interface RecentlyDeletedResponse {
 const kindLabels: Record<RecentlyDeletedKind, string> = {
   file: "File",
   folder: "Folder",
-  space: "work-folder",
+  "work-folder": "work-folder",
   "app-storage": "App Data",
   "app-retained": "App Data",
 };
@@ -84,7 +84,7 @@ export function describeUncovered(entry: RecentlyDeletedEntry): string | null {
   return `History could not keep a copy of ${uncovered.length} file${uncovered.length === 1 ? "" : "s"}: ${named}${more}.`;
 }
 
-export function FoldRecentlyDeletedPane() {
+export function RecentlyDeletedPane() {
   const [data, setData] = useState<RecentlyDeletedResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -93,7 +93,7 @@ export function FoldRecentlyDeletedPane() {
   const [retentionDraft, setRetentionDraft] = useState<string | null>(null);
 
   async function reload(): Promise<void> {
-    const next = await api<RecentlyDeletedResponse>("/api/settings/trash");
+    const next = await api<RecentlyDeletedResponse>("/api/settings/recently-deleted");
     setData(next);
     setRetentionDraft(null);
     setLoadError(null);
@@ -101,7 +101,7 @@ export function FoldRecentlyDeletedPane() {
 
   useEffect(() => {
     let cancelled = false;
-    api<RecentlyDeletedResponse>("/api/settings/trash")
+    api<RecentlyDeletedResponse>("/api/settings/recently-deleted")
       .then((next) => { if (!cancelled) { setData(next); setLoadError(null); } })
       .catch((caught) => { if (!cancelled) setLoadError(errorText(caught)); });
     return () => { cancelled = true; };
@@ -126,15 +126,15 @@ export function FoldRecentlyDeletedPane() {
 
   async function restore(entry: RecentlyDeletedEntry): Promise<void> {
     await run(`restore-${entry.id}`, async () => {
-      await api(`/api/settings/trash/${entry.id}/restore`, { method: "POST", body: {} });
-      window.dispatchEvent(new CustomEvent("work-fold:trash-restored", { detail: { entryId: entry.id, kind: entry.kind } }));
+      await api(`/api/settings/recently-deleted/${entry.id}/restore`, { method: "POST", body: {} });
+      window.dispatchEvent(new CustomEvent("work-fold:recently-deleted-restored", { detail: { entryId: entry.id, kind: entry.kind } }));
       return `${entry.name} is back`;
     });
   }
 
   async function saveCopy(entry: RecentlyDeletedEntry): Promise<void> {
     await run(`save-${entry.id}`, async () => {
-      const response = await api<{ backup: unknown }>(`/api/settings/trash/${entry.id}/export`);
+      const response = await api<{ backup: unknown }>(`/api/settings/recently-deleted/${entry.id}/export`);
       const blob = new Blob([JSON.stringify(response.backup, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -149,7 +149,7 @@ export function FoldRecentlyDeletedPane() {
   async function deleteNow(entry: RecentlyDeletedEntry): Promise<void> {
     if (!window.confirm(recentlyDeletedSettings.deleteNowConfirm)) return;
     await run(`delete-${entry.id}`, async () => {
-      await api(`/api/settings/trash/${entry.id}`, { method: "DELETE" });
+      await api(`/api/settings/recently-deleted/${entry.id}`, { method: "DELETE" });
       return `${entry.name} is gone`;
     });
   }
@@ -161,7 +161,7 @@ export function FoldRecentlyDeletedPane() {
       return;
     }
     await run("retention", async () => {
-      await api("/api/settings/trash/retention", { method: "PUT", body: { retentionDays: days } });
+      await api("/api/settings/recently-deleted/retention", { method: "PUT", body: { retentionDays: days } });
       return recentlyDeletedSettings.retentionSaved;
     });
   }
@@ -172,9 +172,9 @@ export function FoldRecentlyDeletedPane() {
   return (
     <section className="settings-section recently-deleted-pane" aria-label={recentlyDeletedSettings.heading}>
       <div className="recently-deleted-retention">
-        <label htmlFor="fold-recently-deleted-retention">Keep for</label>
+        <label htmlFor="recently-deleted-retention-input">Keep for</label>
         <input
-          id="fold-recently-deleted-retention"
+          id="recently-deleted-retention-input"
           type="number"
           min={1}
           max={365}
@@ -210,7 +210,7 @@ export function FoldRecentlyDeletedPane() {
                 <div>
                   <strong>{entry.name}</strong>
                   <small>
-                    {entry.reason === "management.chat.delete" || entry.reason === "chats.delete" ? "Chat" : kindLabels[entry.kind]} from {entry.spaceName ?? entry.spaceId} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
+                    {entry.reason === "agent.chat.delete" || entry.reason === "chats.delete" ? "Chat" : kindLabels[entry.kind]} from {entry.workFolderName ?? entry.workFolderId} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
                   </small>
                   <small>
                     Deleted {new Date(entry.deletedAt).toLocaleString()} · Kept until {new Date(entry.restoreBy).toLocaleDateString()}

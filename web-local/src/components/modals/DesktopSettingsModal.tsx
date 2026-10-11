@@ -21,8 +21,8 @@ import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
 import { copyToClipboard } from "../../lib/clipboard";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
-import type { AgentStatus, DesktopUpdateStatus, SpaceSummary } from "../../types";
-import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contract";
+import type { AgentStatus, DesktopUpdateStatus, WorkFolderSummary } from "../../types";
+import { publicationsSettings, remoteAccessSettings } from "../../ui-contract";
 import {
   pageByteBudgetMaximumMiB,
   pageServeRateMaximum,
@@ -32,22 +32,22 @@ import {
   type SharedPagesResponse,
   type SharedPageView,
 } from "../../lib/page-sharing";
-import { buildFixturePublications, fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/space-fixture";
+import { buildFixturePublications, fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/work-folder-fixture";
 import { showToast } from "../../ui/feedback";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
-import { AssistantSetupPane, type AssistantModelScope } from "../panes/AssistantSetupPane";
+import { AiModelsPane, type ModelScope } from "../panes/AiModelsPane";
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
-import { FoldLimitsPane } from "./FoldLimitsPane";
+import { WorkFoldLimitsPane } from "./WorkFoldLimitsPane";
 import { SettingsAppsPane, type RestrictedAppsState } from "./SettingsAppsPane";
 import { KeyboardShortcutsPane } from "./KeyboardShortcutsPane";
 import { IconCredits } from "./IconCredits";
 import type { RestrictedAppInstalled } from "../../types";
-import { FoldRoutingsPane } from "./FoldRoutingsPane";
-import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
+import { AutomationsPane } from "./AutomationsPane";
+import { RecentlyDeletedPane } from "./RecentlyDeletedPane";
 
 export type SettingsPage = "appearance" | "ai-models" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
-export type FoldSettingsSection = "routings" | "deleted" | "limits";
+export type SettingsSection = "automations" | "deleted" | "limits";
 type SettingsTabId = "appearance" | "ai-models" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
 
 /**
@@ -57,33 +57,33 @@ type SettingsTabId = "appearance" | "ai-models" | "web-access" | "shared-pages" 
  * with the "deleted" section opens Recently deleted and otherwise opens
  * Automations (where Limits now sits).
  */
-export function settingsTabForPage(page: SettingsPage, section?: FoldSettingsSection): SettingsTabId {
+export function settingsTabForPage(page: SettingsPage, section?: SettingsSection): SettingsTabId {
   if (page === "remote") return "web-access";
   if (page === "general" || page === "desktop") return section === "deleted" ? "recently-deleted" : "automations";
   return page;
 }
 
-export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, focusAssistantInstructions = false, onAgentConfigured, onAssistantChanged, onClose, onBackToCustomization, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFolder, workFolders = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialModelScope, focusAiModel = false, focusWorkerInstructions = false, onAgentConfigured, onModelChanged, onClose, onBackToCustomization, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
-  onCustomizeSpace?: (spaceId: string) => void;
-  space: SpaceSummary | null;
-  /** Settings → Apps lists every installed app by Folder (the Folder-owned Apps tab was retired 2026-09-25). */
-  spaces?: SpaceSummary[];
+  onCustomizeWorkFolder?: (workFolderId: string) => void;
+  workFolder: WorkFolderSummary | null;
+  /** Settings → Apps lists every installed app by work-folder (the work-folder-owned Apps tab was retired 2026-09-25). */
+  workFolders?: WorkFolderSummary[];
   restrictedApps?: RestrictedAppsState | null;
   onChangeApp?: (app: RestrictedAppInstalled) => void;
-  onOpenAppBuildChat?: (spaceId: string, conversationId: string) => void;
-  onOpenAppResultFile?: (spaceId: string, path: string) => void;
-  onOpenAppStudio?: (spaceId: string, runtimeInstanceId?: string) => void;
+  onOpenAppBuildChat?: (workFolderId: string, conversationId: string) => void;
+  onOpenAppResultFile?: (workFolderId: string, path: string) => void;
+  onOpenAppStudio?: (workFolderId: string, runtimeInstanceId?: string) => void;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
   /** Older callers named a section of the former Desktop tab. */
-  initialSection?: FoldSettingsSection;
-  initialAssistantScope?: AssistantModelScope;
-  focusAssistantModel?: boolean;
-  focusAssistantInstructions?: boolean;
+  initialSection?: SettingsSection;
+  initialModelScope?: ModelScope;
+  focusAiModel?: boolean;
+  focusWorkerInstructions?: boolean;
   onAgentConfigured: (status: AgentStatus) => void;
-  onAssistantChanged?: (scope: AssistantModelScope, status: AgentStatus) => void;
+  onModelChanged?: (scope: ModelScope, status: AgentStatus) => void;
   onClose: () => void;
   onBackToCustomization?: () => void;
   updateStatus: DesktopUpdateStatus | null;
@@ -91,7 +91,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
 }) {
   const [narrowNavigation, setNarrowNavigation] = useState(() => window.matchMedia("(max-width: 700px)").matches);
   const [page, setPage] = useState<SettingsTabId>(() => settingsTabForPage(initialPage, initialSection));
-  const [assistantVisited, setAssistantVisited] = useState(initialPage === "ai-models");
+  const [aiModelsVisited, setAiModelsVisited] = useState(initialPage === "ai-models");
   const contentRef = useRef<HTMLDivElement>(null);
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
@@ -102,7 +102,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
 
   useEffect(() => { setPage(settingsTabForPage(initialPage, initialSection)); }, [initialPage, initialSection]);
   useEffect(() => {
-    if (page === "ai-models") setAssistantVisited(true);
+    if (page === "ai-models") setAiModelsVisited(true);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   }, [page]);
   useEffect(() => {
@@ -202,12 +202,12 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
           <div className="settings-content" ref={contentRef}>
             {page === "appearance" ? (
               <div className="settings-tab-panel" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
-                <AppearanceSettingsPane appearance={appearance} space={space} onCustomizeSpace={onCustomizeSpace} interfaceExtra={closeWindowControl} />
+                <AppearanceSettingsPane appearance={appearance} workFolder={workFolder} onCustomizeWorkFolder={onCustomizeWorkFolder} interfaceExtra={closeWindowControl} />
               </div>
             ) : null}
-            {page === "ai-models" || assistantVisited ? (
-              <div hidden={page !== "ai-models"} className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                <AssistantSetupPane active={page === "ai-models"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} focusInstructionsOnOpen={focusAssistantInstructions} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
+            {page === "ai-models" || aiModelsVisited ? (
+              <div hidden={page !== "ai-models"} className="settings-tab-panel" id="settings-panel-ai-models" role="tabpanel" aria-labelledby="settings-tab-ai-models">
+                <AiModelsPane active={page === "ai-models"} workFolder={workFolder} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialModelScope} focusModelOnOpen={focusAiModel} focusInstructionsOnOpen={focusWorkerInstructions} onConfigured={onAgentConfigured} onModelChanged={onModelChanged} />
               </div>
             ) : null}
             {page === "web-access" ? (
@@ -217,23 +217,23 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
             ) : null}
             {page === "shared-pages" ? (
               <div className="settings-tab-panel" id="settings-panel-shared-pages" role="tabpanel" aria-labelledby="settings-tab-shared-pages">
-                <FoldPublicationsPane fixtureMode={fixtureMode} onOpenWebAccess={() => setPage("web-access")} />
+                <PublicationsPane fixtureMode={fixtureMode} onOpenWebAccess={() => setPage("web-access")} />
               </div>
             ) : null}
             {page === "automations" ? (
               <div className="settings-tab-panel" id="settings-panel-automations" role="tabpanel" aria-labelledby="settings-tab-automations">
-                <FoldRoutingsPane />
-                <FoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
+                <AutomationsPane />
+                <WorkFoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
               </div>
             ) : null}
             {page === "apps" ? (
               <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
-                <SettingsAppsPane spaces={spaces} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
+                <SettingsAppsPane workFolders={workFolders} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (
               <div className="settings-tab-panel" id="settings-panel-recently-deleted" role="tabpanel" aria-labelledby="settings-tab-recently-deleted">
-                <FoldRecentlyDeletedPane />
+                <RecentlyDeletedPane />
               </div>
             ) : null}
             {page === "shortcuts" ? (
@@ -420,17 +420,17 @@ function shortReleaseDigest(value: string): string {
 }
 
 /**
- * Settings → Shared pages (docs/fold-publishing.md, plan item 5; amended
+ * Settings → Shared pages (docs/shared-pages.md, plan item 5; amended
  * 2026-09-24). Each row carries one quiet page state word — Live, Asleep,
  * Resting, Not available, Stopped — with the precise reason as its tooltip;
- * with the main-window glance panel gone, this row is where a page's
+ * with the main-window overview panel gone, this row is where a page's
  * problems show. Revealing a link is a transient on-demand composition
  * against the viewer origin. Stop sharing, Budgets, and Sleep copy are
  * receipted acts on the renderer session: budgets narrow or widen in place
  * and the sleep copy turns on or off, while the slot, key, and link stay the
  * same (docs/receipts-not-gates.md, F19). A new page starts from a file's tab.
  */
-function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMode?: boolean; onOpenWebAccess: () => void }) {
+function PublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMode?: boolean; onOpenWebAccess: () => void }) {
   const remote = fixtureMode ? undefined : window.workFoldDesktop?.remoteAccess;
   const [data, setData] = useState<SharedPagesResponse | null>(() => (
     fixtureMode ? { publications: buildFixturePublications(), status: { damaged: false, activeCount: 4, pendingBridgeWork: 1 } } : null
@@ -477,7 +477,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
   async function run(key: string, operation: () => Promise<void>) {
     if (busy) return;
     if (fixtureMode && !key.startsWith("reveal-")) {
-      showToast({ text: foldPublicationsSettings.previewDisabled, tone: "info" });
+      showToast({ text: publicationsSettings.previewDisabled, tone: "info" });
       return;
     }
     setBusy(key);
@@ -495,7 +495,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
 
   async function revealLink(publication: SharedPageView) {
     if (!viewerOrigin) {
-      setActionError(foldPublicationsSettings.noAddress);
+      setActionError(publicationsSettings.noAddress);
       return;
     }
     await run(`reveal-${publication.publicationId}`, async () => {
@@ -520,7 +520,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
     const byteBudgetMiB = Number(editingBudgets.byteBudgetMiB);
     if (!Number.isInteger(serveRate) || serveRate < 1 || serveRate > pageServeRateMaximum
       || !Number.isFinite(byteBudgetMiB) || byteBudgetMiB <= 0 || byteBudgetMiB > pageByteBudgetMaximumMiB) {
-      setActionError(foldPublicationsSettings.budgetRange(pageServeRateMaximum, pageByteBudgetMaximumMiB));
+      setActionError(publicationsSettings.budgetRange(pageServeRateMaximum, pageByteBudgetMaximumMiB));
       return;
     }
     const byteBudget = Math.max(1, Math.round(byteBudgetMiB * 1024 * 1024));
@@ -538,7 +538,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
         await api(`/api/settings/publications/${publication.publicationId}/widen`, { method: "POST", body: higher });
       }
       setEditingBudgets(null);
-      setNotice(foldPublicationsSettings.saved);
+      setNotice(publicationsSettings.saved);
     });
   }
 
@@ -550,7 +550,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
           : `/api/settings/publications/${publication.publicationId}/snapshot-off`,
         { method: "POST", body: enabled ? { snapshotEnabled: true } : {} },
       );
-      setNotice(foldPublicationsSettings.saved);
+      setNotice(publicationsSettings.saved);
     });
   }
 
@@ -564,7 +564,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
   };
 
   return (
-    <section className="settings-section" aria-label={foldPublicationsSettings.heading}>
+    <section className="settings-section" aria-label={publicationsSettings.heading}>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {data?.status.damaged ? (
         <span className="settings-inline-error" role="alert">
@@ -575,44 +575,44 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
       {notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
       {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
       {data && !shown.length && !hasAddress ? (
-        <div className="remote-browser-empty fold-publication-empty">
-          <span>{foldPublicationsSettings.emptyNoAddress}</span>
-          <button className="ui-control" type="button" onClick={onOpenWebAccess}>{foldPublicationsSettings.webAccess}</button>
+        <div className="remote-browser-empty publication-empty">
+          <span>{publicationsSettings.emptyNoAddress}</span>
+          <button className="ui-control" type="button" onClick={onOpenWebAccess}>{publicationsSettings.webAccess}</button>
         </div>
       ) : null}
-      {data && !shown.length && hasAddress ? <div className="remote-browser-empty">{foldPublicationsSettings.empty}</div> : null}
+      {data && !shown.length && hasAddress ? <div className="remote-browser-empty">{publicationsSettings.empty}</div> : null}
       {shown.length ? (
-        <div className="fold-publication-list">
+        <div className="publication-list">
           {shown.map((publication) => {
             const health = sharedPageHealth(publication, connection);
             const editing = editingBudgets?.publicationId === publication.publicationId ? editingBudgets : null;
             return (
-              <div className="fold-publication-row" key={publication.publicationId}>
-                <div className="fold-publication-summary" title={health.reason}>
-                  <span className="fold-publication-title">
+              <div className="publication-row" key={publication.publicationId}>
+                <div className="publication-summary" title={health.reason}>
+                  <span className="publication-title">
                     <strong>{publication.title}</strong>
-                    <span className={`fold-publication-state ${health.state}`}>{foldPublicationsSettings.states[health.state]}</span>
+                    <span className={`publication-state ${health.state}`}>{publicationsSettings.states[health.state]}</span>
                   </span>
                   <small>
                     {publication.kind === "app" && publication.app
-                      ? <>{publication.spaceName ?? publication.spaceId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code></>
-                      : <>{publication.spaceName ?? publication.spaceId}: {publication.relativePath}</>}
+                      ? <>{publication.workFolderName ?? publication.workFolderId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code></>
+                      : <>{publication.workFolderName ?? publication.workFolderId}: {publication.relativePath}</>}
                   </small>
                   {publication.kind === "app" && publication.app ? (
                     <small>
                       Viewer entry {publication.app.viewerEntry} · Viewer-readable surface: {publication.app.viewerSurface.join(", ")}
                     </small>
                   ) : null}
-                  <small className="fold-publication-usage">{publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day</small>
+                  <small className="publication-usage">{publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day</small>
                   <small>{countersLine(publication)}</small>
                 </div>
                 {publication.state === "active" ? (
-                  <div className="fold-publication-footer">
+                  <div className="publication-footer">
                     {/* Sleep copies are a page-only lane: an app at your address is
                         structurally snapshotless, so app rows carry no toggle. The
                         retention disclosure rides on the label's tooltip. */}
                     {publication.kind === "page" ? (
-                      <label className="fold-publication-sleep-copy" title={foldPublicationsSettings.snapshotLabel}>
+                      <label className="publication-sleep-copy" title={publicationsSettings.snapshotLabel}>
                         <input
                           type="checkbox"
                           role="switch"
@@ -620,21 +620,21 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                           disabled={Boolean(busy)}
                           onChange={(event) => setSleepCopy(publication, event.target.checked)}
                         />
-                        {" "}{foldPublicationsSettings.sleepCopy}
+                        {" "}{publicationsSettings.sleepCopy}
                       </label>
                     ) : null}
-                    <div className="settings-actions fold-publication-actions">
+                    <div className="settings-actions publication-actions">
                       <button
                         className="ui-control"
                         type="button"
                         disabled={Boolean(busy) || !viewerOrigin}
-                        title={viewerOrigin ? undefined : foldPublicationsSettings.noAddress}
+                        title={viewerOrigin ? undefined : publicationsSettings.noAddress}
                         onClick={() => {
                           if (revealed?.publicationId === publication.publicationId) setRevealed(null);
                           else void revealLink(publication);
                         }}
                       >
-                        {revealed?.publicationId === publication.publicationId ? foldPublicationsSettings.hideLink : foldPublicationsSettings.revealLink}
+                        {revealed?.publicationId === publication.publicationId ? publicationsSettings.hideLink : publicationsSettings.revealLink}
                       </button>
                       <button
                         className="ui-control"
@@ -651,15 +651,15 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                           });
                         }}
                       >
-                        {foldPublicationsSettings.budgets}
+                        {publicationsSettings.budgets}
                       </button>
                       <button
                         className="ui-control danger"
                         type="button"
                         disabled={Boolean(busy)}
                         onClick={() => {
-                          if (fixtureMode) { showToast({ text: foldPublicationsSettings.previewDisabled, tone: "info" }); return; }
-                          if (!window.confirm(foldPublicationsSettings.stopSharingConfirm)) return;
+                          if (fixtureMode) { showToast({ text: publicationsSettings.previewDisabled, tone: "info" }); return; }
+                          if (!window.confirm(publicationsSettings.stopSharingConfirm)) return;
                           setRevealed((current) => (current?.publicationId === publication.publicationId ? null : current));
                           void run(`revoke-${publication.publicationId}`, async () => {
                             await api(`/api/settings/publications/${publication.publicationId}/revoke`, { method: "POST", body: {} });
@@ -667,13 +667,13 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                           });
                         }}
                       >
-                        {foldPublicationsSettings.stopSharing}
+                        {publicationsSettings.stopSharing}
                       </button>
                     </div>
                   </div>
                 ) : null}
                 {revealed?.publicationId === publication.publicationId ? (
-                  <div className="fold-publication-link">
+                  <div className="publication-link">
                     <code className="remote-access-url">{revealed.link}</code>
                     <div className="settings-actions">
                       <button
@@ -687,16 +687,16 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                             .catch((caught) => setActionError(errorText(caught)));
                         }}
                       >
-                        {foldPublicationsSettings.copyLink}
+                        {publicationsSettings.copyLink}
                       </button>
                     </div>
-                    <small>{foldPublicationsSettings.linkMeaning}</small>
+                    <small>{publicationsSettings.linkMeaning}</small>
                   </div>
                 ) : null}
                 {editing ? (
-                  <div className="fold-publication-budgets">
+                  <div className="publication-budgets">
                     <label className="settings-field">
-                      <span>{foldPublicationsSettings.servesPerMinute}</span>
+                      <span>{publicationsSettings.servesPerMinute}</span>
                       <input
                         type="number"
                         min={1}
@@ -708,7 +708,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                       />
                     </label>
                     <label className="settings-field">
-                      <span>{foldPublicationsSettings.mibPerDay}</span>
+                      <span>{publicationsSettings.mibPerDay}</span>
                       <input
                         type="number"
                         min={1}
@@ -721,7 +721,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                     </label>
                     <div className="settings-actions">
                       <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busy)} onClick={() => void saveBudgets(publication)}>
-                        {busy === `budgets-${publication.publicationId}` ? "Saving…" : foldPublicationsSettings.saveBudgets}
+                        {busy === `budgets-${publication.publicationId}` ? "Saving…" : publicationsSettings.saveBudgets}
                       </button>
                     </div>
                   </div>

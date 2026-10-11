@@ -1,7 +1,7 @@
 # Collaboration experience
 
-The person asks for work in a Chat, the fold, or an App. That remains one
-piece of work while Assistants divide it, ask questions, and combine results.
+The person asks for work in a Chat, the work-fold agent, or an App. That remains one
+piece of work while agents divide it, ask questions, and combine results.
 The interface follows the durable request, while streamed text and tool
 activity still follow the current turn.
 
@@ -28,7 +28,7 @@ question drafts. Typing alone never sends an answer to the host or model.
 - The host supplies status, a short label, outstanding person questions,
   selected results, and available actions. Renderers never infer completion
   or questions from punctuation, an idle model, or an ended stream.
-- Working, collaborating, waiting for an Assistant, and needing the person
+- Working, collaborating, waiting for an agent, and needing the person
   are distinct. Only questions addressed to the person ask for their input.
   Partial results, stopped work, expiry, and interruptions retain their meaning.
 - Questions show their exact text and origin. An answer names that question;
@@ -42,23 +42,23 @@ question drafts. Typing alone never sends an answer to the host or model.
   settle or overwrite a newer turn.
 - Stop closes the selected request and its outstanding descendants, including
   waiting questions. It stays available between model turns. It does not stop
-  independent work in the same Space.
+  independent work in the same work-folder.
 - Host continuations have explicit message metadata and appear as quiet
   activity, never as messages apparently typed by the person. Older messages
   without that metadata retain their original presentation.
-- Results show the summary and selected files with their owning Space.
+- Results show the summary and selected files with their owning work-folder.
   Structured data is secondary. Opening a file does not copy it into a Chat.
 - Failed continuations expose saved work and an explicit continuation action
   where the request still permits one. Restart does not itself replay work.
 
 ## Surfaces and boundaries
 
-Space Chats, the trusted Settings → Apps page, and the fold popover share the same React
-work presentation. Each Space tab retains its identity.
+work-folder Chats, the trusted Settings → Apps page, and the work-fold agent popover share the same React
+work presentation. Each work-folder tab retains its identity.
 
 The paired browser uses the same host projection through its encrypted remote
 lane. Detailed work, answers, continuation, and Stop remain limited to the
-browser's own management requests and their descendants. Other glance items
+browser's own work-fold agent requests and their descendants. Other overview items
 remain summaries and direct the person to the desktop. Public viewers and
 sandboxed App bridges gain no request-graph or question access.
 
@@ -66,7 +66,7 @@ sandboxed App bridges gain no request-graph or question access.
 
 Exercise delegation, a person question, answer, continuation, selected files,
 partial completion, and Stop from the originating surface. Also cover a
-question in a delegated Space, repeated/stale answers, another browser grant,
+question in a delegated work-folder, repeated/stale answers, another browser grant,
 restart with a saved answer, failure/reconnect with a draft, and keyboard/mobile
 interaction. Host integration tests verify authority and exact-once delivery;
 browser journeys verify visible state, controls, focus, and rendering.
@@ -88,9 +88,9 @@ submission. `tests/renderer-app-assistant-tasks.test.ts` covers results and Chat
 navigation in the trusted Apps surface. These are development checks; packaged
 Electron and signed-release verification remain separate release work.
 
-## Conversation navigation and Space browsing
+## Conversation navigation and work-folder browsing
 
-The fold popover has a searchable **Chats** view over saved machine-local fold
+The work-fold agent popover has a searchable **Chats** view over saved machine-local fold
 conversations, with titles, dates, and quiet working/answer indicators. Selecting
 a chat pins its transcript, request, model state, and next message to that id;
 background refresh never switches the selection. New chat opens a clean draft
@@ -104,7 +104,7 @@ Questions and saved-answer recovery stay inside the owning Chat. Its sidebar
 uses plain saved-chat titles, with questions and live progress shown only inside
 the selected Chat. Result files and apps remain available through a collapsed
 disclosure. This does not grant access to another browser’s request. The current
-web client neither reads nor acknowledges the glance; host operations remain
+web client neither reads nor acknowledges the overview; host operations remain
 compatible with older clients. Old Files/work-folder links return to New chat.
 
 **Shared pages** sits beside Settings in the sidebar footer. It opens a compact

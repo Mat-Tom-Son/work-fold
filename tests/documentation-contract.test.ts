@@ -56,16 +56,16 @@ test("canonical product docs describe the Skills & Extensions popup and Settings
     assert.doesNotMatch(content, /one persistent Library tab/i);
     assert.doesNotMatch(content, /primary (?:rail )?(?:navigation|surfaces?)[^\n.]{0,80}Files[^\n.]{0,20}Chats[^\n.]{0,20}Library[^\n.]{0,20}History/i);
   }
-  const assistantCapabilities = await readFile(join(root, "docs/assistant-capabilities.md"), "utf8");
+  const assistantCapabilities = await readFile(join(root, "docs/skills-and-extensions.md"), "utf8");
   assert.match(assistantCapabilities, /popup/i);
   assert.match(assistantCapabilities, /Settings → Apps/);
-  assert.doesNotMatch(assistantCapabilities, /one persistent Library tab per (?:Space|Folder)/i);
+  assert.doesNotMatch(assistantCapabilities, /one persistent Library tab per (?:work-folder|work-folder)/i);
 });
 test("public and contributor docs route management behavior to one guide", async () => {
   const files = ["docs/README.md", "AGENTS.md", "CONTRIBUTING.md", "docs/product-model.md", "docs/architecture.md"];
   const contents = await Promise.all(files.map((file) => readFile(join(root, file), "utf8")));
   for (const content of contents) {
-    assert.match(content, /management-layer\.md/, "Each canonical doc must link the management guide.");
+    assert.match(content, /work-fold-agent-and-cli\.md/, "Each canonical doc must link the management guide.");
   }
 });
 
@@ -83,7 +83,7 @@ test("App-platform docs route future behavior to one accepted foundation", async
   }
 
   const foundation = await readFile(join(root, "docs/app-platform-foundation.md"), "utf8");
-  assert.match(foundation, /Space.*may never become an App/s);
+  assert.match(foundation, /work-folder.*may never become an App/s);
   assert.match(foundation, /kind: development/);
   assert.match(foundation, /kind: app/);
   assert.match(foundation, /host: local \| hosted/);

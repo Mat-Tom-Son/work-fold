@@ -1,0 +1,159 @@
+# work-folder apps in paired browsers
+
+A paired browser supports private app views. An app named in a Chat's
+results opens from its result link and shows its reviewed web view, the
+work-folder and version, Close and Refresh. An app without a reviewed web
+view says so when opened and points to the desktop. Apps with declared
+worker tools can also request an action; the trusted parent controls list
+each request's status and result and offer **Stop** while one runs. Compact
+receipts show progress and results, and reopening the app recovers them
+without replay. No share link or public exposure is created, and a local
+Development preview can be opened without first publishing a Release.
+
+## Reviewed content and exact identity
+
+An installation named in the current work-fold agent request also provides an app
+result link. The host derives it from the executed act receipt and installed
+proposal, or the completed Release activation. It pins the work-folder, app and
+Feature Installation instead of looking up a title. Opening resolves that same
+installation's current reviewed revision; a changed digest shows **Updated
+since this task**. Removal/reinstallation makes the old link unavailable.
+
+The existing `viewer` declaration identifies the packaged entry and readable
+instance-owned data prefixes. It remains a maximum content declaration, not
+permission to publish. Both private app views and shared viewers use the same
+read implementation, `readRestrictedAppWebView`; their authority adapters are
+separate. The public adapter still requires a receipted Release-backed
+publication. The private adapter requires a paired browser and pins the
+work-folder, app, Feature Installation, revision and current authority digest.
+
+`management.summary`, `management.chats`, and `work-folders.list` advertise
+`capabilities.appViews`. The closed management lane
+adds `apps.list` for one registered work-folder and `apps.read` for one exact installed
+web view. Listings contain at most 64 compact descriptors and report truncation.
+They omit absolute roots, credentials, grants and data. Read calls accept only
+`entry`, `asset`, `data.keys` and `data.get`, with strict field validation.
+Owner identity comes from the installation, never the app or a request body.
+
+Assets are rehashed against the installed package and limited to 64 MiB each.
+Mutable source edits cannot change running bytes. Data reads include only the
+declared prefixes, with the existing 65,536-key/16-MiB-per-value storage bounds.
+The service serializes reads against authority changes and checks the exact
+installation again after queued changes settle. The remote host independently
+fences browser revocation before returning or caching a response. Reads never
+run a model, action, automation, network broker, or storage mutation.
+
+## Browser isolation and lifecycle
+
+The management document keeps its existing restrictive script policy. It
+embeds a static intermediary at `/browser-app-frame.html`; that frame and its
+separate app child both use `sandbox="allow-scripts"` without
+`allow-same-origin`. The intermediary passes the reviewed entry to a blob
+document and forwards only messages from that exact child. The outer host
+accepts only its exact intermediary window and a fresh per-view channel.
+
+The intermediary's response policy permits only blob child navigation, denies
+network connections and forms, and limits images/media/fonts to blob or data
+URLs. This policy also constrains the app. App code cannot read either parent
+document, cookies, local storage or the paired browser's identity keys.
+It receives the frozen `workFoldViewerApp` read API. When the catalog advertises
+declared worker actions, the separate private `workFoldBrowserApp.actions` SDK
+can create, submit, list, read or cancel an app request. It cannot widen its
+own grants or reach any other management operation, including through forged
+raw frame messages. The host admits at
+most four concurrent app calls, the SDK caps pending calls at sixteen and times
+them out after thirty seconds, and the relay's
+existing per-session operation budget still applies.
+
+Controls become visible after document readiness. A browser that cannot load
+the sandboxed content gets a failure state after ten seconds. A blocked attempt
+to leave the app replaces its view with a Refresh message. Closing, signing out
+or detecting disconnection destroys the frame and invalidates pending results.
+Reconnect never replays a read or action. Refresh resolves the same installation
+again, accepting an updated revision but refusing a removed/reinstalled sibling.
+While visible, a non-overlapping fifteen-second catalog check closes a view
+whose revision or authority changed; every read also rechecks immediately.
+Already displayed information cannot be recalled from someone who copied it.
+
+## Actions
+
+The action foundation adds the separate closed operations
+`apps.actions.request|get|list|cancel`. They require a host-only live
+browser-authority callback in addition to the authenticated Principal. They
+are not part of `apps.read` or the shared-viewer vocabulary. The catalog's
+`actions` flag is true only for an installed web view with a worker and
+declared tools. Older hosts and apps without that capability keep the
+read-only view. A request runs as soon as the desktop accepts it, exactly as
+the same app's actions run on the desktop; the trusted parent lists requests,
+shows each status and result, and offers Stop while one is running. Nothing
+waits for a click.
+
+Requests select a declared worker action and at most 4 MiB of schema-checked
+JSON. The host pins the work-folder, installation, revision, authority, browser and
+grant, and records the accepting Tenant, Runtime Instance, Data Namespace,
+canonical artifact and human Principal. App code cannot choose those owners.
+The machine-local `restricted-apps/browser-actions.json` journal separates
+bounded intent/result content from metadata-only receipt projections. Results
+are schema-checked and at most 4 MiB; lists contain summaries without results.
+Record contents are never sent through a shared viewer.
+
+A request UUID and timestamp identify a retry. Identical retries return the
+same record; changed input is refused. Acceptance is written and synced before
+worker dispatch, and the durable receipt id becomes the native invocation id.
+Reconnecting or repeating a request cannot dispatch an accepted request again.
+Startup marks uncertain accepted work Interrupted, without replay or a guessed
+outcome; a queued record from an older build expires at startup.
+
+The lane runs at most sixteen actions on this computer, eight per installation
+and sixteen per browser, and refuses a request beyond those bounds with the
+bound named rather than parking it. Requests older than fifteen minutes are
+refused. There is no request quota: the journal prunes terminal records older
+than a day when admitting new work, and keeps itself under 256 MiB by pruning
+the oldest settled records already outside the replay window. An updated revision or
+changed permission selection cancels obsolete records when the current app
+submits a request. Browser revocation terminalizes matching records in one
+journal update and settles matching active runs. Admission reserves room for
+bounded terminal results. Damaged journals or uncertain persistence disable
+this lane without preventing app startup.
+
+Stop fences a run immediately, including a race with admission. Native workers
+recheck both installed authority and the browser's live fence at launch, every
+broker effect boundary and result delivery. Revocation aborts matching runs;
+another browser's requests retain their own authority. Closing a view does not
+cancel an accepted run. Stop or a failed result does not claim to reverse
+effects that already completed.
+
+App authors use `actions.createRequest(action, input)` once, retain that request
+for uncertain retries, and pass it to `actions.request(request)`. The helper
+uses `getRandomValues` to create a UUID because opaque sandbox documents may
+lack `crypto.randomUUID`. `actions.list()` recovers request ids after reopening;
+`actions.get(requestId)` reads a bounded result, and `actions.cancel(requestId)`
+stops the app's own request. A timeout says the status is uncertain and asks the
+app to check existing requests before starting another. None of these helpers
+widen a permission. Shared viewers never install this SDK.
+
+## Verification
+
+The repeatable isolation probe is
+[`scripts/probes/browser-app.probe.js`](../scripts/probes/browser-app.probe.js).
+With the local bridge on port 4319 and Playwright CLI opened to
+`http://127.0.0.1:4319/?fixture=work-folders`, run it with
+`playwright-cli run-code --filename=scripts/probes/browser-app.probe.js`.
+It refuses other pages and uses only inert fixture data. The probe checks the
+actual quote read, opaque parent/cookie/storage boundaries, frozen read API,
+network denial and blocked navigation. These browser checks complement the
+domain, transport and DOM tests; they do not replace paired live acceptance.
+
+The companion `scripts/probes/browser-app-actions.probe.js` uses the same local
+fixture. It verifies opaque-context request ids, denied forged approval, exact
+review, one outcome on repeated submission, recovered receipts, a 320×568
+layout, and focus restoration. This is an inert browser UI fixture; the service,
+encrypted transport and real Electron worker are tested separately.
+
+Paired desktop/browser acceptance verified an actual worker write, exact
+review, same-request retry, native data parity, restart recovery and offline
+containment. The real-model multi-work-folder journey independently verified native
+Worker requests, Check failure/repair, and attributed file handoff. See the
+[integration evidence](archive/apps-fold-workflows.md) for exact records and the
+[Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest)
+for publication status.

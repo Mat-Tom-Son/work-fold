@@ -85,7 +85,7 @@ test("encrypted connection store persists without exposing plaintext credentials
   assert.equal(persisted.records[0]?.runtimeInstanceId, runtimeInstanceId);
   assert.equal(persisted.records[0]?.featureInstallationId, featureInstallationId);
   assert.deepEqual(persisted.records[0]?.owner, { kind: "instance", runtimeInstanceId });
-  assert.equal("spaceId" in (persisted.records[0] ?? {}), false);
+  assert.equal("workFolderId" in (persisted.records[0] ?? {}), false);
   assert.equal("appId" in (persisted.records[0] ?? {}), false);
   assert.equal("digest" in (persisted.records[0] ?? {}), false);
 
@@ -172,11 +172,11 @@ test("encrypted connection store rejects owner substitution and cross-instance o
     store.set(binding({ owner: { kind: "instance", runtimeInstanceId: otherRuntime } }), { kind: "bearer", token: "secret" }),
     /does not belong to its Runtime Instance/i,
   );
-  await store.set(binding({ owner: { kind: "principal", principalId } }), { kind: "bearer", token: "personal" });
+  await store.set(binding({ owner: { kind: "principal", principalId } }), { kind: "bearer", token: "everywhere" });
   assert.equal(await store.get(binding()), undefined);
   assert.deepEqual(
     await store.get(binding({ owner: { kind: "principal", principalId } })),
-    { kind: "bearer", token: "personal" },
+    { kind: "bearer", token: "everywhere" },
   );
 });
 
@@ -210,7 +210,7 @@ test("old connection formats are rejected without rewriting their ciphertext", a
   const legacy = {
     schemaVersion: 1,
     records: [{
-      spaceId: "space-one",
+      workFolderId: "work-folder-one",
       appId: "mail-app",
       digest: "b".repeat(64),
       destinationId: "mail-api",

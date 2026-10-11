@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   fileSharing,
-  foldPublicationsSettings,
+  publicationsSettings,
   primaryNavigation,
   recentlyDeletedSettings,
   remoteAccessSettings,
@@ -17,55 +17,55 @@ import {
   pageTitleFromFileName,
   shareableSourceExtensions,
   sharedPageHealth,
-  sharedPathsForSpace,
+  sharedPathsForWorkFolder,
   type SharedPageView,
 } from "../web-local/src/lib/page-sharing.js";
 import { WORKFOLD_PUBLICATION_SOURCE_TYPES } from "../src/local/publications.js";
-import { buildFixturePublications } from "../web-local/src/fixtures/space-fixture.js";
+import { buildFixturePublications } from "../web-local/src/fixtures/work-folder-fixture.js";
 
-test("Space navigation separates the active Space from its surfaces", () => {
+test("work-folder navigation separates the active work-folder from its surfaces", () => {
   assert.deepEqual(primaryNavigation.map(({ id, label }) => [id, label]), [
     ["files", "Files"],
     ["chats", "Chats"],
     ["history", "History"],
   ]);
   assert.deepEqual(welcomeActions, {
-    create: "Create a work-folder",
-    linkFolder: "Turn an existing folder into a work-folder",
+    create: "Create new work-folder",
+    linkFolder: "Use existing folder",
   });
 });
 
 test("publication controls preserve access, retention, and revocation consequences", () => {
-  // Settings → Shared pages (docs/fold-publishing.md, plan item 5; amended
+  // Settings → Shared pages (docs/shared-pages.md, plan item 5; amended
   // 2026-09-24): stop sharing, one Budgets control that narrows or widens in
   // place, and a Sleep copy toggle. A new page starts from a file's tab.
-  assert.equal(foldPublicationsSettings.heading, "Pages Your Fold Serves");
-  assert.match(foldPublicationsSettings.linkMeaning, /anyone with the link can read this page/i);
+  assert.equal(publicationsSettings.heading, "Shared Pages");
+  assert.match(publicationsSettings.linkMeaning, /anyone with the link can read this page/i);
   // The snapshot opt-in is an explicitly labeled choice: an encrypted copy
   // stays at the relay so the page outlives desktop sleep, and the label
   // says exactly that instead of hiding the retention.
-  assert.match(foldPublicationsSettings.snapshotLabel, /encrypted copy at the relay/i);
-  assert.match(foldPublicationsSettings.snapshotLabel, /while your desktop sleeps/i);
-  assert.equal(foldPublicationsSettings.budgets, "Budgets");
-  assert.equal(foldPublicationsSettings.sleepCopy, "Sleep Copy");
-  assert.equal(foldPublicationsSettings.saveBudgets, "Save");
-  assert.equal(foldPublicationsSettings.budgetRange(600, 1024), "Choose 1 to 600 serves per minute and 1 to 1024 MiB per day.");
-  assert.equal("narrowHint" in foldPublicationsSettings, false, "raising a budget is a control now, not a hint");
+  assert.match(publicationsSettings.snapshotLabel, /encrypted copy at the relay/i);
+  assert.match(publicationsSettings.snapshotLabel, /while your desktop sleeps/i);
+  assert.equal(publicationsSettings.budgets, "Budgets");
+  assert.equal(publicationsSettings.sleepCopy, "Sleep Copy");
+  assert.equal(publicationsSettings.saveBudgets, "Save");
+  assert.equal(publicationsSettings.budgetRange(600, 1024), "Choose 1 to 600 serves per minute and 1 to 1024 MiB per day.");
+  assert.equal("narrowHint" in publicationsSettings, false, "raising a budget is a control now, not a hint");
   // Empty states point at the next step: web access first, then a file's tab.
-  assert.equal(foldPublicationsSettings.emptyNoAddress, "Set up web access to share pages.");
-  assert.equal(foldPublicationsSettings.webAccess, "Web Access");
-  assert.equal(foldPublicationsSettings.empty, "No pages are shared. Share a file from its tab.");
+  assert.equal(publicationsSettings.emptyNoAddress, "Set up web access to share pages.");
+  assert.equal(publicationsSettings.webAccess, "Web Access");
+  assert.equal(publicationsSettings.empty, "No pages are shared. Share a file from its tab.");
   // One quiet state word per row; the reason rides in the tooltip.
-  assert.deepEqual(foldPublicationsSettings.states, {
+  assert.deepEqual(publicationsSettings.states, {
     live: "Live",
     asleep: "Asleep",
     resting: "Resting",
     "not-available": "Not Available",
     stopped: "Stopped",
   });
-  assert.equal(foldPublicationsSettings.stopSharing, "Stop Sharing");
-  assert.match(foldPublicationsSettings.stopSharingConfirm, /every copy of its link stops working/i);
-  const copy = JSON.stringify(foldPublicationsSettings);
+  assert.equal(publicationsSettings.stopSharing, "Stop Sharing");
+  assert.match(publicationsSettings.stopSharingConfirm, /every copy of its link stops working/i);
+  const copy = JSON.stringify(publicationsSettings);
   assert.doesNotMatch(copy, /\bhost(ing|ed)?\b|\bwebsite\b/i, "the words host and website never appear in product copy");
   assert.doesNotMatch(copy, /publish/i, '"publish" stays reserved for App Studio\'s local Release transition');
   assert.doesNotMatch(copy, /consecrat/i, "person-facing copy never says consecration");
@@ -76,7 +76,7 @@ test("sharing from a file tab says what happened in plain words and never asks f
   assert.equal(fileSharing.shared, "Shared");
   assert.equal(fileSharing.sharedToast("Weekly report"), 'Shared "Weekly report"');
   assert.equal(fileSharing.noAddress, "Set up web access before sharing a page.");
-  assert.equal(fileSharing.linkInSettings, "Show the link in Settings → Shared pages.");
+  assert.equal(fileSharing.linkInSettings, "Show the link in Settings → Shared Pages.");
   assert.equal(fileSharing.webAccess, "Web Access");
   for (const label of [fileSharing.share, fileSharing.shared, fileSharing.openSharedPages, fileSharing.webAccess]) {
     assert.doesNotMatch(label, /…|\.\.\.$/, "button labels carry no trailing ellipsis");
@@ -115,14 +115,14 @@ test("the preview's sample pages cover every state a Shared pages row shows", ()
   assert.equal(shared?.publicationId, "fixture-page-live", "the preview's file tab shows Shared for its live sample");
   assert.equal(activeSharedPageFor(samples, "fixture-home", "Kitchen refresh/ideas.md"), null, "a stopped page is not shared");
   assert.deepEqual(
-    [...sharedPathsForSpace(samples, "fixture-home")].sort(),
+    [...sharedPathsForWorkFolder(samples, "fixture-home")].sort(),
     ["Garden/planting-plan.pdf", "weekend checklist.md"],
-    "Files marks the active page slots of this Folder only: no stopped page, no other Folder's page",
+    "Files marks the active page slots of this work-folder only: no stopped page, no other work-folder's page",
   );
-  assert.deepEqual([...sharedPathsForSpace(null, "fixture-home")], []);
-  assert.deepEqual([...sharedPathsForSpace(samples, "fixture-none")], []);
+  assert.deepEqual([...sharedPathsForWorkFolder(null, "fixture-home")], []);
+  assert.deepEqual([...sharedPathsForWorkFolder(samples, "fixture-none")], []);
   const withApp = [...samples, { ...samples[0]!, publicationId: "app-slot", kind: "app" as const, relativePath: "app.md" }];
-  assert.equal(sharedPathsForSpace(withApp, "fixture-home").has("app.md"), false, "a hosted-app slot never marks a file");
+  assert.equal(sharedPathsForWorkFolder(withApp, "fixture-home").has("app.md"), false, "a hosted-app slot never marks a file");
 });
 
 test("Recently deleted says what is waiting, how long, and what work-fold never erases", () => {
@@ -147,7 +147,7 @@ test("person-facing fold copy promises receipts and undo, never a gate", () => {
   // work.
   assert.match(remoteAccessSettings.pairedBrowserTrust, /read or change accessible files/);
   assert.match(remoteAccessSettings.pairedBrowserTrust, /run local commands/);
-  const copy = JSON.stringify({ foldPublicationsSettings, recentlyDeletedSettings, remoteAccessSettings });
+  const copy = JSON.stringify({ publicationsSettings, recentlyDeletedSettings, remoteAccessSettings });
   assert.doesNotMatch(copy, /staged|approv|polic|Reviewed|Unrestricted|needs-you card|decision card|consecrat/i);
-  assert.doesNotMatch(JSON.stringify(recentlyDeletedSettings), /\bmode\b|\bcard\b|sandbox|digest|trash/i);
+  assert.doesNotMatch(JSON.stringify(recentlyDeletedSettings), /\bmode\b|\bcard\b|sandbox|digest|recently-deleted/i);
 });

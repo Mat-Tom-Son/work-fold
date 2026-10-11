@@ -131,21 +131,21 @@ export type AgentSkillCatalog = PiResourceCatalog;
  * packages/extensions/skills are included only when project trust resolves.
  */
 export async function loadAgentSkillCatalog(
-  spaceRoot: string,
+  workFolderRoot: string,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<PiResourceCatalog> {
-  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider);
+  const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider);
   const services = await createAgentSessionServices({
-    cwd: spaceRoot,
+    cwd: workFolderRoot,
     agentDir: runtime.agentDir,
     settingsManager: runtime.settingsManager,
     modelRuntime: runtime.modelRuntime,
-    resourceLoaderOptions: await additionalResourceOptions(spaceRoot, runtime),
+    resourceLoaderOptions: await additionalResourceOptions(workFolderRoot, runtime),
   });
   applyPiRuntimeDefaults(runtime.settingsManager);
   const result = await createAgentSessionFromServices({
     services,
-    sessionManager: SessionManager.inMemory(spaceRoot),
+    sessionManager: SessionManager.inMemory(workFolderRoot),
   });
 
   try {
@@ -155,7 +155,7 @@ export async function loadAgentSkillCatalog(
         // Catalog reads must never block an HTTP request on an extension dialog.
         // Actual chat sessions bind the host bridge and expose full RPC-style UI.
         createHeadlessExtensionUiBridge(),
-        { conversationId: "catalog", spaceRoot },
+        { conversationId: "catalog", workFolderRoot },
       ),
     });
     return buildPiResourceCatalog(result.session, runtime, services.diagnostics);
@@ -300,7 +300,7 @@ export const builtInPiCommands: PiCommandCatalogItem[] = [
   ["session", "Show session information and statistics"],
   ["changelog", "Show Pi changelog entries"],
   ["hotkeys", "Show keyboard shortcuts"],
-  ["trust", "Show Space trust status"],
+  ["trust", "Show work-folder trust status"],
   ["login", "Configure provider authentication"],
   ["logout", "Remove provider authentication"],
   ["compact", "Compact the session context"],

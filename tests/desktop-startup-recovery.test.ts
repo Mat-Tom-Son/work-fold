@@ -146,6 +146,6 @@ test("dialog copy keeps data safety explicit in every recovery stage", () => {
     { kind: "check-failed" },
     { kind: "install-failed" },
   ] as const) {
-    assert.match(workFoldStartupRecoveryDialog(plan, stage).detail, /Spaces and app data are safe/);
+    assert.match(workFoldStartupRecoveryDialog(plan, stage).detail, /work-folders and app data are safe/);
   }
 });

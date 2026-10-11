@@ -84,12 +84,12 @@ function Test-WorkFoldActCommand {
   $positional = @($CommandArguments | Where-Object { $_ -cne '--json' })
   $group = if ($positional.Count -gt 0) { [string]$positional[0] } else { '' }
   $actGroups = @(
-    'chat', 'chats', 'files', 'manage', 'history', 'search',
-    'tools', 'apps', 'routings', 'pages', 'trash', 'requests'
+    'chat', 'chats', 'files', 'agent', 'history', 'search',
+    'tools', 'apps', 'automations', 'pages', 'recently-deleted', 'requests'
   )
   if ($actGroups -contains $group) { return $true }
   if ($group -ceq 'checks') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'status' }
-  if ($group -ceq 'spaces') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'list' }
+  if ($group -ceq 'work-folders') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'list' }
   return $false
 }
 
@@ -225,12 +225,12 @@ function Get-WorkFoldChatWaitPlan {
   $positional = @($CommandArguments | Where-Object { $_ -cne '--json' })
   if ($positional.Count -lt 2 -or $positional[1] -cne 'wait') { return $null }
   $group = [string]$positional[0]
-  if (@('chat', 'manage', 'checks') -notcontains $group) { return $null }
-  $plan = [ordered]@{ Group = $group; Space = ''; Task = ''; TimeoutSeconds = 3600; Json = $CommandArguments -ccontains '--json' }
+  if (@('chat', 'agent', 'checks') -notcontains $group) { return $null }
+  $plan = [ordered]@{ Group = $group; work-folder = ''; Task = ''; TimeoutSeconds = 3600; Json = $CommandArguments -ccontains '--json' }
   for ($index = 0; $index -lt $CommandArguments.Count; $index += 1) {
     $token = [string]$CommandArguments[$index]
     switch ($token) {
-      '--space' { $plan.Space = [string]$CommandArguments[$index + 1]; $index += 1 }
+      '--work-folder' { $plan.work-folder = [string]$CommandArguments[$index + 1]; $index += 1 }
       '--task' { $plan.Task = [string]$CommandArguments[$index + 1]; $index += 1 }
       '--timeout' {
         $timeoutSeconds = 0
@@ -246,8 +246,8 @@ function Get-WorkFoldChatWaitPlan {
       default { throw New-WorkFoldUsageError "Unknown option for $group wait: $token" }
     }
   }
-  if ((@('chat', 'checks') -contains $group) -and [string]::IsNullOrWhiteSpace($plan.Space)) { throw New-WorkFoldUsageError 'Act commands require an explicit --space <id-or-name>.' }
-  if ($group -ceq 'manage' -and -not [string]::IsNullOrWhiteSpace($plan.Space)) { throw New-WorkFoldUsageError 'The management scope does not take --space.' }
+  if ((@('chat', 'checks') -contains $group) -and [string]::IsNullOrWhiteSpace($plan.work-folder)) { throw New-WorkFoldUsageError 'Act commands require an explicit --work-folder <id-or-name>.' }
+  if ($group -ceq 'agent' -and -not [string]::IsNullOrWhiteSpace($plan.work-folder)) { throw New-WorkFoldUsageError "The work-fold agent sits above work-folders, so 'agent wait' takes no --work-folder." }
   if ([string]::IsNullOrWhiteSpace($plan.Task)) {
     $source = if ($group -ceq 'checks') { 'checks run' } else { "$group send" }
     throw New-WorkFoldUsageError "Provide --task <id> from $source."
@@ -266,7 +266,7 @@ function Invoke-WorkFoldChatWait {
   $statusArguments = [Collections.Generic.List[string]]::new()
   $statusVerb = if ($Plan.Group -ceq 'checks') { 'task' } else { 'status' }
   $statusArguments.AddRange([string[]]@($Plan.Group, $statusVerb))
-  if ((@('chat', 'checks') -contains $Plan.Group)) { $statusArguments.AddRange([string[]]@('--space', $Plan.Space)) }
+  if ((@('chat', 'checks') -contains $Plan.Group)) { $statusArguments.AddRange([string[]]@('--work-folder', $Plan.work-folder)) }
   $statusArguments.AddRange([string[]]@('--task', $Plan.Task))
   $humanStatusArguments = $statusArguments.ToArray()
   $statusArguments.Add('--json')
@@ -309,7 +309,7 @@ function Invoke-WorkFoldChatWait {
   }
   $resultArguments = [Collections.Generic.List[string]]::new()
   $resultArguments.AddRange([string[]]@($Plan.Group, 'result'))
-  if ((@('chat', 'checks') -contains $Plan.Group)) { $resultArguments.AddRange([string[]]@('--space', $Plan.Space)) }
+  if ((@('chat', 'checks') -contains $Plan.Group)) { $resultArguments.AddRange([string[]]@('--work-folder', $Plan.work-folder)) }
   $resultArguments.AddRange([string[]]@('--task', $Plan.Task))
   if ($Plan.Json) { $resultArguments.Add('--json') }
   $result = Invoke-WorkFoldRequest -RequestArguments $resultArguments.ToArray() -ActToken $ActToken -Payload $null
@@ -377,8 +377,9 @@ try {
   [IO.Directory]::CreateDirectory((Join-Path $script:WorkFoldCliRoot 'responses')) | Out-Null
 
   if (Test-WorkFoldActCommand -CommandArguments $commandArguments) {
-    # Every act family other than the content-free reads rides the separately versioned act lane and requires
-    # the per-launch token the running app minted.
+    # Every act family other than the content-free reads rides the separately
+    # versioned act lane and requires the per-launch token the running app
+    # minted.
     $actToken = Read-WorkFoldActToken -CliRoot $script:WorkFoldCliRoot
     if ([string]::IsNullOrEmpty($actToken)) {
       [Console]::Error.Write("work-fold: $($script:ActUnavailableMessage)$([Environment]::NewLine)")

@@ -24,13 +24,13 @@ export interface WorkFoldCliActReceiptV1 {
   at: string;
   requestId: string;
   command: string;
-  spaceId?: string;
+  workFolderId?: string;
   conversationId?: string;
   outcome: "accepted" | "ok" | "error" | "rejected";
   errorCode?: WorkFoldCliErrorCode;
   checkpointId?: string;
   taskId?: string;
-  /** Kernel task id of the management turn this act was performed for, when one was running. */
+  /** Kernel task id of the work-fold agent turn this act was performed for, when one was running. */
   parentTaskId?: string;
   detail?: string;
 }

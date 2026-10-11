@@ -41,45 +41,45 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       return () => ipcRenderer.removeListener("work-fold:runtime:renderer-recovered", listener);
     },
   },
-  space: {
-    chooseFolder: () => ipcRenderer.invoke("work-fold:space:choose-folder"),
-    revealFolder: (spaceId: string) => ipcRenderer.invoke("work-fold:space:reveal-folder", spaceId),
-    openPath: (spaceId: string, path: string, action: "open" | "open-native" | "reveal" = "open") => (
-      ipcRenderer.invoke("work-fold:space:open-path", { spaceId, path, action })
+  workFolder: {
+    chooseFolder: () => ipcRenderer.invoke("work-fold:work-folder:choose-folder"),
+    revealFolder: (workFolderId: string) => ipcRenderer.invoke("work-fold:work-folder:reveal-folder", workFolderId),
+    openPath: (workFolderId: string, path: string, action: "open" | "open-native" | "reveal" = "open") => (
+      ipcRenderer.invoke("work-fold:work-folder:open-path", { workFolderId, path, action })
     ),
-    openPathWith: (spaceId: string, path: string) => ipcRenderer.invoke("work-fold:space:open-path-with", { spaceId, path }),
-    startDrag: (spaceId: string, path: string) => ipcRenderer.invoke("work-fold:space:start-drag", { spaceId, path }),
-    previewFile: (spaceId: string, path: string) => ipcRenderer.invoke("work-fold:space:preview-file", { spaceId, path }),
+    openPathWith: (workFolderId: string, path: string) => ipcRenderer.invoke("work-fold:work-folder:open-path-with", { workFolderId, path }),
+    startDrag: (workFolderId: string, path: string) => ipcRenderer.invoke("work-fold:work-folder:start-drag", { workFolderId, path }),
+    previewFile: (workFolderId: string, path: string) => ipcRenderer.invoke("work-fold:work-folder:preview-file", { workFolderId, path }),
     ...(process.platform === "darwin" ? {
       popupFileMenu: (request: {
-        spaceId: string;
+        workFolderId: string;
         path: string;
         kind: "file" | "folder";
         capabilities: { open: boolean; attach: boolean; history: boolean; upload: boolean; rename: boolean; delete: boolean };
         point: { x: number; y: number };
-      }) => ipcRenderer.invoke("work-fold:space:popup-file-menu", request),
+      }) => ipcRenderer.invoke("work-fold:work-folder:popup-file-menu", request),
     } : {}),
-    setActiveSpace: (spaceId: string | null) => ipcRenderer.invoke("work-fold:space:set-active-space", spaceId),
-    onOpenSpace: (callback: (spaceId: string, view?: "checks") => void) => {
+    setActiveWorkFolder: (workFolderId: string | null) => ipcRenderer.invoke("work-fold:work-folder:set-active-work-folder", workFolderId),
+    onOpenWorkFolder: (callback: (workFolderId: string, view?: "checks") => void) => {
       let disposed = false;
       const deliveredTokens = new Set<string>();
       const deliver = (value: unknown) => {
         if (disposed || !value || typeof value !== "object" || Array.isArray(value)) return;
-        const request = value as { token?: unknown; spaceId?: unknown; view?: unknown };
+        const request = value as { token?: unknown; workFolderId?: unknown; view?: unknown };
         if (typeof request.token !== "string" || !request.token || request.token.length > 128
-          || typeof request.spaceId !== "string" || !request.spaceId || request.spaceId.length > 512) return;
+          || typeof request.workFolderId !== "string" || !request.workFolderId || request.workFolderId.length > 512) return;
         if (deliveredTokens.has(request.token)) return;
         deliveredTokens.add(request.token);
         if (deliveredTokens.size > 32) deliveredTokens.delete(deliveredTokens.values().next().value as string);
-        callback(request.spaceId, request.view === "checks" ? "checks" : undefined);
-        ipcRenderer.send("work-fold:space:ack-open-space", request.token);
+        callback(request.workFolderId, request.view === "checks" ? "checks" : undefined);
+        ipcRenderer.send("work-fold:work-folder:ack-open-work-folder", request.token);
       };
       const listener = (_event: unknown, value: unknown) => deliver(value);
-      ipcRenderer.on("work-fold:space:open-space", listener);
-      void ipcRenderer.invoke("work-fold:space:take-open-space").then(deliver).catch(() => undefined);
+      ipcRenderer.on("work-fold:work-folder:open-work-folder", listener);
+      void ipcRenderer.invoke("work-fold:work-folder:take-open-work-folder").then(deliver).catch(() => undefined);
       return () => {
         disposed = true;
-        ipcRenderer.removeListener("work-fold:space:open-space", listener);
+        ipcRenderer.removeListener("work-fold:work-folder:open-work-folder", listener);
       };
     },
     onOpenFolder: (callback: () => void) => {
@@ -89,28 +89,28 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     },
   },
   agent: {
-    openFoldDraft: (text: string) => ipcRenderer.invoke("work-fold:agent:open-fold-draft", text),
-    openChecks: (spaceId: string) => ipcRenderer.invoke("work-fold:management:open-checks", spaceId),
-    onOpenSettings: (callback: (scope?: "management") => void) => {
-      const listener = (_event: unknown, scope: unknown) => callback(scope === "management" ? "management" : undefined);
+    openWorkFoldAgentDraft: (text: string) => ipcRenderer.invoke("work-fold:agent:open-agent-draft", text),
+    openChecks: (workFolderId: string) => ipcRenderer.invoke("work-fold:agent:open-checks", workFolderId),
+    onOpenSettings: (callback: (scope?: "agent") => void) => {
+      const listener = (_event: unknown, scope: unknown) => callback(scope === "agent" ? "agent" : undefined);
       ipcRenderer.on("work-fold:agent:open-settings", listener);
       return () => ipcRenderer.removeListener("work-fold:agent:open-settings", listener);
     },
   },
-  // Main-window-only Routing management. The popover preload deliberately
+  // Main-window-only Automation management. The popover preload deliberately
   // omits this namespace; the matching main-process handlers also validate
   // the exact main renderer before reaching the in-process Settings facade.
-  routings: {
-    list: () => ipcRenderer.invoke("work-fold:routings:list"),
-    proposals: () => ipcRenderer.invoke("work-fold:routings:proposals"),
-    enableProposal: (path: string) => ipcRenderer.invoke("work-fold:routings:enable-proposal", path),
-    show: (routingId: string) => ipcRenderer.invoke("work-fold:routings:show", routingId),
-    history: (routingId: string) => ipcRenderer.invoke("work-fold:routings:history", routingId),
-    enable: (routingId: string) => ipcRenderer.invoke("work-fold:routings:enable", routingId),
-    run: (routingId: string) => ipcRenderer.invoke("work-fold:routings:run", routingId),
-    stop: (routingId: string) => ipcRenderer.invoke("work-fold:routings:stop", routingId),
-    disable: (routingId: string) => ipcRenderer.invoke("work-fold:routings:disable", routingId),
-    delete: (routingId: string) => ipcRenderer.invoke("work-fold:routings:delete", routingId),
+  automations: {
+    list: () => ipcRenderer.invoke("work-fold:automations:list"),
+    proposals: () => ipcRenderer.invoke("work-fold:automations:proposals"),
+    enableProposal: (path: string) => ipcRenderer.invoke("work-fold:automations:enable-proposal", path),
+    show: (automationId: string) => ipcRenderer.invoke("work-fold:automations:show", automationId),
+    history: (automationId: string) => ipcRenderer.invoke("work-fold:automations:history", automationId),
+    enable: (automationId: string) => ipcRenderer.invoke("work-fold:automations:enable", automationId),
+    run: (automationId: string) => ipcRenderer.invoke("work-fold:automations:run", automationId),
+    stop: (automationId: string) => ipcRenderer.invoke("work-fold:automations:stop", automationId),
+    disable: (automationId: string) => ipcRenderer.invoke("work-fold:automations:disable", automationId),
+    delete: (automationId: string) => ipcRenderer.invoke("work-fold:automations:delete", automationId),
   },
   restrictedApps: {
     mountView: (request: unknown) => ipcRenderer.invoke("work-fold:restricted-app-view:mount", request),

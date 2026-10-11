@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import type { WorkFoldCliActReceiptV2 } from "../src/local/cli/act-receipts.js";
-import { createWorkFoldGlanceViewerGrantReader } from "../src/local/glance.js";
+import { createWorkFoldOverviewViewerGrantReader } from "../src/local/overview.js";
 import {
   WORKFOLD_PUBLICATION_ACTIVE_CAP,
   WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES,
@@ -115,22 +115,22 @@ async function publicationFixture(options: { bridge?: RecordedBridge | null; app
   receipts: RecordedReceipts;
   bridge: RecordedBridge;
   stateRoot: string;
-  spaceRoot: string;
+  workFolderRoot: string;
   storePath: string;
-  spaces: Map<string, string | null>;
+  workFolders: Map<string, string | null>;
 }> {
   const base = await mkdtemp(join(tmpdir(), "work-fold-publications-"));
   const stateRoot = join(base, "state");
-  const spaceRoot = join(base, "space");
-  await mkdir(spaceRoot, { recursive: true });
-  await writeFile(join(spaceRoot, "report.md"), "# Quarterly\n\nAll **good**.\n\n<script>alert(1)</script>\n");
-  await writeFile(join(spaceRoot, "notes.txt"), "plain <notes> & text\n");
-  await writeFile(join(spaceRoot, "photo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]));
+  const workFolderRoot = join(base, "work-folder");
+  await mkdir(workFolderRoot, { recursive: true });
+  await writeFile(join(workFolderRoot, "report.md"), "# Quarterly\n\nAll **good**.\n\n<script>alert(1)</script>\n");
+  await writeFile(join(workFolderRoot, "notes.txt"), "plain <notes> & text\n");
+  await writeFile(join(workFolderRoot, "photo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]));
   const clock = fixedClock();
   const keys = memoryKeys();
   const receipts = receiptsRecorder();
   const bridge = options.bridge === undefined ? bridgeRecorder() : options.bridge ?? bridgeRecorder();
-  const spaces = new Map<string, string | null>([["space-pub", spaceRoot]]);
+  const workFolders = new Map<string, string | null>([["work-folder-pub", workFolderRoot]]);
   const storePath = workFoldPublicationsFile(stateRoot);
   const service = await WorkFoldPublicationService.create({
     path: storePath,
@@ -138,10 +138,10 @@ async function publicationFixture(options: { bridge?: RecordedBridge | null; app
     keys,
     receipts,
     bridge: options.bridge === null ? null : bridge,
-    resolveSpaceRoot: async (spaceId) => spaces.get(spaceId) ?? null,
+    resolveWorkFolderRoot: async (workFolderId) => workFolders.get(workFolderId) ?? null,
     ...(options.apps !== undefined ? { apps: options.apps } : {}),
   });
-  return { service, clock, keys, receipts, bridge, stateRoot, spaceRoot, storePath, spaces };
+  return { service, clock, keys, receipts, bridge, stateRoot, workFolderRoot, storePath, workFolders };
 }
 
 function context(requestId: string): WorkFoldPublicationActContext {
@@ -164,7 +164,7 @@ function isRefusal(code: string): (error: unknown) => boolean {
 test("link reveal rechecks expiry after reading secure key material", async () => {
   const fixture = await publicationFixture();
   const page = await fixture.service.activate({
-    spaceId: "space-pub", relativePath: "report.md", title: "Quarterly report",
+    workFolderId: "work-folder-pub", relativePath: "report.md", title: "Quarterly report",
     expiresAt: new Date(fixture.clock.at + 60_000).toISOString(),
   }, context("share-expiring-link"));
   const getKey = fixture.keys.get;
@@ -182,7 +182,7 @@ test("activation is journal-first, mints a durable intent with its key, and conf
 
   fixture.receipts.unavailable = true;
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: "report.md", title: "Quarterly report" }, context("req-1")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: "report.md", title: "Quarterly report" }, context("req-1")),
     isRefusal("JOURNAL_UNAVAILABLE"),
     "a mutation that cannot be journaled is refused before it runs",
   );
@@ -192,38 +192,38 @@ test("activation is journal-first, mints a durable intent with its key, and conf
 
   fixture.receipts.unavailable = false;
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-lost", relativePath: "report.md", title: "T" }, context("req-2")),
-    isRefusal("SPACE_NOT_REGISTERED"),
+    fixture.service.activate({ workFolderId: "work-folder-lost", relativePath: "report.md", title: "T" }, context("req-2")),
+    isRefusal("WORK_FOLDER_NOT_REGISTERED"),
   );
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: "report.exe", title: "T" }, context("req-3")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: "report.exe", title: "T" }, context("req-3")),
     isRefusal("SOURCE_INVALID"),
     "the first-slice source set is closed",
   );
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: "../outside.md", title: "T" }, context("req-4")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: "../outside.md", title: "T" }, context("req-4")),
     isRefusal("SOURCE_INVALID"),
-    "a source outside the Space is refused at binding time",
+    "a source outside the work-folder is refused at binding time",
   );
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: ".work-fold/space.json", title: "T" }, context("req-5")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: ".work-fold/work-folder.json", title: "T" }, context("req-5")),
     isRefusal("SOURCE_INVALID"),
     "portable metadata cannot be designated",
   );
   await assert.rejects(
     fixture.service.activate(
-      { spaceId: "space-pub", relativePath: "report.md", title: "T", serveRatePerMinute: 6_000 },
+      { workFolderId: "work-folder-pub", relativePath: "report.md", title: "T", serveRatePerMinute: 6_000 },
       context("req-6"),
     ),
     isRefusal("INPUT_INVALID"),
   );
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: "report.md", title: "x".repeat(90) }, context("req-7")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: "report.md", title: "x".repeat(90) }, context("req-7")),
     isRefusal("INPUT_INVALID"),
   );
 
   const view = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Quarterly report", snapshotEnabled: true },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Quarterly report", snapshotEnabled: true },
     context("req-8"),
   );
   assert.equal(view.state, "active");
@@ -241,7 +241,7 @@ test("activation is journal-first, mints a durable intent with its key, and conf
   const slot = fixture.bridge.calls[0]!.input as Record<string, unknown>;
   assert.equal(slot.publicationId, view.publicationId);
   assert.equal(slot.snapshotEnabled, true);
-  assert.equal("title" in slot || "relativePath" in slot || "spaceId" in slot, false, "the bridge sync is content-free");
+  assert.equal("title" in slot || "relativePath" in slot || "workFolderId" in slot, false, "the bridge sync is content-free");
   const seeded = fixture.bridge.calls[1]!.input as Record<string, unknown>;
   assert.equal(seeded.publicationId, view.publicationId);
   assert.match(String(seeded.contentDigest), /^sha256:/);
@@ -254,7 +254,7 @@ test("activation is journal-first, mints a durable intent with its key, and conf
   assert.deepEqual(outcomes, ["accepted", "ok"], "accepted lands before the mutation and a terminal ok after");
   const terminal = fixture.receipts.entries.at(-1)!;
   assert.equal(terminal.command, "pages activate");
-  assert.equal(terminal.spaceId, "space-pub");
+  assert.equal(terminal.workFolderId, "work-folder-pub");
   assert.equal(terminal.surface, "popover");
   assert.match(terminal.detail!, /viewerPath=\/p\//);
   assert.match(terminal.detail!, /bridgeSync=confirmed/);
@@ -263,17 +263,17 @@ test("activation is journal-first, mints a durable intent with its key, and conf
 
   const stored = JSON.parse(await readFile(fixture.storePath, "utf8")) as { publications: Array<Record<string, unknown>> };
   assert.equal(stored.publications[0]!.publicationId, view.publicationId);
-  const glanceEvents = await createWorkFoldGlanceViewerGrantReader({ stateRoot: fixture.stateRoot })();
-  assert.deepEqual(glanceEvents, [
-    { publicationId: view.publicationId, event: "created", at: view.createdAt, spaceId: "space-pub" },
-  ], "the glance reads this store's records without new wiring");
+  const overviewEvents = await createWorkFoldOverviewViewerGrantReader({ stateRoot: fixture.stateRoot })();
+  assert.deepEqual(overviewEvents, [
+    { publicationId: view.publicationId, event: "created", at: view.createdAt, workFolderId: "work-folder-pub" },
+  ], "the overview reads this store's records without new wiring");
 });
 
 test("two-phase activation survives an offline bridge and the redrive lane completes it", async () => {
   const fixture = await publicationFixture();
   fixture.bridge.offline = true;
   const view = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Pending page" },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Pending page" },
     context("req-pending"),
   );
   assert.equal(view.live, false, "not presented as live until the bridge slot is confirmed");
@@ -292,7 +292,7 @@ test("two-phase activation survives an offline bridge and the redrive lane compl
 test("serving renders the closed set within bounds and decrypts under the documented AAD", async () => {
   const fixture = await publicationFixture();
   const markdown = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Quarterly report" },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Quarterly report" },
     context("req-md"),
   );
 
@@ -316,7 +316,7 @@ test("serving renders the closed set within bounds and decrypts under the docume
   assert.match(payload.body, /&lt;script&gt;/);
 
   const text = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "notes.txt", title: "Notes" },
+    { workFolderId: "work-folder-pub", relativePath: "notes.txt", title: "Notes" },
     context("req-txt"),
   );
   const servedText = await fixture.service.serveViewerPage(text.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
@@ -325,7 +325,7 @@ test("serving renders the closed set within bounds and decrypts under the docume
   assert.match(textPayload.body, /^<pre class="plain-text">plain &lt;notes&gt; &amp; text/);
 
   const image = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "photo.png", title: "Photo" },
+    { workFolderId: "work-folder-pub", relativePath: "photo.png", title: "Photo" },
     context("req-png"),
   );
   const servedImage = await fixture.service.serveViewerPage(image.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
@@ -333,13 +333,13 @@ test("serving renders the closed set within bounds and decrypts under the docume
   assert.equal(imagePayload.mediaType, "image/png");
   assert.deepEqual(
     Buffer.from(imagePayload.body, "base64url"),
-    await readFile(join(fixture.spaceRoot, "photo.png")),
+    await readFile(join(fixture.workFolderRoot, "photo.png")),
     "binary sources ship byte-exact inside the envelope",
   );
 
-  await writeFile(join(fixture.spaceRoot, "big.md"), Buffer.alloc(WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES + 1, 0x61));
+  await writeFile(join(fixture.workFolderRoot, "big.md"), Buffer.alloc(WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES + 1, 0x61));
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: "big.md", title: "Big" }, context("req-big")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: "big.md", title: "Big" }, context("req-big")),
     isRefusal("SOURCE_INVALID"),
     "the pre-render source bound applies at designation time",
   );
@@ -347,7 +347,7 @@ test("serving renders the closed set within bounds and decrypts under the docume
 
 test("a person-authored HTML page is stripped desktop-side and flagged as a whole document", async () => {
   const fixture = await publicationFixture();
-  await writeFile(join(fixture.spaceRoot, "flyer.html"), [
+  await writeFile(join(fixture.workFolderRoot, "flyer.html"), [
     "<!doctype html><html><head><title>Flyer</title><style>h1 { color: teal }</style>",
     "<meta http-equiv=refresh content=\"0;url=https://evil.example\"></head>",
     "<body onload=\"alert(1)\"><h1 style=\"font-size: 3rem\">Bake sale</h1>",
@@ -355,10 +355,10 @@ test("a person-authored HTML page is stripped desktop-side and flagged as a whol
     "<a href=\"javascript:alert(1)\">bad</a> <a href=\"https://example.com\" target=\"_top\">good</a>",
     "<form action=\"https://evil.example\"><button>Send</button></form></body></html>",
   ].join("\n"));
-  await writeFile(join(fixture.spaceRoot, "old.HTM"), "<p>Legacy</p>");
+  await writeFile(join(fixture.workFolderRoot, "old.HTM"), "<p>Legacy</p>");
 
   const page = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "flyer.html", title: "Flyer" },
+    { workFolderId: "work-folder-pub", relativePath: "flyer.html", title: "Flyer" },
     context("req-html"),
   );
   const served = await fixture.service.serveViewerPage(page.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
@@ -376,7 +376,7 @@ test("a person-authored HTML page is stripped desktop-side and flagged as a whol
   assert.match(payload.body, /<button>Send<\/button>/);
 
   const legacy = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "old.HTM", title: "Legacy" },
+    { workFolderId: "work-folder-pub", relativePath: "old.HTM", title: "Legacy" },
     context("req-htm"),
   );
   const servedLegacy = await fixture.service.serveViewerPage(legacy.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
@@ -385,16 +385,16 @@ test("a person-authored HTML page is stripped desktop-side and flagged as a whol
   assert.match(legacyPayload.body, /<p>Legacy<\/p>$/);
 
   const markdown = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Report" },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Report" },
     context("req-md-flag"),
   );
   const servedMarkdown = await fixture.service.serveViewerPage(markdown.publicationId) as Extract<WorkFoldViewerPageServeResult, { state: "served" }>;
   const markdownPayload = decryptServed(fixture.keys.values.get(markdown.publicationId)!, servedMarkdown) as { document?: boolean };
   assert.equal(markdownPayload.document, undefined, "Markdown stays an article body, not a document");
 
-  await writeFile(join(fixture.spaceRoot, "drawing.svg"), "<svg><script>alert(1)</script></svg>");
+  await writeFile(join(fixture.workFolderRoot, "drawing.svg"), "<svg><script>alert(1)</script></svg>");
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: "drawing.svg", title: "Drawing" }, context("req-svg")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: "drawing.svg", title: "Drawing" }, context("req-svg")),
     isRefusal("SOURCE_INVALID"),
     "SVG stays out: it is scriptable",
   );
@@ -409,7 +409,7 @@ test("the effect-time recheck refuses with typed, content-free states", async ()
 
   const expiring = await fixture.service.activate(
     {
-      spaceId: "space-pub",
+      workFolderId: "work-folder-pub",
       relativePath: "report.md",
       title: "Expiring",
       expiresAt: new Date(fixture.clock.at + 60_000).toISOString(),
@@ -422,43 +422,43 @@ test("the effect-time recheck refuses with typed, content-free states", async ()
   assert.equal((await fixture.service.get(expiring.publicationId))!.state, "expired");
 
   const page = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "notes.txt", title: "Notes" },
+    { workFolderId: "work-folder-pub", relativePath: "notes.txt", title: "Notes" },
     context("req-recheck"),
   );
-  fixture.spaces.set("space-pub", null);
-  assert.equal((await fixture.service.serveViewerPage(page.publicationId)).state, "not-available", "an unregistered Space stops serving");
-  fixture.spaces.set("space-pub", fixture.spaceRoot);
+  fixture.workFolders.set("work-folder-pub", null);
+  assert.equal((await fixture.service.serveViewerPage(page.publicationId)).state, "not-available", "an unregistered work-folder stops serving");
+  fixture.workFolders.set("work-folder-pub", fixture.workFolderRoot);
 
-  await writeFile(join(fixture.spaceRoot, "beyond.txt"), "outside bytes");
+  await writeFile(join(fixture.workFolderRoot, "beyond.txt"), "outside bytes");
   const escape = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "linked.txt", title: "Linked" },
+    { workFolderId: "work-folder-pub", relativePath: "linked.txt", title: "Linked" },
     context("req-linked"),
   ).catch(() => null);
   assert.equal(escape, null, "a missing source cannot be designated");
-  await symlink(join(fixture.spaceRoot, "beyond.txt"), join(fixture.spaceRoot, "linked.txt"));
+  await symlink(join(fixture.workFolderRoot, "beyond.txt"), join(fixture.workFolderRoot, "linked.txt"));
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: "linked.txt", title: "Linked" }, context("req-symlink")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: "linked.txt", title: "Linked" }, context("req-symlink")),
     isRefusal("SOURCE_INVALID"),
     "a symbolic link never binds as a source",
   );
 
-  await writeFile(join(fixture.spaceRoot, "vanishing.md"), "# soon gone");
+  await writeFile(join(fixture.workFolderRoot, "vanishing.md"), "# soon gone");
   const vanishing = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "vanishing.md", title: "Vanishing" },
+    { workFolderId: "work-folder-pub", relativePath: "vanishing.md", title: "Vanishing" },
     context("req-vanishing"),
   );
   const { rm } = await import("node:fs/promises");
-  await rm(join(fixture.spaceRoot, "vanishing.md"));
+  await rm(join(fixture.workFolderRoot, "vanishing.md"));
   assert.equal((await fixture.service.serveViewerPage(vanishing.publicationId)).state, "not-available", "a moved or deleted source is vaguely unavailable to viewers");
 });
 
 test("revocation is desktop-first, idempotent, and its bridge cleanup is named and re-driven", async () => {
   const fixture = await publicationFixture();
   const view = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Shared" },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Shared" },
     context("req-share"),
   );
-  assert.equal((await fixture.service.activePublicationsForSpace("space-pub")).length, 1, "active publications block Space removal");
+  assert.equal((await fixture.service.activePublicationsForWorkFolder("work-folder-pub")).length, 1, "active publications block work-folder removal");
 
   fixture.bridge.offline = true;
   const revoked = await fixture.service.revoke(view.publicationId, context("req-revoke"));
@@ -469,7 +469,7 @@ test("revocation is desktop-first, idempotent, and its bridge cleanup is named a
     state: "nothing-here",
     publicationId: view.publicationId,
   }, "the effect-time recheck refuses from the instant local authority dies, regardless of bridge state");
-  assert.deepEqual(await fixture.service.activePublicationsForSpace("space-pub"), []);
+  assert.deepEqual(await fixture.service.activePublicationsForWorkFolder("work-folder-pub"), []);
 
   const again = await fixture.service.revoke(view.publicationId, context("req-revoke-again"));
   assert.equal(again.state, "revoked");
@@ -484,14 +484,14 @@ test("revocation is desktop-first, idempotent, and its bridge cleanup is named a
   );
   assert.equal(fixture.keys.values.has(view.publicationId), false, "the key dies with confirmed cleanup");
 
-  const events = await createWorkFoldGlanceViewerGrantReader({ stateRoot: fixture.stateRoot })();
+  const events = await createWorkFoldOverviewViewerGrantReader({ stateRoot: fixture.stateRoot })();
   assert.deepEqual(events.map((event) => event.event), ["created", "revoked"]);
 });
 
 test("narrowing is a direct verb that refuses a raise", async () => {
   const fixture = await publicationFixture();
   const view = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Budgeted", snapshotEnabled: true },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Budgeted", snapshotEnabled: true },
     context("req-budget"),
   );
   await assert.rejects(
@@ -529,7 +529,7 @@ test("narrowing is a direct verb that refuses a raise", async () => {
 test("concurrent sharing admits only one live link for the same normalized source", async () => {
   const fixture = await publicationFixture();
   const results = await Promise.allSettled(["report.md", "./report.md"].map((relativePath, index) => fixture.service.activate(
-    { spaceId: "space-pub", relativePath, title: "Shared once" },
+    { workFolderId: "work-folder-pub", relativePath, title: "Shared once" },
     context(`req-concurrent-share-${index}`),
   )));
   const shared = results.filter((result) => result.status === "fulfilled");
@@ -537,12 +537,12 @@ test("concurrent sharing admits only one live link for the same normalized sourc
   assert.equal(shared.length, 1, "the duplicate check and activation share one serialized mutation");
   assert.equal(refused.length, 1);
   assert.ok(isRefusal("ALREADY_SHARED")(refused[0]!.reason));
-  assert.equal((await fixture.service.activePublicationsForSpace("space-pub")).length, 1);
+  assert.equal((await fixture.service.activePublicationsForWorkFolder("work-folder-pub")).length, 1);
   assert.equal(fixture.keys.values.size, 1, "a duplicate share mints no second secret link");
   const publication = shared[0]!.value;
   await fixture.service.revoke(publication.publicationId, context("req-concurrent-share-revoke"));
   const replacement = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "./report.md", title: "Shared again" },
+    { workFolderId: "work-folder-pub", relativePath: "./report.md", title: "Shared again" },
     context("req-concurrent-share-replacement"),
   );
   assert.equal(replacement.relativePath, "report.md");
@@ -552,7 +552,7 @@ test("concurrent sharing admits only one live link for the same normalized sourc
 test("widening keeps resting until an admitted serve confirms recovery", async () => {
   const fixture = await publicationFixture();
   const page = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Budget health" },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Budget health" },
     context("req-health-share"),
   );
   await fixture.service.noteViewerResting(page.publicationId, "byte-budget");
@@ -577,7 +577,7 @@ test("widening keeps resting until an admitted serve confirms recovery", async (
 test("widening in place raises budgets and turns the sleep copy on, keeping the slot and key", async () => {
   const fixture = await publicationFixture();
   const view = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Wider" },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Wider" },
     context("req-widen-activate"),
   );
   const key = fixture.keys.values.get(view.publicationId);
@@ -636,38 +636,38 @@ test("the service knows whether an address exists to serve pages at", async () =
   assert.equal(await (await publicationFixture({ bridge: configured })).service.hasAddress(), true);
 });
 
-test("a damaged store fails closed for mutations, serves, and Space-removal checks without being overwritten", async () => {
+test("a damaged store fails closed for mutations, serves, and work-folder-removal checks without being overwritten", async () => {
   const base = await mkdtemp(join(tmpdir(), "work-fold-publications-damaged-"));
-  const storePath = join(base, "fold", "publications.json");
-  await mkdir(join(base, "fold"), { recursive: true });
+  const storePath = join(base, "shared-pages", "publications.json");
+  await mkdir(join(base, "shared-pages"), { recursive: true });
   await writeFile(storePath, "{ not json");
   const service = await WorkFoldPublicationService.create({
     path: storePath,
     keys: memoryKeys(),
     receipts: receiptsRecorder(),
     bridge: bridgeRecorder(),
-    resolveSpaceRoot: async () => null,
+    resolveWorkFolderRoot: async () => null,
   });
   const status = service.status();
   assert.equal(status.damaged, true);
   assert.match(status.damageReason!, /not valid JSON/);
   await assert.rejects(
-    service.activate({ spaceId: "s", relativePath: "a.md", title: "T" }, context("req-damaged")),
+    service.activate({ workFolderId: "s", relativePath: "a.md", title: "T" }, context("req-damaged")),
     isRefusal("STORE_DAMAGED"),
   );
-  await assert.rejects(service.activePublicationsForSpace("s"), isRefusal("STORE_DAMAGED"));
+  await assert.rejects(service.activePublicationsForWorkFolder("s"), isRefusal("STORE_DAMAGED"));
   assert.equal((await service.serveViewerPage("publication-any")).state, "nothing-here");
   assert.deepEqual(await service.redriveBridgeSync(), { confirmed: 0, pending: 0 });
   assert.equal(await readFile(storePath, "utf8"), "{ not json", "damaged state is never overwritten");
 
-  const future = join(base, "fold", "future.json");
+  const future = join(base, "shared-pages", "future.json");
   await writeFile(future, JSON.stringify({ schemaVersion: 99, publications: [] }));
   const futureService = await WorkFoldPublicationService.create({
     path: future,
     keys: memoryKeys(),
     receipts: receiptsRecorder(),
     bridge: bridgeRecorder(),
-    resolveSpaceRoot: async () => null,
+    resolveWorkFolderRoot: async () => null,
   });
   assert.match(futureService.status().damageReason!, /unsupported schema version/);
 });
@@ -676,7 +676,7 @@ test("an offline activation seeds the relay snapshot when the redrive lane confi
   const fixture = await publicationFixture();
   fixture.bridge.offline = true;
   const view = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Sleepy page", snapshotEnabled: true },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Sleepy page", snapshotEnabled: true },
     context("req-offline-snapshot"),
   );
   assert.equal(view.bridgeSlot, "pending");
@@ -695,7 +695,7 @@ test("an offline activation seeds the relay snapshot when the redrive lane confi
 
   // A publication without the opt-in never seeds, on activation or redrive.
   const plain = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "notes.txt", title: "No copy" },
+    { workFolderId: "work-folder-pub", relativePath: "notes.txt", title: "No copy" },
     context("req-no-snapshot"),
   );
   assert.equal(
@@ -709,7 +709,7 @@ test("an offline activation seeds the relay snapshot when the redrive lane confi
 test("serves are counted as bounded tallies and a success clears the recorded health note", async () => {
   const fixture = await publicationFixture();
   const view = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "notes.txt", title: "Tallied" },
+    { workFolderId: "work-folder-pub", relativePath: "notes.txt", title: "Tallied" },
     context("req-tally"),
   );
   assert.equal((await fixture.service.get(view.publicationId))!.counters, undefined);
@@ -725,7 +725,7 @@ test("serves are counted as bounded tallies and a success clears the recorded he
   assert.doesNotMatch(receiptText, /serveViewerPage|servedBytes/, "serving is counted, never journaled");
 
   const { rm } = await import("node:fs/promises");
-  await rm(join(fixture.spaceRoot, "notes.txt"));
+  await rm(join(fixture.workFolderRoot, "notes.txt"));
   fixture.clock.at += 30_000;
   assert.equal((await fixture.service.serveViewerPage(view.publicationId)).state, "not-available");
   const problem = (await fixture.service.get(view.publicationId))!.lastProblem!;
@@ -738,18 +738,18 @@ test("serves are counted as bounded tallies and a success clears the recorded he
   assert.equal((await fixture.service.serveViewerPage(view.publicationId)).state, "not-available");
   assert.equal((await fixture.service.get(view.publicationId))!.lastProblem!.at, problem.at);
 
-  const glanceEvents = await createWorkFoldGlanceViewerGrantReader({ stateRoot: fixture.stateRoot })();
-  const problemEvent = glanceEvents.find((event) => event.event === "not-available");
+  const overviewEvents = await createWorkFoldOverviewViewerGrantReader({ stateRoot: fixture.stateRoot })();
+  const problemEvent = overviewEvents.find((event) => event.event === "not-available");
   assert.deepEqual(problemEvent, {
     publicationId: view.publicationId,
     event: "not-available",
     at: problem.at,
-    spaceId: "space-pub",
+    workFolderId: "work-folder-pub",
     title: "Tallied",
     reason: problem.reason,
-  }, "the glance reads the health note with the recorded title and reason");
+  }, "the overview reads the health note with the recorded title and reason");
 
-  await writeFile(join(fixture.spaceRoot, "notes.txt"), "back again\n");
+  await writeFile(join(fixture.workFolderRoot, "notes.txt"), "back again\n");
   fixture.clock.at += 30_000;
   assert.equal((await fixture.service.serveViewerPage(view.publicationId)).state, "served");
   const recovered = (await fixture.service.get(view.publicationId))!;
@@ -760,7 +760,7 @@ test("serves are counted as bounded tallies and a success clears the recorded he
 test("the relay's resting notice records a publisher-facing health note until the next serve", async () => {
   const fixture = await publicationFixture();
   const view = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Busy page" },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Busy page" },
     context("req-resting"),
   );
   const receiptCountAfterActivation = fixture.receipts.entries.length;
@@ -771,7 +771,7 @@ test("the relay's resting notice records a publisher-facing health note until th
   const resting = (await fixture.service.get(view.publicationId))!.lastProblem!;
   assert.equal(resting.state, "resting");
   assert.match(resting.reason, /daily byte budget/);
-  const events = await createWorkFoldGlanceViewerGrantReader({ stateRoot: fixture.stateRoot })();
+  const events = await createWorkFoldOverviewViewerGrantReader({ stateRoot: fixture.stateRoot })();
   assert.equal(events.find((event) => event.event === "resting")?.title, "Busy page");
 
   // A different budget replaces the note; a repeat of the same one does not.
@@ -799,14 +799,14 @@ test("the relay's resting notice records a publisher-facing health note until th
 test("the active cap bounds sharing and the inert markdown renderer strips active content", async () => {
   const fixture = await publicationFixture();
   for (let index = 0; index < WORKFOLD_PUBLICATION_ACTIVE_CAP; index += 1) {
-    await writeFile(join(fixture.spaceRoot, `page-${index}.md`), `# Page ${index}`);
+    await writeFile(join(fixture.workFolderRoot, `page-${index}.md`), `# Page ${index}`);
     await fixture.service.activate(
-      { spaceId: "space-pub", relativePath: `page-${index}.md`, title: `Page ${index}` },
+      { workFolderId: "work-folder-pub", relativePath: `page-${index}.md`, title: `Page ${index}` },
       context(`req-cap-${index}`),
     );
   }
   await assert.rejects(
-    fixture.service.activate({ spaceId: "space-pub", relativePath: "report.md", title: "Over" }, context("req-cap-over")),
+    fixture.service.activate({ workFolderId: "work-folder-pub", relativePath: "report.md", title: "Over" }, context("req-cap-over")),
     isRefusal("PUBLICATION_CAP"),
   );
 
@@ -817,7 +817,7 @@ test("the active cap bounds sharing and the inert markdown renderer strips activ
   assert.match(rendered, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });
 
-// --- Rung 3: an app at your address (docs/fold-publishing.md) ---
+// --- Rung 3: an app at your address (docs/shared-pages.md) ---
 
 interface HostedAppFixture {
   adapter: ReturnType<typeof createRestrictedAppViewerAdapter>;
@@ -882,7 +882,7 @@ async function hostedAppFixture(): Promise<HostedAppFixture> {
       const manifest = structuredClone(receipt.manifest);
       if (state.mutateViewer && manifest.viewer) state.mutateViewer(manifest.viewer);
       const projection: RestrictedAppViewerInstanceProjection = {
-        spaceId: "space-pub",
+        workFolderId: "work-folder-pub",
         packageName: receipt.packageName,
         version: receipt.version,
         digest: receipt.digest,
@@ -929,7 +929,7 @@ test("hosted-app exposure activates with its pinned surface and serves the viewe
   assert.deepEqual(exposure.pins.viewerSurface, ["entry:viewer.html", "data:public/"]);
 
   const view = await fixture.service.activateApp({
-    spaceId: exposure.spaceId,
+    workFolderId: exposure.workFolderId,
     title: exposure.title,
     app: { ...exposure.pins },
   }, context("req-app-1"));
@@ -981,7 +981,7 @@ test("the viewer-safe broker subset refuses everything else with typed viewer-vi
   const exposure = await app.adapter.resolveExposure(app.appInstanceId);
   assert.ok(exposure.eligible);
   const view = await fixture.service.activateApp(
-    { spaceId: exposure.spaceId, title: exposure.title, app: { ...exposure.pins } },
+    { workFolderId: exposure.workFolderId, title: exposure.title, app: { ...exposure.pins } },
     context("req-app-deny"),
   );
   const key = fixture.keys.values.get(view.publicationId)!;
@@ -1026,7 +1026,7 @@ test("hosted-app serves recheck the grant, the surface, and the kind at effect t
   const exposure = await app.adapter.resolveExposure(app.appInstanceId);
   assert.ok(exposure.eligible);
   const view = await fixture.service.activateApp(
-    { spaceId: exposure.spaceId, title: exposure.title, app: { ...exposure.pins } },
+    { workFolderId: exposure.workFolderId, title: exposure.title, app: { ...exposure.pins } },
     context("req-app-recheck"),
   );
 
@@ -1034,7 +1034,7 @@ test("hosted-app serves recheck the grant, the surface, and the kind at effect t
   // both nothing-here: the kinds never blur.
   assert.deepEqual(await fixture.service.serveViewerPage(view.publicationId), { state: "nothing-here", publicationId: view.publicationId });
   const page = await fixture.service.activate(
-    { spaceId: "space-pub", relativePath: "report.md", title: "Beside" },
+    { workFolderId: "work-folder-pub", relativePath: "report.md", title: "Beside" },
     context("req-app-page"),
   );
   assert.deepEqual(
@@ -1061,28 +1061,28 @@ test("hosted-app serves recheck the grant, the surface, and the kind at effect t
   app.state.releaseDigest = app.releaseDigest;
 
   // Revocation is desktop-first and immediate for app slots too, and the
-  // Space-removal block names active app exposures.
-  assert.equal((await fixture.service.activePublicationsForSpace("space-pub")).length, 2);
+  // work-folder-removal block names active app exposures.
+  assert.equal((await fixture.service.activePublicationsForWorkFolder("work-folder-pub")).length, 2);
   await fixture.service.revoke(view.publicationId, context("req-app-revoke"));
   assert.deepEqual(await fixture.service.serveViewerAppCall(view.publicationId, { kind: "entry" }), {
     state: "nothing-here",
     publicationId: view.publicationId,
   });
   assert.deepEqual(
-    (await fixture.service.activePublicationsForSpace("space-pub")).map((item) => item.publicationId),
+    (await fixture.service.activePublicationsForWorkFolder("work-folder-pub")).map((item) => item.publicationId),
     [page.publicationId],
   );
 
   // Re-exposing after revocation is a fresh slot: the same instance can be
   // activated again only once the prior exposure is gone.
   const second = await fixture.service.activateApp(
-    { spaceId: exposure.spaceId, title: exposure.title, app: { ...exposure.pins } },
+    { workFolderId: exposure.workFolderId, title: exposure.title, app: { ...exposure.pins } },
     context("req-app-again"),
   );
   assert.notEqual(second.publicationId, view.publicationId);
   await assert.rejects(
     fixture.service.activateApp(
-      { spaceId: exposure.spaceId, title: exposure.title, app: { ...exposure.pins } },
+      { workFolderId: exposure.workFolderId, title: exposure.title, app: { ...exposure.pins } },
       context("req-app-dup"),
     ),
     isRefusal("INPUT_INVALID"),

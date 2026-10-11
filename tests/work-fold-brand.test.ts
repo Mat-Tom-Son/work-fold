@@ -230,7 +230,7 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
   assert.doesNotMatch(`${indexHtml}\n${popoverHtml}`, /Workspace/);
 });
 
-test("the fold names the popover surface, tray entry, and two-state capture button", async () => {
+test("the work-fold agent names the popover surface, tray entry, and two-state capture button", async () => {
   const [popover, desktopMain] = await Promise.all([
     read("web-local/src/popover/PopoverApp.tsx"),
     read("desktop/src/main.ts"),
@@ -243,7 +243,7 @@ test("the fold names the popover surface, tray entry, and two-state capture butt
   assert.match(popover, /Tell work-fold what to do/);
   assert.match(popover, /Reply to work-fold/);
 
-  assert.match(desktopMain, /\{ label: "work-fold agent", click: \(\) => \{ void toggleManagementPopover\(\); \} \}/);
+  assert.match(desktopMain, /\{ label: "work-fold agent", click: \(\) => \{ void toggleWorkFoldAgentPopover\(\); \} \}/);
   assert.match(desktopMain, /label: `Open \$\{productName\}`/);
   assert.match(desktopMain, /label: `Quit \$\{productName\}`/);
 

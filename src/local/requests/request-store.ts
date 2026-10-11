@@ -1,13 +1,14 @@
 /**
  * The durable request graph (docs/collaboration-contract.md, F25).
  *
- * Every accepted Assistant turn belongs to exactly one machine-local request
- * record. A management turn creates a root; `chat send --parent-task` creates
- * a child under it; a Space turn with no parent is its own root. Records
- * survive restart, are reconciled against the turn journal, and are never
- * replayed. This store replaces the in-memory management request registry, so
- * it also carries the assignment text, the attachment references, and the
- * attributed action trail that `manage status` projects.
+ * Every accepted Worker or work-fold agent turn belongs to exactly one
+ * machine-local request record. A work-fold agent turn creates a root;
+ * `chat send --parent-task` creates a child under it; a Worker turn with no
+ * parent is its own root. Records survive restart, are reconciled against the
+ * turn journal, and are never replayed. This store replaces the in-memory
+ * work-fold agent request registry, so it also carries the assignment text,
+ * the attachment references, and the attributed action trail that
+ * `agent status` projects.
  *
  * Layout under `rootPath` (`requests/` beneath the state root in production):
  *
@@ -53,9 +54,9 @@ import { dirname, join, resolve } from "node:path";
 import {
   workFoldRequestContinuationsDefaultEnabled,
   workFoldRequestLimits,
-} from "../../shared/fold-limits.js";
+} from "../../shared/work-fold-limits.js";
 import { directorySyncUnsupported, type WorkFoldDurableTurnRecord, type WorkFoldDurableTurnUsage } from "../agent/turn-store.js";
-import { maxManagementAttachments, type ManagementAttachmentRef } from "../management-attachments.js";
+import { maxWorkFoldAgentAttachments, type WorkFoldAgentAttachmentRef } from "../work-fold-agent-attachments.js";
 import type { RestrictedAppJsonSchema } from "../agent/restricted-app-manifest.js";
 import {
   computeWorkFoldRequestState,
@@ -91,7 +92,7 @@ export const WORKFOLD_REQUEST_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const defaultMaxRecords = 2_000;
 const defaultCompactBytes = 8 * 1024 * 1024;
 const maximumErrorLength = 2_048;
-const interruptedByShutdown = "work-fold closed before this Assistant turn finished.";
+const interruptedByShutdown = "work-fold closed before this turn finished.";
 
 export interface WorkFoldRequestStoreOptions {
   rootPath: string;
@@ -206,7 +207,7 @@ export class WorkFoldRequestStore {
   /**
    * Every record below `requestId` at any depth, the request itself excluded,
    * followed transitively through `childRequestIds` so a mid-graph request
-   * answers for its own branch. A stop, and the glance's rolled-up child
+   * answers for its own branch. A stop, and the overview's rolled-up child
    * turns, both need this rather than the root-only form.
    */
   subtree(requestId: string): WorkFoldRequestRecord[] {
@@ -238,24 +239,24 @@ export class WorkFoldRequestStore {
   /**
    * The newest request on one Chat, within one owner scope. The conversation
    * id alone is not identity: a Chat log travels with its folder, so a copied
-   * Space can hold the same conversation id under a different owner. Pass the
-   * Space that is asking (or nothing for the management scope) so a reply can
-   * never join another Space's request.
+   * work-folder can hold the same conversation id under a different owner.
+   * Pass the work-folder that is asking (or nothing for the work-fold agent
+   * scope) so a reply can never join another work-folder's request.
    */
-  latestForConversation(conversationId: string, owner: { spaceId?: string } = {}): WorkFoldRequestRecord | null {
+  latestForConversation(conversationId: string, owner: { workFolderId?: string } = {}): WorkFoldRequestRecord | null {
     const records = this.#sorted([...this.#records.values()].filter((record) =>
       record.owner.conversationId === conversationId
-      && (owner.spaceId ?? null) === (record.owner.spaceId ?? null)));
+      && (owner.workFolderId ?? null) === (record.owner.workFolderId ?? null)));
     const latest = records.at(-1);
     return latest ? copyRecord(latest) : null;
   }
 
   /** Oldest first, like the registry this store replaces. `limit` keeps the newest. */
-  list(options: { kind?: WorkFoldRequestKind; rootId?: string; spaceId?: string; limit?: number } = {}): WorkFoldRequestRecord[] {
+  list(options: { kind?: WorkFoldRequestKind; rootId?: string; workFolderId?: string; limit?: number } = {}): WorkFoldRequestRecord[] {
     let records = [...this.#records.values()];
     if (options.kind) records = records.filter((record) => record.kind === options.kind);
     if (options.rootId) records = records.filter((record) => record.rootId === options.rootId);
-    if (options.spaceId) records = records.filter((record) => record.owner.spaceId === options.spaceId);
+    if (options.workFolderId) records = records.filter((record) => record.owner.workFolderId === options.workFolderId);
     records = this.#sorted(records);
     if (options.limit !== undefined && records.length > options.limit) records = records.slice(-options.limit);
     return records.map(copyRecord);
@@ -283,16 +284,16 @@ export class WorkFoldRequestStore {
   /**
    * The `--task` rule for `chat report`, `chat ask`, and `chat handoff`
    * (docs/collaboration-contract.md, F27): a task id must name the caller's
-   * own turn — the newest turn of a request the named Space owns — and that
-   * turn must still be running, exactly the way `--parent-task` is checked.
-   * An id from an older turn, another Space, or another request is refused
-   * by name. Returns the owning record so the verb can continue with it.
+   * own turn — the newest turn of a request the named work-folder owns — and
+   * that turn must still be running, exactly the way `--parent-task` is
+   * checked. An id from an older turn, another work-folder, or another request
+   * is refused by name. Returns the owning record so the verb can continue with it.
    */
-  assertOwnAcceptingTurn(taskId: string, owner: { spaceId?: string }): WorkFoldRequestRecord {
+  assertOwnAcceptingTurn(taskId: string, owner: { workFolderId?: string }): WorkFoldRequestRecord {
     const record = this.byTaskId(taskId);
     if (!record) throw new WorkFoldRequestLineageError("That task does not belong to a request on record.");
-    if ((owner.spaceId ?? null) !== (record.owner.spaceId ?? null)) {
-      throw new WorkFoldRequestLineageError("That task belongs to another Space's turn.");
+    if ((owner.workFolderId ?? null) !== (record.owner.workFolderId ?? null)) {
+      throw new WorkFoldRequestLineageError("That task belongs to another work-folder's turn.");
     }
     if (record.turns.at(-1)?.taskId !== taskId) {
       throw new WorkFoldRequestLineageError("That task is an older turn of its request; use the turn that is running now.");
@@ -351,7 +352,7 @@ export class WorkFoldRequestStore {
     taskId: string;
     app?: WorkFoldRequestAppRef;
     content?: string;
-    attachments?: readonly ManagementAttachmentRef[];
+    attachments?: readonly WorkFoldAgentAttachmentRef[];
     remote?: WorkFoldRequestRemoteRef | null;
     continuedFromTaskId?: string | null;
     acceptedAt?: string;
@@ -381,7 +382,7 @@ export class WorkFoldRequestStore {
     taskId: string;
     app?: WorkFoldRequestAppRef;
     content?: string;
-    attachments?: readonly ManagementAttachmentRef[];
+    attachments?: readonly WorkFoldAgentAttachmentRef[];
     acceptedAt?: string;
   }): Promise<WorkFoldRequestRecord> {
     return this.#run(async () => {
@@ -411,7 +412,7 @@ export class WorkFoldRequestStore {
     taskId: string;
     role?: "continuation";
     content?: string;
-    attachments?: readonly ManagementAttachmentRef[];
+    attachments?: readonly WorkFoldAgentAttachmentRef[];
     acceptedAt?: string;
   }): Promise<WorkFoldRequestRecord> {
     return this.#run(async () => {
@@ -433,7 +434,7 @@ export class WorkFoldRequestStore {
         ...record,
         turns: [...record.turns, turn],
         content: input.content === undefined ? record.content : boundContent(input.content),
-        attachments: dedupeAttachments([...record.attachments, ...(input.attachments ?? [])]).slice(0, maxManagementAttachments),
+        attachments: dedupeAttachments([...record.attachments, ...(input.attachments ?? [])]).slice(0, maxWorkFoldAgentAttachments),
         continuedFromTaskId: record.turns.at(-1)?.taskId ?? record.continuedFromTaskId,
         // A joined turn reopens the request: it is working again, and its
         // settle time belongs to whatever this new turn does.
@@ -560,7 +561,7 @@ export class WorkFoldRequestStore {
         answer: null,
         answeredAt: null,
         continuationTaskId: null,
-        answeredBySpaceId: null,
+        answeredByWorkFolderId: null,
       });
       await this.#writeQuestion(question);
       await this.#writeRequest({ ...this.#records.get(record.requestId)!, questionIds: [...record.questionIds, question.questionId] });
@@ -569,8 +570,8 @@ export class WorkFoldRequestStore {
     });
   }
 
-  /** Exactly one answer per question, from the Space that was asked. */
-  answer(input: { questionId: string; answer: string; answeredBySpaceId?: string }): Promise<WorkFoldQuestionRecord> {
+  /** Exactly one answer per question, from the work-folder that was asked. */
+  answer(input: { questionId: string; answer: string; answeredByWorkFolderId?: string }): Promise<WorkFoldQuestionRecord> {
     return this.#run(async () => {
       const question = this.#questions.get(input.questionId);
       if (!question) throw new WorkFoldRequestLineageError("That question is not on record.");
@@ -581,8 +582,8 @@ export class WorkFoldRequestStore {
       if (question.state === "expired") throw new WorkFoldRequestLineageError("That question has expired.");
       const record = this.#requireRecord(question.requestId);
       this.assertCanContinue(record.requestId);
-      if (input.answeredBySpaceId !== undefined && record.owner.spaceId !== input.answeredBySpaceId) {
-        throw new WorkFoldRequestLineageError("An answer can only come from the Space that was asked.");
+      if (input.answeredByWorkFolderId !== undefined && record.owner.workFolderId !== input.answeredByWorkFolderId) {
+        throw new WorkFoldRequestLineageError("An answer can only come from the work-folder that was asked.");
       }
       const at = this.#now().toISOString();
       const answered = parseWorkFoldQuestionRecord({
@@ -591,7 +592,7 @@ export class WorkFoldRequestStore {
         state: "answered",
         answer: input.answer,
         answeredAt: at,
-        answeredBySpaceId: input.answeredBySpaceId ?? null,
+        answeredByWorkFolderId: input.answeredByWorkFolderId ?? null,
       });
       await this.#writeQuestion(answered);
       await this.#recomputeFrom(question.requestId);
@@ -961,7 +962,7 @@ export class WorkFoldRequestStore {
     taskId: string;
     app?: WorkFoldRequestAppRef;
     content?: string;
-    attachments?: readonly ManagementAttachmentRef[];
+    attachments?: readonly WorkFoldAgentAttachmentRef[];
     remote?: WorkFoldRequestRemoteRef | null;
     continuedFromTaskId?: string | null;
     acceptedAt?: string;
@@ -972,8 +973,8 @@ export class WorkFoldRequestStore {
     const requestId = newId("req", createdAt);
     const deadline = null;
     const owner: WorkFoldRequestOwner = { conversationId: input.owner.conversationId };
-    if (input.owner.spaceId !== undefined) owner.spaceId = input.owner.spaceId;
-    if (input.owner.spaceName !== undefined) owner.spaceName = input.owner.spaceName;
+    if (input.owner.workFolderId !== undefined) owner.workFolderId = input.owner.workFolderId;
+    if (input.owner.workFolderName !== undefined) owner.workFolderName = input.owner.workFolderName;
     const draft: WorkFoldRequestRecord = {
       schema: workFoldRequestRecordSchema,
       requestId,
@@ -1011,7 +1012,7 @@ export class WorkFoldRequestStore {
       remote: input.remote ?? null,
       assignment: boundContent(input.content ?? ""),
       content: boundContent(input.content ?? ""),
-      attachments: dedupeAttachments([...(input.attachments ?? [])]).slice(0, maxManagementAttachments),
+      attachments: dedupeAttachments([...(input.attachments ?? [])]).slice(0, maxWorkFoldAgentAttachments),
       actions: [],
       continuedFromTaskId: input.continuedFromTaskId ?? null,
     };
@@ -1366,7 +1367,7 @@ function boundContent(content: string): string {
   return Buffer.from(content, "utf8").subarray(0, limit).toString("utf8").replace(/\uFFFD+$/u, "");
 }
 
-function dedupeAttachments(attachments: readonly ManagementAttachmentRef[]): ManagementAttachmentRef[] {
+function dedupeAttachments(attachments: readonly WorkFoldAgentAttachmentRef[]): WorkFoldAgentAttachmentRef[] {
   const seen = new Set<string>();
   return attachments.filter((attachment) => {
     const key = `${attachment.kind}:${attachment.target}`;

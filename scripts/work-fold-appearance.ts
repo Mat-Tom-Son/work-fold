@@ -4,18 +4,18 @@ import { parseArgs } from "node:util";
 
 import {
   accentIdentityFromHex,
-  createSpaceAppearanceProposal,
+  createWorkFolderAppearanceProposal,
   normalizeHexColor,
-  parseSpaceAppearanceProposal,
-  resolveSpaceAppearance,
-  spaceAppearanceBannerNames,
-  spaceAppearanceBannerPresetIds,
-  normalizeSpaceAppearanceBannerFraming,
-  type SpaceAppearanceBannerImagePosition,
-  type SpaceAppearanceProposal,
-} from "../src/shared/space-appearance.js";
+  parseWorkFolderAppearanceProposal,
+  resolveWorkFolderAppearance,
+  workFolderAppearanceBannerNames,
+  workFolderAppearanceBannerPresetIds,
+  normalizeWorkFolderAppearanceBannerFraming,
+  type WorkFolderAppearanceBannerImagePosition,
+  type WorkFolderAppearanceProposal,
+} from "../src/shared/work-folder-appearance.js";
 
-const bannerNames = new Set<string>(spaceAppearanceBannerNames);
+const bannerNames = new Set<string>(workFolderAppearanceBannerNames);
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
@@ -52,8 +52,8 @@ async function createCommand(args: string[]): Promise<void> {
       "frame-y": { type: "string" },
       zoom: { type: "string" },
       position: { type: "string", default: "center" },
-      "space-id": { type: "string" },
-      "space-name": { type: "string" },
+      "work-folder-id": { type: "string" },
+      "work-folder-name": { type: "string" },
       "created-by": { type: "string", default: "other" },
       out: { type: "string" },
       force: { type: "boolean", default: false },
@@ -67,22 +67,22 @@ async function createCommand(args: string[]): Promise<void> {
     throw new Error(`--banner must be one of: ${[...bannerNames].join(", ")}`);
   }
   const position = normalizePosition(parsed.values.position);
-  const bannerPreset = spaceAppearanceBannerPresetIds.find((id) => id === parsed.values["banner-preset"]);
-  if (parsed.values["banner-preset"] && !bannerPreset) throw new Error(`--banner-preset must be one of: ${spaceAppearanceBannerPresetIds.join(", ")}`);
+  const bannerPreset = workFolderAppearanceBannerPresetIds.find((id) => id === parsed.values["banner-preset"]);
+  if (parsed.values["banner-preset"] && !bannerPreset) throw new Error(`--banner-preset must be one of: ${workFolderAppearanceBannerPresetIds.join(", ")}`);
   if (bannerPreset && parsed.values["banner-image"]) throw new Error("Choose --banner-preset or --banner-image.");
   const hasFraming = parsed.values["frame-x"] !== undefined || parsed.values["frame-y"] !== undefined || parsed.values.zoom !== undefined;
-  const bannerFraming = hasFraming ? normalizeSpaceAppearanceBannerFraming({ x: Number(parsed.values["frame-x"] ?? 50), y: Number(parsed.values["frame-y"] ?? (position === "top" ? 0 : position === "bottom" ? 100 : 50)), zoom: Number(parsed.values.zoom ?? 1) }) : undefined;
+  const bannerFraming = hasFraming ? normalizeWorkFolderAppearanceBannerFraming({ x: Number(parsed.values["frame-x"] ?? 50), y: Number(parsed.values["frame-y"] ?? (position === "top" ? 0 : position === "bottom" ? 100 : 50)), zoom: Number(parsed.values.zoom ?? 1) }) : undefined;
   if (hasFraming && !bannerFraming) throw new Error("Frame coordinates must be between 0 and 100; zoom must be between 1 and 2.");
   const createdBy = normalizeCreatedBy(parsed.values["created-by"]);
   const bannerImage = parsed.values["banner-image"]
     ? await encodeBannerImage(resolve(parsed.values["banner-image"]))
     : undefined;
-  const proposal = createSpaceAppearanceProposal({
+  const proposal = createWorkFolderAppearanceProposal({
     name: parsed.values.name?.trim() || "work-fold appearance",
     description: parsed.values.description,
     target: {
-      spaceId: parsed.values["space-id"],
-      spaceName: parsed.values["space-name"],
+      workFolderId: parsed.values["work-folder-id"],
+      workFolderName: parsed.values["work-folder-name"],
     },
     customization: {
       schema: 2,
@@ -121,7 +121,7 @@ async function inspectCommand(command: "validate" | "resolve", args: string[]): 
   });
   if (parsed.positionals.length !== 1) throw new Error(`${command} requires one proposal file.`);
   const path = resolve(parsed.positionals[0]!);
-  const proposal = parseSpaceAppearanceProposal(JSON.parse(await readFile(path, "utf8")));
+  const proposal = parseWorkFolderAppearanceProposal(JSON.parse(await readFile(path, "utf8")));
   const resolved = resolveProposal(proposal);
   if (parsed.values.json || command === "resolve") {
     process.stdout.write(`${JSON.stringify({ valid: true, path, proposal, resolved }, null, 2)}\n`);
@@ -131,12 +131,12 @@ async function inspectCommand(command: "validate" | "resolve", args: string[]): 
   printAudit(proposal);
 }
 
-function resolveProposal(proposal: SpaceAppearanceProposal) {
+function resolveProposal(proposal: WorkFolderAppearanceProposal) {
   const primary = proposal.customization.primary
     ?? accentIdentityFromHex(proposal.customization.color ?? "#60646c");
   const secondary = proposal.customization.secondary
     ?? (proposal.customization.color2 ? accentIdentityFromHex(proposal.customization.color2) : primary);
-  return resolveSpaceAppearance({
+  return resolveWorkFolderAppearance({
     primary,
     secondary,
     bannerName: proposal.customization.bannerName,
@@ -144,7 +144,7 @@ function resolveProposal(proposal: SpaceAppearanceProposal) {
   });
 }
 
-function printAudit(proposal: SpaceAppearanceProposal): void {
+function printAudit(proposal: WorkFolderAppearanceProposal): void {
   const result = resolveProposal(proposal);
   process.stdout.write(`Light and dark semantic roles: ${result.passes ? "PASS" : "NEEDS ATTENTION"}\n`);
   for (const palette of [result.light, result.dark]) {
@@ -181,18 +181,18 @@ function requireHex(value: string | undefined, option: string): string {
   return normalizeHexColor(value);
 }
 
-function normalizePosition(value: string | undefined): SpaceAppearanceBannerImagePosition {
+function normalizePosition(value: string | undefined): WorkFolderAppearanceBannerImagePosition {
   if (value === "top" || value === "center" || value === "bottom") return value;
   throw new Error("--position must be top, center, or bottom.");
 }
 
-function normalizeCreatedBy(value: string | undefined): SpaceAppearanceProposal["createdBy"] {
+function normalizeCreatedBy(value: string | undefined): WorkFolderAppearanceProposal["createdBy"] {
   if (value === "codex" || value === "claude-code" || value === "human" || value === "other") return value;
   throw new Error("--created-by must be codex, claude-code, human, or other.");
 }
 
 function defaultProposalName(name: string): string {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "space";
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "work-folder";
   return `${slug}.work-fold-appearance.json`;
 }
 
@@ -208,7 +208,7 @@ Commands:
 
 Create options:
   --secondary "#6550b9"     Optional paired banner colour
-  --icon folder             Fluent Space identity icon id
+  --icon folder             Fluent work-folder identity icon id
   --banner classic          none, classic, mist, horizon, aurora, halftone,
                             blueprint, pinstripe, ribbon, or bold
   --banner-image <path>     Safe raster image; resized and encoded as WebP
@@ -216,8 +216,8 @@ Create options:
   --frame-x 50 --frame-y 50 Image framing, each between 0 and 100
   --zoom 1                  Image zoom, between 1 and 2
   --position center         top, center, or bottom
-  --space-id <id>       Advisory target shown during review
-  --space-name <name>   Advisory target shown during review
+  --work-folder-id <id>       Advisory target shown during review
+  --work-folder-name <name>   Advisory target shown during review
   --created-by codex        codex, claude-code, human, or other
   --description <text>
   --out <path>              Defaults to <name>.work-fold-appearance.json

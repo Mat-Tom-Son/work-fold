@@ -6,13 +6,13 @@ import { chatContextRequestForTab } from "../web-local/src/lib/chat-context-requ
 const request = {
   id: 7,
   path: "budget.csv",
-  spaceId: "space-source",
-  surfaceTabId: "chat:space-source:new:7",
+  workFolderId: "work-folder-source",
+  surfaceTabId: "chat:work-folder-source:new:7",
 };
 
-test("a file attachment request reaches only its exact Space-bound Chat tab", () => {
-  assert.equal(chatContextRequestForTab(request, "space-source", "chat:space-source:new:7"), request);
-  assert.equal(chatContextRequestForTab(request, "space-target", "chat:space-source:new:7"), null);
-  assert.equal(chatContextRequestForTab(request, "space-source", "chat:space-source:new:8"), null);
-  assert.equal(chatContextRequestForTab(null, "space-source", "chat:space-source:new:7"), null);
+test("a file attachment request reaches only its exact work-folder-bound Chat tab", () => {
+  assert.equal(chatContextRequestForTab(request, "work-folder-source", "chat:work-folder-source:new:7"), request);
+  assert.equal(chatContextRequestForTab(request, "work-folder-target", "chat:work-folder-source:new:7"), null);
+  assert.equal(chatContextRequestForTab(request, "work-folder-source", "chat:work-folder-source:new:8"), null);
+  assert.equal(chatContextRequestForTab(null, "work-folder-source", "chat:work-folder-source:new:7"), null);
 });

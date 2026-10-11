@@ -62,7 +62,7 @@ export function workFoldStartupRecoveryDialog(
       stage: stage.kind,
       type: "warning",
       message: plan.message,
-      detail: "Local work-fold data was created by a newer build. Check for a compatible update before opening it. Your Spaces and app data are safe.",
+      detail: "Local work-fold data was created by a newer build. Check for a compatible update before opening it. Your work-folders and app data are safe.",
       buttons: ["Check for Updates", "Open Releases", "Quit"],
       defaultId: 0,
       cancelId: 2,
@@ -77,7 +77,7 @@ export function workFoldStartupRecoveryDialog(
       stage: stage.kind,
       type: "warning",
       message: `work-fold ${version || "update"} is available.`,
-      detail: "Download and install it before opening the newer local data. Your Spaces and app data are safe.",
+      detail: "Download and install it before opening the newer local data. Your work-folders and app data are safe.",
       buttons: ["Download and Install", "Open Releases", "Quit"],
       defaultId: 0,
       cancelId: 2,
@@ -96,7 +96,7 @@ export function workFoldStartupRecoveryDialog(
       : checkFailed
         ? "work-fold could not check for updates."
         : "No compatible work-fold update was found.",
-    detail: "Open the public Releases page or return to the newer development build that created this data. Your Spaces and app data are safe.",
+    detail: "Open the public Releases page or return to the newer development build that created this data. Your work-folders and app data are safe.",
     buttons: ["Open Releases", "Quit"],
     defaultId: 0,
     cancelId: 1,

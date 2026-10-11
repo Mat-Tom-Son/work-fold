@@ -38,12 +38,51 @@ Rules for a case-preserving rename of one token:
   an entry mapping a token to itself means "keep".
 
 Opaque identifiers keep their established prefix: a work-folder id is
-`space-<16 hex>` (and a removal transaction `space-removal_<uuid>`) because
+`space-<16 hex>` (and a removal transaction `space-removal_<uuid>`, whose
+claimed folder is `.space-removal-<uuid>`) because
 that identity is written into every registered folder's portable
-`.work-fold/` metadata. Machine-local ids (Automations, Recently deleted
-entries) follow the new words and are migrated in app state.
+`.work-fold/` metadata, and a Recently deleted entry id stays
+`trash-<timestamp>-<hex>` because entries name their own directories.
+Machine-local Automation ids follow the new words (`automation-…`) and are
+migrated in app state.
 
 The folder that holds app-managed work-folders keeps its name (`spaces/` in
-app state), and path-derived storage keys keep their old fallback segment:
-moving or re-keying them would move user content and detach History,
-per-folder state, and Pi chat sessions from existing folders.
+app state), as does the work-fold agent's working folder (`management/`), and
+path-derived storage keys keep their old fallback segment: moving or
+re-keying them would move user content and detach History, per-folder state,
+and Pi chat sessions from existing folders. The paired-web wire operations
+(`management.*`) and the restricted-app bridge API (`assistant.request`,
+`assistant.infer`, `assistantActions`) also keep their names; "worker" already
+means an app's background runtime there.
+
+## Existing data
+
+Two one-time migrations carry a profile from before 2026-10-10 forward:
+
+- `src/local/vocabulary-migration.ts` runs at desktop and local-API startup.
+  It renames the app-state stores whose names changed (for example
+  `space-registry.json` → `work-folder-registry.json`, `routings/` →
+  `automations/`, `trash/` → `recently-deleted/`), rewrites the JSON keys and
+  enum values inside an allowlist of app-owned stores using
+  `vocabulary-migration-tables.json` (generated from this codemod's report),
+  and moves each registered folder's `.work-fold/space.json` to
+  `.work-fold/work-folder.json`. It never rewrites a person's words, file
+  paths, conversation logs, History objects, or deleted folders' contents,
+  keeps every original under `vocabulary-migration-backup/`, and records
+  `vocabulary-migration.json` so it runs once. A folder that arrives later
+  from another machine is migrated when it is registered or read.
+- `web-local/src/lib/storage-migration.ts` moves the renderer's saved tabs,
+  unsent Chat drafts, and view preferences from `work-fold.space.*` to
+  `work-fold.work-folder.*` keys.
+
+The generated `manage-spaces` Skill in the work-fold agent's folder is
+replaced by `manage-work-folders` on the next start.
+
+## Re-running the codemod
+
+`node scripts/vocabulary/rename.mjs` (code pass) and `--prose` (comments,
+strings, and documents) are idempotent over already-migrated code. After a
+pass, review: Electron's `frame.routingId` (an Electron API, not ours),
+property names that became kebab strings in `Omit<>`/`in` checks, icon search
+keywords, CLI parser phrases, and English uses of "space", "routing", and
+"glance" that a word rule cannot tell apart.

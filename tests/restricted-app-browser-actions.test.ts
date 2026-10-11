@@ -14,7 +14,7 @@ import { parseAppPlatformArtifactDigest } from "../src/local/agent/app-platform-
 const authority = createAuthorityStamp();
 const provenance = { tenantId: createTenantId(), runtimeInstanceId: createRuntimeInstanceId(), dataNamespaceId: createDataNamespaceId(), principalId: createPrincipalId(),
   authority, runtimeInstanceKind: "development" as const, artifactDigest: parseAppPlatformArtifactDigest(`work-fold.artifact.v1:sha256:${"a".repeat(64)}`) };
-const scope: RestrictedAppTaskScope = { spaceId: "space-one", appId: "quotes", featureInstallationId: "feature-one",
+const scope: RestrictedAppTaskScope = { workFolderId: "work-folder-one", appId: "quotes", featureInstallationId: "feature-one",
   digest: "a".repeat(64), authorityDigest: restrictedAppTaskAuthorityDigest(authority) };
 const owner = { browserId: "browser-one", grantId: "grant-one" };
 const action: RestrictedAppToolDeclaration = { name: "Save quote", description: "Save this quote in the app.", action: "save",

@@ -3,7 +3,7 @@ import { existsSync, lstatSync, type Stats } from "node:fs";
 import { appendFile, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { spaceConversationDir, spaceStateDir } from "../state-paths.js";
+import { workFolderConversationDir, workFolderStateDir } from "../state-paths.js";
 import { maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
 import { parseAssistantPresentation, parseChatToolEdit } from "./turn-presentation.js";
 import {
@@ -29,7 +29,7 @@ export interface ChatMessage {
   remotePrincipalId?: string;
   remoteGrantId?: string;
   remoteRequestId?: string;
-  /** Stable host-owned identity for one accepted Assistant turn. */
+  /** Stable host-owned identity for one accepted turn. */
   turnId?: string;
   /** Stable caller identity used to make turn acceptance idempotent. */
   requestId?: string;
@@ -39,7 +39,7 @@ export interface ChatMessage {
 
 /**
  * Reference-style attachment metadata persisted with a user message. The
- * management conversation records absolute paths and links here; the content
+ * work-fold agent records absolute paths and links here; the content
  * itself is never copied into the transcript.
  */
 export interface ChatMessageAttachmentRef {
@@ -98,19 +98,19 @@ export interface ChatMessageLanding {
 }
 
 /**
- * How long a transcript with no person- or Assistant-authored message is left
+ * How long a transcript with no person- or agent-authored message is left
  * alone before listing treats it as abandoned and removes it. It only has to
  * outlast the gap between creating a Chat and its first user message landing.
  */
 const abandonedConversationGraceMs = 60_000;
 
-export async function listConversations(spaceRoot: string): Promise<ConversationSummary[]> {
+export async function listConversations(workFolderRoot: string): Promise<ConversationSummary[]> {
   const files = new Set<string>();
-  const dir = conversationsDir(spaceRoot);
+  const dir = conversationsDir(workFolderRoot);
   if (existsSync(dir)) {
     for (const file of await readdir(dir)) if (file.endsWith(".jsonl")) files.add(file);
   }
-  const cachedIndex = await readConversationIndex(spaceRoot);
+  const cachedIndex = await readConversationIndex(workFolderRoot);
   const nextIndex = new Map<string, ConversationIndexEntry>();
   const summaries: ConversationSummary[] = [];
   let recomputed = 0;
@@ -121,14 +121,14 @@ export async function listConversations(spaceRoot: string): Promise<Conversation
     // that sync tools and editors may replace. Include filesystem change
     // identity as well as size and mtime so a metadata-preserving rewrite
     // cannot leave the Chat list indefinitely stale.
-    const info = await stat(existingConversationPath(spaceRoot, conversationId)).catch(() => null);
+    const info = await stat(existingConversationPath(workFolderRoot, conversationId)).catch(() => null);
     const cached = info ? cachedIndex.get(conversationId) : undefined;
     if (info && cached && conversationIndexMatches(cached, info)) {
       nextIndex.set(conversationId, cached);
       summaries.push(cached.summary);
       continue;
     }
-    const { messages, malformedLineCount } = await readConversationFile(spaceRoot, conversationId);
+    const { messages, malformedLineCount } = await readConversationFile(workFolderRoot, conversationId);
     if (!messages.some((message) => message.role !== "system")) {
       // A transcript carrying only system lines is either a Chat somebody
       // opened and walked away from or one that is being started right now:
@@ -137,12 +137,12 @@ export async function listConversations(spaceRoot: string): Promise<Conversation
       // look identical here, so housekeeping waits until the transcript is old
       // enough to be certainly abandoned. Removing it on sight deletes a Chat
       // out from under the turn about to write into it — whoever happens to
-      // list Chats in that window (the rail, a routing chat hop's sibling, a
-      // handoff into another Space) would make that turn fail as
+      // list Chats in that window (the rail, an automation chat hop's sibling, a
+      // handoff into another work-folder) would make that turn fail as
       // "Conversation not found." Either way the Chat is left out of the
       // listing below, so what a person sees is the same.
       if (malformedLineCount === 0 && info && Date.now() - info.mtimeMs >= abandonedConversationGraceMs) {
-        await unlink(existingConversationPath(spaceRoot, conversationId)).catch(() => undefined);
+        await unlink(existingConversationPath(workFolderRoot, conversationId)).catch(() => undefined);
       }
       continue;
     }
@@ -152,22 +152,22 @@ export async function listConversations(spaceRoot: string): Promise<Conversation
     summaries.push(summary);
   }
   // Rebuilding the map from scratch drops entries for transcripts that no
-  // longer exist, so the cache cannot outgrow the Space it describes.
-  if (recomputed || nextIndex.size !== cachedIndex.size) await writeConversationIndex(spaceRoot, nextIndex);
+  // longer exist, so the cache cannot outgrow the work-folder it describes.
+  if (recomputed || nextIndex.size !== cachedIndex.size) await writeConversationIndex(workFolderRoot, nextIndex);
   return summaries.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
 export async function createConversation(
-  spaceRoot: string,
+  workFolderRoot: string,
   title = untitledConversationTitle,
   conversationId = `chat-${randomUUID()}`,
 ): Promise<ConversationSummary> {
   assertValidConversationId(conversationId);
-  const existing = await readConversation(spaceRoot, conversationId);
+  const existing = await readConversation(workFolderRoot, conversationId);
   if (existing.length) return conversationSummary(conversationId, existing);
   const now = new Date().toISOString();
   const normalizedTitle = normalizeConversationTitle(title) || untitledConversationTitle;
-  await appendMessage(spaceRoot, conversationId, {
+  await appendMessage(workFolderRoot, conversationId, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
@@ -179,17 +179,17 @@ export async function createConversation(
 }
 
 export async function findRemoteConversationTitleRename(
-  spaceRoot: string,
+  workFolderRoot: string,
   conversationId: string,
   provenance: ConversationRemoteTitleProvenance,
 ): Promise<ConversationSummary | null> {
-  const messages = await readConversation(spaceRoot, conversationId);
+  const messages = await readConversation(workFolderRoot, conversationId);
   const replayIndex = remoteConversationTitleRenameIndex(messages, provenance);
   return replayIndex < 0 ? null : conversationSummary(conversationId, messages.slice(0, replayIndex + 1));
 }
 
 export async function renameConversation(
-  spaceRoot: string,
+  workFolderRoot: string,
   conversationId: string,
   title: string,
   provenance?: ConversationRemoteTitleProvenance,
@@ -197,7 +197,7 @@ export async function renameConversation(
   const now = new Date().toISOString();
   const normalizedTitle = normalizeConversationTitle(title);
   if (!normalizedTitle) throw new Error("Conversation title is required.");
-  const messages = await readConversation(spaceRoot, conversationId);
+  const messages = await readConversation(workFolderRoot, conversationId);
   if (!messages.length) throw new Error("Conversation not found.");
   const replayIndex = provenance ? remoteConversationTitleRenameIndex(messages, provenance) : -1;
   if (replayIndex >= 0) return conversationSummary(conversationId, messages.slice(0, replayIndex + 1));
@@ -210,22 +210,22 @@ export async function renameConversation(
     createdAt: now,
     ...(provenance ?? {}),
   };
-  await appendMessage(spaceRoot, conversationId, titleMessage);
-  const refreshedMessages = await readConversation(spaceRoot, conversationId);
+  await appendMessage(workFolderRoot, conversationId, titleMessage);
+  const refreshedMessages = await readConversation(workFolderRoot, conversationId);
   return conversationSummary(conversationId, refreshedMessages);
 }
 
 export async function setGeneratedConversationTitle(
-  spaceRoot: string,
+  workFolderRoot: string,
   conversationId: string,
   title: string,
 ): Promise<ConversationSummary> {
-  const messages = await readConversation(spaceRoot, conversationId);
+  const messages = await readConversation(workFolderRoot, conversationId);
   if (!messages.length) throw new Error("Conversation not found.");
   const current = conversationSummary(conversationId, messages);
   const normalizedTitle = normalizeConversationTitle(title);
   if (!normalizedTitle || manualConversationTitle(messages) || generatedConversationTitle(messages)) return current;
-  await appendMessage(spaceRoot, conversationId, {
+  await appendMessage(workFolderRoot, conversationId, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
@@ -233,18 +233,18 @@ export async function setGeneratedConversationTitle(
     content: normalizedTitle,
     createdAt: new Date().toISOString(),
   });
-  return conversationSummary(conversationId, await readConversation(spaceRoot, conversationId));
+  return conversationSummary(conversationId, await readConversation(workFolderRoot, conversationId));
 }
 
 export async function markConversationTitleAttempted(
-  spaceRoot: string,
+  workFolderRoot: string,
   conversationId: string,
 ): Promise<ConversationSummary> {
-  const messages = await readConversation(spaceRoot, conversationId);
+  const messages = await readConversation(workFolderRoot, conversationId);
   if (!messages.length) throw new Error("Conversation not found.");
   const current = conversationSummary(conversationId, messages);
   if (!conversationNeedsGeneratedTitle(messages)) return current;
-  await appendMessage(spaceRoot, conversationId, {
+  await appendMessage(workFolderRoot, conversationId, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
@@ -252,7 +252,7 @@ export async function markConversationTitleAttempted(
     content: untitledConversationTitle,
     createdAt: new Date().toISOString(),
   });
-  return conversationSummary(conversationId, await readConversation(spaceRoot, conversationId));
+  return conversationSummary(conversationId, await readConversation(workFolderRoot, conversationId));
 }
 
 export function conversationNeedsGeneratedTitle(messages: ChatMessage[]): boolean {
@@ -262,11 +262,11 @@ export function conversationNeedsGeneratedTitle(messages: ChatMessage[]): boolea
 }
 
 export async function updateConversationLifecycle(
-  spaceRoot: string,
+  workFolderRoot: string,
   conversationId: string,
   patch: ConversationLifecyclePatch,
 ): Promise<ConversationSummary> {
-  const messages = await readConversation(spaceRoot, conversationId);
+  const messages = await readConversation(workFolderRoot, conversationId);
   if (!messages.length) throw new Error("Conversation not found.");
   const current = conversationSummary(conversationId, messages);
   if (typeof patch.snoozedUntil === "string" && Date.parse(patch.snoozedUntil) <= Date.now()) {
@@ -278,7 +278,7 @@ export async function updateConversationLifecycle(
   }
   if (lifecycle.archived === true) lifecycle.snoozedUntil = null;
   const now = new Date().toISOString();
-  await appendMessage(spaceRoot, conversationId, {
+  await appendMessage(workFolderRoot, conversationId, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_lifecycle",
@@ -286,23 +286,23 @@ export async function updateConversationLifecycle(
     lifecycle,
     createdAt: now,
   });
-  return conversationSummary(conversationId, await readConversation(spaceRoot, conversationId));
+  return conversationSummary(conversationId, await readConversation(workFolderRoot, conversationId));
 }
 
-export async function readConversation(spaceRoot: string, conversationId: string): Promise<ChatMessage[]> {
-  return (await readConversationFile(spaceRoot, conversationId)).messages;
+export async function readConversation(workFolderRoot: string, conversationId: string): Promise<ChatMessage[]> {
+  return (await readConversationFile(workFolderRoot, conversationId)).messages;
 }
 
 export async function readConversationSummary(
-  spaceRoot: string,
+  workFolderRoot: string,
   conversationId: string,
 ): Promise<ConversationSummary | null> {
-  const messages = await readConversation(spaceRoot, conversationId);
+  const messages = await readConversation(workFolderRoot, conversationId);
   return messages.length ? conversationSummary(conversationId, messages) : null;
 }
 
-async function readConversationFile(spaceRoot: string, conversationId: string): Promise<{ messages: ChatMessage[]; malformedLineCount: number }> {
-  const path = existingConversationPath(spaceRoot, conversationId);
+async function readConversationFile(workFolderRoot: string, conversationId: string): Promise<{ messages: ChatMessage[]; malformedLineCount: number }> {
+  const path = existingConversationPath(workFolderRoot, conversationId);
   if (!existsSync(path)) return { messages: [], malformedLineCount: 0 };
   const messages: ChatMessage[] = [];
   let malformedLineCount = 0;
@@ -316,11 +316,11 @@ async function readConversationFile(spaceRoot: string, conversationId: string): 
   return { messages, malformedLineCount };
 }
 
-export async function appendMessage(spaceRoot: string, conversationId: string, message: ChatMessage): Promise<void> {
-  const path = conversationPath(spaceRoot, conversationId);
+export async function appendMessage(workFolderRoot: string, conversationId: string, message: ChatMessage): Promise<void> {
+  const path = conversationPath(workFolderRoot, conversationId);
   const previous = conversationAppendQueues.get(path) ?? Promise.resolve();
   const operation = previous.catch(() => undefined).then(async () => {
-    await mkdir(conversationsDir(spaceRoot), { recursive: true });
+    await mkdir(conversationsDir(workFolderRoot), { recursive: true });
     const prefix = await needsLineBreakBeforeAppend(path) ? "\n" : "";
     const { workTrail: _workTrail, assistantPresentation: _presentation, ...base } = message;
     const workTrail = parseChatMessageWorkTrail(message.workTrail);
@@ -342,8 +342,8 @@ export async function appendMessage(spaceRoot: string, conversationId: string, m
 
 const conversationAppendQueues = new Map<string, Promise<void>>();
 
-export function conversationsDir(spaceRoot: string): string {
-  return spaceConversationDir(spaceRoot);
+export function conversationsDir(workFolderRoot: string): string {
+  return workFolderConversationDir(workFolderRoot);
 }
 
 interface ConversationIndexEntry {
@@ -359,20 +359,20 @@ interface ConversationIndexEntry {
 // structurally valid cache cannot preserve an obsolete derived result.
 const conversationIndexVersion = 5;
 
-function conversationIndexFile(spaceRoot: string): string {
-  return join(spaceStateDir(spaceRoot), "conversation-index.json");
+function conversationIndexFile(workFolderRoot: string): string {
+  return join(workFolderStateDir(workFolderRoot), "conversation-index.json");
 }
 
 /**
  * A derived summary cache for the Chat list. It lives in machine-local
- * application state rather than the Space's portable `.work-fold/` records
+ * application state rather than the work-folder's portable `.work-fold/` records
  * because it can always be rebuilt from the transcripts themselves, and every
  * failure path here falls back to doing exactly that.
  */
-async function readConversationIndex(spaceRoot: string): Promise<Map<string, ConversationIndexEntry>> {
+async function readConversationIndex(workFolderRoot: string): Promise<Map<string, ConversationIndexEntry>> {
   const entries = new Map<string, ConversationIndexEntry>();
   try {
-    const parsed = JSON.parse(await readFile(conversationIndexFile(spaceRoot), "utf8")) as unknown;
+    const parsed = JSON.parse(await readFile(conversationIndexFile(workFolderRoot), "utf8")) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return entries;
     const record = parsed as { version?: unknown; entries?: unknown };
     if (record.version !== conversationIndexVersion) return entries;
@@ -453,11 +453,11 @@ function conversationIndexEntry(
   };
 }
 
-async function writeConversationIndex(spaceRoot: string, entries: Map<string, ConversationIndexEntry>): Promise<void> {
-  const path = conversationIndexFile(spaceRoot);
+async function writeConversationIndex(workFolderRoot: string, entries: Map<string, ConversationIndexEntry>): Promise<void> {
+  const path = conversationIndexFile(workFolderRoot);
   const temporary = `${path}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
   try {
-    await mkdir(spaceStateDir(spaceRoot), { recursive: true });
+    await mkdir(workFolderStateDir(workFolderRoot), { recursive: true });
     const payload = { version: conversationIndexVersion, entries: Object.fromEntries(entries) };
     await writeFile(temporary, `${JSON.stringify(payload)}\n`, "utf8");
     await rename(temporary, path);
@@ -467,17 +467,17 @@ async function writeConversationIndex(spaceRoot: string, entries: Map<string, Co
   }
 }
 
-function conversationPath(spaceRoot: string, conversationId: string): string {
+function conversationPath(workFolderRoot: string, conversationId: string): string {
   assertValidConversationId(conversationId);
-  const path = join(conversationsDir(spaceRoot), `${conversationId}.jsonl`);
+  const path = join(conversationsDir(workFolderRoot), `${conversationId}.jsonl`);
   if (existsSync(path) && lstatSync(path).isSymbolicLink()) {
     throw new Error("Conversation logs cannot be symbolic links or junctions.");
   }
   return path;
 }
 
-function existingConversationPath(spaceRoot: string, conversationId: string): string {
-  return conversationPath(spaceRoot, conversationId);
+function existingConversationPath(workFolderRoot: string, conversationId: string): string {
+  return conversationPath(workFolderRoot, conversationId);
 }
 
 function parseChatMessage(line: string): ChatMessage | null {
@@ -687,7 +687,7 @@ function manualConversationTitle(messages: ChatMessage[]): string | null {
     if (message.titleSource === "placeholder" || message.titleSource === "generated" || message.titleSource === "attempted") continue;
     // createConversation historically seeded every transcript with a manual
     // "New Chat" title. Treat only that first seed as a placeholder so an
-    // Assistant-generated landing title can win, while a later intentional
+    // Agent-generated landing title can win, while a later intentional
     // rename to "New Chat" remains authoritative.
     if (index === 0 && title === untitledConversationTitle) continue;
     if (title) return title;

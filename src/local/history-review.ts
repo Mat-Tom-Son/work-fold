@@ -12,20 +12,20 @@ import {
   type HistoryFileRange,
   type HistoryTextDiff,
 } from "../shared/history-review.js";
-import { getSpaceCheckpoint, type SpaceCheckpoint } from "./history.js";
+import { getWorkFolderCheckpoint, type WorkFolderCheckpoint } from "./history.js";
 import { pathHasAlwaysSkippedSegment } from "./history-capture-policy.js";
 import { isOfficeLockFileName } from "./office-lock-files.js";
-import { containsReservedSpacePathSegment } from "./space-path-policy.js";
-import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, nestedRegisteredSpacePaths, resolveSpacePath, withSpaceHistoryOperation } from "./space.js";
-import { spaceHistoryRoot } from "./state-paths.js";
+import { containsReservedWorkFolderPathSegment } from "./work-folder-path-policy.js";
+import { assertWorkFolderDoesNotContainState, ensureSafeWorkFolderRoot, nestedRegisteredWorkFolderPaths, resolveWorkFolderPath, withWorkFolderHistoryOperation } from "./work-folder.js";
+import { workFolderHistoryRoot } from "./state-paths.js";
 
 /** Reads only content owned by this checkpoint and path, never an arbitrary blob hash. */
 export async function readHistoryFile(
-  spaceRoot: string,
+  workFolderRoot: string,
   input: HistoryFileReadOptions,
 ): Promise<HistoryFileRead> {
-  return withSpaceHistoryOperation(spaceRoot, async () => {
-    const { root, path } = await reviewPath(spaceRoot, input.path);
+  return withWorkFolderHistoryOperation(workFolderRoot, async () => {
+    const { root, path } = await reviewPath(workFolderRoot, input.path);
     if (input.signal?.aborted) throw Object.assign(new Error("History read cancelled."), { name: "AbortError" });
     const observation = await checkpointObservation(root, path, input.checkpointId);
     if (input.expectedSha256 !== undefined && (!/^[a-f0-9]{64}$/u.test(input.expectedSha256) || input.expectedSha256 !== observation.hashSha256)) throw requestError("The selected History source does not match expectedSha256.", 409);
@@ -37,11 +37,11 @@ export async function readHistoryFile(
 
 /** Omission of toCheckpointId means one bounded observation of the current file. */
 export async function compareHistoryFile(
-  spaceRoot: string,
+  workFolderRoot: string,
   input: { path: string; fromCheckpointId: string; toCheckpointId?: string },
 ): Promise<HistoryFileComparison> {
-  return withSpaceHistoryOperation(spaceRoot, async () => {
-    const { root, path } = await reviewPath(spaceRoot, input.path);
+  return withWorkFolderHistoryOperation(workFolderRoot, async () => {
+    const { root, path } = await reviewPath(workFolderRoot, input.path);
     const before = await checkpointObservation(root, path, input.fromCheckpointId);
     const after = input.toCheckpointId === undefined
       ? await currentObservation(root, path)
@@ -54,20 +54,20 @@ export async function compareHistoryFile(
   });
 }
 
-async function reviewPath(spaceRoot: string, value: string): Promise<{ root: string; path: string }> {
-  const root = ensureSafeSpaceRoot(spaceRoot);
-  assertSpaceDoesNotContainState(root);
+async function reviewPath(workFolderRoot: string, value: string): Promise<{ root: string; path: string }> {
+  const root = ensureSafeWorkFolderRoot(workFolderRoot);
+  assertWorkFolderDoesNotContainState(root);
   // Reject controls so filenames cannot inject apparent diff headers or terminal commands.
   if (typeof value !== "string" || !value || value.length > 1_024 || /[\x00-\x1f\x7f]/u.test(value)
     || value.includes("\\") || /^[A-Za-z]:/u.test(value)) {
     throw requestError("History requires a bounded relative file path.", 400);
   }
   let absolutePath: string;
-  try { absolutePath = resolveSpacePath(root, value); }
+  try { absolutePath = resolveWorkFolderPath(root, value); }
   catch (error) { throw requestError(error instanceof Error ? error.message : "Invalid History path.", 400); }
   const path = relative(root, absolutePath).split(sep).join("/");
-  if (!path) throw requestError("The Folder root cannot be used as a History file.", 400);
-  // resolveSpacePath uses existsSync; lstat also catches dangling links.
+  if (!path) throw requestError("The work-folder root cannot be used as a History file.", 400);
+  // resolveWorkFolderPath uses existsSync; lstat also catches dangling links.
   let cursor = root;
   const ancestors: Array<{ dev: number; ino: number }> = [];
   for (const segment of path.split("/")) {
@@ -80,18 +80,18 @@ async function reviewPath(spaceRoot: string, value: string): Promise<{ root: str
     if (info.isSymbolicLink()) throw requestError("History paths cannot traverse symbolic links or junctions.", 400);
     if (info.isDirectory()) ancestors.push(info);
   }
-  const nested = await nestedRegisteredSpacePaths(root);
+  const nested = await nestedRegisteredWorkFolderPaths(root);
   // Filesystem identities also catch alternate casing on case-insensitive volumes.
   const nestedInfo = await Promise.all(nested.map((child) => lstat(join(root, child)).catch(() => null)));
   if (nested.some((child) => covers(child, path)) || nestedInfo.some((child) => child && ancestors.some((parent) => child.dev === parent.dev && child.ino === parent.ino))) {
-    throw requestError("This History path belongs to another registered Space (Folder).", 403);
+    throw requestError("This History path belongs to another registered work-folder.", 403);
   }
   return { root, path };
 }
 
 async function checkpointObservation(root: string, path: string, checkpointId: string): Promise<HistoryFileObservation> {
-  const checkpoint = typeof checkpointId === "string" ? await getSpaceCheckpoint(root, checkpointId) : null;
-  if (!checkpoint || checkpoint.checkpointId !== checkpointId) throw requestError("Restore point not found in this Folder.", 404);
+  const checkpoint = typeof checkpointId === "string" ? await getWorkFolderCheckpoint(root, checkpointId) : null;
+  if (!checkpoint || checkpoint.checkpointId !== checkpointId) throw requestError("Restore point not found in this work-folder.", 404);
   if (!validCheckpoint(checkpoint)) return { source: "checkpoint", checkpointId, status: "unavailable", reason: "invalid_checkpoint" };
   const base = { source: "checkpoint" as const, checkpointId, capturedAt: checkpoint.createdAt };
   const entries = checkpoint.files.filter((file) => file.path === path);
@@ -114,8 +114,8 @@ async function checkpointObservation(root: string, path: string, checkpointId: s
   const metadata = { ...base, sizeBytes: file.sizeBytes, hashSha256: file.hashSha256, hashVerified: false };
   if (file.sizeBytes > HISTORY_REVIEW_LIMITS.maxFileBytes) return { ...metadata, status: "too_large", reason: "file_size_limit" };
   const hash = file.hashSha256;
-  // The hash only reaches this path after exact selected-Folder/checkpoint/file membership.
-  const blobPath = join(spaceHistoryRoot(root), "objects", hash.slice(0, 2), hash.slice(2));
+  // The hash only reaches this path after exact selected-work-folder/checkpoint/file membership.
+  const blobPath = join(workFolderHistoryRoot(root), "objects", hash.slice(0, 2), hash.slice(2));
   const result = await boundedRead(blobPath);
   if (result.kind !== "bytes") {
     return { ...metadata, status: "unavailable", reason: result.kind === "absent" ? "missing_blob"
@@ -140,7 +140,7 @@ async function checkpointRange(root: string, path: string, observation: HistoryF
   const totalBytes = observation.sizeBytes;
   if (offset > totalBytes) throw requestError("History byte offset is beyond the saved file.", 400);
   const base = { offsetBytes: offset, lengthBytes: 0, totalBytes, nextOffsetBytes: null, complete: false, hashSha256: hash, hashVerified: false };
-  const blobPath = join(spaceHistoryRoot(root), "objects", hash.slice(0, 2), hash.slice(2));
+  const blobPath = join(workFolderHistoryRoot(root), "objects", hash.slice(0, 2), hash.slice(2));
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   const abort = () => { if (input.signal?.aborted) throw Object.assign(new Error("History read cancelled."), { name: "AbortError" }); };
   try {
@@ -191,7 +191,7 @@ async function checkpointRange(root: string, path: string, observation: HistoryF
   } finally { await handle?.close().catch(() => undefined); }
 }
 
-function validCheckpoint(checkpoint: SpaceCheckpoint): boolean {
+function validCheckpoint(checkpoint: WorkFolderCheckpoint): boolean {
   return (checkpoint.scope === "full" || checkpoint.scope === "targeted")
     && typeof checkpoint.createdAt === "string" && checkpoint.createdAt.length <= 64 && Number.isFinite(Date.parse(checkpoint.createdAt))
     && Array.isArray(checkpoint.captureRoots) && checkpoint.captureRoots.every((path) => validStoredPath(path, false))
@@ -200,7 +200,7 @@ function validCheckpoint(checkpoint: SpaceCheckpoint): boolean {
     && Array.isArray(checkpoint.skippedFiles) && checkpoint.skippedFiles.every((file) => file && validStoredPath(file.path, true)
       && ["too_large", "unreadable", "symbolic_link", "excluded"].includes(file.reason) && validSize(file.sizeBytes))
     && Array.isArray(checkpoint.files) && checkpoint.files.every((file) => file && validStoredPath(file.path, false)
-      && !containsReservedSpacePathSegment(file.path) && typeof file.hashSha256 === "string" && /^[a-f0-9]{64}$/u.test(file.hashSha256) && validSize(file.sizeBytes));
+      && !containsReservedWorkFolderPathSegment(file.path) && typeof file.hashSha256 === "string" && /^[a-f0-9]{64}$/u.test(file.hashSha256) && validSize(file.sizeBytes));
 }
 
 function validStoredPath(value: unknown, allowRoot: boolean): value is string {
@@ -215,8 +215,8 @@ function validSize(value: unknown): value is number {
 
 async function currentObservation(root: string, path: string): Promise<HistoryFileObservation> {
   const base = { source: "current" as const, observedAt: new Date().toISOString() };
-  const absolutePath = resolveSpacePath(root, path);
-  const result = await boundedRead(absolutePath, () => { resolveSpacePath(root, path); });
+  const absolutePath = resolveWorkFolderPath(root, path);
+  const result = await boundedRead(absolutePath, () => { resolveWorkFolderPath(root, path); });
   if (result.kind === "absent") return { ...base, status: "absent" };
   if (result.kind === "too_large") return { ...base, status: "too_large", sizeBytes: result.sizeBytes, reason: "file_size_limit" };
   if (result.kind !== "bytes") return { ...base, status: "unavailable",

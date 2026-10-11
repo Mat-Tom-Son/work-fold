@@ -4,8 +4,8 @@ import test from "node:test";
 
 import {
   defaultAgentSdkDir,
-  spaceSessionDir,
-  spaceStorageKey,
+  workFolderSessionDir,
+  workFolderStorageKey,
 } from "../src/local/agent/agent-data-dir.js";
 
 test("work-fold preserves Pi's native agent override and ignores the old product override", () => {
@@ -21,14 +21,14 @@ test("work-fold preserves Pi's native agent override and ignores the old product
 });
 
 test("work-fold Pi sessions use a product namespace beneath the shared Pi agent root", () => {
-  const root = "/Users/example/Documents/Shared Space";
+  const root = "/Users/example/Documents/Shared work-folder";
   const agentRoot = "/Users/example/.pi/agent";
   assert.equal(
-    spaceSessionDir(root, agentRoot),
-    join(agentRoot, "sessions", "work-fold", spaceStorageKey(root)),
+    workFolderSessionDir(root, agentRoot),
+    join(agentRoot, "sessions", "work-fold", workFolderStorageKey(root)),
   );
   assert.notEqual(
-    spaceSessionDir(root, agentRoot),
-    join(agentRoot, "sessions", spaceStorageKey(root)),
+    workFolderSessionDir(root, agentRoot),
+    join(agentRoot, "sessions", workFolderStorageKey(root)),
   );
 });

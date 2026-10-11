@@ -94,7 +94,7 @@ test("provider setup API connects a provider with no chat models without changin
     auth: { apiKey: { name: "Provider credentials", login: async () => ({ type: "api_key", key: "synthetic", env: { ACCOUNT: "synthetic-account" } }),
       resolve: async ({ credential }) => credential ? { auth: { apiKey: credential.key }, source: "stored credential" } : undefined } },
   });
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "content"), loadEnv: false,
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "content"), loadEnv: false,
     piRuntimeProvider: { resolveRuntime: async () => ({ agentDir: root, credentials, modelRuntime: runtime,
       preferredModel: { provider: "chat", id: "chat-model" } }) }, piOAuthHooks: hooks });
   t.after(() => api.close());
@@ -102,10 +102,10 @@ test("provider setup API connects a provider with no chat models without changin
     const response = await fetch(`${api.origin}${path}`, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined);
     const value = await response.json(); assert.equal(response.ok, true, JSON.stringify(value)); return value;
   };
-  const initial = await request("/api/agent/models?scope=management");
+  const initial = await request("/api/agent/models?scope=agent");
   assert.equal(initial.providers.find((item: { id: string }) => item.id === "zero-models").modelCount, 0);
   for (const [path, body] of [["/api/agent/configure", { apiKey: "entered-key" }], ["/api/agent/login", { method: "api_key" }]] as const) {
-    const result = await request(path, { scope: "management", provider: "zero-models", ...body });
+    const result = await request(path, { scope: "agent", provider: "zero-models", ...body });
     assert.equal(result.status.model, "chat-model");
     assert.equal(result.providers.find((item: { id: string }) => item.id === "zero-models").authType, "api_key");
     assert.ok(!JSON.stringify(result).includes("entered-key"));

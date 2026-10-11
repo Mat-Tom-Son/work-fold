@@ -24,7 +24,7 @@ const fixedNow = new Date("2026-07-11T12:00:00.000Z");
 test("CLI file broker atomically claims, executes, responds, and deduplicates in-flight work", async () => {
   await withBroker(async ({ broker, root }) => {
     const id = randomUUID();
-    const request = createWorkFoldCliRequest({ id, argv: ["spaces", "list"], cwd: root, createdAt: fixedNow.toISOString() });
+    const request = createWorkFoldCliRequest({ id, argv: ["work-folders", "list"], cwd: root, createdAt: fixedNow.toISOString() });
     await broker.writeRequest(request);
     const paths = broker.requestPaths(id);
     assert.equal(existsSync(paths.request), true);
@@ -151,7 +151,7 @@ test("CLI broker claims, executes, and replays act-lane requests without re-exec
     const id = randomUUID();
     await broker.writeActRequest(createWorkFoldCliActRequest({
       id,
-      argv: ["chat", "status", "--space", "space-1"],
+      argv: ["chat", "status", "--work-folder", "work-folder-1"],
       cwd: root,
       actToken: "0".repeat(64),
       createdAt: fixedNow.toISOString(),
@@ -179,7 +179,7 @@ test("CLI broker claims, executes, and replays act-lane requests without re-exec
   await withBroker(async ({ broker, root }) => {
     const oversized = createWorkFoldCliActRequest({
       id: randomUUID(),
-      argv: ["chat", "send", "--space", "space-1", "--message-from-payload"],
+      argv: ["chat", "send", "--work-folder", "work-folder-1", "--message-from-payload"],
       cwd: root,
       actToken: "0".repeat(64),
       createdAt: fixedNow.toISOString(),

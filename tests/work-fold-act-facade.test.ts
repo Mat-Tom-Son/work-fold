@@ -11,13 +11,13 @@ import { RestrictedAppService } from "../src/local/agent/restricted-app-service.
 import { FileRestrictedAppStorage } from "../src/local/agent/restricted-app-storage.js";
 import { WorkFoldCliError } from "../src/local/cli/index.js";
 import {
-  normalizeWorkFoldRoutingDeclaration,
-  workFoldRoutingDigest,
-} from "../src/local/routings/routing-declarations.js";
+  normalizeWorkFoldAutomationDeclaration,
+  workFoldAutomationDigest,
+} from "../src/local/automations/automation-declarations.js";
 import { startLocalApi } from "../src/local/server.js";
-import { setSpaceIgnoreState } from "../src/local/space-ignore.js";
+import { setWorkFolderIgnoreState } from "../src/local/work-folder-ignore.js";
 
-test("the act facade drives Space, conversation, and file-addition lifecycles with CLI semantics", async () => {
+test("the act facade drives work-folder, conversation, and file-addition lifecycles with CLI semantics", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-facade-test-"));
   await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
   await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
@@ -29,7 +29,7 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -39,24 +39,24 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
   });
   try {
     const facade = api.actFacade;
-    const createdSpace = await facade.createSpace({ name: "Act Space" });
-    assert.ok(createdSpace.space.id);
-    assert.equal(createdSpace.space.name, "Act Space");
-    await assert.rejects(() => facade.createSpace({ name: "  " }), /Space name is required/);
+    const createdWorkFolder = await facade.createWorkFolder({ name: "Act work-folder" });
+    assert.ok(createdWorkFolder.workFolder.id);
+    assert.equal(createdWorkFolder.workFolder.name, "Act work-folder");
+    await assert.rejects(() => facade.createWorkFolder({ name: "  " }), /work-folder name is required/);
 
-    // Space selection follows the CLI id-or-exact-name semantics.
-    const byName = await facade.listConversations({ space: "Act Space" });
+    // work-folder selection follows the CLI id-or-exact-name semantics.
+    const byName = await facade.listConversations({ workFolder: "Act work-folder" });
     assert.deepEqual(byName.conversations, []);
     await assert.rejects(
-      () => facade.listConversations({ space: "Missing Space" }),
+      () => facade.listConversations({ workFolder: "Missing work-folder" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
     const registeredRoot = join(sandbox, "external-folder");
     await mkdir(registeredRoot, { recursive: true });
-    const registered = await facade.registerSpace({ spaceRoot: registeredRoot });
-    assert.equal(registered.space.spaceRoot, registeredRoot);
-    await assert.rejects(() => facade.registerSpace({ spaceRoot: "relative/path" }), /absolute folder path/);
+    const registered = await facade.registerWorkFolder({ workFolderRoot: registeredRoot });
+    assert.equal(registered.workFolder.workFolderRoot, registeredRoot);
+    await assert.rejects(() => facade.registerWorkFolder({ workFolderRoot: "relative/path" }), /absolute folder path/);
 
     // Checks remain inert until an explicit enable act, operate over the exact
     // designated file, and use their own task-scoped result lifecycle.
@@ -76,35 +76,35 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
       },
     }), "utf8");
     const check = await facade.checksEnable({
-      space: createdSpace.space.id,
+      workFolder: createdWorkFolder.workFolder.id,
       proposalPath: checkProposalPath,
       cwd: sandbox,
     });
     assert.equal(check.check.targetCount, 1);
-    const checkRun = await facade.checksRun({ space: createdSpace.space.id, checkId: check.check.id });
+    const checkRun = await facade.checksRun({ workFolder: createdWorkFolder.workFolder.id, checkId: check.check.id });
     await waitForAsync(async () => {
-      const status = await facade.checksTask({ space: createdSpace.space.id, taskId: checkRun.taskId });
+      const status = await facade.checksTask({ workFolder: createdWorkFolder.workFolder.id, taskId: checkRun.taskId });
       return status.task.state !== "accepted" && status.task.state !== "running";
     });
-    const checkResult = await facade.checksResult({ space: createdSpace.space.id, taskId: checkRun.taskId });
+    const checkResult = await facade.checksResult({ workFolder: createdWorkFolder.workFolder.id, taskId: checkRun.taskId });
     assert.equal(checkResult.run.state, "succeeded");
     assert.equal(checkResult.run.findings.length, 1);
-    const checkProblems = await facade.checksProblems({ space: createdSpace.space.id, checkId: check.check.id });
+    const checkProblems = await facade.checksProblems({ workFolder: createdWorkFolder.workFolder.id, checkId: check.check.id });
     assert.equal(checkProblems.findings.length, 1);
     await facade.checksDecide({
-      space: createdSpace.space.id,
+      workFolder: createdWorkFolder.workFolder.id,
       findingId: checkProblems.findings[0]!.id,
       decision: "reject",
     });
-    assert.equal((await facade.checksProblems({ space: createdSpace.space.id })).findings.length, 0);
+    assert.equal((await facade.checksProblems({ workFolder: createdWorkFolder.workFolder.id })).findings.length, 0);
 
-    const conversation = await facade.createConversation({ space: createdSpace.space.id });
+    const conversation = await facade.createConversation({ workFolder: createdWorkFolder.workFolder.id });
     await assert.rejects(
-      () => facade.sendMessage({ space: createdSpace.space.id, content: "hello" }),
+      () => facade.sendMessage({ workFolder: createdWorkFolder.workFolder.id, content: "hello" }),
       /--conversation <id> or --new/,
     );
     const send = await facade.sendMessage({
-      space: createdSpace.space.id,
+      workFolder: createdWorkFolder.workFolder.id,
       conversationId: conversation.conversation.id,
       content: "/hold",
     });
@@ -115,32 +115,32 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
     assert.equal(turnTask?.actor.kind, "cli", "act-lane turns must record a cli actor in the kernel");
 
     await assert.rejects(
-      () => facade.sendMessage({ space: createdSpace.space.id, conversationId: conversation.conversation.id, content: "again" }),
+      () => facade.sendMessage({ workFolder: createdWorkFolder.workFolder.id, conversationId: conversation.conversation.id, content: "again" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict",
     );
 
     // Waiting is task-scoped: follow the exact accepted turn to a terminal
     // outcome instead of polling the conversation for idleness.
     await waitForAsync(async () =>
-      (await facade.turnStatus({ space: createdSpace.space.id, taskId: send.taskId })).task.state !== "running");
-    const settled = await facade.turnStatus({ space: createdSpace.space.id, taskId: send.taskId });
+      (await facade.turnStatus({ workFolder: createdWorkFolder.workFolder.id, taskId: send.taskId })).task.state !== "running");
+    const settled = await facade.turnStatus({ workFolder: createdWorkFolder.workFolder.id, taskId: send.taskId });
     assert.equal(settled.task.state, "succeeded");
     assert.equal(settled.task.conversationId, conversation.conversation.id);
     assert.ok(settled.task.messageId, "a succeeded turn must record its response message id");
-    const turnResult = await facade.turnResult({ space: createdSpace.space.id, taskId: send.taskId });
+    const turnResult = await facade.turnResult({ workFolder: createdWorkFolder.workFolder.id, taskId: send.taskId });
     assert.equal(turnResult.message.content, "Command completed.");
     assert.equal(turnResult.message.id, settled.task.messageId);
     assert.equal(turnResult.task.state, "succeeded");
 
-    const unknownTask = await facade.turnStatus({ space: createdSpace.space.id, taskId: "task-unknown" });
+    const unknownTask = await facade.turnStatus({ workFolder: createdWorkFolder.workFolder.id, taskId: "task-unknown" });
     assert.equal(unknownTask.task.state, "unknown");
     await assert.rejects(
-      () => facade.turnResult({ space: createdSpace.space.id, taskId: "task-unknown" }),
+      () => facade.turnResult({ workFolder: createdWorkFolder.workFolder.id, taskId: "task-unknown" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
     const result = await facade.conversationResult({
-      space: createdSpace.space.id,
+      workFolder: createdWorkFolder.workFolder.id,
       conversationId: conversation.conversation.id,
       messages: 5,
     });
@@ -150,33 +150,33 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
     assert.equal(result.state, "idle");
 
     // A failing turn (no provider is configured, so a plain prompt fails)
-    // settles as failed for its own task and saves a sanitized Assistant
+    // settles as failed for its own task and saves a sanitized agent
     // result instead of leaving an older success looking current.
     const failing = await facade.sendMessage({
-      space: createdSpace.space.id,
+      workFolder: createdWorkFolder.workFolder.id,
       conversationId: conversation.conversation.id,
-      content: "summarize this space",
+      content: "summarize this work-folder",
     });
     await waitForAsync(async () =>
-      (await facade.turnStatus({ space: createdSpace.space.id, taskId: failing.taskId })).task.state !== "running");
-    const failedStatus = await facade.turnStatus({ space: createdSpace.space.id, taskId: failing.taskId });
+      (await facade.turnStatus({ workFolder: createdWorkFolder.workFolder.id, taskId: failing.taskId })).task.state !== "running");
+    const failedStatus = await facade.turnStatus({ workFolder: createdWorkFolder.workFolder.id, taskId: failing.taskId });
     assert.equal(failedStatus.task.state, "failed");
     assert.ok(failedStatus.task.error, "a failed turn must record its error");
     assert.ok(failedStatus.task.messageId, "a non-cancelled failure must record its durable result message");
     await assert.rejects(
-      () => facade.turnResult({ space: createdSpace.space.id, taskId: failing.taskId }),
+      () => facade.turnResult({ workFolder: createdWorkFolder.workFolder.id, taskId: failing.taskId }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "failure",
     );
-    const failedTail = await facade.conversationResult({ space: createdSpace.space.id, conversationId: conversation.conversation.id });
+    const failedTail = await facade.conversationResult({ workFolder: createdWorkFolder.workFolder.id, conversationId: conversation.conversation.id });
     assert.match(failedTail.lastAssistant ?? "", /Settings → AI Models/);
     assert.equal(failedTail.messages.at(-1)?.interrupted, true);
     assert.doesNotMatch(JSON.stringify(failedTail), /No API key|node_modules|providers\.md/);
     await assert.rejects(
-      () => facade.conversationResult({ space: createdSpace.space.id, conversationId: "chat-missing" }),
+      () => facade.conversationResult({ workFolder: createdWorkFolder.workFolder.id, conversationId: "chat-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
-    const aborted = await facade.abortTurn({ space: createdSpace.space.id, conversationId: conversation.conversation.id });
+    const aborted = await facade.abortTurn({ workFolder: createdWorkFolder.workFolder.id, conversationId: conversation.conversation.id });
     assert.equal(aborted.aborted, false, "aborting an idle Chat must report false");
 
     // files add copies external material and records an additive restore point.
@@ -185,36 +185,36 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
     await writeFile(join(sourceDir, "report.txt"), "external", "utf8");
     await writeFile(join(sandbox, "notes.md"), "note", "utf8");
     const added = await facade.addFiles({
-      space: createdSpace.space.id,
+      workFolder: createdWorkFolder.workFolder.id,
       fromPaths: [join(sourceDir, "report.txt"), "notes.md"],
       toDir: "Inbox",
       cwd: sandbox,
     });
     assert.deepEqual(added.copied, ["Inbox/report.txt", "Inbox/notes.md"]);
     assert.ok(added.checkpointId, "files add must record a restore point");
-    assert.equal(existsSync(join(createdSpace.space.spaceRoot, "Inbox", "report.txt")), true);
+    assert.equal(existsSync(join(createdWorkFolder.workFolder.workFolderRoot, "Inbox", "report.txt")), true);
 
     if (process.platform !== "win32") {
       await symlink(join(sourceDir, "report.txt"), join(sandbox, "linked.txt"));
       await assert.rejects(
-        () => facade.addFiles({ space: createdSpace.space.id, fromPaths: [join(sandbox, "linked.txt")], cwd: sandbox }),
+        () => facade.addFiles({ workFolder: createdWorkFolder.workFolder.id, fromPaths: [join(sandbox, "linked.txt")], cwd: sandbox }),
         /Symbolic-link/,
       );
     }
     await assert.rejects(
-      () => facade.addFiles({ space: createdSpace.space.id, fromPaths: [join(sandbox, "content")], cwd: sandbox }),
-      /contains this Space/,
+      () => facade.addFiles({ workFolder: createdWorkFolder.workFolder.id, fromPaths: [join(sandbox, "content")], cwd: sandbox }),
+      /contains this work-folder/,
     );
     await assert.rejects(
       () => facade.addFiles({
-        space: createdSpace.space.id,
-        fromPaths: [join(createdSpace.space.spaceRoot, "Inbox", "report.txt")],
+        workFolder: createdWorkFolder.workFolder.id,
+        fromPaths: [join(createdWorkFolder.workFolder.workFolderRoot, "Inbox", "report.txt")],
         cwd: sandbox,
       }),
-      /already inside this Space/,
+      /already inside this work-folder/,
     );
     await assert.rejects(
-      () => facade.addFiles({ space: createdSpace.space.id, fromPaths: [join(sandbox, "missing.bin")], cwd: sandbox }),
+      () => facade.addFiles({ workFolder: createdWorkFolder.workFolder.id, fromPaths: [join(sandbox, "missing.bin")], cwd: sandbox }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
@@ -227,9 +227,9 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
       await chmod(join(partialSource, "unreadable.txt"), 0o000);
       try {
         await assert.rejects(() =>
-          facade.addFiles({ space: createdSpace.space.id, fromPaths: [partialSource], cwd: sandbox }));
+          facade.addFiles({ workFolder: createdWorkFolder.workFolder.id, fromPaths: [partialSource], cwd: sandbox }));
         assert.equal(
-          existsSync(join(createdSpace.space.spaceRoot, "partial-source")),
+          existsSync(join(createdWorkFolder.workFolder.workFolderRoot, "partial-source")),
           false,
           "a failed folder copy must leave no partial destination",
         );
@@ -255,7 +255,7 @@ test("the act facade drives Chat lifecycle and History families with ledger conf
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -265,31 +265,31 @@ test("the act facade drives Chat lifecycle and History families with ledger conf
   });
   try {
     const facade = api.actFacade;
-    const { space } = await facade.createSpace({ name: "Fold Space" });
-    const conversation = (await facade.createConversation({ space: space.id })).conversation;
+    const { workFolder } = await facade.createWorkFolder({ name: "Fold work-folder" });
+    const conversation = (await facade.createConversation({ workFolder: workFolder.id })).conversation;
 
     // Rename appends a manual title record and reports the prior title for
     // the receipt's undo reference.
-    const renamed = await facade.chatRename({ space: space.id, conversationId: conversation.id, title: "Weekly plan" });
+    const renamed = await facade.chatRename({ workFolder: workFolder.id, conversationId: conversation.id, title: "Weekly plan" });
     assert.equal(renamed.conversation.title, "Weekly plan");
     assert.equal(renamed.priorTitle, "New Chat");
     await assert.rejects(
-      () => facade.chatRename({ space: space.id, conversationId: "chat-missing", title: "x" }),
+      () => facade.chatRename({ workFolder: workFolder.id, conversationId: "chat-missing", title: "x" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
     await assert.rejects(
-      () => facade.chatRename({ space: space.id, conversationId: conversation.id, title: "   " }),
+      () => facade.chatRename({ workFolder: workFolder.id, conversationId: conversation.id, title: "   " }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
 
     // Snooze requires a future time and records the prior lifecycle state.
     const until = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const snoozed = await facade.chatSnooze({ space: space.id, conversationId: conversation.id, until });
+    const snoozed = await facade.chatSnooze({ workFolder: workFolder.id, conversationId: conversation.id, until });
     assert.equal(snoozed.conversation.snoozedUntil, until);
     assert.deepEqual(snoozed.priorLifecycle, { archivedAt: null, snoozedUntil: null });
     await assert.rejects(
       () => facade.chatSnooze({
-        space: space.id,
+        workFolder: workFolder.id,
         conversationId: conversation.id,
         until: new Date(Date.now() - 1000).toISOString(),
       }),
@@ -298,60 +298,60 @@ test("the act facade drives Chat lifecycle and History families with ledger conf
 
     // Sending into a future-snoozed Chat is refused until an explicit resume.
     await assert.rejects(
-      () => facade.sendMessage({ space: space.id, conversationId: conversation.id, content: "hello" }),
+      () => facade.sendMessage({ workFolder: workFolder.id, conversationId: conversation.id, content: "hello" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict",
     );
-    const resumedFromSnooze = await facade.chatResume({ space: space.id, conversationId: conversation.id });
+    const resumedFromSnooze = await facade.chatResume({ workFolder: workFolder.id, conversationId: conversation.id });
     assert.equal(resumedFromSnooze.conversation.snoozedUntil, null);
     assert.equal(resumedFromSnooze.priorLifecycle.snoozedUntil, until);
     await assert.rejects(
-      () => facade.chatResume({ space: space.id, conversationId: conversation.id }),
+      () => facade.chatResume({ workFolder: workFolder.id, conversationId: conversation.id }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /already active/.test(error.message),
     );
 
     // Archive wins over snooze rules: one lifecycle change per act, and the
     // inverse verb is resume.
-    const archived = await facade.chatArchive({ space: space.id, conversationId: conversation.id });
+    const archived = await facade.chatArchive({ workFolder: workFolder.id, conversationId: conversation.id });
     assert.ok(archived.conversation.archivedAt);
     assert.deepEqual(archived.priorLifecycle, { archivedAt: null, snoozedUntil: null });
     await assert.rejects(
-      () => facade.chatArchive({ space: space.id, conversationId: conversation.id }),
+      () => facade.chatArchive({ workFolder: workFolder.id, conversationId: conversation.id }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /already archived/.test(error.message),
     );
     await assert.rejects(
-      () => facade.chatSnooze({ space: space.id, conversationId: conversation.id, until }),
+      () => facade.chatSnooze({ workFolder: workFolder.id, conversationId: conversation.id, until }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /Unarchive this Chat/.test(error.message),
     );
     await assert.rejects(
-      () => facade.sendMessage({ space: space.id, conversationId: conversation.id, content: "hello" }),
+      () => facade.sendMessage({ workFolder: workFolder.id, conversationId: conversation.id, content: "hello" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /Restore this Chat/.test(error.message),
     );
-    const resumedFromArchive = await facade.chatResume({ space: space.id, conversationId: conversation.id });
+    const resumedFromArchive = await facade.chatResume({ workFolder: workFolder.id, conversationId: conversation.id });
     assert.equal(resumedFromArchive.conversation.archivedAt, null);
     assert.ok(resumedFromArchive.priorLifecycle.archivedAt);
 
     // Lifecycle changes are append-only records in the Chat's portable log.
     const transcript = await readFile(
-      join(space.spaceRoot, ".work-fold", "conversations", `${conversation.id}.jsonl`),
+      join(workFolder.workFolderRoot, ".work-fold", "conversations", `${conversation.id}.jsonl`),
       "utf8",
     );
     assert.equal(transcript.split("\n").filter((line) => line.includes("\"conversation_lifecycle\"")).length, 4);
 
-    // History: saving is additive and honestly reports an unchanged Space.
-    await writeFile(join(space.spaceRoot, "notes.md"), "first draft", "utf8");
-    const firstSave = await facade.historySave({ space: space.id, label: "draft one" });
+    // History: saving is additive and honestly reports an unchanged work-folder.
+    await writeFile(join(workFolder.workFolderRoot, "notes.md"), "first draft", "utf8");
+    const firstSave = await facade.historySave({ workFolder: workFolder.id, label: "draft one" });
     assert.equal(firstSave.created, true);
     assert.equal(firstSave.checkpoint.label, "draft one");
     assert.ok(firstSave.checkpoint.fileCount >= 1);
-    const unchangedSave = await facade.historySave({ space: space.id });
+    const unchangedSave = await facade.historySave({ workFolder: workFolder.id });
     assert.equal(unchangedSave.created, false);
     assert.equal(unchangedSave.checkpoint.checkpointId, firstSave.checkpoint.checkpointId);
 
-    await writeFile(join(space.spaceRoot, "notes.md"), "second draft", "utf8");
-    const secondSave = await facade.historySave({ space: space.id });
+    await writeFile(join(workFolder.workFolderRoot, "notes.md"), "second draft", "utf8");
+    const secondSave = await facade.historySave({ workFolder: workFolder.id });
     assert.equal(secondSave.created, true);
     assert.notEqual(secondSave.checkpoint.checkpointId, firstSave.checkpoint.checkpointId);
-    const listed = await facade.historyList({ space: space.id });
+    const listed = await facade.historyList({ workFolder: workFolder.id });
     assert.deepEqual(
       listed.checkpoints.slice(0, 2).map((checkpoint) => checkpoint.checkpointId),
       [secondSave.checkpoint.checkpointId, firstSave.checkpoint.checkpointId],
@@ -359,84 +359,84 @@ test("the act facade drives Chat lifecycle and History families with ledger conf
 
     // File versions are content-addressed and restorable one file at a time,
     // with the safety restore point History itself records.
-    const versions = await facade.historyVersions({ space: space.id, path: "notes.md" });
+    const versions = await facade.historyVersions({ workFolder: workFolder.id, path: "notes.md" });
     assert.equal(versions.versions.length, 2);
     const firstVersion = versions.versions.find((version) => version.checkpointId === firstSave.checkpoint.checkpointId);
     assert.ok(firstVersion);
     const fileRestore = await facade.historyRestoreFile({
-      space: space.id,
+      workFolder: workFolder.id,
       path: "notes.md",
       version: firstVersion.hashSha256,
     });
     assert.equal(fileRestore.restored, true);
     assert.ok(fileRestore.safetyCheckpointId);
     assert.ok(fileRestore.previousHashSha256);
-    assert.equal(await readFile(join(space.spaceRoot, "notes.md"), "utf8"), "first draft");
+    assert.equal(await readFile(join(workFolder.workFolderRoot, "notes.md"), "utf8"), "first draft");
     await assert.rejects(
-      () => facade.historyRestoreFile({ space: space.id, path: "notes.md", version: "not-a-hash" }),
+      () => facade.historyRestoreFile({ workFolder: workFolder.id, path: "notes.md", version: "not-a-hash" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
     await assert.rejects(
-      () => facade.historyRestoreFile({ space: space.id, path: "notes.md", version: "0".repeat(64) }),
+      () => facade.historyRestoreFile({ workFolder: workFolder.id, path: "notes.md", version: "0".repeat(64) }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
-    await mkdir(join(space.spaceRoot, "docs"), { recursive: true });
+    await mkdir(join(workFolder.workFolderRoot, "docs"), { recursive: true });
     await assert.rejects(
-      () => facade.historyRestoreFile({ space: space.id, path: "docs", version: firstVersion.hashSha256 }),
+      () => facade.historyRestoreFile({ workFolder: workFolder.id, path: "docs", version: firstVersion.hashSha256 }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /currently a folder/.test(error.message),
     );
 
-    // Whole-Space restore returns to the restore point and records its own
+    // Whole-work-folder restore returns to the restore point and records its own
     // pre-restore safety restore point.
-    await writeFile(join(space.spaceRoot, "notes.md"), "unsaved third draft", "utf8");
-    const restored = await facade.historyRestore({ space: space.id, checkpointId: secondSave.checkpoint.checkpointId });
+    await writeFile(join(workFolder.workFolderRoot, "notes.md"), "unsaved third draft", "utf8");
+    const restored = await facade.historyRestore({ workFolder: workFolder.id, checkpointId: secondSave.checkpoint.checkpointId });
     assert.equal(restored.restored, true);
     assert.equal(restored.checkpointId, secondSave.checkpoint.checkpointId);
     assert.ok(restored.safetyCheckpointId);
     assert.ok(restored.restoredFileCount >= 1);
-    assert.equal(await readFile(join(space.spaceRoot, "notes.md"), "utf8"), "second draft");
+    assert.equal(await readFile(join(workFolder.workFolderRoot, "notes.md"), "utf8"), "second draft");
     await assert.rejects(
-      () => facade.historyRestore({ space: space.id, checkpointId: "cp-00000000000000-missing" }),
+      () => facade.historyRestore({ workFolder: workFolder.id, checkpointId: "cp-00000000000000-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
-    // Ledger conflict rules: lifecycle verbs, compaction, and whole-Space
-    // restore are refused while an Assistant turn runs in that Chat / Space.
-    const holdConversation = (await facade.createConversation({ space: space.id })).conversation;
-    const running = await facade.sendMessage({ space: space.id, conversationId: holdConversation.id, content: "/hold" });
+    // Ledger conflict rules: lifecycle verbs, compaction, and whole-work-folder
+    // restore are refused while a turn runs in that Chat / work-folder.
+    const holdConversation = (await facade.createConversation({ workFolder: workFolder.id })).conversation;
+    const running = await facade.sendMessage({ workFolder: workFolder.id, conversationId: holdConversation.id, content: "/hold" });
     await assert.rejects(
-      () => facade.chatRename({ space: space.id, conversationId: holdConversation.id, title: "Busy" }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /Assistant turn to finish/.test(error.message),
+      () => facade.chatRename({ workFolder: workFolder.id, conversationId: holdConversation.id, title: "Busy" }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /turn to finish/.test(error.message),
     );
     await assert.rejects(
-      () => facade.chatCompact({ space: space.id, conversationId: holdConversation.id }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /Assistant turn to finish/.test(error.message),
+      () => facade.chatCompact({ workFolder: workFolder.id, conversationId: holdConversation.id }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /turn to finish/.test(error.message),
     );
     await assert.rejects(
-      () => facade.historyRestore({ space: space.id, checkpointId: secondSave.checkpoint.checkpointId }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /running Assistant turn in this Space/.test(error.message),
+      () => facade.historyRestore({ workFolder: workFolder.id, checkpointId: secondSave.checkpoint.checkpointId }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /running turn in this work-folder/.test(error.message),
     );
-    const desktopRestore = await fetch(`${api.origin}/api/spaces/${space.id}/history/checkpoints/${secondSave.checkpoint.checkpointId}/restore`, { method: "POST" });
+    const desktopRestore = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/history/checkpoints/${secondSave.checkpoint.checkpointId}/restore`, { method: "POST" });
     assert.equal(desktopRestore.status, 409, "desktop checkpoint restore uses the same running-work fence");
-    const desktopFileRestore = await fetch(`${api.origin}/api/spaces/${space.id}/history/file-versions`, {
+    const desktopFileRestore = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/history/file-versions`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ path: "notes.md", hashSha256: firstVersion.hashSha256 }),
     });
-    assert.equal(desktopFileRestore.status, 409, "desktop file restore cannot bypass the Space fence");
+    assert.equal(desktopFileRestore.status, 409, "desktop file restore cannot bypass the work-folder fence");
     await waitForAsync(async () =>
-      (await facade.turnStatus({ space: space.id, taskId: running.taskId })).task.state !== "running");
+      (await facade.turnStatus({ workFolder: workFolder.id, taskId: running.taskId })).task.state !== "running");
 
     // chat compact reuses the renderer's compaction internals with the
     // kernel-task discipline. No provider is configured here, so the
     // compaction fails through the same runtime path as the renderer — and
     // the kernel compaction task is finished on that failure, never leaked.
     await assert.rejects(
-      () => facade.chatCompact({ space: space.id, conversationId: "chat-missing" }),
+      () => facade.chatCompact({ workFolder: workFolder.id, conversationId: "chat-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
     await assert.rejects(
-      () => facade.chatCompact({ space: space.id, conversationId: holdConversation.id }),
+      () => facade.chatCompact({ workFolder: workFolder.id, conversationId: holdConversation.id }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "failure",
     );
     assert.deepEqual(
@@ -456,7 +456,7 @@ test("the act facade drives file and search families with ledger safety rules", 
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -466,130 +466,130 @@ test("the act facade drives file and search families with ledger safety rules", 
   });
   try {
     const facade = api.actFacade;
-    const { space } = await facade.createSpace({ name: "Files Space" });
+    const { workFolder } = await facade.createWorkFolder({ name: "Files work-folder" });
 
     // Creation runs the desktop create internals: additive, name-collision
     // refused, and undone by files delete rather than a restore point.
-    const folder = await facade.filesMkdir({ space: space.id, path: "notes" });
+    const folder = await facade.filesMkdir({ workFolder: workFolder.id, path: "notes" });
     assert.equal(folder.path, "notes");
     assert.equal(folder.kind, "folder");
     assert.ok(folder.safetyCheckpointId);
-    assert.equal(existsSync(join(space.spaceRoot, "notes")), true);
-    await assert.rejects(() => facade.filesMkdir({ space: space.id, path: "notes" }), /already exists/);
+    assert.equal(existsSync(join(workFolder.workFolderRoot, "notes")), true);
+    await assert.rejects(() => facade.filesMkdir({ workFolder: workFolder.id, path: "notes" }), /already exists/);
 
-    const created = await facade.filesCreate({ space: space.id, path: "notes/todo.md" });
+    const created = await facade.filesCreate({ workFolder: workFolder.id, path: "notes/todo.md" });
     assert.equal(created.path, "notes/todo.md");
     assert.equal(created.kind, "file");
-    assert.equal(await readFile(join(space.spaceRoot, "notes", "todo.md"), "utf8"), "");
-    await assert.rejects(() => facade.filesCreate({ space: space.id, path: "notes/todo.md" }), /already exists/);
+    assert.equal(await readFile(join(workFolder.workFolderRoot, "notes", "todo.md"), "utf8"), "");
+    await assert.rejects(() => facade.filesCreate({ workFolder: workFolder.id, path: "notes/todo.md" }), /already exists/);
 
     // Reserved metadata is never a valid endpoint, exactly as in the renderer.
-    await assert.rejects(() => facade.filesCreate({ space: space.id, path: ".pi/hack.md" }), /reserved/);
-    await assert.rejects(() => facade.filesMkdir({ space: space.id, path: ".work-fold/extra" }), /reserved/);
+    await assert.rejects(() => facade.filesCreate({ workFolder: workFolder.id, path: ".pi/hack.md" }), /reserved/);
+    await assert.rejects(() => facade.filesMkdir({ workFolder: workFolder.id, path: ".work-fold/extra" }), /reserved/);
     await assert.rejects(
-      () => facade.filesMkdir({ space: space.id, path: "   ", parentTaskId: undefined }),
+      () => facade.filesMkdir({ workFolder: workFolder.id, path: "   ", parentTaskId: undefined }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
 
     // Move records the same pre-move safety restore point as the desktop
     // route, and restoring it is the undo.
-    await mkdir(join(space.spaceRoot, "docs"), { recursive: true });
-    await writeFile(join(space.spaceRoot, "docs", "plan.md"), "plan", "utf8");
-    const moved = await facade.filesMove({ space: space.id, fromPath: "docs/plan.md", toDir: "notes" });
+    await mkdir(join(workFolder.workFolderRoot, "docs"), { recursive: true });
+    await writeFile(join(workFolder.workFolderRoot, "docs", "plan.md"), "plan", "utf8");
+    const moved = await facade.filesMove({ workFolder: workFolder.id, fromPath: "docs/plan.md", toDir: "notes" });
     assert.equal(moved.fromPath, "docs/plan.md");
     assert.equal(moved.path, "notes/plan.md");
     assert.equal(moved.kind, "file");
-    assert.equal(existsSync(join(space.spaceRoot, "notes", "plan.md")), true);
-    assert.equal(existsSync(join(space.spaceRoot, "docs", "plan.md")), false);
-    const movedBack = await facade.historyRestore({ space: space.id, checkpointId: moved.safetyCheckpointId });
+    assert.equal(existsSync(join(workFolder.workFolderRoot, "notes", "plan.md")), true);
+    assert.equal(existsSync(join(workFolder.workFolderRoot, "docs", "plan.md")), false);
+    const movedBack = await facade.historyRestore({ workFolder: workFolder.id, checkpointId: moved.safetyCheckpointId });
     assert.equal(movedBack.movedEntryCount, 1);
-    assert.equal(existsSync(join(space.spaceRoot, "docs", "plan.md")), true);
-    assert.equal(existsSync(join(space.spaceRoot, "notes", "plan.md")), false);
+    assert.equal(existsSync(join(workFolder.workFolderRoot, "docs", "plan.md")), true);
+    assert.equal(existsSync(join(workFolder.workFolderRoot, "notes", "plan.md")), false);
     await assert.rejects(
-      () => facade.filesMove({ space: space.id, fromPath: "notes", toDir: "notes/sub" }),
+      () => facade.filesMove({ workFolder: workFolder.id, fromPath: "notes", toDir: "notes/sub" }),
       /into themselves/,
     );
 
     // Rename reports the prior name for the receipt's undo reference.
-    const renamed = await facade.filesRename({ space: space.id, path: "notes/todo.md", newName: "done.md" });
+    const renamed = await facade.filesRename({ workFolder: workFolder.id, path: "notes/todo.md", newName: "done.md" });
     assert.equal(renamed.priorName, "todo.md");
     assert.equal(renamed.fromPath, "notes/todo.md");
     assert.equal(renamed.path, "notes/done.md");
     assert.ok(renamed.safetyCheckpointId);
     await assert.rejects(
-      () => facade.filesRename({ space: space.id, path: "notes/done.md", newName: "done.md" }),
+      () => facade.filesRename({ workFolder: workFolder.id, path: "notes/done.md", newName: "done.md" }),
       /already has this name/,
     );
 
     // Delete's safety restore point is the durable form of the Undo toast.
-    await writeFile(join(space.spaceRoot, "notes", "done.md"), "keep me", "utf8");
-    const deletedEntry = await facade.filesDelete({ space: space.id, path: "notes/done.md" });
+    await writeFile(join(workFolder.workFolderRoot, "notes", "done.md"), "keep me", "utf8");
+    const deletedEntry = await facade.filesDelete({ workFolder: workFolder.id, path: "notes/done.md" });
     assert.equal(deletedEntry.deleted, true);
     assert.equal(deletedEntry.kind, "file");
-    assert.equal(existsSync(join(space.spaceRoot, "notes", "done.md")), false);
-    await facade.historyRestore({ space: space.id, checkpointId: deletedEntry.safetyCheckpointId });
-    assert.equal(await readFile(join(space.spaceRoot, "notes", "done.md"), "utf8"), "keep me");
+    assert.equal(existsSync(join(workFolder.workFolderRoot, "notes", "done.md")), false);
+    await facade.historyRestore({ workFolder: workFolder.id, checkpointId: deletedEntry.safetyCheckpointId });
+    assert.equal(await readFile(join(workFolder.workFolderRoot, "notes", "done.md"), "utf8"), "keep me");
 
     // F20: a delete whose restore point cannot cover every matched file never
     // refuses. The whole selected entry moves to Recently deleted, the
     // receipt's undo reference is that entry, and restoring it puts the
     // entry back byte for byte — links included.
-    await mkdir(join(space.spaceRoot, "bulk"), { recursive: true });
-    await writeFile(join(space.spaceRoot, "bulk", "big.bin"), "0123456789", "utf8");
+    await mkdir(join(workFolder.workFolderRoot, "bulk"), { recursive: true });
+    await writeFile(join(workFolder.workFolderRoot, "bulk", "big.bin"), "0123456789", "utf8");
     if (process.platform !== "win32") {
-      await symlink(join(space.spaceRoot, "notes", "done.md"), join(space.spaceRoot, "bulk", "link.md"));
+      await symlink(join(workFolder.workFolderRoot, "notes", "done.md"), join(workFolder.workFolderRoot, "bulk", "link.md"));
     }
-    const checkpointsBefore = (await facade.historyList({ space: space.id })).checkpoints.length;
+    const checkpointsBefore = (await facade.historyList({ workFolder: workFolder.id })).checkpoints.length;
     process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES = "4";
     let uncoverable;
     try {
-      uncoverable = await facade.filesDelete({ space: space.id, path: "bulk" });
+      uncoverable = await facade.filesDelete({ workFolder: workFolder.id, path: "bulk" });
     } finally {
       delete process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES;
     }
     assert.equal(uncoverable.deleted, true);
     assert.equal(uncoverable.kind, "folder");
-    assert.equal(existsSync(join(space.spaceRoot, "bulk")), false, "the entry moves out of the Space");
-    assert.equal(uncoverable.recovery.kind, "trash");
+    assert.equal(existsSync(join(workFolder.workFolderRoot, "bulk")), false, "the entry moves out of the work-folder");
+    assert.equal(uncoverable.recovery.kind, "recently-deleted");
     assert.equal(
-      (await facade.historyList({ space: space.id })).checkpoints.length,
+      (await facade.historyList({ workFolder: workFolder.id })).checkpoints.length,
       checkpointsBefore + 1,
       "the delete still records its restore point for what History could cover",
     );
-    const uncoveredReasons = uncoverable.recovery.kind === "trash"
+    const uncoveredReasons = uncoverable.recovery.kind === "recently-deleted"
       ? uncoverable.recovery.uncovered.map((file) => `${file.path}:${file.reason}`).sort()
       : [];
     assert.ok(uncoveredReasons.includes("bulk/big.bin:too_large"), uncoveredReasons.join(","));
     if (process.platform !== "win32") {
       assert.ok(uncoveredReasons.includes("bulk/link.md:symbolic_link"), uncoveredReasons.join(","));
     }
-    const kept = (await api.trash.list()).entries;
+    const kept = (await api.recentlyDeleted.list()).entries;
     assert.equal(kept.length, 1);
     assert.equal(kept[0]?.kind, "folder");
     assert.equal(kept[0]?.originalPath, "bulk");
-    assert.equal(kept[0]?.spaceId, space.id);
-    const restored = await facade.trashRestore({ entry: kept[0]!.id });
+    assert.equal(kept[0]?.workFolderId, workFolder.id);
+    const restored = await facade.recentlyDeletedRestore({ entry: kept[0]!.id });
     assert.equal(restored.restored.kind, "folder");
-    assert.equal(await readFile(join(space.spaceRoot, "bulk", "big.bin"), "utf8"), "0123456789");
+    assert.equal(await readFile(join(workFolder.workFolderRoot, "bulk", "big.bin"), "utf8"), "0123456789");
     if (process.platform !== "win32") {
-      assert.equal((await lstat(join(space.spaceRoot, "bulk", "link.md"))).isSymbolicLink(), true);
-      await rm(join(space.spaceRoot, "bulk", "link.md"));
+      assert.equal((await lstat(join(workFolder.workFolderRoot, "bulk", "link.md"))).isSymbolicLink(), true);
+      await rm(join(workFolder.workFolderRoot, "bulk", "link.md"));
     }
-    assert.deepEqual((await api.trash.list()).entries, [], "a restored item leaves Recently deleted");
+    assert.deepEqual((await api.recentlyDeleted.list()).entries, [], "a restored item leaves Recently deleted");
 
-    // Search reuses the Space search service: ignore rules hold, scopes
+    // Search reuses the work-folder search service: ignore rules hold, scopes
     // narrow, and malformed queries map to usage errors.
-    await mkdir(join(space.spaceRoot, "vendor"), { recursive: true });
-    await writeFile(join(space.spaceRoot, "vendor", "bundle.js"), "quarterly budget in a dependency", "utf8");
-    await writeFile(join(space.spaceRoot, "notes", "report.md"), "the quarterly budget is due", "utf8");
-    await appendMessage(space.spaceRoot, "chat-1", {
+    await mkdir(join(workFolder.workFolderRoot, "vendor"), { recursive: true });
+    await writeFile(join(workFolder.workFolderRoot, "vendor", "bundle.js"), "quarterly budget in a dependency", "utf8");
+    await writeFile(join(workFolder.workFolderRoot, "notes", "report.md"), "the quarterly budget is due", "utf8");
+    await appendMessage(workFolder.workFolderRoot, "chat-1", {
       id: "m1",
       role: "user",
       content: "check the quarterly budget",
       createdAt: "2026-08-01T00:00:00.000Z",
     });
-    await setSpaceIgnoreState(space.spaceRoot, ["vendor"], true);
-    const found = await facade.search({ space: space.id, query: "quarterly budget" });
+    await setWorkFolderIgnoreState(workFolder.workFolderRoot, ["vendor"], true);
+    const found = await facade.search({ workFolder: workFolder.id, query: "quarterly budget" });
     assert.equal(found.scope, "all");
     assert.equal(found.query, "quarterly budget");
     assert.deepEqual(found.files.map((match) => match.path), ["notes/report.md"]);
@@ -597,31 +597,31 @@ test("the act facade drives file and search families with ledger safety rules", 
     assert.equal(found.chats.length, 1);
     assert.equal(found.chats[0]?.conversationId, "chat-1");
     assert.equal(found.truncated, false);
-    const filesOnly = await facade.search({ space: space.id, query: "quarterly budget", scope: "files" });
+    const filesOnly = await facade.search({ workFolder: workFolder.id, query: "quarterly budget", scope: "files" });
     assert.equal(filesOnly.chats.length, 0);
     assert.equal(filesOnly.files.length, 1);
     await assert.rejects(
-      () => facade.search({ space: space.id, query: "   " }),
+      () => facade.search({ workFolder: workFolder.id, query: "   " }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
     await assert.rejects(
-      () => facade.search({ space: space.id, query: "x".repeat(64 * 1024 + 1) }),
+      () => facade.search({ workFolder: workFolder.id, query: "x".repeat(64 * 1024 + 1) }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
 
-    // Mutation verbs refuse a named management parent that is not active.
+    // Mutation verbs refuse a named work-fold agent parent that is not active.
     await assert.rejects(
-      () => facade.filesMkdir({ space: space.id, path: "orphan", parentTaskId: "task-gone" }),
+      () => facade.filesMkdir({ workFolder: workFolder.id, path: "orphan", parentTaskId: "task-gone" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict",
     );
-    assert.equal(existsSync(join(space.spaceRoot, "orphan")), false);
+    assert.equal(existsSync(join(workFolder.workFolderRoot, "orphan")), false);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
   }
 });
 
-test("the act facade drives Space rename, appearance, tools, and App Studio families with ledger rules", async () => {
+test("the act facade drives work-folder rename, appearance, tools, and App Studio families with ledger rules", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-studio-test-"));
   await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
   await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
@@ -632,7 +632,7 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
   }\n`, "utf8");
   const restrictedApps = await RestrictedAppService.create({
     rootPath: join(sandbox, "restricted-apps"),
-    deferAutomationStart: true,
+    deferAppAutomationStart: true,
   });
   const restrictedAppProposals = await RoutedRestrictedAppProposalHost.create({
     service: restrictedApps,
@@ -641,7 +641,7 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     restrictedAppService: restrictedApps,
     restrictedAppProposalHost: restrictedAppProposals,
@@ -653,39 +653,39 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
   });
   try {
     const facade = api.actFacade;
-    const { space } = await facade.createSpace({ name: "Fold One" });
-    await facade.createSpace({ name: "Fold Two" });
+    const { workFolder } = await facade.createWorkFolder({ name: "Fold One" });
+    await facade.createWorkFolder({ name: "Fold Two" });
 
     // Renaming refuses a case-insensitive duplicate — the CLI selector folds
-    // names the same way, so a duplicate would make --space ambiguous — but a
-    // Space may still change its own casing.
+    // names the same way, so a duplicate would make --work-folder ambiguous — but a
+    // work-folder may still change its own casing.
     await assert.rejects(
-      () => facade.spacesRename({ space: space.id, name: "fold two" }),
+      () => facade.workFoldersRename({ workFolder: workFolder.id, name: "fold two" }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "conflict"
         && /already named Fold Two/.test(error.message),
     );
-    const renamed = await facade.spacesRename({ space: space.id, name: "Fold Prime" });
+    const renamed = await facade.workFoldersRename({ workFolder: workFolder.id, name: "Fold Prime" });
     assert.equal(renamed.priorName, "Fold One");
-    assert.equal(renamed.space.name, "Fold Prime");
-    const recased = await facade.spacesRename({ space: "Fold Prime", name: "FOLD PRIME" });
+    assert.equal(renamed.workFolder.name, "Fold Prime");
+    const recased = await facade.workFoldersRename({ workFolder: "Fold Prime", name: "FOLD PRIME" });
     assert.equal(recased.priorName, "Fold Prime");
-    assert.equal(recased.space.name, "FOLD PRIME");
+    assert.equal(recased.workFolder.name, "FOLD PRIME");
 
     // Appearance undo is refused with a typed error while no receipted
-    // appearance act has recorded a prior customization for the Space.
+    // appearance act has recorded a prior customization for the work-folder.
     await assert.rejects(
-      () => facade.spacesAppearanceUndo({ space: space.id }),
+      () => facade.workFoldersAppearanceUndo({ workFolder: workFolder.id }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "conflict"
         && /No receipted appearance act/.test(error.message),
     );
 
     // Only the typed proposal file is accepted, and an explicit target for a
-    // different Space is a refusal, not a silent restyle.
+    // different work-folder is a refusal, not a silent restyle.
     const proposalPath = join(sandbox, "calm.work-fold-appearance.json");
     await writeFile(proposalPath, JSON.stringify({
-      kind: "work-fold.space-appearance",
+      kind: "work-fold.work-folder-appearance",
       version: 1,
       name: "Calm blue",
       customization: { color: "#3366aa" },
@@ -693,133 +693,133 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
     }), "utf8");
     const mismatchPath = join(sandbox, "elsewhere.work-fold-appearance.json");
     await writeFile(mismatchPath, JSON.stringify({
-      kind: "work-fold.space-appearance",
+      kind: "work-fold.work-folder-appearance",
       version: 1,
       name: "Elsewhere",
-      target: { spaceId: "space-elsewhere" },
+      target: { workFolderId: "work-folder-elsewhere" },
       customization: { color: "#3366aa" },
     }), "utf8");
     await assert.rejects(
-      () => facade.spacesAppearanceApply({ space: space.id, proposalPath: mismatchPath, cwd: sandbox }),
+      () => facade.workFoldersAppearanceApply({ workFolder: workFolder.id, proposalPath: mismatchPath, cwd: sandbox }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "conflict"
-        && /targets a different Space \(space-elsewhere\)/.test(error.message),
+        && /targets a different work-folder \(work-folder-elsewhere\)/.test(error.message),
     );
     const notProposalPath = join(sandbox, "not-a-proposal.json");
     await writeFile(notProposalPath, JSON.stringify({ hello: "world" }), "utf8");
     await assert.rejects(
-      () => facade.spacesAppearanceApply({ space: space.id, proposalPath: notProposalPath, cwd: sandbox }),
+      () => facade.workFoldersAppearanceApply({ workFolder: workFolder.id, proposalPath: notProposalPath, cwd: sandbox }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage",
     );
     await assert.rejects(
-      () => facade.spacesAppearanceApply({ space: space.id, proposalPath: "missing.json", cwd: sandbox }),
+      () => facade.workFoldersAppearanceApply({ workFolder: workFolder.id, proposalPath: "missing.json", cwd: sandbox }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
-    const applied = await facade.spacesAppearanceApply({ space: space.id, proposalPath, cwd: sandbox });
+    const applied = await facade.workFoldersAppearanceApply({ workFolder: workFolder.id, proposalPath, cwd: sandbox });
     assert.equal(applied.proposalName, "Calm blue");
     assert.match(applied.appearanceRef ?? "", /^sha256:[0-9a-f]{16}$/);
     assert.equal(applied.priorAppearanceRef, null);
 
     // Undo is one act and its own inverse: default -> applied -> default.
-    const undone = await facade.spacesAppearanceUndo({ space: space.id });
+    const undone = await facade.workFoldersAppearanceUndo({ workFolder: workFolder.id });
     assert.equal(undone.restoredAppearanceRef, null);
     assert.equal(undone.displacedAppearanceRef, applied.appearanceRef);
-    const redone = await facade.spacesAppearanceUndo({ space: space.id });
+    const redone = await facade.workFoldersAppearanceUndo({ workFolder: workFolder.id });
     assert.equal(redone.restoredAppearanceRef, applied.appearanceRef);
     assert.equal(redone.displacedAppearanceRef, null);
 
-    const reset = await facade.spacesAppearanceReset({ space: space.id });
+    const reset = await facade.workFoldersAppearanceReset({ workFolder: workFolder.id });
     assert.equal(reset.changed, true);
     assert.equal(reset.priorAppearanceRef, applied.appearanceRef);
-    const resetAgain = await facade.spacesAppearanceReset({ space: space.id });
+    const resetAgain = await facade.workFoldersAppearanceReset({ workFolder: workFolder.id });
     assert.equal(resetAgain.changed, false);
     assert.equal(resetAgain.priorAppearanceRef, null);
 
     // A desktop-side appearance change makes the recorded prior state stale,
     // so undo refuses instead of restoring a state its receipt never named.
-    const desktopEdit = await fetch(`${api.origin}/api/spaces/${space.id}/appearance`, {
+    const desktopEdit = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/appearance`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ customization: { color: "#aa3366" } }),
     });
     assert.equal(desktopEdit.ok, true);
     await assert.rejects(
-      () => facade.spacesAppearanceUndo({ space: space.id }),
+      () => facade.workFoldersAppearanceUndo({ workFolder: workFolder.id }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "conflict"
         && /changed outside the act lane/.test(error.message),
     );
 
     // Tools removal reuses the desktop capability fencing unchanged: personal
-    // scope is fenced against any running Assistant work, Space scope against
-    // that Space's work.
-    const conversation = await facade.createConversation({ space: space.id });
+    // scope is fenced against any running agent work, work-folder scope against
+    // that work-folder's work.
+    const conversation = await facade.createConversation({ workFolder: workFolder.id });
     const holding = await facade.sendMessage({
-      space: space.id,
+      workFolder: workFolder.id,
       conversationId: conversation.conversation.id,
       content: "/hold",
     });
     await assert.rejects(
-      () => facade.toolsRemove({ scope: "personal", source: "./missing-tool-pkg" }),
+      () => facade.toolsRemove({ scope: "everywhere", source: "./missing-tool-pkg" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict",
     );
     await assert.rejects(
-      () => facade.toolsRemove({ scope: "space", space: space.id, source: "./missing-tool-pkg" }),
+      () => facade.toolsRemove({ scope: "work-folder", workFolder: workFolder.id, source: "./missing-tool-pkg" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict",
     );
     await waitForAsync(async () =>
-      (await facade.turnStatus({ space: space.id, taskId: holding.taskId })).task.state !== "running");
-    const personalRemoval = await facade.toolsRemove({ scope: "personal", source: "./missing-tool-pkg" });
-    assert.deepEqual(personalRemoval, { scope: "personal", source: "./missing-tool-pkg", removed: false });
-    const spaceRemoval = await facade.toolsRemove({ scope: "space", space: space.id, source: "./missing-tool-pkg" });
-    assert.equal(spaceRemoval.removed, false);
-    assert.equal(spaceRemoval.space?.id, space.id);
+      (await facade.turnStatus({ workFolder: workFolder.id, taskId: holding.taskId })).task.state !== "running");
+    const everywhereRemoval = await facade.toolsRemove({ scope: "everywhere", source: "./missing-tool-pkg" });
+    assert.deepEqual(everywhereRemoval, { scope: "everywhere", source: "./missing-tool-pkg", removed: false });
+    const workFolderRemoval = await facade.toolsRemove({ scope: "work-folder", workFolder: workFolder.id, source: "./missing-tool-pkg" });
+    assert.equal(workFolderRemoval.removed, false);
+    assert.equal(workFolderRemoval.workFolder?.id, workFolder.id);
 
     // Unregistering removes the registration while the folder and its
-    // portable identity remain; re-registering restores the same Space id.
+    // portable identity remain; re-registering restores the same work-folder id.
     const linkedRoot = join(sandbox, "linked-fold");
     await mkdir(linkedRoot, { recursive: true });
     await writeFile(join(linkedRoot, "keep.md"), "still here", "utf8");
-    const linked = await facade.registerSpace({ spaceRoot: linkedRoot });
-    const unregistered = await facade.spacesUnregister({ space: linked.space.id });
+    const linked = await facade.registerWorkFolder({ workFolderRoot: linkedRoot });
+    const unregistered = await facade.workFoldersUnregister({ workFolder: linked.workFolder.id });
     assert.equal(unregistered.storage, "linked");
     assert.equal(unregistered.removed, true);
     assert.equal(await readFile(join(linkedRoot, "keep.md"), "utf8"), "still here");
-    assert.equal(existsSync(join(linkedRoot, ".work-fold", "space.json")), true, "the portable identity persists");
+    assert.equal(existsSync(join(linkedRoot, ".work-fold", "work-folder.json")), true, "the portable identity persists");
     await assert.rejects(
-      () => facade.listConversations({ space: linked.space.id }),
+      () => facade.listConversations({ workFolder: linked.workFolder.id }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
-    const reRegistered = await facade.registerSpace({ spaceRoot: linkedRoot });
-    assert.equal(reRegistered.space.id, linked.space.id, "re-registration restores the persisted identity");
+    const reRegistered = await facade.registerWorkFolder({ workFolderRoot: linkedRoot });
+    assert.equal(reRegistered.workFolder.id, linked.workFolder.id, "re-registration restores the persisted identity");
 
-    // A managed Space unregisters the same way: the registration and
+    // A managed work-folder unregisters the same way: the registration and
     // runtime authorization go, while the managed folder and its portable
-    // identity provably survive — deleting the folder is `spaces delete`.
-    const managedKeep = await facade.createSpace({ name: "Managed Keep" });
-    await writeFile(join(managedKeep.space.spaceRoot, "keep.md"), "still managed", "utf8");
-    const managedRemoval = await facade.spacesUnregister({ space: managedKeep.space.id });
+    // identity provably survive — deleting the folder is `work-folders delete`.
+    const managedKeep = await facade.createWorkFolder({ name: "Managed Keep" });
+    await writeFile(join(managedKeep.workFolder.workFolderRoot, "keep.md"), "still managed", "utf8");
+    const managedRemoval = await facade.workFoldersUnregister({ workFolder: managedKeep.workFolder.id });
     assert.equal(managedRemoval.storage, "managed");
     assert.equal(managedRemoval.removed, true);
-    assert.equal(await readFile(join(managedKeep.space.spaceRoot, "keep.md"), "utf8"), "still managed");
+    assert.equal(await readFile(join(managedKeep.workFolder.workFolderRoot, "keep.md"), "utf8"), "still managed");
     assert.equal(
-      existsSync(join(managedKeep.space.spaceRoot, ".work-fold", "space.json")),
+      existsSync(join(managedKeep.workFolder.workFolderRoot, ".work-fold", "work-folder.json")),
       true,
       "the managed folder keeps its portable identity",
     );
     await assert.rejects(
-      () => facade.listConversations({ space: managedKeep.space.id }),
+      () => facade.listConversations({ workFolder: managedKeep.workFolder.id }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
     // App Studio's authority-neutral spine, through the exact desktop route
     // internals. The preview install stays the receipted act it is on
     // the desktop, so the test performs it directly on the service.
-    const studio = (await facade.createSpace({ name: "Studio Space" })).space;
+    const studio = (await facade.createWorkFolder({ name: "Studio work-folder" })).workFolder;
     const targetRoot = join(sandbox, "studio-target-fold");
     await mkdir(targetRoot, { recursive: true });
-    const target = (await facade.registerSpace({ spaceRoot: targetRoot })).space;
+    const target = (await facade.registerWorkFolder({ workFolderRoot: targetRoot })).workFolder;
 
     const presentationPath = join(sandbox, "presentation.json");
     await writeFile(presentationPath, JSON.stringify({
@@ -827,35 +827,35 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
       description: "A deliberately declared local App Project.",
       icon: "mail",
     }), "utf8");
-    const declared = await facade.appsProjectDeclare({ space: studio.id, presentationPath, cwd: sandbox });
+    const declared = await facade.appsProjectDeclare({ workFolder: studio.id, presentationPath, cwd: sandbox });
     assert.equal(declared.project.presentation.title, "Connected Inbox Studio");
     assert.equal(declared.priorPresentation, null);
     assert.equal(declared.priorPresentationRef, null);
     const presentationPath2 = join(sandbox, "presentation-2.json");
     await writeFile(presentationPath2, JSON.stringify({ title: "Connected Inbox" }), "utf8");
-    const redeclared = await facade.appsProjectDeclare({ space: studio.id, presentationPath: presentationPath2, cwd: sandbox });
+    const redeclared = await facade.appsProjectDeclare({ workFolder: studio.id, presentationPath: presentationPath2, cwd: sandbox });
     assert.equal(redeclared.project.presentation.title, "Connected Inbox");
     assert.equal(redeclared.project.presentation.description, null);
     assert.equal(redeclared.priorPresentation?.title, "Connected Inbox Studio");
     assert.match(redeclared.priorPresentationRef ?? "", /^sha256:[0-9a-f]{16}$/);
     await assert.rejects(
-      () => facade.appsProjectDeclare({ space: studio.id, presentationPath: notProposalPath, cwd: sandbox }),
+      () => facade.appsProjectDeclare({ workFolder: studio.id, presentationPath: notProposalPath, cwd: sandbox }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "usage"
         && /App title/.test(error.message),
     );
 
-    const packageRoot = join(studio.spaceRoot, "apps", "connected-inbox");
+    const packageRoot = join(studio.workFolderRoot, "apps", "connected-inbox");
     await writeStudioPackage(packageRoot, "release-one-reviewed-bytes");
-    const reviewOne = await restrictedApps.inspect({ spaceId: studio.id, spaceRoot: studio.spaceRoot, sourcePath: "apps/connected-inbox" });
+    const reviewOne = await restrictedApps.inspect({ workFolderId: studio.id, workFolderRoot: studio.workFolderRoot, sourcePath: "apps/connected-inbox" });
     await restrictedApps.install({
-      spaceId: studio.id,
-      spaceRoot: studio.spaceRoot,
+      workFolderId: studio.id,
+      workFolderRoot: studio.workFolderRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: reviewOne.digest,
     });
 
-    const prepared = await facade.appsReleasePrepare({ space: studio.id, version: "1.0.0" });
+    const prepared = await facade.appsReleasePrepare({ workFolder: studio.id, version: "1.0.0" });
     assert.equal(prepared.release.state, "prepared");
     assert.equal(prepared.release.publishedAt, null);
     assert.equal(prepared.release.featureCount, 1);
@@ -864,125 +864,125 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
     // Preparation is not publication: an install prepared from an unpublished
     // Release is refused by the service guard, unchanged.
     await assert.rejects(
-      () => facade.appsInstallPrepare({ space: studio.id, release: versionOne, targetSpace: target.id }),
+      () => facade.appsInstallPrepare({ workFolder: studio.id, release: versionOne, targetWorkFolder: target.id }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "usage"
         && /published Release/i.test(error.message),
     );
 
-    const published = await facade.appsReleasePublish({ space: studio.id, release: versionOne });
+    const published = await facade.appsReleasePublish({ workFolder: studio.id, release: versionOne });
     assert.equal(published.release.state, "published");
     assert.ok(published.release.publishedAt);
 
-    // The target Space resolves with the CLI's id-or-exact-name semantics
+    // The target work-folder resolves with the CLI's id-or-exact-name semantics
     // (a registered folder is named by its basename; the match folds case).
-    const installPlan = await facade.appsInstallPrepare({ space: studio.id, release: versionOne, targetSpace: "STUDIO-TARGET-FOLD" });
+    const installPlan = await facade.appsInstallPrepare({ workFolder: studio.id, release: versionOne, targetWorkFolder: "STUDIO-TARGET-FOLD" });
     assert.equal(installPlan.operation.kind, "install");
-    assert.equal(installPlan.targetSpace.id, target.id);
-    assert.equal(installPlan.operation.targetSpaceId, target.id);
+    assert.equal(installPlan.targetWorkFolder.id, target.id);
+    assert.equal(installPlan.operation.targetWorkFolderId, target.id);
 
-    const activatedInstall = await facade.appsOperationActivate({ space: studio.id, operation: installPlan.operation.operationId });
+    const activatedInstall = await facade.appsOperationActivate({ workFolder: studio.id, operation: installPlan.operation.operationId });
     assert.equal(activatedInstall.operationKind, "install");
     assert.equal(activatedInstall.instance.releaseDigest, versionOne);
-    assert.equal(activatedInstall.instance.spaceId, target.id);
+    assert.equal(activatedInstall.instance.workFolderId, target.id);
 
-    // Unregistration runs the desktop's App Studio impact checks: a Space
+    // Unregistration runs the desktop's App Studio impact checks: a work-folder
     // holding a release-backed Instance is refused.
     await assert.rejects(
-      () => facade.spacesUnregister({ space: target.id }),
+      () => facade.workFoldersUnregister({ workFolder: target.id }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "usage"
         && /Uninstall release-backed Apps/.test(error.message),
     );
 
     await writeStudioPackage(packageRoot, "release-two-reviewed-bytes");
-    const reviewTwo = await restrictedApps.inspect({ spaceId: studio.id, spaceRoot: studio.spaceRoot, sourcePath: "apps/connected-inbox" });
+    const reviewTwo = await restrictedApps.inspect({ workFolderId: studio.id, workFolderRoot: studio.workFolderRoot, sourcePath: "apps/connected-inbox" });
     await restrictedApps.install({
-      spaceId: studio.id,
-      spaceRoot: studio.spaceRoot,
+      workFolderId: studio.id,
+      workFolderRoot: studio.workFolderRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: reviewTwo.digest,
     });
-    const preparedTwo = await facade.appsReleasePrepare({ space: studio.id, version: "1.1.0" });
+    const preparedTwo = await facade.appsReleasePrepare({ workFolder: studio.id, version: "1.1.0" });
     const versionTwo = preparedTwo.release.releaseDigest;
     assert.notEqual(versionTwo, versionOne);
-    await facade.appsReleasePublish({ space: studio.id, release: versionTwo });
+    await facade.appsReleasePublish({ workFolder: studio.id, release: versionTwo });
 
     const updatePlan = await facade.appsUpdatePrepare({
-      space: studio.id,
+      workFolder: studio.id,
       instance: activatedInstall.instance.runtimeInstanceId,
       release: versionTwo,
     });
     assert.equal(updatePlan.operation.kind, "update");
     assert.equal(updatePlan.operation.fromReleaseDigest, versionOne);
     assert.equal(updatePlan.operation.releaseDigest, versionTwo);
-    assert.equal(updatePlan.targetSpace.id, target.id);
+    assert.equal(updatePlan.targetWorkFolder.id, target.id);
 
     // Cancelling a prepared operation is the prepare verbs' undo; a second
     // cancel finds nothing.
-    const cancelled = await facade.appsOperationCancel({ space: studio.id, operation: updatePlan.operation.operationId });
+    const cancelled = await facade.appsOperationCancel({ workFolder: studio.id, operation: updatePlan.operation.operationId });
     assert.equal(cancelled.cancelled, true);
     await assert.rejects(
-      () => facade.appsOperationCancel({ space: studio.id, operation: updatePlan.operation.operationId }),
+      () => facade.appsOperationCancel({ workFolder: studio.id, operation: updatePlan.operation.operationId }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
     const updateAgain = await facade.appsUpdatePrepare({
-      space: studio.id,
+      workFolder: studio.id,
       instance: activatedInstall.instance.runtimeInstanceId,
       release: versionTwo,
     });
-    const activatedUpdate = await facade.appsOperationActivate({ space: studio.id, operation: updateAgain.operation.operationId });
+    const activatedUpdate = await facade.appsOperationActivate({ workFolder: studio.id, operation: updateAgain.operation.operationId });
     assert.equal(activatedUpdate.operationKind, "update");
     assert.equal(activatedUpdate.instance.releaseDigest, versionTwo);
 
     // Uninstall is retain-only through the facade; retained namespaces are
     // named for the receipt and do not remain runnable.
-    const uninstalled = await facade.appsUninstall({ space: target.id, instance: activatedUpdate.instance.runtimeInstanceId });
+    const uninstalled = await facade.appsUninstall({ workFolder: target.id, instance: activatedUpdate.instance.runtimeInstanceId });
     assert.equal(uninstalled.removed, true);
     assert.equal(uninstalled.retainedNamespaceIds.length, 1);
     await assert.rejects(
-      () => facade.appsUninstall({ space: target.id, instance: activatedUpdate.instance.runtimeInstanceId }),
+      () => facade.appsUninstall({ workFolder: target.id, instance: activatedUpdate.instance.runtimeInstanceId }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
 
     // With no Instance left the target unregisters cleanly.
-    const targetRemoval = await facade.spacesUnregister({ space: target.id });
+    const targetRemoval = await facade.workFoldersUnregister({ workFolder: target.id });
     assert.equal(targetRemoval.storage, "linked");
     assert.equal(existsSync(targetRoot), true);
 
     // Release deletion honours the service guards: an unused Release deletes,
     // one still recorded by retained data is refused.
-    const deletedOne = await facade.appsReleaseDelete({ space: studio.id, release: versionOne });
+    const deletedOne = await facade.appsReleaseDelete({ workFolder: studio.id, release: versionOne });
     assert.equal(deletedOne.deleted, true);
     await assert.rejects(
-      () => facade.appsReleaseDelete({ space: studio.id, release: versionTwo }),
+      () => facade.appsReleaseDelete({ workFolder: studio.id, release: versionTwo }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "usage"
         && /retained App data/.test(error.message),
     );
 
-    // The Space-app authority direct verbs, over a reviewed development app
+    // The work-folder-app authority direct verbs, over a reviewed development app
     // with declared permissions: narrowing works without a digest on argv
     // (the facade pins the resolved installed revision), and the honest
     // no-change answers stay honest.
-    const authorityRoot = join(studio.spaceRoot, "apps", "authority-demo");
+    const authorityRoot = join(studio.workFolderRoot, "apps", "authority-demo");
     await writeAuthorityPackage(authorityRoot);
     const authorityReview = await restrictedApps.inspect({
-      spaceId: studio.id,
-      spaceRoot: studio.spaceRoot,
+      workFolderId: studio.id,
+      workFolderRoot: studio.workFolderRoot,
       sourcePath: "apps/authority-demo",
     });
     await restrictedApps.install({
-      spaceId: studio.id,
-      spaceRoot: studio.spaceRoot,
+      workFolderId: studio.id,
+      workFolderRoot: studio.workFolderRoot,
       sourcePath: "apps/authority-demo",
       expectedDigest: authorityReview.digest,
     });
-    await mkdir(join(studio.spaceRoot, "reports"), { recursive: true });
+    await mkdir(join(studio.workFolderRoot, "reports"), { recursive: true });
     await restrictedApps.grantFiles({
-      spaceId: studio.id,
-      spaceRoot: studio.spaceRoot,
+      workFolderId: studio.id,
+      workFolderRoot: studio.workFolderRoot,
       appId: "authority-demo",
       expectedDigest: authorityReview.digest,
       permissionId: "exports",
@@ -993,37 +993,37 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
     // call (docs/receipts-not-gates.md, F21): list is scoped, an installed
     // receipt is not dismissable, and a mismatched Chat is not-found rather
     // than a leak.
-    const proposalChat = (await facade.createConversation({ space: studio.id })).conversation;
+    const proposalChat = (await facade.createConversation({ workFolder: studio.id })).conversation;
     const proposed = await restrictedAppProposals.propose({
-      spaceId: studio.id,
-      spaceRoot: studio.spaceRoot,
+      workFolderId: studio.id,
+      workFolderRoot: studio.workFolderRoot,
       conversationId: proposalChat.id,
       sourcePath: "apps/authority-demo",
     });
     assert.equal(proposed.status, "installed");
     assert.equal(proposed.app?.digest, authorityReview.digest, "the already-installed revision is an idempotent install");
-    const proposalList = await facade.appsProposalsList({ space: studio.id, conversationId: proposalChat.id });
+    const proposalList = await facade.appsProposalsList({ workFolder: studio.id, conversationId: proposalChat.id });
     assert.equal(proposalList.proposals.length, 1);
     assert.equal(proposalList.proposals[0]?.id, proposed.proposal!.id);
     assert.equal(proposalList.proposals[0]?.status, "installed");
     assert.equal(proposalList.proposals[0]?.digest, authorityReview.digest);
     await assert.rejects(
-      () => facade.appsProposalsList({ space: studio.id, conversationId: "chat-missing" }),
+      () => facade.appsProposalsList({ workFolder: studio.id, conversationId: "chat-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
     await assert.rejects(
-      () => facade.appsProposalsDismiss({ space: space.id, conversationId: proposalChat.id, proposal: proposed.proposal!.id }),
+      () => facade.appsProposalsDismiss({ workFolder: workFolder.id, conversationId: proposalChat.id, proposal: proposed.proposal!.id }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
-      "a proposal is bound to its own Space and Chat",
+      "a proposal is bound to its own work-folder and Chat",
     );
     const dismissed = await facade.appsProposalsDismiss({
-      space: studio.id,
+      workFolder: studio.id,
       conversationId: proposalChat.id,
       proposal: proposed.proposal!.id,
     });
     assert.equal(dismissed.dismissed, false, "an installed receipt is the record of the install and reports no dismissal");
     const dismissedAgain = await facade.appsProposalsDismiss({
-      space: studio.id,
+      workFolder: studio.id,
       conversationId: proposalChat.id,
       proposal: proposed.proposal!.id,
     });
@@ -1031,7 +1031,7 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
 
     const authorityInstallation = (await restrictedApps.list(studio.id)).find((app) => app.manifest.id === "authority-demo")!;
     const revoked = await facade.appsRevoke({
-      space: studio.id,
+      workFolder: studio.id,
       app: authorityInstallation.featureInstallationId,
       digest: authorityReview.digest,
       kind: "files",
@@ -1045,33 +1045,33 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
     );
     // The destination was on since the install (docs/receipts-not-gates.md,
     // F21); revoking it narrows, and a second revoke is an honest no-op.
-    const revokeNetwork = { space: studio.id, app: "authority-demo", digest: authorityReview.digest, kind: "network" as const, declaration: "mail-api" };
+    const revokeNetwork = { workFolder: studio.id, app: "authority-demo", digest: authorityReview.digest, kind: "network" as const, declaration: "mail-api" };
     assert.equal((await facade.appsRevoke(revokeNetwork)).revoked, true, "the install-time destination grant can be taken away");
     const revokeMiss = await facade.appsRevoke(revokeNetwork);
     assert.equal(revokeMiss.revoked, false, "an already-revoked declaration honestly reports no authority change");
 
-    const disconnected = await facade.appsDisconnect({ space: studio.id, app: "authority-demo", destination: "mail-api" });
+    const disconnected = await facade.appsDisconnect({ workFolder: studio.id, app: "authority-demo", destination: "mail-api" });
     assert.equal(disconnected.disconnected, false, "no connection store exists in this host, so nothing was removed");
 
-    const disabledAutomation = await facade.appsAutomationDisable({
-      space: studio.id,
+    const disabledAppAutomation = await facade.appsAutomationDisable({
+      workFolder: studio.id,
       app: "authority-demo",
       automation: "export-digest",
     });
-    assert.equal(disabledAutomation.disabled, true);
-    assert.equal(disabledAutomation.wasEnabled, true, "automations are on when the app is added; disabling narrows");
-    const disabledAgain = await facade.appsAutomationDisable({ space: studio.id, app: "authority-demo", automation: "export-digest" });
+    assert.equal(disabledAppAutomation.disabled, true);
+    assert.equal(disabledAppAutomation.wasEnabled, true, "automations are on when the app is added; disabling narrows");
+    const disabledAgain = await facade.appsAutomationDisable({ workFolder: studio.id, app: "authority-demo", automation: "export-digest" });
     assert.equal(disabledAgain.wasEnabled, false, "a second disable reports the no-change honestly");
     await assert.rejects(
-      () => facade.appsAutomationRun({ space: studio.id, app: "authority-demo", automation: "export-digest" }),
+      () => facade.appsAutomationRun({ workFolder: studio.id, app: "authority-demo", automation: "export-digest" }),
       /desktop host/,
     );
 
     await assert.rejects(
-      () => facade.appsRemove({ space: studio.id, app: "ghost-app" }),
+      () => facade.appsRemove({ workFolder: studio.id, app: "ghost-app" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
-    const removedApp = await facade.appsRemove({ space: studio.id, app: authorityInstallation.featureInstallationId });
+    const removedApp = await facade.appsRemove({ workFolder: studio.id, app: authorityInstallation.featureInstallationId });
     assert.equal(removedApp.removed, true);
     assert.equal(removedApp.digest, authorityReview.digest);
     assert.equal(
@@ -1096,7 +1096,7 @@ test("the direct act path executes formerly gated verbs behind fences, receipts,
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -1106,72 +1106,72 @@ test("the direct act path executes formerly gated verbs behind fences, receipts,
   });
   try {
     const facade = api.actFacade;
-    const doomed = await facade.createSpace({ name: "Doomed" });
+    const doomed = await facade.createWorkFolder({ name: "Doomed" });
 
-    // `spaces delete` runs the shared removal orchestration on the first
+    // `work-folders delete` runs the shared removal orchestration on the first
     // call: the folder is gone, the registration is gone, the result is the
     // effect, and no decision identity exists anywhere
     // (docs/receipts-not-gates.md, F19).
-    const deleted = await facade.spacesDelete({ space: doomed.space.id, requestId: "req-delete-1" });
+    const deleted = await facade.workFoldersDelete({ workFolder: doomed.workFolder.id, requestId: "req-delete-1" });
     assert.equal(deleted.removed, true);
     assert.equal(deleted.storage, "managed");
     assert.equal("staged" in deleted, false);
     assert.equal("decisionId" in deleted, false);
-    assert.equal(existsSync(doomed.space.spaceRoot), false, "the managed folder is deleted on the first call");
+    assert.equal(existsSync(doomed.workFolder.workFolderRoot), false, "the managed folder is deleted on the first call");
     await assert.rejects(
-      () => facade.listConversations({ space: doomed.space.id }),
+      () => facade.listConversations({ workFolder: doomed.workFolder.id }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
     // No ghost kernel task survives an execution.
     assert.deepEqual((await api.kernel.getTasks({ kind: "system" })).tasks, []);
 
-    // The fence refuses while Assistant work runs in the affected Space,
+    // The fence refuses while agent work runs in the affected work-folder,
     // and a refused act changes nothing; a second attempt is a fresh call.
-    const held = await facade.createSpace({ name: "Busy" });
-    const heldChat = await facade.createConversation({ space: held.space.id });
+    const held = await facade.createWorkFolder({ name: "Busy" });
+    const heldChat = await facade.createConversation({ workFolder: held.workFolder.id });
     const heldTurn = await facade.sendMessage({
-      space: held.space.id,
+      workFolder: held.workFolder.id,
       conversationId: heldChat.conversation.id,
       content: "/hold",
     });
     await assert.rejects(
-      () => facade.spacesDelete({ space: held.space.id, requestId: "req-delete-busy" }),
+      () => facade.workFoldersDelete({ workFolder: held.workFolder.id, requestId: "req-delete-busy" }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "conflict"
         && /Wait for affected/.test(error.message),
     );
-    assert.equal(existsSync(held.space.spaceRoot), true, "a refused act changes nothing");
+    assert.equal(existsSync(held.workFolder.workFolderRoot), true, "a refused act changes nothing");
     await waitForAsync(async () =>
-      (await facade.turnStatus({ space: held.space.id, taskId: heldTurn.taskId })).task.state !== "running");
+      (await facade.turnStatus({ workFolder: held.workFolder.id, taskId: heldTurn.taskId })).task.state !== "running");
     assert.deepEqual((await api.kernel.getTasks({ kind: "system" })).tasks, []);
 
     // A skill import runs at once at Personal scope and reports where the
     // bundle landed; the result is the effect, not a pending record.
     await writeFile(join(sandbox, "SKILL.md"), "---\nname: notes\n---\n# Notes\n", "utf8");
-    const imported = await facade.toolsImportSkill({ scope: "personal", from: "SKILL.md", cwd: sandbox, requestId: "req-import-1" });
+    const imported = await facade.toolsImportSkill({ scope: "everywhere", from: "SKILL.md", cwd: sandbox, requestId: "req-import-1" });
     assert.deepEqual(imported.skillNames, ["notes"]);
-    assert.equal(imported.scope, "personal");
+    assert.equal(imported.scope, "everywhere");
     assert.ok(imported.bundlePath, "the effect names the imported bundle");
     assert.equal(existsSync(imported.bundlePath), true);
     assert.equal("staged" in imported, false);
 
-    // Needs you means questions: the glance carries no decision items.
-    const glance = await facade.manageGlance();
-    assert.equal(glance.kind, "work-fold.glance.experimental");
-    assert.ok(glance.needsYou.every((item) => (item.kind as string) !== "pending-decision"));
-    assert.ok(glance.changes.every((item) => (item.kind as string) !== "decision-recorded"));
+    // Needs you means questions: the overview carries no decision items.
+    const overview = await facade.agentOverview();
+    assert.equal(overview.kind, "work-fold.overview.experimental");
+    assert.ok(overview.needsYou.every((item) => (item.kind as string) !== "pending-decision"));
+    assert.ok(overview.changes.every((item) => (item.kind as string) !== "decision-recorded"));
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
   }
 });
 
-test("space unregister blocks on live publications and suspends routing authority", async () => {
+test("work-folder unregister blocks on live publications and suspends automation authority", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-unregister-test-"));
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return {}; } },
   });
@@ -1180,63 +1180,63 @@ test("space unregister blocks on live publications and suspends routing authorit
     const root = join(sandbox, "shared-folder");
     await mkdir(root, { recursive: true });
     await writeFile(join(root, "report.md"), "# Weekly\n\nAll clear.\n", "utf8");
-    const registered = await facade.registerSpace({ spaceRoot: root });
+    const registered = await facade.registerWorkFolder({ workFolderRoot: root });
 
     const publication = await api.publications.activate(
-      { spaceId: registered.space.id, relativePath: "report.md", title: "Weekly report" },
+      { workFolderId: registered.workFolder.id, relativePath: "report.md", title: "Weekly report" },
       { requestId: "req-pub-activate" },
     );
     assert.equal(publication.state, "active");
 
-    const routingId = "routing-weekly-glue";
+    const automationId = "automation-weekly-glue";
     const declaration = {
-      kind: "work-fold.routing",
+      kind: "work-fold.automation",
       version: 1,
-      id: routingId,
+      id: automationId,
       title: "Weekly glue",
       createdBy: "human",
       createdAt: "2026-08-01T00:00:00.000Z",
       trigger: { kind: "manual" },
-      steps: [{ id: "review", kind: "chat", space: registered.space.id, message: "Review the report." }],
+      steps: [{ id: "review", kind: "chat", workFolder: registered.workFolder.id, message: "Review the report." }],
     };
-    const enabled = await api.routings.enable({
+    const enabled = await api.automations.enable({
       declaration,
-      expectedDigest: workFoldRoutingDigest(normalizeWorkFoldRoutingDeclaration(declaration)),
-      grant: { requestId: "request-routing-1", surface: "main-window" },
+      expectedDigest: workFoldAutomationDigest(normalizeWorkFoldAutomationDeclaration(declaration)),
+      grant: { requestId: "request-automation-1", surface: "main-window" },
     });
     assert.equal(enabled.health, "enabled");
 
-    // A live page served from the Space refuses removal by name.
+    // A live page served from the work-folder refuses removal by name.
     await assert.rejects(
-      () => facade.spacesUnregister({ space: registered.space.id }),
-      /Stop sharing the page served from this Space before removing it: "Weekly report"/,
+      () => facade.workFoldersUnregister({ workFolder: registered.workFolder.id }),
+      /Stop sharing the page served from this work-folder before removing it: "Weekly report"/,
     );
     assert.equal(enabled.health, "enabled");
 
     const revoked = await api.publications.revoke(publication.publicationId, { requestId: "req-pub-revoke" });
     assert.equal(revoked.state, "revoked");
 
-    const removal = await facade.spacesUnregister({ space: registered.space.id });
+    const removal = await facade.workFoldersUnregister({ workFolder: registered.workFolder.id });
     assert.equal(removal.removed, true);
     assert.equal(existsSync(root), true, "a linked registration removal leaves the folder");
-    const suspended = await api.routings.getRouting(routingId);
+    const suspended = await api.automations.getAutomation(automationId);
     assert.equal(suspended?.health, "suspended");
-    assert.deepEqual(suspended?.suspension?.missingSpaceIds, [registered.space.id]);
+    assert.deepEqual(suspended?.suspension?.missingWorkFolderIds, [registered.workFolder.id]);
 
-    // Re-registration is noted in copy only; the routing stays suspended.
-    const reRegistered = await facade.registerSpace({ spaceRoot: root });
-    assert.equal(reRegistered.space.id, registered.space.id, "portable identity survives re-registration");
-    const noted = await api.routings.getRouting(routingId);
+    // Re-registration is noted in copy only; the automation stays suspended.
+    const reRegistered = await facade.registerWorkFolder({ workFolderRoot: root });
+    assert.equal(reRegistered.workFolder.id, registered.workFolder.id, "portable identity survives re-registration");
+    const noted = await api.automations.getAutomation(automationId);
     assert.equal(noted?.health, "suspended", "registration never silently re-arms standing behavior");
-    assert.deepEqual(noted?.suspension?.reRegisteredSpaceIds, [registered.space.id]);
+    assert.deepEqual(noted?.suspension?.reRegisteredWorkFolderIds, [registered.workFolder.id]);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
   }
 });
 
-test("routing runs drive live chat hops with receipts, stop honestly, and refuse after shutdown", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-routing-run-test-"));
+test("automation runs drive live chat hops with receipts, stop honestly, and refuse after shutdown", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-automation-run-test-"));
   await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
   await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
     pi.registerCommand("hold", {
@@ -1247,7 +1247,7 @@ test("routing runs drive live chat hops with receipts, stop honestly, and refuse
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -1258,70 +1258,70 @@ test("routing runs drive live chat hops with receipts, stop honestly, and refuse
   let closed = false;
   try {
     const facade = api.actFacade;
-    const space = await facade.createSpace({ name: "Glue target" });
-    const handoffTarget = await facade.createSpace({ name: "Handoff target" });
-    const bystander = await facade.createSpace({ name: "Bystander" });
-    await writeFile(join(space.space.spaceRoot, "notes.md"), "handoff", "utf8");
-    const routingId = "routing-hold-review";
+    const workFolder = await facade.createWorkFolder({ name: "Glue target" });
+    const handoffTarget = await facade.createWorkFolder({ name: "Handoff target" });
+    const bystander = await facade.createWorkFolder({ name: "Bystander" });
+    await writeFile(join(workFolder.workFolder.workFolderRoot, "notes.md"), "handoff", "utf8");
+    const automationId = "automation-hold-review";
     const declaration = {
-      kind: "work-fold.routing",
+      kind: "work-fold.automation",
       version: 1,
-      id: routingId,
+      id: automationId,
       title: "Hold review",
       createdBy: "human",
       createdAt: "2026-08-01T00:00:00.000Z",
       trigger: { kind: "manual" },
       steps: [
-        { id: "review", kind: "chat", space: space.space.id, message: "/hold" },
+        { id: "review", kind: "chat", workFolder: workFolder.workFolder.id, message: "/hold" },
         {
           id: "handoff",
           kind: "files",
-          fromSpace: space.space.id,
+          fromWorkFolder: workFolder.workFolder.id,
           from: { kind: "paths", paths: ["notes.md"] },
-          toSpace: handoffTarget.space.id,
+          toWorkFolder: handoffTarget.workFolder.id,
           to: "Inbox",
         },
       ],
     };
-    await api.routings.enable({
+    await api.automations.enable({
       declaration,
-      expectedDigest: workFoldRoutingDigest(normalizeWorkFoldRoutingDeclaration(declaration)),
-      grant: { requestId: "request-routing-run", surface: "main-window" },
+      expectedDigest: workFoldAutomationDigest(normalizeWorkFoldAutomationDeclaration(declaration)),
+      grant: { requestId: "request-automation-run", surface: "main-window" },
     });
 
-    const run = api.routings.runNow(routingId, { requestId: "req-run-now" });
-    // The hop dispatches a real turn into a fresh Chat in the target Space.
+    const run = api.automations.runNow(automationId, { requestId: "req-run-now" });
+    // The hop dispatches a real turn into a fresh Chat in the target work-folder.
     await waitForAsync(async () => {
-      const conversations = await facade.listConversations({ space: space.space.id });
+      const conversations = await facade.listConversations({ workFolder: workFolder.workFolder.id });
       if (!conversations.conversations.length) return false;
       const status = await facade.conversationStatus({
-        space: space.space.id,
+        workFolder: workFolder.workFolder.id,
         conversationId: conversations.conversations[0]!.id,
       });
       return status.state === "running";
     }, 60_000);
 
     // The ledger's History-restore fence (conflict rule 7): while this run is
-    // active, a whole-Space restore of the files hop's target Space refuses
-    // through the kernel-checked rule — and a Space the run never writes into
+    // active, a whole-work-folder restore of the files hop's target work-folder refuses
+    // through the kernel-checked rule — and a work-folder the run never writes into
     // restores past the fence (here to its own honest not-found).
     await assert.rejects(
-      () => facade.historyRestore({ space: handoffTarget.space.id, checkpointId: "cp-00000000000000-missing" }),
+      () => facade.historyRestore({ workFolder: handoffTarget.workFolder.id, checkpointId: "cp-00000000000000-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "conflict"
-        && /routing run .*routing-hold-review/.test(error.message)
-        && /files hop into this Space/.test(error.message),
+        && /automation run .*automation-hold-review/.test(error.message)
+        && /files hop into this work-folder/.test(error.message),
     );
     await assert.rejects(
-      () => facade.historyRestore({ space: bystander.space.id, checkpointId: "cp-00000000000000-missing" }),
+      () => facade.historyRestore({ workFolder: bystander.workFolder.id, checkpointId: "cp-00000000000000-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
-    const stopped = api.routings.stopRun(routingId);
-    assert.ok(stopped?.runId, "an active run is stoppable by routing id");
+    const stopped = api.automations.stopRun(automationId);
+    assert.ok(stopped?.runId, "an active run is stoppable by automation id");
     const result = await run;
     assert.equal(result.outcome, "failure", "a stopped run never reads as success in the scheduler history");
 
-    const receiptsText = await readFile(join(sandbox, "state", "routings", "receipts.jsonl"), "utf8");
+    const receiptsText = await readFile(join(sandbox, "state", "automations", "receipts.jsonl"), "utf8");
     const receipts = receiptsText.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     const runReceipts = receipts.filter((entry) => entry.runId === stopped!.runId && entry.scope === "run");
     assert.deepEqual(
@@ -1340,22 +1340,22 @@ test("routing runs drive live chat hops with receipts, stop honestly, and refuse
     );
     assert.deepEqual((await api.kernel.getTasks({ kind: "system" })).tasks, [], "no ghost tasks survive a stopped run");
     await assert.rejects(
-      () => facade.historyRestore({ space: handoffTarget.space.id, checkpointId: "cp-00000000000000-missing" }),
+      () => facade.historyRestore({ workFolder: handoffTarget.workFolder.id, checkpointId: "cp-00000000000000-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
       "a settled run releases the restore fence",
     );
 
-    // The glance renders the settled run from the receipts journal.
-    const glance = await facade.manageGlance();
+    // The overview renders the settled run from the receipts journal.
+    const overview = await facade.agentOverview();
     assert.ok(
-      glance.changes.some((item) => item.kind === "routing-run-settled" && item.ref?.runId === stopped!.runId),
-      "a settled routing run is a change item",
+      overview.changes.some((item) => item.kind === "automation-run-settled" && item.ref?.runId === stopped!.runId),
+      "a settled automation run is a change item",
     );
 
     closed = true;
     await api.close();
     await assert.rejects(
-      () => api.routings.runNow(routingId),
+      () => api.automations.runNow(automationId),
       (error: unknown) => (error as { code?: string }).code === "SERVICE_DAMAGED"
         && /closed/.test((error as Error).message),
       "the executor refuses new runs after shutdown",
@@ -1375,125 +1375,125 @@ const addressedUnreachableRelay = {
   async addressConfigured() { return true; },
 };
 
-test("routing enablement and page exposure execute on one call with one request identity", async () => {
+test("automation enablement and page exposure execute on one call with one request identity", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-enable-test-"));
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return {}; } },
     publicationBridge: addressedUnreachableRelay,
   });
   try {
     const facade = api.actFacade;
-    const space = await facade.createSpace({ name: "Glue Space" });
-    await writeFile(join(space.space.spaceRoot, "weekly.md"), "# Weekly\n", "utf8");
+    const workFolder = await facade.createWorkFolder({ name: "Glue work-folder" });
+    await writeFile(join(workFolder.workFolder.workFolderRoot, "weekly.md"), "# Weekly\n", "utf8");
 
-    const tooSoonPath = join(sandbox, "too-soon.work-fold-routing.json");
+    const tooSoonPath = join(sandbox, "too-soon.work-fold-automation.json");
     await writeFile(tooSoonPath, JSON.stringify({
-      kind: "work-fold.routing-proposal",
+      kind: "work-fold.automation-proposal",
       version: 2,
       name: "Too soon",
       createdBy: "assistant",
       createdAt: new Date().toISOString(),
-      routing: {
+      automation: {
         title: "Too soon",
         trigger: { kind: "at", at: new Date(Date.now() - 30_000).toISOString(), ifMissed: "run" },
-        steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review the report." }],
+        steps: [{ id: "review", kind: "chat", workFolder: workFolder.workFolder.id, message: "Review the report." }],
       },
     }, null, 2), "utf8");
     await assert.rejects(
-      () => facade.routingsEnable({ proposalPath: tooSoonPath, cwd: sandbox, requestId: "req-routing-too-soon" }),
+      () => facade.automationsEnable({ proposalPath: tooSoonPath, cwd: sandbox, requestId: "req-automation-too-soon" }),
       /in the future, and at most ten years ahead/,
-      "an unusable one-time routing is refused before anything is enabled",
+      "an unusable one-time automation is refused before anything is enabled",
     );
 
-    // Routing enablement: `routings enable` normalizes the inert typed
-    // proposal and executes the routing service's enablement at once, with
+    // Automation enablement: `automations enable` normalizes the inert typed
+    // proposal and executes the automation service's enablement at once, with
     // the act's request id as the grant identity (docs/receipts-not-gates.md,
     // F23). No holding area is ever written.
-    const proposalPath = join(sandbox, "weekly.work-fold-routing.json");
+    const proposalPath = join(sandbox, "weekly.work-fold-automation.json");
     const oneTimeAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
     await writeFile(proposalPath, JSON.stringify({
-      kind: "work-fold.routing-proposal",
+      kind: "work-fold.automation-proposal",
       version: 2,
       name: "Weekly glue",
       createdBy: "assistant",
       createdAt: "2026-08-01T00:00:00.000Z",
-      routing: {
+      automation: {
         title: "Weekly glue",
         trigger: { kind: "at", at: oneTimeAt, ifMissed: "run" },
-        steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review the report." }],
+        steps: [{ id: "review", kind: "chat", workFolder: workFolder.workFolder.id, message: "Review the report." }],
       },
     }, null, 2), "utf8");
-    const enabled = await facade.routingsEnable({ proposalPath, cwd: sandbox, requestId: "req-routing-enable" });
+    const enabled = await facade.automationsEnable({ proposalPath, cwd: sandbox, requestId: "req-automation-enable" });
     assert.equal(enabled.health, "enabled");
     assert.equal(enabled.title, "Weekly glue");
-    assert.deepEqual(enabled.referencedSpaceIds, [space.space.id]);
-    assert.match(enabled.routingId, /^routing-[a-f0-9]{16}$/, "a proposal gains a deterministic content-derived id");
+    assert.deepEqual(enabled.referencedWorkFolderIds, [workFolder.workFolder.id]);
+    assert.match(enabled.automationId, /^automation-[a-f0-9]{16}$/, "a proposal gains a deterministic content-derived id");
     assert.equal("staged" in enabled, false);
     assert.equal(existsSync(join(sandbox, "state", "fold", "staged-routings")), false, "no holding area is ever written");
-    const routing = await api.routings.getRouting(enabled.routingId);
-    assert.equal(routing?.health, "enabled");
-    assert.equal(routing?.digest, enabled.declarationDigest);
-    assert.deepEqual(routing?.declaration.trigger, { kind: "at", at: oneTimeAt, ifMissed: "run" });
-    assert.equal(routing?.grants.at(-1)?.requestId, "req-routing-enable", "the enablement receipt carries the act's request id");
-    assert.equal(routing?.grants.at(-1)?.surface, "cli");
+    const automation = await api.automations.getAutomation(enabled.automationId);
+    assert.equal(automation?.health, "enabled");
+    assert.equal(automation?.digest, enabled.declarationDigest);
+    assert.deepEqual(automation?.declaration.trigger, { kind: "at", at: oneTimeAt, ifMissed: "run" });
+    assert.equal(automation?.grants.at(-1)?.requestId, "req-automation-enable", "the enablement receipt carries the act's request id");
+    assert.equal(automation?.grants.at(-1)?.surface, "cli");
     assert.equal(enabled.alreadyEnabled, false);
     assert.equal(enabled.stoppedRunId, null);
 
-    // Enabling the identical declaration again is a no-op: the same routing,
+    // Enabling the identical declaration again is a no-op: the same automation,
     // no fresh receipt, and nothing in flight disturbed.
-    const twice = await facade.routingsEnable({ proposalPath, cwd: sandbox, requestId: "req-routing-enable-again" });
+    const twice = await facade.automationsEnable({ proposalPath, cwd: sandbox, requestId: "req-automation-enable-again" });
     assert.equal(twice.alreadyEnabled, true);
-    assert.equal(twice.routingId, enabled.routingId);
-    assert.equal((await api.routings.getRouting(enabled.routingId))?.grants.length, 1);
+    assert.equal(twice.automationId, enabled.automationId);
+    assert.equal((await api.automations.getAutomation(enabled.automationId))?.grants.length, 1);
 
-    // A proposal naming a Space this machine does not have never arms.
-    const strangerPath = join(sandbox, "stranger.work-fold-routing.json");
+    // A proposal naming a work-folder this machine does not have never arms.
+    const strangerPath = join(sandbox, "stranger.work-fold-automation.json");
     await writeFile(strangerPath, JSON.stringify({
-      kind: "work-fold.routing-proposal",
+      kind: "work-fold.automation-proposal",
       version: 2,
       name: "Stranger",
       createdBy: "assistant",
       createdAt: "2026-08-01T00:00:00.000Z",
-      routing: {
+      automation: {
         title: "Stranger",
         trigger: { kind: "manual" },
-        steps: [{ id: "review", kind: "chat", space: "space-0123456789abcdef", message: "Review the report." }],
+        steps: [{ id: "review", kind: "chat", workFolder: "space-0123456789abcdef", message: "Review the report." }],
       },
     }, null, 2), "utf8");
     await assert.rejects(
-      () => facade.routingsEnable({ proposalPath: strangerPath, cwd: sandbox, requestId: "req-routing-stranger" }),
+      () => facade.automationsEnable({ proposalPath: strangerPath, cwd: sandbox, requestId: "req-automation-stranger" }),
       /not registered on this machine/,
     );
 
     // An unknown placeholder is a declaration error, refused when enabling.
-    const unknownPlaceholderPath = join(sandbox, "unknown-placeholder.work-fold-routing.json");
+    const unknownPlaceholderPath = join(sandbox, "unknown-placeholder.work-fold-automation.json");
     await writeFile(unknownPlaceholderPath, JSON.stringify({
-      kind: "work-fold.routing-proposal",
+      kind: "work-fold.automation-proposal",
       version: 4,
       name: "Unknown placeholder",
       createdBy: "assistant",
       createdAt: "2026-08-01T00:00:00.000Z",
-      routing: {
+      automation: {
         title: "Unknown placeholder",
         trigger: { kind: "manual" },
-        steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review {{nope}}." }],
+        steps: [{ id: "review", kind: "chat", workFolder: workFolder.workFolder.id, message: "Review {{nope}}." }],
       },
     }, null, 2), "utf8");
     await assert.rejects(
-      () => facade.routingsEnable({ proposalPath: unknownPlaceholderPath, cwd: sandbox, requestId: "req-routing-unknown" }),
+      () => facade.automationsEnable({ proposalPath: unknownPlaceholderPath, cwd: sandbox, requestId: "req-automation-unknown" }),
       /unknown placeholder \{\{nope\}\}/,
     );
-    assert.equal((await api.routings.listRoutings()).length, 1, "a refused declaration arms nothing");
+    assert.equal((await api.automations.listAutomations()).length, 1, "a refused declaration arms nothing");
 
     // Page exposure: `pages share` pins the publication shape per the
     // publishing mutation ledger and activates through the publication
     // service on the same call, under a derived request id.
     const shared = await facade.pagesShare({
-      space: space.space.id,
+      workFolder: workFolder.workFolder.id,
       path: "weekly.md",
       title: "Weekly report",
       requestId: "req-page-share",
@@ -1519,12 +1519,12 @@ test("routing enablement and page exposure execute on one call with one request 
 
     // A second identical call refuses: the page is already shared.
     await assert.rejects(
-      () => facade.pagesShare({ space: space.space.id, path: "weekly.md", title: "Weekly report", requestId: "req-page-share-2" }),
+      () => facade.pagesShare({ workFolder: workFolder.workFolder.id, path: "weekly.md", title: "Weekly report", requestId: "req-page-share-2" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /already shared/.test(error.message),
     );
     // A missing source refuses honestly and exposes nothing.
     await assert.rejects(
-      () => facade.pagesShare({ space: space.space.id, path: "missing.md", title: "Missing", requestId: "req-page-missing" }),
+      () => facade.pagesShare({ workFolder: workFolder.workFolder.id, path: "missing.md", title: "Missing", requestId: "req-page-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
     assert.equal((await api.publications.list()).length, 1);
@@ -1542,42 +1542,42 @@ test("the act facade lists what an installed app can do and runs one of its decl
       invocations.push({ digest: app.digest, action, input: structuredClone(input) });
       return { count: 3 };
     },
-    async runAutomation() { /* unused */ },
+    async runAppAutomation() { /* unused */ },
     async stop() { /* unused */ },
     async close() { /* unused */ },
   };
   const restrictedApps = await RestrictedAppService.create({
     rootPath: join(sandbox, "restricted-apps"),
-    deferAutomationStart: true,
+    deferAppAutomationStart: true,
     runtimeHost: runtimeHost as never,
   });
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     restrictedAppService: restrictedApps,
   });
   try {
     const facade = api.actFacade;
-    const { space } = await facade.createSpace({ name: "Apps Fold" });
-    const empty = await facade.appsList({ space: space.id });
+    const { workFolder } = await facade.createWorkFolder({ name: "Apps Fold" });
+    const empty = await facade.appsList({ workFolder: workFolder.id });
     assert.deepEqual(empty.apps, []);
     assert.equal(empty.truncated, false);
 
-    const packageRoot = join(space.spaceRoot, "apps", "connected-inbox");
+    const packageRoot = join(workFolder.workFolderRoot, "apps", "connected-inbox");
     await writeStudioPackage(packageRoot, "inbox-bytes");
-    const review = await restrictedApps.inspect({ spaceId: space.id, spaceRoot: space.spaceRoot, sourcePath: "apps/connected-inbox" });
+    const review = await restrictedApps.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath: "apps/connected-inbox" });
     const installed = await restrictedApps.install({
-      spaceId: space.id,
-      spaceRoot: space.spaceRoot,
+      workFolderId: workFolder.id,
+      workFolderRoot: workFolder.workFolderRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: review.digest,
     });
 
     // The listing carries everything a caller needs to build an invocation
     // without opening the package.
-    const listed = await facade.appsList({ space: "Apps Fold" });
+    const listed = await facade.appsList({ workFolder: "Apps Fold" });
     assert.equal(listed.apps.length, 1);
     const app = listed.apps[0]!;
     assert.equal(app.appId, "connected-inbox");
@@ -1590,7 +1590,7 @@ test("the act facade lists what an installed app can do and runs one of its decl
     assert.deepEqual(app.automations, []);
     assert.deepEqual(app.assistantActions, []);
 
-    const invoked = await facade.appsInvoke({ space: space.id, app: "connected-inbox", tool: "inbox_search", input: { query: "north" } });
+    const invoked = await facade.appsInvoke({ workFolder: workFolder.id, app: "connected-inbox", tool: "inbox_search", input: { query: "north" } });
     assert.deepEqual(invoked.result, { count: 3 });
     assert.equal(invoked.action, "search");
     assert.equal(invoked.digest, installed.digest);
@@ -1599,13 +1599,13 @@ test("the act facade lists what an installed app can do and runs one of its decl
     assert.deepEqual(invocations, [{ digest: installed.digest, action: "search", input: { query: "north" } }]);
 
     await assert.rejects(
-      () => facade.appsInvoke({ space: space.id, app: "connected-inbox", tool: "not_a_tool", input: {} }),
+      () => facade.appsInvoke({ workFolder: workFolder.id, app: "connected-inbox", tool: "not_a_tool", input: {} }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound" && /has no tool named not_a_tool/.test(error.message),
     );
     // Input is handed to the app's own runtime unchanged; that runtime holds
     // the schema check, exactly as it does for a Chat tool call.
     await assert.rejects(
-      () => facade.appsInvoke({ space: space.id, app: "missing-app", tool: "inbox_search", input: {} }),
+      () => facade.appsInvoke({ workFolder: workFolder.id, app: "missing-app", tool: "inbox_search", input: {} }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
     assert.equal(invocations.length, 1, "a refused invocation never reaches the app");
@@ -1629,25 +1629,25 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
   const storage = new FileRestrictedAppStorage(join(sandbox, "restricted-apps", "data"));
   const restrictedApps = await RestrictedAppService.create({
     rootPath: join(sandbox, "restricted-apps"),
-    deferAutomationStart: true,
+    deferAppAutomationStart: true,
     storage,
   });
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     restrictedAppService: restrictedApps,
     piRuntimeProvider: { async resolveRuntime() { return {}; } },
   });
   try {
     const facade = api.actFacade;
-    const studio = (await facade.createSpace({ name: "Viewer Studio" })).space;
+    const studio = (await facade.createWorkFolder({ name: "Viewer Studio" })).workFolder;
     const targetRoot = join(sandbox, "viewer-target-fold");
     await mkdir(targetRoot, { recursive: true });
-    const target = (await facade.registerSpace({ spaceRoot: targetRoot })).space;
+    const target = (await facade.registerWorkFolder({ workFolderRoot: targetRoot })).workFolder;
 
-    const packageRoot = join(studio.spaceRoot, "apps", "viewer-inbox");
+    const packageRoot = join(studio.workFolderRoot, "apps", "viewer-inbox");
     await mkdir(packageRoot, { recursive: true });
     await writeFile(join(packageRoot, "package.json"), JSON.stringify({
       name: "viewer-inbox",
@@ -1669,10 +1669,10 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     }), "utf8");
     await writeFile(join(packageRoot, "index.html"), "<!doctype html><main>desktop</main>", "utf8");
     await writeFile(join(packageRoot, "viewer.html"), "<!doctype html><main>audience</main>", "utf8");
-    const review = await restrictedApps.inspect({ spaceId: studio.id, spaceRoot: studio.spaceRoot, sourcePath: "apps/viewer-inbox" });
+    const review = await restrictedApps.inspect({ workFolderId: studio.id, workFolderRoot: studio.workFolderRoot, sourcePath: "apps/viewer-inbox" });
     await restrictedApps.install({
-      spaceId: studio.id,
-      spaceRoot: studio.spaceRoot,
+      workFolderId: studio.id,
+      workFolderRoot: studio.workFolderRoot,
       sourcePath: "apps/viewer-inbox",
       expectedDigest: review.digest,
     });
@@ -1681,20 +1681,20 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     // installed App Instance of a prepared Release.
     const development = (await restrictedApps.list(studio.id)).find((app) => app.runtimeInstanceKind === "development");
     await assert.rejects(
-      () => facade.pagesShareApp({ space: studio.id, instance: development!.featureInstallationId, requestId: "req-rung3-dev" }),
+      () => facade.pagesShareApp({ workFolder: studio.id, instance: development!.featureInstallationId, requestId: "req-rung3-dev" }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "conflict"
         && /prepared Release/.test(error.message),
     );
 
-    const prepared = await facade.appsReleasePrepare({ space: studio.id, version: "1.0.0" });
-    await facade.appsReleasePublish({ space: studio.id, release: prepared.release.releaseDigest });
+    const prepared = await facade.appsReleasePrepare({ workFolder: studio.id, version: "1.0.0" });
+    await facade.appsReleasePublish({ workFolder: studio.id, release: prepared.release.releaseDigest });
     const installPlan = await facade.appsInstallPrepare({
-      space: studio.id,
+      workFolder: studio.id,
       release: prepared.release.releaseDigest,
-      targetSpace: target.id,
+      targetWorkFolder: target.id,
     });
-    const activated = await facade.appsOperationActivate({ space: studio.id, operation: installPlan.operation.operationId });
+    const activated = await facade.appsOperationActivate({ workFolder: studio.id, operation: installPlan.operation.operationId });
     const installed = (await restrictedApps.list(target.id)).find((app) => app.runtimeInstanceKind === "app");
     assert.ok(installed);
 
@@ -1702,7 +1702,7 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     // pins the App Instance identity plus the complete viewer surface, and
     // activates the exposure on the first call.
     const shared = await facade.pagesShareApp({
-      space: target.id,
+      workFolder: target.id,
       instance: activated.instance.runtimeInstanceId,
       requestId: "req-rung3-share",
     });
@@ -1718,7 +1718,7 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     const exposure = publications[0]!;
     assert.equal(exposure.kind, "app");
     assert.equal(exposure.title, "Viewer inbox");
-    assert.equal(exposure.spaceId, target.id);
+    assert.equal(exposure.workFolderId, target.id);
     assert.equal(exposure.viewerPath, `/a/${exposure.publicationId}`);
     assert.equal(exposure.snapshotEnabled, false, "apps have no snapshot lane");
     assert.deepEqual(exposure.app, {
@@ -1768,7 +1768,7 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     assert.ok((await restrictedApps.list(target.id)).some((app) => app.runtimeInstanceKind === "app"),
       "revoking exposure never uninstalls the Instance");
     const reshared = await facade.pagesShareApp({
-      space: target.id,
+      workFolder: target.id,
       instance: activated.instance.runtimeInstanceId,
       requestId: "req-rung3-reshare",
     });
@@ -1883,11 +1883,11 @@ test("the act facade's status documents say what a task is waiting on, and a sta
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
     beforeAgentPrompt: async (event) => {
-      if (draining || !held.has(event.spaceId)) return;
+      if (draining || !held.has(event.workFolderId)) return;
       await new Promise<void>((release) => gates.push({ taskId: event.taskId, release }));
     },
   });
@@ -1897,12 +1897,12 @@ test("the act facade's status documents say what a task is waiting on, and a sta
   };
   try {
     const facade = api.actFacade;
-    const space = await facade.createSpace({ name: "Waiting Space" });
-    held.add(space.space.id);
+    const workFolder = await facade.createWorkFolder({ name: "Waiting work-folder" });
+    held.add(workFolder.workFolder.id);
 
     // Before any question: the status carries the request ref and no waiting.
-    const own = await facade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold" });
-    const before = await facade.turnStatus({ space: space.space.id, taskId: own.taskId });
+    const own = await facade.sendMessage({ workFolder: workFolder.workFolder.id, newConversation: true, content: "/hold" });
+    const before = await facade.turnStatus({ workFolder: workFolder.workFolder.id, taskId: own.taskId });
     assert.equal(before.task.state, "running");
     assert.equal(before.waiting, null);
     assert.equal(before.request?.kind, "cli");
@@ -1912,8 +1912,8 @@ test("the act facade's status documents say what a task is waiting on, and a sta
     // A question from the running turn: waiting is set while the turn runs,
     // and still set once it ends. The management status of an unrelated
     // task carries the same two fields.
-    const asked = await facade.chatAsk({ space: space.space.id, taskId: own.taskId, question: "Ship it?", respondent: "person" });
-    const during = await facade.turnStatus({ space: space.space.id, taskId: own.taskId });
+    const asked = await facade.chatAsk({ workFolder: workFolder.workFolder.id, taskId: own.taskId, question: "Ship it?", respondent: "person" });
+    const during = await facade.turnStatus({ workFolder: workFolder.workFolder.id, taskId: own.taskId });
     assert.equal(during.task.state, "running");
     assert.deepEqual(during.waiting, {
       questionId: asked.question.questionId,
@@ -1926,8 +1926,8 @@ test("the act facade's status documents say what a task is waiting on, and a sta
     assert.equal(during.request?.state, "waiting");
     assert.equal(during.request?.openQuestions, 1);
     await release(own.taskId);
-    await waitForAsync(async () => (await facade.turnStatus({ space: space.space.id, taskId: own.taskId })).task.state !== "running");
-    const after = await facade.turnStatus({ space: space.space.id, taskId: own.taskId });
+    await waitForAsync(async () => (await facade.turnStatus({ workFolder: workFolder.workFolder.id, taskId: own.taskId })).task.state !== "running");
+    const after = await facade.turnStatus({ workFolder: workFolder.workFolder.id, taskId: own.taskId });
     assert.equal(after.task.state, "succeeded");
     assert.equal(after.waiting?.questionId, asked.question.questionId);
 
@@ -1935,9 +1935,9 @@ test("the act facade's status documents say what a task is waiting on, and a sta
     // report, ask, and handoff refuse it by name, exactly as --parent-task
     // would be refused, and record nothing.
     for (const attempt of [
-      () => facade.chatReport({ space: space.space.id, taskId: own.taskId, summary: "Late.", files: [], outcome: "succeeded" }),
-      () => facade.chatAsk({ space: space.space.id, taskId: own.taskId, question: "Late?", respondent: "person" }),
-      () => facade.chatHandoff({ space: space.space.id, taskId: own.taskId, toSpace: space.space.id, message: "/hold", files: [] }),
+      () => facade.chatReport({ workFolder: workFolder.workFolder.id, taskId: own.taskId, summary: "Late.", files: [], outcome: "succeeded" }),
+      () => facade.chatAsk({ workFolder: workFolder.workFolder.id, taskId: own.taskId, question: "Late?", respondent: "person" }),
+      () => facade.chatHandoff({ workFolder: workFolder.workFolder.id, taskId: own.taskId, toWorkFolder: workFolder.workFolder.id, message: "/hold", files: [] }),
     ]) {
       await assert.rejects(attempt, (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /stopping or has already finished/.test(error.message));
     }
@@ -1946,13 +1946,13 @@ test("the act facade's status documents say what a task is waiting on, and a sta
     assert.equal(api.requests.get(asked.request.id)!.childRequestIds.length, 0);
 
     // The management status names the F25 graph beside its shipped projection.
-    held.delete(space.space.id);
-    const manage = await facade.manageSend({ content: "/hold" });
-    const managed = await facade.manageTurnStatus({ taskId: manage.taskId });
+    held.delete(workFolder.workFolder.id);
+    const agent = await facade.agentSend({ content: "/hold" });
+    const managed = await facade.agentTurnStatus({ taskId: agent.taskId });
     assert.equal(managed.waiting, null);
-    assert.equal(managed.requestGraph?.kind, "management");
+    assert.equal(managed.requestGraph?.kind, "agent");
     assert.equal(managed.requestGraph?.id, managed.request?.requestId);
-    await waitForAsync(async () => (await facade.manageTurnStatus({ taskId: manage.taskId })).task.state !== "running");
+    await waitForAsync(async () => (await facade.agentTurnStatus({ taskId: agent.taskId })).task.state !== "running");
   } finally {
     draining = true;
     for (const gate of gates.splice(0)) gate.release();

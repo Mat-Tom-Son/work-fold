@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { normalizeWorkFoldCheckTargetPath } from "../../shared/checks.js";
-import { resolveSpacePath } from "../space.js";
+import { resolveWorkFolderPath } from "../work-folder.js";
 
 /** One whole-file replacement; matches the largest file a text review reads. */
 const maximumCorrectionBytes = 16 * 1024 * 1024;
@@ -67,9 +67,9 @@ export async function readCheckCorrectionProposal(path: string): Promise<CheckCo
 }
 
 /** Writes only through the handle whose exact bytes were reviewed. The caller
- * holds the Space History/ownership lease and has journaled a safety checkpoint. */
+ * holds the work-folder History/ownership lease and has journaled a safety checkpoint. */
 export async function writeCheckCorrection(root: string, proposal: CheckCorrectionProposal): Promise<void> {
-  const absolute = resolveSpacePath(root, proposal.path);
+  const absolute = resolveWorkFolderPath(root, proposal.path);
   const handle = await open(absolute, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
   try {
     const before = await handle.stat();
@@ -81,7 +81,7 @@ export async function writeCheckCorrection(root: string, proposal: CheckCorrecti
       if (!bytesRead) break;
       length += bytesRead;
     }
-    const named = await lstat(resolveSpacePath(root, proposal.path));
+    const named = await lstat(resolveWorkFolderPath(root, proposal.path));
     const current = await handle.stat();
     if (length !== before.size || [named, current].some((info) => !info.isFile() || info.dev !== before.dev || info.ino !== before.ino || info.mtimeMs !== before.mtimeMs || info.ctimeMs !== before.ctimeMs)
       || createHash("sha256").update(buffer.subarray(0, length)).digest("hex") !== proposal.beforeHash) throw new Error("The file changed since this correction was prepared. Ask for a fresh correction.");

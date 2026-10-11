@@ -365,7 +365,7 @@ checks and post-read registration/visibility checks. Markdown remains inert;
 HTML/SVG remain escaped text. Browser revocation fences late responses and their
 replay-cache insertion. Shared viewers cannot reach the operation or preview
 module. Disconnect clears the displayed bytes; reconnect requires Refresh.
-See [file previews](../fold-file-previews.md) for the complete read contract.
+See [file previews](../browser-file-previews.md) for the complete read contract.
 
 Copied-file receipts open their exact Space/path and staged decision receipts
 open and focus the corresponding Needs you card. Concurrent decision refreshes
@@ -398,7 +398,7 @@ preview to publish a Release. The app receives only packaged-asset and selected
 instance-data reads. Exact installation/revision/authority pins are rechecked
 after queued mutations; browser revocation fences late transport completion.
 Shared viewers keep their separate publication adapter and read-only vocabulary.
-See [browser app views](../fold-browser-apps.md) for the implementation contract.
+See [browser app views](../browser-apps.md) for the implementation contract.
 
 The management page embeds a static intermediary and a separate app child,
 both with opaque origins. The intermediary denies direct network traffic and

@@ -150,10 +150,10 @@ test("running is an explicit fixture state and its Stop remains inert", async (t
 });
 
 test("retired Files and work-folder routes land on chat without a file browser", async (t) => {
-  for (const screen of ["spaces", "files"]) {
+  for (const screen of ["work-folders", "files"]) {
     const f = await workspace(screen); t.after(() => f.dom.window.close());
     assert.equal(f.document.querySelector(".app-shell")!.getAttribute("data-context"), "new");
-    assert.equal(f.document.querySelector("#context-spaces, #file-tree, #folder-picker, #ask-space"), null);
+    assert.equal(f.document.querySelector("#context-work-folders, #file-tree, #folder-picker, #ask-work-folder"), null);
     assert.equal(f.document.querySelectorAll(".context").length, 2);
     assert.deepEqual(f.network, []);
   }

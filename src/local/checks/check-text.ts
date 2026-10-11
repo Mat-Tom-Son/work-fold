@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import type { WorkFoldCheckTargetRole } from "../../shared/checks.js";
-import { resolveSpacePath } from "../space.js";
+import { resolveWorkFolderPath } from "../work-folder.js";
 import type { WorkFoldCheckTargetResolution } from "./target-resolver.js";
 
 /** Read budgets only; whether the inputs fit is decided against the selected model's real context window. */
@@ -20,7 +20,7 @@ export interface WorkFoldCheckTextSnapshot {
  * return partially decoded, truncated, linked, or concurrently changed input. */
 export async function readCheckTextSnapshot(root: string, path: string, roles: WorkFoldCheckTargetRole[], signal?: AbortSignal): Promise<WorkFoldCheckTextSnapshot> {
   signal?.throwIfAborted();
-  const absolutePath = resolveSpacePath(root, path);
+  const absolutePath = resolveWorkFolderPath(root, path);
   const handle = await open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const before = await handle.stat();
@@ -34,7 +34,7 @@ export async function readCheckTextSnapshot(root: string, path: string, roles: W
       length += bytesRead;
     }
     const after = await handle.stat();
-    const named = await lstat(resolveSpacePath(root, path));
+    const named = await lstat(resolveWorkFolderPath(root, path));
     if (length > modelCheckLimits.maximumFileBytes || length !== before.size || !named.isFile()
       || [after, named].some((info) => info.dev !== before.dev || info.ino !== before.ino || info.size !== before.size || info.mtimeMs !== before.mtimeMs || info.ctimeMs !== before.ctimeMs)) {
       throw new Error(`Check input changed while being read: ${path}`);

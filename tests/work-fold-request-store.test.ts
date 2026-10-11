@@ -10,12 +10,12 @@ import {
   WorkFoldRequestLimitError,
   workFoldRequestLimitMessage,
   WorkFoldRequestLineageError,
-  workFoldRequestStateToManagementPhase,
+  workFoldRequestStateToAgentPhase,
   type WorkFoldRequestLimitName,
   type WorkFoldRequestStateInput,
 } from "../src/local/requests/request-records.js";
 import { WorkFoldRequestStore } from "../src/local/requests/request-store.js";
-import { workFoldRequestLimits } from "../src/shared/fold-limits.js";
+import { workFoldRequestLimits } from "../src/shared/work-fold-limits.js";
 import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js";
 
 /**
@@ -44,8 +44,8 @@ async function temporaryRoot(t: { after: (fn: () => unknown) => void }): Promise
   return root;
 }
 
-const managementOwner = { conversationId: "chat-fold" };
-const spaceOwner = { spaceId: "space-audits", spaceName: "Audits", conversationId: "chat-audits" };
+const workFoldAgentOwner = { conversationId: "chat-agent" };
+const workFolderOwner = { workFolderId: "work-folder-audits", workFolderName: "Audits", conversationId: "chat-audits" };
 
 function stateInput(overrides: Partial<WorkFoldRequestStateInput> = {}): WorkFoldRequestStateInput {
   return {
@@ -68,8 +68,8 @@ test("a root, a child, and the graph between them", async (t) => {
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
   const request = await store.beginRoot({
-    kind: "management",
-    owner: managementOwner,
+    kind: "agent",
+    owner: workFoldAgentOwner,
     surface: "popover",
     taskId: "task-1",
     content: "Check the quarter's audits.",
@@ -84,8 +84,8 @@ test("a root, a child, and the graph between them", async (t) => {
   clock.advance(1_000);
   const child = await store.beginChild({
     parentTaskId: "task-1",
-    kind: "space",
-    owner: spaceOwner,
+    kind: "work-folder",
+    owner: workFolderOwner,
     surface: "cli",
     taskId: "task-2",
     content: "Review the ledger.",
@@ -99,16 +99,16 @@ test("a root, a child, and the graph between them", async (t) => {
   assert.equal(store.byTaskId("task-1")?.requestId, request.requestId);
   assert.deepEqual(store.rootDescendants(request.requestId).map((item) => item.requestId), [child.requestId]);
   assert.equal(store.children(request.requestId).length, 1);
-  assert.equal(store.latestForConversation("chat-audits", { spaceId: "space-audits" })?.requestId, child.requestId);
+  assert.equal(store.latestForConversation("chat-audits", { workFolderId: "work-folder-audits" })?.requestId, child.requestId);
   assert.equal(store.isAccepting("task-1"), true);
 
-  // A stop, and the glance's rolled-up child turns, ask about the graph below
+  // A stop, and the overview's rolled-up child turns, ask about the graph below
   // an arbitrary request; `rootDescendants` answers only for a root id.
   clock.advance(1_000);
   const grandchild = await store.beginChild({
     parentTaskId: "task-2",
-    kind: "space",
-    owner: { spaceId: "space-ledger", spaceName: "Ledger", conversationId: "chat-ledger" },
+    kind: "work-folder",
+    owner: { workFolderId: "work-folder-ledger", workFolderName: "Ledger", conversationId: "chat-ledger" },
     surface: "cli",
     taskId: "task-3",
   });
@@ -127,31 +127,31 @@ test("a conversation id is not identity: the newest request on a Chat is scoped 
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
-  // Two registered Spaces can hold the same conversation id: a Chat log
+  // Two registered work-folders can hold the same conversation id: a Chat log
   // travels with its folder, so a duplicated folder brings its ids along.
   const first = await store.beginRoot({
-    kind: "space",
-    owner: { spaceId: "space-one", spaceName: "One", conversationId: "chat-shared" },
+    kind: "work-folder",
+    owner: { workFolderId: "work-folder-one", workFolderName: "One", conversationId: "chat-shared" },
     surface: "renderer",
     taskId: "task-one",
   });
   clock.advance(1_000);
   const second = await store.beginRoot({
-    kind: "space",
-    owner: { spaceId: "space-two", spaceName: "Two", conversationId: "chat-shared" },
+    kind: "work-folder",
+    owner: { workFolderId: "work-folder-two", workFolderName: "Two", conversationId: "chat-shared" },
     surface: "renderer",
     taskId: "task-two",
   });
   clock.advance(1_000);
   const management = await store.beginRoot({
-    kind: "management",
+    kind: "agent",
     owner: { conversationId: "chat-shared" },
     surface: "popover",
-    taskId: "task-fold",
+    taskId: "task-agent",
   });
 
-  assert.equal(store.latestForConversation("chat-shared", { spaceId: "space-one" })?.requestId, first.requestId);
-  assert.equal(store.latestForConversation("chat-shared", { spaceId: "space-two" })?.requestId, second.requestId);
+  assert.equal(store.latestForConversation("chat-shared", { workFolderId: "work-folder-one" })?.requestId, first.requestId);
+  assert.equal(store.latestForConversation("chat-shared", { workFolderId: "work-folder-two" })?.requestId, second.requestId);
   assert.equal(store.latestForConversation("chat-shared")?.requestId, management.requestId);
 
   await store.flush();
@@ -162,9 +162,9 @@ test("the newest request on a Chat stays the newest across a compaction and a re
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now, compactBytes: 1 });
 
-  const older = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-older" });
+  const older = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-older" });
   clock.advance(1_000);
-  const newer = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-newer" });
+  const newer = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-newer" });
   // The older request is touched last, so a journal sorted by update time
   // rebuilds the map in the opposite order to creation.
   clock.advance(1_000);
@@ -172,12 +172,12 @@ test("the newest request on a Chat stays the newest across a compaction and a re
   clock.advance(1_000);
   await store.settleTurn("task-older", { status: "succeeded" });
   await store.flush();
-  assert.equal(store.latestForConversation("chat-fold")?.requestId, newer.requestId);
+  assert.equal(store.latestForConversation("chat-agent")?.requestId, newer.requestId);
 
   const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now, compactBytes: 1 });
-  assert.equal(reopened.latestForConversation("chat-fold")?.requestId, newer.requestId, "creation order, not journal order");
+  assert.equal(reopened.latestForConversation("chat-agent")?.requestId, newer.requestId, "creation order, not journal order");
   assert.equal(reopened.latest()?.requestId, newer.requestId);
-  assert.deepEqual(reopened.list({ kind: "management" }).map((item) => item.requestId), [older.requestId, newer.requestId]);
+  assert.deepEqual(reopened.list({ kind: "agent" }).map((item) => item.requestId), [older.requestId, newer.requestId]);
   await reopened.flush();
 });
 
@@ -191,8 +191,8 @@ test("a compaction keeps every record the journal holds, not only the ones in me
   const ids: string[] = [];
   for (let index = 0; index < 6; index += 1) {
     const record = await store.beginRoot({
-      kind: "management",
-      owner: managementOwner,
+      kind: "agent",
+      owner: workFoldAgentOwner,
       surface: "popover",
       taskId: `task-${index}`,
     });
@@ -224,14 +224,14 @@ test("a request can grow past the former child and depth quotas", async (t) => {
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
 
   const breadth = await WorkFoldRequestStore.open({ rootPath: join(root, "breadth"), now: clock.now });
-  await breadth.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
+  await breadth.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
   // 33 was previously refused as the 33rd child. The graph records every
   // accepted child; execution capacity is scheduled elsewhere.
   for (let index = 0; index <= 32; index += 1) {
     await breadth.beginChild({
       parentTaskId: "task-1",
-      kind: "space",
-      owner: spaceOwner,
+      kind: "work-folder",
+      owner: workFolderOwner,
       surface: "cli",
       taskId: `child-${index}`,
     });
@@ -239,13 +239,13 @@ test("a request can grow past the former child and depth quotas", async (t) => {
   assert.equal(breadth.children(breadth.byTaskId("task-1")!.requestId).length, 33);
 
   const deep = await WorkFoldRequestStore.open({ rootPath: join(root, "deep"), now: clock.now });
-  await deep.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "deep-0" });
+  await deep.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "deep-0" });
   // Five levels was previously refused after level four.
   for (let level = 1; level <= 5; level += 1) {
     const record = await deep.beginChild({
       parentTaskId: `deep-${level - 1}`,
-      kind: "space",
-      owner: spaceOwner,
+      kind: "work-folder",
+      owner: workFolderOwner,
       surface: "cli",
       taskId: `deep-${level}`,
     });
@@ -285,11 +285,11 @@ test("the state ladder decides the same facts the same way every time", () => {
 
   // The older phase vocabulary keeps its meaning, and the closing-question
   // heuristic still upgrades a finished request but never a failed one.
-  assert.equal(workFoldRequestStateToManagementPhase("waiting"), "needs_you");
-  assert.equal(workFoldRequestStateToManagementPhase("partial"), "done");
-  assert.equal(workFoldRequestStateToManagementPhase("expired"), "stopped");
-  assert.equal(workFoldRequestStateToManagementPhase("done", true), "done");
-  assert.equal(workFoldRequestStateToManagementPhase("failed", true), "failed");
+  assert.equal(workFoldRequestStateToAgentPhase("waiting"), "needs_you");
+  assert.equal(workFoldRequestStateToAgentPhase("partial"), "done");
+  assert.equal(workFoldRequestStateToAgentPhase("expired"), "stopped");
+  assert.equal(workFoldRequestStateToAgentPhase("done", true), "done");
+  assert.equal(workFoldRequestStateToAgentPhase("failed", true), "failed");
 });
 
 test("a request never claims done while work it started is still running", async (t) => {
@@ -297,8 +297,8 @@ test("a request never claims done while work it started is still running", async
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
-  const request = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
-  await store.beginChild({ parentTaskId: "task-1", kind: "space", owner: spaceOwner, surface: "cli", taskId: "task-2" });
+  const request = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
+  await store.beginChild({ parentTaskId: "task-1", kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "task-2" });
   await store.markTurnRunning("task-1");
   assert.equal(store.get(request.requestId)?.state, "working");
 
@@ -324,13 +324,13 @@ test("a failed child fails its root and a stopped request says so", async (t) =>
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
-  const failing = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "fail-1" });
-  await store.beginChild({ parentTaskId: "fail-1", kind: "space", owner: spaceOwner, surface: "cli", taskId: "fail-2" });
+  const failing = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "fail-1" });
+  await store.beginChild({ parentTaskId: "fail-1", kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "fail-2" });
   await store.settleTurn("fail-1", { status: "succeeded", messageId: "reply-1" });
   await store.settleTurn("fail-2", { status: "failed", error: "The ledger could not be read." });
   assert.equal(store.get(failing.requestId)?.state, "failed");
 
-  const stopping = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "stop-1" });
+  const stopping = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "stop-1" });
   await store.markStopRequested(stopping.requestId);
   assert.equal(store.get(stopping.requestId)?.state, "stopped");
   assert.equal(store.isAccepting("stop-1"), false);
@@ -338,12 +338,12 @@ test("a failed child fails its root and a stopped request says so", async (t) =>
   await store.flush();
 });
 
-test("questions take exactly one answer, from the Space that was asked, inside the window", async (t) => {
+test("questions take exactly one answer, from the work-folder that was asked, inside the window", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
-  const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-1" });
+  const request = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-1" });
   const question = await store.ask({
     requestId: request.requestId,
     taskId: "task-1",
@@ -365,11 +365,11 @@ test("questions take exactly one answer, from the Space that was asked, inside t
   assert.equal(oversized.limit, "questionText");
   assert.ok(oversized.message.includes(limitsSection));
 
-  const wrongSpace = await store.answer({ questionId: question.questionId, answer: "Yes", answeredBySpaceId: "space-other" })
+  const wrongWorkFolder = await store.answer({ questionId: question.questionId, answer: "Yes", answeredByWorkFolderId: "work-folder-other" })
     .then(() => null, (error: unknown) => error);
-  assert.ok(wrongSpace instanceof WorkFoldRequestLineageError);
+  assert.ok(wrongWorkFolder instanceof WorkFoldRequestLineageError);
 
-  const answered = await store.answer({ questionId: question.questionId, answer: "Use the 2026 ledger.", answeredBySpaceId: "space-audits" });
+  const answered = await store.answer({ questionId: question.questionId, answer: "Use the 2026 ledger.", answeredByWorkFolderId: "work-folder-audits" });
   assert.equal(answered.state, "answered");
   assert.equal(answered.answer, "Use the 2026 ledger.");
   assert.equal(store.get(request.requestId)?.state, "waiting");
@@ -392,7 +392,7 @@ test("new requests stay answerable without a timer, while legacy deadlines remai
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
-  const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-1" });
+  const request = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-1" });
   const question = await store.ask({ requestId: request.requestId, taskId: "task-1", respondent: "person", text: "Which ledger?" });
   await store.settleTurn("task-1", { status: "succeeded", messageId: "reply-1" });
   assert.equal(store.get(request.requestId)?.state, "waiting");
@@ -429,7 +429,7 @@ test("a stopped request keeps the lineage sentence rather than naming a bound", 
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
-  const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-1" });
+  const request = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-1" });
   await store.markStopRequested(request.requestId);
   const refused = await store.ask({ requestId: request.requestId, taskId: "task-1", respondent: "person", text: "Which ledger?" })
     .then(() => null, (error: unknown) => error);
@@ -439,11 +439,11 @@ test("a stopped request keeps the lineage sentence rather than naming a bound", 
   await store.flush();
 });
 
-test("the result envelope keeps its shape, its sizes, and its Space-relative files", async (t) => {
+test("the result envelope keeps its shape, its sizes, and its work-folder-relative files", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
-  const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-1" });
+  const request = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-1" });
   const digest = "a".repeat(64);
 
   const recorded = await store.recordResult({
@@ -491,7 +491,7 @@ test("the result envelope keeps its shape, its sizes, and its Space-relative fil
   });
   assert.equal(store.get(request.requestId)?.results.find((item) => item.resultId === manyFiles.resultId)?.fileCount, 65);
 
-  for (const path of ["../escape.md", "/etc/hosts", ".work-fold/space.json", ".pi/config.json", ".workspace/state.json"]) {
+  for (const path of ["../escape.md", "/etc/hosts", ".work-fold/work-folder.json", ".pi/config.json", ".workspace/state.json"]) {
     await assert.rejects(
       store.recordResult({
         requestId: request.requestId,
@@ -500,7 +500,7 @@ test("the result envelope keeps its shape, its sizes, and its Space-relative fil
         envelope: { summary: "ok", outcome: "succeeded", files: [{ path, sha256: digest, sizeBytes: 1 }] },
       }),
       (error: unknown) => error instanceof Error && !(error instanceof WorkFoldRequestLimitError),
-      `${path} is not a deliverable a Space can name`,
+      `${path} is not a deliverable a work-folder can name`,
     );
   }
 
@@ -514,7 +514,7 @@ test("the result envelope keeps its shape, its sizes, and its Space-relative fil
   }));
 
   // A task from another request cannot report into this one.
-  await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-elsewhere" });
+  await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-elsewhere" });
   await assert.rejects(
     store.recordResult({ requestId: request.requestId, taskId: "task-elsewhere", receiptId: "receipt-5", envelope: { summary: "ok", outcome: "succeeded" } }),
     (error: unknown) => error instanceof WorkFoldRequestLineageError,
@@ -539,17 +539,17 @@ test("requests, questions, results, and the action trail survive a restart", asy
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
   const request = await store.beginRoot({
-    kind: "management",
-    owner: managementOwner,
+    kind: "agent",
+    owner: workFoldAgentOwner,
     surface: "popover",
     taskId: "task-1",
     content: "Place the contract.",
     attachments: [{ kind: "file", target: "/tmp/contract.pdf", name: "contract.pdf" }],
     remote: { principalId: "browser-1", grantId: "grant-1", requestId: "remote-1" },
   });
-  const child = await store.beginChild({ parentTaskId: "task-1", kind: "space", owner: spaceOwner, surface: "cli", taskId: "task-2" });
+  const child = await store.beginChild({ parentTaskId: "task-1", kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "task-2" });
   const question = await store.ask({ requestId: child.requestId, taskId: "task-2", respondent: "parent", text: "Which folder?" });
-  await store.recordAction("task-1", { command: "files.add", at: clock.now().toISOString(), spaceId: "space-audits", spaceName: "Audits", sources: ["/tmp/contract.pdf"], copied: ["contract.pdf"], checkpointId: "checkpoint-1" });
+  await store.recordAction("task-1", { command: "files.add", at: clock.now().toISOString(), workFolderId: "work-folder-audits", workFolderName: "Audits", sources: ["/tmp/contract.pdf"], copied: ["contract.pdf"], checkpointId: "checkpoint-1" });
   await store.recordResult({ requestId: child.requestId, taskId: "task-2", receiptId: "receipt-1", envelope: { summary: "Placed.", outcome: "succeeded" } });
   await store.flush();
 
@@ -582,8 +582,8 @@ test("restart reconciliation settles from the turn journal and never re-dispatch
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
-  const finished = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
-  const lost = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-2" });
+  const finished = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
+  const lost = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-2" });
   await store.markTurnRunning("task-1");
   await store.markTurnRunning("task-2");
   await store.flush();
@@ -596,8 +596,8 @@ test("restart reconciliation settles from the turn journal and never re-dispatch
     requestDigest: "b".repeat(64),
     userMessageId: "message-1",
     userMessageCreatedAt: "2026-09-11T09:00:00.000Z",
-    spaceId: "work-fold-management",
-    conversationId: "chat-fold",
+    workFolderId: "work-fold-agent",
+    conversationId: "chat-agent",
     actorKind: "renderer",
     status: "succeeded",
     userMessagePersisted: true,
@@ -623,7 +623,7 @@ test("restart reconciliation settles from the turn journal and never re-dispatch
   const lostRoot = reopened.get(lost.requestId);
   assert.equal(lostRoot?.state, "failed");
   assert.equal(lostRoot?.turns[0]?.state, "interrupted");
-  assert.equal(lostRoot?.turns[0]?.error, "work-fold closed before this Assistant turn finished.");
+  assert.equal(lostRoot?.turns[0]?.error, "work-fold closed before this turn finished.");
   assert.ok(lostRoot?.reconciledAt);
 
   // Reconciliation settles; it can never start a turn. The task ids it knows
@@ -639,8 +639,8 @@ test("a damaged journal line degrades the view instead of keeping the app from s
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
-  await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
-  await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-2" });
+  await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
+  await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-2" });
   await store.flush();
 
   const journalPath = join(root, "requests.jsonl");
@@ -651,8 +651,8 @@ test("a damaged journal line degrades the view instead of keeping the app from s
   const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
   assert.equal(reopened.list().length, 2);
   assert.equal(reopened.damagedRecordCount(), 1);
-  assert.equal(reopened.byTaskId("task-1")?.kind, "management");
-  assert.equal(reopened.byTaskId("task-2")?.kind, "space");
+  assert.equal(reopened.byTaskId("task-1")?.kind, "agent");
+  assert.equal(reopened.byTaskId("task-2")?.kind, "work-folder");
 
   await reopened.flush();
 });
@@ -662,9 +662,9 @@ test("an outgrown journal compacts into one line per record and keeps the genera
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now, compactBytes: 512 });
 
-  await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
+  await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
   await store.settleTurn("task-1", { status: "succeeded", messageId: "reply-1" });
-  await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-2" });
+  await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-2" });
   await store.settleTurn("task-2", { status: "succeeded", messageId: "reply-2" });
   await store.flush();
 
@@ -686,8 +686,8 @@ test("retention removes a settled graph whole and leaves one with work outstandi
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
-  const old = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "old-1" });
-  const oldChild = await store.beginChild({ parentTaskId: "old-1", kind: "space", owner: spaceOwner, surface: "cli", taskId: "old-2" });
+  const old = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "old-1" });
+  const oldChild = await store.beginChild({ parentTaskId: "old-1", kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "old-2" });
   const oldQuestion = await store.ask({ requestId: oldChild.requestId, taskId: "old-2", respondent: "person", text: "Which folder?" });
   await store.answer({ questionId: oldQuestion.questionId, answer: "Audits." });
   await store.recordResult({ requestId: oldChild.requestId, taskId: "old-2", receiptId: "receipt-1", envelope: { summary: "Placed.", outcome: "succeeded" } });
@@ -698,8 +698,8 @@ test("retention removes a settled graph whole and leaves one with work outstandi
   await store.settleTurn("old-1", { status: "succeeded", messageId: "reply-1" });
   assert.equal(store.get(old.requestId)?.state, "done");
 
-  const busy = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "busy-1" });
-  await store.beginChild({ parentTaskId: "busy-1", kind: "space", owner: spaceOwner, surface: "cli", taskId: "busy-2" });
+  const busy = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "busy-1" });
+  await store.beginChild({ parentTaskId: "busy-1", kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "busy-2" });
   await store.settleTurn("busy-1", { status: "succeeded", messageId: "reply-3" });
 
   clock.advance((workFoldRequestLimits.retentionDays + 1) * 24 * 60 * 60 * 1000);
@@ -733,20 +733,20 @@ test("one task id belongs to one request, and a joined turn keeps one story", as
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
 
   const first = await store.beginRoot({
-    kind: "management",
-    owner: managementOwner,
+    kind: "agent",
+    owner: workFoldAgentOwner,
     surface: "popover",
     taskId: "task-1",
     content: "Use Audits",
     attachments: [{ kind: "file", target: "/tmp/a.pdf", name: "a.pdf" }],
   });
-  const again = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1", content: "different" });
+  const again = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1", content: "different" });
   assert.equal(again.requestId, first.requestId);
   assert.equal(again.content, "Use Audits", "a replayed acceptance never rewrites the record");
   await store.flush();
   assert.equal((await readFile(join(root, "requests.jsonl"), "utf8")).trim().split("\n").length, 1);
 
-  await store.recordAction("task-1", { command: "files.add", at: clock.now().toISOString(), spaceId: "space-audits", spaceName: "Audits" });
+  await store.recordAction("task-1", { command: "files.add", at: clock.now().toISOString(), workFolderId: "work-folder-audits", workFolderName: "Audits" });
   await store.settleTurn("task-1", { status: "succeeded", messageId: "reply-1" });
 
   const joined = await store.joinTurn({
@@ -773,8 +773,8 @@ test("a model spending cap stops a runaway graph and names the cap", async (t) =
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now, providerBudgetUsd: 1 });
 
-  const request = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
-  await store.beginChild({ parentTaskId: "task-1", kind: "space", owner: spaceOwner, surface: "cli", taskId: "task-2" });
+  const request = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
+  await store.beginChild({ parentTaskId: "task-1", kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "task-2" });
   await store.settleTurn("task-2", {
     status: "succeeded",
     messageId: "reply-2",
@@ -792,7 +792,7 @@ test("usage stays honest when a model carries no published rates", async (t) => 
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
-  const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-1" });
+  const request = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "renderer", taskId: "task-1" });
   await store.settleTurn("task-1", {
     status: "succeeded",
     messageId: "reply-1",
@@ -811,7 +811,7 @@ test("follow-up deliveries are recorded without a per-request quota", async (t) 
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
-  const request = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
+  const request = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
 
   // The fifth delivery used to be refused after four.
   for (let index = 1; index <= 5; index += 1) {
@@ -832,14 +832,14 @@ test("the action trail keeps attribution past the former cutoff and only credits
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
-  const request = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
+  const request = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
 
   assert.equal(await store.recordAction(undefined, { command: "files.add", at: clock.now().toISOString() }), null);
   assert.equal(await store.recordAction("task-unknown", { command: "files.add", at: clock.now().toISOString() }), null);
 
   // The 201st action was previously dropped from attribution.
   for (let index = 1; index <= 200; index += 1) {
-    await store.recordAction("task-1", { command: "files.move", at: clock.now().toISOString(), spaceId: "space-audits", spaceName: "Audits" });
+    await store.recordAction("task-1", { command: "files.move", at: clock.now().toISOString(), workFolderId: "work-folder-audits", workFolderName: "Audits" });
   }
   assert.equal(store.get(request.requestId)?.actions.length, 200);
   assert.equal(await store.recordAction("task-1", { command: "files.move", at: clock.now().toISOString() }), request.requestId);
@@ -875,8 +875,8 @@ test("remaining bounded payload and provider protections name their number", () 
 test("an accepted answer stays outstanding through restart until its continuation is linked", async (t) => {
   const rootPath = await temporaryRoot(t);
   let store = await WorkFoldRequestStore.open({ rootPath });
-  const root = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "cli", taskId: "parent" });
-  const child = await store.beginChild({ parentTaskId: "parent", kind: "space", owner: spaceOwner, surface: "cli", taskId: "child", content: "Compare the annual quotes." });
+  const root = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "cli", taskId: "parent" });
+  const child = await store.beginChild({ parentTaskId: "parent", kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "child", content: "Compare the annual quotes." });
   const question = await store.ask({ requestId: child.requestId, taskId: "child", respondent: "person", text: "Which quarter?" });
   await store.settleTurn("parent", { status: "succeeded" });
   await store.settleTurn("child", { status: "succeeded" });
@@ -903,7 +903,7 @@ test("an accepted answer stays outstanding through restart until its continuatio
 test("a new request can continue after a formerly-expiring interval", async (t) => {
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: await temporaryRoot(t), now: clock.now });
-  const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "cli", taskId: "asker" });
+  const request = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "asker" });
   const question = await store.ask({ requestId: request.requestId, taskId: "asker", respondent: "person", text: "Which date?" });
   await store.settleTurn("asker", { status: "succeeded" });
   await store.answer({ questionId: question.questionId, answer: "Tomorrow" });
@@ -918,8 +918,8 @@ test("a new request can continue after a formerly-expiring interval", async (t) 
 test("a reserved child delivery survives restart without starting or repeating a turn", async (t) => {
   const rootPath = await temporaryRoot(t);
   let store = await WorkFoldRequestStore.open({ rootPath });
-  const root = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "cli", taskId: "parent" });
-  await store.beginChild({ parentTaskId: "parent", kind: "space", owner: { spaceId: "child-space", conversationId: "child-chat" }, surface: "cli", taskId: "child" });
+  const root = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "parent" });
+  await store.beginChild({ parentTaskId: "parent", kind: "work-folder", owner: { workFolderId: "child-work-folder", conversationId: "child-chat" }, surface: "cli", taskId: "child" });
   await store.settleTurn("child", { status: "succeeded" });
   await store.settleTurn("parent", { status: "succeeded" });
   assert.deepEqual(await store.noteContinuation(root.requestId, ["child"]), { allowed: true, count: 1 });

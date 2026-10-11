@@ -1,17 +1,17 @@
 # work-fold remote bridge
 
-The remote client presents the management agent as the **work-fold agent**
-and registered Spaces as **work-folders**. This service guide keeps the existing
-technical `management`, `space`, and `fold` protocol names.
+The remote client presents the **work-fold agent** and the registered
+**work-folders**. The paired-web protocol keeps its existing `management.*`
+operation names.
 
 This service hosts the private-alpha web surface at
 `<name>.work-fold.com`. It is a relay to a person's running work-fold desktop,
-not a cloud copy of their Spaces or management conversation.
+not a cloud copy of their work-folders or work-fold agent.
 
 The durable PostgreSQL records contain the address and password verifier,
 device/browser public keys and revocation generations, hashed session tokens,
 pairing certificates, and bounded operation metadata. Prompt text, transcript
-content, file names, file contents, and Assistant results cross the service only
+content, file names, file contents, and agent results cross the service only
 inside signed AES-GCM envelopes whose private keys remain in the paired
 browser and desktop app. Completed envelope bodies are not written to the
 database. This is application-layer protection against passive handling and
@@ -55,9 +55,9 @@ device generations are fenced. Browser event streams tolerate ordinary Node
 backpressure and drop a slow client only after an explicit 8 MiB queued-byte
 bound.
 
-The browser can open and rename bounded saved management Chats, invoke that one
-canonical management Assistant, and attach at most six files (6 MB each, 8 MB
-total) per message. The Assistant performs or delegates work-folder work through
+The browser can open and rename bounded saved work-fold agent Chats, invoke that one
+canonical management agent, and attach at most six files (6 MB each, 8 MB
+total) per message. The agent performs or delegates work-folder work through
 the desktop's attributed act path. Questions remain in their owning Chats.
 Uploads travel encrypted and stay in quota- and expiry-bounded desktop staging
 until explicitly used or placed. The client has no Files/work-folder browsing

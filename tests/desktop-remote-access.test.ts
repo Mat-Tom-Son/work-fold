@@ -28,7 +28,7 @@ import {
   type RemotePairingPrompt,
   type RemoteViewerPageProvider,
 } from "../desktop/src/remote-access.js";
-import type { WorkFoldRemoteFacade, WorkFoldRemotePrincipal } from "../src/local/remote-management.js";
+import type { WorkFoldRemoteFacade, WorkFoldRemotePrincipal } from "../src/local/remote-work-fold-agent.js";
 import type { RemoteAccessSettings, RemoteBrowserGrantSettings } from "../desktop/src/settings.js";
 
 class FakeRemoteSocket extends EventEmitter {
@@ -168,7 +168,7 @@ function remoteOperationFrame(
   settings: RemoteAccessSettings,
   browser: RemoteTestBrowser,
   requestId: string,
-  operation = "spaces.list",
+  operation = "work-folders.list",
   input: unknown = {},
 ): { type: string; operation: Record<string, unknown>; envelope: Record<string, unknown> } {
   const operationId = `operation-${requestId}`;
@@ -323,7 +323,7 @@ test("remote revocation stops every tracked management task before purging uploa
   const facade: WorkFoldRemoteFacade = {
     async execute(operation, input) {
       operations.push({ operation, input });
-      if (operation === "management.stop") return { stopped: { managementAborted: true, children: [] } };
+      if (operation === "management.stop") return { stopped: { workFoldAgentAborted: true, children: [] } };
       throw new Error(`Unexpected operation: ${operation}`);
     },
     async purgeUploads(grantId) { events.push(`purge:${grantId ?? "all"}`); },
@@ -346,20 +346,20 @@ test("remote revocation cascades desktop-local grant authority before uploads ar
   const facade: WorkFoldRemoteFacade = {
     async execute(operation) {
       events.push(operation);
-      return { stopped: { managementAborted: true, children: [] } };
+      return { stopped: { workFoldAgentAborted: true, children: [] } };
     },
     async purgeUploads(grantId) { events.push(`purge:${grantId ?? "all"}`); },
     async revokeGrantAuthority(grantId) { events.push(`revoke-authority:${grantId ?? "all"}`); },
   };
   const client = clientFor(facade, events);
-  client.rememberActiveTask("grant-1", { taskId: "management-1" }, {
+  client.rememberActiveTask("grant-1", { taskId: "agent-1" }, {
     browserId: "browser-1", grantId: "grant-1", requestId: "request-1",
   });
 
   await client.revokeLocalGrant("grant-1");
-  // Ordered desktop-local-first: tracked work stops, then the glance-marker
+  // Ordered desktop-local-first: tracked work stops, then the overview-marker
   // cascade runs, then uploads purge — all before the caller's bridge
-  // mutation (docs/fold-glance.md, browser revocation).
+  // mutation (docs/work-fold-agent-overview.md, browser revocation).
   assert.deepEqual(events, ["remove:grant-1", "management.stop", "revoke-authority:grant-1", "purge:grant-1"]);
 
   events.length = 0;
@@ -372,11 +372,11 @@ test("a cascade failure never skips the upload purge and still surfaces the erro
   const facade: WorkFoldRemoteFacade = {
     async execute() { throw new Error("Unexpected remote operation."); },
     async purgeUploads(grantId) { events.push(`purge:${grantId ?? "all"}`); },
-    async revokeGrantAuthority() { throw new Error("glance marker store unavailable"); },
+    async revokeGrantAuthority() { throw new Error("overview marker store unavailable"); },
   };
   const client = clientFor(facade, events);
 
-  await assert.rejects(() => client.revokeLocalGrant("grant-1"), /glance marker store unavailable/);
+  await assert.rejects(() => client.revokeLocalGrant("grant-1"), /overview marker store unavailable/);
   assert.deepEqual(events, ["remove:grant-1", "purge:grant-1"]);
 });
 
@@ -389,7 +389,7 @@ test("remote revocation still purges staged uploads when stopping a task fails",
   const client = clientFor(facade, events);
   client.rememberActiveTask(
     "grant-1",
-    { taskId: "management-task" },
+    { taskId: "agent-task" },
     { browserId: "browser-1", grantId: "grant-1", requestId: "request-1" },
   );
 
@@ -405,7 +405,7 @@ test("remote revocation treats locally tracked requests evicted after settlement
       assert.equal(operation, "management.stop");
       calls += 1;
       if (calls <= 35) throw new Error("Remote request not found for this browser grant.");
-      return { stopped: { managementAborted: true, children: [] } };
+      return { stopped: { workFoldAgentAborted: true, children: [] } };
     },
     async purgeUploads(grantId) { events.push(`purge:${grantId ?? "all"}`); },
   };
@@ -430,9 +430,9 @@ test("terminal request projections retire tracked work before revocation", async
   };
   const client = clientFor(facade, events);
   const principal: WorkFoldRemotePrincipal = { browserId: "browser-1", grantId: "grant-1", requestId: "request-1" };
-  client.rememberActiveTask("grant-1", { taskId: "management-1" }, principal);
+  client.rememberActiveTask("grant-1", { taskId: "agent-1" }, principal);
   client.retireSettledTask("grant-1", "management.summary", {}, {
-    latestRequest: { taskId: "management-1", phase: "done" },
+    latestRequest: { taskId: "agent-1", phase: "done" },
   });
 
   await client.revokeLocalGrant("grant-1");
@@ -457,7 +457,7 @@ test("an unrelated grant revocation cannot suppress a queued operation completio
         markFirstStarted();
         await firstGate;
       }
-      return { spaces: [] };
+      return { workFolders: [] };
     },
     async purgeUploads() {},
   });
@@ -490,7 +490,7 @@ test("an unrelated grant revocation cannot suppress a queued operation completio
   fixture.client.stop();
 });
 
-for (const operation of ["spaces.list", "spaces.filePreview", "pages.list", "pages.link", "apps.read", "apps.actions.request"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
+for (const operation of ["work-folders.list", "work-folders.filePreview", "pages.list", "pages.link", "apps.read", "apps.actions.request"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
   const browser = remoteTestBrowser("grant-revoked");
   const settings = remoteTestSettings([browser]);
   let releaseFirst!: () => void;
@@ -508,13 +508,13 @@ for (const operation of ["spaces.list", "spaces.filePreview", "pages.list", "pag
         markFirstStarted();
         await firstGate;
       }
-      return operation === "spaces.filePreview" ? { preview: { kind: "text", text: "private file content" } } : operation === "pages.link" ? { viewerPath: "/p/shared-report", key: "A".repeat(43) } : { spaces: [] };
+      return operation === "work-folders.filePreview" ? { preview: { kind: "text", text: "private file content" } } : operation === "pages.link" ? { viewerPath: "/p/shared-report", key: "A".repeat(43) } : { workFolders: [] };
     },
     async purgeUploads() {},
   });
   await fixture.client.start();
   fixture.socket.open();
-  const frame = remoteOperationFrame(settings, browser, "request-revoked", operation, operation === "spaces.filePreview" ? { spaceId: "space-preview", path: "result.md" } : {});
+  const frame = remoteOperationFrame(settings, browser, "request-revoked", operation, operation === "work-folders.filePreview" ? { workFolderId: "work-folder-preview", path: "result.md" } : {});
 
   fixture.socket.receive(JSON.stringify(frame));
   await firstStarted;
@@ -558,7 +558,7 @@ test("the all-grants disable fence suppresses an in-flight completion", async ()
     async execute() {
       markExecutionStarted();
       await executionGate;
-      return { spaces: [] };
+      return { workFolders: [] };
     },
     async purgeUploads() {},
   });
@@ -595,12 +595,12 @@ test("revocation refuses a queued management.send before the desktop consumes it
   const fixture = remoteOperationClient(settings, {
     async execute(operation) {
       executed.push(operation);
-      if (operation === "spaces.list") {
+      if (operation === "work-folders.list") {
         markHoldStarted();
         await holdGate;
-        return { spaces: [] };
+        return { workFolders: [] };
       }
-      if (operation === "management.stop") return { stopped: { managementAborted: true, children: [] } };
+      if (operation === "management.stop") return { stopped: { workFoldAgentAborted: true, children: [] } };
       return { taskId: "task-1", conversationId: "chat-1" };
     },
     async purgeUploads() {},
@@ -614,7 +614,7 @@ test("revocation refuses a queued management.send before the desktop consumes it
   // the revocation call must refuse the send before the facade ever runs: an
   // in-flight act from a revoked browser is refused before anything is
   // consumed.
-  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, holdingBrowser, "request-hold", "spaces.list")));
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, holdingBrowser, "request-hold", "work-folders.list")));
   await holdStarted;
   fixture.socket.receive(JSON.stringify(remoteOperationFrame(
     settings,
@@ -687,11 +687,11 @@ test("shared page links cross only the encrypted grant transport with the accoun
 test("a maximum-size file preview crosses the paired browser encrypted transport", async () => {
   const browser = remoteTestBrowser("grant-preview");
   const settings = remoteTestSettings([browser]);
-  const preview = { spaceId: "space-preview", path: "result.png", kind: "image", mediaType: "image/png", base64: Buffer.alloc(1024 * 1024, 7).toString("base64") };
+  const preview = { workFolderId: "work-folder-preview", path: "result.png", kind: "image", mediaType: "image/png", base64: Buffer.alloc(1024 * 1024, 7).toString("base64") };
   const fixture = remoteOperationClient(settings, {
     async execute(operation, input) {
-      assert.equal(operation, "spaces.filePreview");
-      assert.deepEqual(input, { spaceId: preview.spaceId, path: preview.path });
+      assert.equal(operation, "work-folders.filePreview");
+      assert.deepEqual(input, { workFolderId: preview.workFolderId, path: preview.path });
       return { preview };
     },
     async purgeUploads() {},
@@ -699,7 +699,7 @@ test("a maximum-size file preview crosses the paired browser encrypted transport
   await fixture.client.start();
   fixture.socket.open();
   try {
-    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-preview", "spaces.filePreview", { spaceId: preview.spaceId, path: preview.path })));
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-preview", "work-folders.filePreview", { workFolderId: preview.workFolderId, path: preview.path })));
     const completion = () => fixture.socket.sent.map((value) => JSON.parse(value)).find((message) => message.type === "operation.complete");
     await waitForRemoteTest(() => Boolean(completion()), "the image preview never completed");
     assert.equal(completion().envelope.header.ok, true);
@@ -708,17 +708,17 @@ test("a maximum-size file preview crosses the paired browser encrypted transport
   } finally { fixture.client.stop(); }
 });
 
-test("the glance projection crosses within its 64 KB bound and an oversized digest is an honest refusal", async () => {
-  const browser = remoteTestBrowser("grant-glance");
+test("the overview projection crosses within its 64 KB bound and an oversized digest is an honest refusal", async () => {
+  const browser = remoteTestBrowser("grant-overview");
   const settings = remoteTestSettings([browser]);
   const glances = new Map<string, unknown>([
-    ["request-glance-ok", { glance: { cursor: "", running: [], needsYou: [], changes: [], checks: [], seen: {} } }],
-    ["request-glance-huge", { glance: { padding: "x".repeat(80 * 1024) } }],
+    ["request-overview-ok", { overview: { cursor: "", running: [], needsYou: [], changes: [], checks: [], seen: {} } }],
+    ["request-overview-huge", { overview: { padding: "x".repeat(80 * 1024) } }],
   ]);
-  let nextGlance = "request-glance-ok";
+  let nextOverview = "request-overview-ok";
   const fixture = remoteOperationClient(settings, {
     async execute(operation) {
-      if (operation === "management.glance") return glances.get(nextGlance);
+      if (operation === "management.glance") return glances.get(nextOverview);
       throw new Error(`unexpected operation ${operation}`);
     },
     async purgeUploads() {},
@@ -730,15 +730,15 @@ test("the glance projection crosses within its 64 KB bound and an oversized dige
     .map((value) => JSON.parse(value) as { type?: string; envelope?: { header?: Record<string, unknown>; iv?: string; ciphertext?: string } })
     .filter((message) => message.type === "operation.complete");
 
-  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-glance-ok", "management.glance")));
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-overview-ok", "management.glance")));
   await waitForRemoteTest(() => completions().length === 1, "the bounded digest never completed");
   const bounded = completions()[0]!.envelope as { header: Record<string, unknown>; iv: string; ciphertext: string };
   assert.equal(bounded.header.ok, true);
   const boundedPayload = decryptTestResponse(browser, settings, bounded);
   assert.deepEqual(Object.keys(boundedPayload), ["result"], "a served digest crosses as an ordinary result");
 
-  nextGlance = "request-glance-huge";
-  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-glance-huge", "management.glance")));
+  nextOverview = "request-overview-huge";
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-overview-huge", "management.glance")));
   await waitForRemoteTest(() => completions().length === 2, "the oversized digest never settled");
   const oversized = completions()[1]!.envelope as { header: Record<string, unknown>; iv: string; ciphertext: string };
   assert.equal(oversized.header.ok, false, "an oversized digest is refused, never silently trimmed");
@@ -1047,13 +1047,13 @@ test("local revocation still purges tasks and uploads when secure-settings mutat
     facade: {
       async execute(operation) {
         events.push(operation);
-        return { stopped: { managementAborted: true, children: [] } };
+        return { stopped: { workFoldAgentAborted: true, children: [] } };
       },
       async purgeUploads() { events.push("purge"); },
     },
     promptPairing: async () => false,
   });
-  client.rememberActiveTask("grant-1", { taskId: "management-1" }, {
+  client.rememberActiveTask("grant-1", { taskId: "agent-1" }, {
     browserId: "browser-1", grantId: "grant-1", requestId: "request-1",
   });
 
@@ -1488,7 +1488,7 @@ test("a live watch streams sequenced progress events under its completion", asyn
   const fixture = remoteOperationClient(settings, {
     async execute() { throw new Error("management.watch must route through the watch port"); },
     async watch(input, _principal, emit) {
-      assert.deepEqual(input, { conversationId: "management-chat" });
+      assert.deepEqual(input, { conversationId: "agent-chat" });
       emit({ activity: "Reading the folder" });
       emit({ assistantText: "Here is" });
       emit({ assistantDelta: " the reply." });
@@ -1500,7 +1500,7 @@ test("a live watch streams sequenced progress events under its completion", asyn
   await fixture.client.start();
   fixture.socket.open();
   fixture.socket.receive(JSON.stringify(
-    remoteOperationFrame(settings, browser, "request-watch", "management.watch", { conversationId: "management-chat" }),
+    remoteOperationFrame(settings, browser, "request-watch", "management.watch", { conversationId: "agent-chat" }),
   ));
   await waitForRemoteTest(
     () => fixture.socket.sent.some((value) => {
@@ -1530,7 +1530,7 @@ test("a pending live watch lets Stop and another browser's reads execute immedia
   const pendingWatch = new Promise<void>((resolve) => { finishWatch = resolve; });
   const calls: string[] = [];
   const fixture = remoteOperationClient(settings, {
-    async execute(operation) { calls.push(operation); return operation === "management.stop" ? { stopped: { managementAborted: true, children: [] } } : { spaces: [] }; },
+    async execute(operation) { calls.push(operation); return operation === "management.stop" ? { stopped: { workFoldAgentAborted: true, children: [] } } : { workFolders: [] }; },
     async watch() { calls.push("watch-start"); await pendingWatch; calls.push("watch-end"); return { state: "settled", settled: true }; },
     async purgeUploads() {},
   });
@@ -1541,7 +1541,7 @@ test("a pending live watch lets Stop and another browser's reads execute immedia
     await waitForRemoteTest(() => calls.includes("watch-start"), "the watch was not admitted");
     fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "stop-now", "management.stop", { taskId: "task" })));
     fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, other, "read-now")));
-    await waitForRemoteTest(() => calls.includes("management.stop") && calls.includes("spaces.list"), "the pending watch blocked Stop or another browser");
+    await waitForRemoteTest(() => calls.includes("management.stop") && calls.includes("work-folders.list"), "the pending watch blocked Stop or another browser");
     assert.equal(calls.includes("watch-end"), false);
   } finally {
     finishWatch();
@@ -1558,7 +1558,7 @@ for (const revocation of ["one", "all", "stop-tasks"] as const) test(`live watch
   let lateProgress: ((progress: { assistantDelta: string }) => void) | undefined;
   let stopped = false;
   const fixture = remoteOperationClient(settings, {
-    async execute(operation) { assert.equal(operation, "management.stop"); stopped = true; return { stopped: { managementAborted: true, children: [] } }; },
+    async execute(operation) { assert.equal(operation, "management.stop"); stopped = true; return { stopped: { workFoldAgentAborted: true, children: [] } }; },
     async watch(_input, _principal, emit, signal) {
       watchSignal = signal;
       lateProgress = emit;

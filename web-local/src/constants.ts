@@ -1,8 +1,7 @@
-import { maxSpaceAppearanceBannerImageDataUrlLength, spaceAppearanceBannerNames } from "../../src/shared/space-appearance";
-import type { AppTypographyFont, CommandPaletteGroupId, SpaceBannerOption } from "./types";
+import { maxWorkFolderAppearanceBannerImageDataUrlLength, workFolderAppearanceBannerNames } from "../../src/shared/work-folder-appearance";
+import type { AppTypographyFont, CommandPaletteGroupId, WorkFolderBannerOption } from "./types";
 
 export const productName = "work-fold";
-export const assistantName = "Assistant";
 
 export const desktopTitleBarMenus = [
   { id: "file", label: "File" },
@@ -11,17 +10,17 @@ export const desktopTitleBarMenus = [
   { id: "help", label: "Help" },
 ] as const;
 
-export const spaceFileRefreshDelayMs = 160;
+export const workFolderFileRefreshDelayMs = 160;
 export const loadedTreeRefreshConcurrency = 4;
-export const spacePathDragType = "application/x-work-fold-space-path";
-export const spaceSidebarWidthPreferenceKey = "work-fold.space.sidebar-width";
-export const spaceSidebarPreferredMinWidth = 280;
-export const spaceSidebarPreferredMaxWidth = 640;
-export const spaceChatPreferredMinWidth = 430;
-export const spacePaneResizeHandleWidth = 16;
-export const spacePaneKeyboardStep = 24;
-export const spacePaneKeyboardLargeStep = 64;
-export const chatDraftKeyPrefix = "work-fold.space.chat-draft";
+export const workFolderPathDragType = "application/x-work-fold-work-folder-path";
+export const workFolderSidebarWidthPreferenceKey = "work-fold.work-folder.sidebar-width";
+export const workFolderSidebarPreferredMinWidth = 280;
+export const workFolderSidebarPreferredMaxWidth = 640;
+export const workFolderChatPreferredMinWidth = 430;
+export const workFolderPaneResizeHandleWidth = 16;
+export const workFolderPaneKeyboardStep = 24;
+export const workFolderPaneKeyboardLargeStep = 64;
+export const chatDraftKeyPrefix = "work-fold.work-folder.chat-draft";
 export const chatDraftNewConversationId = "new-chat";
 export const chatDraftDebounceMs = 300;
 /** Drafts live in browser storage, which has a few megabytes for everything. */
@@ -39,7 +38,7 @@ export function typographyFontOptionsForPlatform(platform: NodeJS.Platform | und
   return typographyFontOptions.filter((option) => option.value !== "stable");
 }
 export const untitledChatLabel = "Untitled chat";
-export const commandPaletteGroupOrder: CommandPaletteGroupId[] = ["go-to", "switch-space", "chats", "files", "actions"];
+export const commandPaletteGroupOrder: CommandPaletteGroupId[] = ["go-to", "switch-work-folder", "chats", "files", "actions"];
 export const commandPaletteGroupCap = 8;
 export const commandPaletteOverallCap = 24;
 export const genericChatEmptyGreetings = [
@@ -49,11 +48,11 @@ export const genericChatEmptyGreetings = [
   "New chat, clean slate.",
   "Let's make some progress.",
 ];
-export const spaceCustomizationStorageKey = "work-fold.space.appearance.v1";
-export const defaultSpaceBannerName = "classic";
-export const maxSpaceBannerImageDataUrlLength = maxSpaceAppearanceBannerImageDataUrlLength;
-export const maxSpaceBannerImageFileBytes = 12 * 1024 * 1024;
-export const spaceBannerOptions: SpaceBannerOption[] = spaceAppearanceBannerNames.map((name) => ({
+export const workFolderCustomizationStorageKey = "work-fold.work-folder.appearance.v1";
+export const defaultWorkFolderBannerName = "classic";
+export const maxWorkFolderBannerImageDataUrlLength = maxWorkFolderAppearanceBannerImageDataUrlLength;
+export const maxWorkFolderBannerImageFileBytes = 12 * 1024 * 1024;
+export const workFolderBannerOptions: WorkFolderBannerOption[] = workFolderAppearanceBannerNames.map((name) => ({
   name,
   label: name[0]!.toUpperCase() + name.slice(1),
 }));

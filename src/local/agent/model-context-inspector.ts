@@ -4,7 +4,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { types } from "node:util";
 import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { workFoldModelContextLimits } from "../../shared/fold-limits.js";
+import { workFoldModelContextLimits } from "../../shared/work-fold-limits.js";
 import type {
   ModelContextFilter, ModelContextInspection, ModelContextInspectionLimits,
   ModelContextInspectionState, ModelContextInspectionSummary, ModelContextOwner,
@@ -283,7 +283,7 @@ function captureOptions<TModel>(options: ProviderRequestOptions<TModel> | undefi
 }
 
 function matches(record: ModelContextInspection, filter?: ModelContextFilter): boolean {
-  return (!filter?.spaceRoot || record.owner.spaceRoot === filter.spaceRoot)
+  return (!filter?.workFolderRoot || record.owner.workFolderRoot === filter.workFolderRoot)
     && (!filter?.conversationId || record.owner.conversationId === filter.conversationId);
 }
 
@@ -301,7 +301,7 @@ function copyOwner(owner: ModelContextOwner): ModelContextOwner {
     if (typeof value !== "string" || !value || value.length > 4096) throw new Error("Invalid diagnostic owner identity.");
     return value;
   };
-  return Object.freeze({ spaceRoot: identity("spaceRoot"), conversationId: identity("conversationId"),
+  return Object.freeze({ workFolderRoot: identity("workFolderRoot"), conversationId: identity("conversationId"),
     sessionId: identity("sessionId"), purpose: label(own(owner, "purpose")),
     ...(taskId !== undefined ? { taskId: identity("taskId") } : {}) });
 }

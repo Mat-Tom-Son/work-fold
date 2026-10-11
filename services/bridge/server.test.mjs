@@ -65,7 +65,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.equal(landingStyles.status, 200);
   assert.match(landingStyles.headers.get("content-type"), /^text\/css/);
 
-  const screenshot = await fetch(`${baseUrl}/screens/desktop-space.jpg`);
+  const screenshot = await fetch(`${baseUrl}/screens/desktop-work-folder.jpg`);
   assert.equal(screenshot.status, 200);
   assert.equal(screenshot.headers.get("content-type"), "image/jpeg");
   assert.equal(Buffer.from(await screenshot.arrayBuffer()).toString("hex", 0, 3), "ffd8ff");
@@ -84,7 +84,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /id="delete-chat"/);
   assert.match(applicationSource, /id="rename-chat-input" maxlength="80"/);
   assert.match(applicationSource, /id="chats"/);
-  assert.doesNotMatch(applicationSource, /id="workspace-pane"|id="file-tree"|id="context-spaces"|folder-picker|renderWorkspace|loadTree/);
+  assert.doesNotMatch(applicationSource, /id="workspace-pane"|id="file-tree"|id="context-work-folders"|folder-picker|renderWorkspace|loadTree/);
   assert.match(applicationSource, /id="file-input"/);
   assert.match(applicationSource, /newConversation: true/);
   assert.match(applicationSource, /management\.chats/);
@@ -98,8 +98,8 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /management\.stop/);
   assert.match(applicationSource, /reconcileMessageRows/);
   assert.match(applicationSource, /replaceHtmlIfChanged/);
-  assert.doesNotMatch(applicationSource, /spaces\.(?:chats|transcript|send|stop)/);
-  assert.doesNotMatch(applicationSource, /Chat with Space|id="scope-name"|id="management-home"/);
+  assert.doesNotMatch(applicationSource, /work-folders\.(?:chats|transcript|send|stop)/);
+  assert.doesNotMatch(applicationSource, /Chat with work-folder|id="scope-name"|id="management-home"/);
   assert.match(applicationSource, /id="account-settings"[\s\S]*?id="account-menu"[\s\S]*?>Sign out</);
   // The shell: one sidebar (the desktop column and the phone drawer) holding
   // New chat, the saved-chat list, and Shared pages; then the screens —
@@ -118,7 +118,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   // no bottom tab bar and no second icon rail.
   assert.match(applicationSource, /class="top-bar"[\s\S]*?id="menu-button"[\s\S]*?aria-controls="drawer"/);
   assert.doesNotMatch(applicationSource, /class="tab-bar"|class="icon-rail"|id="back-to-chats"|id="context-home"|id="context-chats"/);
-  assert.doesNotMatch(applicationSource, /Working in \$\{spaceName\}|Couldn’t finish in \$\{spaceName\}/);
+  assert.doesNotMatch(applicationSource, /Working in \$\{workFolderName\}|Couldn’t finish in \$\{workFolderName\}/);
   assert.match(applicationSource, /id="chat-options"[\s\S]*?id="chat-menu"[^>]* hidden/);
   assert.doesNotMatch(applicationSource, /id="top-new-chat"|class="conversation-scope"/);
   assert.doesNotMatch(applicationSource, /previous chat is still saved on your desktop/);
@@ -146,7 +146,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   // Questions stay inside their owning conversation, pinned in copy.test.mjs.
   for (const removedCopy of [
     "Management conversation",
-    "Above all Spaces",
+    "Above all work-folders",
     "Desktop connected",
     "Encrypted to your desktop",
     "Private alpha",
@@ -161,7 +161,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(appIcon.headers.get("content-type"), /^image\/png/);
 
   // Installable: the page links the manifest and Apple icon metadata, the
-  // manifest is served with a manifest content type and the fold's name, and
+  // manifest is served with a manifest content type and the work-fold agent's name, and
   // every icon it names resolves as a PNG.
   const pageMarkup = await (await fetch(baseUrl)).text();
   assert.match(pageMarkup, /<link rel="manifest" href="\/manifest\.webmanifest" \/>/);
@@ -229,7 +229,7 @@ test("fixture previews render canned state and stay inert against the real API",
   assert.match(applicationSource, /async function remote\(operation[\s\S]{0,120}?if \(fixtureName\) throw new Error\("Fixture preview is inert/);
   assert.match(applicationSource, /function openEvents\(\) \{\s*\n\s*if \(fixtureName\) return;/);
   assert.match(applicationSource, /function scheduleRefresh\(\) \{\s*\n\s*if \(fixtureName\) return;/);
-  assert.doesNotMatch(applicationSource, /remote\("management\.glanceSeen"/);
+  assert.doesNotMatch(applicationSource, /remote\("management\.overviewSeen"/);
   // The preview is labeled for what it is.
   assert.match(applicationSource, />Fixture preview<\/div>/);
 });
@@ -1031,7 +1031,7 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
     grantId: certificate.grantId,
     generation: account.grantGeneration,
     requestId: randomUUID(),
-    operation: "spaces.list",
+    operation: "work-folders.list",
     createdAt: new Date().toISOString(),
   };
   const requestEnvelope = {
@@ -1085,7 +1085,7 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
 
   const delivered = await messages.next("operation.request");
   assert.deepEqual(delivered.envelope, requestEnvelope);
-  assert.equal(delivered.operation.operation, "spaces.list");
+  assert.equal(delivered.operation.operation, "work-folders.list");
 
   const duplicate = await jsonRequest(`${baseUrl}/api/operations?slug=alice-test`, {
     method: "POST",
@@ -1284,25 +1284,25 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
     "wrong desktop grant/generation responses are not broadcast",
   );
 
-  const directSpaceHeader = {
+  const directWorkFolderHeader = {
     ...requestHeader,
     requestId: randomUUID(),
-    operation: "spaces.send",
+    operation: "work-folders.send",
     createdAt: new Date().toISOString(),
   };
-  const directSpaceEnvelope = {
-    header: directSpaceHeader,
+  const directWorkFolderEnvelope = {
+    header: directWorkFolderHeader,
     iv: randomBytes(12).toString("base64url"),
     ciphertext: randomBytes(64).toString("base64url"),
     signature: "",
   };
-  directSpaceEnvelope.signature = signText(browserKeys.signing.privateKey, envelopeText(directSpaceEnvelope));
-  const rejectedDirectSpace = await jsonRequest(`${baseUrl}/api/operations?slug=alice-test`, {
+  directWorkFolderEnvelope.signature = signText(browserKeys.signing.privateKey, envelopeText(directWorkFolderEnvelope));
+  const rejectedDirectWorkFolder = await jsonRequest(`${baseUrl}/api/operations?slug=alice-test`, {
     method: "POST",
     headers: { origin, cookie, "x-work-fold-csrf": session.body.csrfToken },
-    body: { envelope: directSpaceEnvelope },
+    body: { envelope: directWorkFolderEnvelope },
   });
-  assert.equal(rejectedDirectSpace.response.status, 400, "the bridge rejects direct Space Chat operations");
+  assert.equal(rejectedDirectWorkFolder.response.status, 400, "the bridge rejects direct work-folder Chat operations");
 });
 
 test("a reserved pages-* host serves viewer routes or nothing, never the management surface", async (context) => {
@@ -1369,7 +1369,7 @@ test("a reserved pages-* host serves viewer routes or nothing, never the managem
   const previewOperation = await fetch(`${baseUrl}/api/operations`, {
     method: "POST",
     headers: { ...viewerHost, "content-type": "application/json" },
-    body: JSON.stringify({ operation: "spaces.filePreview", input: { spaceId: "private", path: "result.md" } }),
+    body: JSON.stringify({ operation: "work-folders.filePreview", input: { workFolderId: "private", path: "result.md" } }),
   });
   assert.equal(previewOperation.status, 405, "viewers cannot reach the management preview operation");
 
@@ -1530,7 +1530,7 @@ test("viewer operations stay outside the management allowlist and publication sl
   assert.equal(removedAgain.body.removed, false, "revocation is idempotent");
 });
 
-test("the fold's glance and app operations pass the management allowlist content-blind", async (context) => {
+test("the work-fold agent's overview and app operations pass the management allowlist content-blind", async (context) => {
   const service = await testService(context);
   const baseUrl = `http://127.0.0.1:${service.port}`;
   const fixture = await pairedAccountFixture(context, baseUrl, {
@@ -1544,7 +1544,7 @@ test("the fold's glance and app operations pass the management allowlist content
   // signed ciphertext untouched. Digests stay end-to-end encrypted between
   // the desktop and the paired browser. App actions run on request; there is
   // no review or approve operation to relay.
-  for (const operation of ["management.glance", "management.glanceSeen", "management.extensionAnswer", "spaces.filePreview", "apps.list", "apps.read",
+  for (const operation of ["management.glance", "management.glanceSeen", "management.extensionAnswer", "work-folders.filePreview", "apps.list", "apps.read",
     "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.cancel"]) {
     const envelope = signedEnvelope({
       type: "work-fold.remote-request.v1",
@@ -1567,7 +1567,7 @@ test("the fold's glance and app operations pass the management allowlist content
     assert.deepEqual(delivered.envelope, envelope, "the bridge relays the envelope untouched — it stays content-blind");
   }
 
-  // No decision or glance spelling opens a side door for unpaired viewers:
+  // No decision or overview spelling opens a side door for unpaired viewers:
   // the names stay management operations behind the approved-browser session.
   const unauthenticated = await jsonRequest(`${baseUrl}/api/operations?slug=fold-wave-test`, {
     method: "POST",
@@ -1670,7 +1670,7 @@ test("the viewer plane serves live pages, charges budgets, keeps snapshots, and 
 
   // The publisher's side of resting: with a desktop connected, the bridge
   // sends one content-free viewer.resting notice per publication per minute,
-  // so the glance can name what the viewer's vague page cannot.
+  // so the overview can name what the viewer's vague page cannot.
   const noticeSocket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/device/connect`, { headers: authorization });
   context.after(() => noticeSocket.close());
   const noticeMessages = messageQueue(noticeSocket);
@@ -2118,7 +2118,7 @@ function browserOperationEnvelope(fixture) {
     grantId: fixture.certificate.grantId,
     generation: fixture.account.grantGeneration,
     requestId: randomUUID(),
-    operation: "spaces.list",
+    operation: "work-folders.list",
     createdAt: new Date().toISOString(),
   }, fixture.browserKeys.signing.privateKey);
 }

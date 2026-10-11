@@ -8,11 +8,11 @@ import {
 
 test("rail tooltip requests stay bounded and reject unsupported renderer input", () => {
   assert.deepEqual(parseRailTooltipRequest({
-    text: "Connected inbox · Sandboxed app · This Space",
+    text: "Connected inbox · Sandboxed app · This work-folder",
     bounds: { x: 96, y: 112, width: 260, height: 28 },
     theme: "light",
   }), {
-    text: "Connected inbox · Sandboxed app · This Space",
+    text: "Connected inbox · Sandboxed app · This work-folder",
     bounds: { x: 96, y: 112, width: 260, height: 28 },
     theme: "light",
   });

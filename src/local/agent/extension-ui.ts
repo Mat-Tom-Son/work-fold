@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { workFoldExtensionUiLimits as extensionUiLimits } from "../../shared/fold-limits.js";
-export { workFoldExtensionUiLimits as extensionUiLimits } from "../../shared/fold-limits.js";
+import { workFoldExtensionUiLimits as extensionUiLimits } from "../../shared/work-fold-limits.js";
+export { workFoldExtensionUiLimits as extensionUiLimits } from "../../shared/work-fold-limits.js";
 
 import type {
   ExtensionUIContext,
@@ -11,7 +11,7 @@ import type {
 
 export interface PiExtensionUiScope {
   conversationId: string;
-  spaceRoot: string;
+  workFolderRoot: string;
   /** Exact originating host turn, when this call was made within one. */
   taskId?: string;
 }
@@ -134,7 +134,7 @@ export interface PiExtensionUiBridge {
 }
 
 function scopeKey(scope: PiExtensionUiScope): string {
-  return JSON.stringify([scope.spaceRoot, scope.conversationId]);
+  return JSON.stringify([scope.workFolderRoot, scope.conversationId]);
 }
 
 /** Validate at the callback boundary too, so every adapter obeys the same contract. */

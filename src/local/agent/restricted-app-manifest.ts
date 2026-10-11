@@ -165,7 +165,7 @@ export interface RestrictedAppAutomationDeclaration {
 
 /**
  * The reviewed viewer surface for "an app at your address"
- * (docs/fold-publishing.md, rung 3). `entry` names the packaged document the
+ * (docs/shared-pages.md, rung 3). `entry` names the packaged document the
  * viewer plane serves to link holders; `readable` names the exact
  * instance-owned storage key prefixes ("collections") viewers may read.
  * This declaration is the complete viewer-readable surface: the desktop
@@ -196,7 +196,7 @@ export const restrictedAppManifestLimits = Object.freeze({
 });
 
 /**
- * The closed JSON-Schema subset tool inputs and results, Assistant actions,
+ * The closed JSON-Schema subset tool inputs and results, Worker actions,
  * and inference results share. Depth guards the recursive validator's stack;
  * the rest only keep one schema finite.
  */
@@ -250,7 +250,7 @@ export interface RestrictedAppAssistantAction {
   /**
    * The shape the app wants back as `result.data` (F29). Declaring it is what
    * lets a reported result carry structured details at all; without it a task
-   * result is a summary, an outcome, and any files the Assistant named.
+   * result is a summary, an outcome, and any files the agent named.
    */
   outputSchema?: RestrictedAppJsonSchema;
 }
@@ -331,7 +331,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
     );
   const tools = arrayValue(manifest.tools, "Restricted app tools", 0, restrictedAppManifestLimits.tools)
     .map((tool, index) => parseTool(tool, index));
-  if (tools.length && !worker) throw new Error("Restricted apps that expose Assistant tools must declare a sandboxed worker entry.");
+  if (tools.length && !worker) throw new Error("Restricted apps that expose Skills & Extensions must declare a sandboxed worker entry.");
   assertUnique(tools.map((tool) => tool.name), "Restricted app tool name");
   assertUnique(tools.map((tool) => tool.action), "Restricted app tool action");
 
@@ -357,8 +357,8 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   assertUnique(checks.map((item) => item.id), "Restricted app Check permission id");
 
   const assistantActions = manifest.assistantActions === undefined ? []
-    : arrayValue(manifest.assistantActions, "Restricted app Assistant actions", 0, null).map((value) => {
-      const label = "Restricted app Assistant action";
+    : arrayValue(manifest.assistantActions, "Restricted app Worker actions", 0, null).map((value) => {
+      const label = "Restricted app Worker action";
       const action = objectValue(value, label, ["id", "title", "instructions", "inputSchema", "outputSchema"]);
       return { id: idValue(action.id, `${label} id`), title: notificationTextValue(action.title, `${label} title`, 80),
         instructions: stringValue(action.instructions, `${label} instructions`, null),
@@ -367,11 +367,11 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
         // and therefore its identity, do not move when this field is added.
         ...(action.outputSchema === undefined ? {} : { outputSchema: parseJsonSchema(action.outputSchema, `${label} output schema`, 0) }) };
     });
-  assertUnique(assistantActions.map((item) => item.id), "Restricted app Assistant action id");
+  assertUnique(assistantActions.map((item) => item.id), "Restricted app Worker action id");
 
   const description = optionalStringValue(manifest.description, "Restricted app description", 280);
   const automations = arrayValue(manifest.automations, "Restricted app automations", 0, restrictedAppManifestLimits.automations)
-    .map((automation, index) => parseAutomationDeclaration(automation, index, { network, files, notifications }));
+    .map((automation, index) => parseAppAutomationDeclaration(automation, index, { network, files, notifications }));
   assertUnique(automations.map((automation) => automation.id), "Restricted app automation id");
   if (automations.length && !worker) {
     throw new Error("Restricted apps that declare automations must declare a sandboxed worker entry.");
@@ -411,7 +411,7 @@ export function parseRestrictedAppJsonSchema(value: unknown, label = "Restricted
 }
 
 /**
- * The reviewed viewer surface (docs/fold-publishing.md, rung 3). The entry is
+ * The reviewed viewer surface (docs/shared-pages.md, rung 3). The entry is
  * a packaged HTML document like the runtime entry; readable prefixes are a
  * bounded, deduplicated, sorted list so the declaration — and therefore the
  * exposure pins derived from it — has exactly one canonical spelling.
@@ -437,7 +437,7 @@ function parseViewerDeclaration(value: unknown): RestrictedAppViewerDeclaration 
 
 /**
  * The complete viewer-readable surface as exposure pins
- * (`publish.viewer.expose`, hosted-app shape; docs/fold-publishing.md): one
+ * (`publish.viewer.expose`, hosted-app shape; docs/shared-pages.md): one
  * canonical string list the review copy can render and a serve-time recheck
  * can compare exactly. An app without a viewer declaration has no viewer
  * surface and cannot be put at an address.
@@ -446,7 +446,7 @@ export function restrictedAppViewerSurfacePins(viewer: RestrictedAppViewerDeclar
   return [`entry:${viewer.entry}`, ...viewer.readable.map((prefix) => `data:${prefix}`)];
 }
 
-function parseAutomationDeclaration(
+function parseAppAutomationDeclaration(
   value: unknown,
   index: number,
   declaredPermissions: RestrictedAppManifest["permissions"],
@@ -460,9 +460,9 @@ function parseAutomationDeclaration(
   const intervalMinutes = intervalMinutesValue(trigger.intervalMinutes, `${label} interval`);
 
   const permissions = objectValue(automation.permissions, `${label} permissions`, ["network", "files", "notifications"]);
-  const network = parseAutomationPermissionIds(permissions.network, `${label} network permissions`, declaredPermissions.network);
-  const files = parseAutomationPermissionIds(permissions.files, `${label} file permissions`, declaredPermissions.files);
-  const notifications = parseAutomationPermissionIds(
+  const network = parseAppAutomationPermissionIds(permissions.network, `${label} network permissions`, declaredPermissions.network);
+  const files = parseAppAutomationPermissionIds(permissions.files, `${label} file permissions`, declaredPermissions.files);
+  const notifications = parseAppAutomationPermissionIds(
     permissions.notifications,
     `${label} notification permissions`,
     declaredPermissions.notifications,
@@ -485,7 +485,7 @@ function parseAutomationDeclaration(
   };
 }
 
-function parseAutomationPermissionIds<T extends { id: string }>(
+function parseAppAutomationPermissionIds<T extends { id: string }>(
   value: unknown,
   label: string,
   declarations: T[],
@@ -501,7 +501,7 @@ function parseAutomationPermissionIds<T extends { id: string }>(
   return ids;
 }
 
-/** One minute to a leap year. Routing interval schedules share this range. */
+/** One minute to a leap year. Automation interval schedules share this range. */
 export const restrictedAppAutomationIntervalMinutes = { minimum: 1, maximum: 366 * 24 * 60 } as const;
 
 function intervalMinutesValue(value: unknown, label: string): number {
@@ -633,7 +633,7 @@ function parseNetworkDestination(value: unknown, index: number): RestrictedAppNe
   }
   // Extra request headers are reviewed per destination so an app can satisfy an
   // ordinary API contract without gaining a general header channel. The
-  // forbidden set keeps hop-by-hop, routing, and credential-bearing names out,
+  // forbidden set keeps hop-by-hop, automation, and credential-bearing names out,
   // and a destination may not name the header its own credential occupies.
   const requestHeaders = destination.requestHeaders === undefined
     ? []

@@ -39,7 +39,7 @@ export interface WorkFoldDurableTurnRecord {
   requestDigest: string;
   userMessageId: string;
   userMessageCreatedAt: string;
-  spaceId: string;
+  workFolderId: string;
   conversationId: string;
   actorKind: "assistant" | "cli" | "renderer" | "system";
   status: WorkFoldDurableTurnStatus;
@@ -62,7 +62,7 @@ export interface WorkFoldTurnStoreOptions {
 }
 
 /**
- * Machine-local, append-only Assistant-turn journal. The portable transcript
+ * Machine-local, append-only agent-turn journal. The portable transcript
  * remains the content authority; this store owns request deduplication, live
  * checkpoints, task-scoped outcomes, and honest restart recovery.
  */
@@ -93,14 +93,14 @@ export class WorkFoldTurnStore {
     return record ? copyRecord(record) : null;
   }
 
-  findRequest(spaceId: string, conversationId: string, requestId: string): WorkFoldDurableTurnRecord | null {
-    const turnId = this.#requests.get(requestKey(spaceId, conversationId, requestId));
+  findRequest(workFolderId: string, conversationId: string, requestId: string): WorkFoldDurableTurnRecord | null {
+    const turnId = this.#requests.get(requestKey(workFolderId, conversationId, requestId));
     return turnId ? this.get(turnId) : null;
   }
 
-  findScopeRequest(spaceId: string, requestId: string): WorkFoldDurableTurnRecord | null {
+  findScopeRequest(workFolderId: string, requestId: string): WorkFoldDurableTurnRecord | null {
     for (const record of [...this.#records.values()].reverse()) {
-      if (record.spaceId === spaceId && record.requestId === requestId) return copyRecord(record);
+      if (record.workFolderId === workFolderId && record.requestId === requestId) return copyRecord(record);
     }
     return null;
   }
@@ -119,17 +119,17 @@ export class WorkFoldTurnStore {
     requestDigest: string;
     userMessageId: string;
     userMessageCreatedAt: string;
-    spaceId: string;
+    workFolderId: string;
     conversationId: string;
     actorKind: WorkFoldDurableTurnRecord["actorKind"];
   }): Promise<{ record: WorkFoldDurableTurnRecord; replayed: boolean }> {
     return this.#run(async () => {
       validateStableId(input.requestId, "request id");
       validateStableId(input.userMessageId, "user message id");
-      validateStableId(input.spaceId, "Space id");
+      validateStableId(input.workFolderId, "work-folder id");
       validateStableId(input.conversationId, "conversation id");
       if (!/^[a-f0-9]{64}$/.test(input.requestDigest)) throw new Error("Turn request digest is invalid.");
-      const existingId = this.#requests.get(requestKey(input.spaceId, input.conversationId, input.requestId));
+      const existingId = this.#requests.get(requestKey(input.workFolderId, input.conversationId, input.requestId));
       if (existingId) {
         const existing = this.#records.get(existingId)!;
         if (existing.requestDigest !== input.requestDigest) {
@@ -145,7 +145,7 @@ export class WorkFoldTurnStore {
         requestDigest: input.requestDigest,
         userMessageId: input.userMessageId,
         userMessageCreatedAt: input.userMessageCreatedAt,
-        spaceId: input.spaceId,
+        workFolderId: input.workFolderId,
         conversationId: input.conversationId,
         actorKind: input.actorKind,
         status: "accepted",
@@ -276,7 +276,7 @@ export class WorkFoldTurnStore {
 
   #remember(record: WorkFoldDurableTurnRecord): void {
     this.#records.set(record.turnId, copyRecord(record));
-    this.#requests.set(requestKey(record.spaceId, record.conversationId, record.requestId), record.turnId);
+    this.#requests.set(requestKey(record.workFolderId, record.conversationId, record.requestId), record.turnId);
   }
 
   #trimMemory(): void {
@@ -288,7 +288,7 @@ export class WorkFoldTurnStore {
       .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
     for (const record of records.slice(0, Math.max(0, records.length - this.#maxRecords))) {
       this.#records.delete(record.turnId);
-      const key = requestKey(record.spaceId, record.conversationId, record.requestId);
+      const key = requestKey(record.workFolderId, record.conversationId, record.requestId);
       // An expired request may have a newer acceptance later in the journal.
       if (this.#requests.get(key) === record.turnId) this.#requests.delete(key);
     }
@@ -327,7 +327,7 @@ function parseRecord(value: unknown): WorkFoldDurableTurnRecord {
   if (record.schema !== workFoldTurnRecordSchema) throw new Error("Turn record schema is unsupported.");
   for (const [label, candidate] of [
     ["turn id", record.turnId], ["request id", record.requestId], ["user message id", record.userMessageId],
-    ["Space id", record.spaceId], ["conversation id", record.conversationId],
+    ["work-folder id", record.workFolderId], ["conversation id", record.conversationId],
   ] as const) validateStableId(candidate, label);
   if (typeof record.requestDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.requestDigest)) throw new Error("Turn request digest is invalid.");
   if (typeof record.userMessageCreatedAt !== "string" || !Number.isFinite(Date.parse(record.userMessageCreatedAt))) throw new Error("Turn message time is invalid.");
@@ -384,8 +384,8 @@ function isStatus(value: unknown): value is WorkFoldDurableTurnStatus {
   return value === "accepted" || value === "running" || value === "succeeded" || value === "failed" || value === "aborted" || value === "interrupted";
 }
 
-function requestKey(spaceId: string, conversationId: string, requestId: string): string {
-  return `${spaceId}\u0000${conversationId}\u0000${requestId}`;
+function requestKey(workFolderId: string, conversationId: string, requestId: string): string {
+  return `${workFolderId}\u0000${conversationId}\u0000${requestId}`;
 }
 
 function copyRecord(record: WorkFoldDurableTurnRecord): WorkFoldDurableTurnRecord {

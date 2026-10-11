@@ -6,7 +6,7 @@ const messages = [
   { id: "release", sender: "Mira Chen", subject: "Release checklist", preview: "The last two desktop checks are green…", time: "9:42", folder: "inbox", unread: true, body: "The last two desktop checks are green. I left the service smoke test assigned to you and added the updater notes to the release checklist." },
   { id: "design", sender: "Nolan", subject: "Extension host notes", preview: "The panel sizing pass looks right…", time: "8:18", folder: "inbox", unread: true, body: "The panel sizing pass looks right. Can we keep a navigator open while a detail tab is active? That would make the internal service tools much easier to use." },
   { id: "build", sender: "CI", subject: "Build #1842 passed", preview: "Windows smoke package completed…", time: "Yesterday", folder: "inbox", unread: false, body: "Windows smoke package completed successfully in 7m 12s. All required runtime assets were present." },
-  { id: "draft", sender: "You", subject: "Draft: launch note", preview: "A small update to how Space apps…", time: "Mon", folder: "drafts", unread: false, body: "A small update to how Space apps work: they now get a real sandboxed interface and can open durable work tabs." },
+  { id: "draft", sender: "You", subject: "Draft: launch note", preview: "A small update to how work-folder apps…", time: "Mon", folder: "drafts", unread: false, body: "A small update to how work-folder apps work: they now get a real sandboxed interface and can open durable work tabs." },
 ];
 
 let context = bridge.context.get();
@@ -61,7 +61,7 @@ function renderTab() {
 
 function renderInbox(folder) {
   const filtered = messages.filter((message) => message.folder === folder && `${message.sender} ${message.subject}`.toLowerCase().includes(query.toLowerCase()));
-  root.innerHTML = `<section class="tab-shell"><header class="tab-header"><div><span class="eyebrow">CONNECTED INBOX</span><h1>${folder === "drafts" ? "Drafts" : "Inbox"}</h1><p>${filtered.length} messages in this Space</p></div><button class="primary" data-open-compose>Compose</button></header><div class="tab-toolbar"><label class="search"><span>⌕</span><input type="search" value="${escapeAttribute(query)}" placeholder="Filter messages"></label><button class="secondary" data-refresh>Sync</button></div>${automationStatusMarkup()}<div class="wide-message-list">${filtered.map(messageCard).join("") || `<p class="empty">Nothing here yet</p>`}</div><p id="connection-state" class="connection-state">Showing local demo data. Approve mail-api in Capabilities to connect.</p></section>`;
+  root.innerHTML = `<section class="tab-shell"><header class="tab-header"><div><span class="eyebrow">CONNECTED INBOX</span><h1>${folder === "drafts" ? "Drafts" : "Inbox"}</h1><p>${filtered.length} messages in this work-folder</p></div><button class="primary" data-open-compose>Compose</button></header><div class="tab-toolbar"><label class="search"><span>⌕</span><input type="search" value="${escapeAttribute(query)}" placeholder="Filter messages"></label><button class="secondary" data-refresh>Sync</button></div>${automationStatusMarkup()}<div class="wide-message-list">${filtered.map(messageCard).join("") || `<p class="empty">Nothing here yet</p>`}</div><p id="connection-state" class="connection-state">Showing local demo data. Approve mail-api in Capabilities to connect.</p></section>`;
   root.querySelector("input")?.addEventListener("input", (event) => { query = event.target.value; void bridge.storage.set("search-query", query); renderInbox(folder); });
   wireOpenActions();
   root.querySelector("[data-refresh]")?.addEventListener("click", refreshMail);
@@ -98,7 +98,7 @@ function renderCompose() {
 }
 
 function renderService() {
-  root.innerHTML = `<section class="service"><header><div><span class="eyebrow">LOCAL SERVICE · 127.0.0.1:4317</span><h1>Project service</h1><p>A tiny control panel for a process running beside this Space.</p></div><button class="secondary" data-close>Close</button></header><div class="metrics"><article><span>Status</span><strong id="service-status">Not checked</strong></article><article><span>Endpoint</span><strong>/health</strong></article><article><span>Transport</span><strong>Brokered HTTP</strong></article></div><div class="service-actions"><button class="primary" data-check>Check health</button><button class="secondary" data-run>Run refresh job</button><button class="secondary" data-export>Export status</button></div><pre id="service-output">Start the example service on port 4317, allow project-service in Capabilities, then check it here.</pre></section>`;
+  root.innerHTML = `<section class="service"><header><div><span class="eyebrow">LOCAL SERVICE · 127.0.0.1:4317</span><h1>Project service</h1><p>A tiny control panel for a process running beside this work-folder.</p></div><button class="secondary" data-close>Close</button></header><div class="metrics"><article><span>Status</span><strong id="service-status">Not checked</strong></article><article><span>Endpoint</span><strong>/health</strong></article><article><span>Transport</span><strong>Brokered HTTP</strong></article></div><div class="service-actions"><button class="primary" data-check>Check health</button><button class="secondary" data-run>Run refresh job</button><button class="secondary" data-export>Export status</button></div><pre id="service-output">Start the example service on port 4317, allow project-service in Capabilities, then check it here.</pre></section>`;
   root.querySelector("[data-close]")?.addEventListener("click", () => bridge.tabs.close());
   root.querySelector("[data-check]")?.addEventListener("click", () => callService("GET", "/health"));
   root.querySelector("[data-run]")?.addEventListener("click", () => callService("POST", "/jobs/refresh"));
@@ -111,7 +111,7 @@ async function exportServiceStatus() {
     const listing = await bridge.files.list({ grantId: "exports", path: "." });
     const exists = listing.entries.some((entry) => entry.name === "service-status.json");
     await bridge.files.write({ grantId: "exports", path: "service-status.json", encoding: "utf8", data: JSON.stringify({ exportedAt: new Date().toISOString(), status: root.querySelector("#service-status")?.textContent }, null, 2), mode: exists ? "replace" : "create" });
-    output.textContent = "Exported service-status.json through the Space file broker.";
+    output.textContent = "Exported service-status.json through the work-folder file broker.";
   } catch (error) {
     output.textContent = error?.message || "Export unavailable";
   }

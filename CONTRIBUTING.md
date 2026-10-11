@@ -57,10 +57,10 @@ your change; `AGENTS.md` identifies the required ones.
 | Working on | Start here |
 |---|---|
 | Files, Chats, navigation, or UI | `web-local/src/`, [Desktop interaction](docs/ui-parity.md) |
-| Filesystem, Assistant, or domain services | `src/local/`, [Architecture](docs/architecture.md) |
-| The work-fold agent, CLI, or shared task state | [Kernel](src/local/work-fold-kernel.ts), [CLI](src/local/cli/), [Management layer](docs/management-layer.md) |
-| Checks or cross-Folder work | [Checks](docs/checks.md), [Automations](docs/fold-routings.md) |
-| Worker-built Folder apps | [App foundation](docs/app-platform-foundation.md), [Authoring](docs/restricted-app-authoring.md), [Runtime](docs/restricted-app-runtime.md) |
+| Filesystem, Worker, or domain services | `src/local/`, [Architecture](docs/architecture.md) |
+| The work-fold agent, CLI, or shared task state | [Kernel](src/local/work-fold-kernel.ts), [CLI](src/local/cli/), [work-fold agent and CLI](docs/work-fold-agent-and-cli.md) |
+| Checks or cross-work-folder work | [Checks](docs/checks.md), [Automations](docs/automations.md) |
+| Worker-built work-folder apps | [App foundation](docs/app-platform-foundation.md), [Authoring](docs/restricted-app-authoring.md), [Runtime](docs/restricted-app-runtime.md) |
 | Native desktop behavior | `desktop/src/`, [macOS builds](docs/macos-build.md) |
 | Landing page or web client | `services/bridge/public/`, [Bridge guide](services/bridge/README.md) |
 
@@ -99,7 +99,7 @@ Mac publication is a maintainer operation with separate authorization and an
 exact-commit local verification receipt from `npm run desktop:release:mac:check`,
 followed by a signed build under the same Node/npm and dependency state. The
 local lane needs Node 24 and Google Chrome on an Apple-silicon Mac. GitHub
-GitHub Actions is disabled and does not gate publication. Use the
+Actions is disabled and does not gate publication. Use the
 [release runbook](docs/macos-release.md).
 Windows packaging remains inactive and does not gate Mac work.
 

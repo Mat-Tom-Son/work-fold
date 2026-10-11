@@ -235,14 +235,14 @@ test("checked-in example records failed automation network checks after requesti
     workerUrl.searchParams.set("test", String(Date.now()));
     const worker = await import(workerUrl.href) as { handleAutomation: (event: {
       runId: string;
-      automationId: string;
+      appAutomationId: string;
       handler: string;
       reason: string;
       scheduledAt: string;
     }) => Promise<void> };
     await worker.handleAutomation({
       runId: "manual-test-run",
-      automationId: "refresh-inbox",
+      appAutomationId: "refresh-inbox",
       handler: "refresh-inbox",
       reason: "manual",
       scheduledAt: "2026-07-13T12:00:00.000Z",

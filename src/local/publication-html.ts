@@ -1,5 +1,5 @@
 /**
- * Person-authored HTML as a rung-2 page (docs/fold-publishing.md). The page
+ * Person-authored HTML as a rung-2 page (docs/shared-pages.md). The page
  * stays inert three times over: this desktop-side strip runs before
  * encryption, the viewer shell places the document in a sandboxed frame
  * without `allow-scripts`, and the viewer origin's CSP allows no inline or

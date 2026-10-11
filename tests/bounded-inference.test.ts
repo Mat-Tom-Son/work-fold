@@ -18,7 +18,7 @@ import {
 } from "../src/local/agent/bounded-inference.js";
 import { parseRestrictedAppJsonSchema, restrictedAppJsonSchemaLimits } from "../src/local/agent/restricted-app-manifest.js";
 
-const model = { provider: "test", id: "space-model", maxTokens: 8192, contextWindow: 128_000 };
+const model = { provider: "test", id: "work-folder-model", maxTokens: 8192, contextWindow: 128_000 };
 const schema = parseRestrictedAppJsonSchema({
   type: "object",
   additionalProperties: false,
@@ -69,7 +69,7 @@ test("text inference sends one untrusted user message on the configured stream p
   const { session, calls } = fakeSession({ content: [{ type: "thinking" }, { type: "text", text: "North leads " }, { type: "text", text: "by $25." }] });
   const input = request();
   const outcome = await runBoundedInference(session, input);
-  assert.deepEqual(outcome, { kind: "text", text: "North leads by $25.", truncated: false, model: { provider: "test", id: "space-model" }, usage: { inputTokens: 20, outputTokens: 10, amountUsd: 0.01 } });
+  assert.deepEqual(outcome, { kind: "text", text: "North leads by $25.", truncated: false, model: { provider: "test", id: "work-folder-model" }, usage: { inputTokens: 20, outputTokens: 10, amountUsd: 0.01 } });
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.model, model);
   const transcript = calls[0]!.context;
@@ -90,13 +90,13 @@ test("text inference sends one untrusted user message on the configured stream p
   assert.equal("reasoning" in options, false);
 });
 
-test("reasoning follows the Space session's configured thinking level, never a forced lowest one", async () => {
+test("reasoning follows the work-folder session's configured thinking level, never a forced lowest one", async () => {
   const configured = fakeSession({ content: [{ type: "text", text: "ok" }] }, { levels: ["off", "low", "medium", "high"], thinkingLevel: "high" });
   await runBoundedInference(configured.session, request());
   assert.equal(configured.calls[0]!.options!.reasoning, "high");
   const off = fakeSession({ content: [{ type: "text", text: "ok" }] }, { levels: ["off", "low", "high"], thinkingLevel: "off" });
   await runBoundedInference(off.session, request());
-  assert.equal("reasoning" in off.calls[0]!.options!, false, "a Space with thinking off sends no reasoning option");
+  assert.equal("reasoning" in off.calls[0]!.options!, false, "a work-folder with thinking off sends no reasoning option");
   const stale = fakeSession({ content: [{ type: "text", text: "ok" }] }, { levels: ["off", "low", "high"], thinkingLevel: "medium" });
   await runBoundedInference(stale.session, request());
   assert.equal("reasoning" in stale.calls[0]!.options!, false, "a level the model no longer offers leaves the model's default");
@@ -109,7 +109,7 @@ test("json inference carries the app schema as the single submit_result tool and
   const submitted = { total: 59, note: "two regions" };
   const { session, calls } = fakeSession({ stopReason: "toolUse", content: [{ type: "toolCall", name: boundedInferenceResultToolName, arguments: submitted }] });
   const outcome = await runBoundedInference(session, request({ outputSchema: schema }));
-  assert.deepEqual(outcome, { kind: "json", json: submitted, model: { provider: "test", id: "space-model" }, usage: { inputTokens: 20, outputTokens: 10, amountUsd: 0.01 } });
+  assert.deepEqual(outcome, { kind: "json", json: submitted, model: { provider: "test", id: "work-folder-model" }, usage: { inputTokens: 20, outputTokens: 10, amountUsd: 0.01 } });
   assert.ok(outcome.kind === "json" && outcome.json !== submitted, "the app receives a JSON copy, not the provider object");
   const transcript = calls[0]!.context;
   const context = { systemPrompt: getCurrentSystemPrompt(transcript.messages), messages: transcript.messages.filter((m) => m.role !== "system"), tools: getCurrentTools(transcript.messages) };
@@ -177,7 +177,7 @@ test("provider failures and interruptions map to closed codes without provider t
 
 test("missing model and context overflow are refused before any provider call", async () => {
   const noModel = fakeSession({ content: [{ type: "text", text: "never" }] }, { model: null });
-  await rejectsWith(runBoundedInference(noModel.session, request()), "INFER_MODEL_UNAVAILABLE", /Connect a model for this Folder in Settings → AI Models/);
+  await rejectsWith(runBoundedInference(noModel.session, request()), "INFER_MODEL_UNAVAILABLE", /Connect a model for this work-folder in Settings → AI Models/);
   assert.equal(noModel.calls.length, 0);
   const small = fakeSession({ content: [{ type: "text", text: "never" }] }, { model: { ...model, contextWindow: 1_000 } });
   await rejectsWith(runBoundedInference(small.session, request({ input: "x".repeat(4_000) })), "INFER_INPUT_TOO_LARGE", /context allowance of 1000 tokens/);

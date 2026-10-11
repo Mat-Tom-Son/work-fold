@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { normalizeWorkFoldRoutingDeclaration, workFoldRoutingDigest } from "../src/local/routings/routing-declarations.js";
+import { normalizeWorkFoldAutomationDeclaration, workFoldAutomationDigest } from "../src/local/automations/automation-declarations.js";
 import { existsSync } from "node:fs";
 import { appendMessage } from "../src/local/agent/chat-store.js";
 import { WorkFoldTurnStore } from "../src/local/agent/turn-store.js";
@@ -13,16 +13,16 @@ import { PiConversationClient } from "../src/local/agent/pi-client.js";
 import { WorkFoldCliError } from "../src/local/cli/index.js";
 import { WorkFoldRequestStore } from "../src/local/requests/request-store.js";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
-import { listSpaceCheckpoints } from "../src/local/history.js";
-import { workFoldManagementScopeId } from "../src/local/state-paths.js";
+import { listWorkFolderCheckpoints } from "../src/local/history.js";
+import { workFoldAgentScopeId } from "../src/local/state-paths.js";
 
 /**
  * Report, ask, answer, handoff, the non-blocking wait, and the root
  * continuation (docs/collaboration-contract.md, F27/F28) through the real
  * local API: a question puts the task in `waiting` without suspending its
  * turn; exactly one answer starts exactly one linked continuation; an answer
- * from the wrong Space, past the window, after a stop, or a second time is
- * refused by name; the host brings settled results back to the fold once per
+ * from the wrong work-folder, past the window, after a stop, or a second time is
+ * refused by name; the host brings settled results back to the work-fold agent once per
  * settle batch, within the request's limits, off when the setting says so,
  * never after a root Stop, and never on a restart.
  *
@@ -32,8 +32,8 @@ import { workFoldManagementScopeId } from "../src/local/state-paths.js";
 
 interface HeldTurn {
   taskId: string;
-  spaceId: string;
-  spaceTurn?: import("../src/local/agent/space-turn-context.js").PiSpaceTurnContext;
+  workFolderId: string;
+  workFolderTurn?: import("../src/local/agent/work-folder-turn-context.js").PiWorkFolderTurnContext;
   release: () => void;
 }
 
@@ -60,12 +60,12 @@ async function collaborationHarness(t: { after: (fn: () => unknown) => void }) {
     return startLocalApi({
       port: 0,
       stateBase,
-      spaceBase: join(sandbox, "content"),
+      workFolderBase: join(sandbox, "content"),
       loadEnv: false,
       piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
       beforeAgentPrompt: async (event) => {
-        if (draining || !held.has(event.spaceId)) return;
-        await new Promise<void>((release) => pending.push({ taskId: event.taskId, spaceId: event.spaceId, spaceTurn: event.spaceTurn, release }));
+        if (draining || !held.has(event.workFolderId)) return;
+        await new Promise<void>((release) => pending.push({ taskId: event.taskId, workFolderId: event.workFolderId, workFolderTurn: event.workFolderTurn, release }));
         if (failTasks.has(event.taskId)) throw new Error("Synthetic failed answer continuation");
       },
       ...overrides,
@@ -83,23 +83,23 @@ async function collaborationHarness(t: { after: (fn: () => unknown) => void }) {
   return { sandbox, stateBase, held, pending, failTasks, open, release, releaseAll };
 }
 
-async function settled(api: LocalApiHandle, spaceId: string, taskId: string): Promise<void> {
+async function settled(api: LocalApiHandle, workFolderId: string, taskId: string): Promise<void> {
   await waitFor(async () => {
-    const status = spaceId === workFoldManagementScopeId
-      ? await api.actFacade.manageTurnStatus({ taskId })
-      : await api.actFacade.turnStatus({ space: spaceId, taskId });
+    const status = workFolderId === workFoldAgentScopeId
+      ? await api.actFacade.agentTurnStatus({ taskId })
+      : await api.actFacade.turnStatus({ workFolder: workFolderId, taskId });
     return status.task.state !== "running";
   });
 }
 
-async function managementMessages(api: LocalApiHandle, conversationId: string): Promise<Array<{ role: string; content: string; requestId?: string }>> {
-  const response = await fetch(new URL(`/api/management/conversations/${conversationId}`, api.origin));
+async function workFoldAgentMessages(api: LocalApiHandle, conversationId: string): Promise<Array<{ role: string; content: string; requestId?: string }>> {
+  const response = await fetch(new URL(`/api/work-fold-agent/conversations/${conversationId}`, api.origin));
   assert.equal(response.status, 200);
   return (await response.json() as { messages: Array<{ role: string; content: string; requestId?: string }> }).messages;
 }
 
-async function spaceMessages(api: LocalApiHandle, spaceId: string, conversationId: string): Promise<Array<{ role: string; content: string; requestId?: string }>> {
-  const response = await fetch(new URL(`/api/spaces/${spaceId}/conversations/${conversationId}`, api.origin));
+async function workFolderMessages(api: LocalApiHandle, workFolderId: string, conversationId: string): Promise<Array<{ role: string; content: string; requestId?: string }>> {
+  const response = await fetch(new URL(`/api/work-folders/${workFolderId}/conversations/${conversationId}`, api.origin));
   assert.equal(response.status, 200);
   return (await response.json() as { messages: Array<{ role: string; content: string; requestId?: string }> }).messages;
 }
@@ -111,28 +111,28 @@ for (const fails of [true, false]) {
   test(`parent delivery uses the latest answer turn when it ${fails ? "fails" : "finishes without a report"}`, async (t) => {
     const h = await collaborationHarness(t);
     const api = await h.open();
-    h.held.add(workFoldManagementScopeId);
+    h.held.add(workFoldAgentScopeId);
     try {
-      const { space } = await api.actFacade.createSpace({ name: "Reviewer" });
-      h.held.add(space.id);
-      const root = await api.actFacade.manageSend({ content: "/hold" });
-      const child = await api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
-      await writeFile(join(space.spaceRoot, "old.txt"), "Old deliverable\n");
-      await api.actFacade.chatReport({ space: space.id, taskId: child.taskId, summary: "STALE SUCCESS REPORT", outcome: "succeeded", files: ["old.txt"] });
-      const asked = await api.actFacade.chatAsk({ space: space.id, taskId: child.taskId, question: "Which quarter?", respondent: "person" });
+      const { workFolder } = await api.actFacade.createWorkFolder({ name: "Reviewer" });
+      h.held.add(workFolder.id);
+      const root = await api.actFacade.agentSend({ content: "/hold" });
+      const child = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+      await writeFile(join(workFolder.workFolderRoot, "old.txt"), "Old deliverable\n");
+      await api.actFacade.chatReport({ workFolder: workFolder.id, taskId: child.taskId, summary: "STALE SUCCESS REPORT", outcome: "succeeded", files: ["old.txt"] });
+      const asked = await api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: child.taskId, question: "Which quarter?", respondent: "person" });
       await h.release(child.taskId);
-      await settled(api, space.id, child.taskId);
-      const answer = await api.actFacade.chatAnswer({ space: space.id, questionId: asked.question.questionId, answer: "/hold" });
+      await settled(api, workFolder.id, child.taskId);
+      const answer = await api.actFacade.chatAnswer({ workFolder: workFolder.id, questionId: asked.question.questionId, answer: "/hold" });
       if (fails) h.failTasks.add(answer.continuation.taskId);
       await h.release(answer.continuation.taskId);
-      await settled(api, space.id, answer.continuation.taskId);
+      await settled(api, workFolder.id, answer.continuation.taskId);
       assert.equal(api.requests.byTaskId(child.taskId)!.state, fails ? "failed" : "done");
       await h.release(root.taskId);
-      await settled(api, workFoldManagementScopeId, root.taskId);
+      await settled(api, workFoldAgentScopeId, root.taskId);
       const requestId = api.requests.byTaskId(root.taskId)!.requestId;
       await waitFor(async () => api.requests.get(requestId)!.turns.length === 2);
       const delivered = api.requests.get(requestId)!;
-      assert.match(delivered.content, fails ? /failed: The Assistant couldn’t complete this request/ : /finished without a report/);
+      assert.match(delivered.content, fails ? /failed: The agent couldn’t complete this request/ : /finished without a report/);
       assert.doesNotMatch(delivered.content, /STALE SUCCESS REPORT|old\.txt/);
       assert.deepEqual(delivered.deliveredChildTaskIds, [answer.continuation.taskId]);
       assert.equal(api.requests.byTaskId(child.taskId)!.results.length, 1, "the earlier report remains historical");
@@ -157,24 +157,24 @@ for (const lane of ["act", "http", "failed-act"] as const) {
       if (lane === "failed-act") throw new Error("Synthetic compaction failure");
     };
     try {
-      const { space: parentSpace } = await api.actFacade.createSpace({ name: "Coordinator" });
-      const { space: childSpace } = await api.actFacade.createSpace({ name: "Child" });
-      h.held.add(parentSpace.id);
-      h.held.add(childSpace.id);
-      const parent = await api.actFacade.sendMessage({ space: parentSpace.id, newConversation: true, content: "/hold" });
-      const child = await api.actFacade.chatHandoff({ space: parentSpace.id, taskId: parent.taskId, toSpace: childSpace.id, message: "/hold", files: [] });
-      await api.actFacade.chatReport({ space: childSpace.id, taskId: child.taskId, summary: "Fresh fact for the coordinator", outcome: "succeeded", files: [] });
+      const { workFolder: parentWorkFolder } = await api.actFacade.createWorkFolder({ name: "Coordinator" });
+      const { workFolder: childWorkFolder } = await api.actFacade.createWorkFolder({ name: "Child" });
+      h.held.add(parentWorkFolder.id);
+      h.held.add(childWorkFolder.id);
+      const parent = await api.actFacade.sendMessage({ workFolder: parentWorkFolder.id, newConversation: true, content: "/hold" });
+      const child = await api.actFacade.chatHandoff({ workFolder: parentWorkFolder.id, taskId: parent.taskId, toWorkFolder: childWorkFolder.id, message: "/hold", files: [] });
+      await api.actFacade.chatReport({ workFolder: childWorkFolder.id, taskId: child.taskId, summary: "Fresh fact for the coordinator", outcome: "succeeded", files: [] });
       await h.release(parent.taskId);
-      await settled(api, parentSpace.id, parent.taskId);
+      await settled(api, parentWorkFolder.id, parent.taskId);
       const compact = lane === "http"
-        ? fetch(`${api.origin}/api/spaces/${parentSpace.id}/conversations/${parent.conversationId}/compact`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then((response) => assert.equal(response.status, 200))
-        : api.actFacade.chatCompact({ space: parentSpace.id, conversationId: parent.conversationId }).then(
+        ? fetch(`${api.origin}/api/work-folders/${parentWorkFolder.id}/conversations/${parent.conversationId}/compact`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then((response) => assert.equal(response.status, 200))
+        : api.actFacade.chatCompact({ workFolder: parentWorkFolder.id, conversationId: parent.conversationId }).then(
           () => assert.notEqual(lane, "failed-act"),
           (error) => { assert.equal(lane, "failed-act"); assert.match(String(error), /Synthetic compaction failure/); },
         );
       await started;
       await h.release(child.taskId);
-      await settled(api, childSpace.id, child.taskId);
+      await settled(api, childWorkFolder.id, child.taskId);
       const requestId = api.requests.byTaskId(parent.taskId)!.requestId;
       assert.equal(api.requests.get(requestId)!.turns.length, 1, "compaction still holds the Chat");
       releaseCompact!();
@@ -184,7 +184,7 @@ for (const lane of ["act", "http", "failed-act"] as const) {
       assert.deepEqual(continuation.deliveredChildTaskIds, [child.taskId]);
       assert.match(continuation.content, /succeeded: Fresh fact for the coordinator/);
       await h.release(continuation.turns.at(-1)!.taskId);
-      await settled(api, parentSpace.id, continuation.turns.at(-1)!.taskId);
+      await settled(api, parentWorkFolder.id, continuation.turns.at(-1)!.taskId);
       assert.equal(api.requests.get(requestId)!.turns.length, 2);
     } finally {
       releaseCompact?.();
@@ -199,74 +199,74 @@ test("file and work-folder deletion refuse running, waiting, and stopped-but-dra
   const h = await collaborationHarness(t);
   const api = await h.open();
   try {
-    const { space } = await api.actFacade.createSpace({ name: "Busy folder" });
-    h.held.add(space.id);
-    await writeFile(join(space.spaceRoot, "keep.txt"), "Keep this until settled\n");
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Busy folder" });
+    h.held.add(workFolder.id);
+    await writeFile(join(workFolder.workFolderRoot, "keep.txt"), "Keep this until settled\n");
     const assertRefused = async () => {
-      const checkpoints = JSON.stringify(await listSpaceCheckpoints(space.spaceRoot));
+      const checkpoints = JSON.stringify(await listWorkFolderCheckpoints(workFolder.workFolderRoot));
       for (const [path, body] of [
-        [`/api/spaces/${space.id}/local-file`, { path: "keep.txt" }],
-        [`/api/spaces/${space.id}`, undefined],
+        [`/api/work-folders/${workFolder.id}/local-file`, { path: "keep.txt" }],
+        [`/api/work-folders/${workFolder.id}`, undefined],
       ] as const) {
         const response = await fetch(`${api.origin}${path}`, { method: "DELETE", ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
         assert.equal(response.status, 409, await response.text());
       }
-      await assert.rejects(() => api.actFacade.filesDelete({ space: space.id, path: "keep.txt" }), conflict(/finish|stop|work/i));
-      assert.equal(await readFile(join(space.spaceRoot, "keep.txt"), "utf8"), "Keep this until settled\n");
-      assert.equal(JSON.stringify(await listSpaceCheckpoints(space.spaceRoot)), checkpoints, "refusal leaves no checkpoint");
-      assert.equal((await api.trash.list()).entries.length, 0);
+      await assert.rejects(() => api.actFacade.filesDelete({ workFolder: workFolder.id, path: "keep.txt" }), conflict(/finish|stop|work/i));
+      assert.equal(await readFile(join(workFolder.workFolderRoot, "keep.txt"), "utf8"), "Keep this until settled\n");
+      assert.equal(JSON.stringify(await listWorkFolderCheckpoints(workFolder.workFolderRoot)), checkpoints, "refusal leaves no checkpoint");
+      assert.equal((await api.recentlyDeleted.list()).entries.length, 0);
     };
-    const first = await api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold" });
+    const first = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
     await waitFor(async () => h.pending.some((turn) => turn.taskId === first.taskId));
     await assertRefused();
     // Busy work in this folder does not block deletion in another folder.
-    const { space: other } = await api.actFacade.createSpace({ name: "Idle folder" });
-    await writeFile(join(other.spaceRoot, "remove.txt"), "Idle\n");
-    assert.equal((await api.actFacade.filesDelete({ space: other.id, path: "remove.txt" })).deleted, true);
+    const { workFolder: other } = await api.actFacade.createWorkFolder({ name: "Idle folder" });
+    await writeFile(join(other.workFolderRoot, "remove.txt"), "Idle\n");
+    assert.equal((await api.actFacade.filesDelete({ workFolder: other.id, path: "remove.txt" })).deleted, true);
     // Remove the unrelated recovery reference from the assertions below.
-    const trashBefore = (await api.trash.list()).entries.length;
-    assert.equal(trashBefore, 0, "ordinary small files are covered by History");
-    const question = await api.actFacade.chatAsk({ space: space.id, taskId: first.taskId, question: "Which draft?", respondent: "person" });
+    const recentlyDeletedBefore = (await api.recentlyDeleted.list()).entries.length;
+    assert.equal(recentlyDeletedBefore, 0, "ordinary small files are covered by History");
+    const question = await api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: first.taskId, question: "Which draft?", respondent: "person" });
     await h.release(first.taskId);
-    await settled(api, space.id, first.taskId);
+    await settled(api, workFolder.id, first.taskId);
     assert.equal(api.requests.byTaskId(first.taskId)!.state, "waiting");
     await assertRefused();
-    const answer = await api.actFacade.chatAnswer({ space: space.id, questionId: question.question.questionId, answer: "/hold" });
+    const answer = await api.actFacade.chatAnswer({ workFolder: workFolder.id, questionId: question.question.questionId, answer: "/hold" });
     await waitFor(async () => h.pending.some((turn) => turn.taskId === answer.continuation.taskId));
-    const stopped = await fetch(`${api.origin}/api/spaces/${space.id}/conversations/${first.conversationId}/abort`, { method: "POST" });
+    const stopped = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/conversations/${first.conversationId}/abort`, { method: "POST" });
     assert.equal(stopped.status, 200);
     assert.equal(api.requests.byTaskId(first.taskId)!.state, "stopped");
     await assertRefused();
     await h.release(answer.continuation.taskId);
-    await settled(api, space.id, answer.continuation.taskId);
-    assert.equal((await api.actFacade.filesDelete({ space: space.id, path: "keep.txt" })).deleted, true);
-    const removed = await fetch(`${api.origin}/api/spaces/${space.id}`, { method: "DELETE" });
+    await settled(api, workFolder.id, answer.continuation.taskId);
+    assert.equal((await api.actFacade.filesDelete({ workFolder: workFolder.id, path: "keep.txt" })).deleted, true);
+    const removed = await fetch(`${api.origin}/api/work-folders/${workFolder.id}`, { method: "DELETE" });
     assert.equal(removed.status, 200, await removed.text());
-    assert.equal(existsSync(space.spaceRoot), false);
+    assert.equal(existsSync(workFolder.workFolderRoot), false);
   } finally {
     h.releaseAll();
     await api.close();
   }
 });
 
-test("chat ask puts the task in waiting without suspending its turn, and chat answer continues it exactly once and brings the result back to the fold", async (t) => {
+test("chat ask puts the task in waiting without suspending its turn, and chat answer continues it exactly once and brings the result back to the work-fold agent", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();
-  h.held.add(workFoldManagementScopeId);
+  h.held.add(workFoldAgentScopeId);
   try {
-    const drafts = await api.actFacade.createSpace({ name: "Drafts" });
-    const reviews = await api.actFacade.createSpace({ name: "Reviews" });
-    h.held.add(drafts.space.id);
-    await writeFile(join(drafts.space.spaceRoot, "draft.md"), "# Draft\n", "utf8");
+    const drafts = await api.actFacade.createWorkFolder({ name: "Drafts" });
+    const reviews = await api.actFacade.createWorkFolder({ name: "Reviews" });
+    h.held.add(drafts.workFolder.id);
+    await writeFile(join(drafts.workFolder.workFolderRoot, "draft.md"), "# Draft\n", "utf8");
 
-    // The fold hands work to Drafts while its own turn runs.
-    const root = await api.actFacade.manageSend({ content: "/hold" });
-    const child = await api.actFacade.sendMessage({ space: drafts.space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    // The work-fold agent hands work to Drafts while its own turn runs.
+    const root = await api.actFacade.agentSend({ content: "/hold" });
+    const child = await api.actFacade.sendMessage({ workFolder: drafts.workFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
     const rootRecord = api.requests.byTaskId(root.taskId)!;
 
     // Inside its running turn the child reports, asks, and hands on.
     const reported = await api.actFacade.chatReport({
-      space: drafts.space.id,
+      workFolder: drafts.workFolder.id,
       taskId: child.taskId,
       summary: "Drafted draft.md from the brief.",
       data: { pages: 3 },
@@ -279,44 +279,44 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
     assert.equal(reported.result.files?.[0]?.sizeBytes, 8);
     assert.deepEqual(reported.result.data, { pages: 3 });
 
-    const asked = await api.actFacade.chatAsk({ space: drafts.space.id, taskId: child.taskId, question: "Which quarter?", respondent: "parent" });
+    const asked = await api.actFacade.chatAsk({ workFolder: drafts.workFolder.id, taskId: child.taskId, question: "Which quarter?", respondent: "parent" });
     assert.equal(asked.redirectedToPerson, false, "a child has a parent, so --to parent stays with the parent");
     assert.equal(asked.question.respondent, "parent");
     assert.equal(asked.request.state, "waiting", "asking puts the request in waiting at once");
 
     // The turn still runs; the status says the task is waiting and on what.
-    const live = await api.actFacade.turnStatus({ space: drafts.space.id, taskId: child.taskId });
+    const live = await api.actFacade.turnStatus({ workFolder: drafts.workFolder.id, taskId: child.taskId });
     assert.equal(live.task.state, "running");
     assert.equal(live.waiting?.questionId, asked.question.questionId);
     assert.equal(live.waiting?.question, "Which quarter?");
     assert.equal(live.request?.state, "waiting");
 
-    // Both fields are scoped to the named Space. A task id is easy to come by,
-    // and `waiting` carries the question text an Assistant wrote, so a caller
-    // naming a Space that does not own the task learns nothing about it
+    // Both fields are scoped to the named work-folder. A task id is easy to come by,
+    // and `waiting` carries the question text an agent wrote, so a caller
+    // naming a work-folder that does not own the task learns nothing about it
     // (F9 as amended, F26).
-    const foreign = await api.actFacade.turnStatus({ space: reviews.space.id, taskId: child.taskId });
+    const foreign = await api.actFacade.turnStatus({ workFolder: reviews.workFolder.id, taskId: child.taskId });
     assert.equal(foreign.task.state, "unknown");
     assert.equal(foreign.request, null);
-    assert.equal(foreign.waiting, null, "another Space's open question never reaches this caller");
-    const parentView = await api.actFacade.manageTurnStatus({ taskId: root.taskId });
-    assert.equal(parentView.waiting, null, "the fold asked nothing itself");
-    assert.equal(parentView.requestGraph?.state, "working", "the fold's own turn is still running, so it is working, not waiting");
+    assert.equal(foreign.waiting, null, "another work-folder's open question never reaches this caller");
+    const parentView = await api.actFacade.agentTurnStatus({ taskId: root.taskId });
+    assert.equal(parentView.waiting, null, "the work-fold agent asked nothing itself");
+    assert.equal(parentView.requestGraph?.state, "working", "the work-fold agent's own turn is still running, so it is working, not waiting");
 
     const handed = await api.actFacade.chatHandoff({
-      space: drafts.space.id,
+      workFolder: drafts.workFolder.id,
       taskId: child.taskId,
-      toSpace: reviews.space.id,
+      toWorkFolder: reviews.workFolder.id,
       message: "/hold",
       files: ["draft.md"],
     });
     assert.deepEqual(handed.copied, ["draft.md"]);
     assert.ok(handed.checkpointId, "the copy landed with a restore point in the destination");
-    // The handoff IS a child of the fold's root, but a Space-scoped verb never
+    // The handoff IS a child of the work-fold agent's root, but a work-folder-scoped verb never
     // hands that id back: `requests show` reads a request by id, so the real
-    // root id would put the fold's own content and every Space's result one
+    // root id would put the work-fold agent's own content and every work-folder's result one
     // taught command away. It is projected through the same opaque handle the
-    // Space turn context uses, which no verb accepts.
+    // work-folder turn context uses, which no verb accepts.
     assert.equal(api.requests.byTaskId(handed.taskId)!.rootId, rootRecord.requestId, "the handoff is a child of the caller's root");
     assert.notEqual(handed.request.rootId, rootRecord.requestId);
     assert.match(handed.request.rootId, /^parent-[0-9a-f]{16}$/);
@@ -326,45 +326,45 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
     );
     assert.equal(handed.request.depth, 2);
     await assert.rejects(
-      () => api.actFacade.chatHandoff({ space: drafts.space.id, taskId: child.taskId, toSpace: drafts.space.id, message: "/hold", files: ["draft.md"] }),
+      () => api.actFacade.chatHandoff({ workFolder: drafts.workFolder.id, taskId: child.taskId, toWorkFolder: drafts.workFolder.id, message: "/hold", files: ["draft.md"] }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "usage" && /already there/.test(error.message),
     );
 
     // A wrong task id is refused by name before anything is recorded.
     await assert.rejects(
-      () => api.actFacade.chatReport({ space: reviews.space.id, taskId: child.taskId, summary: "Nope.", files: [], outcome: "succeeded" }),
-      conflict(/another Space's turn/),
+      () => api.actFacade.chatReport({ workFolder: reviews.workFolder.id, taskId: child.taskId, summary: "Nope.", files: [], outcome: "succeeded" }),
+      conflict(/another work-folder's turn/),
     );
 
-    // The fold's own turn ends first. Its request now reads the descendant's
+    // The work-fold agent's own turn ends first. Its request now reads the descendant's
     // open question as waiting, while the child's turn is still running.
     await h.release(root.taskId);
-    await settled(api, workFoldManagementScopeId, root.taskId);
-    assert.equal((await api.actFacade.manageTurnStatus({ taskId: root.taskId })).requestGraph?.state, "waiting");
+    await settled(api, workFoldAgentScopeId, root.taskId);
+    assert.equal((await api.actFacade.agentTurnStatus({ taskId: root.taskId })).requestGraph?.state, "waiting");
 
     // The child's turn and the handoff's turn end. The request keeps waiting
     // on its question; the settled turn still reports it.
     await h.release(child.taskId);
-    await settled(api, drafts.space.id, child.taskId);
-    await settled(api, reviews.space.id, handed.taskId);
-    const ended = await api.actFacade.turnStatus({ space: drafts.space.id, taskId: child.taskId });
+    await settled(api, drafts.workFolder.id, child.taskId);
+    await settled(api, reviews.workFolder.id, handed.taskId);
+    const ended = await api.actFacade.turnStatus({ workFolder: drafts.workFolder.id, taskId: child.taskId });
     assert.equal(ended.task.state, "succeeded");
     assert.equal(ended.waiting?.questionId, asked.question.questionId, "a settled turn still reports its open question");
 
     // The whole story is one read.
     const shown = await api.actFacade.requestsShow({ request: rootRecord.requestId });
     assert.equal(shown.request.childRequests.length, 1);
-    assert.equal(shown.request.childRequests[0]!.spaceName, "Drafts");
+    assert.equal(shown.request.childRequests[0]!.workFolderName, "Drafts");
     assert.equal(shown.request.childRequests[0]!.resultRecords[0]!.envelope?.summary, "Drafted draft.md from the brief.");
     assert.equal(shown.request.childRequests[0]!.questions[0]!.text, "Which quarter?");
-    assert.equal(shown.request.childRequests[0]!.childRequests[0]!.spaceName, "Reviews");
+    assert.equal(shown.request.childRequests[0]!.childRequests[0]!.workFolderName, "Reviews");
     const listed = await api.actFacade.requestsList();
     assert.ok(listed.requests.some((request) => request.id === rootRecord.requestId));
     assert.ok(listed.requests.every((request) => request.id === request.rootId), "list shows roots only");
 
-    // Every child has settled after the fold's own turn ended: the host
+    // Every child has settled after the work-fold agent's own turn ended: the host
     // brings the batch back exactly once, including the question the child
-    // put to the fold and how to answer it.
+    // put to the work-fold agent and how to answer it.
     await waitFor(async () => api.requests.get(rootRecord.requestId)!.turns.length === 2);
     const continued = api.requests.get(rootRecord.requestId)!;
     assert.equal(continued.continuationCount, 1);
@@ -372,7 +372,7 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
     // Joining the request precedes the asynchronous transcript write. Wait
     // for this exact turn's prompt gate before inspecting its saved message.
     await waitFor(async () => h.pending.some((turn) => turn.taskId === continued.turns[1]!.taskId));
-    const first = (await managementMessages(api, root.conversationId))
+    const first = (await workFoldAgentMessages(api, root.conversationId))
       .filter((message) => message.role === "user" && message.requestId === `continuation-${rootRecord.requestId}-1`);
     assert.equal(first.length, 1);
     assert.match(first[0]!.content, /work-fold is continuing request/);
@@ -382,51 +382,51 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
     assert.match(first[0]!.content, /files: draft\.md/);
     assert.doesNotMatch(first[0]!.content, /Reviews \[/, "delivery contains direct children only");
     assert.match(first[0]!.content, new RegExp(`waiting on you: question ${asked.question.questionId} — Which quarter\\?`));
-    assert.match(first[0]!.content, new RegExp(`answer it with: work-fold chat answer --space ${drafts.space.id} --question ${asked.question.questionId}`));
+    assert.match(first[0]!.content, new RegExp(`answer it with: work-fold chat answer --work-folder ${drafts.workFolder.id} --question ${asked.question.questionId}`));
     // That continuation turn ends (no model here). Nothing settled after it,
     // so nothing follows it: a continuation never continues itself.
     await h.release(continued.turns[1]!.taskId);
-    await settled(api, workFoldManagementScopeId, continued.turns[1]!.taskId);
+    await settled(api, workFoldAgentScopeId, continued.turns[1]!.taskId);
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(api.requests.get(rootRecord.requestId)!.turns.length, 2);
 
-    // An answer from a Space that does not own the question is refused and
-    // names the owner; the answer from the owning Space continues the Chat
+    // An answer from a work-folder that does not own the question is refused and
+    // names the owner; the answer from the owning work-folder continues the Chat
     // once, and only once.
     await assert.rejects(
-      () => api.actFacade.chatAnswer({ space: reviews.space.id, questionId: asked.question.questionId, answer: "Q3" }),
+      () => api.actFacade.chatAnswer({ workFolder: reviews.workFolder.id, questionId: asked.question.questionId, answer: "Q3" }),
       conflict(/belongs to Drafts/),
     );
-    const answered = await api.actFacade.chatAnswer({ space: drafts.space.id, questionId: asked.question.questionId, answer: "/hold" });
+    const answered = await api.actFacade.chatAnswer({ workFolder: drafts.workFolder.id, questionId: asked.question.questionId, answer: "/hold" });
     assert.equal(answered.question.state, "answered");
     assert.equal(answered.question.continuationTaskId, answered.continuation.taskId);
     assert.equal(answered.continuation.conversationId, child.conversationId, "the continuation is a new turn in the same Chat");
     await assert.rejects(
-      () => api.actFacade.chatAnswer({ space: drafts.space.id, questionId: asked.question.questionId, answer: "/hold" }),
+      () => api.actFacade.chatAnswer({ workFolder: drafts.workFolder.id, questionId: asked.question.questionId, answer: "/hold" }),
       conflict(/already has an answer/),
     );
-    const transcript = await spaceMessages(api, drafts.space.id, child.conversationId);
+    const transcript = await workFolderMessages(api, drafts.workFolder.id, child.conversationId);
     const answers = transcript.filter((message) => message.role === "user" && message.requestId === `answer-${asked.question.questionId}`);
     assert.equal(answers.length, 1, "exactly one continuation message, keyed by the question");
     assert.equal(answers[0]!.content, "/hold", "the answer is an ordinary user message; the question id stays machine-local");
     assert.equal(api.requests.byTaskId(answered.continuation.taskId)!.requestId, api.requests.byTaskId(child.taskId)!.requestId, "the continuation joined the child's request");
-    assert.equal((await api.actFacade.turnStatus({ space: drafts.space.id, taskId: child.taskId })).waiting, null, "an answered question is not owed");
+    assert.equal((await api.actFacade.turnStatus({ workFolder: drafts.workFolder.id, taskId: child.taskId })).waiting, null, "an answered question is not owed");
 
-    // The answered child's continuation settles after the fold's last turn
+    // The answered child's continuation settles after the work-fold agent's last turn
     // ended: a second batch, a second continuation, no open question in it.
     await h.release(answered.continuation.taskId);
-    await settled(api, drafts.space.id, answered.continuation.taskId);
+    await settled(api, drafts.workFolder.id, answered.continuation.taskId);
     await waitFor(async () => api.requests.get(rootRecord.requestId)!.turns.length === 3);
     assert.equal(api.requests.get(rootRecord.requestId)!.continuationCount, 2);
     await waitFor(async () => h.pending.some((turn) => turn.taskId === api.requests.get(rootRecord.requestId)!.turns[2]!.taskId));
-    const second = (await managementMessages(api, root.conversationId))
+    const second = (await workFoldAgentMessages(api, root.conversationId))
       .find((message) => message.role === "user" && message.requestId === `continuation-${rootRecord.requestId}-2`);
     assert.ok(second);
     assert.match(second!.content, new RegExp(`Drafts \\[[^\\]]+\\] — Chat ${child.conversationId}, task ${answered.continuation.taskId}`));
     assert.doesNotMatch(second!.content, /waiting on/, "the answered question is not owed any more");
-    assert.doesNotMatch(second!.content, /Reviews \[/, "a child that settled before the fold's last turn ended is not narrated again");
+    assert.doesNotMatch(second!.content, /Reviews \[/, "a child that settled before the work-fold agent's last turn ended is not narrated again");
     await h.release(api.requests.get(rootRecord.requestId)!.turns[2]!.taskId);
-    await settled(api, workFoldManagementScopeId, api.requests.get(rootRecord.requestId)!.turns[2]!.taskId);
+    await settled(api, workFoldAgentScopeId, api.requests.get(rootRecord.requestId)!.turns[2]!.taskId);
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(api.requests.get(rootRecord.requestId)!.turns.length, 3);
   } finally {
@@ -441,18 +441,18 @@ test("a question remains answerable after 24 hours, and --to parent on a root re
   const requestStore = await WorkFoldRequestStore.open({ rootPath: join(h.stateBase, "requests"), now: () => clock });
   const api = await h.open({ requestStore });
   try {
-    const space = await api.actFacade.createSpace({ name: "Solo" });
-    h.held.add(space.space.id);
-    const own = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold" });
-    const asked = await api.actFacade.chatAsk({ space: space.space.id, taskId: own.taskId, question: "Proceed?", respondent: "parent" });
+    const workFolder = await api.actFacade.createWorkFolder({ name: "Solo" });
+    h.held.add(workFolder.workFolder.id);
+    const own = await api.actFacade.sendMessage({ workFolder: workFolder.workFolder.id, newConversation: true, content: "/hold" });
+    const asked = await api.actFacade.chatAsk({ workFolder: workFolder.workFolder.id, taskId: own.taskId, question: "Proceed?", respondent: "parent" });
     assert.equal(asked.redirectedToPerson, true, "a root has nothing above it, so the question reaches the person");
     assert.equal(asked.question.respondent, "person");
     await h.release(own.taskId);
-    await settled(api, space.space.id, own.taskId);
-    assert.equal((await api.actFacade.turnStatus({ space: space.space.id, taskId: own.taskId })).waiting?.questionId, asked.question.questionId);
+    await settled(api, workFolder.workFolder.id, own.taskId);
+    assert.equal((await api.actFacade.turnStatus({ workFolder: workFolder.workFolder.id, taskId: own.taskId })).waiting?.questionId, asked.question.questionId);
 
     clock = new Date(clock.getTime() + 25 * 60 * 60 * 1000);
-    const answered = await api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "Yes" });
+    const answered = await api.actFacade.chatAnswer({ workFolder: workFolder.workFolder.id, questionId: asked.question.questionId, answer: "Yes" });
     assert.ok(answered);
     assert.equal(api.requests.question(asked.question.questionId)!.state, "answered");
     assert.equal(api.requests.byTaskId(own.taskId)!.turns.length, 2, "an answer continues without a fixed lifetime");
@@ -465,25 +465,25 @@ test("a question remains answerable after 24 hours, and --to parent on a root re
 test("a root Stop closes every open question below it, refuses a late answer, and starts no continuation", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();
-  h.held.add(workFoldManagementScopeId);
+  h.held.add(workFoldAgentScopeId);
   try {
-    const space = await api.actFacade.createSpace({ name: "Stopped" });
-    h.held.add(space.space.id);
-    const root = await api.actFacade.manageSend({ content: "/hold" });
-    const child = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
-    const asked = await api.actFacade.chatAsk({ space: space.space.id, taskId: child.taskId, question: "Which one?", respondent: "person" });
+    const workFolder = await api.actFacade.createWorkFolder({ name: "Stopped" });
+    h.held.add(workFolder.workFolder.id);
+    const root = await api.actFacade.agentSend({ content: "/hold" });
+    const child = await api.actFacade.sendMessage({ workFolder: workFolder.workFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    const asked = await api.actFacade.chatAsk({ workFolder: workFolder.workFolder.id, taskId: child.taskId, question: "Which one?", respondent: "person" });
     await h.release(child.taskId);
-    await settled(api, space.space.id, child.taskId);
+    await settled(api, workFolder.workFolder.id, child.taskId);
     const rootRecord = api.requests.byTaskId(root.taskId)!;
 
-    const stopped = await api.actFacade.manageStop({ taskId: root.taskId });
-    assert.equal(stopped.managementAborted, true);
+    const stopped = await api.actFacade.agentStop({ taskId: root.taskId });
+    assert.equal(stopped.workFoldAgentAborted, true);
     await h.release(root.taskId);
-    await settled(api, workFoldManagementScopeId, root.taskId);
+    await settled(api, workFoldAgentScopeId, root.taskId);
     assert.equal(api.requests.question(asked.question.questionId)!.state, "cancelled");
-    assert.equal((await api.actFacade.turnStatus({ space: space.space.id, taskId: child.taskId })).waiting, null, "a withdrawn question is not owed");
+    assert.equal((await api.actFacade.turnStatus({ workFolder: workFolder.workFolder.id, taskId: child.taskId })).waiting, null, "a withdrawn question is not owed");
     await assert.rejects(
-      () => api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "/hold" }),
+      () => api.actFacade.chatAnswer({ workFolder: workFolder.workFolder.id, questionId: asked.question.questionId, answer: "/hold" }),
       conflict(/stopped/),
     );
     const after = api.requests.get(rootRecord.requestId)!;
@@ -494,15 +494,15 @@ test("a root Stop closes every open question below it, refuses a late answer, an
     assert.equal(api.requests.get(rootRecord.requestId)!.continuationCount, 0);
 
     // A stop that finds nothing running still closes an open question.
-    h.held.delete(workFoldManagementScopeId);
-    const quiet = await api.actFacade.manageSend({ content: "/hold", newConversation: true });
-    await settled(api, workFoldManagementScopeId, quiet.taskId);
-    const quietChild = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold" });
-    const quietQuestion = await api.actFacade.chatAsk({ space: space.space.id, taskId: quietChild.taskId, question: "Still there?", respondent: "person" });
+    h.held.delete(workFoldAgentScopeId);
+    const quiet = await api.actFacade.agentSend({ content: "/hold", newConversation: true });
+    await settled(api, workFoldAgentScopeId, quiet.taskId);
+    const quietChild = await api.actFacade.sendMessage({ workFolder: workFolder.workFolder.id, newConversation: true, content: "/hold" });
+    const quietQuestion = await api.actFacade.chatAsk({ workFolder: workFolder.workFolder.id, taskId: quietChild.taskId, question: "Still there?", respondent: "person" });
     await h.release(quietChild.taskId);
-    await settled(api, space.space.id, quietChild.taskId);
-    const stoppedQuiet = await api.actFacade.manageStop({ taskId: quietChild.taskId });
-    assert.equal(stoppedQuiet.managementAborted, false);
+    await settled(api, workFolder.workFolder.id, quietChild.taskId);
+    const stoppedQuiet = await api.actFacade.agentStop({ taskId: quietChild.taskId });
+    assert.equal(stoppedQuiet.workFoldAgentAborted, false);
     assert.equal(api.requests.question(quietQuestion.question.questionId)!.state, "cancelled");
   } finally {
     h.releaseAll();
@@ -513,51 +513,51 @@ test("a root Stop closes every open question below it, refuses a late answer, an
 test("a stop on a mid-graph request closes everything it handed on, not only itself", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();
-  h.held.add(workFoldManagementScopeId);
+  h.held.add(workFoldAgentScopeId);
   try {
-    const middle = await api.actFacade.createSpace({ name: "Middle" });
-    const leaf = await api.actFacade.createSpace({ name: "Leaf" });
-    h.held.add(middle.space.id);
-    h.held.add(leaf.space.id);
+    const middle = await api.actFacade.createWorkFolder({ name: "Middle" });
+    const leaf = await api.actFacade.createWorkFolder({ name: "Leaf" });
+    h.held.add(middle.workFolder.id);
+    h.held.add(leaf.workFolder.id);
 
-    // fold -> Middle -> Leaf. `manage stop` takes any task id, and a request
+    // fold -> Middle -> Leaf. `agent stop` takes any task id, and a request
     // below a root records the ROOT's id, never its parent's, so a stop that
     // only looked at the root's own family would close Middle and leave Leaf
     // running with its question still open (F25).
-    const root = await api.actFacade.manageSend({ content: "/hold" });
-    const child = await api.actFacade.sendMessage({ space: middle.space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    const root = await api.actFacade.agentSend({ content: "/hold" });
+    const child = await api.actFacade.sendMessage({ workFolder: middle.workFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
     const handed = await api.actFacade.chatHandoff({
-      space: middle.space.id,
+      workFolder: middle.workFolder.id,
       taskId: child.taskId,
-      toSpace: leaf.space.id,
+      toWorkFolder: leaf.workFolder.id,
       message: "/hold",
       files: [],
     });
-    const asked = await api.actFacade.chatAsk({ space: leaf.space.id, taskId: handed.taskId, question: "Which ledger?", respondent: "person" });
+    const asked = await api.actFacade.chatAsk({ workFolder: leaf.workFolder.id, taskId: handed.taskId, question: "Which ledger?", respondent: "person" });
     const childRequestId = api.requests.byTaskId(child.taskId)!.requestId;
     const leafRequestId = api.requests.byTaskId(handed.taskId)!.requestId;
 
-    const stopped = await api.actFacade.manageStop({ taskId: child.taskId });
+    const stopped = await api.actFacade.agentStop({ taskId: child.taskId });
     assert.equal(stopped.taskId, child.taskId);
-    assert.equal(stopped.managementAborted, true, "the named request's own turn is cancelled");
-    assert.ok(stopped.children.some((item) => item.taskId === handed.taskId && item.spaceId === leaf.space.id),
+    assert.equal(stopped.workFoldAgentAborted, true, "the named request's own turn is cancelled");
+    assert.ok(stopped.children.some((item) => item.taskId === handed.taskId && item.workFolderId === leaf.workFolder.id),
       "the stop reached the turn the mid-graph request handed on");
     assert.equal(api.requests.question(asked.question.questionId)!.state, "cancelled");
     assert.ok(api.requests.get(leafRequestId)!.stopRequestedAt, "the request below the stopped one is marked too");
     await assert.rejects(
-      () => api.actFacade.chatAnswer({ space: leaf.space.id, questionId: asked.question.questionId, answer: "/hold" }),
+      () => api.actFacade.chatAnswer({ workFolder: leaf.workFolder.id, questionId: asked.question.questionId, answer: "/hold" }),
       conflict(/stopped/),
     );
 
     await h.release(handed.taskId);
-    await settled(api, leaf.space.id, handed.taskId);
+    await settled(api, leaf.workFolder.id, handed.taskId);
     await h.release(child.taskId);
-    await settled(api, middle.space.id, child.taskId);
+    await settled(api, middle.workFolder.id, child.taskId);
     assert.equal(api.requests.get(childRequestId)!.state, "stopped");
     assert.equal(api.requests.get(leafRequestId)!.state, "stopped");
-    // Only the named request and the graph below it are stopped: the fold's
+    // Only the named request and the graph below it are stopped: the work-fold agent's
     // own turn above it is untouched.
-    assert.equal((await api.actFacade.manageTurnStatus({ taskId: root.taskId })).task.state, "running");
+    assert.equal((await api.actFacade.agentTurnStatus({ taskId: root.taskId })).task.state, "running");
     assert.equal(api.requests.byTaskId(root.taskId)!.stopRequestedAt, null);
   } finally {
     h.releaseAll();
@@ -568,26 +568,26 @@ test("a stop on a mid-graph request closes everything it handed on, not only its
 test("continuations can be turned off, the settle is still recorded, and a restart never starts one", async (t) => {
   const h = await collaborationHarness(t);
   let api = await h.open();
-  h.held.add(workFoldManagementScopeId);
+  h.held.add(workFoldAgentScopeId);
   let rootRequestId: string;
   let rootConversationId: string;
-  let spaceId: string;
+  let workFolderId: string;
   try {
     await api.requests.setContinuationsEnabled(false);
-    const space = await api.actFacade.createSpace({ name: "Quiet" });
-    spaceId = space.space.id;
-    h.held.add(space.space.id);
-    const root = await api.actFacade.manageSend({ content: "/hold" });
+    const workFolder = await api.actFacade.createWorkFolder({ name: "Quiet" });
+    workFolderId = workFolder.workFolder.id;
+    h.held.add(workFolder.workFolder.id);
+    const root = await api.actFacade.agentSend({ content: "/hold" });
     rootConversationId = root.conversationId;
-    const child = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    const child = await api.actFacade.sendMessage({ workFolder: workFolder.workFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
     rootRequestId = api.requests.byTaskId(root.taskId)!.requestId;
-    await api.actFacade.chatReport({ space: space.space.id, taskId: child.taskId, summary: "Done quietly.", files: [], outcome: "succeeded" });
-    // The fold's turn ends first, then the child settles: a settle batch the
+    await api.actFacade.chatReport({ workFolder: workFolder.workFolder.id, taskId: child.taskId, summary: "Done quietly.", files: [], outcome: "succeeded" });
+    // The work-fold agent's turn ends first, then the child settles: a settle batch the
     // host would narrate, except the setting says not to.
     await h.release(root.taskId);
-    await settled(api, workFoldManagementScopeId, root.taskId);
+    await settled(api, workFoldAgentScopeId, root.taskId);
     await h.release(child.taskId);
-    await settled(api, space.space.id, child.taskId);
+    await settled(api, workFolder.workFolder.id, child.taskId);
     await new Promise((resolve) => setTimeout(resolve, 300));
     const quiet = api.requests.get(rootRequestId)!;
     assert.equal(quiet.turns.length, 1, "no follow-up turn while the setting is off");
@@ -610,7 +610,7 @@ test("continuations can be turned off, the settle is still recorded, and a resta
     requestDigest: createHash("sha256").update("continuation").digest("hex"),
     userMessageId: "message-continuation",
     userMessageCreatedAt: "2026-09-11T12:00:00.000Z",
-    spaceId: workFoldManagementScopeId,
+    workFolderId: workFoldAgentScopeId,
     conversationId: rootConversationId,
     actorKind: "system",
   });
@@ -620,7 +620,7 @@ test("continuations can be turned off, the settle is still recorded, and a resta
   await store.flush();
 
   api = await h.open();
-  h.held.delete(workFoldManagementScopeId);
+  h.held.delete(workFoldAgentScopeId);
   try {
     await new Promise((resolve) => setTimeout(resolve, 300));
     const recovered = api.requests.get(rootRequestId)!;
@@ -632,29 +632,29 @@ test("continuations can be turned off, the settle is still recorded, and a resta
 
     // A later settle in the same conversation narrates nothing from before
     // the restart: only settles from this run count.
-    const later = await api.actFacade.manageSend({ content: "/hold", conversationId: rootConversationId });
-    await settled(api, workFoldManagementScopeId, later.taskId);
+    const later = await api.actFacade.agentSend({ content: "/hold", conversationId: rootConversationId });
+    await settled(api, workFoldAgentScopeId, later.taskId);
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(api.requests.get(rootRequestId)!.turns.length, 2, "the pre-restart batch is not replayed");
     assert.equal(api.requests.get(rootRequestId)!.continuationCount, 0);
 
     // Fresh work in this run is narrated: a new root, a child that settles
-    // after the fold's turn ended, one continuation.
-    h.held.add(workFoldManagementScopeId);
-    h.held.add(spaceId);
-    const root = await api.actFacade.manageSend({ content: "/hold", newConversation: true });
-    const child = await api.actFacade.sendMessage({ space: spaceId, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    // after the work-fold agent's turn ended, one continuation.
+    h.held.add(workFoldAgentScopeId);
+    h.held.add(workFolderId);
+    const root = await api.actFacade.agentSend({ content: "/hold", newConversation: true });
+    const child = await api.actFacade.sendMessage({ workFolder: workFolderId, newConversation: true, content: "/hold", parentTaskId: root.taskId });
     await h.release(root.taskId);
-    await settled(api, workFoldManagementScopeId, root.taskId);
+    await settled(api, workFoldAgentScopeId, root.taskId);
     await h.release(child.taskId);
-    await settled(api, spaceId, child.taskId);
+    await settled(api, workFolderId, child.taskId);
     const freshRoot = api.requests.byTaskId(root.taskId)!;
     await waitFor(async () => api.requests.get(freshRoot.requestId)!.turns.length === 2);
     const continuation = api.requests.get(freshRoot.requestId)!.turns[1]!;
     // Request reservation precedes transcript persistence. The prompt gate
     // proves this continuation's message has landed before we read it back.
     await waitFor(async () => h.pending.some((turn) => turn.taskId === continuation.taskId));
-    const fold = await managementMessages(api, root.conversationId);
+    const fold = await workFoldAgentMessages(api, root.conversationId);
     const brought = fold.find((message) => message.requestId === `continuation-${freshRoot.requestId}-1`);
     assert.ok(brought, "the fresh batch came back as one turn");
     assert.match(brought!.content, /finished without a report/);
@@ -667,21 +667,21 @@ test("continuations can be turned off, the settle is still recorded, and a resta
 test("the work-fold agent continues after more than four settle batches", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();
-  h.held.add(workFoldManagementScopeId);
+  h.held.add(workFoldAgentScopeId);
   try {
-    const space = await api.actFacade.createSpace({ name: "Capped" });
-    h.held.add(space.space.id);
-    const root = await api.actFacade.manageSend({ content: "/hold" });
+    const workFolder = await api.actFacade.createWorkFolder({ name: "Capped" });
+    h.held.add(workFolder.workFolder.id);
+    const root = await api.actFacade.agentSend({ content: "/hold" });
     const rootRecord = api.requests.byTaskId(root.taskId)!;
     // Four follow-up turns already counted against this root.
     for (let index = 0; index < 4; index += 1) assert.equal((await api.requests.noteContinuation(rootRecord.requestId)).allowed, true);
     assert.equal((await api.requests.noteContinuation(rootRecord.requestId)).allowed, true);
-    const child = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
-    await api.actFacade.chatReport({ space: space.space.id, taskId: child.taskId, summary: "Fifth.", files: [], outcome: "succeeded" });
+    const child = await api.actFacade.sendMessage({ workFolder: workFolder.workFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    await api.actFacade.chatReport({ workFolder: workFolder.workFolder.id, taskId: child.taskId, summary: "Fifth.", files: [], outcome: "succeeded" });
     await h.release(root.taskId);
-    await settled(api, workFoldManagementScopeId, root.taskId);
+    await settled(api, workFoldAgentScopeId, root.taskId);
     await h.release(child.taskId);
-    await settled(api, space.space.id, child.taskId);
+    await settled(api, workFolder.workFolder.id, child.taskId);
     await waitFor(async () => api.requests.get(rootRecord.requestId)!.turns.length === 2);
     const capped = api.requests.get(rootRecord.requestId)!;
     assert.equal(capped.turns.length, 2, "later settle batches still start a follow-up");
@@ -698,18 +698,18 @@ test("an answer whose continuation could not start is recorded once and resumes 
   const h = await collaborationHarness(t);
   const api = await h.open();
   try {
-    const space = await api.actFacade.createSpace({ name: "Recover" });
-    h.held.add(space.space.id);
-    const own = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold" });
-    const asked = await api.actFacade.chatAsk({ space: space.space.id, taskId: own.taskId, question: "Proceed?", respondent: "person" });
+    const workFolder = await api.actFacade.createWorkFolder({ name: "Recover" });
+    h.held.add(workFolder.workFolder.id);
+    const own = await api.actFacade.sendMessage({ workFolder: workFolder.workFolder.id, newConversation: true, content: "/hold" });
+    const asked = await api.actFacade.chatAsk({ workFolder: workFolder.workFolder.id, taskId: own.taskId, question: "Proceed?", respondent: "person" });
     await h.release(own.taskId);
-    await settled(api, space.space.id, own.taskId);
+    await settled(api, workFolder.workFolder.id, own.taskId);
 
     // `chat answer` journals the answer and then starts its continuation, so
     // "answered with no follow-up" is reachable — a turn that started in that
     // Chat in between, or a crash across the pair. Recorded directly here,
     // because both races are host-internal.
-    await api.requests.answer({ questionId: asked.question.questionId, answer: "Yes, Q3.", answeredBySpaceId: space.space.id });
+    await api.requests.answer({ questionId: asked.question.questionId, answer: "Yes, Q3.", answeredByWorkFolderId: workFolder.workFolder.id });
     const stranded = api.requests.question(asked.question.questionId)!;
     assert.equal(stranded.state, "answered");
     assert.equal(stranded.continuationTaskId, null, "the continuation never started");
@@ -717,10 +717,10 @@ test("an answer whose continuation could not start is recorded once and resumes 
 
     // Sending the answer again picks up from exactly there rather than
     // refusing it: one continuation, carrying the text already on record.
-    const resumed = await api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "Ignored; the record stands." });
+    const resumed = await api.actFacade.chatAnswer({ workFolder: workFolder.workFolder.id, questionId: asked.question.questionId, answer: "Ignored; the record stands." });
     assert.equal(resumed.question.continuationTaskId, resumed.continuation.taskId);
     assert.equal(resumed.question.answer, "Yes, Q3.");
-    const transcript = await spaceMessages(api, space.space.id, own.conversationId);
+    const transcript = await workFolderMessages(api, workFolder.workFolder.id, own.conversationId);
     const answers = transcript.filter((message) => message.role === "user" && message.requestId === `answer-${asked.question.questionId}`);
     assert.equal(answers.length, 1, "exactly one continuation message");
     assert.equal(answers[0]!.content, "Yes, Q3.", "the Chat gets the answer the record holds");
@@ -728,7 +728,7 @@ test("an answer whose continuation could not start is recorded once and resumes 
 
     // Once it has its continuation, a further answer is a second answer again.
     await assert.rejects(
-      () => api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "Actually Q4." }),
+      () => api.actFacade.chatAnswer({ workFolder: workFolder.workFolder.id, questionId: asked.question.questionId, answer: "Actually Q4." }),
       conflict(/already has an answer/),
     );
   } finally {
@@ -737,28 +737,28 @@ test("an answer whose continuation could not start is recorded once and resumes 
   }
 });
 
-test("the request graph is a management-scope read and is refused from inside a Space", async (t) => {
+test("the request graph is a management-scope read and is refused from inside a work-folder", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();
   try {
-    const space = await api.actFacade.createSpace({ name: "Inside" });
-    const own = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold" });
-    await settled(api, space.space.id, own.taskId);
+    const workFolder = await api.actFacade.createWorkFolder({ name: "Inside" });
+    const own = await api.actFacade.sendMessage({ workFolder: workFolder.workFolder.id, newConversation: true, content: "/hold" });
+    await settled(api, workFolder.workFolder.id, own.taskId);
     const requestId = api.requests.byTaskId(own.taskId)!.requestId;
 
-    // The fold and an outside harness read the graph; a caller whose own
-    // directory is a registered Space is inside that Space's scope, and the
-    // graph carries every Space's results (F9 as amended).
+    // The work-fold agent and an outside harness read the graph; a caller whose own
+    // directory is a registered work-folder is inside that work-folder's scope, and the
+    // graph carries every work-folder's results (F9 as amended).
     assert.ok((await api.actFacade.requestsList()).requests.length >= 1);
     assert.equal((await api.actFacade.requestsShow({ request: requestId })).request.id, requestId);
     for (const call of [
-      () => api.actFacade.requestsList({ cwd: space.space.spaceRoot }),
-      () => api.actFacade.requestsShow({ request: requestId, cwd: join(space.space.spaceRoot, "notes") }),
+      () => api.actFacade.requestsList({ cwd: workFolder.workFolder.workFolderRoot }),
+      () => api.actFacade.requestsShow({ request: requestId, cwd: join(workFolder.workFolder.workFolderRoot, "notes") }),
     ]) {
       await assert.rejects(call, (error: unknown) =>
         error instanceof WorkFoldCliError
         && error.code === "permissionDenied"
-        && /sits above Spaces/.test(error.message)
+        && /sits above work-folders/.test(error.message)
         && /"Inside"/.test(error.message));
     }
   } finally {
@@ -777,61 +777,61 @@ async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 15_000): P
 
 test("an answered continuation keeps its delegated assignment in host context", async t => {
   const h=await collaborationHarness(t); const api=await h.open();
-  h.held.add(workFoldManagementScopeId);
+  h.held.add(workFoldAgentScopeId);
   try {
     await api.requests.setContinuationsEnabled(false);
-    const {space}=await api.actFacade.createSpace({name:"Context review"});h.held.add(space.id);
-    const root=await api.actFacade.manageSend({content:"/hold"});
-    const child=await api.actFacade.sendMessage({space:space.id,newConversation:true,content:"/hold Compare annual quotes.",parentTaskId:root.taskId});
-    const q=await api.actFacade.chatAsk({space:space.id,taskId:child.taskId,question:"Which quarter?",respondent:"person"});
-    await h.release(child.taskId);await settled(api,space.id,child.taskId);
-    const a=await api.actFacade.chatAnswer({space:space.id,questionId:q.question.questionId,answer:"/hold Q3"});
+    const {workFolder}=await api.actFacade.createWorkFolder({name:"Context review"});h.held.add(workFolder.id);
+    const root=await api.actFacade.agentSend({content:"/hold"});
+    const child=await api.actFacade.sendMessage({workFolder:workFolder.id,newConversation:true,content:"/hold Compare annual quotes.",parentTaskId:root.taskId});
+    const q=await api.actFacade.chatAsk({workFolder:workFolder.id,taskId:child.taskId,question:"Which quarter?",respondent:"person"});
+    await h.release(child.taskId);await settled(api,workFolder.id,child.taskId);
+    const a=await api.actFacade.chatAnswer({workFolder:workFolder.id,questionId:q.question.questionId,answer:"/hold Q3"});
     await waitFor(async()=>h.pending.some(p=>p.taskId===a.continuation.taskId));
-    const context=(h.pending.find(p=>p.taskId===a.continuation.taskId)).spaceTurn;
+    const context=(h.pending.find(p=>p.taskId===a.continuation.taskId)).workFolderTurn;
     assert.ok(context?.delegated,"the continuing task is still delegated");
     assert.match(JSON.stringify(context), /Compare annual quotes/);
-    await h.release(root.taskId); await settled(api,workFoldManagementScopeId,root.taskId);
+    await h.release(root.taskId); await settled(api,workFoldAgentScopeId,root.taskId);
     assert.equal(api.requests.byTaskId(root.taskId)?.state, "handed_off");
   } finally {h.releaseAll();await api.close();}
 });
 
 
 
-test("the fold asks and receives one durable answer through the same lifecycle", async (t) => {
+test("the work-fold agent asks and receives one durable answer through the same lifecycle", async (t) => {
   const h = await collaborationHarness(t); const api = await h.open();
-  h.held.add(workFoldManagementScopeId);
+  h.held.add(workFoldAgentScopeId);
   try {
     const principal = { browserId: "question-browser", grantId: "question-grant", requestId: "question-send" };
     const root = await api.remoteFacade.execute("management.send", { content: "/hold", newConversation: true }, principal) as { taskId: string; conversationId: string };
-    const asked = await api.actFacade.manageAsk({ taskId: root.taskId, question: "Which quarter?" });
+    const asked = await api.actFacade.agentAsk({ taskId: root.taskId, question: "Which quarter?" });
     assert.equal(asked.request.state, "waiting");
-    await h.release(root.taskId); await settled(api, workFoldManagementScopeId, root.taskId);
+    await h.release(root.taskId); await settled(api, workFoldAgentScopeId, root.taskId);
     const ownedList = await api.remoteFacade.execute("management.chats", {}, principal) as { conversations: Array<{ id: string; needsAnswer?: boolean }> };
     assert.equal(ownedList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, true);
     const otherList = await api.remoteFacade.execute("management.chats", {}, { ...principal, grantId: "another-grant" }) as typeof ownedList;
     assert.equal(otherList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, undefined, "the chat list does not grant another browser question access");
-    const answer = await api.actFacade.manageAnswer({ questionId: asked.question.questionId, answer: "/hold Q3" });
+    const answer = await api.actFacade.agentAnswer({ questionId: asked.question.questionId, answer: "/hold Q3" });
     assert.equal(answer.request.id, asked.request.id);
     assert.equal(answer.request.state, "working");
     const answeredList = await api.remoteFacade.execute("management.chats", {}, principal) as typeof ownedList;
     assert.equal(answeredList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, false);
-    await assert.rejects(api.actFacade.manageAnswer({ questionId: asked.question.questionId, answer: "Q4" }), /already has an answer/);
-    await h.release(answer.continuation.taskId); await settled(api, workFoldManagementScopeId, answer.continuation.taskId);
+    await assert.rejects(api.actFacade.agentAnswer({ questionId: asked.question.questionId, answer: "Q4" }), /already has an answer/);
+    await h.release(answer.continuation.taskId); await settled(api, workFoldAgentScopeId, answer.continuation.taskId);
     assert.equal(api.requests.byTaskId(root.taskId)?.state, "done");
   } finally { h.releaseAll(); await api.close(); }
 });
 
-test("a Space receives a child result that finished before its own turn, exactly once", async (t) => {
+test("a work-folder receives a child result that finished before its own turn, exactly once", async (t) => {
   const h = await collaborationHarness(t); const api = await h.open();
   try {
-    const { space: source } = await api.actFacade.createSpace({ name: "Coordinator" });
-    const { space: target } = await api.actFacade.createSpace({ name: "Research" });
+    const { workFolder: source } = await api.actFacade.createWorkFolder({ name: "Coordinator" });
+    const { workFolder: target } = await api.actFacade.createWorkFolder({ name: "Research" });
     h.held.add(source.id); h.held.add(target.id);
-    const parent = await api.actFacade.sendMessage({ space: source.id, newConversation: true, content: "/hold Assemble a brief." });
-    const child = await api.actFacade.chatHandoff({ space: source.id, taskId: parent.taskId, toSpace: target.id, message: "/hold Find a fact.", files: [] });
-    await api.actFacade.chatReport({ space: target.id, taskId: child.taskId, summary: "Selected fact", outcome: "succeeded", data: { count: 7 }, files: [] });
+    const parent = await api.actFacade.sendMessage({ workFolder: source.id, newConversation: true, content: "/hold Assemble a brief." });
+    const child = await api.actFacade.chatHandoff({ workFolder: source.id, taskId: parent.taskId, toWorkFolder: target.id, message: "/hold Find a fact.", files: [] });
+    await api.actFacade.chatReport({ workFolder: target.id, taskId: child.taskId, summary: "Selected fact", outcome: "succeeded", data: { count: 7 }, files: [] });
     await h.release(child.taskId); await settled(api, target.id, child.taskId);
-    const read = await api.actFacade.turnResult({ space: target.id, taskId: child.taskId });
+    const read = await api.actFacade.turnResult({ workFolder: target.id, taskId: child.taskId });
     assert.deepEqual(read.result?.data, { count: 7 });
     assert.equal(read.result?.summary, "Selected fact");
     const record = api.requests.byTaskId(parent.taskId)!;
@@ -845,38 +845,38 @@ test("a Space receives a child result that finished before its own turn, exactly
     assert.match(continued.content, /Submit any needed chat report before your final reply, then give the complete useful answer in that reply/);
     assert.doesNotMatch(continued.content, /requests show/);
     assert.equal(continued.assignment, "/hold Assemble a brief.");
-    assert.match(JSON.stringify(h.pending.find((p) => p.taskId === continued.turns[1]!.taskId)?.spaceTurn), /Assemble a brief/);
-    await api.actFacade.abortTurn({ space: source.id, conversationId: parent.conversationId });
+    assert.match(JSON.stringify(h.pending.find((p) => p.taskId === continued.turns[1]!.taskId)?.workFolderTurn), /Assemble a brief/);
+    await api.actFacade.abortTurn({ workFolder: source.id, conversationId: parent.conversationId });
     await h.release(continued.turns[1]!.taskId); await settled(api, source.id, continued.turns[1]!.taskId);
     assert.equal(api.requests.get(record.requestId)?.turns.length, 2);
   } finally { h.releaseAll(); await api.close(); }
 });
 
 
-test("a routing stops at a question and an answer never replays later hops", async (t) => {
+test("an automation stops at a question and an answer never replays later hops", async (t) => {
   const h = await collaborationHarness(t); const api = await h.open();
   try {
-    const source = (await api.actFacade.createSpace({ name: "Routing question" })).space;
-    const destination = (await api.actFacade.createSpace({ name: "Routing target" })).space;
+    const source = (await api.actFacade.createWorkFolder({ name: "Automation question" })).workFolder;
+    const destination = (await api.actFacade.createWorkFolder({ name: "Automation target" })).workFolder;
     h.held.add(source.id);
-    await writeFile(join(source.spaceRoot, "notes.md"), "Synthetic notes");
-    const declaration = normalizeWorkFoldRoutingDeclaration({ kind: "work-fold.routing", version: 1, id: "routing-question-hop", title: "Question hop", createdBy: "human", createdAt: new Date().toISOString(), trigger: { kind: "manual" }, steps: [
-      { id: "ask", kind: "chat", space: source.id, message: "/hold" },
-      { id: "copy", kind: "files", fromSpace: source.id, from: { kind: "paths", paths: ["notes.md"] }, toSpace: destination.id, to: "Incoming" },
+    await writeFile(join(source.workFolderRoot, "notes.md"), "Synthetic notes");
+    const declaration = normalizeWorkFoldAutomationDeclaration({ kind: "work-fold.automation", version: 1, id: "automation-question-hop", title: "Question hop", createdBy: "human", createdAt: new Date().toISOString(), trigger: { kind: "manual" }, steps: [
+      { id: "ask", kind: "chat", workFolder: source.id, message: "/hold" },
+      { id: "copy", kind: "files", fromWorkFolder: source.id, from: { kind: "paths", paths: ["notes.md"] }, toWorkFolder: destination.id, to: "Incoming" },
     ] });
-    await api.routings.enable({ declaration, expectedDigest: workFoldRoutingDigest(declaration), grant: { requestId: "routing-question", surface: "main-window" } });
-    const run = api.routings.runNow(declaration.id);
-    await waitFor(async () => h.pending.some((turn) => turn.spaceId === source.id));
-    const task = h.pending.find((turn) => turn.spaceId === source.id)!;
-    const asked = await api.actFacade.chatAsk({ space: source.id, taskId: task.taskId, question: "Which quarter?", respondent: "person" });
+    await api.automations.enable({ declaration, expectedDigest: workFoldAutomationDigest(declaration), grant: { requestId: "automation-question", surface: "main-window" } });
+    const run = api.automations.runNow(declaration.id);
+    await waitFor(async () => h.pending.some((turn) => turn.workFolderId === source.id));
+    const task = h.pending.find((turn) => turn.workFolderId === source.id)!;
+    const asked = await api.actFacade.chatAsk({ workFolder: source.id, taskId: task.taskId, question: "Which quarter?", respondent: "person" });
     const result = await run;
     assert.equal(result.outcome, "failure");
-    assert.equal(existsSync(join(destination.spaceRoot, "Incoming", "notes.md")), false);
+    assert.equal(existsSync(join(destination.workFolderRoot, "Incoming", "notes.md")), false);
     await h.release(task.taskId); await settled(api, source.id, task.taskId);
-    const answered = await api.actFacade.chatAnswer({ space: source.id, questionId: asked.question.questionId, answer: "/hold Q3" });
+    const answered = await api.actFacade.chatAnswer({ workFolder: source.id, questionId: asked.question.questionId, answer: "/hold Q3" });
     await h.release(answered.continuation.taskId); await settled(api, source.id, answered.continuation.taskId);
     assert.equal(api.requests.byTaskId(task.taskId)?.state, "done");
-    assert.equal(existsSync(join(destination.spaceRoot, "Incoming", "notes.md")), false);
+    assert.equal(existsSync(join(destination.workFolderRoot, "Incoming", "notes.md")), false);
   } finally { h.releaseAll(); await api.close(); }
 });
 
@@ -885,16 +885,16 @@ test("multiplexed Chat channels preserve snapshots and accepted-answer visibilit
   const controller = new AbortController();
   let reading: Promise<void> | undefined;
   try {
-    const space = (await api.actFacade.createSpace({ name: "Multiplex answer" })).space;
-    const sibling = (await api.actFacade.createSpace({ name: "Surviving file monitor" })).space;
-    h.held.add(space.id);
-    const first = await api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold" });
-    const asked = await api.actFacade.chatAsk({ space: space.id, taskId: first.taskId, question: "Which currency?", respondent: "person" });
-    await h.release(first.taskId); await settled(api, space.id, first.taskId);
-    const chatPath = `/api/spaces/${space.id}/conversations/${first.conversationId}`;
+    const workFolder = (await api.actFacade.createWorkFolder({ name: "Multiplex answer" })).workFolder;
+    const sibling = (await api.actFacade.createWorkFolder({ name: "Surviving file monitor" })).workFolder;
+    h.held.add(workFolder.id);
+    const first = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    const asked = await api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: first.taskId, question: "Which currency?", respondent: "person" });
+    await h.release(first.taskId); await settled(api, workFolder.id, first.taskId);
+    const chatPath = `/api/work-folders/${workFolder.id}/conversations/${first.conversationId}`;
     const subscriptions = Array.from({ length: 10 }, (_, index) => ({ id: `chat-${index}`, path: `${chatPath}/events` }));
     const response = await fetch(`${api.origin}/api/events`, { method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
-      body: JSON.stringify({ subscriptions: [...subscriptions, { id: "removed", path: "/api/spaces/space-0000000000000000/file-events" }, { id: "files", path: `/api/spaces/${space.id}/file-events` }, { id: "sibling-files", path: `/api/spaces/${sibling.id}/file-events` }, { id: "control", path: "/api/management/control-events" }] }),
+      body: JSON.stringify({ subscriptions: [...subscriptions, { id: "removed", path: "/api/work-folders/space-0000000000000000/file-events" }, { id: "files", path: `/api/work-folders/${workFolder.id}/file-events` }, { id: "sibling-files", path: `/api/work-folders/${sibling.id}/file-events` }, { id: "control", path: "/api/work-fold-agent/control-events" }] }),
     });
     assert.equal(response.status, 200);
     const events: Array<{ subscriptionId: string; ready?: boolean; closed?: boolean; eventId?: string; error?: { status: number }; event?: { type?: string; running?: boolean } }> = [];
@@ -911,7 +911,7 @@ test("multiplexed Chat channels preserve snapshots and accepted-answer visibilit
           if (!frame.startsWith("data: ")) continue;
           const event = JSON.parse(frame.slice(6)); events.push(event);
           if (event.subscriptionId === "chat-0" && event.event?.type === "turn_state" && event.event.running) {
-            transcriptReads.push(spaceMessages(api, space.id, first.conversationId));
+            transcriptReads.push(workFolderMessages(api, workFolder.id, first.conversationId));
           }
         }
       } } catch (error) { if (!controller.signal.aborted) throw error; }
@@ -933,10 +933,10 @@ test("multiplexed Chat channels preserve snapshots and accepted-answer visibilit
     assert.equal(stopped.status, 200, await stopped.clone().text());
     assert.equal(api.requests.get(record.requestId)?.state, "stopped");
     h.releaseAll();
-    await settled(api, space.id, record.turns.at(-1)!.taskId);
-    await api.actFacade.spacesUnregister({ space: space.id });
+    await settled(api, workFolder.id, record.turns.at(-1)!.taskId);
+    await api.actFacade.workFoldersUnregister({ workFolder: workFolder.id });
     await waitFor(async () => events.filter((event) => event.closed && (event.subscriptionId.startsWith("chat-") || event.subscriptionId === "files")).length === 11);
-    await writeFile(join(sibling.spaceRoot, "surviving.txt"), "Synthetic sibling monitor still works");
+    await writeFile(join(sibling.workFolderRoot, "surviving.txt"), "Synthetic sibling monitor still works");
     await waitFor(async () => events.some((event) => event.subscriptionId === "sibling-files" && event.event?.type === "file_event"));
   } finally { controller.abort(); await reading; h.releaseAll(); await api.close(); }
 });
@@ -957,19 +957,19 @@ test("a reconnect during turn reservation waits for accepted-message persistence
   let sending: Promise<unknown> | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
-    const space = (await api.actFacade.createSpace({ name: "Slow acceptance" })).space;
-    h.held.add(space.id);
-    sending = api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold Accepted after reservation" });
+    const workFolder = (await api.actFacade.createWorkFolder({ name: "Slow acceptance" })).workFolder;
+    h.held.add(workFolder.id);
+    sending = api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold Accepted after reservation" });
     await waitFor(async () => Boolean(releaseAcceptance));
     const conversationId = reserved!.record.conversationId;
     const response = await fetch(`${api.origin}/api/events`, { method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
-      body: JSON.stringify({ subscriptions: [{ id: "chat", path: `/api/spaces/${space.id}/conversations/${conversationId}/events` }] }),
+      body: JSON.stringify({ subscriptions: [{ id: "chat", path: `/api/work-folders/${workFolder.id}/conversations/${conversationId}/events` }] }),
     });
     reader = response.body!.getReader();
     const first = new TextDecoder().decode((await reader.read()).value);
     assert.match(first, /"type":"turn_snapshot".*"running":false/);
     assert.doesNotMatch(first, /"running":true/);
-    assert.deepEqual((await spaceMessages(api, space.id, conversationId)).filter((message) => message.role === "user"), []);
+    assert.deepEqual((await workFolderMessages(api, workFolder.id, conversationId)).filter((message) => message.role === "user"), []);
     releaseAcceptance!();
     await sending;
     let buffer = first;
@@ -977,7 +977,7 @@ test("a reconnect during turn reservation waits for accepted-message persistence
       const next = await reader.read(); assert.equal(next.done, false);
       buffer += new TextDecoder().decode(next.value);
     }
-    assert.ok((await spaceMessages(api, space.id, conversationId)).some((message) => message.content.includes("Accepted after reservation")));
+    assert.ok((await workFolderMessages(api, workFolder.id, conversationId)).some((message) => message.content.includes("Accepted after reservation")));
   } finally {
     releaseAcceptance?.(); controller.abort(); await reader?.cancel().catch(() => undefined); reader?.releaseLock();
     await sending; h.releaseAll(); await api.close();

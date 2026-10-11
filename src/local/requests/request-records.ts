@@ -3,9 +3,9 @@
  * and limit refusals behind F25 (docs/collaboration-contract.md).
  *
  * A request is the machine-local record of one thing a person asked for and
- * everything the fold, a Space Assistant, an app, a routing, or an outside
- * harness on the CLI did about it: the accepted turns, the questions they
- * asked, the results they reported, and the child requests they started. It
+ * everything the work-fold agent, a Worker, an app, an automation, or an
+ * outside harness on the CLI did about it: the accepted turns, the questions
+ * they asked, the results they reported, and the child requests they started. It
  * is attribution and recovery machinery, never a gate — nothing here waits
  * for a click, and nothing here is ever replayed.
  *
@@ -21,13 +21,13 @@
  */
 import { Buffer } from "node:buffer";
 
-import { workFoldRequestLimits } from "../../shared/fold-limits.js";
+import { workFoldRequestLimits } from "../../shared/work-fold-limits.js";
 import {
   validateRestrictedAppValue,
   type RestrictedAppJsonSchema,
 } from "../agent/restricted-app-manifest.js";
-import { maxManagementAttachments, type ManagementAttachmentRef } from "../management-attachments.js";
-import { containsReservedSpacePathSegment } from "../space-path-policy.js";
+import { maxWorkFoldAgentAttachments, type WorkFoldAgentAttachmentRef } from "../work-fold-agent-attachments.js";
+import { containsReservedWorkFolderPathSegment } from "../work-folder-path-policy.js";
 
 export const workFoldRequestRecordSchema = "work-fold.request.v1" as const;
 export const workFoldQuestionRecordSchema = "work-fold.request-question.v1" as const;
@@ -46,7 +46,7 @@ const maximumErrorLength = 2_048;
 const maximumStableIdLength = 160;
 const stableIdPattern = /^[A-Za-z0-9._:-]+$/;
 
-export type WorkFoldRequestKind = "management" | "space" | "app" | "routing" | "cli";
+export type WorkFoldRequestKind = "agent" | "work-folder" | "app" | "automation" | "cli";
 
 export type WorkFoldRequestState =
   | "working"
@@ -65,7 +65,7 @@ export function isWorkFoldRequestTerminalState(state: WorkFoldRequestState): boo
   return (workFoldRequestTerminalStates as readonly string[]).includes(state);
 }
 
-/** Where the turn came from. `system` covers routings and app-started work. */
+/** Where the turn came from. `system` covers automations and app-started work. */
 export type WorkFoldRequestSurface =
   | "cli"
   | "popover"
@@ -86,15 +86,15 @@ export type WorkFoldRequestTurnState =
 export type WorkFoldResultOutcome = "succeeded" | "partial" | "failed";
 
 export interface WorkFoldRequestOwner {
-  /** Absent exactly for the management scope; present for every Space-owned request. */
-  spaceId?: string;
-  /** Display snapshot, so an unregistered Space still renders its name. */
-  spaceName?: string;
+  /** Absent exactly for the work-fold agent scope; present for every work-folder-owned request. */
+  workFolderId?: string;
+  /** Display snapshot, so an unregistered work-folder still renders its name. */
+  workFolderName?: string;
   conversationId: string;
 }
 
 export interface WorkFoldRequestAppRef {
-  spaceId: string;
+  workFolderId: string;
   appId: string;
   featureInstallationId: string;
   digest: string;
@@ -160,14 +160,14 @@ export interface WorkFoldRequestLimitHit {
 }
 
 /**
- * Every landed act-lane mutation verb (docs/fold-act-ledger.md). One entry per
+ * Every landed act-lane mutation verb (docs/act-ledger.md). One entry per
  * explicitly attributed act, so a request's story stays complete; consumers
  * render the commands they understand and fall back to the command token for
  * the rest. Act reads carry no lineage and are deliberately absent.
  */
 export const workFoldRequestActionCommands = [
-  "spaces.assistant.model",
-  "spaces.assistant.instructions",
+  "work-folders.worker.model",
+  "work-folders.worker.instructions",
   "chat.send",
   "chat.rename",
   "chat.snooze",
@@ -190,14 +190,14 @@ export const workFoldRequestActionCommands = [
   "files.delete",
   "files.mkdir",
   "files.create",
-  "spaces.create",
-  "spaces.register",
-  "spaces.rename",
-  "spaces.unregister",
-  "spaces.delete",
-  "spaces.appearance.apply",
-  "spaces.appearance.reset",
-  "spaces.appearance.undo",
+  "work-folders.create",
+  "work-folders.register",
+  "work-folders.rename",
+  "work-folders.unregister",
+  "work-folders.delete",
+  "work-folders.appearance.apply",
+  "work-folders.appearance.reset",
+  "work-folders.appearance.undo",
   "tools.import-skill",
   "tools.install",
   "tools.update",
@@ -227,10 +227,10 @@ export const workFoldRequestActionCommands = [
   "apps.operation.activate",
   "apps.operation.cancel",
   "apps.uninstall",
-  "routings.enable",
+  "automations.enable",
   "pages.share",
   "pages.share-app",
-  "trash.restore",
+  "recently-deleted.restore",
 ] as const;
 
 export type WorkFoldRequestActionCommand = (typeof workFoldRequestActionCommands)[number];
@@ -239,22 +239,23 @@ export interface WorkFoldRequestAction {
   command: WorkFoldRequestActionCommand;
   at: string;
   /**
-   * Absent exactly for Space-free acts: personal-scope tools removal. Every Space-bound act names its Space.
+   * Absent exactly for work-folder-free acts: removing an Everywhere Skill or
+   * Extension. Every work-folder-bound act names its work-folder.
    */
-  spaceId?: string;
-  spaceName?: string;
+  workFolderId?: string;
+  workFolderName?: string;
   /** Resolved absolute source paths for files.add; used to match dispositions. */
   sources?: string[];
-  /** Space-relative destinations reported by files.add. */
+  /** work-folder-relative destinations reported by files.add. */
   copied?: string[];
   checkpointId?: string | null;
-  /** Registered or created Space root. */
-  spaceRoot?: string;
+  /** Registered or created work-folder root. */
+  workFolderRoot?: string;
   conversationId?: string;
   taskId?: string;
   /** Exact installation produced by a completed app operation. Never resolved by display name. */
   apps?: Array<{
-    spaceId: string;
+    workFolderId: string;
     appId: string;
     featureInstallationId: string;
     digest: string;
@@ -308,7 +309,7 @@ export interface WorkFoldRequestRecord {
   assignment: string;
   /** The newest turn's message text, bounded. */
   content: string;
-  attachments: ManagementAttachmentRef[];
+  attachments: WorkFoldAgentAttachmentRef[];
   actions: WorkFoldRequestAction[];
   continuedFromTaskId: string | null;
 }
@@ -332,12 +333,12 @@ export interface WorkFoldQuestionRecord {
   answeredAt: string | null;
   /** The single linked continuation turn an answer starts; set once, never twice. */
   continuationTaskId: string | null;
-  /** Enforces the refusal of an answer from a Space that does not own the question. */
-  answeredBySpaceId: string | null;
+  /** Enforces the refusal of an answer from a work-folder that does not own the question. */
+  answeredByWorkFolderId: string | null;
 }
 
 export interface WorkFoldResultFileRef {
-  /** Space-relative deliverable path. */
+  /** work-folder-relative deliverable path. */
   path: string;
   sha256: string;
   sizeBytes: number;
@@ -400,11 +401,11 @@ export function workFoldRequestLimitMessage(limit: WorkFoldRequestLimitName, cap
     case "deadline":
       return `This request passed its ${Math.round(cap / 3_600_000)}-hour window, so work-fold stopped it. ${shows}`;
     case "childTasks":
-      return `This request has already started ${cap} Space turns, the most one request may start. ${shows}`;
+      return `This request has already started ${cap} Worker turns, the most one request may start. ${shows}`;
     case "depth":
       return `This request is already ${cap} levels deep, as deep as one request may go. ${shows}`;
     case "concurrentChildren":
-      return `This request already has ${cap} Space turns running at once, the most it may run together. ${shows}`;
+      return `This request already has ${cap} Worker turns running at once, the most it may run together. ${shows}`;
     case "continuations":
       return `This request already got ${cap} follow-up turns, so work-fold recorded this result without starting another. ${shows}`;
     case "providerBudget":
@@ -507,11 +508,11 @@ export function computeWorkFoldRequestState(input: WorkFoldRequestStateInput): W
 }
 
 /**
- * The phase vocabulary `manage status` and the popover already speak. The
+ * The phase vocabulary `agent status` and the popover already speak. The
  * true F25 state travels beside it, so those surfaces keep compiling while
  * the richer vocabulary reaches the ones that want it.
  */
-export type WorkFoldRequestManagementPhase =
+export type WorkFoldRequestAgentPhase =
   | "working"
   | "needs_you"
   | "handed_off"
@@ -519,11 +520,11 @@ export type WorkFoldRequestManagementPhase =
   | "failed"
   | "stopped";
 
-export function workFoldRequestStateToManagementPhase(
+export function workFoldRequestStateToAgentPhase(
   state: WorkFoldRequestState,
   _legacyReplyAsksQuestion = false,
-): WorkFoldRequestManagementPhase {
-  const phase = ((): WorkFoldRequestManagementPhase => {
+): WorkFoldRequestAgentPhase {
+  const phase = ((): WorkFoldRequestAgentPhase => {
     switch (state) {
       case "working":
         return "working";
@@ -611,7 +612,7 @@ function stringArray(value: unknown, label: string, maxItems?: number): string[]
   });
 }
 
-export function parseWorkFoldAttachmentRef(value: unknown, label: string): ManagementAttachmentRef {
+export function parseWorkFoldAttachmentRef(value: unknown, label: string): WorkFoldAgentAttachmentRef {
   const record = objectValue(value, label);
   assertClosedShape(record, ["kind", "target", "name"], label);
   return {
@@ -625,30 +626,30 @@ export function parseWorkFoldRequestAction(value: unknown, label = "Request acti
   const record = objectValue(value, label);
   assertClosedShape(
     record,
-    ["command", "at", "spaceId", "spaceName", "sources", "copied", "checkpointId", "spaceRoot", "conversationId", "taskId", "apps"],
+    ["command", "at", "workFolderId", "workFolderName", "sources", "copied", "checkpointId", "workFolderRoot", "conversationId", "taskId", "apps"],
     label,
   );
   const action: WorkFoldRequestAction = {
     command: enumValue(record.command, workFoldRequestActionCommands, `${label} command`),
     at: isoDate(record.at, `${label} time`),
   };
-  if (record.spaceId !== undefined) action.spaceId = stableId(record.spaceId, `${label} Space id`);
-  if (record.spaceName !== undefined) action.spaceName = boundedText(record.spaceName, `${label} Space name`, 1_024);
+  if (record.workFolderId !== undefined) action.workFolderId = stableId(record.workFolderId, `${label} work-folder id`);
+  if (record.workFolderName !== undefined) action.workFolderName = boundedText(record.workFolderName, `${label} work-folder name`, 1_024);
   if (record.sources !== undefined) action.sources = stringArray(record.sources, `${label} sources`, 256);
   if (record.copied !== undefined) action.copied = stringArray(record.copied, `${label} destinations`, 256);
   if (record.checkpointId !== undefined) {
     action.checkpointId = record.checkpointId === null ? null : stableId(record.checkpointId, `${label} restore point`);
   }
-  if (record.spaceRoot !== undefined) action.spaceRoot = boundedText(record.spaceRoot, `${label} Space folder`, 4_096);
+  if (record.workFolderRoot !== undefined) action.workFolderRoot = boundedText(record.workFolderRoot, `${label} work-folder root`, 4_096);
   if (record.conversationId !== undefined) action.conversationId = stableId(record.conversationId, `${label} conversation id`);
   if (record.taskId !== undefined) action.taskId = stableId(record.taskId, `${label} task id`);
   if (record.apps !== undefined) {
     if (!Array.isArray(record.apps) || record.apps.length > 64) throw new Error(`${label} apps are invalid.`);
     action.apps = record.apps.map((item, index) => {
       const app = objectValue(item, `${label} app ${index + 1}`);
-      assertClosedShape(app, ["spaceId", "appId", "featureInstallationId", "digest", "title", "version"], `${label} app ${index + 1}`);
+      assertClosedShape(app, ["workFolderId", "appId", "featureInstallationId", "digest", "title", "version"], `${label} app ${index + 1}`);
       return {
-        spaceId: stableId(app.spaceId, `${label} app Space id`),
+        workFolderId: stableId(app.workFolderId, `${label} app work-folder id`),
         appId: stableId(app.appId, `${label} app id`),
         featureInstallationId: stableId(app.featureInstallationId, `${label} app installation id`),
         digest: stableId(app.digest, `${label} app fingerprint`),
@@ -738,10 +739,10 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
   if (!workFoldRequestIdPattern.test(rootId)) throw new Error(`${label} root id is invalid.`);
 
   const ownerRecord = objectValue(record.owner, `${label} owner`);
-  assertClosedShape(ownerRecord, ["spaceId", "spaceName", "conversationId"], `${label} owner`);
+  assertClosedShape(ownerRecord, ["workFolderId", "workFolderName", "conversationId"], `${label} owner`);
   const owner: WorkFoldRequestOwner = { conversationId: stableId(ownerRecord.conversationId, `${label} conversation id`) };
-  if (ownerRecord.spaceId !== undefined) owner.spaceId = stableId(ownerRecord.spaceId, `${label} Space id`);
-  if (ownerRecord.spaceName !== undefined) owner.spaceName = boundedText(ownerRecord.spaceName, `${label} Space name`, 1_024);
+  if (ownerRecord.workFolderId !== undefined) owner.workFolderId = stableId(ownerRecord.workFolderId, `${label} work-folder id`);
+  if (ownerRecord.workFolderName !== undefined) owner.workFolderName = boundedText(ownerRecord.workFolderName, `${label} work-folder name`, 1_024);
 
   const turns = Array.isArray(record.turns) ? record.turns.map(parseTurnRef) : null;
   if (!turns || !turns.length) {
@@ -752,7 +753,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
   const parsed: WorkFoldRequestRecord = {
     schema: workFoldRequestRecordSchema,
     requestId,
-    kind: enumValue(record.kind, ["management", "space", "app", "routing", "cli"] as const, `${label} kind`),
+    kind: enumValue(record.kind, ["agent", "work-folder", "app", "automation", "cli"] as const, `${label} kind`),
     rootId,
     parentRequestId: record.parentRequestId === null || record.parentRequestId === undefined
       ? null
@@ -801,7 +802,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
     remote: record.remote === null || record.remote === undefined ? null : parseRemoteRef(record.remote, label),
     content: boundedText(record.content, `${label} message`, workFoldRequestLimits.maxRequestContentBytes),
     assignment: boundedText(record.assignment ?? record.content, `${label} assignment`, workFoldRequestLimits.maxRequestContentBytes),
-    attachments: Array.isArray(record.attachments) && record.attachments.length <= maxManagementAttachments
+    attachments: Array.isArray(record.attachments) && record.attachments.length <= maxWorkFoldAgentAttachments
       ? record.attachments.map((item, index) => parseWorkFoldAttachmentRef(item, `${label} attachment ${index + 1}`))
       : (() => { throw new Error(`${label} attachments are invalid.`); })(),
     actions: Array.isArray(record.actions)
@@ -813,9 +814,9 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
   };
   if (record.app !== undefined) {
     const app = objectValue(record.app, `${label} app`);
-    assertClosedShape(app, ["spaceId", "appId", "featureInstallationId", "digest"], `${label} app`);
+    assertClosedShape(app, ["workFolderId", "appId", "featureInstallationId", "digest"], `${label} app`);
     parsed.app = {
-      spaceId: stableId(app.spaceId, `${label} app Space id`),
+      workFolderId: stableId(app.workFolderId, `${label} app work-folder id`),
       appId: stableId(app.appId, `${label} app id`),
       featureInstallationId: stableId(app.featureInstallationId, `${label} app installation id`),
       digest: stableId(app.digest, `${label} app fingerprint`),
@@ -862,7 +863,7 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
     record,
     [
       "schema", "questionId", "requestId", "rootId", "taskId", "respondent", "text", "askedAt", "updatedAt",
-      "expiresAt", "state", "answer", "answeredAt", "continuationTaskId", "answeredBySpaceId",
+      "expiresAt", "state", "answer", "answeredAt", "continuationTaskId", "answeredByWorkFolderId",
     ],
     label,
   );
@@ -891,9 +892,9 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
     continuationTaskId: record.continuationTaskId === null || record.continuationTaskId === undefined
       ? null
       : stableId(record.continuationTaskId, `${label} follow-up task id`),
-    answeredBySpaceId: record.answeredBySpaceId === null || record.answeredBySpaceId === undefined
+    answeredByWorkFolderId: record.answeredByWorkFolderId === null || record.answeredByWorkFolderId === undefined
       ? null
-      : stableId(record.answeredBySpaceId, `${label} answering Space id`),
+      : stableId(record.answeredByWorkFolderId, `${label} answering work-folder id`),
   };
 }
 
@@ -935,26 +936,26 @@ function parseResultFileRef(value: unknown, label: string): WorkFoldResultFileRe
   const record = objectValue(value, label);
   assertClosedShape(record, ["path", "sha256", "sizeBytes"], label);
   const path = boundedText(record.path, `${label} path`, maximumResultFilePathLength);
-  assertSpaceRelativeResultPath(path, label);
+  assertWorkFolderRelativeResultPath(path, label);
   if (typeof record.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.sha256)) throw new Error(`${label} fingerprint is invalid.`);
   return { path, sha256: record.sha256, sizeBytes: nonNegativeInteger(record.sizeBytes, `${label} size`) };
 }
 
 /**
- * A deliverable is named relative to the Space that produced it. Absolute
+ * A deliverable is named relative to the work-folder that produced it. Absolute
  * paths, parent traversal, and the reserved work-fold, Pi, and legacy product
  * folders are never valid endpoints (AGENTS.md, portable identity).
  */
-export function assertSpaceRelativeResultPath(path: string, label = "Result file"): void {
+export function assertWorkFolderRelativeResultPath(path: string, label = "Result file"): void {
   if (!path.length) throw new Error(`${label} path cannot be empty.`);
   if (path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path)) {
-    throw new Error(`${label} path must be relative to the Space.`);
+    throw new Error(`${label} path must be relative to the work-folder.`);
   }
   const segments = path.split(/[\\/]+/u);
   if (segments.some((segment) => segment === ".." || segment === "." || !segment.length)) {
-    throw new Error(`${label} path must be relative to the Space.`);
+    throw new Error(`${label} path must be relative to the work-folder.`);
   }
-  if (containsReservedSpacePathSegment(path)) {
+  if (containsReservedWorkFolderPathSegment(path)) {
     throw new Error(`${label} path names reserved work-fold, Pi, or legacy product metadata.`);
   }
 }

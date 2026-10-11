@@ -13,8 +13,8 @@ export interface StoredPendingChatSend {
   contextPaths: string[];
   transientConversation: boolean;
   draftStorageKey: string;
-  /** Folder Workers the message @-mentions (2026-10-01). */
-  addressedSpaceIds?: string[];
+  /** work-folder Workers the message @-mentions (2026-10-01). */
+  addressedWorkFolderIds?: string[];
 }
 
 export function normalizeSearchQuery(value: string): string {
@@ -30,9 +30,9 @@ export function splitConfirmMessage(message: string): { title: string; body?: st
   return body ? { title, body } : { title };
 }
 
-export function chatDraftStorageKey(spaceId: string, conversationId: string | null, surfaceTabId?: string | null): string {
+export function chatDraftStorageKey(workFolderId: string, conversationId: string | null, surfaceTabId?: string | null): string {
   const subject = conversationId ?? (surfaceTabId ? `draft:${surfaceTabId}` : chatDraftNewConversationId);
-  return `${chatDraftKeyPrefix}:${spaceId}:${subject}`;
+  return `${chatDraftKeyPrefix}:${workFolderId}:${subject}`;
 }
 
 export function readStoredChatDraft(key: string): string {
@@ -52,20 +52,20 @@ export function clearStoredChatDraft(key: string): void {
   writeStoredValue(key, null);
 }
 
-export function pendingChatSendStorageKey(spaceId: string, conversationId: string): string {
-  return `work-fold.space.pending-chat-send:${spaceId}:${conversationId}`;
+export function pendingChatSendStorageKey(workFolderId: string, conversationId: string): string {
+  return `work-fold.work-folder.pending-chat-send:${workFolderId}:${conversationId}`;
 }
 
-export function readStoredPendingChatSend(spaceId: string, conversationId: string): StoredPendingChatSend | null {
-  return readStoredJsonValue(pendingChatSendStorageKey(spaceId, conversationId), normalizePendingChatSend, null);
+export function readStoredPendingChatSend(workFolderId: string, conversationId: string): StoredPendingChatSend | null {
+  return readStoredJsonValue(pendingChatSendStorageKey(workFolderId, conversationId), normalizePendingChatSend, null);
 }
 
-export function writeStoredPendingChatSend(spaceId: string, conversationId: string, value: StoredPendingChatSend): boolean {
-  return writeStoredJsonValue(pendingChatSendStorageKey(spaceId, conversationId), value);
+export function writeStoredPendingChatSend(workFolderId: string, conversationId: string, value: StoredPendingChatSend): boolean {
+  return writeStoredJsonValue(pendingChatSendStorageKey(workFolderId, conversationId), value);
 }
 
-export function clearStoredPendingChatSend(spaceId: string, conversationId: string): void {
-  writeStoredValue(pendingChatSendStorageKey(spaceId, conversationId), null);
+export function clearStoredPendingChatSend(workFolderId: string, conversationId: string): void {
+  writeStoredValue(pendingChatSendStorageKey(workFolderId, conversationId), null);
 }
 
 function normalizePendingChatSend(value: unknown): StoredPendingChatSend | null {
@@ -90,8 +90,8 @@ function normalizePendingChatSend(value: unknown): StoredPendingChatSend | null 
     contextPaths: record.contextPaths,
     transientConversation: record.transientConversation,
     draftStorageKey: record.draftStorageKey,
-    ...(Array.isArray(record.addressedSpaceIds) && record.addressedSpaceIds.every((id) => typeof id === "string")
-      ? { addressedSpaceIds: record.addressedSpaceIds }
+    ...(Array.isArray(record.addressedWorkFolderIds) && record.addressedWorkFolderIds.every((id) => typeof id === "string")
+      ? { addressedWorkFolderIds: record.addressedWorkFolderIds }
       : {}),
   };
 }

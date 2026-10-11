@@ -21,7 +21,7 @@ import type {
   WorkFoldViewerAppServeResult,
   WorkFoldViewerPageServeResult,
 } from "../../src/local/publications.js";
-import type { WorkFoldRemoteFacade, WorkFoldRemoteOperation, WorkFoldRemotePrincipal, WorkFoldRemoteWatchProgress } from "../../src/local/remote-management.js";
+import type { WorkFoldRemoteFacade, WorkFoldRemoteOperation, WorkFoldRemotePrincipal, WorkFoldRemoteWatchProgress } from "../../src/local/remote-work-fold-agent.js";
 import type { RemoteAccessSettings, RemoteBrowserGrantSettings, SecureSettingsStore } from "./settings.js";
 
 const reconnectDelaysMs = [500, 1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
@@ -33,16 +33,16 @@ const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.stop", "management.watch", "management.glance", "management.glanceSeen",
   "management.work", "management.answer", "management.continue", "management.extensionAnswer",
   "pages.list", "pages.link",
-  "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",
+  "work-folders.list", "work-folders.tree", "work-folders.filePreview", "apps.list", "apps.read",
   "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.cancel",
 ]);
 /**
- * The serialized glance digest is bounded to 64 KB (docs/fold-glance.md) so it
+ * The serialized overview digest is bounded to 64 KB (docs/work-fold-agent-overview.md) so it
  * always fits the existing per-operation and queued-byte budgets. The digest's
  * own caps keep it far below this; exceeding the bound is answered with an
  * honest typed refusal, never a silently trimmed digest presented as complete.
  */
-const maximumRemoteGlanceProjectionBytes = 64 * 1024;
+const maximumRemoteOverviewProjectionBytes = 64 * 1024;
 
 export interface RemoteAccessStatus {
   configured: boolean;
@@ -52,8 +52,8 @@ export interface RemoteAccessStatus {
   url: string | null;
   /**
    * The origin published pages are served from: `pages-<slug>` under the same
-   * base domain (docs/fold-publishing.md, "Origin isolation"). Share links
-   * compose against this origin; the management client never serves on it.
+   * base domain (docs/shared-pages.md, "Origin isolation"). Share links
+   * compose against this origin; the paired web client never serves on it.
    */
   viewerOrigin: string | null;
   lastError: string | null;
@@ -106,7 +106,7 @@ export interface RemoteAccountRemovalSteps {
 }
 
 /**
- * The publishing ladder's desktop serving hook (docs/fold-publishing.md,
+ * The publishing ladder's desktop serving hook (docs/shared-pages.md,
  * rung 2), implemented by `src/local/publications.ts`. `servePage` performs
  * the effect-time recheck, identity checks, bounded render, and publication-
  * key encryption; this client only wraps the result in a device-signed
@@ -117,7 +117,7 @@ export interface RemoteAccountRemovalSteps {
 export interface RemoteViewerPageProvider {
   servePage(publicationId: string): Promise<WorkFoldViewerPageServeResult>;
   /**
-   * Rung 3 (docs/fold-publishing.md): one relayed viewer-app call — declared
+   * Rung 3 (docs/shared-pages.md): one relayed viewer-app call — declared
    * entry, placed release asset, or viewer-readable data read — served through the
    * publication service's effect-time recheck and the desktop-enforced
    * viewer-safe broker subset. A desktop without the hook ignores
@@ -130,7 +130,7 @@ export interface RemoteViewerPageProvider {
   /**
    * Bridge-relayed budget-exhaustion notice for one publication: viewers are
    * seeing the vague "resting" page, and the publisher's precise reason is
-   * recorded as a health note the glance surfaces. Content-free and
+   * recorded as a health note the overview surfaces. Content-free and
    * best-effort; an older desktop without the hook simply never learns.
    */
   noteResting?(publicationId: string, reason: "serve-rate" | "byte-budget"): Promise<unknown> | unknown;
@@ -672,8 +672,8 @@ export class RemoteAccessClient {
           value = { ...objectValue(value, "Page link"), viewerOrigin: statusView(settings, this.#connection, this.#lastError).viewerOrigin };
         }
         if (remoteOperation === "management.glance"
-          && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteGlanceProjectionBytes) {
-          throw new Error("The glance digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");
+          && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteOverviewProjectionBytes) {
+          throw new Error("The overview digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");
         }
         if (remoteOperation === "management.send") {
           this.rememberActiveTask(grant.id, value, principal);
@@ -1426,10 +1426,10 @@ function remoteStopWasAccepted(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const stopped = (value as { stopped?: unknown }).stopped;
   if (!stopped || typeof stopped !== "object" || Array.isArray(stopped)) return false;
-  const result = stopped as { managementAborted?: unknown; children?: unknown };
+  const result = stopped as { workFoldAgentAborted?: unknown; children?: unknown };
   const children = Array.isArray(result.children) ? result.children : [];
   const childrenStopped = children.every((child) => child && typeof child === "object" && (child as { aborted?: unknown }).aborted === true);
-  return childrenStopped && (result.managementAborted === true || children.length > 0);
+  return childrenStopped && (result.workFoldAgentAborted === true || children.length > 0);
 }
 
 function remoteRequestIsActive(value: unknown): boolean {

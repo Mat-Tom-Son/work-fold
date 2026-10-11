@@ -5,7 +5,7 @@ import test from "node:test";
 import { HISTORY_REVIEW_LIMITS } from "../src/shared/history-review.js";
 import { FileVersionHistoryModal } from "../web-local/src/components/modals/FileVersionHistoryModal.js";
 import { useModalDialog } from "../web-local/src/hooks/useModalDialog.js";
-import type { SpaceSummary } from "../web-local/src/types.js";
+import type { WorkFolderSummary } from "../web-local/src/types.js";
 import { createDomHarness } from "./support/dom.js";
 
 test("History modal keyboard navigation reaches disclosures and skips text in closed details", async (t) => {
@@ -21,7 +21,7 @@ test("History modal keyboard navigation reaches disclosures and skips text in cl
       diff: { status: "available", text: "-Before\n+After", truncated: false },
     } })) as typeof fetch;
   await dom.render(createElement(FileVersionHistoryModal, {
-    space: { id: "folder", name: "Folder" } as SpaceSummary, filePath: "note.txt", fileName: "note.txt", onClose() {}, onRestored() {},
+    workFolder: { id: "folder", name: "Folder" } as WorkFolderSummary, filePath: "note.txt", fileName: "note.txt", onClose() {}, onRestored() {},
   }));
   await dom.act(() => [...dom.container.querySelectorAll("button")].find((button) => button.textContent === "Compare")!.click());
   const close = dom.container.querySelector<HTMLButtonElement>('[aria-label="Close version history"]')!;

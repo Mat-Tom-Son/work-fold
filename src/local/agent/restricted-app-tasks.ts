@@ -8,7 +8,7 @@ import type { WorkFoldDurableTurnRecord, WorkFoldDurableTurnUsage } from "./turn
 import type { WorkFoldRequestState, WorkFoldRequestUsage } from "../requests/request-records.js";
 
 export interface RestrictedAppTaskScope {
-  spaceId: string;
+  workFolderId: string;
   appId: string;
   featureInstallationId: string;
   digest: string;
@@ -47,7 +47,7 @@ export interface RestrictedAppTaskReceipt extends RestrictedAppAssistantTask {
  * re-reading the journal (docs/collaboration-contract.md, F30).
  */
 export interface RestrictedAppAssistantActivity {
-  spaceId: string;
+  workFolderId: string;
   appId: string;
   featureInstallationId: string;
   taskIds: string[];
@@ -65,7 +65,7 @@ export interface RestrictedAppTaskPorts {
     scope: RestrictedAppTaskScope,
     operation: (actions: readonly RestrictedAppAssistantAction[], app: { title: string }) => Promise<T>,
   ): Promise<T>;
-  /** Ordinary Space Chat acceptance, using the receipt's fixed Chat/request identities. */
+  /** Ordinary work-folder Chat acceptance, using the receipt's fixed Chat/request identities. */
   dispatch(receipt: Readonly<RestrictedAppTaskReceipt>, app: { title: string }): Promise<void>;
   findTurn(receipt: Readonly<RestrictedAppTaskReceipt>): WorkFoldDurableTurnRecord | null;
   cancelTurn(receipt: Readonly<RestrictedAppTaskReceipt>, turnId: string): Promise<void>;
@@ -77,7 +77,7 @@ export interface RestrictedAppTaskPorts {
     usage: WorkFoldRequestUsage;
   } | null;
   /**
-   * The result envelope the Space Assistant filed for this task with `chat
+   * The result envelope the Worker filed for this task with `chat
    * report`, or null when the turn finished without filing one. The report
    * store stays the authority; nothing here is replayed. Optional so a host
    * that has no report store yet falls back to the final reply as the summary.
@@ -106,7 +106,7 @@ const maxFileBytes = 256 * 1024 * 1024;
 const limitsSection = "Settings → Automations → Limits";
 
 /**
- * An app request is journaled, then dispatched as an ordinary full-trust Space
+ * An app request is journaled, then dispatched as an ordinary full-trust work-folder
  * Chat immediately; the journal is attribution and recovery, not a gate. This
  * broker constrains request/result ownership and envelope bounds, never Pi's
  * native tools.
@@ -135,14 +135,14 @@ export class RestrictedAppTaskService extends EventEmitter {
     try {
       handle = await open(options.path, "r");
       const stat = await handle.stat();
-      if (!stat.isFile() || stat.size > maxFileBytes) throw new Error("App Assistant request journal exceeds its limit.");
+      if (!stat.isFile() || stat.size > maxFileBytes) throw new Error("App Worker request journal exceeds its limit.");
       const bytes = Buffer.alloc(stat.size + 1);
       const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-      if (bytesRead !== stat.size) throw new Error("App Assistant request journal changed while reading.");
+      if (bytesRead !== stat.size) throw new Error("App Worker request journal changed while reading.");
       const data = JSON.parse(bytes.subarray(0, bytesRead).toString("utf8"));
       exact(data, ["schema", "records"]);
       if (!acceptedSchemas.includes(data.schema) || !Array.isArray(data.records)) {
-        throw new Error("App Assistant request journal is invalid.");
+        throw new Error("App Worker request journal is invalid.");
       }
       const loadedAt = service.#now().toISOString();
       service.#records = data.records.map((record: unknown) => parseReceipt(
@@ -152,7 +152,7 @@ export class RestrictedAppTaskService extends EventEmitter {
       ));
       if (new Set(service.#records.map((item) => item.id)).size !== service.#records.length
         || new Set(service.#records.map((item) => `${item.scope.featureInstallationId}:${item.requestId}`)).size !== service.#records.length) {
-        throw new Error("App Assistant request journal has duplicate identities.");
+        throw new Error("App Worker request journal has duplicate identities.");
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") service.#unavailable = true;
@@ -171,18 +171,18 @@ export class RestrictedAppTaskService extends EventEmitter {
       if (typeof value.requestId !== "string" || !uuid.test(value.requestId)) invalid("Supply a unique request id.");
       const requestedAt = date(value.requestedAt);
       const action = actions.find((item) => item.id === value.actionId);
-      if (!action) throw new RestrictedAppTaskError("TASK_DENIED", "Choose a declared Assistant action.");
+      if (!action) throw new RestrictedAppTaskError("TASK_DENIED", "Choose a declared Worker action.");
       const raw = JSON.stringify(value.input);
       if (raw === undefined || Buffer.byteLength(raw) > limits.inputBytes) {
-        invalid(`Assistant request input is larger than ${restrictedAppLimitSize(limits.inputBytes)}, the limit in ${limitsSection}.`);
+        invalid(`Worker request input is larger than ${restrictedAppLimitSize(limits.inputBytes)}, the limit in ${limitsSection}.`);
       }
       let inputJson: string;
       try {
         // Validate the JSON value delivered across the bridge, without prototypes or toJSON methods.
         const input = JSON.parse(raw);
-        validateRestrictedAppValue(action.inputSchema, input, "Assistant request input");
+        validateRestrictedAppValue(action.inputSchema, input, "Worker request input");
         inputJson = canonicalJson(input);
-      } catch { invalid("Assistant request input does not match its declaration."); }
+      } catch { invalid("Worker request input does not match its declaration."); }
       await this.#refresh();
       const requestDigest = hash({ actionId: action.id, requestedAt, inputJson });
       const prior = this.#records.find((item) => item.scope.featureInstallationId === scope.featureInstallationId && item.requestId === value.requestId);
@@ -198,7 +198,7 @@ export class RestrictedAppTaskService extends EventEmitter {
       }
       const running = this.#records.filter((item) => item.scope.featureInstallationId === scope.featureInstallationId && live.has(item.status)).length;
       if (running >= limits.runningPerInstallation) {
-        conflict(`This app already has ${limits.runningPerInstallation} Assistant requests running, the limit in ${limitsSection}. Wait for one to finish.`);
+        conflict(`This app already has ${limits.runningPerInstallation} Worker requests running, the limit in ${limitsSection}. Wait for one to finish.`);
       }
       // Retired request timestamps cannot be submitted again, even after pruning.
       // Retention is what bounds this list; there is no request quota.
@@ -287,13 +287,13 @@ export class RestrictedAppTaskService extends EventEmitter {
   /**
    * The output shape pinned when this task was requested, found from the Chat
    * turn that is running it (F29). `chat report` reads it so a mismatched
-   * report is refused while the Assistant's turn can still correct it, rather
+   * report is refused while the agent's turn can still correct it, rather
    * than only being stripped when the app reads the result. The pin lives on
    * the receipt, so a code change mid-task cannot move it.
    */
-  outputSchemaForTurn(input: { spaceId: string; conversationId: string; taskId: string }): RestrictedAppJsonSchema | null {
+  outputSchemaForTurn(input: { workFolderId: string; conversationId: string; taskId: string }): RestrictedAppJsonSchema | null {
     for (const record of this.#records) {
-      if (record.scope.spaceId !== input.spaceId || record.conversationId !== input.conversationId) continue;
+      if (record.scope.workFolderId !== input.workFolderId || record.conversationId !== input.conversationId) continue;
       if (!record.outputSchema) continue;
       if (this.#ports.findTurn(record)?.turnId !== input.taskId
         && !this.#ports.findRequest?.(record)?.taskIds.includes(input.taskId)) continue;
@@ -304,15 +304,15 @@ export class RestrictedAppTaskService extends EventEmitter {
 
   #owned(scope: RestrictedAppTaskScope, requestId: string, ownership: RestrictedAppTaskOwnership = "revision"): RestrictedAppTaskReceipt {
     const record = this.#records.find((item) => item.requestId === requestId && matches(item.scope, scope, ownership));
-    if (!record) throw new RestrictedAppTaskError("TASK_DENIED", "This Assistant request is unavailable to this app revision.");
+    if (!record) throw new RestrictedAppTaskError("TASK_DENIED", "This Worker request is unavailable to this app revision.");
     return record;
   }
 
   #turn(record: RestrictedAppTaskReceipt): WorkFoldDurableTurnRecord | null {
     const turn = this.#ports.findTurn(record);
-    if (turn && (turn.spaceId !== record.scope.spaceId || turn.conversationId !== record.conversationId
+    if (turn && (turn.workFolderId !== record.scope.workFolderId || turn.conversationId !== record.conversationId
       || turn.requestId !== restrictedAppTaskTurnRequestId(record))) {
-      throw new RestrictedAppTaskError("TASK_UNAVAILABLE", "The Assistant task outcome is unavailable.");
+      throw new RestrictedAppTaskError("TASK_UNAVAILABLE", "The Worker task outcome is unavailable.");
     }
     return turn;
   }
@@ -332,14 +332,14 @@ export class RestrictedAppTaskService extends EventEmitter {
       if (!live.has(record.status) && !request) { next.push(record); continue; }
       const origin = this.#turn(record);
       const turn = request?.turn ?? origin;
-      if (request && (!origin || !turn || turn.spaceId !== record.scope.spaceId || turn.conversationId !== record.conversationId)) {
-        throw new RestrictedAppTaskError("TASK_UNAVAILABLE", "The Assistant request outcome is unavailable.");
+      if (request && (!origin || !turn || turn.workFolderId !== record.scope.workFolderId || turn.conversationId !== record.conversationId)) {
+        throw new RestrictedAppTaskError("TASK_UNAVAILABLE", "The Worker request outcome is unavailable.");
       }
       const status = request ? requestTaskStatus(request.state) : !turn ? "interrupted" : turn.status === "accepted" || turn.status === "running" ? "running"
         : turn.status === "aborted" ? "cancelled" : turn.status;
       const result = status === "succeeded" && turn ? await this.#resolveResult(record, turn, request?.state) : undefined;
       // The settled turn journal owns the effective model and its usage; the
-      // receipt copies them so the Apps tab and the app read the same numbers,
+      // receipt copies them so Settings → Apps and the app read the same numbers,
       // including for a turn that failed or was stopped after spending them.
       const lastUsage = turn?.usage ?? origin?.usage;
       const spent = lastUsage ? turnSpend(lastUsage) : undefined;
@@ -363,7 +363,7 @@ export class RestrictedAppTaskService extends EventEmitter {
 
   /**
    * The one result shape (F29) for a settled turn. A filed report is the
-   * Assistant's own account of the work: its summary, its outcome, the details
+   * Agent's own account of the work: its summary, its outcome, the details
    * matching the shape the action declared, and the deliverables it chose. With
    * no report the final reply is the summary and nothing else is exposed —
    * `fileChanges` turn metadata stays evidence and never becomes `files`.
@@ -448,13 +448,13 @@ export class RestrictedAppTaskService extends EventEmitter {
     const kept = records.filter((_record, index) => !dropped.has(index));
     const serialized = serializedWithin({ schema, records: kept }, maxFileBytes);
     if (serialized === null) {
-      conflict(`The Assistant request journal reached ${restrictedAppLimitSize(maxFileBytes)} with nothing left to prune. Wait for a running request to finish, then try again.`);
+      conflict(`The Worker request journal reached ${restrictedAppLimitSize(maxFileBytes)} with nothing left to prune. Wait for a running request to finish, then try again.`);
     }
     return { records: kept, serialized };
   }
 
   #run<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.#unavailable) return Promise.reject(new RestrictedAppTaskError("TASK_UNAVAILABLE", "Assistant requests are unavailable because their local record could not be verified."));
+    if (this.#unavailable) return Promise.reject(new RestrictedAppTaskError("TASK_UNAVAILABLE", "Worker requests are unavailable because their local record could not be verified."));
     const result = this.#queue.catch(() => undefined).then(operation);
     this.#queue = result;
     return result;
@@ -464,7 +464,7 @@ export class RestrictedAppTaskService extends EventEmitter {
 export function restrictedAppTaskTurnRequestId(record: Pick<RestrictedAppTaskReceipt, "id">): string { return `app-task-${record.id}`; }
 
 /**
- * Stable, fully inspectable content; no arbitrary Chat, fold context or tool
+ * Stable, fully inspectable content; no arbitrary Chat, work-fold agent context, or tool
  * policy injection. `record.title` is the action's own label (for example
  * "Compare quotes"); `appTitle` is the installed app's name, and the
  * provenance sentence must use that one. Without a resolved app title the
@@ -475,12 +475,12 @@ export function restrictedAppTaskPrompt(
   appTitle?: string,
 ): string {
   const from = appTitle?.trim()
-    ? `This request came from the app “${appTitle.trim()}” installed in this Space.`
-    : "This request came from an app installed in this Space.";
+    ? `This request came from the app “${appTitle.trim()}” installed in this work-folder.`
+    : "This request came from an app installed in this work-folder.";
   const details = record.outputSchema
     ? `\n\nThe app asked for details in this shape (JSON Schema):\n${JSON.stringify(record.outputSchema)}`
     : "";
-  return `App request: ${record.title}\n\n${record.instructions}\n\nApp-supplied input (JSON):\n${record.inputJson}${details}\n\n${from} Work in this Space using your usual tools. Report the result with \`work-fold chat report\`: a short summary, ${record.outputSchema ? "details in the shape above, " : ""}and the Space-relative files you want the app to receive. If you do not report, your final reply becomes the summary, so include only the task's result and relevant Space-relative deliverable paths.`;
+  return `App request: ${record.title}\n\n${record.instructions}\n\nApp-supplied input (JSON):\n${record.inputJson}${details}\n\n${from} Work in this work-folder using your usual tools. Report the result with \`work-fold chat report\`: a short summary, ${record.outputSchema ? "details in the shape above, " : ""}and the work-folder-relative files you want the app to receive. If you do not report, your final reply becomes the summary, so include only the task's result and relevant work-folder-relative deliverable paths.`;
 }
 
 export function restrictedAppTaskAuthorityDigest(authority: unknown): string { return hash(authority); }
@@ -527,11 +527,11 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 function sameScope(a: RestrictedAppTaskScope, b: RestrictedAppTaskScope): boolean {
-  return a.spaceId === b.spaceId && a.appId === b.appId && a.featureInstallationId === b.featureInstallationId && a.digest === b.digest && a.authorityDigest === b.authorityDigest;
+  return a.workFolderId === b.workFolderId && a.appId === b.appId && a.featureInstallationId === b.featureInstallationId && a.digest === b.digest && a.authorityDigest === b.authorityDigest;
 }
 function matches(recorded: RestrictedAppTaskScope, scope: RestrictedAppTaskScope, ownership: RestrictedAppTaskOwnership): boolean {
   if (ownership === "revision") return sameScope(recorded, scope);
-  return recorded.spaceId === scope.spaceId && recorded.appId === scope.appId && recorded.featureInstallationId === scope.featureInstallationId;
+  return recorded.workFolderId === scope.workFolderId && recorded.appId === scope.appId && recorded.featureInstallationId === scope.featureInstallationId;
 }
 function assertScope(a: RestrictedAppTaskScope, b: RestrictedAppTaskScope): void {
   if (!sameScope(a, b)) throw new RestrictedAppTaskError("TASK_DENIED", "This request belongs to a different app revision or permission selection.");
@@ -635,7 +635,7 @@ function acceptedResultData(schema: RestrictedAppJsonSchema, value: unknown): { 
     const serialized = JSON.stringify(value);
     if (serialized === undefined || Buffer.byteLength(serialized, "utf8") > limits.dataBytes) return null;
     const plain = JSON.parse(serialized) as unknown;
-    validateRestrictedAppValue(schema, plain, "Assistant result details");
+    validateRestrictedAppValue(schema, plain, "Worker result details");
     return { value: plain };
   } catch { return null; }
 }
@@ -646,7 +646,7 @@ function isResultFile(value: unknown): value is RestrictedAppResultFile {
   if (Object.keys(file).some((key) => key !== "path" && key !== "sha256" && key !== "sizeBytes")) return false;
   if (typeof file.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(file.sha256)) return false;
   if (typeof file.sizeBytes !== "number" || !Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 0) return false;
-  return typeof file.path === "string" && isSpaceRelativeDeliverablePath(file.path);
+  return typeof file.path === "string" && isWorkFolderRelativeDeliverablePath(file.path);
 }
 
 /**
@@ -654,7 +654,7 @@ function isResultFile(value: unknown): value is RestrictedAppResultFile {
  * absolute path, no traversal, and never work-fold, Pi, or legacy product
  * metadata.
  */
-function isSpaceRelativeDeliverablePath(path: string): boolean {
+function isWorkFolderRelativeDeliverablePath(path: string): boolean {
   if (!path.length || path.length > 1024) return false;
   if (path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path)) return false;
   const segments = path.split(/[\\/]+/u);
@@ -679,9 +679,9 @@ function taskActivity(
   for (const record of after) {
     const prior = previous.get(record.id);
     if (prior && prior.updatedAt === record.updatedAt && prior.status === record.status) continue;
-    const key = `${record.scope.spaceId}\u0000${record.scope.appId}\u0000${record.scope.featureInstallationId}`;
+    const key = `${record.scope.workFolderId}\u0000${record.scope.appId}\u0000${record.scope.featureInstallationId}`;
     const change = changes.get(key) ?? {
-      spaceId: record.scope.spaceId,
+      workFolderId: record.scope.workFolderId,
       appId: record.scope.appId,
       featureInstallationId: record.scope.featureInstallationId,
       taskIds: [],
@@ -694,10 +694,10 @@ function taskActivity(
 }
 function exact(value: unknown, keys: string[]): asserts value is Record<string, any> {
   if (!value || typeof value !== "object" || Array.isArray(value)
-    || Object.keys(value).some((key) => !keys.includes(key)) || keys.some((key) => !Object.hasOwn(value, key))) invalid("The Assistant request has invalid fields.");
+    || Object.keys(value).some((key) => !keys.includes(key)) || keys.some((key) => !Object.hasOwn(value, key))) invalid("The Worker request has invalid fields.");
 }
 function date(value: unknown): string {
-  if (typeof value !== "string" || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) invalid("The Assistant request date is invalid.");
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) invalid("The Worker request date is invalid.");
   return value;
 }
 function invalid(message: string): never { throw new RestrictedAppTaskError("TASK_INVALID", message); }
@@ -733,10 +733,10 @@ function upgradeV2Receipt(value: unknown): unknown {
 }
 
 function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
-  if (!value || typeof value !== "object") invalid("The Assistant request journal is invalid.");
+  if (!value || typeof value !== "object") invalid("The Worker request journal is invalid.");
   const optional = ["result", "cancellationRequested", "model", "usage", "outputSchema"].filter((key) => Object.hasOwn(value, key));
   exact(value, ["id", "requestId", "actionId", "title", "status", "createdAt", "updatedAt", "startedAt", "scope", "requestedAt", "requestDigest", "instructions", "inputJson", "conversationId", ...optional]);
-  exact(value.scope, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest"]);
+  exact(value.scope, ["workFolderId", "appId", "featureInstallationId", "digest", "authorityDigest"]);
   if (typeof value.id !== "string" || typeof value.requestId !== "string" || !uuid.test(value.id) || !uuid.test(value.requestId) || value.conversationId !== `chat-app-${value.id}`
     || !statuses.includes(value.status)
     || typeof value.actionId !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(value.actionId)
@@ -745,14 +745,14 @@ function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
     || typeof value.inputJson !== "string" || Buffer.byteLength(value.inputJson) > limits.inputBytes
     || !/^[a-f0-9]{64}$/.test(value.requestDigest)
     || Object.values(value.scope).some((item) => typeof item !== "string" || !item.length || item.length > 200)
-    || !/^[a-f0-9]{64}$/.test(value.scope.digest) || !/^[a-f0-9]{64}$/.test(value.scope.authorityDigest)) invalid("The Assistant request journal is invalid.");
+    || !/^[a-f0-9]{64}$/.test(value.scope.digest) || !/^[a-f0-9]{64}$/.test(value.scope.authorityDigest)) invalid("The Worker request journal is invalid.");
   for (const key of ["createdAt", "updatedAt", "startedAt", "requestedAt"]) date(value[key]);
-  if (value.requestDigest !== hash({ actionId: value.actionId, requestedAt: value.requestedAt, inputJson: value.inputJson })) invalid("The Assistant request journal input changed.");
+  if (value.requestDigest !== hash({ actionId: value.actionId, requestedAt: value.requestedAt, inputJson: value.inputJson })) invalid("The Worker request journal input changed.");
   JSON.parse(value.inputJson);
-  if (value.cancellationRequested !== undefined && value.cancellationRequested !== true) invalid("The Assistant cancellation receipt is invalid.");
+  if (value.cancellationRequested !== undefined && value.cancellationRequested !== true) invalid("The Worker cancellation receipt is invalid.");
   if (value.outputSchema !== undefined) {
-    try { value.outputSchema = parseRestrictedAppJsonSchema(value.outputSchema, "The Assistant result shape"); }
-    catch { invalid("The Assistant request result shape is invalid."); }
+    try { value.outputSchema = parseRestrictedAppJsonSchema(value.outputSchema, "The Worker result shape"); }
+    catch { invalid("The Worker request result shape is invalid."); }
   }
   if (value.result !== undefined) {
     const optionalResult = ["data", "files"].filter((key) => Object.hasOwn(value.result, key));
@@ -760,29 +760,29 @@ function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
     if (value.status !== "succeeded" || typeof value.result.summary !== "string"
       || Buffer.byteLength(value.result.summary) > limits.summaryBytes
       || typeof value.result.truncated !== "boolean"
-      || !outcomes.includes(value.result.outcome)) invalid("The Assistant result is invalid.");
+      || !outcomes.includes(value.result.outcome)) invalid("The Worker result is invalid.");
     if (Object.hasOwn(value.result, "data")) {
       const serialized = JSON.stringify(value.result.data);
-      if (serialized === undefined || Buffer.byteLength(serialized) > limits.dataBytes) invalid("The Assistant result details are invalid.");
+      if (serialized === undefined || Buffer.byteLength(serialized) > limits.dataBytes) invalid("The Worker result details are invalid.");
       // Details survive a restart only while the shape the request declared
       // still accepts them; anything else is dropped rather than delivered.
-      if (!value.outputSchema || !acceptedResultData(value.outputSchema, value.result.data)) invalid("The Assistant result details are invalid.");
+      if (!value.outputSchema || !acceptedResultData(value.outputSchema, value.result.data)) invalid("The Worker result details are invalid.");
     }
     if (Object.hasOwn(value.result, "files")) {
       if (!Array.isArray(value.result.files)
-        || !value.result.files.every((file: unknown) => isResultFile(file))) invalid("The Assistant result files are invalid.");
+        || !value.result.files.every((file: unknown) => isResultFile(file))) invalid("The Worker result files are invalid.");
     }
-    if (Buffer.byteLength(JSON.stringify(value.result) ?? "") > limits.resultBytes) invalid("The Assistant result is invalid.");
+    if (Buffer.byteLength(JSON.stringify(value.result) ?? "") > limits.resultBytes) invalid("The Worker result is invalid.");
   }
-  if (value.status === "succeeded" && !value.result) invalid("The Assistant result is missing.");
+  if (value.status === "succeeded" && !value.result) invalid("The Worker result is missing.");
   if (value.model !== undefined) {
     exact(value.model, ["provider", "id"]);
-    if (Object.values(value.model).some((item) => typeof item !== "string" || !item.length || item.length > 200)) invalid("The Assistant usage receipt is invalid.");
+    if (Object.values(value.model).some((item) => typeof item !== "string" || !item.length || item.length > 200)) invalid("The Worker usage receipt is invalid.");
   }
   if (value.usage !== undefined) {
     exact(value.usage, ["inputTokens", "outputTokens", ...(Object.hasOwn(value.usage, "amountUsd") ? ["amountUsd"] : [])]);
     if ([value.usage.inputTokens, value.usage.outputTokens, ...(Object.hasOwn(value.usage, "amountUsd") ? [value.usage.amountUsd] : [])]
-      .some((item) => typeof item !== "number" || !Number.isFinite(item) || item < 0)) invalid("The Assistant usage receipt is invalid.");
+      .some((item) => typeof item !== "number" || !Number.isFinite(item) || item < 0)) invalid("The Worker usage receipt is invalid.");
   }
   return structuredClone(value) as RestrictedAppTaskReceipt;
 }

@@ -4,7 +4,7 @@ import test from "node:test";
 
 // The bridge deploys separately from the desktop release lanes, so nothing
 // else keeps the remote client's copy aligned with the desktop vocabulary.
-// These are static string pins over the shipped client source: the fold
+// These are static string pins over the shipped client source: the work-fold agent
 // naming rows plus the copy rows that are load-bearing and must not drift.
 
 async function clientSource(file) {
@@ -50,7 +50,7 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(app.includes('<h1 class="new-heading" tabindex="-1">What are we working on?</h1>'));
   assert.equal(app.includes('id="context-needs"'), false);
   assert.ok(app.includes('id="shared-pages-toggle"'));
-  assert.equal(app.includes('id="space-title"'), false);
+  assert.equal(app.includes('id="work-folder-title"'), false);
 
   // The retired shell's copy is gone, not hidden: the Home heading and its
   // address line, the recent-chat tail, the back affordance, the composer
@@ -109,7 +109,7 @@ test("remote questions live in their owning Chats", async () => {
 
 test("the remote client does not fetch or acknowledge a hidden activity feed", async () => {
   const app = await clientSource("app.js");
-  assert.doesNotMatch(app, /remote\("management\.glance(?:Seen)?"/);
+  assert.doesNotMatch(app, /remote\("management\.overview(?:Seen)?"/);
   assert.doesNotMatch(app, /id="fold-home"|Since you last looked|Nothing needs you right now/);
 });
 
@@ -119,9 +119,9 @@ test("remote client navigation focuses on chats and shared pages", async () => {
 
   // Two screens, New chat as the door; retired hashes land there too.
   assert.match(app, /const contextNames = \["new", "chat"\];/);
-  assert.doesNotMatch(app, /id="context-spaces"|id="file-tree"|loadSpaces|loadTree|renderWorkspace|folder-picker/);
+  assert.doesNotMatch(app, /id="context-work-folders"|id="file-tree"|loadWorkFolders|loadTree|renderWorkspace|folder-picker/);
   assert.match(app, /contextNames\.includes\(raw\) \? raw : "new"/);
-  assert.match(app, /requested === "files" \|\| requested === "spaces"\) return "new"/);
+  assert.match(app, /requested === "files" \|\| requested === "work-folders"\) return "new"/);
   assert.match(app, /id="context-new"[\s\S]*?id="context-chat"/);
   assert.match(app, /id="new-composer-slot"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
 

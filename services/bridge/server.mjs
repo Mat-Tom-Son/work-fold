@@ -58,7 +58,7 @@ const releaseDownloadCacheMs = 15 * 60 * 1_000;
 // the JSON wrapper needs a little more room on the device upload path.
 const maximumSnapshotBodyBytes = 4 * 1024 * 1024;
 // The publishing ladder's viewer plane is unauthenticated by design, so every
-// bound applies before anything reaches the desktop (docs/fold-publishing.md,
+// bound applies before anything reaches the desktop (docs/shared-pages.md,
 // "Abuse bounds"). Decoded-bytes × 1.4 accounting matches the envelope limits.
 const viewerRequestsPerIpPerMinute = 60;
 const viewerFetchDispatchPerAccountPerMinute = 120;
@@ -71,8 +71,8 @@ const viewerPublicDir = join(publicDir, "viewer");
 // The management operation allowlist. The publishing ladder's viewer plane is
 // deliberately absent: viewer traffic never enters /api/operations, and
 // unknown operation names — including any viewer.* spelling — stay rejected.
-// The fold's glance operations ride the same signed envelopes: the bridge
-// relays ciphertext and persists no digest content (docs/fold-glance.md).
+// The work-fold agent's overview operations ride the same signed envelopes: the bridge
+// relays ciphertext and persists no digest content (docs/work-fold-agent-overview.md).
 const allowedOperations = new Set([
   "management.summary",
   "management.chats",
@@ -91,9 +91,9 @@ const allowedOperations = new Set([
   "management.glanceSeen",
   "pages.list",
   "pages.link",
-  "spaces.list",
-  "spaces.tree",
-  "spaces.filePreview",
+  "work-folders.list",
+  "work-folders.tree",
+  "work-folders.filePreview",
   "apps.list",
   "apps.read",
   "apps.actions.request",
@@ -980,7 +980,7 @@ function viewerPlaneHost(state, request) {
   return isReservedViewerSlug(label) ? label : null;
 }
 
-// The publishing ladder's viewer plane (docs/fold-publishing.md, rung 2). A
+// The publishing ladder's viewer plane (docs/shared-pages.md, rung 2). A
 // reserved pages-* host serves exactly the static viewer shell, the viewer
 // page API, and robots.txt — every other path gets the one indistinguishable
 // "nothing here" answer, so an outsider cannot tell revoked, never-existed,
@@ -1006,7 +1006,7 @@ async function handleViewerRequest(state, request, response, url, method) {
       "content-security-policy": viewerPageShellContentSecurityPolicy,
     });
   }
-  // The rung-3 app shell (docs/fold-publishing.md): same origin-isolation and
+  // The rung-3 app shell (docs/shared-pages.md): same origin-isolation and
   // fragment-key rules as pages, its own document so its own CSP. The shell
   // hosts the reviewed app inside a sandboxed blob: iframe WITHOUT
   // allow-same-origin — an opaque origin with no storage and no cookies. A
@@ -1216,9 +1216,9 @@ async function handleViewerAppRequest(state, request, response, publicationId, c
 
 /**
  * Tells the connected desktop that one of its publications is resting, so the
- * publisher's glance can say precisely what the viewer's vague page cannot
- * (docs/fold-publishing.md, "Honest states": budget exhaustion is a typed
- * viewer state and a glance item, never a silent drop). Content-free —
+ * publisher's overview can say precisely what the viewer's vague page cannot
+ * (docs/shared-pages.md, "Honest states": budget exhaustion is a typed
+ * viewer state and an overview item, never a silent drop). Content-free —
  * publication id and a reason token — rate-limited to one notice per
  * publication per minute, and best-effort: an asleep desktop simply never
  * hears, and per-publication resting cannot occur while asleep anyway.

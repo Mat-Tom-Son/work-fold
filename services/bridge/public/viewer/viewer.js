@@ -1,4 +1,4 @@
-// The viewer shell for "pages your fold serves" (docs/fold-publishing.md,
+// The viewer shell for shared pages (docs/shared-pages.md,
 // rung 2). It runs on the isolated pages-<slug> origin, holds no cookies and
 // writes no storage, and reads exactly one thing: this page's typed state
 // from /api/viewer/pages/<publicationId>. The decryption key rides only in

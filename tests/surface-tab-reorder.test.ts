@@ -21,7 +21,7 @@ test("real tab dragging reorders, cancels, scrolls and respects groups and reduc
     const html = `<!doctype html><html data-theme="light" data-appearance-motion="system"><head><style>${css}
       .surface-tabbar { width:600px; } .surface-tab { flex:none!important; width:150px!important; }
       </style></head><body><div class="app-shell"><div class="surface-tabbar"><div class="surface-tabs">
-      ${["a", "b", "c", "d"].map((id,index) => `<span class="surface-tab ${index === 0 ? "active" : ""}" data-tab-id="${id}" data-space-id="${index < 2 ? "one" : "two"}"><button class="surface-tab-main">${id}</button><button class="surface-tab-close">Close</button></span>`).join("")}
+      ${["a", "b", "c", "d"].map((id,index) => `<span class="surface-tab ${index === 0 ? "active" : ""}" data-tab-id="${id}" data-work-folder-id="${index < 2 ? "one" : "two"}"><button class="surface-tab-main">${id}</button><button class="surface-tab-close">Close</button></span>`).join("")}
       </div></div><textarea id="draft">Unsent draft</textarea></div><pre id="result">pending</pre><script>${script}
       (async () => {
         const strip=document.querySelector('.surface-tabs'); const elements=[...strip.querySelectorAll('.surface-tab')];

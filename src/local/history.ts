@@ -11,8 +11,8 @@ import {
 import type { HistoryPageInfo, HistoryPageOptions } from "../shared/history-review.js";
 import { decodeRetrievalCursor, encodeRetrievalCursor, retrievalError } from "./retrieval-cursor.js";
 import { isOfficeLockFileName } from "./office-lock-files.js";
-import { spaceHistoryRoot } from "./state-paths.js";
-import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, resolveSpacePath, nestedRegisteredSpacePaths, withSpaceHistoryOperation } from "./space.js";
+import { workFolderHistoryRoot } from "./state-paths.js";
+import { assertWorkFolderDoesNotContainState, ensureSafeWorkFolderRoot, resolveWorkFolderPath, nestedRegisteredWorkFolderPaths, withWorkFolderHistoryOperation } from "./work-folder.js";
 
 export interface CheckpointFileEntry {
   path: string;
@@ -32,7 +32,7 @@ export interface CheckpointSkippedFile {
   reason: "too_large" | "unreadable" | "symbolic_link" | "excluded";
 }
 
-export interface SpaceCheckpoint {
+export interface WorkFolderCheckpoint {
   schemaVersion: "0.2.0";
   checkpointId: string;
   createdAt: string;
@@ -51,7 +51,7 @@ export interface SpaceCheckpoint {
   files: CheckpointFileEntry[];
 }
 
-export interface SpaceFileVersion {
+export interface WorkFolderFileVersion {
   path: string;
   hashSha256: string;
   sizeBytes: number;
@@ -62,7 +62,7 @@ export interface SpaceFileVersion {
   source: "checkpoint";
 }
 
-export interface SpaceRestoreResult {
+export interface WorkFolderRestoreResult {
   restored: true;
   checkpointId: string;
   safetyCheckpointId: string;
@@ -84,10 +84,10 @@ const captureHashConcurrency = 8;
 /** Files at or above this size are hashed from a stream instead of being read whole. */
 const captureStreamHashBytes = 8 * 1024 * 1024;
 
-export async function storeSpaceBlob(spaceRoot: string, bytes: Buffer): Promise<StoredBlobRef> {
-  const root = ensureHistoryRoot(spaceRoot);
+export async function storeWorkFolderBlob(workFolderRoot: string, bytes: Buffer): Promise<StoredBlobRef> {
+  const root = ensureHistoryRoot(workFolderRoot);
   const hashSha256 = sha256(bytes);
-  const blobPath = spaceBlobPath(root, hashSha256);
+  const blobPath = workFolderBlobPath(root, hashSha256);
   if (!existsSync(blobPath)) {
     await mkdir(dirname(blobPath), { recursive: true });
     const stagingPath = `${blobPath}.tmp-${randomUUID().slice(0, 8)}`;
@@ -104,18 +104,18 @@ export async function storeSpaceBlob(spaceRoot: string, bytes: Buffer): Promise<
 }
 
 /**
- * Captures one Space file into the blob store without holding large files in
+ * Captures one work-folder file into the blob store without holding large files in
  * memory. The common case — content already stored — costs one streamed read.
  * A new blob is copied (a clone on APFS) into a private staging file and then
  * hashed again from that copy, so the stored bytes always match the recorded
  * hash even if the source file changes mid-capture.
  */
-async function storeSpaceBlobFromFile(root: string, absolutePath: string, sizeBytes: number): Promise<StoredBlobRef> {
+async function storeWorkFolderBlobFromFile(root: string, absolutePath: string, sizeBytes: number): Promise<StoredBlobRef> {
   if (sizeBytes < captureStreamHashBytes) {
-    return storeSpaceBlob(root, await readFile(absolutePath));
+    return storeWorkFolderBlob(root, await readFile(absolutePath));
   }
   const hashSha256 = await sha256File(absolutePath);
-  const blobPath = spaceBlobPath(root, hashSha256);
+  const blobPath = workFolderBlobPath(root, hashSha256);
   if (existsSync(blobPath)) {
     await ensureHistoryMeta(root);
     return { hashSha256, sizeBytes };
@@ -126,7 +126,7 @@ async function storeSpaceBlobFromFile(root: string, absolutePath: string, sizeBy
     await copyFile(absolutePath, stagingPath);
     const stagedHash = await sha256File(stagingPath);
     const stagedInfo = await stat(stagingPath);
-    const finalPath = spaceBlobPath(root, stagedHash);
+    const finalPath = workFolderBlobPath(root, stagedHash);
     if (existsSync(finalPath)) {
       await rm(stagingPath, { force: true });
     } else {
@@ -155,19 +155,19 @@ function sha256File(path: string): Promise<string> {
     stream.on("end", () => resolvePromise(hash.digest("hex")));
   });
 }
-export async function readSpaceBlob(spaceRoot: string, hashSha256: string): Promise<Buffer | null> {
-  const root = ensureHistoryRoot(spaceRoot);
+export async function readWorkFolderBlob(workFolderRoot: string, hashSha256: string): Promise<Buffer | null> {
+  const root = ensureHistoryRoot(workFolderRoot);
   const normalized = normalizeHash(hashSha256);
-  const bytes = await readFile(spaceBlobPath(root, normalized)).catch(() => null);
+  const bytes = await readFile(workFolderBlobPath(root, normalized)).catch(() => null);
   if (!bytes || sha256(bytes) !== normalized) return null;
   return bytes;
 }
 
-async function createSpaceCheckpointUnlocked(
-  spaceRoot: string,
+async function createWorkFolderCheckpointUnlocked(
+  workFolderRoot: string,
   options: { label?: string; reason?: string } = {},
-): Promise<SpaceCheckpoint> {
-  const root = ensureHistoryRoot(spaceRoot);
+): Promise<WorkFolderCheckpoint> {
+  const root = ensureHistoryRoot(workFolderRoot);
   const captured = await capturePaths(root, [""], await createFullHistoryCapturePolicy(root));
   return persistCheckpoint(root, {
     reason: options.reason?.trim() || "manual",
@@ -180,8 +180,8 @@ async function createSpaceCheckpointUnlocked(
   });
 }
 
-async function createSpaceMutationCheckpointUnlocked(
-  spaceRoot: string,
+async function createWorkFolderMutationCheckpointUnlocked(
+  workFolderRoot: string,
   options: {
     paths?: string[];
     deleteOnRestore?: string[];
@@ -189,8 +189,8 @@ async function createSpaceMutationCheckpointUnlocked(
     label?: string;
     reason?: string;
   },
-): Promise<SpaceCheckpoint> {
-  const root = ensureHistoryRoot(spaceRoot);
+): Promise<WorkFolderCheckpoint> {
+  const root = ensureHistoryRoot(workFolderRoot);
   const captureRoots = collapsePaths((options.paths ?? []).map((path) => canonicalPath(root, path, true).path));
   const deleteOnRestore = collapsePaths((options.deleteOnRestore ?? []).map((path) => canonicalPath(root, path, true).path));
   const movesOnRestore = (options.movesOnRestore ?? []).map((move) => ({
@@ -209,15 +209,15 @@ async function createSpaceMutationCheckpointUnlocked(
   });
 }
 
-export async function listSpaceCheckpoints(spaceRoot: string, limit = 50): Promise<SpaceCheckpoint[]> {
-  const root = ensureHistoryRoot(spaceRoot);
+export async function listWorkFolderCheckpoints(workFolderRoot: string, limit = 50): Promise<WorkFolderCheckpoint[]> {
+  const root = ensureHistoryRoot(workFolderRoot);
   return (await readCheckpointManifests(root)).slice(0, Math.min(Math.max(limit, 1), 1000));
 }
 
 /** A page of the full retained ledger; the cursor rejects a changed source. */
-export async function listSpaceCheckpointPage(spaceRoot: string, options: HistoryPageOptions = {}): Promise<HistoryPageInfo & { checkpoints: SpaceCheckpoint[] }> {
-  const root = ensureHistoryRoot(spaceRoot);
-  return withSpaceHistoryOperation(root, async () => {
+export async function listWorkFolderCheckpointPage(workFolderRoot: string, options: HistoryPageOptions = {}): Promise<HistoryPageInfo & { checkpoints: WorkFolderCheckpoint[] }> {
+  const root = ensureHistoryRoot(workFolderRoot);
+  return withWorkFolderHistoryOperation(root, async () => {
     const checkpoints = await readCheckpointManifests(root);
     const page = historyPage(root, "checkpoints", checkpoints, options);
     return { ...page.info, checkpoints: page.items };
@@ -239,22 +239,22 @@ function historyPage<T>(root: string, selector: string, items: T[], options: His
     nextCursor: end < items.length ? encodeRetrievalCursor({ scope, sourceVersion, offset: end }) : null } };
 }
 
-export async function getSpaceCheckpoint(spaceRoot: string, checkpointId: string): Promise<SpaceCheckpoint | null> {
+export async function getWorkFolderCheckpoint(workFolderRoot: string, checkpointId: string): Promise<WorkFolderCheckpoint | null> {
   if (!checkpointIdPattern.test(checkpointId)) return null;
-  const root = ensureHistoryRoot(spaceRoot);
+  const root = ensureHistoryRoot(workFolderRoot);
   return readCheckpointManifest(join(checkpointsDir(root), `${checkpointId}.json`));
 }
 
-async function discardSpaceCheckpointUnlocked(spaceRoot: string, checkpointId: string): Promise<void> {
+async function discardWorkFolderCheckpointUnlocked(workFolderRoot: string, checkpointId: string): Promise<void> {
   if (!checkpointIdPattern.test(checkpointId)) return;
-  const root = ensureHistoryRoot(spaceRoot);
+  const root = ensureHistoryRoot(workFolderRoot);
   await rm(join(checkpointsDir(root), `${checkpointId}.json`), { force: true });
   await garbageCollectObjects(root, await readCheckpointManifests(root));
 }
 
-async function restoreSpaceCheckpointUnlocked(spaceRoot: string, checkpointId: string): Promise<SpaceRestoreResult> {
-  const root = ensureHistoryRoot(spaceRoot);
-  const checkpoint = await getSpaceCheckpoint(root, checkpointId);
+async function restoreWorkFolderCheckpointUnlocked(workFolderRoot: string, checkpointId: string): Promise<WorkFolderRestoreResult> {
+  const root = ensureHistoryRoot(workFolderRoot);
+  const checkpoint = await getWorkFolderCheckpoint(root, checkpointId);
   if (!checkpoint) throw notFound("Restore point not found.");
   validateCheckpointPaths(root, checkpoint);
   const staged = await stageCheckpointContent(root, checkpoint);
@@ -263,7 +263,7 @@ async function restoreSpaceCheckpointUnlocked(spaceRoot: string, checkpointId: s
     await assertRestoreOwnership(root, checkpoint);
 
     const safety = checkpoint.scope === "full"
-      ? await createSpaceCheckpoint(root, { reason: "pre_restore", label: `Before restoring ${checkpointId}` })
+      ? await createWorkFolderCheckpoint(root, { reason: "pre_restore", label: `Before restoring ${checkpointId}` })
       : await createTargetedRestoreSafety(root, checkpoint);
     assertRestoreCoverage(checkpoint, safety);
     await assertRestoreOwnership(root, checkpoint);
@@ -332,19 +332,19 @@ async function restoreSpaceCheckpointUnlocked(spaceRoot: string, checkpointId: s
   }
 }
 
-export async function listFileVersions(spaceRoot: string, relativePath: string, limit = 50): Promise<SpaceFileVersion[]> {
-  return (await listFileVersionPage(spaceRoot, relativePath, { limit: Math.min(Math.max(limit, 1), 200) })).versions;
+export async function listFileVersions(workFolderRoot: string, relativePath: string, limit = 50): Promise<WorkFolderFileVersion[]> {
+  return (await listFileVersionPage(workFolderRoot, relativePath, { limit: Math.min(Math.max(limit, 1), 200) })).versions;
 }
 
-export async function listFileVersionPage(spaceRoot: string, relativePath: string, options: HistoryPageOptions = {}): Promise<HistoryPageInfo & { versions: SpaceFileVersion[] }> {
-  const root = ensureHistoryRoot(spaceRoot);
+export async function listFileVersionPage(workFolderRoot: string, relativePath: string, options: HistoryPageOptions = {}): Promise<HistoryPageInfo & { versions: WorkFolderFileVersion[] }> {
+  const root = ensureHistoryRoot(workFolderRoot);
   const path = canonicalPath(root, relativePath, true).path;
-  return withSpaceHistoryOperation(root, async () => {
-    const versions: SpaceFileVersion[] = [];
+  return withWorkFolderHistoryOperation(root, async () => {
+    const versions: WorkFolderFileVersion[] = [];
     const seen = new Set<string>();
     for (const checkpoint of await readCheckpointManifests(root)) {
       const file = checkpoint.files.find((entry) => entry.path === path);
-      if (!file || seen.has(file.hashSha256) || !(await hasSpaceBlob(root, file.hashSha256))) continue;
+      if (!file || seen.has(file.hashSha256) || !(await hasWorkFolderBlob(root, file.hashSha256))) continue;
       seen.add(file.hashSha256);
       versions.push({ path, hashSha256: file.hashSha256, sizeBytes: file.sizeBytes, modifiedAt: file.modifiedAt,
         capturedAt: checkpoint.createdAt, checkpointId: checkpoint.checkpointId,
@@ -356,19 +356,19 @@ export async function listFileVersionPage(spaceRoot: string, relativePath: strin
 }
 
 async function restoreFileVersionUnlocked(
-  spaceRoot: string,
+  workFolderRoot: string,
   relativePath: string,
   hashSha256: string,
 ): Promise<{ restored: true; path: string; hashSha256: string; previousHashSha256: string | null; safetyCheckpointId: string }> {
-  const root = ensureHistoryRoot(spaceRoot);
+  const root = ensureHistoryRoot(workFolderRoot);
   const { path, absolutePath } = canonicalPath(root, relativePath, true);
   const normalizedHash = normalizeHash(hashSha256);
-  const bytes = await readSpaceBlob(root, normalizedHash);
+  const bytes = await readWorkFolderBlob(root, normalizedHash);
   if (!bytes) throw notFound("File version not found.");
   const currentInfo = await stat(absolutePath).catch(() => null);
   if (currentInfo && !currentInfo.isFile()) throw new Error("The selected path is currently a folder.");
   const currentBytes = currentInfo?.isFile() ? await readFile(absolutePath) : null;
-  const safety = await createSpaceMutationCheckpoint(root, {
+  const safety = await createWorkFolderMutationCheckpoint(root, {
     paths: currentBytes ? [path] : [],
     deleteOnRestore: currentBytes ? [] : [path],
     reason: "pre_file_restore",
@@ -394,7 +394,7 @@ async function capturePaths(root: string, requestedPaths: string[], policy: Hist
   const directories = new Set<string>();
   const files = new Map<string, CheckpointFileEntry>();
   const skipped = new Map<string, CheckpointSkippedFile>();
-  const nestedPaths = await nestedRegisteredSpacePaths(root);
+  const nestedPaths = await nestedRegisteredWorkFolderPaths(root);
   const pendingFiles: Array<{ path: string; absolutePath: string; sizeBytes: number; modifiedAt: string }> = [];
 
   const visit = async (absolutePath: string): Promise<void> => {
@@ -454,7 +454,7 @@ async function capturePaths(root: string, requestedPaths: string[], policy: Hist
       const file = pendingFiles[next]!;
       next += 1;
       try {
-        const blob = persistBlobs ? await storeSpaceBlobFromFile(root, file.absolutePath, file.sizeBytes)
+        const blob = persistBlobs ? await storeWorkFolderBlobFromFile(root, file.absolutePath, file.sizeBytes)
           : { hashSha256: await sha256File(file.absolutePath), sizeBytes: file.sizeBytes };
         files.set(file.path, { path: file.path, hashSha256: blob.hashSha256, sizeBytes: blob.sizeBytes, modifiedAt: file.modifiedAt });
       } catch {
@@ -481,7 +481,7 @@ async function persistCheckpoint(root: string, input: {
   directories: string[];
   files: CheckpointFileEntry[];
   skippedFiles: CheckpointSkippedFile[];
-}): Promise<SpaceCheckpoint> {
+}): Promise<WorkFolderCheckpoint> {
   const material = {
     scope: input.scope,
     captureRoots: input.captureRoots,
@@ -492,11 +492,11 @@ async function persistCheckpoint(root: string, input: {
     skippedFiles: input.skippedFiles,
   };
   const manifestHash = sha256(Buffer.from(stableJson(material), "utf8"));
-  const [latest] = await listSpaceCheckpoints(root, 1);
+  const [latest] = await listWorkFolderCheckpoints(root, 1);
   if (input.scope === "full" && latest?.scope === "full" && latest.manifestHash === manifestHash) return latest;
 
   const createdAt = new Date().toISOString();
-  const checkpoint: SpaceCheckpoint = {
+  const checkpoint: WorkFolderCheckpoint = {
     schemaVersion: "0.2.0",
     checkpointId: `cp-${createdAt.replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`,
     createdAt,
@@ -520,7 +520,7 @@ async function persistCheckpoint(root: string, input: {
   return checkpoint;
 }
 
-function assertRestoreCoverage(checkpoint: SpaceCheckpoint, safety: SpaceCheckpoint): void {
+function assertRestoreCoverage(checkpoint: WorkFolderCheckpoint, safety: WorkFolderCheckpoint): void {
   const writes = checkpoint.files.map((file) => file.path);
   const uncovered = safety.skippedFiles.filter((skip) =>
     writes.some((path) => path === skip.path || path.startsWith(`${skip.path}/`))
@@ -530,15 +530,15 @@ function assertRestoreCoverage(checkpoint: SpaceCheckpoint, safety: SpaceCheckpo
   }
 }
 
-async function assertRestoreOwnership(root: string, checkpoint: SpaceCheckpoint): Promise<void> {
-  const nested = await nestedRegisteredSpacePaths(root);
+async function assertRestoreOwnership(root: string, checkpoint: WorkFolderCheckpoint): Promise<void> {
+  const nested = await nestedRegisteredWorkFolderPaths(root);
   const paths = [...checkpoint.files.map((file) => file.path), ...checkpoint.directories,
     ...checkpoint.deleteOnRestore, ...checkpoint.movesOnRestore.flatMap((move) => [move.fromPath, move.toPath])];
   for (const path of paths) {
     if (nested.some((child) => path === child || path.startsWith(`${child}/`)
       || checkpoint.deleteOnRestore.includes(path) && child.startsWith(`${path}/`)
       || checkpoint.movesOnRestore.some((move) => move.fromPath === path || move.toPath === path) && child.startsWith(`${path}/`))) {
-      throw new Error(`Restore refused: ${path} belongs to or contains another registered Space. No files were changed.`);
+      throw new Error(`Restore refused: ${path} belongs to or contains another registered work-folder. No files were changed.`);
     }
   }
 }
@@ -554,7 +554,7 @@ async function atomicRestoreFile(root: string, path: string, bytes: Buffer): Pro
   } finally { await rm(temporary, { force: true }); }
 }
 
-async function createTargetedRestoreSafety(root: string, checkpoint: SpaceCheckpoint): Promise<SpaceCheckpoint> {
+async function createTargetedRestoreSafety(root: string, checkpoint: WorkFolderCheckpoint): Promise<WorkFolderCheckpoint> {
   const affectedRoots = collapsePaths([...checkpoint.captureRoots, ...checkpoint.deleteOnRestore]);
   const existing: string[] = [];
   const deleteOnRestore: string[] = [];
@@ -562,7 +562,7 @@ async function createTargetedRestoreSafety(root: string, checkpoint: SpaceCheckp
     if (existsSync(canonicalPath(root, path, true).absolutePath)) existing.push(path);
     else deleteOnRestore.push(path);
   }
-  return createSpaceMutationCheckpoint(root, {
+  return createWorkFolderMutationCheckpoint(root, {
     paths: existing,
     deleteOnRestore,
     movesOnRestore: checkpoint.movesOnRestore.map((move) => ({ fromPath: move.toPath, toPath: move.fromPath })),
@@ -571,7 +571,7 @@ async function createTargetedRestoreSafety(root: string, checkpoint: SpaceCheckp
   });
 }
 
-async function preflightRestore(root: string, checkpoint: SpaceCheckpoint): Promise<void> {
+async function preflightRestore(root: string, checkpoint: WorkFolderCheckpoint): Promise<void> {
   for (const move of checkpoint.movesOnRestore) {
     const from = canonicalPath(root, move.fromPath, false).absolutePath;
     const to = canonicalPath(root, move.toPath, true).absolutePath;
@@ -587,7 +587,7 @@ async function preflightRestore(root: string, checkpoint: SpaceCheckpoint): Prom
   }
 }
 
-function validateCheckpointPaths(root: string, checkpoint: SpaceCheckpoint): void {
+function validateCheckpointPaths(root: string, checkpoint: WorkFolderCheckpoint): void {
   for (const directory of checkpoint.directories) canonicalPath(root, directory, true);
   for (const file of checkpoint.files) canonicalPath(root, file.path, true);
   for (const path of checkpoint.captureRoots) canonicalPath(root, path, true);
@@ -607,9 +607,9 @@ async function pruneHistory(root: string): Promise<void> {
   await garbageCollectObjects(root, retained);
 }
 
-async function garbageCollectObjects(root: string, retained: SpaceCheckpoint[]): Promise<void> {
+async function garbageCollectObjects(root: string, retained: WorkFolderCheckpoint[]): Promise<void> {
   const referenced = new Set(retained.flatMap((checkpoint) => checkpoint.files.map((file) => file.hashSha256)));
-  const objectsRoot = join(spaceHistoryRoot(root), "objects");
+  const objectsRoot = join(workFolderHistoryRoot(root), "objects");
   for (const prefix of await readdir(objectsRoot, { withFileTypes: true }).catch(() => [])) {
     if (!prefix.isDirectory()) continue;
     const directory = join(objectsRoot, prefix.name);
@@ -624,16 +624,16 @@ async function garbageCollectObjects(root: string, retained: SpaceCheckpoint[]):
 
 async function stageCheckpointContent(
   root: string,
-  checkpoint: SpaceCheckpoint,
+  checkpoint: WorkFolderCheckpoint,
 ): Promise<{ root: string; pathsByHash: Map<string, string> }> {
-  const stagingRoot = join(spaceHistoryRoot(root), "restore-staging", randomUUID());
+  const stagingRoot = join(workFolderHistoryRoot(root), "restore-staging", randomUUID());
   const pathsByHash = new Map<string, string>();
   const missing: string[] = [];
   await mkdir(stagingRoot, { recursive: true });
   try {
     for (const file of checkpoint.files) {
       if (pathsByHash.has(file.hashSha256)) continue;
-      const bytes = await readSpaceBlob(root, file.hashSha256);
+      const bytes = await readWorkFolderBlob(root, file.hashSha256);
       if (!bytes) {
         missing.push(file.path);
         continue;
@@ -652,9 +652,9 @@ async function stageCheckpointContent(
   }
 }
 
-async function readCheckpointManifests(root: string): Promise<SpaceCheckpoint[]> {
+async function readCheckpointManifests(root: string): Promise<WorkFolderCheckpoint[]> {
   const entries = await readdir(checkpointsDir(root)).catch(() => [] as string[]);
-  const checkpoints: SpaceCheckpoint[] = [];
+  const checkpoints: WorkFolderCheckpoint[] = [];
   for (const name of entries) {
     if (!name.endsWith(".json")) continue;
     const checkpoint = await readCheckpointManifest(join(checkpointsDir(root), name));
@@ -663,29 +663,29 @@ async function readCheckpointManifests(root: string): Promise<SpaceCheckpoint[]>
   return checkpoints.sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.checkpointId.localeCompare(left.checkpointId));
 }
 
-async function readCheckpointManifest(path: string): Promise<SpaceCheckpoint | null> {
+async function readCheckpointManifest(path: string): Promise<WorkFolderCheckpoint | null> {
   try {
-    const value = JSON.parse(await readFile(path, "utf8")) as Partial<SpaceCheckpoint>;
+    const value = JSON.parse(await readFile(path, "utf8")) as Partial<WorkFolderCheckpoint>;
     if (value.schemaVersion !== "0.2.0" || !checkpointIdPattern.test(value.checkpointId ?? "") || !Array.isArray(value.files)) return null;
-    return { ...value, directories: Array.isArray(value.directories) ? value.directories : [] } as SpaceCheckpoint;
+    return { ...value, directories: Array.isArray(value.directories) ? value.directories : [] } as WorkFolderCheckpoint;
   } catch {
     return null;
   }
 }
 
-async function hasSpaceBlob(root: string, hashSha256: string): Promise<boolean> {
+async function hasWorkFolderBlob(root: string, hashSha256: string): Promise<boolean> {
   try {
-    return existsSync(spaceBlobPath(root, hashSha256));
+    return existsSync(workFolderBlobPath(root, hashSha256));
   } catch {
     return false;
   }
 }
 
 function canonicalPath(root: string, value: string, allowMissing: boolean): { path: string; absolutePath: string } {
-  const absolutePath = resolveSpacePath(root, toPosix(value).replace(/^\/+/, "") || ".");
+  const absolutePath = resolveWorkFolderPath(root, toPosix(value).replace(/^\/+/, "") || ".");
   const path = toPosix(relative(root, absolutePath));
-  if (!path || path === ".") throw new Error("The Space root cannot be used as a history item.");
-  if (!allowMissing && !existsSync(absolutePath)) throw notFound(`Space item not found: ${path}`);
+  if (!path || path === ".") throw new Error("The work-folder root cannot be used as a history item.");
+  if (!allowMissing && !existsSync(absolutePath)) throw notFound(`work-folder item not found: ${path}`);
   return { path, absolutePath };
 }
 
@@ -694,25 +694,25 @@ function collapsePaths(paths: string[]): string[] {
   return sorted.filter((path, index) => !sorted.slice(0, index).some((parent) => path === parent || path.startsWith(`${parent}/`)));
 }
 
-function ensureHistoryRoot(spaceRoot: string): string {
-  const root = ensureSafeSpaceRoot(spaceRoot);
-  assertSpaceDoesNotContainState(root);
+function ensureHistoryRoot(workFolderRoot: string): string {
+  const root = ensureSafeWorkFolderRoot(workFolderRoot);
+  assertWorkFolderDoesNotContainState(root);
   return root;
 }
 
-function spaceBlobPath(root: string, hashSha256: string): string {
+function workFolderBlobPath(root: string, hashSha256: string): string {
   const normalized = normalizeHash(hashSha256);
-  return join(spaceHistoryRoot(root), "objects", normalized.slice(0, 2), normalized.slice(2));
+  return join(workFolderHistoryRoot(root), "objects", normalized.slice(0, 2), normalized.slice(2));
 }
 
 function checkpointsDir(root: string): string {
-  return join(spaceHistoryRoot(root), "checkpoints");
+  return join(workFolderHistoryRoot(root), "checkpoints");
 }
 
 async function ensureHistoryMeta(root: string): Promise<void> {
-  const path = join(spaceHistoryRoot(root), "meta.json");
+  const path = join(workFolderHistoryRoot(root), "meta.json");
   if (existsSync(path)) return;
-  await atomicJsonWrite(path, { schemaVersion: "0.2.0", spaceRoot: resolve(root), createdAt: new Date().toISOString() });
+  await atomicJsonWrite(path, { schemaVersion: "0.2.0", workFolderRoot: resolve(root), createdAt: new Date().toISOString() });
 }
 
 async function atomicJsonWrite(path: string, value: unknown): Promise<void> {
@@ -754,27 +754,27 @@ function notFound(message: string): Error {
   return Object.assign(new Error(message), { statusCode: 404 });
 }
 
-export async function createSpaceCheckpoint(...args: Parameters<typeof createSpaceCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof createSpaceCheckpointUnlocked>>> {
-  return withSpaceHistoryOperation(args[0], () => createSpaceCheckpointUnlocked(...args));
+export async function createWorkFolderCheckpoint(...args: Parameters<typeof createWorkFolderCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof createWorkFolderCheckpointUnlocked>>> {
+  return withWorkFolderHistoryOperation(args[0], () => createWorkFolderCheckpointUnlocked(...args));
 }
 
-export async function createSpaceMutationCheckpoint(...args: Parameters<typeof createSpaceMutationCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof createSpaceMutationCheckpointUnlocked>>> {
-  return withSpaceHistoryOperation(args[0], () => createSpaceMutationCheckpointUnlocked(...args));
+export async function createWorkFolderMutationCheckpoint(...args: Parameters<typeof createWorkFolderMutationCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof createWorkFolderMutationCheckpointUnlocked>>> {
+  return withWorkFolderHistoryOperation(args[0], () => createWorkFolderMutationCheckpointUnlocked(...args));
 }
 
-export async function discardSpaceCheckpoint(...args: Parameters<typeof discardSpaceCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof discardSpaceCheckpointUnlocked>>> {
-  return withSpaceHistoryOperation(args[0], () => discardSpaceCheckpointUnlocked(...args));
+export async function discardWorkFolderCheckpoint(...args: Parameters<typeof discardWorkFolderCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof discardWorkFolderCheckpointUnlocked>>> {
+  return withWorkFolderHistoryOperation(args[0], () => discardWorkFolderCheckpointUnlocked(...args));
 }
 
-export async function restoreSpaceCheckpoint(...args: Parameters<typeof restoreSpaceCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof restoreSpaceCheckpointUnlocked>>> {
-  return withSpaceHistoryOperation(args[0], () => restoreSpaceCheckpointUnlocked(...args));
+export async function restoreWorkFolderCheckpoint(...args: Parameters<typeof restoreWorkFolderCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof restoreWorkFolderCheckpointUnlocked>>> {
+  return withWorkFolderHistoryOperation(args[0], () => restoreWorkFolderCheckpointUnlocked(...args));
 }
 
 export async function restoreFileVersion(...args: Parameters<typeof restoreFileVersionUnlocked>): Promise<Awaited<ReturnType<typeof restoreFileVersionUnlocked>>> {
-  return withSpaceHistoryOperation(args[0], () => restoreFileVersionUnlocked(...args));
+  return withWorkFolderHistoryOperation(args[0], () => restoreFileVersionUnlocked(...args));
 }
 
-export interface SpaceRestorePreview {
+export interface WorkFolderRestorePreview {
   checkpointId: string;
   scope: "full" | "targeted";
   restoreFiles: string[];
@@ -785,10 +785,10 @@ export interface SpaceRestorePreview {
   conflicts: string[];
 }
 
-export async function previewSpaceCheckpointRestore(spaceRoot: string, checkpointId: string): Promise<SpaceRestorePreview> {
-  return withSpaceHistoryOperation(spaceRoot, async () => {
-    const root = ensureHistoryRoot(spaceRoot);
-    const checkpoint = await getSpaceCheckpoint(root, checkpointId);
+export async function previewWorkFolderCheckpointRestore(workFolderRoot: string, checkpointId: string): Promise<WorkFolderRestorePreview> {
+  return withWorkFolderHistoryOperation(workFolderRoot, async () => {
+    const root = ensureHistoryRoot(workFolderRoot);
+    const checkpoint = await getWorkFolderCheckpoint(root, checkpointId);
     if (!checkpoint) throw notFound("Restore point not found.");
     validateCheckpointPaths(root, checkpoint);
     const conflicts: string[] = [];
@@ -805,7 +805,7 @@ export async function previewSpaceCheckpointRestore(spaceRoot: string, checkpoin
     return {
       checkpointId, scope: checkpoint.scope,
       restoreFiles: checkpoint.files.filter((file) => currentHashes.get(file.path) !== file.hashSha256).map((file) => file.path),
-      removePaths: [...new Set([...checkpoint.deleteOnRestore.filter((path) => existsSync(resolveSpacePath(root, path))),
+      removePaths: [...new Set([...checkpoint.deleteOnRestore.filter((path) => existsSync(resolveWorkFolderPath(root, path))),
         ...(checkpoint.scope === "full" ? current.files.filter((file) => !selected.has(file.path) && !excluded.some((path) => file.path === path || file.path.startsWith(`${path}/`))).map((file) => file.path) : [])])],
       moves: checkpoint.movesOnRestore,
       excludedPaths: excluded,

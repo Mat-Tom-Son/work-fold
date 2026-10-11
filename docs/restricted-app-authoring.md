@@ -1,15 +1,15 @@
 # Restricted app authoring
 
 > Request lifecycle consolidation: the [collaboration contract](collaboration-contract.md#completion-delivery-and-recovery)
-> governs completion across turns. Questions use `chat ask|answer` or `manage
-> ask|answer`; an accepted answer remains outstanding until linked. The fold,
-> Space and app owners receive bounded, recorded child-result deliveries.
+> governs completion across turns. Questions use `chat ask|answer` or `agent
+> ask|answer`; an accepted answer remains outstanding until linked. The work-fold agent,
+> work-folder and app owners receive bounded, recorded child-result deliveries.
 > App status/stop/usage follow the owned request, and task result reads expose
 > its selected envelope. Counts and transport sizes shown in Limits are fixed
 > in this build; the continuation switch is configurable.
 
 
-This is the canonical package and bridge reference for Space apps that run in
+This is the canonical package and bridge reference for work-folder apps that run in
 work-fold's restricted web runtime. Read [Restricted app runtime](restricted-app-runtime.md)
 for the security architecture, lifecycle boundaries, and remaining host gaps.
 The App Studio and release-backed runtime behind this surface are documented in
@@ -29,32 +29,32 @@ shows the native Pi Extension lane and is intentionally not a sandbox example.
 
 ## Normal creation and installation
 
-The normal product path begins in a Chat belonging to the target Space:
+The normal product path begins in a Chat belonging to the target work-folder:
 
-1. Ask the Assistant to build the app. It writes a complete package into an
-   ordinary visible folder inside that Space.
-2. The Assistant calls the host-owned `propose_space_app` tool with only the
-   Space-relative package folder.
+1. Ask a Worker to build the app. It writes a complete package into an
+   ordinary visible folder inside that work-folder.
+2. The agent calls the host-owned `propose_work-folder_app` tool with only the
+   work-folder-relative package folder.
 3. work-fold inspects the package without running JavaScript, computes its
-   digest, records a receipt bound to the Space, Chat, source folder, and
-   exact bytes, and adds that revision as a **Local preview** in the Space's
+   digest, records a receipt bound to the work-folder, Chat, source folder, and
+   exact bytes, and adds that revision as a **Local preview** in the work-folder's
    Development Instance in the same call, with every declared destination,
-   directory permission (whole Space), notification category, and automation
+   directory permission (whole work-folder), notification category, and automation
    on. Nothing collects a credential.
 4. The Chat and the receipt say what still needs you: a secret to connect, a
-   file to choose, or a Check to choose when the Space has more than one.
-5. Narrow the preview in **Settings → Apps**, which lists apps by Folder. Network destinations,
+   file to choose, or a Check to choose when the work-folder has more than one.
+5. Narrow the preview in **Settings → Apps**, which lists apps by work-folder. Network destinations,
    file targets, notification categories, connections, and each named
    automation are separate controls there.
 
 Settings → Apps deliberately shows no developer path. A completed package that is
-already inside the Space and was not proposed from a Chat is added with
-`work-fold apps install-preview --space <id-or-name> --package <space-path>`
+already inside the work-folder and was not proposed from a Chat is added with
+`work-fold apps install-preview --work-folder <id-or-name> --package <work-folder-path>`
 (a recovery and developer lane in the CLI's act family); it does not replace
 the Chat-bound proposal and review flow for agent-created apps.
 
 On the development branch, **Change this app** creates an exact installed-byte
-working copy and an unsent source-Space Chat draft. Edit that copy without changing
+working copy and an unsent source-work-folder Chat draft. Edit that copy without changing
 its app/package identity and propose it normally. The host rejects an update if
 another edit changed the source preview in the meantime. See
 [Changing an installed app](app-changes.md) for provenance, recovery, and remaining
@@ -73,10 +73,10 @@ Use **Open App Studio** when the reviewed preview is ready to install as an App:
 3. Review the immutable digest and publish it as a separate local action. If any
    preview changed since preparation, publishing fails and a new Release must be
    prepared.
-4. Choose a registered target Space, prepare the install, then activate it. The
+4. Choose a registered target work-folder, prepare the install, then activate it. The
    target may contain the same Project’s Development preview, with separate
    data and controls. A different Project cannot contribute the same Feature id,
-   and only one installed instance of this Project can be attached to that Space.
+   and only one installed instance of this Project can be attached to that work-folder.
 5. The Installed Release's declared destinations, file roots, notification
    categories, Check slots, and named automations are on from install; connect
    any secret-bearing destination and choose any exact file target in
@@ -87,7 +87,7 @@ bytes and declarations rather than a source-folder pointer or ambient Pi
 dependency. “Publish” does not upload, host, sign, sync, or list it. Executable
 bytes, mutable data, grants, connections, schedules, operation journals, and
 receipts stay in work-fold application data even though the App is attached to
-the chosen Space for navigation and file-grant selection.
+the chosen work-folder for navigation and file-grant selection.
 
 App Studio can prepare an update or rollback to any other published Release from
 the same Project. Exact unchanged Features may keep eligible authority; a
@@ -103,7 +103,7 @@ development branch also supports export; see [App data recovery](app-data-recove
 A small package can remain dependency-free:
 
 ```text
-my-space-app/
+my-work-folder-app/
 ├── package.json
 ├── agent-app.json
 ├── index.html
@@ -116,7 +116,7 @@ my-space-app/
 
 ```json
 {
-  "name": "my-space-app",
+  "name": "my-work-folder-app",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -141,10 +141,10 @@ than those can be previewed and installed but not yet published as a Release.
 
 ## Complete manifest template
 
-For named Assistant work an app can start, see
-[App-requested Assistant work](app-assistant-tasks.md). Its `assistantActions`
-declarations are separate from `tools`: tools let the Assistant call an app;
-requests let the app hand a task to its Space's Assistant. For a bounded model
+For named agent work an app can start, see
+[App-requested agent work](app-assistant-tasks.md). Its `assistantActions`
+declarations are separate from `tools`: tools let the agent call an app;
+requests let the app hand a task to its work-folder's agent. For a bounded model
 call with no Chat, no tools, and no transcript, use `assistant.infer` from the
 same document. Neither needs a declaration beyond `assistantActions` for
 requests, and neither needs a grant beyond installation.
@@ -155,9 +155,9 @@ template exercises every current section:
 ```json
 {
   "version": 2,
-  "id": "my-space-app",
-  "title": "My Space app",
-  "description": "A Space-bound app with a connected service.",
+  "id": "my-work-folder-app",
+  "title": "My work-folder app",
+  "description": "A work-folder-bound app with a connected service.",
   "runtime": {
     "kind": "sandboxed-web",
     "entry": "index.html",
@@ -300,11 +300,11 @@ viewer-readable surface: `entry` names the packaged document the viewer plane
 serves, and `readable` names up to 256 exact instance-owned storage key
 prefixes (lowercase letters, numbers, `._/-`, at most 64 characters each)
 viewers may read. Everything else is refused for viewers desktop-side —
-storage writes, Assistant actions, network, connections, Space files,
+storage writes, agent actions, network, connections, work-folder files,
 notifications, automations, OAuth, and host UI. Declaring `viewer` grants no
 audience: putting an installed App Instance at the person's address is a
 separate receipted share, and a reviewed update that widens `readable` or
-changes `entry` records a fresh exposure receipt. See [the fold](fold.md) and
+changes `entry` records a fresh exposure receipt. See [the work-fold agent](work-fold-agent-decisions.md) and
 [Restricted app runtime](restricted-app-runtime.md).
 
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
@@ -330,12 +330,12 @@ a header reviewed for one destination grants nothing to another.
 
 For a private browser view, add the reviewed `viewer.entry` and `viewer.readable`
 declaration in the manifest template above and use `workFoldViewerApp` in that entry. Paired
-browsers can open it from Spaces without publishing a share link; source-Space
+browsers can open it from work-folders without publishing a share link; source-work-folder
 previews are supported too. Keep the web entry responsive and self-contained,
 and obtain packaged assets through `asset()`/`assetUrl()` instead of relative
 URLs in the blob document. Declared worker actions can use the separate private
 request API below; shared viewers remain read-only. See
-[the browser view contract](fold-browser-apps.md).
+[the browser view contract](browser-apps.md).
 
 When a private paired browser opens a web view with declared worker tools,
 it also receives `workFoldBrowserApp.actions`. Feature-detect it because shared
@@ -369,7 +369,7 @@ popups, downloads, dialogs, permissions, workers, frames, service workers, and
 file selection denied. Scripts and fonts must come from reviewed same-origin
 files. Styles may be same-origin or inline; images may be same-origin or
 `data:`. Bundle browser libraries and assets into the package instead of using
-a CDN. Use the host bridge for network and Space files.
+a CDN. Use the host bridge for network and work-folder files.
 
 The preload exposes one frozen global:
 
@@ -392,14 +392,14 @@ const unsubscribe = bridge.context.onChanged((next) => {
 });
 ```
 
-Context contains host-owned `spaceId`, `appId`, `digest`, and `mountId`,
+Context contains host-owned `workFolderId`, `appId`, `digest`, and `mountId`,
 plus `placement` (`navigator` or `tab`), nullable `appTabId`, origin-relative
 `route`, JSON `state`, `theme` (`light` or `dark`), and `active`. Treat identity
 as descriptive; the host derives authority from the sending renderer, never
 from values supplied back by app code. One UI entry can branch on placement and
 route to render a compact left navigator and full work-tab views.
 
-### Space-owned tabs
+### work-folder-owned tabs
 
 ```js
 await bridge.tabs.open({
@@ -417,8 +417,8 @@ await bridge.tabs.close();
 `tabId` is app-local and stable; it may use lowercase letters, numbers,
 periods, underscores, colons, and hyphens. Routes must begin with one `/` and
 remain origin-relative. State is JSON-compatible and limited to 64 KiB. The
-app never supplies a Space id, digest, or shell tab id. Opening an existing
-app-local id activates or retargets its Space-owned tab.
+app never supplies a work-folder id, digest, or shell tab id. Opening an existing
+app-local id activates or retargets its work-folder-owned tab.
 
 ### Brokered network requests
 
@@ -453,7 +453,7 @@ code never sets or reads an authorization secret.
 ### App storage
 
 Storage is machine-local and keyed by the host-owned Tenant and Data Namespace.
-A preview and installed Release have separate storage, even in the same Space:
+A preview and installed Release have separate storage, even in the same work-folder:
 
 ```js
 const usage = await bridge.storage.usage();
@@ -476,7 +476,7 @@ optimistic concurrency and may also set `clear: true`. Values must be ordinary
 JSON. Default limits are 256 MiB per app, 65,536 keys, 16 MiB per value, and
 4,096 operations or 64 MiB per transaction. Storage is one document read and
 rewritten whole on every operation, which is why it stops well short of
-V8's maximum string length; keep bulk data in granted Space files.
+V8's maximum string length; keep bulk data in granted work-folder files.
 
 Only active visible UI receives invalidation hints:
 
@@ -554,10 +554,10 @@ People can export and restore app-owned data from the app's details in Settings 
 see [App data recovery](app-data-recovery.md). This management operation adds no
 runtime bridge power and never restores connections or grants.
 
-### Granted Space files
+### Granted work-folder files
 
 A manifest file declaration is only a maximum request. The person maps it to
-an ordinary relative file or directory in that app's Space before use:
+an ordinary relative file or directory in that app's work-folder before use:
 
 ```js
 const listing = await bridge.files.list({ grantId: "exports", path: "." });
@@ -578,7 +578,7 @@ modifiedAt }` and requires explicit `create` or `replace` mode. Data may be
 `utf8` or `base64`. Default read and write limits are 64 MiB per whole file and
 listings return up to 10,000 entries. Every write is atomic and creates a targeted History
 checkpoint. Grant-relative paths cannot traverse links, metadata roots, or the
-selected Space target.
+selected work-folder target.
 
 For a declaration whose target is one exact `file`, use `path: "."` to read or
 replace that selected file. Exact-file grants cannot list children or create a
@@ -596,11 +596,11 @@ An optional `permissions.checks` array declares up to 256 named choices:
 "checks": [{ "id": "quote-review", "title": "Quote review" }]
 ```
 
-The slot is granted on install. When the owning Space has exactly one Check,
+The slot is granted on install. When the owning work-folder has exactly one Check,
 that Check is bound automatically; otherwise the slot is reported as still
 needing the person, who picks an exact Check revision in **Settings → Apps →
 Review access → Check results**. A selection includes status, finding details,
-Space-relative paths and quoted evidence from that Check. It grants no run,
+work-folder-relative paths and quoted evidence from that Check. It grants no run,
 decision, correction, or general file authority, and does not enable or run
 the Check.
 
@@ -614,7 +614,7 @@ try {
 ```
 
 Only an active visible desktop app view can read results. Workers, automations
-and shared viewers cannot. The app cannot supply a Space or Check id. The host
+and shared viewers cannot. The app cannot supply a work-folder or Check id. The host
 re-verifies the selected Check's evidence locally, without a model request.
 States distinguish `never-run`, `running`, `stale`, `blocked`, `check-error`,
 `current-clear` and `needs-attention`; stale or unhealthy results carry no
@@ -632,12 +632,12 @@ A settled Check run, an applied correction, and turning a Check off each call
 `checks.onChanged`; a result that merely drifts stale on the clock does not.
 See [Invalidation hints](#invalidation-hints).
 
-### Assistant work and bounded inference
+### Agent work and bounded inference
 
 Installation is the grant for both AI lanes
 ([Receipts, not gates](receipts-not-gates.md), F22). `assistant.request`
 journals a declared `assistantActions` entry and starts a fresh ordinary Chat
-in the owning Space in the same call; `assistant.infer` asks the Space's
+in the owning work-folder in the same call; `assistant.infer` asks the work-folder's
 configured model one bounded question with no tools, no files, and no
 transcript:
 
@@ -659,7 +659,7 @@ the result is `{ text, truncated, receiptId }`; with one — the same closed JSO
 Schema subset tool declarations use — it is `{ json, receiptId }`, already
 validated. work-fold never cuts a reply: `truncated` means only that the model
 itself stopped at its output-token limit, and a reply over `maxOutputBytes` is
-refused with `INFER_OUTPUT_TOO_LARGE`. The call uses the Space's configured
+refused with `INFER_OUTPUT_TOO_LARGE`. The call uses the work-folder's configured
 model and thinking level with the model's own output-token limit.
 `receiptId` matches the id a `tasks.onChanged` hint carries. Active
 views, workers holding a tool action, and named automation runs reach
@@ -687,10 +687,10 @@ A settled task carries one result shape
 ([Collaboration contract](collaboration-contract.md), F29): `summary` (at most
 32 KiB), `outcome` (`succeeded`, `partial`, or `failed`), `truncated`,
 optional `data` matching the declared `outputSchema`, and optional `files`
-naming Space-relative deliverables with their fingerprint and size. Details
+naming work-folder-relative deliverables with their fingerprint and size. Details
 that do not match the declared shape never reach the app: they are left out and
 the outcome says so. The full contract, bounds, and error codes are in
-[App-requested Assistant work](app-assistant-tasks.md).
+[App-requested agent work](app-assistant-tasks.md).
 
 ## Worker tools and automations
 
@@ -751,18 +751,18 @@ export async function handleAutomation(event) {
 Tool inputs and results are checked against the manifest schemas and limited
 to 16 MiB. A worker invocation has a ten-minute hang guard that counts only
 time the worker spends in its own code: waiting on a network request, an
-Assistant request, or `assistant.infer` never counts. One worker runs one
+agent request, or `assistant.infer` never counts. One worker runs one
 action or automation at a time; a second one queues and starts when the first
 finishes, instead of being refused. Error text a worker reports is kept up to
 16,384 characters. Automation
-events contain `runId`, `automationId`, `handler`, `reason` (`scheduled`,
-`manual`, or `resume`), and ISO `scheduledAt`. Treat `automationId` and
+events contain `runId`, `appAutomationId`, `handler`, `reason` (`scheduled`,
+`manual`, or `resume`), and ISO `scheduledAt`. Treat `appAutomationId` and
 `handler` as the reviewed dispatch pair and reject unknown values.
 
 Every automation is on when the app is added, anchored at that moment so its
 first run is one interval later; the person can turn any off in Settings → Apps. A job
 runs only while work-fold is running. One scheduler is shared across all
-Spaces and apps, with a four-run global limit, FIFO admission, same-job
+work-folders and apps, with a four-run global limit, FIFO admission, same-job
 non-overlap, and at most one staggered latest catch-up when requested. **Run
 now** is a one-off execution: it works while the schedule is off and does not
 move the recurring cadence. Every attempt receives a durable receipt visible in
@@ -918,7 +918,7 @@ keep one operation's memory finite rather than ration what an app may do, but
 app storage is still the wrong home for bulk data — it is one document read and
 rewritten whole on every operation: request a
 read-write directory permission and write large or long-lived records as
-ordinary Space files, which the person and the Assistant can also read with
+ordinary work-folder files, which the person and the agent can also read with
 normal tools. Overruns report their own bound —
 `NETWORK_RESPONSE_TOO_LARGE`, `NETWORK_REQUEST_TOO_LARGE`, `FILE_TOO_LARGE`,
 `STORAGE_QUOTA`, `INFER_INPUT_TOO_LARGE`, `INFER_OUTPUT_TOO_LARGE`, and
@@ -930,8 +930,8 @@ hit.
 
 Adding a digest as a Development preview, or installing a published Release
 Feature, makes its UI available with every declared destination, directory
-permission (whole Space), notification category, and automation on, and with a
-Check slot bound when the Space has exactly one Check. No connection is stored:
+permission (whole work-folder), notification category, and automation on, and with a
+Check slot bound when the work-folder has exactly one Check. No connection is stored:
 a secret is entered by the person once per destination, and a file-target
 permission waits for a chosen file. Storage is available without any grant.
 The person narrows any of this in Settings → Apps. A direct preview update preserves the
@@ -951,7 +951,7 @@ release-backed App Instance removes its connections and makes its data
 unreachable in the same registry transition, then either retains the detached
 namespace or — after the same recovery copy — queues its physical purge as
 explicitly chosen ([App data export and recovery](app-data-recovery.md)). Cleanup is idempotent after interruption and never deletes
-Space files. Source edits do not change preview or Release bytes; propose and
+work-folder files. Source edits do not change preview or Release bytes; propose and
 review a new digest.
 
 Bridge promises reject an `Error`; host failures expose a stable enumerable
@@ -990,11 +990,11 @@ when the external system is optional.
 
 The Connected inbox package includes a project-service panel. To test it:
 
-1. Register this repository as a Space, or copy
+1. Register this repository as a work-folder, or copy
    `examples/packages/restricted-connected-inbox` into an ordinary folder in a
-   registered Space.
-2. Add that Space-relative package as a Local preview with
-   `work-fold apps install-preview --space <id-or-name> --package examples/packages/restricted-connected-inbox`
+   registered work-folder.
+2. Add that work-folder-relative package as a Local preview with
+   `work-fold apps install-preview --work-folder <id-or-name> --package examples/packages/restricted-connected-inbox`
    (adjust the path if copied). It is added at once; Settings → Apps shows what
    it can reach.
 3. From the repository root, start the companion process:
@@ -1022,7 +1022,7 @@ for the storage-invalidation and static-notification walkthrough.
   brokers, Electron integration, or packaged runtime resources. Its real
   Electron probe is a release boundary, not a substitute for Node-only tests.
 - Keep [Security](../SECURITY.md), [Privacy](../PRIVACY.md),
-  [Product model](product-model.md), [Assistant capabilities](assistant-capabilities.md),
+  [Product model](product-model.md), [Skills & Extensions](skills-and-extensions.md),
   and [Architecture](architecture.md) aligned when authority or lifecycle
   changes.
 - Keep native Pi `surface.json` work in the separate

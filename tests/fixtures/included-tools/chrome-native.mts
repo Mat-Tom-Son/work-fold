@@ -45,7 +45,7 @@ function call(session: any, name: string, args: any) { const tool = session.agen
 async function stop(session: any) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "exit" }); session.dispose(); sessions.splice(sessions.indexOf(session), 1); }
 try {
   assert.equal((await chrome.probeIncludedChrome(config)).state, "setup_required");
-  const a = await makeSession("space-a"), b = await makeSession("space-b");
+  const a = await makeSession("work-folder-a"), b = await makeSession("work-folder-b");
   await assert.rejects(stat(config.companionPath));
   await assert.rejects(call(a.session, "chrome_tab", { action: "list" }), /Connect Chrome in Skills & Extensions/);
   await assert.rejects(fetch(url + "/status"));
@@ -167,7 +167,7 @@ try {
   const stoppingB = stop(b.session); command = await next(); await reply(command, {}); await stoppingB;
   await assert.rejects(readFile(artifactB, "utf8"));
   await assert.rejects(fetch(url + "/status"));
-  console.log("PASS native Chrome: lazy credential, persistent companion identity, authenticated transport and actual restricted-app broker refusal, native Pi image result, no Space capture files, two-session disposal");
+  console.log("PASS native Chrome: lazy credential, persistent companion identity, authenticated transport and actual restricted-app broker refusal, native Pi image result, no work-folder capture files, two-session disposal");
 } finally {
   for (const session of sessions) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "reload" }); session.dispose(); }
   await rm(root, { recursive: true, force: true });

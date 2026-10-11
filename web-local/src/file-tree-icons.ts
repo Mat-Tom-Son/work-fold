@@ -13,7 +13,7 @@
  * `scripts/generate-file-icons.mjs` regenerates from the ids used below. After
  * adding or changing a glyph id here, rerun that script.
  *
- * Folders are deliberately plain: every folder gets the same closed and open
+ * work-folders are deliberately plain: every folder gets the same closed and open
  * glyph, whatever its name, so no folder looks special.
  */
 import { fileIconGlyphs, type FileIconGlyph } from "./file-icons-data";

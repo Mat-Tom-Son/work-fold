@@ -32,8 +32,8 @@ Status, next step and notes were verified to persist in the native app host.
 2. Run `node services/bridge/landing-assets/stage-fixtures.mjs` with Node 24.
    It copies only the starting files into a new ignored directory and writes
    the exact requests with the repository path resolved.
-3. Register those folders through the isolated app's `spaces register` CLI,
-   then use `chat send --space <id> --new --message-file <request>` for each.
+3. Register those folders through the isolated app's `work-folders register` CLI,
+   then use `chat send --work-folder <id> --new --message-file <request>` for each.
    Pin `WORKFOLD_CLI_STATE_DIR`, `WORKFOLD_STATE_DIR` and
    `WORKFOLD_DESKTOP_STATE_DIR` to the same isolated profile. Follow each
    returned task through `chat status` / `chat result`.

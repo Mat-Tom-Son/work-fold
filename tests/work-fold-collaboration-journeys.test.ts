@@ -9,32 +9,32 @@ import test from "node:test";
 import { conversationsDir } from "../src/local/agent/chat-store.js";
 import type { WorkFoldCliActReceiptV3 } from "../src/local/cli/act-receipts.js";
 import { createWorkFoldCliActRequest, executeWorkFoldCliActRequest } from "../src/local/cli/index.js";
-import { listSpaceCheckpoints } from "../src/local/history.js";
+import { listWorkFolderCheckpoints } from "../src/local/history.js";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
-import { workFoldManagementScopeId } from "../src/local/state-paths.js";
+import { workFoldAgentScopeId } from "../src/local/state-paths.js";
 
 /**
  * The acceptance journeys of docs/collaboration-contract.md, end to end: the
  * installed act lane (argv → executor → the real facade inside
- * startLocalApi) driving the same verbs an outside harness, a Space
- * Assistant, and the fold all get, over the durable request store.
+ * startLocalApi) driving the same verbs an outside harness, a work-folder
+ * Agent, and the work-fold agent all get, over the durable request store.
  *
  * This file owns the two journeys that need no model:
  *
- * - **Delegate and clarify.** The fold hands work to a Space, the Space asks
+ * - **Delegate and clarify.** The work-fold agent hands work to a work-folder, the work-folder asks
  *   for the missing input and its turn ends, one answer continues it exactly
- *   once, it reports JSON plus a file, and the fold is brought back with the
+ *   once, it reports JSON plus a file, and the work-fold agent is brought back with the
  *   result. A restart in the middle preserves attribution and replays
  *   nothing; a replayed act request id and a second answer are both refused.
- * - **Request help from a Space.** Work that started in a Space with no
+ * - **Request help from a work-folder.** Work that started in a work-folder with no
  *   parent owns its own root, reaches the person with a question, hands off
- *   to another Space with copies of its files, and that Space's report comes
- *   back to the first Space's root — with no management request anywhere,
- *   and nothing of the first Space inside the second Space's portable
+ *   to another work-folder with copies of its files, and that work-folder's report comes
+ *   back to the first work-folder's root — with no work-fold agent request anywhere,
+ *   and nothing of the first work-folder inside the second work-folder's portable
  *   transcript.
  *
  * The journeys that need a real model turn (an app's assistant task
- * returning the one result envelope, and what a fresh Space Assistant
+ * returning the one result envelope, and what a fresh Worker
  * actually receives on the wire) live in
  * tests/work-fold-collaboration-journeys-model.test.ts.
  *
@@ -59,8 +59,8 @@ interface RequestRef {
   kind: string;
   state: string;
   depth: number;
-  spaceId: string | null;
-  spaceName: string | null;
+  workFolderId: string | null;
+  workFolderName: string | null;
   conversationId: string;
   openQuestions: number;
   children: number;
@@ -96,7 +96,7 @@ interface Journey {
   api: LocalApiHandle;
   records: ReceiptEntry[];
   /** Every `beforeAgentPrompt` this run reached, in order: the turns that actually prompted. */
-  prompts: Array<{ spaceId: string; conversationId: string; taskId: string }>;
+  prompts: Array<{ workFolderId: string; conversationId: string; taskId: string }>;
   held: Set<string>;
   run(argv: string[], options?: { id?: string }): Promise<CliRun>;
   /** argv → executor → facade, asserting the command succeeded, and returning its `data`. */
@@ -104,7 +104,7 @@ interface Journey {
   lastOk(): ReceiptEntry;
   outcomes(): string[];
   release(taskId: string): Promise<void>;
-  settled(spaceId: string, taskId: string): Promise<void>;
+  settled(workFolderId: string, taskId: string): Promise<void>;
   /** Close the app and open it again on the same state root, the way a relaunch does. */
   restart(beforeOpen?: () => Promise<void>): Promise<void>;
   close(): Promise<void>;
@@ -121,7 +121,7 @@ async function startJourney(prefix: string): Promise<Journey> {
   }\n`, "utf8");
   const stateBase = join(sandbox, "state");
   const held = new Set<string>();
-  const prompts: Array<{ spaceId: string; conversationId: string; taskId: string }> = [];
+  const prompts: Array<{ workFolderId: string; conversationId: string; taskId: string }> = [];
   const pending: Array<{ taskId: string; release: () => void }> = [];
   const records: ReceiptEntry[] = [];
   // Once teardown starts nothing is held: a turn accepted a moment ago can
@@ -133,12 +133,12 @@ async function startJourney(prefix: string): Promise<Journey> {
     return startLocalApi({
       port: 0,
       stateBase,
-      spaceBase: join(sandbox, "content"),
+      workFolderBase: join(sandbox, "content"),
       loadEnv: false,
       piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
       beforeAgentPrompt: async (event) => {
-        prompts.push({ spaceId: event.spaceId, conversationId: event.conversationId, taskId: event.taskId });
-        if (draining || !held.has(event.spaceId)) return;
+        prompts.push({ workFolderId: event.workFolderId, conversationId: event.conversationId, taskId: event.taskId });
+        if (draining || !held.has(event.workFolderId)) return;
         await new Promise<void>((release) => pending.push({ taskId: event.taskId, release }));
       },
     });
@@ -153,7 +153,7 @@ async function startJourney(prefix: string): Promise<Journey> {
     {
       version: "test",
       getActFacade: () => ({ facade: api.actFacade, token }),
-      resolveLineageParent: (taskId) => api.resolveManagementLineageParent(taskId),
+      resolveLineageParent: (taskId) => api.resolveWorkFoldAgentLineageParent(taskId),
       receipts: {
         // A journey replays an act request id on purpose, so the ledger the
         // executor consults has to be the real one, not a stub that always
@@ -186,11 +186,11 @@ async function startJourney(prefix: string): Promise<Journey> {
       await waitFor(() => pending.some((turn) => turn.taskId === taskId), `turn ${taskId} to reach the prompt gate`);
       pending.splice(pending.findIndex((turn) => turn.taskId === taskId), 1)[0]!.release();
     },
-    settled: async (spaceId, taskId) => {
+    settled: async (workFolderId, taskId) => {
       await waitFor(async () => {
-        const status = spaceId === workFoldManagementScopeId
-          ? await api.actFacade.manageTurnStatus({ taskId })
-          : await api.actFacade.turnStatus({ space: spaceId, taskId });
+        const status = workFolderId === workFoldAgentScopeId
+          ? await api.actFacade.agentTurnStatus({ taskId })
+          : await api.actFacade.turnStatus({ workFolder: workFolderId, taskId });
         return status.task.state !== "running";
       }, `turn ${taskId} to settle`);
     },
@@ -226,14 +226,14 @@ function errorOf(stderr: string): { code?: string; message?: string } {
   }
 }
 
-async function transcript(api: LocalApiHandle, spaceId: string, conversationId: string): Promise<Array<{ role: string; content: string; requestId?: string }>> {
-  const response = await fetch(new URL(`/api/spaces/${spaceId}/conversations/${conversationId}`, api.origin));
+async function transcript(api: LocalApiHandle, workFolderId: string, conversationId: string): Promise<Array<{ role: string; content: string; requestId?: string }>> {
+  const response = await fetch(new URL(`/api/work-folders/${workFolderId}/conversations/${conversationId}`, api.origin));
   assert.equal(response.status, 200);
   return (await response.json() as { messages: Array<{ role: string; content: string; requestId?: string }> }).messages;
 }
 
-async function managementTranscript(api: LocalApiHandle, conversationId: string): Promise<Array<{ role: string; content: string; requestId?: string }>> {
-  const response = await fetch(new URL(`/api/management/conversations/${conversationId}`, api.origin));
+async function workFoldAgentTranscript(api: LocalApiHandle, conversationId: string): Promise<Array<{ role: string; content: string; requestId?: string }>> {
+  const response = await fetch(new URL(`/api/work-fold-agent/conversations/${conversationId}`, api.origin));
   assert.equal(response.status, 200);
   return (await response.json() as { messages: Array<{ role: string; content: string; requestId?: string }> }).messages;
 }
@@ -268,60 +268,60 @@ function assertResultEnvelope(envelope: ResultEnvelope, expected: {
   for (const [index, file] of files.entries()) {
     const want = expected.files![index]!;
     assert.equal(file.path, want.path);
-    assert.equal(file.path.startsWith("/"), false, "a deliverable path is Space-relative");
+    assert.equal(file.path.startsWith("/"), false, "a deliverable path is work-folder-relative");
     // Never trust the reported digest: recompute it from the bytes on disk.
     assert.equal(file.sha256, createHash("sha256").update(want.bytes).digest("hex"));
     assert.equal(file.sizeBytes, Buffer.byteLength(want.bytes, "utf8"));
   }
 }
 
-test("journey: the fold delegates to a Space, the Space asks once, one answer continues it, and the report comes back without a fold turn to carry it", async () => {
+test("journey: the work-fold agent delegates to a work-folder, the work-folder asks once, one answer continues it, and the report comes back without a work-fold agent turn to carry it", async () => {
   const j = await startJourney("delegate");
   try {
-    const quotes = (await j.api.actFacade.createSpace({ name: "Quotes" })).space;
-    await mkdir(join(quotes.spaceRoot, "quotes"), { recursive: true });
-    j.held.add(workFoldManagementScopeId);
+    const quotes = (await j.api.actFacade.createWorkFolder({ name: "Quotes" })).workFolder;
+    await mkdir(join(quotes.workFolderRoot, "quotes"), { recursive: true });
+    j.held.add(workFoldAgentScopeId);
     j.held.add(quotes.id);
 
-    // 1. The fold's own turn opens the root request.
+    // 1. The work-fold agent's own turn opens the root request.
     const root = await j.ok<{ conversationId: string; taskId: string }>([
-      "manage", "send", "--new", "--message", "/hold", "--json",
+      "agent", "send", "--new", "--message", "/hold", "--json",
     ]);
     const rootRequestId = j.api.requests.byTaskId(root.taskId)!.requestId;
     const opened = await j.ok<{ request: RequestDetail }>(["requests", "show", "--request", rootRequestId, "--json"]);
-    assert.equal(opened.request.kind, "management");
+    assert.equal(opened.request.kind, "agent");
     assert.equal(opened.request.rootId, rootRequestId);
     assert.equal(opened.request.state, "working");
     assert.equal(opened.request.parentTaskId, null);
     assert.deepEqual(opened.request.childRequests, []);
 
-    // 2. The fold delegates while its own turn runs. The child is a request
-    //    under the root, with the Space and Chat it lives in named on it.
+    // 2. The work-fold agent delegates while its own turn runs. The child is a request
+    //    under the root, with the work-folder and Chat it lives in named on it.
     j.records.length = 0;
     // `/hold` runs as a registered extension command, so a turn needs no model
     // and waits at the prompt gate; the rest of the line is the assignment.
     const assignment = "/hold Compare the North and South quotes and report the winner.";
     const child = await j.ok<{ conversationId: string; taskId: string }>([
-      "chat", "send", "--space", quotes.id, "--new", "--message", assignment, "--parent-task", root.taskId, "--json",
+      "chat", "send", "--work-folder", quotes.id, "--new", "--message", assignment, "--parent-task", root.taskId, "--json",
     ]);
     assert.deepEqual(j.outcomes(), ["accepted", "ok"]);
-    assert.equal(j.lastOk().parentTaskId, root.taskId, "the receipt carries the fold's lineage");
+    assert.equal(j.lastOk().parentTaskId, root.taskId, "the receipt carries the work-fold agent's lineage");
     assert.equal(gateFields(j.lastOk()).length, 0, "nothing was decided ahead of this; it simply ran");
     const childRequestId = j.api.requests.byTaskId(child.taskId)!.requestId;
     const delegated = (await j.ok<{ request: RequestDetail }>(["requests", "show", "--request", childRequestId, "--json"])).request;
     assert.equal(delegated.parentTaskId, root.taskId);
     assert.equal(delegated.rootId, rootRequestId);
     assert.equal(delegated.depth, 1);
-    assert.equal(delegated.spaceId, quotes.id);
-    assert.equal(delegated.spaceName, "Quotes");
+    assert.equal(delegated.workFolderId, quotes.id);
+    assert.equal(delegated.workFolderName, "Quotes");
     assert.equal(delegated.conversationId, child.conversationId);
-    assert.equal(delegated.kind, "cli", "the surface that sent it names the kind; the lineage names the fold");
+    assert.equal(delegated.kind, "cli", "the surface that sent it names the kind; the lineage names the work-fold agent");
 
-    // 3. The Space asks for the missing input. Its task is waiting, the root
+    // 3. The work-folder asks for the missing input. Its task is waiting, the root
     //    is waiting with it, and the turn is not suspended.
     j.records.length = 0;
     const asked = await j.ok<{ question: { questionId: string; respondent: string; state: string }; redirectedToPerson: boolean; request: RequestRef }>([
-      "chat", "ask", "--space", quotes.id, "--task", child.taskId, "--question", "Which currency should the totals use?", "--json",
+      "chat", "ask", "--work-folder", quotes.id, "--task", child.taskId, "--question", "Which currency should the totals use?", "--json",
     ]);
     assert.equal(asked.question.respondent, "person", "--to person is the default");
     assert.equal(asked.question.state, "open");
@@ -332,7 +332,7 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
 
     // 4. F28: the host says which, on the status document, while the turn runs.
     const waitingStatus = await j.ok<{ task: { state: string }; waiting: { questionId: string; requestId: string; respondent: string; question: string; askedAt: string; expiresAt: string | null } | null; request: RequestRef }>([
-      "chat", "status", "--space", quotes.id, "--task", child.taskId, "--json",
+      "chat", "status", "--work-folder", quotes.id, "--task", child.taskId, "--json",
     ]);
     assert.equal(waitingStatus.task.state, "running");
     assert.ok(["running", "succeeded", "failed", "aborted", "unknown"].includes(waitingStatus.task.state), "the turn-state vocabulary is unchanged");
@@ -344,51 +344,51 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     assert.equal(waitingStatus.request?.state, "waiting");
     // The blocking loop belongs to the installed shim; the host keeps failing
     // an old one loudly rather than holding a broker request open.
-    const waited = await j.run(["chat", "wait", "--space", quotes.id, "--task", child.taskId, "--json"]);
+    const waited = await j.run(["chat", "wait", "--work-folder", quotes.id, "--task", child.taskId, "--json"]);
     assert.equal(waited.exitCode, 2);
     assert.match(waited.stderr, /runs inside the work-fold shim/);
 
     // 5. Needs you means a question was asked, never that something is held up.
-    const glance = await j.ok<{ needsYou: Array<{ kind: string; headline: string; ref?: { questionId?: string } }> }>(["manage", "glance", "--json"]);
-    const item = glance.needsYou.find((entry) => entry.ref?.questionId === asked.question.questionId);
+    const overview = await j.ok<{ needsYou: Array<{ kind: string; headline: string; ref?: { questionId?: string } }> }>(["agent", "overview", "--json"]);
+    const item = overview.needsYou.find((entry) => entry.ref?.questionId === asked.question.questionId);
     assert.ok(item, "the open question is what needs the person");
     assert.equal(item!.kind, "request-question");
     assert.match(item!.headline, /waiting on your answer/);
-    assert.doesNotMatch(JSON.stringify(glance), /currency/i, "the glance names the question, never its text");
+    assert.doesNotMatch(JSON.stringify(overview), /currency/i, "the overview names the question, never its text");
 
-    // 6. Both turns end. The fold's turn never blocked on the child, and the
+    // 6. Both turns end. The work-fold agent's turn never blocked on the child, and the
     //    request it left behind reports the open question honestly.
     await j.release(child.taskId);
     await j.settled(quotes.id, child.taskId);
     await j.release(root.taskId);
-    await j.settled(workFoldManagementScopeId, root.taskId);
+    await j.settled(workFoldAgentScopeId, root.taskId);
     // The question is delivered even though the child ended before its parent.
     await waitFor(() => j.api.requests.get(rootRequestId)!.turns.length === 2, "the question delivery");
     const questionDelivery = j.api.requests.get(rootRequestId)!.turns[1]!;
     await j.release(questionDelivery.taskId);
-    await j.settled(workFoldManagementScopeId, questionDelivery.taskId);
-    const parked = await j.api.actFacade.manageTurnStatus({ taskId: root.taskId });
-    assert.equal(parked.task.state, "succeeded", "the fold's own turn finished instead of waiting");
+    await j.settled(workFoldAgentScopeId, questionDelivery.taskId);
+    const parked = await j.api.actFacade.agentTurnStatus({ taskId: root.taskId });
+    assert.equal(parked.task.state, "succeeded", "the work-fold agent's own turn finished instead of waiting");
     assert.equal(parked.requestGraph?.state, "waiting");
-    assert.equal(parked.request?.phase, "needs_you", "manage status keeps its projection over the new store");
+    assert.equal(parked.request?.phase, "needs_you", "agent status keeps its projection over the new store");
     const settledStatus = await j.ok<{ task: { state: string }; waiting: { questionId: string } | null }>([
-      "chat", "status", "--space", quotes.id, "--task", child.taskId, "--json",
+      "chat", "status", "--work-folder", quotes.id, "--task", child.taskId, "--json",
     ]);
     assert.equal(settledStatus.task.state, "succeeded");
     assert.equal(settledStatus.waiting?.questionId, asked.question.questionId, "a settled turn still reports what it is owed");
 
-    // 7. One answer, one continuation; an answer from another Space and a
+    // 7. One answer, one continuation; an answer from another work-folder and a
     //    second answer are refused, and neither starts a turn.
-    const foreign = (await j.api.actFacade.createSpace({ name: "Elsewhere" })).space;
+    const foreign = (await j.api.actFacade.createWorkFolder({ name: "Elsewhere" })).workFolder;
     j.records.length = 0;
-    const wrongSpace = await j.run(["chat", "answer", "--space", foreign.id, "--question", asked.question.questionId, "--answer", "Euros.", "--json"]);
-    assert.equal(errorOf(wrongSpace.stderr).code, "conflict");
-    assert.match(wrongSpace.stderr, /belongs to Quotes/);
+    const wrongWorkFolder = await j.run(["chat", "answer", "--work-folder", foreign.id, "--question", asked.question.questionId, "--answer", "Euros.", "--json"]);
+    assert.equal(errorOf(wrongWorkFolder.stderr).code, "conflict");
+    assert.match(wrongWorkFolder.stderr, /belongs to Quotes/);
     assert.deepEqual(j.outcomes(), ["accepted", "error"], "a refusal after acceptance is journaled too");
 
     j.records.length = 0;
     const answered = await j.ok<{ question: { state: string; continuationTaskId: string }; continuation: { taskId: string; conversationId: string } }>([
-      "chat", "answer", "--space", quotes.id, "--question", asked.question.questionId, "--answer", "/hold", "--json",
+      "chat", "answer", "--work-folder", quotes.id, "--question", asked.question.questionId, "--answer", "/hold", "--json",
     ]);
     assert.equal(answered.question.state, "answered");
     assert.equal(answered.continuation.conversationId, child.conversationId, "the continuation is a new turn in the same Chat");
@@ -400,7 +400,7 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     assert.equal(carried[0]!.content, "/hold", "the answer is an ordinary user message; the question id stays machine-local");
 
     j.records.length = 0;
-    const second = await j.run(["chat", "answer", "--space", quotes.id, "--question", asked.question.questionId, "--answer", "Euros.", "--json"]);
+    const second = await j.run(["chat", "answer", "--work-folder", quotes.id, "--question", asked.question.questionId, "--answer", "Euros.", "--json"]);
     assert.equal(second.exitCode, 5);
     assert.equal(errorOf(second.stderr).code, "conflict");
     assert.match(second.stderr, /already has an answer/);
@@ -409,14 +409,14 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     assert.equal(replies.filter((message) => message.content === "Euros.").length, 0, "a refused answer reaches no Chat");
     assert.equal(j.api.requests.get(childRequestId)!.turns.length, 2, "exactly one continuation turn");
 
-    // 8. The Space reports JSON plus the file it produced, inside its
+    // 8. The work-folder reports JSON plus the file it produced, inside its
     //    continuation turn, and the envelope is the one shape.
-    await writeFile(join(quotes.spaceRoot, "quotes", "comparison.md"), "# Comparison\nNorth: $42\nSouth: $50\n", "utf8");
+    await writeFile(join(quotes.workFolderRoot, "quotes", "comparison.md"), "# Comparison\nNorth: $42\nSouth: $50\n", "utf8");
     await writeFile(join(j.sandbox, "winner.json"), JSON.stringify({ winner: "North", delta: 8 }), "utf8");
     j.records.length = 0;
     const promptsBefore = j.prompts.length;
     const reported = await j.ok<{ resultId: string; result: ResultEnvelope; request: RequestRef }>([
-      "chat", "report", "--space", quotes.id, "--task", answered.continuation.taskId,
+      "chat", "report", "--work-folder", quotes.id, "--task", answered.continuation.taskId,
       "--summary", "North is cheaper by $8.", "--data", "@winner.json",
       "--file", "quotes/comparison.md", "--outcome", "succeeded", "--json",
     ]);
@@ -437,15 +437,15 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     assert.equal(j.prompts.length, promptsBefore, "no turn ran to move the result");
     assert.equal(j.api.requests.get(rootRequestId)!.turns.length, 2);
 
-    // 10. Every child has now settled after the fold's own turn ended, so the
-    //     host brings the fold back exactly once with what came in.
+    // 10. Every child has now settled after the work-fold agent's own turn ended, so the
+    //     host brings the work-fold agent back exactly once with what came in.
     await j.release(answered.continuation.taskId);
     await j.settled(quotes.id, answered.continuation.taskId);
-    await waitFor(() => j.api.requests.get(rootRequestId)!.turns.length === 3, "the fold to be brought back");
+    await waitFor(() => j.api.requests.get(rootRequestId)!.turns.length === 3, "the work-fold agent to be brought back");
     const continuation = j.api.requests.get(rootRequestId)!;
     assert.equal(continuation.continuationCount, 2);
     assert.equal(continuation.turns[2]!.role, "continuation");
-    const brought = (await managementTranscript(j.api, root.conversationId))
+    const brought = (await workFoldAgentTranscript(j.api, root.conversationId))
       .filter((message) => message.role === "user" && message.requestId === `continuation-${rootRequestId}-2`);
     assert.equal(brought.length, 1, "one continuation turn for the whole settle batch");
     assert.match(brought[0]!.content, /Nobody typed this message/);
@@ -453,7 +453,7 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     assert.match(brought[0]!.content, /files: quotes\/comparison\.md/);
     assert.doesNotMatch(brought[0]!.content, gateVocabulary);
     await j.release(continuation.turns[2]!.taskId);
-    await j.settled(workFoldManagementScopeId, continuation.turns[2]!.taskId);
+    await j.settled(workFoldAgentScopeId, continuation.turns[2]!.taskId);
     await new Promise((resolve) => setTimeout(resolve, 250));
     assert.equal(j.api.requests.get(rootRequestId)!.turns.length, 3, "a continuation never continues itself");
 
@@ -469,22 +469,22 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
 test("journey: a restart between the question and the answer keeps the request graph, replays nothing, and refuses a replayed act request id", async () => {
   const j = await startJourney("restart");
   try {
-    const quotes = (await j.api.actFacade.createSpace({ name: "Quotes" })).space;
-    j.held.add(workFoldManagementScopeId);
+    const quotes = (await j.api.actFacade.createWorkFolder({ name: "Quotes" })).workFolder;
+    j.held.add(workFoldAgentScopeId);
     j.held.add(quotes.id);
-    const root = await j.ok<{ conversationId: string; taskId: string }>(["manage", "send", "--new", "--message", "/hold", "--json"]);
+    const root = await j.ok<{ conversationId: string; taskId: string }>(["agent", "send", "--new", "--message", "/hold", "--json"]);
     const rootRequestId = j.api.requests.byTaskId(root.taskId)!.requestId;
     const child = await j.ok<{ conversationId: string; taskId: string }>([
-      "chat", "send", "--space", quotes.id, "--new", "--message", "/hold Compare the quotes.", "--parent-task", root.taskId, "--json",
+      "chat", "send", "--work-folder", quotes.id, "--new", "--message", "/hold Compare the quotes.", "--parent-task", root.taskId, "--json",
     ]);
     const childRequestId = j.api.requests.byTaskId(child.taskId)!.requestId;
     const asked = await j.ok<{ question: { questionId: string } }>([
-      "chat", "ask", "--space", quotes.id, "--task", child.taskId, "--question", "Which currency?", "--json",
+      "chat", "ask", "--work-folder", quotes.id, "--task", child.taskId, "--question", "Which currency?", "--json",
     ]);
     await j.release(child.taskId);
     await j.settled(quotes.id, child.taskId);
     await j.release(root.taskId);
-    await j.settled(workFoldManagementScopeId, root.taskId);
+    await j.settled(workFoldAgentScopeId, root.taskId);
 
     // Settling the original turn may start a follow-up about the child's
     // question. This journey restarts idle, waiting work: drain that exact
@@ -493,7 +493,7 @@ test("journey: a restart between the question and the answer keeps the request g
     await waitFor(() => j.api.requests.get(rootRequestId)!.turns.length === 2, "the question follow-up to be accepted");
     const followupTaskId = j.api.requests.get(rootRequestId)!.turns[1]!.taskId;
     await j.release(followupTaskId);
-    await j.settled(workFoldManagementScopeId, followupTaskId);
+    await j.settled(workFoldAgentScopeId, followupTaskId);
     assert.equal(j.api.requests.get(rootRequestId)!.state, "waiting");
 
     let promptsBefore = 0;
@@ -526,21 +526,21 @@ test("journey: a restart between the question and the answer keeps the request g
     assert.equal(restoredChild.id, childRequestId);
     assert.equal(restoredChild.parentTaskId, root.taskId);
     assert.equal(restoredChild.rootId, rootRequestId);
-    assert.equal(restoredChild.spaceId, quotes.id);
+    assert.equal(restoredChild.workFolderId, quotes.id);
     assert.equal(restoredChild.conversationId, child.conversationId);
     assert.equal(restoredChild.state, "waiting");
     assert.equal(restoredChild.questions[0]!.questionId, asked.question.questionId);
     assert.equal(restoredChild.questions[0]!.text, "Which currency?");
     assert.equal(restoredChild.questions[0]!.state, "open");
     assert.equal((await j.ok<{ waiting: { questionId: string } | null }>([
-      "chat", "status", "--space", quotes.id, "--task", child.taskId, "--json",
+      "chat", "status", "--work-folder", quotes.id, "--task", child.taskId, "--json",
     ])).waiting?.questionId, asked.question.questionId);
 
     // The answer still works, and continues the same Chat exactly once.
     const answerRequestId = randomUUID();
     j.records.length = 0;
     const answered = await j.ok<{ continuation: { taskId: string; conversationId: string } }>([
-      "chat", "answer", "--space", quotes.id, "--question", asked.question.questionId, "--answer", "/hold", "--json",
+      "chat", "answer", "--work-folder", quotes.id, "--question", asked.question.questionId, "--answer", "/hold", "--json",
     ], { id: answerRequestId });
     assert.equal(answered.continuation.conversationId, child.conversationId);
     assert.deepEqual(j.outcomes(), ["accepted", "ok"]);
@@ -551,7 +551,7 @@ test("journey: a restart between the question and the answer keeps the request g
     // executor consults.
     const beforeReplay = j.records.length;
     const replayed = await j.run([
-      "chat", "answer", "--space", quotes.id, "--question", asked.question.questionId, "--answer", "/hold", "--json",
+      "chat", "answer", "--work-folder", quotes.id, "--question", asked.question.questionId, "--answer", "/hold", "--json",
     ], { id: answerRequestId });
     assert.equal(replayed.exitCode, 5);
     assert.equal(errorOf(replayed.stderr).code, "conflict");
@@ -565,7 +565,7 @@ test("journey: a restart between the question and the answer keeps the request g
     );
 
     // A second answer under a fresh act request id is refused on its own terms.
-    const second = await j.run(["chat", "answer", "--space", quotes.id, "--question", asked.question.questionId, "--answer", "/hold", "--json"]);
+    const second = await j.run(["chat", "answer", "--work-folder", quotes.id, "--question", asked.question.questionId, "--answer", "/hold", "--json"]);
     assert.equal(errorOf(second.stderr).code, "conflict");
     assert.match(second.stderr, /already has an answer/);
     await j.release(answered.continuation.taskId);
@@ -575,20 +575,20 @@ test("journey: a restart between the question and the answer keeps the request g
   }
 });
 
-test("journey: a Space asks for help with no request above it, hands off to another Space, and that Space's report comes back to the same root", async () => {
+test("journey: a work-folder asks for help with no request above it, hands off to another work-folder, and that work-folder's report comes back to the same root", async () => {
   const j = await startJourney("request-help");
   try {
-    const drafts = (await j.api.actFacade.createSpace({ name: "Drafts" })).space;
-    const reviews = (await j.api.actFacade.createSpace({ name: "Reviews" })).space;
+    const drafts = (await j.api.actFacade.createWorkFolder({ name: "Drafts" })).workFolder;
+    const reviews = (await j.api.actFacade.createWorkFolder({ name: "Reviews" })).workFolder;
     j.held.add(drafts.id);
     j.held.add(reviews.id);
-    await mkdir(join(drafts.spaceRoot, "drafts"), { recursive: true });
+    await mkdir(join(drafts.workFolderRoot, "drafts"), { recursive: true });
     const draftBytes = "# Renewal\nDue in November.\n";
-    await writeFile(join(drafts.spaceRoot, "drafts", "renewal.md"), draftBytes, "utf8");
+    await writeFile(join(drafts.workFolderRoot, "drafts", "renewal.md"), draftBytes, "utf8");
 
-    // 1. Work that starts in a Space owns its own root: no parent, no fold.
+    // 1. Work that starts in a work-folder owns its own root: no parent, no fold.
     const own = await j.ok<{ conversationId: string; taskId: string }>([
-      "chat", "send", "--space", drafts.id, "--new", "--message", "/hold Draft the renewal note.", "--json",
+      "chat", "send", "--work-folder", drafts.id, "--new", "--message", "/hold Draft the renewal note.", "--json",
     ]);
     const rootRequestId = j.api.requests.byTaskId(own.taskId)!.requestId;
     const opened = (await j.ok<{ request: RequestDetail }>(["requests", "show", "--request", rootRequestId, "--json"])).request;
@@ -596,11 +596,11 @@ test("journey: a Space asks for help with no request above it, hands off to anot
     assert.equal(opened.parentTaskId, null);
     assert.equal(opened.parentRequestId, null);
     assert.equal(opened.depth, 0);
-    assert.equal(opened.spaceId, drafts.id);
+    assert.equal(opened.workFolderId, drafts.id);
 
     // 2. `--to parent` with nothing above it reaches the person, and says so.
     const asked = await j.ok<{ question: { questionId: string; respondent: string }; redirectedToPerson: boolean; request: RequestRef }>([
-      "chat", "ask", "--space", drafts.id, "--task", own.taskId, "--question", "Which renewal date applies?", "--to", "parent", "--json",
+      "chat", "ask", "--work-folder", drafts.id, "--task", own.taskId, "--question", "Which renewal date applies?", "--to", "parent", "--json",
     ]);
     assert.equal(asked.redirectedToPerson, true);
     assert.equal(asked.question.respondent, "person");
@@ -613,46 +613,46 @@ test("journey: a Space asks for help with no request above it, hands off to anot
     await j.release(own.taskId);
     await j.settled(drafts.id, own.taskId);
     const answered = await j.ok<{ continuation: { taskId: string } }>([
-      "chat", "answer", "--space", drafts.id, "--question", asked.question.questionId, "--answer", "/hold", "--json",
+      "chat", "answer", "--work-folder", drafts.id, "--question", asked.question.questionId, "--answer", "/hold", "--json",
     ]);
 
     // 4. The hand-off: an additive, restore-pointed copy and a new Chat in
     //    the destination, recorded under the same root.
     j.records.length = 0;
-    const reviewCheckpoints = (await listSpaceCheckpoints(reviews.spaceRoot)).length;
-    const handed = await j.ok<{ conversationId: string; taskId: string; copied: string[]; checkpointId: string | null; request: RequestRef; toSpace: { id: string } }>([
-      "chat", "handoff", "--space", drafts.id, "--task", answered.continuation.taskId,
-      "--to-space", reviews.id, "--message", "/hold", "--file", "drafts/renewal.md", "--json",
+    const reviewCheckpoints = (await listWorkFolderCheckpoints(reviews.workFolderRoot)).length;
+    const handed = await j.ok<{ conversationId: string; taskId: string; copied: string[]; checkpointId: string | null; request: RequestRef; toWorkFolder: { id: string } }>([
+      "chat", "handoff", "--work-folder", drafts.id, "--task", answered.continuation.taskId,
+      "--to-work-folder", reviews.id, "--message", "/hold", "--file", "drafts/renewal.md", "--json",
     ]);
     assert.deepEqual(handed.copied, ["renewal.md"], "the copy lands in the destination the way `files add` lands one");
-    assert.equal(handed.toSpace.id, reviews.id);
-    assert.equal(await readFile(join(drafts.spaceRoot, "drafts", "renewal.md"), "utf8"), draftBytes, "the source keeps its bytes");
-    assert.equal(await readFile(join(reviews.spaceRoot, "renewal.md"), "utf8"), draftBytes);
-    assert.equal((await listSpaceCheckpoints(reviews.spaceRoot)).length, reviewCheckpoints + 1, "the copy landed with a restore point");
+    assert.equal(handed.toWorkFolder.id, reviews.id);
+    assert.equal(await readFile(join(drafts.workFolderRoot, "drafts", "renewal.md"), "utf8"), draftBytes, "the source keeps its bytes");
+    assert.equal(await readFile(join(reviews.workFolderRoot, "renewal.md"), "utf8"), draftBytes);
+    assert.equal((await listWorkFolderCheckpoints(reviews.workFolderRoot)).length, reviewCheckpoints + 1, "the copy landed with a restore point");
     assert.equal(j.api.requests.byTaskId(handed.taskId)!.rootId, rootRequestId, "the new Chat is a child of the caller's root");
-    // The root id itself is not handed to a Space-scoped caller: `requests
+    // The root id itself is not handed to a work-folder-scoped caller: `requests
     // show` reads a request by id, so it comes back as the opaque handle no
     // verb accepts (F9 as amended, F26).
     assert.match(handed.request.rootId, /^parent-[0-9a-f]{16}$/);
     assert.equal(handed.request.depth, 1);
     assert.deepEqual(j.outcomes(), ["accepted", "ok"]);
-    assert.equal(j.lastOk().spaceId, reviews.id, "the receipt names the Space the effect landed in");
+    assert.equal(j.lastOk().workFolderId, reviews.id, "the receipt names the work-folder the effect landed in");
     assert.deepEqual(j.lastOk().undoRef, { kind: "checkpoint", value: handed.checkpointId });
 
-    // 5. Only the released payload reached the destination. Space Chats
+    // 5. Only the released payload reached the destination. work-folder Chats
     //    travel with the folder, so the on-disk transcript is what matters.
-    const portable = await readFile(join(conversationsDir(reviews.spaceRoot), `${handed.conversationId}.jsonl`), "utf8");
+    const portable = await readFile(join(conversationsDir(reviews.workFolderRoot), `${handed.conversationId}.jsonl`), "utf8");
     assert.match(portable, /\/hold/, "the handoff message is what the destination was given");
-    for (const secret of [own.conversationId, drafts.id, drafts.spaceRoot, rootRequestId, asked.question.questionId, "Which renewal date applies?"]) {
+    for (const secret of [own.conversationId, drafts.id, drafts.workFolderRoot, rootRequestId, asked.question.questionId, "Which renewal date applies?"]) {
       assert.equal(portable.includes(secret), false, `the destination transcript must not carry ${secret}`);
     }
 
     // 6. The destination reports, and the result lands under the origin's
-    //    root — with no management request in this journey at all.
+    //    root — with no work-fold agent request in this journey at all.
     const reviewBytes = "# Review\nTone is fine.\n";
-    await writeFile(join(reviews.spaceRoot, "review.md"), reviewBytes, "utf8");
+    await writeFile(join(reviews.workFolderRoot, "review.md"), reviewBytes, "utf8");
     const reported = await j.ok<{ result: ResultEnvelope; request: RequestRef }>([
-      "chat", "report", "--space", reviews.id, "--task", handed.taskId,
+      "chat", "report", "--work-folder", reviews.id, "--task", handed.taskId,
       "--summary", "Read the renewal draft; the tone is fine.", "--file", "review.md", "--outcome", "succeeded", "--json",
     ]);
     assertResultEnvelope(reported.result, {
@@ -661,28 +661,28 @@ test("journey: a Space asks for help with no request above it, hands off to anot
       files: [{ path: "review.md", bytes: reviewBytes }],
     });
     // The report's own request is the Reviews child, and the id above it is
-    // the origin Space's root, which a Space-scoped verb never hands back.
+    // the origin work-folder's root, which a work-folder-scoped verb never hands back.
     assert.equal(j.api.requests.byTaskId(handed.taskId)!.rootId, rootRequestId);
     assert.match(reported.request.rootId, /^parent-[0-9a-f]{16}$/);
     assert.equal(
-      j.prompts.filter((prompt) => prompt.spaceId === workFoldManagementScopeId).length,
+      j.prompts.filter((prompt) => prompt.workFolderId === workFoldAgentScopeId).length,
       0,
-      "no fold turn ran anywhere in this journey, let alone to carry a result",
+      "no work-fold agent turn ran anywhere in this journey, let alone to carry a result",
     );
     const whole = (await j.ok<{ request: RequestDetail }>(["requests", "show", "--request", rootRequestId, "--json"])).request;
     assert.equal(whole.childRequests.length, 1);
-    assert.equal(whole.childRequests[0]!.spaceName, "Reviews");
+    assert.equal(whole.childRequests[0]!.workFolderName, "Reviews");
     assert.equal(whole.childRequests[0]!.resultRecords[0]!.envelope!.summary, "Read the renewal draft; the tone is fine.");
     assert.equal(
-      (await j.ok<{ requests: Array<{ kind: string }> }>(["requests", "list", "--json"])).requests.some((request) => request.kind === "management"),
+      (await j.ok<{ requests: Array<{ kind: string }> }>(["requests", "list", "--json"])).requests.some((request) => request.kind === "agent"),
       false,
-      "nothing in this journey needed the fold",
+      "nothing in this journey needed the work-fold agent",
     );
 
-    // 7. Cross-Space reasoning stays machine-local: neither Space folder
+    // 7. Cross-work-folder reasoning stays machine-local: neither work-folder's folder
     //    learned the other exists.
     for (const [here, there] of [[drafts, reviews], [reviews, drafts]] as const) {
-      const records = await portableRecords(here.spaceRoot);
+      const records = await portableRecords(here.workFolderRoot);
       assert.equal(records.includes(there.id), false, `${here.id} must not record ${there.id}`);
       assert.equal(records.includes(rootRequestId), false, "a request id is machine-local");
     }
@@ -692,11 +692,11 @@ test("journey: a Space asks for help with no request above it, hands off to anot
     await j.release(handed.taskId);
     await j.settled(reviews.id, handed.taskId);
     for (const [argv, code, pattern] of [
-      [["chat", "ask", "--space", reviews.id, "--task", answered.continuation.taskId, "--question", "Whose?", "--json"], "conflict", /another Space's turn/],
-      [["chat", "handoff", "--space", drafts.id, "--task", answered.continuation.taskId, "--to-space", "space-not-registered", "--message", "/hold", "--json"], "notFound", /space-not-registered/],
-      [["chat", "handoff", "--space", drafts.id, "--task", answered.continuation.taskId, "--to-space", reviews.id, "--message", "/hold", "--file", "../outside.md", "--json"], "usage", /./],
-      [["chat", "handoff", "--space", drafts.id, "--task", answered.continuation.taskId, "--to-space", reviews.id, "--message", "/hold", "--file", ".work-fold/space.json", "--json"], "usage", /./],
-      [["chat", "handoff", "--space", drafts.id, "--task", answered.continuation.taskId, "--to-space", reviews.id, "--message", "/hold", "--file", ".workspace/legacy.json", "--json"], "usage", /./],
+      [["chat", "ask", "--work-folder", reviews.id, "--task", answered.continuation.taskId, "--question", "Whose?", "--json"], "conflict", /another work-folder's turn/],
+      [["chat", "handoff", "--work-folder", drafts.id, "--task", answered.continuation.taskId, "--to-work-folder", "work-folder-not-registered", "--message", "/hold", "--json"], "notFound", /work-folder-not-registered/],
+      [["chat", "handoff", "--work-folder", drafts.id, "--task", answered.continuation.taskId, "--to-work-folder", reviews.id, "--message", "/hold", "--file", "../outside.md", "--json"], "usage", /./],
+      [["chat", "handoff", "--work-folder", drafts.id, "--task", answered.continuation.taskId, "--to-work-folder", reviews.id, "--message", "/hold", "--file", ".work-fold/work-folder.json", "--json"], "usage", /./],
+      [["chat", "handoff", "--work-folder", drafts.id, "--task", answered.continuation.taskId, "--to-work-folder", reviews.id, "--message", "/hold", "--file", ".workspace/legacy.json", "--json"], "usage", /./],
     ] as const) {
       const refused = await j.run([...argv]);
       assert.notEqual(refused.exitCode, 0, argv.join(" "));
@@ -725,10 +725,10 @@ async function turnOutcomes(sandbox: string): Promise<Map<string, string>> {
   return outcomes;
 }
 
-/** Everything the portable `.work-fold/` records of a Space folder say, as one string. */
-async function portableRecords(spaceRoot: string): Promise<string> {
+/** Everything the portable `.work-fold/` records of a work-folder's folder say, as one string. */
+async function portableRecords(workFolderRoot: string): Promise<string> {
   const { readdir } = await import("node:fs/promises");
-  const root = join(spaceRoot, ".work-fold");
+  const root = join(workFolderRoot, ".work-fold");
   if (!existsSync(root)) return "";
   const parts: string[] = [];
   const walk = async (dir: string): Promise<void> => {
@@ -746,16 +746,16 @@ async function portableRecords(spaceRoot: string): Promise<string> {
 test("person-facing work follows delegation, routes exact answers, exposes saved answers, and stops the whole request", async () => {
   const j = await startJourney("work-ui");
   try {
-    const a = (await j.api.actFacade.createSpace({ name: "Planning" })).space;
-    const b = (await j.api.actFacade.createSpace({ name: "Quotes" })).space;
+    const a = (await j.api.actFacade.createWorkFolder({ name: "Planning" })).workFolder;
+    const b = (await j.api.actFacade.createWorkFolder({ name: "Quotes" })).workFolder;
     j.held.add(a.id); j.held.add(b.id);
-    const parent = await j.api.actFacade.sendMessage({ space: a.id, newConversation: true, content: "/hold" });
-    const child = await j.api.actFacade.sendMessage({ space: b.id, newConversation: true, content: "/hold", parentTaskId: parent.taskId });
-    const question = await j.api.actFacade.chatAsk({ space: b.id, taskId: child.taskId, question: "Which currency?", respondent: "person" });
+    const parent = await j.api.actFacade.sendMessage({ workFolder: a.id, newConversation: true, content: "/hold" });
+    const child = await j.api.actFacade.sendMessage({ workFolder: b.id, newConversation: true, content: "/hold", parentTaskId: parent.taskId });
+    const question = await j.api.actFacade.chatAsk({ workFolder: b.id, taskId: child.taskId, question: "Which currency?", respondent: "person" });
     await j.release(child.taskId); await j.settled(b.id, child.taskId);
     const root = j.api.requests.byTaskId(parent.taskId)!;
     const read = async () => {
-      const response = await fetch(`${j.api.origin}/api/spaces/${a.id}/conversations/${parent.conversationId}/work`);
+      const response = await fetch(`${j.api.origin}/api/work-folders/${a.id}/conversations/${parent.conversationId}/work`);
       assert.equal(response.status, 200);
       return (await response.json() as any).work;
     };
@@ -775,12 +775,12 @@ test("person-facing work follows delegation, routes exact answers, exposes saved
     const replay = await post("answer", { questionId: question.question.questionId, answer: "/hold" });
     assert.equal(replay.status, 200);
     assert.equal(j.api.requests.byTaskId(child.taskId)!.turns.length, 2);
-    const other = await j.api.actFacade.chatAsk({ space: b.id, taskId: continued.turns[1]!.taskId, question: "Confirm the date?", respondent: "person" });
+    const other = await j.api.actFacade.chatAsk({ workFolder: b.id, taskId: continued.turns[1]!.taskId, question: "Confirm the date?", respondent: "person" });
     await j.release(continued.turns[1]!.taskId); await j.settled(b.id, continued.turns[1]!.taskId);
     await j.api.requests.answer({ questionId: other.question.questionId, answer: "/hold" });
     assert.equal((await read()).questions[0].state, "recorded");
     assert.equal((await read()).children[0].label, "Ready to continue");
-    const stop = await fetch(`${j.api.origin}/api/spaces/${a.id}/conversations/${parent.conversationId}/abort`, { method: "POST" });
+    const stop = await fetch(`${j.api.origin}/api/work-folders/${a.id}/conversations/${parent.conversationId}/abort`, { method: "POST" });
     assert.equal(stop.status, 200);
     assert.equal(j.api.requests.get(root.requestId)!.state, "stopped");
     assert.equal(j.api.requests.question(other.question.questionId)!.state, "cancelled");
@@ -791,27 +791,27 @@ test("person-facing work follows delegation, routes exact answers, exposes saved
   } finally { await j.close(); }
 });
 
-test("paired work views admit only the browser's management request and its descendants", async () => {
+test("paired work views admit only the browser's work-fold agent request and its descendants", async () => {
   const j = await startJourney("work-ui-remote");
   try {
-    const space = (await j.api.actFacade.createSpace({ name: "Research" })).space;
-    j.held.add(workFoldManagementScopeId); j.held.add(space.id);
+    const workFolder = (await j.api.actFacade.createWorkFolder({ name: "Research" })).workFolder;
+    j.held.add(workFoldAgentScopeId); j.held.add(workFolder.id);
     const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "remote-origin" };
     const root = await j.api.remoteFacade.execute("management.send", { content: "/hold", newConversation: true }, principal) as any;
-    const child = await j.api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
-    const question = await j.api.actFacade.chatAsk({ space: space.id, taskId: child.taskId, question: "Which region?", respondent: "person" });
-    await j.release(child.taskId); await j.settled(space.id, child.taskId);
+    const child = await j.api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    const question = await j.api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: child.taskId, question: "Which region?", respondent: "person" });
+    await j.release(child.taskId); await j.settled(workFolder.id, child.taskId);
     const work = await j.api.remoteFacade.execute("management.work", { taskId: child.taskId }, principal) as any;
     assert.equal(work.work.questions[0].id, question.question.questionId);
     await assert.rejects(j.api.remoteFacade.execute("management.work", { taskId: child.taskId }, { ...principal, grantId: "another-grant" }), /another surface/);
     await assert.rejects(j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: question.question.questionId, answer: "/hold" }, { ...principal, browserId: "other-browser" }), /another surface/);
     await j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: question.question.questionId, answer: "/hold" }, principal);
     assert.equal(j.api.requests.byTaskId(child.taskId)!.turns.length, 2);
-    const local = await j.api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold" });
-    const localQuestion = await j.api.actFacade.chatAsk({ space: space.id, taskId: local.taskId, question: "Private question", respondent: "person" });
+    const local = await j.api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    const localQuestion = await j.api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: local.taskId, question: "Private question", respondent: "person" });
     await assert.rejects(j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: localQuestion.question.questionId, answer: "/hold" }, principal), /does not belong/);
-    const glance = await j.api.remoteFacade.execute("management.glance", {}, principal) as any;
-    assert.equal(glance.glance.needsYou.find((item: any) => item.ref.questionId === localQuestion.question.questionId).canOpenWork, false);
+    const overview = await j.api.remoteFacade.execute("management.glance", {}, principal) as any;
+    assert.equal(overview.overview.needsYou.find((item: any) => item.ref.questionId === localQuestion.question.questionId).canOpenWork, false);
   } finally { await j.close(); }
 });
 
@@ -819,13 +819,13 @@ test("saved delegated files are usable and an explicit follow-up carries those r
   const j = await startJourney("work-ui-results");
   try {
     await j.api.requests.setContinuationsEnabled(false);
-    const a = (await j.api.actFacade.createSpace({ name: "Planning" })).space;
-    const b = (await j.api.actFacade.createSpace({ name: "Quotes" })).space;
+    const a = (await j.api.actFacade.createWorkFolder({ name: "Planning" })).workFolder;
+    const b = (await j.api.actFacade.createWorkFolder({ name: "Quotes" })).workFolder;
     j.held.add(a.id); j.held.add(b.id);
-    const parent = await j.api.actFacade.sendMessage({ space: a.id, newConversation: true, content: "/hold" });
-    const child = await j.api.actFacade.sendMessage({ space: b.id, newConversation: true, content: "/hold", parentTaskId: parent.taskId });
-    await writeFile(join(b.spaceRoot, "comparison.txt"), "North: $42; South: $50");
-    await j.api.actFacade.chatReport({ space: b.id, taskId: child.taskId, summary: "North costs eight dollars less.", outcome: "partial", files: ["comparison.txt"] });
+    const parent = await j.api.actFacade.sendMessage({ workFolder: a.id, newConversation: true, content: "/hold" });
+    const child = await j.api.actFacade.sendMessage({ workFolder: b.id, newConversation: true, content: "/hold", parentTaskId: parent.taskId });
+    await writeFile(join(b.workFolderRoot, "comparison.txt"), "North: $42; South: $50");
+    await j.api.actFacade.chatReport({ workFolder: b.id, taskId: child.taskId, summary: "North costs eight dollars less.", outcome: "partial", files: ["comparison.txt"] });
     await j.release(child.taskId); await j.settled(b.id, child.taskId);
     await j.release(parent.taskId); await j.settled(a.id, parent.taskId);
     const record = j.api.requests.byTaskId(parent.taskId)!;
@@ -834,7 +834,7 @@ test("saved delegated files are usable and an explicit follow-up carries those r
     assert.equal(view.state, "partial");
     assert.equal(view.label, "Partly finished");
     assert.equal(view.canContinue, true);
-    assert.equal(view.result.files[0].spaceId, b.id);
+    assert.equal(view.result.files[0].workFolderId, b.id);
     assert.equal(view.result.files[0].path, "comparison.txt");
     const resume = () => fetch(`${j.api.origin}/api/requests/${record.requestId}/continue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deliveryId: "manual-ui-once" }) });
     const accepted = await resume();
@@ -843,7 +843,7 @@ test("saved delegated files are usable and an explicit follow-up carries those r
     assert.equal(replay.status, 200, await replay.text());
     assert.equal(j.api.requests.get(record.requestId)!.turns.length, 2);
     assert.deepEqual(j.api.requests.get(record.requestId)!.deliveredChildTaskIds, [child.taskId]);
-    const transcript = await readFile(join(conversationsDir(a.spaceRoot), `${parent.conversationId}.jsonl`), "utf8");
+    const transcript = await readFile(join(conversationsDir(a.workFolderRoot), `${parent.conversationId}.jsonl`), "utf8");
     const followup = transcript.trim().split("\n").map((line) => JSON.parse(line)).find((message) => message.kind === "assistant_continuation");
     assert.ok(followup);
     assert.match(followup.content, /North costs eight dollars less/);

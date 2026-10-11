@@ -5,13 +5,13 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { appendMessage } from "../src/local/agent/chat-store.js";
-import { searchSpace } from "../src/local/search.js";
+import { searchWorkFolder } from "../src/local/search.js";
 import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
-import { setSpaceIgnoreState } from "../src/local/space-ignore.js";
+import { setWorkFolderIgnoreState } from "../src/local/work-folder-ignore.js";
 
-async function space(name: string): Promise<{ root: string; dispose: () => Promise<void> }> {
-  const sandbox = await mkdtemp(join(tmpdir(), `space-search-${name}-`));
-  const root = join(sandbox, "space");
+async function workFolder(name: string): Promise<{ root: string; dispose: () => Promise<void> }> {
+  const sandbox = await mkdtemp(join(tmpdir(), `work-folder-search-${name}-`));
+  const root = join(sandbox, "work-folder");
   configureWorkFoldStateRoot(join(sandbox, "state"));
   await mkdir(root, { recursive: true });
   return {
@@ -24,7 +24,7 @@ async function space(name: string): Promise<{ root: string; dispose: () => Promi
 }
 
 test("search finds file contents and Chat messages with locating detail", async (t) => {
-  const { root, dispose } = await space("basic");
+  const { root, dispose } = await workFolder("basic");
   t.after(dispose);
   await mkdir(join(root, "notes"), { recursive: true });
   await writeFile(join(root, "notes", "plan.md"), "intro\nthe Quarterly budget is due\ntail", "utf8");
@@ -42,7 +42,7 @@ test("search finds file contents and Chat messages with locating detail", async 
     createdAt: "2026-07-01T00:01:00.000Z",
   });
 
-  const result = await searchSpace(root, "quarterly budget");
+  const result = await searchWorkFolder(root, "quarterly budget");
   assert.deepEqual(result.files, [{
     path: "notes/plan.md",
     line: 2,
@@ -58,7 +58,7 @@ test("search finds file contents and Chat messages with locating detail", async 
 });
 
 test("search honours ignore rules and identifies binary files without skipping large text", async (t) => {
-  const { root, dispose } = await space("bounds");
+  const { root, dispose } = await workFolder("bounds");
   t.after(dispose);
   await mkdir(join(root, "vendor"), { recursive: true });
   await writeFile(join(root, "vendor", "bundled.js"), "needle in ignored dependency", "utf8");
@@ -66,8 +66,8 @@ test("search honours ignore rules and identifies binary files without skipping l
   await writeFile(join(root, "image.bin"), Buffer.concat([Buffer.from("needle"), Buffer.alloc(64)]));
   await writeFile(join(root, "huge.txt"), `${"padding\n".repeat(200)}needle\n`, "utf8");
 
-  await setSpaceIgnoreState(root, ["vendor"], true);
-  const result = await searchSpace(root, "needle");
+  await setWorkFolderIgnoreState(root, ["vendor"], true);
+  const result = await searchWorkFolder(root, "needle");
 
   assert.deepEqual(result.files.map((match) => match.path), ["huge.txt", "kept.txt"]);
   assert.equal(result.coverage.binary, 1);
@@ -76,47 +76,47 @@ test("search honours ignore rules and identifies binary files without skipping l
 });
 
 test("search stops at its bounds and reports that it did", async (t) => {
-  const { root, dispose } = await space("truncate");
+  const { root, dispose } = await workFolder("truncate");
   t.after(dispose);
   for (let index = 0; index < 12; index += 1) {
     await writeFile(join(root, `file-${index}.txt`), "needle\nneedle\n", "utf8");
   }
 
-  const capped = await searchSpace(root, "needle", { maxMatches: 5 });
+  const capped = await searchWorkFolder(root, "needle", { maxMatches: 5 });
   assert.equal(capped.files.length, 5);
   assert.equal(capped.truncated, true, "hitting the match cap is disclosed");
 
-  const scanned = await searchSpace(root, "needle", { maxScannedFiles: 2, maxMatches: 1_000 });
+  const scanned = await searchWorkFolder(root, "needle", { maxScannedFiles: 2, maxMatches: 1_000 });
   assert.ok(scanned.scannedFiles <= 2);
   assert.equal(scanned.truncated, true, "hitting the scan cap is disclosed");
 });
 
 test("search rejects an empty or oversized query", async (t) => {
-  const { root, dispose } = await space("invalid");
+  const { root, dispose } = await workFolder("invalid");
   t.after(dispose);
-  await assert.rejects(() => searchSpace(root, "   "), /Enter something to search for/);
-  await assert.rejects(() => searchSpace(root, "x".repeat(64 * 1024 + 1)), /Search text is too long/);
+  await assert.rejects(() => searchWorkFolder(root, "   "), /Enter something to search for/);
+  await assert.rejects(() => searchWorkFolder(root, "x".repeat(64 * 1024 + 1)), /Search text is too long/);
 });
 
 test("search stops immediately when its caller is cancelled", async (t) => {
-  const { root, dispose } = await space("cancelled");
+  const { root, dispose } = await workFolder("cancelled");
   t.after(dispose);
   await writeFile(join(root, "note.txt"), "needle", "utf8");
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(
-    () => searchSpace(root, "needle", { signal: controller.signal }),
+    () => searchWorkFolder(root, "needle", { signal: controller.signal }),
     (error: unknown) => error instanceof Error && error.name === "AbortError",
   );
 });
 
 test("search pages through byte, match and traversal budgets with a match beyond 1 MiB in one line", async (t) => {
-  const { root, dispose } = await space("continuation"); t.after(dispose);
+  const { root, dispose } = await workFolder("continuation"); t.after(dispose);
   await writeFile(join(root, "large.txt"), `${"x".repeat(1024 * 1024 + 7)}NEEDLE😀\nneedle\nneedle\n`);
   await writeFile(join(root, "last.txt"), "needle\n");
   const matches = []; let cursor: string | undefined; let pages = 0;
   do {
-    const page = await searchSpace(root, "needle", { includeChats: false, maxMatches: 1, maxScannedFiles: 2, maxScannedBytes: 32768, cursor });
+    const page = await searchWorkFolder(root, "needle", { includeChats: false, maxMatches: 1, maxScannedFiles: 2, maxScannedBytes: 32768, cursor });
     assert.ok(page.coverage.scannedBytes <= 32771, "at most a UTF-8 character crosses the byte budget");
     matches.push(...page.files); cursor = page.nextCursor ?? undefined; pages++;
     assert.ok(pages < 100);
@@ -126,55 +126,55 @@ test("search pages through byte, match and traversal budgets with a match beyond
 });
 
 test("search narrows a subtree and rejects changed sources or a cursor from another selection", async (t) => {
-  const { root, dispose } = await space("source"); t.after(dispose);
+  const { root, dispose } = await workFolder("source"); t.after(dispose);
   await mkdir(join(root,"selected"));
   await writeFile(join(root,"selected","one.txt"), "needle\nneedle\n");
   await writeFile(join(root,"elsewhere.txt"), "needle");
-  const page = await searchSpace(root,"needle", {path:"selected",includeChats:false,maxMatches:1});
+  const page = await searchWorkFolder(root,"needle", {path:"selected",includeChats:false,maxMatches:1});
   assert.equal(page.files[0]?.path,"selected/one.txt"); assert.ok(page.nextCursor);
-  await assert.rejects(searchSpace(root,"other", {path:"selected",includeChats:false,cursor:page.nextCursor!}),/selection/);
+  await assert.rejects(searchWorkFolder(root,"other", {path:"selected",includeChats:false,cursor:page.nextCursor!}),/selection/);
   await writeFile(join(root,"selected","one.txt"), "changed\nneedle\n");
-  await assert.rejects(searchSpace(root,"needle", {path:"selected",includeChats:false,cursor:page.nextCursor!}),/changed/);
+  await assert.rejects(searchWorkFolder(root,"needle", {path:"selected",includeChats:false,cursor:page.nextCursor!}),/changed/);
 });
 
 test("directory depth and Chat count are continuation work, while symlinks stay excluded", async (t) => {
-  const { root, dispose } = await space("depth"); t.after(dispose);
+  const { root, dispose } = await workFolder("depth"); t.after(dispose);
   const deep = Array.from({length:40},()=>"d").join("/");
   await mkdir(join(root,deep),{recursive:true}); await writeFile(join(root,deep,"deep.txt"),"needle");
   await symlink(join(root,deep,"deep.txt"),join(root,"link.txt"));
   let cursor: string | undefined; const files=[]; let links=0;
   do {
-    const page=await searchSpace(root,"needle",{includeChats:false,maxScannedFiles:3,cursor});
+    const page=await searchWorkFolder(root,"needle",{includeChats:false,maxScannedFiles:3,cursor});
     files.push(...page.files); links+=page.coverage.symbolicLink; cursor=page.nextCursor??undefined;
   } while(cursor);
   assert.deepEqual(files.map(file=>file.path),[`${deep}/deep.txt`]); assert.equal(links,1);
   for(let index=0;index<3;index++) await appendMessage(root,`chat-${index}`,{id:`m-${index}`,role:"user",content:"needle",createdAt:"2026-09-27T00:00:00.000Z"});
   const chats=[];
-  do { const page=await searchSpace(root,"needle",{includeFiles:false,maxMatches:1,cursor}); chats.push(...page.chats); cursor=page.nextCursor??undefined; } while(cursor);
+  do { const page=await searchWorkFolder(root,"needle",{includeFiles:false,maxMatches:1,cursor}); chats.push(...page.chats); cursor=page.nextCursor??undefined; } while(cursor);
   assert.equal(chats.length,3); assert.equal(new Set(chats.map(chat=>chat.conversationId)).size,3);
 });
 
-test("registered nested Folders and reserved paths cannot enter a narrowed search", async (t) => {
-  const {root,dispose}=await space("nested");t.after(dispose);
-  const {registerLinkedSpace}=await import("../src/local/space.js");
-  await registerLinkedSpace(root);
+test("registered nested work-folders and reserved paths cannot enter a narrowed search", async (t) => {
+  const {root,dispose}=await workFolder("nested");t.after(dispose);
+  const {registerLinkedWorkFolder}=await import("../src/local/work-folder.js");
+  await registerLinkedWorkFolder(root);
   await mkdir(join(root,"Child")); await writeFile(join(root,"Child","private.txt"),"needle");
-  await registerLinkedSpace(join(root,"Child"));
-  const result=await searchSpace(root,"needle",{includeChats:false});
+  await registerLinkedWorkFolder(join(root,"Child"));
+  const result=await searchWorkFolder(root,"needle",{includeChats:false});
   assert.deepEqual(result.files,[]); assert.ok(result.coverage.internal>=1);
-  const narrowed=await searchSpace(root,"needle",{includeChats:false,path:"Child"}); assert.deepEqual(narrowed.files,[]);
-  if(process.platform==="darwin") { const alias=await searchSpace(root,"needle",{includeChats:false,path:"child"}); assert.deepEqual(alias.files,[]); }
-  await assert.rejects(searchSpace(root,"needle",{path:".work-fold"}),/reserved/);
-  await assert.rejects(searchSpace(root,"needle",{path:"../outside"}),/escapes/);
+  const narrowed=await searchWorkFolder(root,"needle",{includeChats:false,path:"Child"}); assert.deepEqual(narrowed.files,[]);
+  if(process.platform==="darwin") { const alias=await searchWorkFolder(root,"needle",{includeChats:false,path:"child"}); assert.deepEqual(alias.files,[]); }
+  await assert.rejects(searchWorkFolder(root,"needle",{path:".work-fold"}),/reserved/);
+  await assert.rejects(searchWorkFolder(root,"needle",{path:"../outside"}),/escapes/);
 });
 
 test("large match payloads continue before the response budget instead of losing results", async (t) => {
-  const {root,dispose}=await space("response-budget");t.after(dispose);
+  const {root,dispose}=await workFolder("response-budget");t.after(dispose);
   const parent=Array.from({length:6},(_,index)=>`${index}${"x".repeat(99)}`).join("/");
   await mkdir(join(root,parent),{recursive:true});
   await writeFile(join(root,parent,"matches.txt"),`${"x".repeat(100)}needle${"x".repeat(100)}\n`.repeat(1000));
   let cursor: string|undefined; const lines=[]; let pages=0;
-  do { const page=await searchSpace(root,"needle",{includeChats:false,maxMatches:1000,cursor});
+  do { const page=await searchWorkFolder(root,"needle",{includeChats:false,maxMatches:1000,cursor});
     assert.ok(Buffer.byteLength(JSON.stringify(page.files))<530000); lines.push(...page.files.map(match=>match.line));cursor=page.nextCursor??undefined;pages++;
   } while(cursor);
   assert.deepEqual(lines,Array.from({length:1000},(_,index)=>index+1)); assert.ok(pages>1);

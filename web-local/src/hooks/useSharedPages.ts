@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../lib/api";
 import { refreshSharedPages, sharedPagesSnapshot, subscribeSharedPages, type SharedPageView, type SharedPagesResponse } from "../lib/page-sharing";
-import { buildFixturePublications } from "../fixtures/space-fixture";
+import { buildFixturePublications } from "../fixtures/work-folder-fixture";
 
 const fixturePublications = buildFixturePublications();
 

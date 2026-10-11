@@ -1,0 +1,349 @@
+# Skills & Extensions
+
+Product copy calls a work-folder's AI helper a **Worker**, the agent above all
+work-folders the **work-fold agent**, and the model/provider settings page
+**AI Models**. Pi's own terms — Skill, Extension, package, and the `global` and
+`project` scopes — keep their names.
+
+work-fold uses Pi's native capability system for full-trust Skills and Extensions and includes a separate restricted-app package lane for agent-created browser apps. This guide explains how Skills, Extensions, packages, scopes, and authorization fit the product without confusing them with ordinary files.
+
+The rail's **Add** button opens the **Skills & Extensions** popup directly (2026-09-25): a dialog like Settings and Keyboard shortcuts, pinned to the work-folder it was opened from. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. It starts with an **Included with work-fold** strip holding exactly the five included tools — Chrome, Computer Control, Web, Documents, and Service Connections — each with one concise status (Ready, Setup needed, Unavailable, Not checked, or Turned off; older Computer Control evidence says Last Check Passed, Service Connections says No Connections or Configured, and Chrome shows Connected, Connecting, or Not connected) and a **Set up** button only when a person can act. Below the strip, **Everywhere** (the work-fold agent and every work-folder) and **This folder only** (stored in the work-folder's folder) sit side by side and stack on narrow widths; a row opens its details on click, and the groups have no Add buttons. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. There is no Add menu and no Library (desktop 2026-09-25, CLI 2026-10-10).
+
+The rail's Add control uses a blocks icon. Installed and Discover use a
+compact segmented tab control beside **+ Add Custom**, which opens the existing
+scope-first import and package-source dialog. Search, type filters, and sorting
+share an aligned toolbar that wraps at narrow widths. Discover uses text-only
+rows with names, types, descriptions, authors, provenance, and source links;
+installed rows use neutral type glyphs. These controls inherit the active
+appearance's surface, text, border, and accent variables.
+
+## Management visibility
+
+`WorkFoldKernel` exposes a read-only, versioned projection of Pi's authoritative catalog so the renderer, installed CLI, and future scoped adapters see the same Skills, Extensions, tools, packages, prompts, themes, commands, project authorization, provenance, and diagnostics. It does not install or remove resources, activate inactive tools, or bypass registered-work-folder authorization.
+
+```powershell
+work-fold capabilities list --work-folder "Everywhere work-folder" --json
+```
+
+The CLI projection is intentionally compact and content-free. Capability writes continue through Pi's package/import operations and work-fold's trust and concurrency policies. See [work-fold agent and CLI](work-fold-agent-and-cli.md) for the snapshot and protocol boundary.
+
+## Ordinary files are not Pi resources
+
+The word “resource” has two different possible meanings, so work-fold uses different product language:
+
+| Kind | Examples | Behavior |
+|---|---|---|
+| **Ordinary file** | A template, reference document, example, image, or reusable file in a work-folder | Passive content. It reaches a Chat only when a person attaches it or a tool reads it. |
+| **Pi resource** | A Skill, Extension, prompt template, theme, model/provider configuration, or context instruction | Configuration discovered by Pi. Some resources influence the agent or execute code and therefore have scope and trust implications. |
+
+Internal APIs and storage may retain the name `resource` for compatibility. User-facing copy uses the specific Pi term—**Skill**, **Extension**, prompt, or package—when it means agent configuration.
+
+## Skills
+
+A Skill is a reusable way of working. Its interoperable unit is an [Agent Skill](https://agentskills.io): a directory containing `SKILL.md` with `name` and `description` frontmatter. The directory can also contain relative `scripts/`, `references/`, `assets/`, templates, examples, or other supporting files. [Anthropic's public Skills repository](https://github.com/anthropics/skills) provides examples of that structure.
+
+[Pi implements the Agent Skills standard](https://pi.dev/docs/latest/skills) with lenient validation: it warns about most violations and supports some layouts beyond the strict standard. work-fold relies on Pi for discovery and runtime behavior. work-fold's importer accepts:
+
+- A standalone UTF-8 file named `SKILL.md` with a `name` in YAML frontmatter.
+- A `.zip` or `.skill` archive containing one Skill.
+- An archive containing multiple Skill directories, including the common `skills/<skill-name>/SKILL.md` layout.
+- A compatible Anthropic-style plugin or marketplace bundle, from which work-fold imports only the discovered Skill directories.
+
+The last case is deliberately **skill-compatible**, not full plugin compatibility. work-fold preserves each discovered Skill directory so its supporting scripts, references, and assets continue to resolve. It does not activate bundled hooks, agents, MCP servers, plugin commands, binaries, marketplace metadata, or Extensions merely because they share an archive with a Skill.
+
+Anthropic marketplace archives may describe several named packs in `.claude-plugin/marketplace.json`. The current compatible importer discovers and imports Skill directories safely, but does not yet offer named-pack selection. This is a deliberate remaining lifecycle gap rather than a claim of full Claude plugin compatibility.
+
+### Minimal Skill
+
+Create a folder whose name matches the Skill name and add `SKILL.md`:
+
+```text
+meeting-notes/
+├── SKILL.md
+├── references/
+└── assets/
+```
+
+```markdown
+---
+name: meeting-notes
+description: Turn raw meeting notes into a clear summary with decisions and follow-ups. Use when the user asks to organize meeting notes.
+---
+
+# Meeting notes
+
+Follow the workflow here. Read supporting files with paths relative to this Skill directory.
+```
+
+The description should say both what the Skill does and when it should be used. Pi places names and descriptions in its initial context, then loads the full instructions and supporting files on demand. Keep referenced paths relative so the entire directory remains portable.
+
+The directory is the interoperable format. To use work-fold's importer, package that directory in `.zip` or `.skill`, or import a standalone file named `SKILL.md`. A standalone import requires a `name`; Pi reports other format diagnostics through its lenient validator.
+
+Import safety checks reject absolute or traversing paths, symbolic links, more than 10,000 archive entries, archives larger than 100 MB, individual expanded files larger than 100 MB, and total expanded content larger than 500 MB. A standalone `SKILL.md` is limited to 2 MB. These checks reduce archive risk; they do not prove that imported scripts are safe. People should inspect an unfamiliar pack before installing it.
+
+If a developer places a Skill directory into a standard Pi scope by another trusted mechanism, work-fold discovers it through Pi even though the desktop importer itself accepts files and archives rather than a raw directory picker.
+
+## Extensions
+
+A [Pi Extension](https://pi.dev/docs/latest/extensions) is executable code that can add tools, commands, providers, event behavior, or other runtime capabilities. work-fold uses Pi's normal extension loader and adapts supported extension UI requests—such as confirmation, selection, text/editor input, notifications, status and working messages, text widgets, title/editor updates, OAuth handoffs, clipboard actions, and external links—to desktop UI. Terminal-only custom components, custom headers/footers, custom editor components, and autocomplete providers are reported as unsupported rather than pretending their TUI can render in React.
+
+Extensions are more powerful than passive files and should be presented with their source, scope, load status, tools, commands, and diagnostics. Installing a native Pi Extension or registering a folder that already contains one is a full-user code-execution decision, not a content-import decision.
+
+Pi's built-in tools remain available alongside loaded Extensions. work-fold does not replace them with a private tool registry.
+
+Every tool family receives shared input-correction feedback on failed calls,
+including failures rejected by native validation before execution. Reviewed
+included schemas express operation-dependent inputs and target alternatives;
+third-party schemas remain native. See [tool feedback](tool-feedback.md).
+
+Workers are taught to create `.worker/<task-id>/` lazily for drafts, scripts,
+intermediate data and renders, then deliver requested files outside that folder.
+Existing project files are edited in place. `.worker/` is ordinary content:
+the Files tab mutes its top-level folder name and icon without disabling
+selection, expansion, menus or dragging. Search, History, attachments, Checks
+and file grants use their normal policies, including explicit ignore settings.
+It is neither hidden metadata nor a private or automatically cleaned area.
+Registration never creates it, and the work-fold agent has no work-folder
+scratch appendix. Existing contents and conflicting file/link/registered-folder
+paths must be respected.
+
+### Feedback and context inspection (development)
+
+The work-fold agent and Workers share concise guidance for inspecting the outcome
+of their work using native tools and Skills. Text, data and image observations
+follow Pi's existing tool-result path; native image settings and provider
+conversion remain authoritative. A stopped native tool may still be draining:
+its late activity is hidden and this Chat refuses overlapping work until Pi
+settles, while other Chats continue.
+
+The local `?dev-context` developer route opens **Inspect context**; normal
+Chats, the work-fold agent and Settings have no inspector entry. Enable **Record model
+context** before the request to capture assembled instructions, messages and
+tools, provider payloads where Pi exposes them, and loaded-source provenance.
+The view includes host title, Check, app inference and compaction calls with
+their own attribution. Independent transports inside third-party Extensions
+are outside this recorder. Images appear as metadata. Recording is off by
+default, bounded and memory-only; clearing, disabling and restart remove
+recordings. Inspection never starts model work. See [the feedback
+contract](tool-feedback.md) for fidelity and coverage limits.
+
+### Live Extension questions
+
+Ordinary Pi selection, confirmation, text input, and editor requests appear
+inline in their owning work-folder Chat or fold Chat. Multiple questions remain
+separate; switching Chats and reconnecting restores the current pending set.
+Typed responses are validated before the callback settles. A failed send keeps
+the field available for retry. The paired web client can see and answer only
+non-secret requests from its own exact work-fold agent turn and browser grant.
+Async context carries the originating task identity while that turn is live.
+A later question from an ended turn or a reused connection belongs to the Chat
+without borrowing a newer turn's task identity. Session-start and reload
+callbacks likewise keep session ownership: their desktop questions can outlive
+an ordinary turn. These unattributed questions are not relayed to a paired
+browser, which requires an exact browser-owned task. Stop cancels pending
+callbacks and questions during native prompt draining. After draining, a
+surviving connection may ask a new Chat-owned question; session disposal
+permanently cancels that session's UI access.
+
+These are live Pi callbacks, not durable collaboration questions. Stop,
+timeout, session disposal and app shutdown cancel them. Restart never recreates
+or auto-answers one. Extensions needing a question that ends the turn and
+resumes after an answer use `chat ask` or `agent ask` instead. Native
+third-party confirmations keep their meaning; work-fold does not silently
+answer them or turn them into product approval cards.
+
+The host allows eight pending questions per Chat, 64 total, 64 choices per
+selection, and 64 KiB per question or answer. The enforcing code and
+Settings → Automations → Limits read the same shared constants. Current questions travel as
+transient snapshots, outside the Chat replay log. Extension-managed editor
+text is scoped by root and conversation. Answer drafts stay in renderer memory
+only; password drafts are not retained across navigation. Extensions themselves
+remain full-trust and may record values they receive. Standard Pi text input
+does not identify secrets; credential setup must use the appropriate desktop
+setup surface, not an ordinary Chat question. Terminal-only component
+factories remain unsupported.
+
+[Extensions and computer work](extension-foundation.md) defines the included
+Computer Control, Chrome, Web, Documents and MCP service connections. Their
+pinned versions and reviewed compatibility patches live in
+[the integration manifest](../patches/included-tools/manifest.json). “Included
+with work-fold” describes maintenance, not a different Extension runtime.
+The Installed view's **Included with work-fold** strip shows each included
+tool's observed readiness as one concise status and offers **Set up** only when a
+person can act; enabled state and Pi load diagnostics stay in the tool's
+details. Setup belongs to that tool: macOS permissions, the Chrome
+companion, optional Brave search credentials, and native MCP server definitions
+and authentication. A saved credential alone does not establish readiness.
+Visible setup surfaces refresh cold host reads automatically. Successful tool use
+supplies native readiness evidence without repeatedly pressing Check. Computer
+permissions retain a visible timestamp and become neutral historical evidence
+after five minutes; Check observes without helper repair or Chat disposal.
+Documents proof belongs to the immutable running build. Service Connections
+separates configuration from each connection's checked health. See the
+[extension contract](extension-foundation.md#readiness-and-lifecycle) for the exact
+observation and lifecycle boundaries.
+Web defaults to DuckDuckGo without a key. Documents supplies ordinary libraries
+and a cancellable JavaScript worker with continuable PDF observations. Its optional
+installed-engine adapter uses LibreOffice for Office rendering/XLSX recalculation
+and Tesseract for page-image OCR, reporting missing engines explicitly. MCP sampling
+is disabled for the embedded Pi version; stdio servers need their executable
+and runtime installed. Setup details and remaining limits are in the contract.
+
+### Declarative Extension surfaces
+
+A loaded Extension may place a versioned `surface.json` manifest beside its entry point. For the model, the creation and lifecycle unit is the normal Pi package containing that Extension, its tools or connection logic, and the adjacent manifest. work-fold validates the static manifest and can contribute an app destination below the stable primary rail, a left-pane navigator, and work-folder-bound view tabs. The renderer owns every component; manifests cannot provide HTML, scripts, styles, React modules, event handlers, or direct renderer access. This is the **full-trust Pi Extension lane**.
+
+Surface discovery follows Pi's loaded Extension catalog rather than scanning arbitrary files. Everywhere surfaces appear where their user-scope Extension is loaded. This work-folder surfaces appear while their folder is registered and Pi loads the adjacent Extension. Invalid, oversized, linked, or unsupported manifests produce capability diagnostics and do not take down other Extensions. See [Extension surfaces](extension-surfaces.md) for the version 1 schema and limits.
+
+The declarative surface does not reduce the trust level of its owning Extension. Extension code still runs with the current user's permissions and can make network requests. The UI must label these contributions as full-trust even though their visible blocks are host-rendered.
+
+### Restricted app packages
+
+Agent-created apps use a second package lane rather than pretending to be native Pi Extensions. A restricted package declares `agentApp` in `package.json` and a strict version-2 `agent-app.json` with a `sandboxed-web` HTML entry, an optional worker for agent actions and named automations, bounded host-tool schemas, exact network targets and auth modes, reviewed work-folder-file needs, and a required automation list that may be empty. Each automation names its handler, interval, catch-up and overlap policies, and an exact permission subset. The preflight rejects lifecycle scripts, binaries, native build metadata, `pi.extensions`, unsafe paths, links, excessive files, and oversized content. Dependency metadata may describe the toolchain used to produce the reviewed assets, but work-fold never installs dependencies or invokes npm. It copies the completed bytes into content-addressed application staging and revalidates the digest without importing JavaScript.
+
+That parser feeds a machine-local reviewed-digest lifecycle and separate sandboxed Chromium hosts for visible UI and optional worker execution. A visible app gets an ephemeral `WebContentsView`, reviewed same-origin assets, CSP/direct-network denial, sender-bound IPC, and narrow context, tab, network, storage, storage-invalidation, and file bridges. The app occupies its work-folder rail navigator and may request normal persistent work-folder-owned tabs; work-fold derives every owner id and shell tab id. Proposing an app installs its preview immediately and shows its receipt in the owning Chat. **Settings → Apps**, which lists apps by work-folder, manages installed apps, exact destination, work-folder-file, and reviewed notification grants, host-owned connections, each declared automation and its run history, local-data controls, removal, and the advanced local-install path. One machine-wide scheduler coordinates named jobs across work-folders with two execution slots, FIFO admission, same-job non-overlap, durable cadence, and bounded catch-up. Notifications use fixed reviewed copy and require an enabled automation, inclusion in that job's permission subset, and a current category grant. Installation grants the declared powers and enables the declared automations; the person can narrow them afterwards. Connection secrets remain separate setup. File and network grants can compose, so app code with both may send granted file content or other app data to a granted destination; the broker controls the route and bounds, not the meaning of the payload. Every launch revalidates the installed revision, intersects the job subset with current grants, and is serialized with authority-changing mutations. A Node child, worker, or `vm` is not the security boundary. Restricted packages must never declare `pi.extensions`, enter Pi's package manager, or be discovered through the loaded Extension catalog because Pi evaluates Extension factories during catalog loading. See [Restricted app authoring](restricted-app-authoring.md) for the package contract and [Restricted app runtime](restricted-app-runtime.md) for the security boundary.
+
+## Scopes
+
+| Product label | Pi scope | Typical location | Availability |
+|---|---|---|---|
+| **Everywhere** | User/global | The configured Pi agent directory, normally `~/.pi/agent` | Available to the work-fold agent and every work-folder. (Earlier builds labeled this scope **Personal**.) |
+| **This work-folder** | Project/local | `.pi/` inside the work-folder's folder | Portable with that folder and authorized while it is registered as a work-folder. |
+
+Everywhere Skills commonly live below `~/.pi/agent/skills`; Everywhere Extensions below `~/.pi/agent/extensions`. work-folder-scoped equivalents live below `.pi/skills` and `.pi/extensions` in the work-folder. Pi also discovers global and project `.agents/skills` locations, packages, and paths added through settings. The Pi catalog is therefore the authority rather than a hard-coded directory scan in the renderer.
+
+Everywhere scope (Pi's user scope) is for capabilities a person wants in every work-folder — it is what the work-fold agent's agent loads, too. This work-folder scope is appropriate when a capability belongs with one activity or should travel with that folder. The Add dialog asks **Where should it live?** first, and a Discover details dialog asks it in the same review, with the same two-card chooser illustrated as the work-fold agent above a row of work-folders so the reach of each option is visible before confirming. Scope does not indicate safety: personal executable code still deserves inspection.
+
+## Registered-work-folder authorization
+
+Creating or registering a work-folder is work-fold's authorization to load project Skills, Extensions, packages, scripts, settings, and instructions from that exact folder. There is no second “Trust work-folder” prompt. The shared host authority derives from the work-folder registry and overrides Pi's independent project-trust decision only inside work-fold. Removing the work-folder revokes the work-fold authorization without rewriting Pi's trust store for other Pi clients.
+
+This choice removes redundant ceremony; it does not certify the folder as safe. Existing native Pi Extension code can execute during the first catalog load, and `.pi` content can change later through local edits, source control, or a synchronization tool. Package installation review, restricted-app grants, external connections, provider credentials, and Chat attachments remain separate decisions.
+
+Importing a Skill directly into **This work-folder** requires a registered work-folder. Importing it for **Everywhere** is an explicit global install action and does not write to the work-folder.
+
+## Packages
+
+[Pi packages](https://pi.dev/docs/latest/packages) are a distribution and lifecycle mechanism. A package source can provide one or more Skills, Extensions, prompts, themes, or related resources. work-fold delegates installation and discovery to Pi's package manager rather than defining another package format.
+
+Supported Pi sources include npm packages, git sources, HTTPS sources, and local paths. Npm and git sources require their corresponding command-line tools on `PATH`; local paths and direct Skill imports do not. Packages can be personal or project-scoped.
+
+In product language, lead with the outcome (“install this Skill” or “add this Extension”) and show package source, scope, resource types, load state, and diagnostics as provenance. A package can be mixed: installing an item presented as a Skill may also load Extensions, prompts, themes, dependencies, or install scripts. The Discover details dialog must disclose that package boundary before installation: it shows the description, the where-chooser, what is inside (the Skills and Extensions found), one plain warning when the install can run code on the computer, and a collapsed **Technical details** section holding source, version and license, provenance, dependencies, and install scripts. Do not add **Packages** as a peer to work-folder or Skills & Extensions unless the product model is deliberately revisited.
+
+work-fold delegates package update and removal to Pi so its settings, installed paths, pinned references, and deduplication rules stay authoritative. Project package installation, update, and removal require a registered target work-folder. Capability mutations are rejected while an affected work-folder has an active agent turn or Chat compaction; switching tabs or minimizing the app must not let a catalog reload terminate background work.
+
+Direct Skill imports and packages have different ownership semantics. Package-provided resources can be updated or removed through their package record. Direct-imported Skills have import receipts and a separate removal path that checks their recorded ownership. Per-resource enable/disable uses Pi's native filters for Extensions, Skills, prompts and themes, preserving unrelated resources, package patterns and scopes. Included resources use the same controls. The desktop and `tools enable|disable --path <resource-path> --kind extensions|skills|prompts|themes --scope everywhere|work-folder [--work-folder <id>]` share the prepared, identity-pinned, receipted operation. Affected active work blocks the change; clients are invalidated only after it succeeds. A package configured as a single Extension file cannot be filtered by Pi: work-fold explains that limitation and offers package removal rather than showing a false disabled state.
+
+## Discovery sources
+
+The Discover view combines sources without pretending they have one trust level:
+
+- official Pi documentation and maintained first-party/reference repositories;
+- the public Pi Skills examples;
+- compatible Skills from Anthropic's public repository; and
+- npm packages that opt into discovery with the `pi-package` keyword.
+
+Results expose their source and link back to it. Search, type filters, and sorting by first-party/reference status, downloads, recency, or name help navigation. “Official,” download counts, and recency are provenance or popularity signals—not signatures, malware scans, or endorsements. Every third-party package still requires source review, especially when it includes Extensions or lifecycle scripts.
+
+## Authentication and external connections
+
+**Settings → AI Models** separates **Model** from **Provider connections**.
+The model picker searches every connected provider's chat models, grouped by
+provider and vendor. Its closed control shows the model and connection name;
+selection uses the provider/model pair so identical model IDs remain distinct.
+Provider connections groups saved connections above available providers and
+shows the credential's actual source and its machine-wide scope.
+API-key entry is masked with an explicit Show/Hide control. A saved API key
+can be replaced through **Change API Key** without removing it first; Cancel
+clears the entered replacement and keeps the saved key. Provider connections
+are shared; **Save Model** separately saves the displayed Worker's or work-fold
+agent's model. Connecting or replacing a credential preserves model drafts and
+does not save a new model default. Azure's **Save Azure settings** saves its
+endpoint and deployment names; selecting a deployment uses **Save Model**.
+Failed saves keep the entered key for correction;
+successful saves clear it. Keys are never read back into the form or carried
+across provider or scope changes. Account sign-in and Azure deployment setup
+continue through their existing provider-specific paths.
+
+The provider list and account buttons use Pi's complete native provider catalog
+and authentication metadata, including providers with no chat models. **Guided
+setup** runs Pi's API-key interaction, preserving all returned provider settings
+(for example Cloudflare account/gateway IDs, AWS profiles and Vertex credentials).
+Account sign-in passes Pi's lazily created installation UUID from global settings;
+project settings cannot supply it. Pi owns token exchange, refresh and request auth,
+and the desktop persists the full credential through the encrypted host store.
+Setup refreshes only that provider's catalog with a bounded network request.
+Neither a saved credential nor a successful catalog refresh proves inference or
+account eligibility. Provider information and callback prompts remain on trusted
+desktop surfaces; credentials never enter the renderer's status response.
+
+In **Settings → AI Models**, Azure OpenAI accepts an endpoint, an API key,
+and **Deployment names**, separated by commas or new lines. Copy the Name
+under Deployment info in Azure. These names become the Azure model choices;
+there is no prerequisite catalog-model selection or user-written mapping.
+Choose the deployment this Worker or the work-fold agent uses in the model
+picker after saving the connection. All names use the same endpoint. Resource endpoints and pasted
+Responses URLs (including the portal's `api-version` query) normalize to
+`/openai/v1`; the saved API version is `v1`.
+
+work-fold registers the entered names through Pi's native ModelRuntime on
+each runtime load. Model metadata follows Pi's CLI resolution policy, which
+uses catalog metadata where available and a provider fallback for unknown
+names. The request's model ID is always the exact entered deployment name,
+even when Pi's fuzzy matcher suggests a catalog entry. Pi `models.json`
+model definitions and overrides remain available for precise metadata when
+a custom deployment name hides its underlying model's capabilities.
+
+Settings persist in the provider credential's Pi `env` values:
+`AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_VERSION`, and the JSON name list
+`WORKFOLD_AZURE_OPENAI_DEPLOYMENTS`. Identity mappings in
+`AZURE_OPENAI_DEPLOYMENT_NAME_MAP` keep ambient aliases from redirecting the
+entered names. The desktop uses its existing encrypted CredentialStore host;
+these settings are shared across work-folders and the work-fold agent. Saving
+with a blank key preserves the current key or Azure API-key environment
+reference. The form only reads back the endpoint and names, never the key or
+other provider environment values. Removing the stored credential removes
+its stored connection settings; external environment configuration can still
+apply. Saving validates configuration without making a paid inference request,
+claiming the connection was tested, or discovering or creating deployments.
+
+Model-provider credentials belong to **Settings → Agents** and application/Pi storage, never to a work-folder. They are machine-wide connections. The selected provider/model pair is a separate machine-local preference keyed by portable work-folder identity, with one additional preference for the work-fold agent; each work-folder may also keep bounded machine-local **work-folder instructions** under that same identity. Instructions are appended through Pi's native system-prompt override after work-fold's required prompt, never written into `.work-fold/` or `.pi/`, and sent to the selected provider with every subsequent turn in that work-folder. The work-fold agent may inspect and change a work-folder's model default and instructions through `work-folders assistant`, but it cannot enter, replace, remove, or inspect provider credentials. The desktop path supports API-key setup and exposes Pi's provider OAuth flows when a provider advertises one. work-fold opens the provider URL in the system browser, handles device-code and manual-code prompts in native desktop UI, and persists the result through its existing encrypted Pi CredentialStore host. OpenRouter's tool-capable text-model list can be refreshed explicitly from its live API; normalized model metadata and the last successful response are cached in app state without the credential and injected into each fresh cwd-specific Pi registry so display and execution use the same catalog. A failed refresh keeps the previous live cache or Pi's built-in catalog. Support must still be described provider by provider: the presence of a Pi OAuth implementation is not proof that every account tier, billing policy, or packaged release flow has been verified. Restricted-app connections, including an app's OAuth setup, instead live with that app in **Settings → Apps**.
+
+Restricted-app connection credentials use a separate encrypted namespace and host-owned setup UI; they do not reuse model-provider CredentialStore or pass secrets through app JavaScript. Public HTTPS targets can declare `none`, API key, bearer, basic, or OAuth 2 PKCE. PKCE accepts only a public issuer, a supplied client id for a provider registration that supports public clients without a client secret, and non-OIDC scopes; work-fold owns discovery, the system-browser callback, encrypted tokens, and refresh. It does not accept a client secret, device-code flow, or package-supplied endpoints. Credential replacement, **Disconnect**, app update, and app removal invalidate the OAuth binding generation so an in-flight browser connection or token refresh cannot restore a deleted local token. Revoking destination access leaves its separately stored connection in place; **Disconnect** deletes the local record but does not revoke or rotate the credential at its provider. Numeric `127.0.0.1` and `::1` targets are a separate anonymous-only permission with no DNS, redirects, or saved credentials; work-fold does not yet verify which process owns the port. The broker derives app and work-folder identity from the sandbox's sender, injects authorization, strips sensitive headers, and enforces target, method, redirect, size, and time bounds.
+
+For app creation, Pi receives one host-owned `propose_work-folder_app` tool rather than another loaded Extension. The model supplies only the completed package's work-folder-relative folder. work-fold derives the inspected digest, installs its preview with the declared powers, persists the owning work-folder/Chat receipt, and reports any destinations still needing a secret. Connection secrets remain separate trusted setup; proposal data never carries a credential.
+
+Likewise, an Extension can implement an external connection, but that does not make the core app a native integration with that service. Google Drive currently works by registering a folder synchronized through Google Drive for desktop. Direct Drive API synchronization remains future provider-adapter work.
+
+## Capability checklist
+
+For every new agent capability, keep these answers visible in code and UI:
+
+1. What will the agent gain: instructions, files, tools, commands, or network access?
+2. Where did it come from?
+3. Is it Everywhere or This work-folder?
+4. Is it a full-trust Pi Extension or a restricted app package?
+5. Which work-folder, network destinations, file roots, notification categories, actions, connections, and named automations are granted?
+6. Is it enabled, loaded, ready, missing setup, or failing diagnostics?
+7. How can the person update, disable, remove, or revoke it?
+
+The current Pi catalog and import/install surfaces expose provenance, scope, status, diagnostics, package update/removal, native per-resource enable/disable, and direct-import receipts/removal. Full-trust Pi resources retain Pi's authority model. Named Anthropic-pack selection remains lifecycle work to complete. Restricted work-folder apps already have their separate per-destination, file, notification, connection, and per-automation authority model.
+
+Management adapters must preserve that checklist. Inventory is not authorization: seeing a capability through the kernel or CLI does not grant it to a Chat or permit another actor to mutate it.
+
+## Pi 1.1 runtime
+
+The desktop embeds Pi 1.1.0. Its native codemode and tool_search factories are
+loaded through Pi's ordinary resource loader and enabled alongside default tools
+when no explicit `defaultTools` setting exists. Native filters and replacements
+remain authoritative. Codemode can call ordinary and MCP tools plus image and
+classifier models; the Worker model chooser stays limited to chat models.
+Settings → AI Models exposes all provider connections, including providers whose
+catalog contains only image/classifier models. Their usage flows through native
+Pi session totals into the accepted turn receipt.
+
+Pi's economical cache warming runs while an accepted turn is streaming. `off` is
+respected; `idle` is bounded to `streaming` in work-fold without changing the
+personal settings file, so no model spend starts after request settlement.
+Canonical session messages, context edits and compaction are Pi-owned; portable
+Chat text and its activity trail remain projections. See [integration evidence](archive/pi-1.1-integration.md).

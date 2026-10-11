@@ -154,7 +154,7 @@ export default async function includedComputer(pi: ExtensionAPI) {
         }
         return {
         isError: true,
-        content: [{ type: "text" as const, text: "Included computer control requires macOS 14 or later. This computer can still use the other Assistant tools." }],
+        content: [{ type: "text" as const, text: "Included computer control requires macOS 14 or later. This computer can still use the other included tools." }],
         details: { error: "unsupported_platform", supportedOS: false },
         };
       } });

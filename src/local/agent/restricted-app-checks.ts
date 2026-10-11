@@ -1,6 +1,6 @@
 import { restrictedAppCheckLimits, type RestrictedAppCheckGrant, type RestrictedAppCheckPermission, type RestrictedAppCheckResult } from "../../shared/restricted-app-checks.js";
 
-export type RestrictedAppCheckReader = (spaceId: string, checkId: string, declarationDigest: string) => Promise<RestrictedAppCheckResult>;
+export type RestrictedAppCheckReader = (workFolderId: string, checkId: string, declarationDigest: string) => Promise<RestrictedAppCheckResult>;
 
 export class RestrictedAppCheckError extends Error {
   constructor(readonly code: "CHECK_DENIED" | "CHECK_UNAVAILABLE", message: string) { super(message); }
@@ -8,7 +8,7 @@ export class RestrictedAppCheckError extends Error {
 
 /** Sender identity and a current effect lease must come from the host, never request JSON. */
 export async function readRestrictedAppCheck(context: {
-  spaceId: string;
+  workFolderId: string;
   declarations: readonly RestrictedAppCheckPermission[];
   grants: readonly RestrictedAppCheckGrant[];
   read: RestrictedAppCheckReader;
@@ -22,7 +22,7 @@ export async function readRestrictedAppCheck(context: {
   const grant = context.grants.find((item) => item.permissionId === permission?.id);
   if (!permission || !grant) throw new RestrictedAppCheckError("CHECK_DENIED", "Choose a Check in this app's Apps settings first.");
   let result: RestrictedAppCheckResult;
-  try { result = await context.read(context.spaceId, grant.checkId, grant.declarationDigest); }
+  try { result = await context.read(context.workFolderId, grant.checkId, grant.declarationDigest); }
   catch { throw new RestrictedAppCheckError("CHECK_UNAVAILABLE", "The selected Check is unavailable or changed. Review its selection in Apps."); }
   context.assertCurrent();
   if (result.checkId !== grant.checkId || result.declarationDigest !== grant.declarationDigest

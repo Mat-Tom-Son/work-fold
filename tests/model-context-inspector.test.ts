@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { describeModelContextDispatch, installModelContextInspection, ModelContextInspector } from "../src/local/agent/model-context-inspector.js";
 
-const owner = { spaceRoot: "/spaces/a", conversationId: "chat-a", sessionId: "session-a", taskId: "task-a", purpose: "chat" };
+const owner = { workFolderRoot: "/work-folders/a", conversationId: "chat-a", sessionId: "session-a", taskId: "task-a", purpose: "chat" };
 const model = { provider: "fixture", id: "any-model", api: "custom-transport" } as any;
 const context = { systemPrompt: "Instructions", messages: [{ role: "user", content: "Request" }] } as any;
 const enable = (options: ConstructorParameters<typeof ModelContextInspector>[0] = {}) => {
@@ -187,16 +187,16 @@ test("observation failures never fail native work; native hook/dispatch errors r
 
 test("long owner identities remain exact and cannot disclose child context through a truncated parent filter", () => {
   const inspector = enable();
-  const prefix = "/spaces/" + "a".repeat(248);
-  const longOwner = { ...owner, spaceRoot: `${prefix}/child`, conversationId: "c".repeat(300), sessionId: "s".repeat(300) };
+  const prefix = "/work-folders/" + "a".repeat(248);
+  const longOwner = { ...owner, workFolderRoot: `${prefix}/child`, conversationId: "c".repeat(300), sessionId: "s".repeat(300) };
   const session = fakeSession(() => ({}));
   installModelContextInspection(session, inspector, () => longOwner);
   session.agent.streamFunction(model, context);
-  assert.equal(inspector.list({ spaceRoot: prefix }).length, 0);
-  const detail = inspector.get(inspector.list()[0]!.id, { spaceRoot: longOwner.spaceRoot, conversationId: longOwner.conversationId });
+  assert.equal(inspector.list({ workFolderRoot: prefix }).length, 0);
+  const detail = inspector.get(inspector.list()[0]!.id, { workFolderRoot: longOwner.workFolderRoot, conversationId: longOwner.conversationId });
   assert.deepEqual(detail!.owner, longOwner);
-  longOwner.spaceRoot = "/changed";
-  assert.notEqual(inspector.list()[0]!.owner.spaceRoot, longOwner.spaceRoot);
+  longOwner.workFolderRoot = "/changed";
+  assert.notEqual(inspector.list()[0]!.owner.workFolderRoot, longOwner.workFolderRoot);
 });
 
 test("node and aggregate image hashing bounds omit excess work and expired records release without another read", async () => {

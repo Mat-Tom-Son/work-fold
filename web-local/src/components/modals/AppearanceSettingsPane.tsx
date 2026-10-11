@@ -4,12 +4,12 @@ import { applicationPalettes, builtInAppearancePresets, defaultApplicationAppear
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { maximumAppearanceImportBytes } from "../../lib/application-appearance-store";
 import { typographyFontOptionsForPlatform } from "../../constants";
-import type { SpaceSummary } from "../../types";
+import type { WorkFolderSummary } from "../../types";
 
-export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, interfaceExtra }: {
+export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWorkFolder, interfaceExtra }: {
   appearance: ApplicationAppearanceController;
-  space: SpaceSummary | null;
-  onCustomizeSpace?: (spaceId: string) => void;
+  workFolder: WorkFolderSummary | null;
+  onCustomizeWorkFolder?: (workFolderId: string) => void;
   /** Extra rows at the end of the Interface section, such as the desktop close-button choice. */
   interfaceExtra?: ReactNode;
 }) {
@@ -111,7 +111,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace, in
       {appearance.presets.map((preset) => <div className="appearance-settings-saved" key={preset.name}><span>{preset.name}</span><div className="appearance-settings-actions"><button type="button" aria-label={`Apply ${preset.name}`} onClick={() => store.applyPreset(preset.preferences)}>Apply</button><button type="button" aria-label={`Export ${preset.name}`} onClick={() => runPreset(() => exportPreset(preset))}>Export</button><button type="button" aria-label={`Remove ${preset.name}`} onClick={() => runPreset(() => store.removePreset(preset.name))}>Remove</button></div></div>)}
       {presetError || appearance.presetsError ? <p className="appearance-settings-error" role="alert">{presetError ?? appearance.presetsError}</p> : null}
     </section>
-    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this work-folder</button></section> : null}
+    {workFolder && onCustomizeWorkFolder ? <section className="appearance-settings-work-folder"><div><h3>{workFolder.name}</h3></div><button type="button" onClick={() => onCustomizeWorkFolder(workFolder.id)}>Customize this work-folder</button></section> : null}
   </div>;
 }
 

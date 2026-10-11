@@ -31,7 +31,7 @@ test("image formats are recognized by extension and magic bytes together", () =>
 });
 
 test("an attached image reaches the model as image content and is described in the turn context", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "space-image-attachment-"));
+  const root = await mkdtemp(join(tmpdir(), "work-folder-image-attachment-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "Dropped"), { recursive: true });
   await writeFile(join(root, "Dropped", "screenshot.png"), onePixelPng);
@@ -61,9 +61,9 @@ test("an attached image reaches the model as image content and is described in t
   assert.deepEqual(images[0], { type: "image", data: image.image!.data, mimeType: "image/png" });
 
   const contextMessage = buildTurnContextMessage({ contextAttachments: loaded });
-  assert.match(contextMessage, /Attached Space image: Dropped\/screenshot\.png \(1×1\)/);
+  assert.match(contextMessage, /Attached work-folder image: Dropped\/screenshot\.png \(1×1\)/);
   assert.match(contextMessage, /The image itself is included with the user's message/);
-  assert.match(contextMessage, /=== Attached Space file: notes\.md ===/);
+  assert.match(contextMessage, /=== Attached work-folder file: notes\.md ===/);
   assert.doesNotMatch(contextMessage, /iVBORw0KGgo/, "image bytes never ride the text context");
 
   const preview = await previewConversationContextAttachment(root, { path: "Dropped/screenshot.png" });

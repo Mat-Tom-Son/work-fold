@@ -7,7 +7,7 @@ import test from "node:test";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
 import { createDesktopCheckService } from "../desktop/src/desktop-checks.js";
 import { PiConversationClient } from "../src/local/agent/pi-client.js";
-import { WorkFoldSettleSignal } from "../src/local/routings/settle-signal.js";
+import { WorkFoldSettleSignal } from "../src/local/automations/settle-signal.js";
 import type { WorkFoldModelCheckRequest } from "../src/local/checks/model-review-sensor.js";
 import { WorkFoldCheckService, type WorkFoldCheckTaskStatus } from "../src/local/checks/check-service.js";
 import type {
@@ -32,37 +32,37 @@ const proposal = {
   },
 } as const;
 
-test("renderer Checks API stays explicit, Space-scoped, and task-backed", async () => {
+test("renderer Checks API stays explicit, work-folder-scoped, and task-backed", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-checks-renderer-api-"));
   const kernel = new WorkFoldKernel();
   const checkService = new WorkFoldCheckService({ kernel });
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     kernel,
     checkService,
   });
   try {
-    const created = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", {
+    const created = await request<{ workFolder: { id: string; workFolderRoot: string } }>(api.origin, "/api/work-folders", {
       method: "POST",
-      body: { name: "Checks UI Space" },
+      body: { name: "Checks UI work-folder" },
     }, 201);
-    const spaceId = created.space.id;
+    const workFolderId = created.workFolder.id;
     const proposalPath = join(sandbox, "signed-delivery.work-fold-check.json");
     await writeFile(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`, "utf8");
-    await api.actFacade.checksEnable({ space: spaceId, proposalPath, cwd: sandbox });
+    await api.actFacade.checksEnable({ workFolder: workFolderId, proposalPath, cwd: sandbox });
 
-    const releaseRegistryMutation = checkService.tryReserveSpaceRegistryMutation();
+    const releaseRegistryMutation = checkService.tryReserveWorkFolderRegistryMutation();
     assert.ok(releaseRegistryMutation);
-    const conflictedStatus = await fetch(`${api.origin}/api/spaces/${spaceId}/checks/status`);
+    const conflictedStatus = await fetch(`${api.origin}/api/work-folders/${workFolderId}/checks/status`);
     assert.equal(conflictedStatus.status, 409, await conflictedStatus.text());
     releaseRegistryMutation();
 
     const awaitingRun = await request<{ status: WorkFoldCheckStatusSnapshot }>(
       api.origin,
-      `/api/spaces/${spaceId}/checks/status`,
+      `/api/work-folders/${workFolderId}/checks/status`,
     );
     assert.equal(awaitingRun.status.state, "stale");
     assert.equal(awaitingRun.status.neverRun, 1);
@@ -70,11 +70,11 @@ test("renderer Checks API stays explicit, Space-scoped, and task-backed", async 
 
     const beforeRun = await request<{ decorations: WorkFoldCheckRendererDecorations }>(
       api.origin,
-      `/api/spaces/${spaceId}/checks/decorations`,
+      `/api/work-folders/${workFolderId}/checks/decorations`,
     );
     assert.deepEqual(beforeRun.decorations.items, []);
 
-    const invalidRun = await fetch(`${api.origin}/api/spaces/${spaceId}/checks/run`, {
+    const invalidRun = await fetch(`${api.origin}/api/work-folders/${workFolderId}/checks/run`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ checkId: 42 }),
@@ -83,28 +83,28 @@ test("renderer Checks API stays explicit, Space-scoped, and task-backed", async 
 
     const accepted = await request<{ task: { taskId: string } }>(
       api.origin,
-      `/api/spaces/${spaceId}/checks/run`,
+      `/api/work-folders/${workFolderId}/checks/run`,
       { method: "POST", body: {} },
       202,
     );
-    const terminal = await waitForTerminal(api.origin, spaceId, accepted.task.taskId);
+    const terminal = await waitForTerminal(api.origin, workFolderId, accepted.task.taskId);
     assert.equal(terminal.state, "succeeded");
     const settledAbort = await request<{ aborted: boolean }>(
       api.origin,
-      `/api/spaces/${spaceId}/checks/tasks/${accepted.task.taskId}/abort`,
+      `/api/work-folders/${workFolderId}/checks/tasks/${accepted.task.taskId}/abort`,
       { method: "POST", body: {} },
     );
     assert.equal(settledAbort.aborted, false);
 
     const decorations = await request<{ decorations: WorkFoldCheckRendererDecorations }>(
       api.origin,
-      `/api/spaces/${spaceId}/checks/decorations`,
+      `/api/work-folders/${workFolderId}/checks/decorations`,
     );
     assert.deepEqual(decorations.decorations.items, [{ path: "Delivery/signed.pdf", count: 1 }]);
 
     const overview = await request<{ overview: WorkFoldCheckRendererOverview }>(
       api.origin,
-      `/api/spaces/${spaceId}/checks/overview`,
+      `/api/work-folders/${workFolderId}/checks/overview`,
       { method: "POST", body: {} },
     );
     assert.equal(overview.overview.status.state, "needs-attention");
@@ -112,35 +112,35 @@ test("renderer Checks API stays explicit, Space-scoped, and task-backed", async 
     assert.equal(overview.overview.findings[0]?.targetPath, "Delivery/signed.pdf");
 
     const findingId = overview.overview.findings[0]!.id;
-    await request(api.origin, `/api/spaces/${spaceId}/checks/findings/${findingId}/decision`, {
+    await request(api.origin, `/api/work-folders/${workFolderId}/checks/findings/${findingId}/decision`, {
       method: "POST",
       body: { decision: "resolve" },
     });
     const resolved = await request<{ overview: WorkFoldCheckRendererOverview }>(
       api.origin,
-      `/api/spaces/${spaceId}/checks/overview`,
+      `/api/work-folders/${workFolderId}/checks/overview`,
       { method: "POST", body: {} },
     );
     assert.equal(resolved.overview.findings.length, 0);
     assert.equal(resolved.overview.status.needsAttention, 0);
 
-    await mkdir(join(created.space.spaceRoot, "Delivery"), { recursive: true });
-    await writeFile(join(created.space.spaceRoot, "Delivery", "signed.pdf"), "%PDF current");
+    await mkdir(join(created.workFolder.workFolderRoot, "Delivery"), { recursive: true });
+    await writeFile(join(created.workFolder.workFolderRoot, "Delivery", "signed.pdf"), "%PDF current");
     const clearRun = await request<{ task: { taskId: string } }>(
       api.origin,
-      `/api/spaces/${spaceId}/checks/run`,
+      `/api/work-folders/${workFolderId}/checks/run`,
       { method: "POST", body: {} },
       202,
     );
-    assert.equal((await waitForTerminal(api.origin, spaceId, clearRun.task.taskId)).state, "succeeded");
-    const staleDecision = await fetch(`${api.origin}/api/spaces/${spaceId}/checks/findings/${findingId}/decision`, {
+    assert.equal((await waitForTerminal(api.origin, workFolderId, clearRun.task.taskId)).state, "succeeded");
+    const staleDecision = await fetch(`${api.origin}/api/work-folders/${workFolderId}/checks/findings/${findingId}/decision`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ decision: "reject" }),
     });
     assert.equal(staleDecision.status, 409, await staleDecision.text());
 
-    const invalidDecision = await fetch(`${api.origin}/api/spaces/${spaceId}/checks/findings/${findingId}/decision`, {
+    const invalidDecision = await fetch(`${api.origin}/api/work-folders/${workFolderId}/checks/findings/${findingId}/decision`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ decision: "silence-forever" }),
@@ -152,12 +152,12 @@ test("renderer Checks API stays explicit, Space-scoped, and task-backed", async 
   }
 });
 
-async function waitForTerminal(origin: string, spaceId: string, taskId: string): Promise<WorkFoldCheckTaskStatus> {
+async function waitForTerminal(origin: string, workFolderId: string, taskId: string): Promise<WorkFoldCheckTaskStatus> {
   const deadline = Date.now() + 10_000;
   for (;;) {
     const response = await request<{ task: WorkFoldCheckTaskStatus }>(
       origin,
-      `/api/spaces/${spaceId}/checks/tasks/${taskId}`,
+      `/api/work-folders/${workFolderId}/checks/tasks/${taskId}`,
     );
     if (response.task.state !== "accepted" && response.task.state !== "running") return response.task;
     if (Date.now() >= deadline) throw new Error("Timed out waiting for the renderer Check task.");
@@ -188,27 +188,27 @@ test("desktop text Check setup is inert, re-enable pins review, and provider rem
   const hold = new Promise<void>((resolve) => { release = resolve; });
   let requests = 0;
   const service = new WorkFoldCheckService({ kernel, reviewModel: async () => { requests++; await hold; return { submission: { findings: [] } }; } });
-  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, kernel, checkService: service });
+  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), workFolderBase: join(sandbox, "content"), loadEnv: false, kernel, checkService: service });
   try {
-    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Text review" } }, 201);
-    await writeFile(join(space.spaceRoot, "draft.md"), "An ordinary paragraph.");
-    const configured = await request<{ declaration: { id: string }; digest: string }>(api.origin, `/api/spaces/${space.id}/checks/configure`, { method: "POST", body: { proposal: { ...proposal, check: { ...proposal.check, sensor: { id: "work-fold.text-review", revision: 1, parameters: { criteria: "Flag unclear prose." } }, targets: [{ kind: "file", role: "primary", path: "draft.md" }] } } } });
+    const { workFolder } = await request<{ workFolder: { id: string; workFolderRoot: string } }>(api.origin, "/api/work-folders", { method: "POST", body: { name: "Text review" } }, 201);
+    await writeFile(join(workFolder.workFolderRoot, "draft.md"), "An ordinary paragraph.");
+    const configured = await request<{ declaration: { id: string }; digest: string }>(api.origin, `/api/work-folders/${workFolder.id}/checks/configure`, { method: "POST", body: { proposal: { ...proposal, check: { ...proposal.check, sensor: { id: "work-fold.text-review", revision: 1, parameters: { criteria: "Flag unclear prose." } }, targets: [{ kind: "file", role: "primary", path: "draft.md" }] } } } });
     assert.equal(requests, 0);
-    await request(api.origin, `/api/spaces/${space.id}/checks/${configured.declaration.id}/disable`, { method: "POST", body: {} });
-    const stale = await fetch(`${api.origin}/api/spaces/${space.id}/checks/${configured.declaration.id}/enable`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedDigest: "0".repeat(64) }) });
+    await request(api.origin, `/api/work-folders/${workFolder.id}/checks/${configured.declaration.id}/disable`, { method: "POST", body: {} });
+    const stale = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/checks/${configured.declaration.id}/enable`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedDigest: "0".repeat(64) }) });
     assert.equal(stale.status, 409);
-    const enabled = await request<{ declaration: { id: string } }>(api.origin, `/api/spaces/${space.id}/checks/${configured.declaration.id}/enable`, { method: "POST", body: { expectedDigest: configured.digest } });
+    const enabled = await request<{ declaration: { id: string } }>(api.origin, `/api/work-folders/${workFolder.id}/checks/${configured.declaration.id}/enable`, { method: "POST", body: { expectedDigest: configured.digest } });
     assert.equal(enabled.declaration.id, configured.declaration.id);
-    const accepted = await request<{ task: { taskId: string } }>(api.origin, `/api/spaces/${space.id}/checks/run`, { method: "POST", body: {} }, 202);
-    const removal = await fetch(`${api.origin}/api/agent/auth`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ spaceId: space.id, provider: "test" }) });
+    const accepted = await request<{ task: { taskId: string } }>(api.origin, `/api/work-folders/${workFolder.id}/checks/run`, { method: "POST", body: {} }, 202);
+    const removal = await fetch(`${api.origin}/api/agent/auth`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ workFolderId: workFolder.id, provider: "test" }) });
     assert.equal(removal.status, 409, await removal.text());
     release();
-    assert.equal((await waitForTerminal(api.origin, space.id, accepted.task.taskId)).state, "succeeded");
+    assert.equal((await waitForTerminal(api.origin, workFolder.id, accepted.task.taskId)).state, "succeeded");
     assert.equal(requests, 1);
   } finally { release(); await api.close(); await rm(sandbox, { recursive: true, force: true }); }
 });
 
-test("desktop-injected Checks reach the fold model through trial, live review and correction recheck", async (t) => {
+test("desktop-injected Checks reach the work-fold agent model through trial, live review and correction recheck", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-check-workflow-api-"));
   const kernel = new WorkFoldKernel();
   let calls = 0;
@@ -222,36 +222,36 @@ test("desktop-injected Checks reach the fold model through trial, live review an
   const settleSignal = new WorkFoldSettleSignal();
   let api!: LocalApiHandle;
   const service = createDesktopCheckService({ kernel, settleSignal, getLocalApi: async () => api });
-  api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, kernel, checkService: service, settleSignal });
+  api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), workFolderBase: join(sandbox, "content"), loadEnv: false, kernel, checkService: service, settleSignal });
   try {
-    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Check workflow" } }, 201);
-    await writeFile(join(space.spaceRoot, "draft.md"), "Always guaranteed.\n");
-    const proposed = await request<{ declaration: { id: string }; digest: string }>(api.origin, `/api/spaces/${space.id}/checks/configure`, { method: "POST", body: { proposal: { ...proposal, check: { ...proposal.check, sensor: { id: "work-fold.text-review", revision: 1, parameters: { criteria: "Avoid unqualified promises." } }, targets: [{ kind: "file", role: "primary", path: "draft.md" }] } } } });
-    assert.equal((await service.status(space)).enabled, 0);
-    const trial = await request<{ task: { taskId: string } }>(api.origin, `/api/spaces/${space.id}/checks/${proposed.declaration.id}/try`, { method: "POST", body: { expectedDigest: proposed.digest } }, 202);
-    const trialStatus = await waitForTerminal(api.origin, space.id, trial.task.taskId);
+    const { workFolder } = await request<{ workFolder: { id: string; workFolderRoot: string } }>(api.origin, "/api/work-folders", { method: "POST", body: { name: "Check workflow" } }, 201);
+    await writeFile(join(workFolder.workFolderRoot, "draft.md"), "Always guaranteed.\n");
+    const proposed = await request<{ declaration: { id: string }; digest: string }>(api.origin, `/api/work-folders/${workFolder.id}/checks/configure`, { method: "POST", body: { proposal: { ...proposal, check: { ...proposal.check, sensor: { id: "work-fold.text-review", revision: 1, parameters: { criteria: "Avoid unqualified promises." } }, targets: [{ kind: "file", role: "primary", path: "draft.md" }] } } } });
+    assert.equal((await service.status(workFolder)).enabled, 0);
+    const trial = await request<{ task: { taskId: string } }>(api.origin, `/api/work-folders/${workFolder.id}/checks/${proposed.declaration.id}/try`, { method: "POST", body: { expectedDigest: proposed.digest } }, 202);
+    const trialStatus = await waitForTerminal(api.origin, workFolder.id, trial.task.taskId);
     assert.equal(trialStatus.state, "succeeded", trialStatus.error ?? "trial failed");
-    assert.equal((await service.problems(space)).findings.length, 0);
-    await request(api.origin, `/api/spaces/${space.id}/checks/${proposed.declaration.id}/enable`, { method: "POST", body: { expectedDigest: proposed.digest } });
-    const run = await request<{ task: { taskId: string } }>(api.origin, `/api/spaces/${space.id}/checks/run`, { method: "POST", body: {} }, 202);
-    const liveStatus = await waitForTerminal(api.origin, space.id, run.task.taskId);
+    assert.equal((await service.problems(workFolder)).findings.length, 0);
+    await request(api.origin, `/api/work-folders/${workFolder.id}/checks/${proposed.declaration.id}/enable`, { method: "POST", body: { expectedDigest: proposed.digest } });
+    const run = await request<{ task: { taskId: string } }>(api.origin, `/api/work-folders/${workFolder.id}/checks/run`, { method: "POST", body: {} }, 202);
+    const liveStatus = await waitForTerminal(api.origin, workFolder.id, run.task.taskId);
     assert.equal(liveStatus.state, "succeeded", liveStatus.error ?? "live run failed");
-    const finding = (await service.problems(space)).findings[0]!;
-    const { draft } = await request<{ draft: string }>(api.origin, `/api/spaces/${space.id}/checks/findings/${finding.id}/help`, { method: "POST", body: { fingerprint: finding.fingerprint } });
+    const finding = (await service.problems(workFolder)).findings[0]!;
+    const { draft } = await request<{ draft: string }>(api.origin, `/api/work-folders/${workFolder.id}/checks/findings/${finding.id}/help`, { method: "POST", body: { fingerprint: finding.fingerprint } });
     assert.match(draft, /correction for review in Checks/); assert.ok(draft.includes(finding.id)); assert.equal(calls, 2, "opening a help draft starts no model");
     assert.ok(draft.includes("work-fold help checks"));
-    assert.ok(draft.includes(`checks problems --space ${space.id} --json`));
-    assert.ok(draft.includes(`checks propose-fix --space ${space.id}`));
+    assert.ok(draft.includes(`checks problems --work-folder ${workFolder.id} --json`));
+    assert.ok(draft.includes(`checks propose-fix --work-folder ${workFolder.id}`));
     const path = join(sandbox, "fix.json");
     await writeFile(path, JSON.stringify({ kind: "work-fold.check-correction", version: 1, findingId: finding.id, fingerprint: finding.fingerprint, path: finding.targetPath, beforeHash: finding.evidence[0]!.identity.sha256, replacement: "Usually supported.\n" }));
-    const { correction } = await api.actFacade.checksProposeFix({ space: space.id, proposalPath: path, cwd: sandbox });
-    const review = await request<{ before: string }>(api.origin, `/api/spaces/${space.id}/checks/corrections/${correction.id}/review`, { method: "POST", body: {} });
+    const { correction } = await api.actFacade.checksProposeFix({ workFolder: workFolder.id, proposalPath: path, cwd: sandbox });
+    const review = await request<{ before: string }>(api.origin, `/api/work-folders/${workFolder.id}/checks/corrections/${correction.id}/review`, { method: "POST", body: {} });
     assert.equal(review.before, "Always guaranteed.\n"); assert.equal(calls, 2);
-    const applied = await request<{ task: { taskId: string }; correction: { state: string } }>(api.origin, `/api/spaces/${space.id}/checks/corrections/${correction.id}/apply`, { method: "POST", body: {} });
+    const applied = await request<{ task: { taskId: string }; correction: { state: string } }>(api.origin, `/api/work-folders/${workFolder.id}/checks/corrections/${correction.id}/apply`, { method: "POST", body: {} });
     assert.equal(applied.correction.state, "applied");
-    assert.equal((await waitForTerminal(api.origin, space.id, applied.task.taskId)).state, "succeeded");
-    assert.equal((await service.status(space)).state, "current-clear");
-    const repeat = await fetch(`${api.origin}/api/spaces/${space.id}/checks/corrections/${correction.id}/apply`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal((await waitForTerminal(api.origin, workFolder.id, applied.task.taskId)).state, "succeeded");
+    assert.equal((await service.status(workFolder)).state, "current-clear");
+    const repeat = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/checks/corrections/${correction.id}/apply`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     assert.equal(repeat.status, 409);
   } finally { await api.close(); await rm(sandbox, { recursive: true, force: true }); }
 });

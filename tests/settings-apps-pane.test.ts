@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire, registerHooks } from "node:module";
 import test from "node:test";
 import { createElement, useState } from "react";
-import type { AgentStatus, RestrictedAppInstalled, SpaceSummary } from "../web-local/src/types.js";
+import type { AgentStatus, RestrictedAppInstalled, WorkFolderSummary } from "../web-local/src/types.js";
 import { createDomHarness } from "./support/dom.js";
 
 const iconNames = Object.keys(createRequire(import.meta.url)("@fluentui/react-icons")).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
@@ -21,10 +21,10 @@ const { useRestrictedApps } = await import("../web-local/src/hooks/useRestricted
 const { useApplicationAppearance } = await import("../web-local/src/hooks/useApplicationAppearance.js");
 const { useSurfaceTabs } = await import("../web-local/src/hooks/useSurfaceTabs.js");
 
-const source = { id: "source", name: "App source", spaceRoot: "/synthetic/source" } as SpaceSummary;
-const target = { id: "target", name: "App installation", spaceRoot: "/synthetic/target" } as SpaceSummary;
-const unrelated = { id: "unrelated", name: "Current folder", spaceRoot: "/synthetic/unrelated" } as SpaceSummary;
-const spaces = [source, target, unrelated];
+const source = { id: "source", name: "App source", workFolderRoot: "/synthetic/source" } as WorkFolderSummary;
+const target = { id: "target", name: "App installation", workFolderRoot: "/synthetic/target" } as WorkFolderSummary;
+const unrelated = { id: "unrelated", name: "Current folder", workFolderRoot: "/synthetic/unrelated" } as WorkFolderSummary;
+const workFolders = [source, target, unrelated];
 
 test("Settings Apps stops after a failed catalog read and retries only on request or reopening", async (t) => {
   const dom = await createDomHarness();
@@ -37,16 +37,16 @@ test("Settings Apps stops after a failed catalog read and retries only on reques
   const registered = [target];
   globalThis.fetch = async (input, init) => {
     if (String(input).endsWith("/api/events")) return pendingEvents(init?.signal);
-    assert.ok(String(input).endsWith("/api/spaces/target/restricted-apps"));
+    assert.ok(String(input).endsWith("/api/work-folders/target/restricted-apps"));
     attempts++;
     return fail ? Response.json({ error: "Folder unavailable" }, { status: 404 }) : Response.json({ apps: [] });
   };
   function Screen() {
-    const apps = useRestrictedApps({ activeSpaceId: "", spaces: registered, onError });
+    const apps = useRestrictedApps({ activeWorkFolderId: "", workFolders: registered, onError });
     const [open, setOpen] = useState(false);
     return createElement("main", null,
       createElement("button", { id: "toggle-settings", onClick: () => setOpen((value) => !value) }, "Toggle settings"),
-      open ? createElement(SettingsAppsPane, { spaces: registered, apps }) : null);
+      open ? createElement(SettingsAppsPane, { workFolders: registered, apps }) : null);
   }
   const retry = () => [...dom.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Retry Loading Apps");
   await dom.render(createElement(Screen));
@@ -70,13 +70,13 @@ test("Settings Apps stops after a failed catalog read and retries only on reques
   assert.equal(retry(), undefined);
 });
 
-test("an app result file leaves both Settings dialogs and activates the installation's Folder", async (t) => {
+test("an app result file leaves both Settings dialogs and activates the installation's work-folder", async (t) => {
   const dom = await createDomHarness();
   const originalFetch = globalThis.fetch;
   t.after(async () => { await dom.cleanup(); globalThis.fetch = originalFetch; });
   HTMLElement.prototype.scrollIntoView = () => {};
   window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
-  const app = { spaceId: target.id, sourceSpaceId: source.id, featureInstallationId: "feature-installation_target", runtimeInstanceKind: "app", runtimeInstanceId: "runtime-instance_target",
+  const app = { workFolderId: target.id, sourceWorkFolderId: source.id, featureInstallationId: "feature-installation_target", runtimeInstanceKind: "app", runtimeInstanceId: "runtime-instance_target",
     packageName: "quotes", version: "1.0.0", digest: "a".repeat(64), installedAt: "2026-09-25T00:00:00.000Z", updatedAt: "2026-09-25T00:00:00.000Z",
     networkGrants: [], fileGrants: [], notificationGrants: [], automations: [],
     manifest: { id: "quotes", title: "Quotes", version: 2, runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], automations: [],
@@ -87,33 +87,33 @@ test("an app result file leaves both Settings dialogs and activates the installa
     const path = String(input);
     if (path.endsWith("/api/events")) return pendingEvents(init?.signal);
     if (path.includes("assistant-tasks")) return Response.json({ tasks: [task] });
-    if (path.includes("build-context")) return Response.json({ context: { sourceSpaceId: source.id, sourcePath: null, buildConversationId: null, updateTargetRuntimeInstanceId: app.runtimeInstanceId } });
+    if (path.includes("build-context")) return Response.json({ context: { sourceWorkFolderId: source.id, sourcePath: null, buildConversationId: null, updateTargetRuntimeInstanceId: app.runtimeInstanceId } });
     if (path.includes("connections")) return Response.json({ connections: [] });
     if (path.includes("storage/recovery")) return Response.json({ recovery: null });
     if (path.includes("storage")) return Response.json({ usage: { revision: 0, usageBytes: 0, quotaBytes: 1000, keyCount: 0, keyLimit: 512 } });
     throw new Error(`Unexpected API read: ${path}`);
   };
   const installed = {
-    appsBySpace: { [target.id]: [app] }, knownSpaceIds: new Set(spaces.map((space) => space.id)), loadingSpaceIds: new Set<string>(),
+    appsByWorkFolder: { [target.id]: [app] }, knownWorkFolderIds: new Set(workFolders.map((workFolder) => workFolder.id)), loadingWorkFolderIds: new Set<string>(),
     async refresh() {}, replaceApps() {}, replaceRuntimeInstanceApps() {}, upsertApp() {}, removeApp() {},
   };
   const opened: string[][] = [];
   function Screen() {
     const appearance = useApplicationAppearance({ fixtureMode: true });
     const [settingsOpen, setSettingsOpen] = useState(true);
-    const [activeSpace, setActiveSpace] = useState(unrelated);
-    const tabs = useSurfaceTabs({ space: activeSpace, spaces, fixtureMode: true, onSwitchSpace: setActiveSpace });
+    const [activeWorkFolder, setActiveWorkFolder] = useState(unrelated);
+    const tabs = useSurfaceTabs({ workFolder: activeWorkFolder, workFolders, fixtureMode: true, onSwitchWorkFolder: setActiveWorkFolder });
     const selectedTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId);
     return createElement("main", null,
       createElement("button", { id: "shell-navigation" }, "Files"),
-      createElement("output", { "data-active-space": activeSpace.id }, selectedTab?.kind === "file" ? selectedTab.path : "Chat"),
+      createElement("output", { "data-active-work-folder": activeWorkFolder.id }, selectedTab?.kind === "file" ? selectedTab.path : "Chat"),
       settingsOpen ? createElement(DesktopSettingsModal, {
-        appearance, space: activeSpace, spaces, restrictedApps: installed, initialPage: "apps", updateStatus: null,
+        appearance, workFolder: activeWorkFolder, workFolders, restrictedApps: installed, initialPage: "apps", updateStatus: null,
         agentStatus: { configured: true, ready: true } as AgentStatus, onAgentConfigured() {}, onClose: () => setSettingsOpen(false),
-        onOpenAppResultFile(spaceId, path) {
-          opened.push([spaceId, path]);
+        onOpenAppResultFile(workFolderId, path) {
+          opened.push([workFolderId, path]);
           setSettingsOpen(false);
-          tabs.openFileSurfaceTab(spaces.find((space) => space.id === spaceId)!, path);
+          tabs.openFileSurfaceTab(workFolders.find((workFolder) => workFolder.id === workFolderId)!, path);
         },
       }) : null);
   }
@@ -121,21 +121,21 @@ test("an app result file leaves both Settings dialogs and activates the installa
   const details = [...dom.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Details");
   assert.ok(details);
   await dom.act(() => details.click());
-  await dom.waitFor(() => Boolean(dom.container.querySelector('[aria-label="Assistant result files"] button')));
+  await dom.waitFor(() => Boolean(dom.container.querySelector('[aria-label="Worker result files"] button')));
   assert.equal(dom.container.querySelectorAll('[role="dialog"]').length, 2);
-  await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Assistant result files"] button')!.click());
+  await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Worker result files"] button')!.click());
   await dom.waitFor(() => !dom.container.querySelector('[role="dialog"]'));
   assert.deepEqual(opened, [[target.id, "exports/comparison.md"]]);
-  assert.equal(dom.container.querySelector("output")?.getAttribute("data-active-space"), target.id);
+  assert.equal(dom.container.querySelector("output")?.getAttribute("data-active-work-folder"), target.id);
   assert.equal(dom.container.querySelector("output")?.textContent, "exports/comparison.md");
   assert.notEqual(dom.container.querySelector<HTMLElement>("#shell-navigation")!.inert, true);
 });
 
-test("a stale saved Folder cannot fetch apps before bootstrap validates registrations", async (t) => {
+test("a stale saved work-folder cannot fetch apps before bootstrap validates registrations", async (t) => {
   const dom = await createDomHarness();
   const originalFetch = globalThis.fetch;
   const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-  const saved = new Map([["work-fold.space.active", "removed-folder"]]);
+  const saved = new Map([["work-fold.work-folder.active", "removed-folder"]]);
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
     getItem: (key: string) => saved.get(key) ?? null,
     setItem: (key: string, value: string) => saved.set(key, value),
@@ -174,9 +174,9 @@ test("a stale saved Folder cannot fetch apps before bootstrap validates registra
   await dom.waitFor(() => Boolean(completeBootstrap));
   await dom.settle();
   assert.deepEqual(appReads, [], "the stale persisted selection has not been admitted by bootstrap");
-  await dom.act(() => completeBootstrap(Response.json({ spaces: [], agent: { configured: false, ready: false } })));
+  await dom.act(() => completeBootstrap(Response.json({ workFolders: [], agent: { configured: false, ready: false } })));
   await dom.waitFor(() => Boolean(dom.container.querySelector('[aria-label="Choose a folder"]')));
-  assert.deepEqual(appReads, [], "the removed Folder is never fetched after the registry is known");
+  assert.deepEqual(appReads, [], "the removed work-folder is never fetched after the registry is known");
   assert.equal(dom.container.querySelector('[role="alert"]'), null);
 });
 

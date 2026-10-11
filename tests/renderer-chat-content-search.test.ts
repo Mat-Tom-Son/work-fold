@@ -2,22 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 
-import type { ConversationSummary, SpaceSummary } from "../web-local/src/types.js";
+import type { ConversationSummary, WorkFolderSummary } from "../web-local/src/types.js";
 import { createDomHarness } from "./support/dom.js";
 
-const spaces: SpaceSummary[] = [
+const workFolders: WorkFolderSummary[] = [
   {
-    id: "space-1",
+    id: "work-folder-1",
     name: "Planning",
-    spaceRoot: "/planning",
+    workFolderRoot: "/planning",
     location: { kind: "local", storage: "linked" },
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
   },
   {
-    id: "space-2",
+    id: "work-folder-2",
     name: "Writing",
-    spaceRoot: "/writing",
+    workFolderRoot: "/writing",
     location: { kind: "local", storage: "linked" },
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
@@ -33,14 +33,14 @@ const planningChat: ConversationSummary = {
   snoozedUntil: null,
 };
 
-test("Chat search reaches transcript contents across Spaces and opens the owning Chat", async (t) => {
+test("Chat search reaches transcript contents across work-folders and opens the owning Chat", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());
   const calls: string[] = [];
   (globalThis as unknown as { fetch: unknown }).fetch = async (input: unknown) => {
     const url = String(input);
     calls.push(url);
-    if (url.includes("space-2")) return new Response("{}", { status: 500 });
+    if (url.includes("work-folder-2")) return new Response("{}", { status: 500 });
     const matching = [{
       conversationId: "chat-1",
       title: "Budget review",
@@ -57,12 +57,12 @@ test("Chat search reaches transcript contents across Spaces and opens the owning
   const opened: string[] = [];
   const { ChatContentSearch } = await import("../web-local/src/components/panes/ChatContentSearch.js");
   await dom.render(createElement(ChatContentSearch, {
-    spaces,
-    conversations: { "space-1": [planningChat], "space-2": [] },
+    workFolders,
+    conversations: { "work-folder-1": [planningChat], "work-folder-2": [] },
     query: "quarterly",
     now: Date.parse("2026-07-02T00:00:00.000Z"),
-    onOpen: (space: SpaceSummary, conversation: ConversationSummary) => {
-      opened.push(`${space.id}:${conversation.id}`);
+    onOpen: (workFolder: WorkFolderSummary, conversation: ConversationSummary) => {
+      opened.push(`${workFolder.id}:${conversation.id}`);
     },
   }));
 
@@ -71,8 +71,8 @@ test("Chat search reaches transcript contents across Spaces and opens the owning
   await dom.waitFor(() => (dom.container.textContent ?? "").includes("hidden quarterly figure"));
   assert.match(dom.container.textContent ?? "", /Planning/);
   assert.match(dom.container.textContent ?? "", /Budget review/);
-  assert.match(dom.container.textContent ?? "", /Some work-folders couldn\u2019t be searched/, "one unavailable Folder does not hide other matches");
+  assert.match(dom.container.textContent ?? "", /Some work-folders couldn\u2019t be searched/, "one unavailable work-folder does not hide other matches");
 
   dom.container.querySelector<HTMLButtonElement>(".chat-content-search li button")?.click();
-  assert.deepEqual(opened, ["space-1:chat-1"]);
+  assert.deepEqual(opened, ["work-folder-1:chat-1"]);
 });

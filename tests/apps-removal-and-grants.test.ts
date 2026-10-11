@@ -13,20 +13,20 @@ import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
  * API.
  *
  * F20: nothing work-fold destroys is permanent at the moment it happens.
- * Removing a Development preview, and unregistering a Space that holds one,
+ * Removing a Development preview, and unregistering a work-folder that holds one,
  * both take the app's local data with them, so both owe a recoverable copy in
  * Recently deleted first — the same export-then-destroy order "Clear data"
  * and uninstall-with-purge already use.
  *
  * F21: an installed app comes up able to work, and a folder permission binds
- * to the whole Space. A single-file permission has no whole-Space reading, so
- * `apps grant` takes the Space file it covers and binds to exactly that file.
+ * to the whole work-folder. A single-file permission has no whole-work-folder reading, so
+ * `apps grant` takes the work-folder file it covers and binds to exactly that file.
  */
 
 interface Harness {
   api: LocalApiHandle;
-  spaceId: string;
-  spaceRoot: string;
+  workFolderId: string;
+  workFolderRoot: string;
   appDigest: string;
 }
 
@@ -39,24 +39,24 @@ async function withApp(run: (context: Harness) => Promise<void>): Promise<void> 
   const api = await startLocalApi({
     port: 0,
     stateBase,
-    spaceBase: join(sandbox, "spaces"),
+    workFolderBase: join(sandbox, "work-folders"),
     loadEnv: false,
     restrictedAppService: service,
   });
   try {
-    const created = await api.actFacade.createSpace({ name: "Apps" });
-    const space = created.space;
+    const created = await api.actFacade.createWorkFolder({ name: "Apps" });
+    const workFolder = created.workFolder;
     const sourcePath = "tools/ledger-app";
-    await writePackage(join(space.spaceRoot, "tools", "ledger-app"));
+    await writePackage(join(workFolder.workFolderRoot, "tools", "ledger-app"));
 
     const inspected = await request<{ review: { digest: string } }>(
       api.origin,
-      `/api/spaces/${space.id}/restricted-apps/inspect`,
+      `/api/work-folders/${workFolder.id}/restricted-apps/inspect`,
       { method: "POST", body: { sourcePath } },
     );
     const installed = await request<{ app: { digest: string; tenantId: string; runtimeInstanceId: string; featureInstallationId: string; dataNamespaceId: string } }>(
       api.origin,
-      `/api/spaces/${space.id}/restricted-apps`,
+      `/api/work-folders/${workFolder.id}/restricted-apps`,
       { method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest } },
     );
     // Data worth losing: the removal has to carry this into Recently deleted.
@@ -68,7 +68,7 @@ async function withApp(run: (context: Harness) => Promise<void>): Promise<void> 
       dataNamespaceId: installed.app.dataNamespaceId,
     }, "rows", { entries: ["one", "two"] });
 
-    await run({ api, spaceId: space.id, spaceRoot: space.spaceRoot, appDigest: installed.app.digest });
+    await run({ api, workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, appDigest: installed.app.digest });
   } finally {
     await api.close();
     await service.close().catch(() => undefined);
@@ -86,39 +86,39 @@ async function request<T>(origin: string, path: string, init: { method: string; 
   return value;
 }
 
-async function trashEntries(api: LocalApiHandle): Promise<Array<{ id: string; kind: string; reason: string; sizeBytes: number }>> {
-  const listed = await api.actFacade.trashList({});
+async function recentlyDeletedEntries(api: LocalApiHandle): Promise<Array<{ id: string; kind: string; reason: string; sizeBytes: number }>> {
+  const listed = await api.actFacade.recentlyDeletedList({});
   return listed.entries.map((entry) => ({ id: entry.id, kind: entry.kind, reason: entry.reason, sizeBytes: entry.sizeBytes }));
 }
 
-test("a folder permission grants over the whole Space; a single-file permission binds to the named file", async () => {
-  await withApp(async ({ api, spaceId, spaceRoot, appDigest }) => {
+test("a folder permission grants over the whole work-folder; a single-file permission binds to the named file", async () => {
+  await withApp(async ({ api, workFolderId, workFolderRoot, appDigest }) => {
     await api.actFacade.appsRevoke({
-      space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "exports",
+      workFolder: workFolderId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "exports",
     });
 
     const granted = await api.actFacade.appsGrant({
-      space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "exports",
+      workFolder: workFolderId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "exports",
     });
     assert.equal(granted.granted, true);
-    assert.equal(granted.root, ".", "a folder permission binds to the whole Space");
+    assert.equal(granted.root, ".", "a folder permission binds to the whole work-folder");
 
     // A folder permission has nothing to narrow to, and a single-file
-    // permission has no whole-Space reading: both refuse before journaling,
+    // permission has no whole-work-folder reading: both refuse before journaling,
     // rather than letting the broker answer with an unavailable-file error.
     await assert.rejects(
       () => api.actFacade.appsGrant({
-        space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "exports", path: "books/ledger.csv",
+        workFolder: workFolderId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "exports", path: "books/ledger.csv",
       }),
       (error: Error & { code?: string }) => {
         assert.equal(error.code, "usage");
-        assert.match(error.message, /covers the whole Space/);
+        assert.match(error.message, /covers the whole work-folder/);
         return true;
       },
     );
     await assert.rejects(
       () => api.actFacade.appsGrant({
-        space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "ledger",
+        workFolder: workFolderId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "ledger",
       }),
       (error: Error & { code?: string }) => {
         assert.equal(error.code, "usage");
@@ -131,18 +131,18 @@ test("a folder permission grants over the whole Space; a single-file permission 
 
     // Nothing was granted for the file declaration, so nothing is pinned to a
     // root the broker would reject at read time.
-    const before = await api.actFacade.appsList({ space: spaceId });
+    const before = await api.actFacade.appsList({ workFolder: workFolderId });
     assert.deepEqual((before.apps[0]?.grants.files ?? []).map((grant) => grant.declarationId), ["exports"]);
 
     // Naming the file grants it, and the grant binds to that file alone.
-    await mkdir(join(spaceRoot, "books"), { recursive: true });
-    await writeFile(join(spaceRoot, "books", "ledger.csv"), "date,amount\n", "utf8");
+    await mkdir(join(workFolderRoot, "books"), { recursive: true });
+    await writeFile(join(workFolderRoot, "books", "ledger.csv"), "date,amount\n", "utf8");
     const file = await api.actFacade.appsGrant({
-      space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "ledger", path: "./books/ledger.csv",
+      workFolder: workFolderId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "ledger", path: "./books/ledger.csv",
     });
     assert.equal(file.granted, true);
-    assert.equal(file.root, "books/ledger.csv", "the grant root is the canonical Space-relative file");
-    const after = await api.actFacade.appsList({ space: spaceId });
+    assert.equal(file.root, "books/ledger.csv", "the grant root is the canonical work-folder-relative file");
+    const after = await api.actFacade.appsList({ workFolder: workFolderId });
     assert.deepEqual(
       (after.apps[0]?.grants.files ?? []).map((grant) => [grant.declarationId, grant.root]).sort(),
       [["exports", "."], ["ledger", "books/ledger.csv"]],
@@ -151,35 +151,35 @@ test("a folder permission grants over the whole Space; a single-file permission 
 });
 
 test("removing a preview leaves a recoverable copy of its data in Recently deleted", async () => {
-  await withApp(async ({ api, spaceId }) => {
-    assert.deepEqual(await trashEntries(api), [], "nothing is waiting before the removal");
+  await withApp(async ({ api, workFolderId }) => {
+    assert.deepEqual(await recentlyDeletedEntries(api), [], "nothing is waiting before the removal");
 
-    const removed = await api.actFacade.appsRemove({ space: spaceId, app: "ledger-app" });
+    const removed = await api.actFacade.appsRemove({ workFolder: workFolderId, app: "ledger-app" });
     assert.equal(removed.removed, true);
-    assert.ok(removed.trash, "the removal reports the entry it left behind");
+    assert.ok(removed.recentlyDeleted, "the removal reports the entry it left behind");
 
-    const entries = await trashEntries(api);
+    const entries = await recentlyDeletedEntries(api);
     assert.equal(entries.length, 1);
-    assert.equal(entries[0]?.id, removed.trash?.entryId);
+    assert.equal(entries[0]?.id, removed.recentlyDeleted?.entryId);
     assert.equal(entries[0]?.kind, "app-storage");
     assert.equal(entries[0]?.reason, "apps.remove");
     assert.ok((entries[0]?.sizeBytes ?? 0) > 0, "the copy carries the app's bytes");
   });
 });
 
-test("unregistering a Space carries every preview's data into Recently deleted with the folder", async () => {
-  await withApp(async ({ api, spaceId }) => {
-    const removal = await api.actFacade.spacesDelete({ space: spaceId });
+test("unregistering a work-folder carries every preview's data into Recently deleted with the folder", async () => {
+  await withApp(async ({ api, workFolderId }) => {
+    const removal = await api.actFacade.workFoldersDelete({ workFolder: workFolderId });
     assert.equal(removal.removed, true);
-    assert.equal(removal.appTrash.length, 1, "the Space's one preview left a recoverable copy");
+    assert.equal(removal.appRecentlyDeletedEntries.length, 1, "the work-folder's one preview left a recoverable copy");
 
-    const entries = await trashEntries(api);
+    const entries = await recentlyDeletedEntries(api);
     const appEntry = entries.find((entry) => entry.kind === "app-storage");
-    assert.ok(appEntry, "the app's data is recoverable after the Space is gone");
-    assert.equal(appEntry?.reason, "apps.space.removed");
-    assert.equal(appEntry?.id, removal.appTrash[0]?.entryId);
+    assert.ok(appEntry, "the app's data is recoverable after the work-folder is gone");
+    assert.equal(appEntry?.reason, "apps.work-folder.removed");
+    assert.equal(appEntry?.id, removal.appRecentlyDeletedEntries[0]?.entryId);
     assert.ok(
-      entries.some((entry) => entry.kind === "space"),
+      entries.some((entry) => entry.kind === "work-folder"),
       "the folder itself travels into Recently deleted too",
     );
   });

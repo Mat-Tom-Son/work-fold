@@ -3,7 +3,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createBrowserAppView } from "../services/bridge/public/browser-app.js";
 
-const app = { spaceId: "space-one", appId: "quote-board", featureInstallationId: "install-one", digest: "revision-one", authorityDigest: "authority-one", title: "Quote board", version: "1.0.0", spaceName: "Quotes", webView: true };
+const app = { workFolderId: "work-folder-one", appId: "quote-board", featureInstallationId: "install-one", digest: "revision-one", authorityDigest: "authority-one", title: "Quote board", version: "1.0.0", workFolderName: "Quotes", webView: true };
 const served = (result: unknown) => ({ state: "served", result: { ok: true, result } });
 const entry = served({ kind: "entry", bytes: Buffer.from("<!doctype html><h1>Quote board</h1>").toString("base64url") });
 const flush = () => new Promise((resolve) => setImmediate(resolve));

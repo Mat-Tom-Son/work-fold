@@ -6,12 +6,12 @@ import { relative, sep } from "node:path";
 import { isOfficeLockFileName } from "./office-lock-files.js";
 import { listConversations, readConversation } from "./agent/chat-store.js";
 import { decodeRetrievalCursor, encodeRetrievalCursor, retrievalError } from "./retrieval-cursor.js";
-import { isAlwaysHiddenSpaceEntry, isSpaceIgnored, readSpaceIgnoreState } from "./space-ignore.js";
-import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, nestedRegisteredSpacePaths, resolveSpacePath } from "./space.js";
+import { isAlwaysHiddenWorkFolderEntry, isWorkFolderIgnored, readWorkFolderIgnoreState } from "./work-folder-ignore.js";
+import { assertWorkFolderDoesNotContainState, ensureSafeWorkFolderRoot, nestedRegisteredWorkFolderPaths, resolveWorkFolderPath } from "./work-folder.js";
 
-export interface SpaceFileMatch { path: string; line: number; preview: string; }
-export interface SpaceChatMatch { conversationId: string; title: string; role: "user" | "assistant" | "system"; createdAt: string; preview: string; }
-export interface SpaceSearchCoverage {
+export interface WorkFolderFileMatch { path: string; line: number; preview: string; }
+export interface WorkFolderChatMatch { conversationId: string; title: string; role: "user" | "assistant" | "system"; createdAt: string; preview: string; }
+export interface WorkFolderSearchCoverage {
   /** Counters describe this page, including excluded directory roots, not their descendants. */
   ignored: number; internal: number; symbolicLink: number; binary: number; unreadable: number; changed: number; nonRegular: number;
   scannedBytes: number;
@@ -19,11 +19,11 @@ export interface SpaceSearchCoverage {
   consistency: "live";
   complete: boolean;
 }
-export interface SpaceSearchResult {
-  query: string; files: SpaceFileMatch[]; chats: SpaceChatMatch[]; truncated: boolean; scannedFiles: number;
-  nextCursor: string | null; coverage: SpaceSearchCoverage;
+export interface WorkFolderSearchResult {
+  query: string; files: WorkFolderFileMatch[]; chats: WorkFolderChatMatch[]; truncated: boolean; scannedFiles: number;
+  nextCursor: string | null; coverage: WorkFolderSearchCoverage;
 }
-export interface SpaceSearchOptions {
+export interface WorkFolderSearchOptions {
   includeFiles?: boolean; includeChats?: boolean; maxMatches?: number; maxScannedFiles?: number;
   /** Deprecated spelling, now a resumable page byte budget; never excludes a large file. */
   maxFileBytes?: number;
@@ -35,44 +35,44 @@ interface FilePosition { path: string; version: string; offset: number; line: nu
 interface SearchCursor { scope: string; stack: DirectoryPosition[]; current?: FilePosition; filesDone: boolean; chatIndex: number; messageIndex: number; chatVersion?: string; transcriptVersion?: string; incomplete: boolean; }
 
 /** Fixed allocations and resumable page budgets; ordinary text files have no size ceiling. */
-export async function searchSpace(spaceRoot: string, rawQuery: string, options: SpaceSearchOptions = {}): Promise<SpaceSearchResult> {
+export async function searchWorkFolder(workFolderRoot: string, rawQuery: string, options: WorkFolderSearchOptions = {}): Promise<WorkFolderSearchResult> {
   const query = rawQuery.trim();
   if (!query) throw retrievalError("Enter something to search for.");
   if (query.length > 64 * 1024) throw retrievalError("Search text is too long.");
-  const root = ensureSafeSpaceRoot(spaceRoot);
-  assertSpaceDoesNotContainState(root);
+  const root = ensureSafeWorkFolderRoot(workFolderRoot);
+  assertWorkFolderDoesNotContainState(root);
   aborted(options.signal);
   if (options.includeFiles === false && options.path) throw retrievalError("Search path narrows files; use files or all scope.");
-  const selected = options.path ? relative(await realpath(root), await realpath(resolveSpacePath(root, options.path))).split(sep).join("/") : "";
-  const ignore = (await readSpaceIgnoreState(root)).patterns;
-  const nested = await nestedRegisteredSpacePaths(root);
+  const selected = options.path ? relative(await realpath(root), await realpath(resolveWorkFolderPath(root, options.path))).split(sep).join("/") : "";
+  const ignore = (await readWorkFolderIgnoreState(root)).patterns;
+  const nested = await nestedRegisteredWorkFolderPaths(root);
   const scope = digest(JSON.stringify([root, query, selected, options.includeFiles !== false, options.includeChats !== false, ignore, nested]));
   const cursor = options.cursor ? decodeRetrievalCursor<SearchCursor>(options.cursor) : undefined;
   if (cursor && cursor.scope !== scope) throw retrievalError("Search selection or ignore rules changed. Start the search again.", 409);
   const state: SearchCursor = cursor ?? { scope, stack: [], filesDone: options.includeFiles === false, chatIndex: 0, messageIndex: 0, incomplete: false };
-  const files: SpaceFileMatch[] = []; const chats: SpaceChatMatch[] = [];
+  const files: WorkFolderFileMatch[] = []; const chats: WorkFolderChatMatch[] = [];
   let resultBytes = 0; let resultBudgetReached = false;
-  const admit = (match: SpaceFileMatch | SpaceChatMatch): boolean => {
+  const admit = (match: WorkFolderFileMatch | WorkFolderChatMatch): boolean => {
     const bytes = Buffer.byteLength(JSON.stringify(match));
     if (resultBytes + bytes > 512 * 1024) { resultBudgetReached = true; return false; }
     resultBytes += bytes; return true;
   };
-  const coverage: SpaceSearchCoverage = { ignored: 0, internal: 0, symbolicLink: 0, binary: 0, unreadable: 0, changed: 0, nonRegular: 0, scannedBytes: 0, consistency: "live", complete: false };
+  const coverage: WorkFolderSearchCoverage = { ignored: 0, internal: 0, symbolicLink: 0, binary: 0, unreadable: 0, changed: 0, nonRegular: 0, scannedBytes: 0, consistency: "live", complete: false };
   const maxMatches = count(options.maxMatches, 200, 1000);
   const maxFiles = count(options.maxScannedFiles, 5000, 50000);
   const maxBytes = count(options.maxScannedBytes ?? options.maxFileBytes, 8 * 1024 * 1024, 64 * 1024 * 1024);
   let scannedFiles = 0; let visited = 0;
   const directoryEntries = new Map<string, { entries: import("node:fs").Dirent[]; index: number }>();
   const excluded = (path: string): boolean => {
-    if (path.split("/").some((name) => isAlwaysHiddenSpaceEntry(name) || isOfficeLockFileName(name))) { coverage.internal++; return true; }
+    if (path.split("/").some((name) => isAlwaysHiddenWorkFolderEntry(name) || isOfficeLockFileName(name))) { coverage.internal++; return true; }
     if (nested.some((child) => path === child || path.startsWith(`${child}/`))) { coverage.internal++; return true; }
-    if (isSpaceIgnored(path, ignore)) { coverage.ignored++; return true; }
+    if (isWorkFolderIgnored(path, ignore)) { coverage.ignored++; return true; }
     return false;
   };
   const safe = async (path: string): Promise<BigIntStats> => {
     aborted(options.signal);
     // Recheck ancestors on every open; a continuation cannot follow a replaced symlink.
-    const absolute = resolveSpacePath(root, path);
+    const absolute = resolveWorkFolderPath(root, path);
     const info = await lstat(absolute, { bigint: true });
     if (info.isSymbolicLink()) throw retrievalError("Search source became a symbolic link. Start the search again.", 409);
     return info;
@@ -108,7 +108,7 @@ export async function searchSpace(spaceRoot: string, rawQuery: string, options: 
     if (!frame) { state.filesDone = true; break; }
     let listing = directoryEntries.get(frame.path);
     if (!listing) {
-      const entries = await readdir(resolveSpacePath(root, frame.path), { withFileTypes: true }).catch(() => null);
+      const entries = await readdir(resolveWorkFolderPath(root, frame.path), { withFileTypes: true }).catch(() => null);
       if (!entries) { coverage.unreadable++; state.incomplete = true; state.stack.pop(); continue; }
       // Sort once per directory/page, then advance by index. A wide directory
       // must not be sorted or searched again for every individual entry.
@@ -175,11 +175,11 @@ export async function searchSpace(spaceRoot: string, rawQuery: string, options: 
   return { query, files, chats, scannedFiles, truncated: !coverage.complete, nextCursor: more ? encodeRetrievalCursor(state) : null, coverage };
 }
 
-async function scanFile(root: string, current: FilePosition, initial: BigIntStats, needle: string, maxMatches: number, maxBytes: number, files: SpaceFileMatch[], coverage: SpaceSearchCoverage, admit: (match: SpaceFileMatch) => boolean, signal?: AbortSignal): Promise<boolean> {
+async function scanFile(root: string, current: FilePosition, initial: BigIntStats, needle: string, maxMatches: number, maxBytes: number, files: WorkFolderFileMatch[], coverage: WorkFolderSearchCoverage, admit: (match: WorkFolderFileMatch) => boolean, signal?: AbortSignal): Promise<boolean> {
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   const resultStart = files.length;
   try {
-    handle = await open(resolveSpacePath(root, current.path), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    handle = await open(resolveWorkFolderPath(root, current.path), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     if (identity(await handle.stat({ bigint: true })) !== current.version) throw retrievalError("A searched file changed. Start the search again.", 409);
     if (!current.sampled) {
       const sample = Buffer.alloc(Math.min(8192, maxBytes - coverage.scannedBytes));
@@ -221,7 +221,7 @@ async function scanFile(root: string, current: FilePosition, initial: BigIntStat
       }
     }
     const after = await handle.stat({ bigint: true });
-    const pathAfter = await lstat(resolveSpacePath(root, current.path), { bigint: true });
+    const pathAfter = await lstat(resolveWorkFolderPath(root, current.path), { bigint: true });
     if (identity(after) !== current.version || identity(pathAfter) !== current.version) {
       files.splice(resultStart); coverage.changed++; return true;
     }

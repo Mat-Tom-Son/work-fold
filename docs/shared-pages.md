@@ -1,0 +1,539 @@
+# Shared pages: the publishing ladder and the viewer
+
+**Status: shipped contract reference.** The publishing ladder shipped with
+the work-fold agent build through rung 3 — `src/local/publications.ts`,
+`src/local/agent/restricted-app-viewer.ts`, `desktop/src/remote-access.ts`,
+and the bridge's viewer plane in `services/bridge/` with their suites are
+the implementation authority — and its decisions were promoted on
+2026-08-11 into [the work-fold agent decision register](work-fold-agent-decisions.md) (F11),
+[Product model](product-model.md) (the Viewer noun and the share/revoke
+context rows), [the work-fold agent and CLI](work-fold-agent-and-cli.md), `README.md`,
+`SECURITY.md` (the Published viewer pages subsection), and `PRIVACY.md`
+(the Published pages subsection), with the reviewed `viewer` manifest field
+documented in [Restricted app authoring](restricted-app-authoring.md) and
+[Restricted app runtime](restricted-app-runtime.md). This document retains
+what canon does not carry: the viewer class contract, the serving path, the
+key design decision, origin isolation, honest states, the mutation ledger,
+the viewer-safe broker table, and the bounds. The promotion record is
+[Fold integration](archive/fold-integration.md).
+
+**Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F19):
+sharing is a prepared verb that executes on the call that asks for it and
+answers with a receipt. Nothing about a share is held, and revocation is the
+undo.
+
+The work-fold agent is the one door to all work-folders: material comes in through it, and
+pages go out through it. The ladder has three rungs, each reusing the trust
+machinery beneath it:
+
+| Rung | What a person gets | New trust surface |
+|---|---|---|
+| 1 | The overview on your phone | None — existing paired-browser grant |
+| 2 | One file served as a rendered page at your address | The **viewer**: link-scoped, read-only, per-published-item |
+| 3 | A restricted-app Release served to viewers at your address | The same viewer class over a narrow, desktop-enforced broker subset |
+
+The honest sentence for all three rungs is **"pages your desktop serves"** —
+served live from your desktop, through the relay, while your desktop is
+online. It is never "host your website": no uptime promise, no public
+discovery, no App Store, and an offline desktop is honestly asleep, not
+silently stale.
+
+## The viewer: a new audience class
+
+A **viewer** is anyone holding a share link — deliberately not a smaller
+kind of paired browser but a different species:
+
+| | Paired browser | Viewer |
+|---|---|---|
+| Identity | Non-exportable P-256 keys, desktop-signed grant | None — possession of one link |
+| Scope | The work-fold agent, work-folder trees, explicit bounded file previews and private reviewed app views | Exactly one published item |
+| Direction | Can prompt a full-trust Worker | Read-only, always |
+| Pairing | Password + matched six-digit code + desktop click | None |
+| Management lane | Yes — `management.*`, `work-folders.*` operations | Never — a disjoint operation set on a disjoint origin |
+| Revocation | Per browser, per generation, whole connection | Per published item, instantly, regardless of who holds links |
+
+A **viewer grant** is the desktop-side authority record behind one
+published item. Its properties, all load-bearing: **per-published-item**
+(no account-wide viewer authority, no "publish everything" switch),
+**read-only** (no viewer-reachable operation mutates anything; rung 3
+enforces this in the broker, not app code), **link-scoped** (the link is
+the whole credential; forwarding the link forwards the access — the
+intended semantics, stated plainly in the share receipt and
+in Settings → Shared pages; no viewer accounts, sessions, or cookies), **revocable** (revoking kills every copy
+of the link at once, desktop-first), and **receipted** (creating,
+rebinding, re-budgeting, and revoking are journaled acts; serving a page is
+a read — counted in bounded aggregate tallies the overview can show, never
+journaled per-request, because an unbounded receipt stream would be its own
+denial-of-service).
+
+A viewer is not a Principal. The App platform's Principal kinds all name
+authenticated actors; a viewer is an unauthenticated audience. Rung 3 never
+resolves a viewer to a Principal, never evaluates roles for one, and never
+lets one reach Principal- or role-owned data.
+
+## Sharing is a receipted, revocable widening
+
+**Creating outward viewer exposure widens a power.** The set of principals
+who can reach content the desktop serves widens from "you and the browsers
+you paired by matched code" to "anyone holding a link" — a network
+destination in reverse: an ingress audience instead of an egress origin.
+That widening is disclosed and undone, not gated: the share verb executes on
+the call that asks for it and answers with a receipt
+([Receipts, not gates](receipts-not-gates.md), F19). Two verbs share the
+English word "publish" and must not share a shape: **Publish a Release**
+(App Studio) is a local state transition; **serving to viewers** —
+activating a page slot, or exposing a hosted App Instance — is the outward
+widening, and UI copy avoids the collision ("Share a page" / "Put this app
+at your address").
+
+Sharing is a **prepared verb**: the host pins the work-folder id, the exact
+work-folder-relative path, the title, the budgets, and the snapshot flag (or, for
+an app, the App Instance id, the exact Release digest, the viewer entry, and
+the complete viewer-readable surface), journals the acceptance first, mints
+the slot and key, syncs the bridge, and returns the receipt at once. Every
+pin is rechecked at effect time, the act runs at most once, and a failure is
+never auto-retried.
+
+Consequences, consistent with the work-fold agent decision register:
+
+- **Paired browsers use the same verbs.** A share asked for from a paired
+  browser runs through the same desktop host path as one asked for at the
+  desktop, and its receipt records the initiating browser and grant.
+  Revoking a browser refuses its in-flight remote operations; shares it
+  already made stand until they are revoked, like any other effect.
+- **The setup-only boundary is untouched.** Publishing rides the existing
+  Web Access account. The work-fold agent cannot bootstrap an address in order to
+  publish to it: sharing with no enrolled address fails, saying the page has
+  no address to be served at. Setting up "work-fold on the web" is a
+  person-only prerequisite, and nothing a task needs waits behind it.
+- **Narrowing needs nothing.** Revoking a publication, cutting its budgets,
+  and turning snapshot caching off are direct receipted verbs that only
+  reduce exposure. A new slot or a rebound source is a fresh receipted
+  share with a new link.
+- **Budgets and the sleep copy change in place** (amended 2026-09-24).
+  Raising the serve rate or the daily byte budget, up to the ceilings in
+  `src/local/publications.ts` (600 serves per minute, 1 GiB per day), and
+  turning the sleep copy on are one receipted widening verb — `pages widen`
+  on the act lane, the Budgets and Sleep copy controls in Settings → Shared
+  pages — that keeps the slot, the key, and the link unchanged. The receipt
+  names the old and new values; narrowing back is the direct verb above. A
+  person can also share a file straight from its tab: the click runs the
+  same `pages share` path and answers with the link, and a desktop with no
+  address refuses the share up front instead of leaving a page nobody can
+  reach. Concurrent shares of the same normalized source admit only one
+  active link. A Resting notice stays until another live serve confirms
+  recovery: a raised limit can still be below the relay's current usage,
+  and a successful slot update alone does not prove admission resumed.
+- **Revocation is the undo.** Nothing published is permanent at the moment
+  it happens: one revoke kills every copy of the link at once,
+  desktop-first, regardless of who holds them.
+
+## Rung 1 — paired access to your own work
+
+Rung 1 is not a publishing feature and introduces no viewer. The paired
+client keeps work and questions inside Chats and offers work-folder file and App
+browsing. Its earlier Needs you screen, which showed
+[the overview](work-fold-agent-overview.md), has been retired; the host overview operations
+remain compatible with older clients. The paired-browser grant and envelope
+encryption stay the same, with no new audience.
+
+## Rung 2 — share a page
+
+### The publication object
+
+A **publication** binds: a **slot** (a high-entropy `publicationId`, the
+stable path segment of the share link); a **source** (one exact
+work-folder-relative file in one registered work-folder, designated explicitly in
+the share verb — never a folder, never a glob, never "the work-folder"); a **key** (a
+256-bit AES-GCM publication key generated desktop-side at activation,
+stored with the other Web Access material in operating-system-encrypted
+secure settings); a **title** (shown in Settings and in
+the share receipt, carried inside the encrypted payload — the bridge never stores it); and **budgets and
+flags** (serve-rate and byte budgets, optional expiry, snapshot opt-in,
+default off).
+
+The share link — viewer origin, path, and fragment key — is composed on
+demand from secure settings and shown transiently to the person. The link
+is the whole credential and is treated as one: the full link and the key
+appear in no receipt, journal, log, overview item, or request record;
+receipts and listings identify a publication by `publicationId` and its
+viewer origin and path only.
+
+The page a viewer sees is the **current** content of the designated file,
+rendered at serve time — a live page, not an upload, and the exposure
+statement: the person is exposing that file's evolving content, exactly as
+designating a file for a Check exposes it to a sensor. Content evolution is
+not a new share; changing **which** file backs the slot is a fresh receipted
+share. Rendered
+types are a closed set: Markdown and plain text (rendered desktop-side into
+one self-contained HTML body), person-authored HTML, PNG, JPEG, and PDF.
+Anything interactive is deferred to rung 3 — an app is the vehicle for
+script, so rung 2 pages stay inert; SVG is excluded because it is
+scriptable.
+
+*Amended 2026-09-24:* person-authored HTML (`.html`, `.htm`) is now a rung 2
+type, served inert three times over. The desktop strips it before
+encryption (`src/local/publication-html.ts`): a tag tokenizer that
+re-serializes every token it keeps and drops script, iframe, object, embed,
+applet, base, link, form, noscript, frame, and SVG animation elements,
+`<meta http-equiv>`, `on*`, `srcdoc`, `formaction`, and `ping` attributes, and
+any value naming a `javascript:`, `vbscript:`, or HTML/XML `data:` URL; links
+open a new window with `rel="noopener noreferrer"`. The payload carries a
+`document` flag, and the viewer shell places that whole document in a
+sandboxed `srcdoc` frame without `allow-scripts`, `allow-same-origin`, or
+`allow-forms`. The frame inherits the page shell's CSP and begins with its
+own stricter policy: no scripts or network loads, including same-origin CSS
+imports, with only inline style and `data:` images allowed so a designed
+page keeps its look. The shell retains its separate same-origin script,
+stylesheet, and encrypted-page API permissions. The file tab still shows
+an HTML file as source text; work-fold never renders it in the app.
+
+Publication records are machine-local application state. Nothing about a
+publication is written into the work-folder's folder — a synchronized folder must
+not leak "this file was shared," and portable data must never carry
+authority — and History does not capture publication records. Unregistering
+or deleting a work-folder that backs live publications is blocked until they are
+revoked, and the removal flow names them.
+
+### The serving path
+
+1. A viewer opens `https://pages-<slug>.work-fold.com/p/<publicationId>#<key>`.
+2. The bridge serves the static **viewer shell** from
+   `services/bridge/public/viewer/`: no cookies, no storage, strict CSP,
+   `robots.txt` disallowing everything.
+3. The shell requests `GET /api/viewer/pages/<publicationId>`. The fragment
+   never leaves the browser.
+4. The bridge checks the slot row (exists, active, within budgets) and the
+   desktop socket. Offline → typed `asleep` (or the snapshot, if opted in).
+   Online → it forwards a `viewer.fetch` frame on the existing device
+   WebSocket.
+5. The desktop **rechecks the local grant immediately before serving** (the
+   same effect-time discipline as `WorkFoldRemoteFacade` and the
+   restricted-app brokers), re-reads the designated file with the ordinary
+   no-follow/identity checks, renders within hard bounds, encrypts with the
+   publication key (fresh IV; AAD binds `publicationId`, the
+   rendered-content digest, and the serve timestamp), signs the envelope
+   with the device signing key, and returns a `work-fold.viewer-page.v1`
+   response frame.
+6. The bridge verifies the device signature (admission hygiene), buffers
+   the bounded ciphertext briefly, and completes the viewer's request.
+7. The shell decrypts with the fragment key and renders the inert document.
+
+The viewer's authenticity anchor is the publication key itself: a payload
+that authenticates under AES-GCM with the key from the person's own link
+came from the holder of that key — the desktop. The device signature exists
+for the bridge's admission and caching hygiene, not as a viewer-side trust
+chain.
+
+### The key design decision: fragment keys with relayed ciphertext
+
+Three candidate designs were judged against the bridge's posture (content
+crosses only inside signed application-encrypted envelopes, protecting
+persisted relay state and passive handling, explicitly not an actively
+compromised hosted origin). **Chosen: URL-fragment keys with bridge-relayed
+ciphertext** — the key rides in the link fragment; the bridge sees slot
+metadata and ciphertext sizes, never page bytes, extending the exact
+property the envelope design buys for management traffic without inventing
+viewer key exchange. Rejected: bridge-visible content with explicit
+labeling (breaks the content-free-by-default culture for an entire traffic
+class; the snapshot cache is the one deliberate, opt-in, labeled instance
+of relay retention, and even it stores ciphertext), and desktop-signed
+short-lived viewer tokens (they change who may ask, not what the bridge
+sees; minting needs the desktop online, which a viewer fetch requires
+anyway; and revocation is already per-publication).
+
+**Residual risk, stated honestly.** The bridge serves the viewer shell's
+JavaScript, so an actively compromised bridge or hosted origin can serve a
+shell that exfiltrates `location.hash` and read pages fetched from then on
+— and, combined with stored snapshot ciphertext, pages cached earlier. This
+is the same first-load-web-trust class the alpha already accepts for the
+paired-browser client, with strictly smaller blast radius: a stolen
+publication key opens one published page, never management authority.
+Separately, anyone who obtains a full link is a legitimate viewer until
+revocation — the meaning of link-scoped, and Settings and the share receipt
+say so. A
+public/full-trust release of publishing inherits the requirement already
+recorded for Web Access: a pinned client or an authority design that
+does not grant mutable first-load web code this power.
+
+### Origin isolation is a hard requirement
+
+Published viewer content must not share origin, cookies, or keys with the
+paired-browser client, whose authority material is origin-scoped (the
+`__Host-` session cookie; the paired browser's non-exportable keys in
+IndexedDB for `<slug>.work-fold.com`). Structurally:
+
+- **Viewer origin:** `https://pages-<slug>.work-fold.com` — one extra label
+  inside the existing wildcard certificate. The bridge reserves the
+  namespace with real prefix logic in `isValidSlug`: enrollment rejects the
+  exact slug `pages` and any slug beginning `pages-`.
+- **Host routing diverts `pages-*` first**, before personal-account slug
+  resolution; a `pages-*` host serves viewer routes or nothing, and the
+  management client is never served on one. If a legacy `pages-<slug>`
+  account exists, the viewer origin for account `<slug>` is contested and
+  publishing fails closed for **both** accounts until the `pages-` account
+  is renamed; both keep every non-publishing capability.
+- The viewer origin never sets a cookie, never offers sign-in or pairing,
+  never serves the management client bundle, and writes no browser
+  storage. The management origin never serves viewer content.
+- Rung 2 pages are inert documents; a person-authored HTML page sits in a
+  sandboxed `srcdoc` frame without `allow-scripts` or `allow-same-origin`
+  (2026-09-24). Rung 3 app content additionally runs
+  inside a sandboxed iframe **without** `allow-same-origin`, so each app
+  instance renders with an opaque origin: no shared storage between two
+  published apps, and no origin-scoped state at all — app state lives
+  desktop-side behind the broker, where it already is.
+
+### Honest states
+
+- **Asleep.** Desktop offline, no snapshot: "This page is served by
+  `<slug>`'s work-fold desktop, which is asleep right now. Try again
+  later." HTTP 200, typed state, no pretending.
+- **As of.** Desktop offline, snapshot opted in: the cached page renders
+  under a persistent "as of `<time>`" banner. Never presented as live.
+- **Not available.** Desktop online but the source file is missing, moved,
+  oversized, or failed identity checks: viewers get a deliberately vague
+  "This page isn't available right now." The person gets the precise
+  reason as a change item in [the overview](work-fold-agent-overview.md) — the page's
+  problem is the publisher's information, not the audience's.
+- **Resting.** A budget is exhausted: "This page has had a lot of visitors
+  today. Try again later." Also surfaced to the person in the overview.
+- **Nothing here.** Unknown `publicationId`, revoked slot, or a viewer
+  host whose account does not exist: one identical "Nothing is published
+  here." page — slot ids are high-entropy, and this mirrors the login
+  surface's address-enumeration posture.
+
+### Snapshot caching: explicitly labeled, default off
+
+By default the bridge retains viewer content only as an in-flight response
+buffer with a short expiry. Opting a publication into **snapshot caching**
+stores the latest served ciphertext (one bounded row per publication) so
+the page survives desktop sleep. The opt-in lives in the share verb's
+`--snapshot` flag and the publication's settings, labeled plainly: "Keep an
+encrypted copy at the relay so this page stays readable while your desktop
+sleeps. The relay stores it encrypted and cannot read it; anyone with the
+link still can." Turning it on is the receipted `pages widen --snapshot`
+verb and keeps the existing link; turning it off is a direct verb and deletes
+the stored row. After a successful live serve, the
+desktop refreshes the snapshot in the same device-frame exchange — a
+counter-tracked sync, not a separate receipted act. The residual-risk
+sentence above applies to snapshots verbatim.
+
+### Revocation ordering
+
+Same discipline as browser-grant revocation — desktop-local authority
+first, server state second, cleanup lanes independent:
+
+1. Mark the grant revoked in the desktop's publication store. From this
+   instant the effect-time recheck refuses every new `viewer.fetch`,
+   regardless of bridge state. An in-flight render may complete its already
+   bounded response, mirroring the late-signed-result rule for operations.
+2. Delete the bridge slot row and any snapshot row. New viewer requests now
+   get "Nothing is published here" without waking the desktop.
+3. Write the terminal receipt. If bridge cleanup could not be confirmed,
+   the receipt honestly records `bridgeCleanup: pending` and the desktop
+   retries on reconnect and at startup; a pending snapshot deletion is
+   named in the receipt because it is the one case where relayed bytes
+   could outlive desktop authority.
+
+Disabling Web Access or deleting the address revokes every publication
+as part of its existing cleanup lanes; publications cannot outlive the
+account they are addressed under. Re-publishing after revocation creates a
+**new** slot, key, and link — old links stay dead, and key rotation is
+spelled "revoke, then share again."
+
+### Abuse bounds
+
+Viewer traffic is unauthenticated by design, so the bridge's
+bounded-everything culture applies before anything reaches the desktop.
+The bounds are owner-tunable constants beside the existing envelope and SSE
+budgets in `services/bridge/server.mjs`, enforced per process:
+
+| Bound | Starting value |
+|---|---|
+| Viewer requests per IP | 60/min across an account's publications |
+| Concurrent `viewer.fetch` per publication | 4 |
+| Dispatched `viewer.fetch` per account | 120/min |
+| Rendered page ciphertext | 2 MiB per response |
+| Viewer in-flight ciphertext, global | 64 MiB |
+| Bytes served per publication per day | 256 MiB, then `resting` |
+| Snapshot rows | 1 per publication, ≤ 2 MiB, ≤ 16 MiB per account |
+| Publications per account | 32 |
+
+Desktop-side bounds: source file ≤ 8 MiB pre-render, bounded render time
+under the ordinary abort discipline, and one render at a time per
+publication (concurrent fetches for the same slot coalesce onto one
+render). Budget exhaustion is a typed viewer state and an overview item, never
+a silent drop. The minute-interval bridge metrics record gains aggregate
+viewer counters with the existing rule intact: no ids, addresses, tokens,
+ciphertext, or content.
+
+### The mutation ledger
+
+Every publishing mutation answers the five questions from the
+[act ledger](act-ledger.md). Serving is a read and appears only where
+it touches durable state (snapshot refresh).
+
+| Mutation | Kind | Journaled | Receipt contains | Revocation / undo | Mid-act failure | Replay prevention |
+|---|---|---|---|---|---|---|
+| Share a page | Prepared verb (widen) | `accepted` before the durable intent; key mint and bridge sync after | `publicationId`, work-folder id, relative path, title, budgets, snapshot flag, viewer origin and path — never the fragment key or the full link — bridge sync outcome, initiating surface and browser/grant when remote | Revoke verb, any time | Two-phase: the local record commits first; bridge slot creation is retried by operation id and the page is not presented as live until the bridge confirms | Act request-id at-most-once; bridge slot upsert idempotent by operation id; startup recovery re-drives or cancels the intent |
+| Rebind source | Prepared verb (widen) | As sharing above | Old and new binding | The previous binding's receipt chain is the undo reference | Same two-phase as sharing | Same as sharing |
+| Raise budgets / snapshot on (in place, 2026-09-24) | Widening verb (`pages widen`) | `accepted` before mutation | Old and new budgets and snapshot flag; bridge sync outcome — the slot, key, and link are unchanged | Narrowing back is a direct verb | Local record first; bridge sync retried by operation id | Act request-id at-most-once; operation-id idempotence |
+| Cut budgets / snapshot off | Direct verb | `accepted` before mutation | Old and new values; snapshot-deletion outcome | Raising again is `pages widen` | Bridge sync retried; local narrowing already effective | Operation-id idempotence |
+| Revoke publication | Direct verb | `accepted` before mutation | `publicationId`, ordering outcomes, `bridgeCleanup: ok\|pending` | This is the undo; re-publishing mints a new slot, key, and link | Desktop-first; bridge cleanup retried until confirmed | Revocation is idempotent; a second revoke is a no-op receipt |
+| Snapshot refresh (serve-time) | Bounded sync, not an act | Not journaled; counter-tracked | — (aggregate counters only) | Snapshot off / revoke deletes the row | A failed refresh leaves the previous snapshot; staleness is visible in "as of" | Refresh carries the serve's content digest; the bridge keeps newest-wins by digest + timestamp |
+| Put an app at your address (rung 3) | Prepared verb (widen) | `accepted` before the durable intent; bridge slot creation (kind `app`) after | `publicationId`, App Instance id, exact Release digest, viewer entry, the complete viewer-readable surface, budgets, viewer origin and path — never keys or full links — bridge sync outcome, initiating surface and browser/grant when remote | Revoke verb, any time | Same two-phase as sharing a page | Same act request-id and operation-id idempotence |
+| Widen a hosted app's viewer surface (update) | Prepared verb (widen) — a reviewed update that widens the viewer-readable surface or changes the viewer entry records a fresh exposure receipt; an unchanged viewer surface rides the normal update lane | As sharing above | Old and new viewer surface, old and new Release digests | Rolling the update back narrows again; narrowing is a direct verb | Same two-phase as sharing | Same as sharing |
+| Revoke hosted-app exposure | Direct verb | `accepted` before mutation | `publicationId`, ordering outcomes, `bridgeCleanup: ok\|pending` | This is the undo; the Instance keeps running locally without an audience, and re-exposing is a fresh receipted share | Desktop-first; bridge cleanup retried until confirmed | Idempotent, as page revocation |
+
+## Rung 3 — an app at your address
+
+Rung 3 installs a restricted-app Release as an App Instance whose placement
+is **hosted at your address**: the reviewed app's UI is served to viewers
+through the same desktop → relay → viewer path as rung 2, and every power
+the app exercises is brokered desktop-side. It is the App platform's
+`host: local | hosted` distinction with the desktop as the host — no
+work-fold cloud runtime. Installing follows the existing App Studio
+two-phase prepare/activate operation plus the outward-exposure share verb;
+the receipt names the app, the exact Release digest, the viewer address, and
+the complete viewer-readable surface. Every power the package declares is
+granted on install exactly as local installs behave
+([Receipts, not gates](receipts-not-gates.md), F21), but the viewer plane
+refuses everything outside the reviewed `viewer` declaration regardless.
+
+### Which broker domains are viewer-safe
+
+Enforced in the desktop's viewer adapter
+(`src/local/agent/restricted-app-viewer.ts`), never in app code, and
+checked at effect time like every other broker:
+
+| Broker domain | Viewer-safe? | Rule |
+|---|---|---|
+| Reviewed static assets | Yes | Serve exact installed bytes of the Release revision, nothing else |
+| Storage / data **reads** | Narrowly | Only collections the reviewed manifest explicitly marks viewer-readable, and only **instance-owned** data. Principal-owned and role-owned data: never |
+| Storage / data **writes** | Never | Viewers mutate nothing |
+| Worker actions (`assistantActions`) | Never | Actions are mutations executed with the person's runtime |
+| Network broker (egress) | Never | A viewer must not be able to make the desktop send requests anywhere — audience-triggered egress is server-side request forgery with extra steps |
+| Connections / credentials | Never | A viewer must never cause the desktop to spend a saved credential |
+| work-folder files | Never | File grants exist for the person's own use of the app; the only file exposure lane is rung 2's explicit per-file publication |
+| Notifications | Never | Viewer-triggered OS notifications are an abuse surface with no product story |
+| Automations / jobs | Never | Viewers cannot run, schedule, or observe jobs |
+| OAuth | Never | Follows from connections |
+| Tabs / host UI powers | Never | Meaningless outside the desktop shell |
+
+The viewer-readable flag is the reviewed `viewer` declaration in
+`src/local/agent/restricted-app-manifest.ts`, so it appears in review copy
+and in the exposure receipt; a reviewed update that widens the
+viewer-readable surface or changes the viewer entry is a fresh receipted
+exposure, while an update with an unchanged viewer surface rides the normal
+update lane. Rung 3 reuses the semantics the private hosted core already
+proves (identity tuples, effect-time authority stamps, declared grants) and
+deliberately does not require the
+foundation's full private hosted milestone — viewers are not authenticated
+Principals, so accounts, role realms, and a hosted data service stay out of
+scope. The real-Electron probe carries the viewer-scope denial cases
+(actions, egress, connections, work-folder files, storage writes) and stays
+release-gating.
+
+## Bridge changes, content-free by default
+
+Schema (`services/bridge/database.mjs`): `bridge_publications` (id, account
+id, kind `page`|`app`, state, budgets, rolling served-byte counters,
+snapshot flag, timestamps, creating operation id `UNIQUE` — no titles, file
+names, source paths, or content) and `bridge_publication_snapshots`
+(ciphertext, IV, content digest, captured-at, byte size — present only for
+opted-in publications, deleted with the slot); reserved slugs: exact
+`pages` plus the `pages-` prefix. Endpoints (`services/bridge/server.mjs`):
+the viewer plane on `pages-<slug>` hosts only — static shell,
+`GET /api/viewer/pages/:id`, rung 3's `GET /api/viewer/apps/:id/...`
+routes, no cookies, no CSRF, IP rate limits before any dispatch — and the
+device plane's `viewer.fetch` / `work-fold.viewer-page.v1` frames plus
+idempotent `PUT`/`DELETE /api/device/publications/:id` and snapshot
+upload/delete. The management-plane `allowedOperations` set is untouched:
+viewer traffic never enters `/api/operations`, and no viewer endpoint
+exists on the management origin. The bridge stays one replica; viewer
+traffic lives inside the same process-local budget model, and metrics stay
+aggregate and identifier-free.
+
+## Copy
+
+User-facing copy says **Share a page**, **Stop sharing**, **your private web
+address**, and "pages your desktop serves." The share link is shown with its
+plain meaning: "Anyone with this link can read this page while your desktop
+is online." Contract identifiers stay technical and unrenamed:
+`work-fold.viewer-page.v1`, `bridge_publications`, `viewer.fetch`,
+`publicationId`. The words "host," "hosting," and "website" do not appear
+in product copy; "publish" without qualification is reserved for App
+Studio's local Release transition. Copy never frames a share as something
+waiting to happen: the verb shares the page and says so, and **Stop
+sharing** is always one click away.
+
+The CLI act verbs are `pages share|share-app|list|status|revoke|narrow|
+widen|snapshot-off`. The verb and the copy now say the same thing: `pages share`
+shares the page on the call that asks and returns the receipt, and there is
+no holding spelling left in the vocabulary.
+
+## Deliberately not in this design
+
+- **Public discovery.** No directory, no search indexing (the viewer origin
+  serves a disallow-all `robots.txt`), no "explore pages."
+- **An App Store.** Rung 3 serves the person's own reviewed Releases to
+  their own audience; distribution between people stays out.
+- **Uptime promises.** Asleep is a feature. No keep-alive farm, no SLA, no
+  "your page is always up" claim anywhere in copy or docs.
+- **Custom domains and TLS termination for them.** One wildcard, one
+  address scheme.
+- **Viewer identity of any kind**: accounts, passwords, per-viewer links,
+  comments, or per-viewer analytics. Counters are aggregate.
+- **Live viewer channels.** No WebSockets or SSE to viewers; a page is
+  fetched, not subscribed to.
+- **Multi-file sites on rung 2.** One slot serves one designated file;
+  anything richer is an app (rung 3).
+- **Script in a shared page.** *Amended 2026-09-24:* a person-authored HTML
+  page is a rung 2 type, but it is served inert — stripped desktop-side, in
+  a script-less sandboxed frame, under the viewer CSP. Anything interactive
+  is still an app (rung 3).
+- **Publishing from Automations.** No Automation step may create or widen viewer
+  exposure ([Automations](automations.md)); an Automation may at most write
+  files that an already-shared publication serves.
+- **A gate on sharing.** Outward exposure is disclosed and revocable, not
+  held: reintroducing a hold, a confirmation state, or a standing rule on
+  any share verb is a register decision, not a UI tweak.
+
+## Implementation record
+
+The plan items shipped as follows (numbering preserved for references):
+
+1. Viewer namespace and slot schema at the bridge — `services/bridge/database.mjs`; `services/bridge/server.test.mjs`, `services/bridge/database-security.test.mjs`.
+2. Viewer plane at the bridge — host routing, the shell under `services/bridge/public/viewer/`, rate limits, `viewer.fetch` frames; the bridge suite and `services/bridge/metrics.test.mjs`.
+3. Desktop publication authority and serving — `src/local/publications.ts`, `desktop/src/remote-access.ts`, `desktop/src/settings.ts`; `tests/work-fold-publications.test.ts`, `tests/desktop-remote-access.test.ts`.
+4. Act verbs and receipts — `pages share|share-app|list|status|revoke|narrow|snapshot-off` in `src/local/cli/act-commands.ts` and `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-act-facade.test.ts`.
+5. Desktop surfaces — publications list, share-link reveal, budget and snapshot controls, and revoke in Settings → Shared pages; overview change items; `tests/shared-pages-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
+6. Snapshot opt-in lane — push/delete in `desktop/src/remote-access.ts`, bridge storage, "as of" rendering, label copy.
+7. Rung 3 viewer surface — the `viewer` manifest declaration in `src/local/agent/restricted-app-manifest.ts`, the viewer adapter in `src/local/agent/restricted-app-viewer.ts`, opaque-origin iframe hosting in the shell, probe denial cases in `scripts/restricted-app-electron-smoke.mjs`; `tests/restricted-app-manifest.test.ts`, `tests/restricted-app-product-contract.test.ts`, `tests/work-fold-publications.test.ts`.
+8. Docs and canonical promotion — recorded in [Fold integration](archive/fold-integration.md).
+9. Receipts, not gates (2026-09-10, F19) — sharing became a prepared verb that executes and receipts on the call that asks; the receipt's retired decision fields were dropped — `src/local/publications.ts`, `src/local/cli/act-receipts.ts`; `tests/work-fold-publications.test.ts`, `tests/work-fold-cli-act-receipts.test.ts`.
+10. Verb rename (2026-09-10) — the two outward-exposure verbs became `pages share` and `pages share-app` across the act protocol, help, the work-fold agent's instructions, and these docs; the retired holding spellings are unknown commands — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`, `src/local/cli/commands.ts`, `src/local/work-fold-agent-instructions.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-direct-verbs.test.ts`.
+11. Share from the file tab and widen in place (2026-09-24) — `POST /api/settings/publications/share` and `pages share` run one domain path that refuses without an address; `POST /api/settings/publications/:id/widen` and `pages widen` raise budgets or turn the sleep copy on under a receipt; each Shared pages row shows its page state (Live, Asleep, Resting, Not available, Stopped) with the precise reason as a tooltip — `src/local/server.ts`, `src/local/publications.ts`, `src/shared/publications.ts`, `web-local/src/components/panes/FileSharePopover.tsx`; `tests/shared-pages-settings.test.ts`, `tests/work-fold-publications.test.ts`.
+12. Inert HTML pages and the shared mark (2026-09-24) — `.html`/`.htm` join the source set; the desktop strip in `src/local/publication-html.ts` runs before encryption, the viewer shell frames the stripped document in a script-less sandbox (`services/bridge/public/viewer/viewer.js`), and the page shell's CSP adds inline style and `data:` images only (`services/bridge/server.mjs`); Files rows and file tabs mark a shared file with a quiet glyph — `web-local/src/components/tree/FileTree.tsx`, `web-local/src/components/chat/WorkFolderSurfaceTabBar.tsx`; `tests/work-fold-publication-html.test.ts`, `tests/work-fold-publications.test.ts`, `services/bridge/server.test.mjs`, `tests/frontend-interaction-contract.test.ts`, `tests/web-ui-contract.test.ts`.
+
+
+### Paired-browser shared-page navigation (2026-10-09)
+
+The chat-focused web client replaces its Files and work-folder browser with a
+**Shared pages** popup in the sidebar footer. `pages.list` returns at most 32
+active publication identities, titles, kinds, health and snapshot state through
+the existing signed encrypted management operation lane. It exposes no key,
+source path or new public directory. `pages.link` reveals one active record's
+viewer path and current key transiently; the desktop transport supplies the
+address's isolated viewer origin inside the same encrypted response. Secure key
+reads share the publication service's serialization queue with revocation and
+recheck expiry after the read. Existing grant completion/replay fences apply.
+
+A click validates the exact enrolled `pages-<slug>` origin and publication path,
+opens a new tab with no opener and places the key only in its fragment. The
+client stores neither links nor keys, and discards late replies after closing or
+disconnection. This navigates existing shares only. Sharing, widening, narrowing,
+revocation and source authorization continue through their existing desktop and
+act paths. The isolated viewer shell keeps the web client's neutral typography
+and surfaces; authored HTML retains its own styles inside the inert sandbox.

@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { ChatActivityStatus } from "../../types";
 import { ActivityDot } from "../chrome/ActivityDot";
 
-/** A Worker the composer can address with @: its Folder's look and live status. */
+/** A Worker the composer can address with @: its work-folder's look and live status. */
 export interface MentionFolderOption {
   id: string;
   name: string;

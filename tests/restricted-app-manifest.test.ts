@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-test("named Assistant requests have reviewed static instructions and bounded typed input without changing old manifests", () => {
-  const action = { id: "compare", title: "Compare quotes", instructions: "Write a comparison in this Space.", inputSchema: {
+test("named Worker requests have reviewed static instructions and bounded typed input without changing old manifests", () => {
+  const action = { id: "compare", title: "Compare quotes", instructions: "Write a comparison in this work-folder.", inputSchema: {
     type: "object", properties: { quote: { type: "string", maxLength: 1_000 } }, required: ["quote"], additionalProperties: false } };
   const base = manifest();
   assert.deepEqual(parseRestrictedAppManifest({ ...base, assistantActions: [] }), parseRestrictedAppManifest(base));
@@ -10,7 +10,7 @@ test("named Assistant requests have reviewed static instructions and bounded typ
   assert.equal(parseRestrictedAppManifest({ ...base, assistantActions: [{ ...action, instructions: "x".repeat(4_097) }] }).assistantActions?.[0]?.instructions.length, 4_097);
   assert.equal(parseRestrictedAppManifest({ ...base, assistantActions: Array.from({ length: 9 }, (_, index) => ({ ...action, id: `task-${index}` })) }).assistantActions?.length, 9);
   for (const actions of [[{ ...action, title: "Hidden\nreview" }],
-    [{ ...action, spaceId: "foreign" }], [{ ...action, standing: true }], [action, action],
+    [{ ...action, workFolderId: "foreign" }], [{ ...action, standing: true }], [action, action],
     [{ ...action, inputSchema: { type: "object", additionalProperties: true } }]]) {
     assert.throws(() => parseRestrictedAppManifest({ ...base, assistantActions: actions }));
   }
@@ -90,7 +90,7 @@ function manifest(overrides: Record<string, unknown> = {}) {
     automations: [{
       id: "refresh-inbox",
       title: "Refresh inbox",
-      description: "Fetch new messages for this Space.",
+      description: "Fetch new messages for this work-folder.",
       handler: "refresh-inbox",
       trigger: { kind: "interval", intervalMinutes: 30 },
       permissions: {
@@ -149,7 +149,7 @@ test("restricted app manifests normalize named automations with explicit permiss
   assert.deepEqual(parsed.automations, [{
     id: "refresh-inbox",
     title: "Refresh inbox",
-    description: "Fetch new messages for this Space.",
+    description: "Fetch new messages for this work-folder.",
     handler: "refresh-inbox",
     trigger: { kind: "interval", intervalMinutes: 30 },
     permissions: {
@@ -167,9 +167,9 @@ test("manifests require version 2 named automations and reject the legacy backgr
   assert.throws(() => parseRestrictedAppManifest(manifest({
     background: { intervalMinutes: 30 },
   })), /unsupported field: background/);
-  const { automations: _automations, ...missingAutomations } = manifest();
+  const { automations: _appAutomations, ...missingAppAutomations } = manifest();
   const automationLimit = restrictedAppManifestLimits.automations;
-  assert.throws(() => parseRestrictedAppManifest(missingAutomations), new RegExp(`automations must contain between 0 and ${automationLimit} items`));
+  assert.throws(() => parseRestrictedAppManifest(missingAppAutomations), new RegExp(`automations must contain between 0 and ${automationLimit} items`));
   assert.throws(() => parseRestrictedAppManifest({ ...manifest(), version: 3 }), /version must be 2/);
   const automation = (_: unknown, index: number) => ({
     id: `job-${index}`,
@@ -251,11 +251,11 @@ test("automations require a worker and reference only declared permissions once"
     ["files", "missing-file"],
     ["notifications", "missing-notification"],
   ] as const) {
-    const automationPermissions = valid.permissions as Record<string, string[]>;
+    const appAutomationPermissions = valid.permissions as Record<string, string[]>;
     assert.throws(() => parseRestrictedAppManifest(manifest({
       automations: [{
         ...valid,
-        permissions: { ...automationPermissions, [kind]: [permissionId] },
+        permissions: { ...appAutomationPermissions, [kind]: [permissionId] },
       }],
     })), /references undeclared permission id/);
   }
@@ -265,11 +265,11 @@ test("automations require a worker and reference only declared permissions once"
     ["files", "exports"],
     ["notifications", "new-mail"],
   ] as const) {
-    const automationPermissions = valid.permissions as Record<string, string[]>;
+    const appAutomationPermissions = valid.permissions as Record<string, string[]>;
     assert.throws(() => parseRestrictedAppManifest(manifest({
       automations: [{
         ...valid,
-        permissions: { ...automationPermissions, [kind]: [permissionId, permissionId] },
+        permissions: { ...appAutomationPermissions, [kind]: [permissionId, permissionId] },
       }],
     })), /permission.*id is duplicated/);
   }

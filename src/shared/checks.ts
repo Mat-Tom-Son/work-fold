@@ -132,7 +132,7 @@ export function declarationFromWorkFoldCheckProposal(
 export function normalizeWorkFoldCheckTargetPath(value: unknown, label = "Check target path"): string {
   if (typeof value !== "string" || value !== value.trim()) throw new Error(`${label} cannot have leading or trailing whitespace.`);
   const path = boundedText(value, label, 512).replaceAll("\\", "/");
-  if (path.startsWith("/") || /^[A-Za-z]:\//.test(path)) throw new Error(`${label} must be relative to the Space.`);
+  if (path.startsWith("/") || /^[A-Za-z]:\//.test(path)) throw new Error(`${label} must be relative to the work-folder.`);
   const segments = path.split("/");
   if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
     throw new Error(`${label} must be a normalized relative path.`);

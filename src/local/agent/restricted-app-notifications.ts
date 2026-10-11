@@ -13,7 +13,7 @@ export const restrictedAppNotificationLimits = {
 } as const;
 
 export interface RestrictedAppNotificationOwner {
-  spaceId: string;
+  workFolderId: string;
   appId: string;
   featureInstallationId?: string;
   digest: string;
@@ -23,7 +23,7 @@ export interface RestrictedAppNotificationContext extends RestrictedAppNotificat
   appTitle: string;
   declarations: readonly RestrictedAppNotificationDeclaration[];
   grants: readonly string[];
-  automationEnabled: boolean;
+  appAutomationEnabled: boolean;
   invocationId: string;
 }
 
@@ -97,7 +97,7 @@ export class RestrictedAppNotificationBroker {
   ): { status: RestrictedAppNotificationStatus } {
     const request = notificationRequest(value);
     validateContext(context);
-    if (!context.automationEnabled) {
+    if (!context.appAutomationEnabled) {
       throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "Enable this automation before it can show notifications.");
     }
     const declaration = context.declarations.find((item) => item.id === request.permissionId);
@@ -166,9 +166,9 @@ export class RestrictedAppNotificationBroker {
     return { status: "shown" };
   }
 
-  closeApp(owner: Pick<RestrictedAppNotificationOwner, "spaceId" | "appId" | "featureInstallationId">, digest?: string): void {
+  closeApp(owner: Pick<RestrictedAppNotificationOwner, "workFolderId" | "appId" | "featureInstallationId">, digest?: string): void {
     for (const item of [...this.#outstanding.values()]) {
-      if (item.owner.spaceId !== owner.spaceId || item.owner.appId !== owner.appId || (digest && item.owner.digest !== digest)) continue;
+      if (item.owner.workFolderId !== owner.workFolderId || item.owner.appId !== owner.appId || (digest && item.owner.digest !== digest)) continue;
       if (owner.featureInstallationId && item.owner.featureInstallationId !== owner.featureInstallationId) continue;
       this.#closeOutstanding(item);
     }
@@ -245,7 +245,7 @@ function notificationRequest(value: unknown): { permissionId: string } {
 }
 
 function validateContext(context: RestrictedAppNotificationContext): void {
-  if (!context || typeof context !== "object" || !context.spaceId || !context.appId || !/^[0-9a-f]{64}$/.test(context.digest)
+  if (!context || typeof context !== "object" || !context.workFolderId || !context.appId || !/^[0-9a-f]{64}$/.test(context.digest)
     || (context.featureInstallationId !== undefined && (typeof context.featureInstallationId !== "string" || !context.featureInstallationId.trim()))
     || !context.appTitle || !context.invocationId || !Array.isArray(context.declarations) || !Array.isArray(context.grants)) {
     throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "Notification host authority is invalid.");
@@ -253,7 +253,7 @@ function validateContext(context: RestrictedAppNotificationContext): void {
 }
 
 function ownerValue(context: RestrictedAppNotificationContext): RestrictedAppNotificationOwner {
-  return { spaceId: context.spaceId, appId: context.appId, digest: context.digest,
+  return { workFolderId: context.workFolderId, appId: context.appId, digest: context.digest,
     ...(context.featureInstallationId ? { featureInstallationId: context.featureInstallationId } : {}) };
 }
 
@@ -261,5 +261,5 @@ function ownerKey(owner: RestrictedAppNotificationOwner): string {
   // Rate history intentionally survives renderer restarts, permission churn,
   // background disable/enable, and reviewed digest updates. Lifecycle cleanup
   // closes handles but must not let an app regain its anti-spam budget.
-  return `${owner.spaceId}:${owner.appId}`;
+  return `${owner.workFolderId}:${owner.appId}`;
 }

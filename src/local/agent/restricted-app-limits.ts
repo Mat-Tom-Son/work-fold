@@ -40,7 +40,7 @@ export interface RestrictedAppLimits {
     minimumIntervalMinutes: number;
     maximumIntervalMinutes: number;
   };
-  /** `assistant.infer`: one bounded model call on the Space's configured model. */
+  /** `assistant.infer`: one bounded model call on the work-folder's configured model. */
   inference: {
     instructionsBytes: number;
     inputBytes: number;
@@ -50,7 +50,7 @@ export interface RestrictedAppLimits {
     runningPerInstallation: number;
     timeoutMs: number | null;
   };
-  /** `assistant.request`: a full-tools Chat in the owning Space. */
+  /** `assistant.request`: a full-tools Chat in the owning work-folder. */
   assistant: {
     instructionsBytes: null;
     inputBytes: number;
@@ -120,7 +120,7 @@ export const restrictedAppInferenceEnvelopeBytes =
   (restrictedAppInferenceLimits.instructionsBytes + restrictedAppInferenceLimits.inputBytes
     + restrictedAppInferenceLimits.schemaBytes) * 6 + 64 * 1024;
 
-/** The Assistant-request envelope: the same escaping allowance over the published input bound. */
+/** The agent-request envelope: the same escaping allowance over the published input bound. */
 export const restrictedAppAssistantEnvelopeBytes =
   restrictedAppAssistantLimits.inputBytes * 6 + 64 * 1024;
 

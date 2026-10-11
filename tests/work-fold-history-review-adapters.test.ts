@@ -13,9 +13,9 @@ import {
   WorkFoldCliActReceipts,
   workFoldCliHelp,
 } from "../src/local/cli/index.js";
-import { createSpaceCheckpoint } from "../src/local/history.js";
+import { createWorkFolderCheckpoint } from "../src/local/history.js";
 import { startLocalApi } from "../src/local/server.js";
-import { configureWorkFoldStateRoot, spaceHistoryRoot } from "../src/local/state-paths.js";
+import { configureWorkFoldStateRoot, workFolderHistoryRoot } from "../src/local/state-paths.js";
 
 const actToken = "a".repeat(64);
 const sessionToken = "history-review-test-session";
@@ -29,7 +29,7 @@ async function fixture(t: TestContext) {
   const agentDir = join(sandbox, "agent");
   await mkdir(agentDir);
   const api = await startLocalApi({
-    port: 0, stateBase: stateRoot, spaceBase: join(sandbox, "folders"), sessionToken, loadEnv: false,
+    port: 0, stateBase: stateRoot, workFolderBase: join(sandbox, "folders"), sessionToken, loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
   });
   t.after(async () => {
@@ -37,66 +37,66 @@ async function fixture(t: TestContext) {
     configureWorkFoldStateRoot(undefined);
     await rm(sandbox, { recursive: true, force: true });
   });
-  const { space } = await api.actFacade.createSpace({ name: "Review Folder" });
-  const { space: other } = await api.actFacade.createSpace({ name: "Other Folder" });
-  const file = join(space.spaceRoot, "note.txt");
+  const { workFolder } = await api.actFacade.createWorkFolder({ name: "Review work-folder" });
+  const { workFolder: other } = await api.actFacade.createWorkFolder({ name: "Other work-folder" });
+  const file = join(workFolder.workFolderRoot, "note.txt");
   await writeFile(file, firstText);
-  await mkdir(join(space.spaceRoot, "child"));
-  await writeFile(join(space.spaceRoot, "child", "private.txt"), "PRIVATE_NESTED_CONTENT");
-  const first = await createSpaceCheckpoint(space.spaceRoot);
+  await mkdir(join(workFolder.workFolderRoot, "child"));
+  await writeFile(join(workFolder.workFolderRoot, "child", "private.txt"), "PRIVATE_NESTED_CONTENT");
+  const first = await createWorkFolderCheckpoint(workFolder.workFolderRoot);
   await writeFile(file, secondText);
-  const second = await createSpaceCheckpoint(space.spaceRoot);
+  const second = await createWorkFolderCheckpoint(workFolder.workFolderRoot);
   await writeFile(file, currentText);
-  await writeFile(join(other.spaceRoot, "note.txt"), "PRIVATE_OTHER_CONTENT");
-  const otherCheckpoint = await createSpaceCheckpoint(other.spaceRoot);
+  await writeFile(join(other.workFolderRoot, "note.txt"), "PRIVATE_OTHER_CONTENT");
+  const otherCheckpoint = await createWorkFolderCheckpoint(other.workFolderRoot);
   const receipts = new WorkFoldCliActReceipts({ stateRoot });
   const request = (argv: string[], token = actToken) => createWorkFoldCliActRequest({ id: randomUUID(), argv, cwd: sandbox, actToken: token });
   const execute = (value: ReturnType<typeof request>) => executeWorkFoldCliActRequest(value, {
     version: "test", getActFacade: () => ({ facade: api.actFacade, token: actToken }), receipts,
   });
-  const fetchReview = (verb: "read" | "diff", params: Record<string, string>, options: { authenticated?: boolean; spaceId?: string } = {}) =>
-    fetch(`${api.origin}/api/spaces/${options.spaceId ?? space.id}/history/${verb}?${new URLSearchParams(params)}`, {
+  const fetchReview = (verb: "read" | "diff", params: Record<string, string>, options: { authenticated?: boolean; workFolderId?: string } = {}) =>
+    fetch(`${api.origin}/api/work-folders/${options.workFolderId ?? workFolder.id}/history/${verb}?${new URLSearchParams(params)}`, {
       headers: options.authenticated === false ? {} : { "x-work-fold-session": sessionToken },
     });
-  return { sandbox, api, space, other, first, second, otherCheckpoint, receipts, request, execute, fetchReview };
+  return { sandbox, api, workFolder, other, first, second, otherCheckpoint, receipts, request, execute, fetchReview };
 }
 
 async function historySnapshot(root: string): Promise<Array<[string, string]>> {
-  const base = spaceHistoryRoot(root);
+  const base = workFolderHistoryRoot(root);
   const entries = await readdir(base, { recursive: true, withFileTypes: true });
   const files = entries.filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name)).sort();
   return Promise.all(files.map(async (path): Promise<[string, string]> => [path, createHash("sha256").update(await readFile(path)).digest("hex")]));
 }
 
-test("History read/diff parse only in the act lane with an explicit Folder and exact selectors", () => {
-  assert.deepEqual(parseWorkFoldCliActArgv(["history", "read", "--space", "folder", "--path", "note.txt", "--checkpoint", "cp-first", "--json"]), {
-    name: "history.read", output: "json", space: "folder", path: "note.txt", checkpoint: "cp-first",
+test("History read/diff parse only in the act lane with an explicit work-folder and exact selectors", () => {
+  assert.deepEqual(parseWorkFoldCliActArgv(["history", "read", "--work-folder", "folder", "--path", "note.txt", "--checkpoint", "cp-first", "--json"]), {
+    name: "history.read", output: "json", workFolder: "folder", path: "note.txt", checkpoint: "cp-first",
   });
   for (const to of [[], ["--to-checkpoint", "cp-second"]]) {
-    assert.deepEqual(parseWorkFoldCliActArgv(["history", "diff", "--space", "folder", "--path", "note.txt", "--from-checkpoint", "cp-first", ...to]), {
-      name: "history.diff", output: "human", space: "folder", path: "note.txt", fromCheckpoint: "cp-first",
+    assert.deepEqual(parseWorkFoldCliActArgv(["history", "diff", "--work-folder", "folder", "--path", "note.txt", "--from-checkpoint", "cp-first", ...to]), {
+      name: "history.diff", output: "human", workFolder: "folder", path: "note.txt", fromCheckpoint: "cp-first",
       ...(to.length ? { toCheckpoint: "cp-second" } : {}),
     });
   }
   for (const verb of ["read", "diff"]) {
     const selector = verb === "read" ? "--checkpoint" : "--from-checkpoint";
-    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--path", "note.txt", selector, "cp-first"]), /explicit --space/);
-    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--space", "folder", "--path", "note.txt"]), /Provide --/);
-    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--space", "folder", selector, "cp-first"]), /--path/);
-    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--space", "folder", "--path", "a", "--path", "b", selector, "cp-first"]), /--path may be provided only once/);
-    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--space", "folder", "--path", "a", selector, "cp-first", "--parent-task", "task"]), /--parent-task/);
-    assert.throws(() => parseWorkFoldCliArgv(["history", verb, "--space", "folder"]), /Unknown command/);
+    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--path", "note.txt", selector, "cp-first"]), /explicit --work-folder/);
+    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--work-folder", "folder", "--path", "note.txt"]), /Provide --/);
+    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--work-folder", "folder", selector, "cp-first"]), /--path/);
+    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--work-folder", "folder", "--path", "a", "--path", "b", selector, "cp-first"]), /--path may be provided only once/);
+    assert.throws(() => parseWorkFoldCliActArgv(["history", verb, "--work-folder", "folder", "--path", "a", selector, "cp-first", "--parent-task", "task"]), /--parent-task/);
+    assert.throws(() => parseWorkFoldCliArgv(["history", verb, "--work-folder", "folder"]), /Unknown command/);
   }
-  assert.throws(() => parseWorkFoldCliActArgv(["history", "read", "--space", "folder", "--path", "a", "--checkpoint", "cp", "--to-checkpoint", "other"]), /--to-checkpoint/);
-  assert.throws(() => parseWorkFoldCliActArgv(["history", "diff", "--space", "folder", "--path", "a", "--from-checkpoint", "cp", "--checkpoint", "other"]), /--checkpoint/);
+  assert.throws(() => parseWorkFoldCliActArgv(["history", "read", "--work-folder", "folder", "--path", "a", "--checkpoint", "cp", "--to-checkpoint", "other"]), /--to-checkpoint/);
+  assert.throws(() => parseWorkFoldCliActArgv(["history", "diff", "--work-folder", "folder", "--path", "a", "--from-checkpoint", "cp", "--checkpoint", "other"]), /--checkpoint/);
   assert.match(workFoldCliHelp("work-fold", "history"), /authenticated act lane/);
 });
 
 test("authenticated CLI History reads/diffs use the facade without changing files, and receipts exclude content", async (t) => {
   const setup = await fixture(t);
-  const { space, first, second, request, execute, receipts } = setup;
-  const baseline = await historySnapshot(space.spaceRoot);
-  const readArgv = ["history", "read", "--space", space.id, "--path", "note.txt", "--checkpoint", first.checkpointId, "--json"];
+  const { workFolder, first, second, request, execute, receipts } = setup;
+  const baseline = await historySnapshot(workFolder.workFolderRoot);
+  const readArgv = ["history", "read", "--work-folder", workFolder.id, "--path", "note.txt", "--checkpoint", first.checkpointId, "--json"];
   const unauthorized = await execute(request(readArgv, "b".repeat(64)));
   assert.notEqual(unauthorized.exitCode, 0);
   assert.doesNotMatch(JSON.stringify(unauthorized), /PRIVATE_/);
@@ -104,7 +104,7 @@ test("authenticated CLI History reads/diffs use the facade without changing file
   const read = await execute(acceptedRead);
   assert.equal(read.exitCode, 0, read.stderr);
   const saved = JSON.parse(read.stdout).data;
-  assert.equal(saved.space.id, space.id);
+  assert.equal(saved.workFolder.id, workFolder.id);
   assert.equal(saved.review.observation.text, firstText);
   assert.equal(saved.review.observation.checkpointId, first.checkpointId);
   assert.equal(saved.review.observation.hashVerified, true);
@@ -113,7 +113,7 @@ test("authenticated CLI History reads/diffs use the facade without changing file
   assert.match(replayed.stderr, /already executed/);
   assert.doesNotMatch(replayed.stdout, /PRIVATE_/);
 
-  const baseDiff = ["history", "diff", "--space", space.id, "--path", "note.txt", "--from-checkpoint", first.checkpointId];
+  const baseDiff = ["history", "diff", "--work-folder", workFolder.id, "--path", "note.txt", "--from-checkpoint", first.checkpointId];
   const savedDiff = await execute(request([...baseDiff, "--to-checkpoint", second.checkpointId, "--json"]));
   assert.equal(savedDiff.exitCode, 0, savedDiff.stderr);
   const comparison = JSON.parse(savedDiff.stdout).data.comparison;
@@ -137,19 +137,19 @@ test("authenticated CLI History reads/diffs use the facade without changing file
   assert.match(humanDiff.stdout, /modified/);
   assert.match(humanDiff.stdout, /\+PRIVATE_CURRENT_CONTENT/);
 
-  assert.equal(await readFile(join(space.spaceRoot, "note.txt"), "utf8"), currentText);
-  assert.deepEqual(await historySnapshot(space.spaceRoot), baseline, "review creates no checkpoint or content objects");
+  assert.equal(await readFile(join(workFolder.workFolderRoot, "note.txt"), "utf8"), currentText);
+  assert.deepEqual(await historySnapshot(workFolder.workFolderRoot), baseline, "review creates no checkpoint or content objects");
   const journal = await readFile(receipts.path, "utf8");
   assert.doesNotMatch(journal, /PRIVATE_|Heading|End|hashVerified|observedAt|\"text\"|\"diff\"/);
   const records = journal.trim().split("\n").map((line) => JSON.parse(line));
   const accepted = records.filter((record) => record.requestId === acceptedRead.id);
   assert.deepEqual(accepted.map((record) => record.outcome), ["accepted", "ok", "rejected"]);
-  assert.equal(accepted[1].spaceId, space.id);
+  assert.equal(accepted[1].workFolderId, workFolder.id);
 });
 
 test("History API requires the renderer session and preserves selected checkpoint and current-file meaning", async (t) => {
-  const { space, first, second, fetchReview } = await fixture(t);
-  const baseline = await historySnapshot(space.spaceRoot);
+  const { workFolder, first, second, fetchReview } = await fixture(t);
+  const baseline = await historySnapshot(workFolder.workFolderRoot);
   const params = { path: "note.txt", checkpointId: first.checkpointId };
   const unauthorized = await fetchReview("read", params, { authenticated: false });
   assert.equal(unauthorized.status, 401);
@@ -169,19 +169,19 @@ test("History API requires the renderer session and preserves selected checkpoin
   assert.equal(currentData.after.source, "current");
   assert.equal(currentData.after.text, currentText);
   assert.equal(currentData.after.checkpointId, undefined);
-  assert.equal(await readFile(join(space.spaceRoot, "note.txt"), "utf8"), currentText);
-  assert.deepEqual(await historySnapshot(space.spaceRoot), baseline);
+  assert.equal(await readFile(join(workFolder.workFolderRoot, "note.txt"), "utf8"), currentText);
+  assert.deepEqual(await historySnapshot(workFolder.workFolderRoot), baseline);
 });
 
 test("human History diff reports a bounded prefix as incomplete instead of implying a complete comparison", async (t) => {
-  const { space, request, execute } = await fixture(t);
-  const path = join(space.spaceRoot, "large-diff.txt");
+  const { workFolder, request, execute } = await fixture(t);
+  const path = join(workFolder.workFolderRoot, "large-diff.txt");
   // Every line changes and the diff text outgrows its budget while staying inside the file and cell budgets.
   const lines = 3_000;
   await writeFile(path, Array.from({ length: lines }, (_, index) => `before ${index} ${"a".repeat(1_000)}\n`).join(""));
-  const before = await createSpaceCheckpoint(space.spaceRoot);
+  const before = await createWorkFolderCheckpoint(workFolder.workFolderRoot);
   await writeFile(path, Array.from({ length: lines }, (_, index) => `after ${index} ${"b".repeat(1_000)}\n`).join(""));
-  const argv = ["history", "diff", "--space", space.id, "--path", "large-diff.txt", "--from-checkpoint", before.checkpointId];
+  const argv = ["history", "diff", "--work-folder", workFolder.id, "--path", "large-diff.txt", "--from-checkpoint", before.checkpointId];
   const json = await execute(request([...argv, "--json"]));
   assert.equal(json.exitCode, 0, json.stderr);
   const diff = JSON.parse(json.stdout).data.comparison.diff;
@@ -195,7 +195,7 @@ test("human History diff reports a bounded prefix as incomplete instead of imply
 });
 
 test("History API and CLI reject cross-Folder checkpoints, unsafe paths, nested ownership, and missing selectors", async (t) => {
-  const { api, space, first, otherCheckpoint, request, execute, fetchReview } = await fixture(t);
+  const { api, workFolder, first, otherCheckpoint, request, execute, fetchReview } = await fixture(t);
   for (const params of [
     { path: "note.txt", checkpointId: otherCheckpoint.checkpointId },
     { path: "note.txt", checkpointId: "cp-does-not-exist" },
@@ -204,12 +204,12 @@ test("History API and CLI reject cross-Folder checkpoints, unsafe paths, nested 
     const response = await fetchReview("read", params);
     assert.equal(response.status, 404);
     assert.doesNotMatch(await response.text(), /PRIVATE_/);
-    const cli = await execute(request(["history", "read", "--space", space.id, "--path", params.path, "--checkpoint", params.checkpointId, "--json"]));
+    const cli = await execute(request(["history", "read", "--work-folder", workFolder.id, "--path", params.path, "--checkpoint", params.checkpointId, "--json"]));
     assert.notEqual(cli.exitCode, 0);
     assert.equal(JSON.parse(cli.stderr).error.code, "notFound");
     assert.doesNotMatch(JSON.stringify(cli), /PRIVATE_/);
   }
-  for (const path of ["../outside.txt", ".work-fold/space.json", ".pi/settings.json"]) {
+  for (const path of ["../outside.txt", ".work-fold/work-folder.json", ".pi/settings.json"]) {
     const response = await fetchReview("read", { path, checkpointId: first.checkpointId });
     assert.equal(response.status, 400, await response.text());
   }
@@ -222,37 +222,37 @@ test("History API and CLI reject cross-Folder checkpoints, unsafe paths, nested 
   const wrongTarget = await fetchReview("diff", { path: "note.txt", fromCheckpointId: first.checkpointId, toCheckpointId: otherCheckpoint.checkpointId });
   assert.equal(wrongTarget.status, 404);
   assert.doesNotMatch(await wrongTarget.text(), /PRIVATE_/);
-  await api.actFacade.registerSpace({ spaceRoot: join(space.spaceRoot, "child") });
+  await api.actFacade.registerWorkFolder({ workFolderRoot: join(workFolder.workFolderRoot, "child") });
   const nested = await fetchReview("read", { path: "child/private.txt", checkpointId: first.checkpointId });
   assert.equal(nested.status, 403);
   assert.doesNotMatch(await nested.text(), /PRIVATE_NESTED_CONTENT/);
-  const nestedCli = await execute(request(["history", "read", "--space", space.id, "--path", "child/private.txt", "--checkpoint", first.checkpointId, "--json"]));
+  const nestedCli = await execute(request(["history", "read", "--work-folder", workFolder.id, "--path", "child/private.txt", "--checkpoint", first.checkpointId, "--json"]));
   assert.notEqual(nestedCli.exitCode, 0);
   assert.doesNotMatch(JSON.stringify(nestedCli), /PRIVATE_NESTED_CONTENT/);
 });
 
 test("CLI and HTTP expose working History pages/ranges and narrowed Search continuation", async (t) => {
-  const {api,space,request,execute}=await fixture(t);
+  const {api,workFolder,request,execute}=await fixture(t);
   const saved="😀saved line\n".repeat(20000);
-  await writeFile(join(space.spaceRoot,"large.txt"),saved);
-  const checkpoint=await createSpaceCheckpoint(space.spaceRoot);
-  const first=JSON.parse((await execute(request(["history","list","--space",space.id,"--limit","1","--json"]))).stdout).data;
+  await writeFile(join(workFolder.workFolderRoot,"large.txt"),saved);
+  const checkpoint=await createWorkFolderCheckpoint(workFolder.workFolderRoot);
+  const first=JSON.parse((await execute(request(["history","list","--work-folder",workFolder.id,"--limit","1","--json"]))).stdout).data;
   assert.equal(first.checkpoints.length,1); assert.ok(first.total>1); assert.ok(first.nextCursor);
-  const next=JSON.parse((await execute(request(["history","list","--space",space.id,"--limit","1","--cursor",first.nextCursor,"--json"]))).stdout).data;
+  const next=JSON.parse((await execute(request(["history","list","--work-folder",workFolder.id,"--limit","1","--cursor",first.nextCursor,"--json"]))).stdout).data;
   assert.notEqual(next.checkpoints[0].checkpointId,first.checkpoints[0].checkpointId);
-  const rangeArgs=["history","read","--space",space.id,"--path","large.txt","--checkpoint",checkpoint.checkpointId,"--offset-bytes","0","--length-bytes","65536"];
+  const rangeArgs=["history","read","--work-folder",workFolder.id,"--path","large.txt","--checkpoint",checkpoint.checkpointId,"--offset-bytes","0","--length-bytes","65536"];
   const range=JSON.parse((await execute(request([...rangeArgs,"--json"]))).stdout).data.review.range;
   assert.equal(range.hashVerified,true); assert.ok(range.nextOffsetBytes>0); assert.ok(saved.startsWith(range.text));
   const human=await execute(request(rangeArgs)); assert.match(human.stdout,/Continue with --offset-bytes/);
-  const readResponse=await fetch(`${api.origin}/api/spaces/${space.id}/history/read?${new URLSearchParams({path:"large.txt",checkpointId:checkpoint.checkpointId,offsetBytes:String(range.nextOffsetBytes),lengthBytes:"65536",expectedSha256:range.hashSha256})}`,{headers:{"x-work-fold-session":sessionToken}});
+  const readResponse=await fetch(`${api.origin}/api/work-folders/${workFolder.id}/history/read?${new URLSearchParams({path:"large.txt",checkpointId:checkpoint.checkpointId,offsetBytes:String(range.nextOffsetBytes),lengthBytes:"65536",expectedSha256:range.hashSha256})}`,{headers:{"x-work-fold-session":sessionToken}});
   assert.equal(readResponse.status,200); const read=await readResponse.json() as any; assert.equal(read.review.range.offsetBytes,range.nextOffsetBytes);
-  const listResponse=await fetch(`${api.origin}/api/spaces/${space.id}/history/checkpoints?limit=1`,{headers:{"x-work-fold-session":sessionToken}});
+  const listResponse=await fetch(`${api.origin}/api/work-folders/${workFolder.id}/history/checkpoints?limit=1`,{headers:{"x-work-fold-session":sessionToken}});
   const listed=await listResponse.json() as any; assert.ok(listed.nextCursor); assert.equal(listed.total,first.total);
-  const searchArgs=["search","--space",space.id,"--query","saved","--path","large.txt","--scope","files","--limit","1","--json"];
+  const searchArgs=["search","--work-folder",workFolder.id,"--query","saved","--path","large.txt","--scope","files","--limit","1","--json"];
   const searchRun=await execute(request(searchArgs)); assert.equal(searchRun.exitCode,0,searchRun.stderr);
   const search=JSON.parse(searchRun.stdout).data; assert.equal(search.files[0].line,1); assert.ok(search.nextCursor);
-  const continued=await fetch(`${api.origin}/api/spaces/${space.id}/search?${new URLSearchParams({q:"saved",path:"large.txt",scope:"files",limit:"1",cursor:search.nextCursor})}`,{headers:{"x-work-fold-session":sessionToken}});
+  const continued=await fetch(`${api.origin}/api/work-folders/${workFolder.id}/search?${new URLSearchParams({q:"saved",path:"large.txt",scope:"files",limit:"1",cursor:search.nextCursor})}`,{headers:{"x-work-fold-session":sessionToken}});
   assert.equal(continued.status,200); const page=await continued.json() as any; assert.equal(page.files[0].line,2);
-  const mismatch=await fetch(`${api.origin}/api/spaces/${space.id}/search?${new URLSearchParams({q:"different",path:"large.txt",scope:"files",cursor:search.nextCursor})}`,{headers:{"x-work-fold-session":sessionToken}});
+  const mismatch=await fetch(`${api.origin}/api/work-folders/${workFolder.id}/search?${new URLSearchParams({q:"different",path:"large.txt",scope:"files",cursor:search.nextCursor})}`,{headers:{"x-work-fold-session":sessionToken}});
   assert.equal(mismatch.status,409);
 });

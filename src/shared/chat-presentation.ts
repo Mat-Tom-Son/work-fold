@@ -17,7 +17,7 @@ export interface AssistantPresentationSegment {
 
 /** Selected native edit evidence, not a raw tool result or a currently live file preview. */
 export interface ChatToolEdit {
-  /** A validated Folder-relative path, with portable forward slashes. */
+  /** A validated work-folder-relative path, with portable forward slashes. */
   path: string;
   /** Pi's display diff at the time of the successful edit; never a runnable patch. */
   diff: string;

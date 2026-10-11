@@ -1,5 +1,5 @@
 import type React from "react";
-import { spacePathDragType } from "../constants";
+import { workFolderPathDragType } from "../constants";
 import { desktopPlatform, type DesktopPlatform } from "./platform";
 import { fileExtension } from "./tree";
 import type { ChangeEntry, TreeEntry } from "../types";
@@ -49,8 +49,8 @@ function hasNativeFiles(event: React.DragEvent<HTMLElement>): boolean {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
 
-function hasSpacePathDrag(event: React.DragEvent<HTMLElement>): boolean {
-  return Array.from(event.dataTransfer.types).includes(spacePathDragType);
+function hasWorkFolderPathDrag(event: React.DragEvent<HTMLElement>): boolean {
+  return Array.from(event.dataTransfer.types).includes(workFolderPathDragType);
 }
 
 function changeStatusText(change: ChangeEntry): string {
@@ -67,4 +67,4 @@ function treeChangeLabel(change: ChangeEntry): string {
   return "Deleted local";
 }
 
-export { canOpenDirectly, changeStatusText, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel, revealInFileManagerLabel, treeChangeLabel };
+export { canOpenDirectly, changeStatusText, hasNativeFiles, hasWorkFolderPathDrag, nativeOpenLabel, revealInFileManagerLabel, treeChangeLabel };

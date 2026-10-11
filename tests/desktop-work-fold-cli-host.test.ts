@@ -102,7 +102,7 @@ test("desktop CLI host serializes overlapping requests and exposes an idle drain
   let active = 0;
   let maxActive = 0;
   const kernel = fixtureKernel();
-  kernel.listSpaces = async () => {
+  kernel.listWorkFolders = async () => {
     active += 1;
     maxActive = Math.max(maxActive, active);
     await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, 15));
@@ -114,7 +114,7 @@ test("desktop CLI host serializes overlapping requests and exposes an idle drain
     await host.initialize();
     const requests = [randomUUID(), randomUUID()].map((id) => createWorkFoldCliRequest({
       id,
-      argv: ["spaces", "list", "--json"],
+      argv: ["work-folders", "list", "--json"],
       cwd: resolve("."),
     }));
     await Promise.all(requests.map((request) => host.broker.writeRequest(request)));
@@ -138,10 +138,10 @@ test("desktop CLI host gates act requests on the per-launch authority and record
     let authority: { facade: WorkFoldActFacade; token: string } | null = null;
     const chatCreates: string[] = [];
     const facade = {
-      async createConversation(input: { space: string }) {
-        chatCreates.push(input.space);
+      async createConversation(input: { workFolder: string }) {
+        chatCreates.push(input.workFolder);
         return {
-          space: { id: "space-1", name: "Act Space", spaceRoot: join(stateRoot, "space") },
+          workFolder: { id: "work-folder-1", name: "Act work-folder", workFolderRoot: join(stateRoot, "work-folder") },
           conversation: {
             id: "chat-1",
             title: "New Chat",
@@ -165,7 +165,7 @@ test("desktop CLI host gates act requests on the per-launch authority and record
     // reads in the same queue keep working.
     const offline = createWorkFoldCliActRequest({
       id: randomUUID(),
-      argv: ["chat", "create", "--space", "space-1", "--json"],
+      argv: ["chat", "create", "--work-folder", "work-folder-1", "--json"],
       cwd: resolve("."),
       actToken: token,
     });
@@ -184,7 +184,7 @@ test("desktop CLI host gates act requests on the per-launch authority and record
     authority = { facade, token };
     const wrongToken = createWorkFoldCliActRequest({
       id: randomUUID(),
-      argv: ["chat", "create", "--space", "space-1", "--json"],
+      argv: ["chat", "create", "--work-folder", "work-folder-1", "--json"],
       cwd: resolve("."),
       actToken: "e".repeat(64),
     });
@@ -197,7 +197,7 @@ test("desktop CLI host gates act requests on the per-launch authority and record
     // records accepted-then-ok around the mutation.
     const accepted = createWorkFoldCliActRequest({
       id: randomUUID(),
-      argv: ["chat", "create", "--space", "space-1", "--json"],
+      argv: ["chat", "create", "--work-folder", "work-folder-1", "--json"],
       cwd: resolve("."),
       actToken: token,
     });
@@ -206,7 +206,7 @@ test("desktop CLI host gates act requests on the per-launch authority and record
     const acceptedResponse = await host.broker.readResponse(accepted.id);
     assert.equal(acceptedResponse.exitCode, 0, acceptedResponse.stderr);
     assert.match(acceptedResponse.stdout, /"chat\.create"/);
-    assert.deepEqual(chatCreates, ["space-1"]);
+    assert.deepEqual(chatCreates, ["work-folder-1"]);
 
     // Replaying the same request id after the shim has cleaned up its request
     // and response files must be refused, not re-executed.
@@ -217,7 +217,7 @@ test("desktop CLI host gates act requests on the per-launch authority and record
     const replayResponse = await host.broker.readResponse(accepted.id);
     assert.equal(replayResponse.exitCode, 5, replayResponse.stderr);
     assert.match(replayResponse.stderr, /already executed/);
-    assert.deepEqual(chatCreates, ["space-1"], "a replayed act request must not re-run its mutation");
+    assert.deepEqual(chatCreates, ["work-folder-1"], "a replayed act request must not re-run its mutation");
 
     const receiptLines = (await readFile(host.receipts.path, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     assert.deepEqual(
@@ -225,7 +225,7 @@ test("desktop CLI host gates act requests on the per-launch authority and record
       ["rejected", "rejected", "accepted", "ok", "rejected"],
     );
     assert.equal(receiptLines[3]?.command, "chat.create");
-    assert.equal(receiptLines[3]?.spaceId, "space-1");
+    assert.equal(receiptLines[3]?.workFolderId, "work-folder-1");
     assert.equal(receiptLines[3]?.conversationId, "chat-1");
     assert.equal(receiptLines[4]?.errorCode, "conflict");
   } finally {
@@ -233,13 +233,13 @@ test("desktop CLI host gates act requests on the per-launch authority and record
   }
 });
 
-test("desktop main wires one settle seam, one receipts ledger, and routing sleep/wake beside the app lifecycle", async () => {
+test("desktop main wires one settle seam, one receipts ledger, and automation sleep/wake beside the app lifecycle", async () => {
   const { readFile } = await import("node:fs/promises");
   const main = await readFile(new URL("../desktop/src/main.ts", import.meta.url), "utf8");
 
   // One WorkFoldSettleSignal per desktop host: constructed once, published
   // into by the host's Check and restricted-app services, consumed by the
-  // local API's routing executor. Anything else silently drops settles.
+  // local API's automation executor. Anything else silently drops settles.
   const hostStart = main.indexOf("async function ensureDesktopHost");
   assert.ok(hostStart >= 0);
   const hostBody = main.slice(hostStart, main.indexOf("\nasync function processWorkFoldCliRequest", hostStart));
@@ -248,14 +248,14 @@ test("desktop main wires one settle seam, one receipts ledger, and routing sleep
   const restrictedCreate = hostBody.slice(hostBody.indexOf("RestrictedAppService.create({"), hostBody.indexOf("})", hostBody.indexOf("RestrictedAppService.create({")));
   assert.match(restrictedCreate, /settleSignal,/, "the restricted-app service publishes into the shared signal");
   // The shared Check service takes the kernel, the same settle signal, and
-  // the fold model transport; its result-change hint reaches app views only
+  // the work-fold agent model transport; its result-change hint reaches app views only
   // through the restricted-app host (F30), never through the settle signal.
   const checkCreateStart = hostBody.indexOf("createDesktopCheckService({");
   assert.ok(checkCreateStart >= 0, "desktop main creates the shared Check service");
   const checkCreate = hostBody.slice(checkCreateStart, hostBody.indexOf("});", checkCreateStart));
-  assert.match(checkCreate, /\bkernel,/, "the Check service reads Spaces through the kernel");
+  assert.match(checkCreate, /\bkernel,/, "the Check service reads work-folders through the kernel");
   assert.match(checkCreate, /\bsettleSignal,/, "the Check service publishes into the shared signal");
-  assert.match(checkCreate, /getLocalApi: ensureInteractiveLocalApi,/, "the shared Check service uses the fold model transport");
+  assert.match(checkCreate, /getLocalApi: ensureInteractiveLocalApi,/, "the shared Check service uses the work-fold agent model transport");
   assert.match(checkCreate, /onResultChanged: \(event\) => restrictedRuntime\.publishCheckResultsChanged\(event\),/, "Check result changes reach app views as ids-only hints");
   assert.doesNotMatch(checkCreate, /onResultChanged:[^\n]*settleSignal/, "the hint never routes through the settle signal");
   // Inspect the returned value, not property order: adding another host service
@@ -278,19 +278,19 @@ test("desktop main wires one settle seam, one receipts ledger, and routing sleep
   assert.match(apiBody, /settleSignal: host\.settleSignal,/, "the local API consumes the host's exact signal instance");
   assert.match(apiBody, /actReceipts: host\.cli\.receipts,/, "decisions, publications, and CLI acts share the CLI host's one ledger");
   assert.match(apiBody, /publicationKeys: host\.settings\.publicationKeyStore\(\)/);
-  assert.match(apiBody, /routingPowerLifecycle = api\.routings;/);
+  assert.match(apiBody, /automationPowerLifecycle = api\.automations;/);
 
-  // Sleep suspends both schedulers; wake resumes both. Routing runs abort on
-  // suspension and settle `interrupted` (docs/fold-routings.md).
+  // Sleep suspends both schedulers; wake resumes both. Automation runs abort on
+  // suspension and settle `interrupted` (docs/automations.md).
   const powerStart = main.indexOf("function configurePowerMonitor");
   const powerBody = main.slice(powerStart, main.indexOf("\nfunction configureAccentColorMonitor", powerStart));
   const suspendBody = powerBody.slice(powerBody.indexOf('powerMonitor.on("suspend"'), powerBody.indexOf('powerMonitor.on("resume"'));
-  assert.match(suspendBody, /suspendAutomations\(\)/);
-  assert.match(suspendBody, /routingPowerLifecycle\?\.suspend\(\);/);
+  assert.match(suspendBody, /suspendAppAutomations\(\)/);
+  assert.match(suspendBody, /automationPowerLifecycle\?\.suspend\(\);/);
   const resumeBody = powerBody.slice(powerBody.indexOf('powerMonitor.on("resume"'), powerBody.indexOf('powerMonitor.on("shutdown"'));
-  assert.match(resumeBody, /resumeAutomations\(\)/);
-  assert.match(resumeBody, /routingPowerLifecycle\?\.resume\(\)\.catch\(\(error\) =>/);
-  assert.match(resumeBody, /could not resume Routings after wake/);
+  assert.match(resumeBody, /resumeAppAutomations\(\)/);
+  assert.match(resumeBody, /automationPowerLifecycle\?\.resume\(\)\.catch\(\(error\) =>/);
+  assert.match(resumeBody, /could not resume Automations after wake/);
 
   // The remote client keeps the viewer-page provider wired to the
   // publication authority, and reconnects re-drive pending bridge syncs.
@@ -303,9 +303,9 @@ test("desktop main wires one settle seam, one receipts ledger, and routing sleep
 function fixtureKernel(): WorkFoldCliKernel {
   return {
     async getContext(actor) {
-      return { cwd: actor.cwd, space: null };
+      return { cwd: actor.cwd, workFolder: null };
     },
-    async listSpaces() {
+    async listWorkFolders() {
       return [];
     },
     async listTasks() {

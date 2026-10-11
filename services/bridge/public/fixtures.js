@@ -50,13 +50,13 @@ export function buildFixture(name, { running = false } = {}) {
     ]))],
   ]);
   fixtureThreads.get("chat-2").summary.latestRequest = { phase: "succeeded",
-    actions: [{ command: "files.add", spaceId: "space-1", spaceName: "Launch plan", copied: ["reports/q3-summary.md"] }] };
+    actions: [{ command: "files.add", workFolderId: "work-folder-1", workFolderName: "Launch plan", copied: ["reports/q3-summary.md"] }] };
   if (running) {
     const report = fixtureThreads.get("chat-2");
     Object.assign(report, {
       messages: report.messages.slice(0, 1),
       summary: { state: "running", latestRequest: { phase: "working", canStop: true, taskId: "task-2",
-        actions: [{ command: "files.add", spaceId: "space-1", spaceName: "Launch plan", copied: ["reports/q3-summary.md"] }] } },
+        actions: [{ command: "files.add", workFolderId: "work-folder-1", workFolderName: "Launch plan", copied: ["reports/q3-summary.md"] }] } },
       activeTasks: new Map([["chat-2", { taskId: "task-2", conversationId: "chat-2" }]]),
       liveAssistantText: "I’m checking the invoice references and putting the summary together.",
     });
@@ -68,7 +68,7 @@ export function buildFixture(name, { running = false } = {}) {
       context: { slug: "casey", addressAvailable: true, authenticated: true },
       session: { paired: true, desktopOnline: true, slug: "casey", grant: { id: grantId } },
       identity: { grantId },
-      spaceApps: new Map([["space-2", []], ["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
+      workFolderApps: new Map([["work-folder-2", []], ["work-folder-1", [{ workFolderId: "work-folder-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
       conversations,
       conversationsLoaded: true,
       sharedPagesAvailable: true,

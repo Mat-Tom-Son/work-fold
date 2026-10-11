@@ -9,7 +9,7 @@ fenced execution path and return a receipt; destruction is reversible
 through History or Recently deleted.
 
 The register rows this page once served (F5–F7, F17) stay in
-[the fold](../fold.md) marked as history. The full earlier text is recoverable
+[the fold](../work-fold-agent-decisions.md) marked as history. The full earlier text is recoverable
 in git at `6830942`. This page keeps only what the record does not restate:
 what the build removed, what survived and where it now lives, and the
 threat-model residuals that still apply. "Consecration" survives only as a
@@ -35,7 +35,7 @@ history word; no shipped contract, copy, or test should introduce it.
 ## What survived, and where it lives now
 
 - **Prepare → pin → journal-first → fenced execute → receipt, run
-  immediately.** The [act ledger](../fold-act-ledger.md) calls these *prepared
+  immediately.** The [act ledger](../act-ledger.md) calls these *prepared
   verbs*; the management layer's verification map names the module and suite.
 - **Effect-time rechecks, at-most-once execution, failure without
   auto-retry, capability-mutation fences, and turn-conflict rejection.** All
@@ -50,7 +50,7 @@ history word; no shipped contract, copy, or test should introduce it.
   | `app.connection.save` | The ledger's connection row: the secret is entered by the person in Settings → Apps, once per destination |
   | `app.automation.enable` | `apps automation enable` (re-enable after a disable; declared automations run from install) |
   | `routing.enable` | `routings enable --proposal <path>` |
-  | `publish.viewer.expose` | The `pages` share verbs in [Publishing](../fold-publishing.md) |
+  | `publish.viewer.expose` | The `pages` share verbs in [Publishing](../shared-pages.md) |
   | `space.delete-folder` | `spaces delete` — the folder moves into Recently deleted |
   | `app.data.purge`, `app.storage.clear` | `apps retained purge`, `apps storage clear` — a recovery export lands in Recently deleted first |
   | `files.destroy` | Removed; `files delete` covers every path |
@@ -98,11 +98,11 @@ disclosure in the glance, the receipts, and Settings → Apps.
 ## Deliberately not
 
 - **No enforced tool restriction of the fold.** It stays full-trust and
-  taught, per [the management layer](../management-layer.md); changing that is
+  taught, per [the management layer](../work-fold-agent-and-cli.md); changing that is
   a separate deliberate design.
 - **No new caller-authentication boundary.** The act lane keeps its
   per-launch same-user posture.
 - **No rerouting of desktop ceremonies through the act journal.**
 - **No gate machinery reintroduced by convenience.** Confirmations, holds,
   approval states, or per-act risk scores are register decisions in
-  [the fold](../fold.md), never schema growth or a UI tweak.
+  [the fold](../work-fold-agent-decisions.md), never schema growth or a UI tweak.

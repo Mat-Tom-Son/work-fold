@@ -18,7 +18,7 @@ import { restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
  * App storage is one JSON document per installation, read and rewritten whole
  * on every operation. The quota keeps that document comfortably under V8's
  * maximum string length (about 512 MiB), which is the real ceiling for this
- * design; bulk data still belongs in granted Space files.
+ * design; bulk data still belongs in granted work-folder files.
  */
 export const restrictedAppStorageLimits = {
   appBytes: 256 * 1024 * 1024,

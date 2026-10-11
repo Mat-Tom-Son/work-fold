@@ -17,7 +17,7 @@ const turnInput = (id: string) => ({
   requestDigest: digest("a"),
   userMessageId: `message-${id}`,
   userMessageCreatedAt: "2026-08-13T12:00:00.000Z",
-  spaceId: "space-1",
+  workFolderId: "work-folder-1",
   conversationId: `chat-${id}`,
   actorKind: "system" as const,
 });
@@ -38,7 +38,7 @@ test("durable turn records make acceptance idempotent and survive restart", asyn
     requestDigest: digest("a"),
     userMessageId: "message-1",
     userMessageCreatedAt: "2026-08-13T12:00:00.000Z",
-    spaceId: "space-1",
+    workFolderId: "work-folder-1",
     conversationId: "chat-1",
     actorKind: "renderer" as const,
   };
@@ -62,7 +62,7 @@ test("durable turn records make acceptance idempotent and survive restart", asyn
   await store.flush();
 
   const reopened = await WorkFoldTurnStore.create({ stateRoot: root });
-  const recovered = reopened.findRequest("space-1", "chat-1", "request-1");
+  const recovered = reopened.findRequest("work-folder-1", "chat-1", "request-1");
   assert.equal(recovered?.turnId, accepted.record.turnId);
   assert.equal(recovered?.status, "succeeded");
   assert.equal(recovered?.assistantText, "A durable partial response.");
@@ -79,7 +79,7 @@ test("startup repairs a truncated final journal line without discarding durable 
     requestDigest: digest("c"),
     userMessageId: "message-1",
     userMessageCreatedAt: "2026-08-13T12:00:00.000Z",
-    spaceId: "space-1",
+    workFolderId: "work-folder-1",
     conversationId: "chat-1",
     actorKind: "cli",
   });
@@ -107,15 +107,15 @@ test("compaction keeps the newest bounded terminal turn records", async (t) => {
       requestDigest: digest(String(index)),
       userMessageId: `message-${index}`,
       userMessageCreatedAt: "2026-08-13T12:00:00.000Z",
-      spaceId: "space-1",
+      workFolderId: "work-folder-1",
       conversationId: `chat-${index}`,
       actorKind: "system",
     });
     await store.settle(record.turnId, { status: "succeeded" });
   }
   assert.equal(store.list().length, 2);
-  assert.equal(store.findRequest("space-1", "chat-1", "request-1"), null);
-  assert.ok(store.findRequest("space-1", "chat-3", "request-3"));
+  assert.equal(store.findRequest("work-folder-1", "chat-1", "request-1"), null);
+  assert.ok(store.findRequest("work-folder-1", "chat-3", "request-3"));
 });
 
 test("unfinished turns survive retention and compaction, then checkpoint and settle after restart", async (t) => {
@@ -140,7 +140,7 @@ test("unfinished turns survive retention and compaction, then checkpoint and set
 
   assert.deepEqual(store.active().map((record) => record.turnId), [accepted.turnId, running.turnId]);
   assert.equal(store.list().length, 4);
-  assert.equal(store.findRequest("space-1", "chat-finished-1", "request-finished-1"), null);
+  assert.equal(store.findRequest("work-folder-1", "chat-finished-1", "request-finished-1"), null);
   assert.equal(store.get(running.turnId)?.assistantText, "The unfinished response.");
   const compacted = (await readFile(store.path, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(compacted.length, 4);
@@ -190,10 +190,10 @@ test("terminal memory retention stays bounded before disk compaction without lim
   }
   assert.equal(store.active().length, 3);
   assert.equal(store.list().length, 5);
-  assert.equal(store.findScopeRequest("space-1", "request-succeeded"), null);
-  assert.equal(store.findScopeRequest("space-1", "request-failed"), null);
-  assert.equal(store.findScopeRequest("space-1", "request-aborted")?.status, "aborted");
-  assert.equal(store.findScopeRequest("space-1", "request-interrupted")?.status, "interrupted");
+  assert.equal(store.findScopeRequest("work-folder-1", "request-succeeded"), null);
+  assert.equal(store.findScopeRequest("work-folder-1", "request-failed"), null);
+  assert.equal(store.findScopeRequest("work-folder-1", "request-aborted")?.status, "aborted");
+  assert.equal(store.findScopeRequest("work-folder-1", "request-interrupted")?.status, "interrupted");
   // These old disk entries are still present until byte-triggered compaction or
   // startup repair, but reopening applies the same terminal-history allowance.
   assert.ok((await readFile(store.path, "utf8")).includes('"requestId":"request-succeeded"'));
@@ -202,8 +202,8 @@ test("terminal memory retention stays bounded before disk compaction without lim
   const reopened = await WorkFoldTurnStore.create({ stateRoot: root, maxRecords: 2 });
   assert.equal(reopened.list().length, 6);
   assert.equal(reopened.active().length, 4);
-  assert.equal(reopened.findRequest("space-1", "chat-succeeded", "request-succeeded")?.turnId, reused.record.turnId);
-  assert.equal(reopened.findScopeRequest("space-1", "request-succeeded")?.turnId, reused.record.turnId);
+  assert.equal(reopened.findRequest("work-folder-1", "chat-succeeded", "request-succeeded")?.turnId, reused.record.turnId);
+  assert.equal(reopened.findScopeRequest("work-folder-1", "request-succeeded")?.turnId, reused.record.turnId);
   assert.equal((await reopened.accept(turnInput("succeeded"))).replayed, true);
 });
 

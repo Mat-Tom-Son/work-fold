@@ -28,7 +28,7 @@ void app.whenReady()
 
 async function runSmoke() {
   await verifyPreload("preload.cjs", false);
-  await verifyPreload("management-popover-preload.cjs", true);
+  await verifyPreload("work-fold-agent-popover-preload.cjs", true);
   await verifyDiagnosticPreload();
 }
 
@@ -74,11 +74,11 @@ async function verifyDiagnosticPreload() {
   }
 }
 
-async function verifyPreload(filename, managementOnly) {
+async function verifyPreload(filename, workFoldAgentOnly) {
   const errors = [];
   const openWithRequests = [];
-  const routingRequests = [];
-  const proposalPath = "/temporary work-fold agent/hourly.work-fold-routing.json";
+  const automationRequests = [];
+  const proposalPath = "/temporary work-fold agent/hourly.work-fold-automation.json";
   const pendingProposals = { proposals: [{ valid: true, path: proposalPath, title: "Hourly hello" }], truncated: false };
   const window = new BrowserWindow({
     show: false,
@@ -99,21 +99,21 @@ async function verifyPreload(filename, managementOnly) {
   window.webContents.on("console-message", (details) => {
     if (details.level === "warning" || details.level === "error") errors.push(details.message);
   });
-  if (!managementOnly) {
-    ipcMain.handle("work-fold:space:open-path-with", (event, request) => {
+  if (!workFoldAgentOnly) {
+    ipcMain.handle("work-fold:work-folder:open-path-with", (event, request) => {
       assert.equal(event.sender, window.webContents);
       openWithRequests.push(request);
       return { opened: false, canceled: true, appName: null };
     });
-    ipcMain.handle("work-fold:routings:proposals", (event, ...args) => {
+    ipcMain.handle("work-fold:automations:proposals", (event, ...args) => {
       assert.equal(event.sender, window.webContents);
-      routingRequests.push({ command: "proposals", args });
+      automationRequests.push({ command: "proposals", args });
       return pendingProposals;
     });
-    ipcMain.handle("work-fold:routings:enable-proposal", (event, path) => {
+    ipcMain.handle("work-fold:automations:enable-proposal", (event, path) => {
       assert.equal(event.sender, window.webContents);
-      routingRequests.push({ command: "enable-proposal", path });
-      return { routingId: "routing-smoke-test", enabled: true, alreadyEnabled: false };
+      automationRequests.push({ command: "enable-proposal", path });
+      return { automationId: "automation-smoke-test", enabled: true, alreadyEnabled: false };
     });
   }
   try {
@@ -131,12 +131,12 @@ async function verifyPreload(filename, managementOnly) {
         platform: value?.app?.platform,
         iconUrl: value?.app?.iconUrl,
         material: value?.window?.material,
-        hasManagement: Boolean(value?.management),
-        hasSpace: Boolean(value?.space),
-        hasOpenWith: typeof value?.space?.openPathWith === "function",
-        hasRoutings: Boolean(value?.routings),
-        hasRoutingProposals: typeof value?.routings?.proposals === "function",
-        hasRoutingEnableProposal: typeof value?.routings?.enableProposal === "function",
+        hasWorkFoldAgent: Boolean(value?.workFoldAgent),
+        hasWorkFolder: Boolean(value?.workFolder),
+        hasOpenWith: typeof value?.workFolder?.openPathWith === "function",
+        hasAutomations: Boolean(value?.automations),
+        hasAutomationProposals: typeof value?.automations?.proposals === "function",
+        hasAutomationEnableProposal: typeof value?.automations?.enableProposal === "function",
         hasShell: Boolean(value?.shell),
       };
     })()`);
@@ -151,32 +151,32 @@ async function verifyPreload(filename, managementOnly) {
       platform: process.platform,
       iconUrl: `${expected.internalProtocol}://app/_desktop-assets/icon-32.png`,
       material: "vibrancy",
-      hasManagement: managementOnly,
-      hasSpace: !managementOnly,
-      hasOpenWith: !managementOnly,
-      hasRoutings: !managementOnly,
-      hasRoutingProposals: !managementOnly,
-      hasRoutingEnableProposal: !managementOnly,
-      hasShell: !managementOnly,
+      hasWorkFoldAgent: workFoldAgentOnly,
+      hasWorkFolder: !workFoldAgentOnly,
+      hasOpenWith: !workFoldAgentOnly,
+      hasAutomations: !workFoldAgentOnly,
+      hasAutomationProposals: !workFoldAgentOnly,
+      hasAutomationEnableProposal: !workFoldAgentOnly,
+      hasShell: !workFoldAgentOnly,
     });
     await verifyClipboardBridge(window, "workFoldDesktop");
-    if (!managementOnly) {
-      assert.deepEqual(routingRequests, [], "loading the preload must not read or enable a proposal");
-      assert.deepEqual(await window.webContents.executeJavaScript("window.workFoldDesktop.routings.proposals()"), pendingProposals);
-      assert.deepEqual(await window.webContents.executeJavaScript(`window.workFoldDesktop.routings.enableProposal(${JSON.stringify(proposalPath)})`), {
-        routingId: "routing-smoke-test", enabled: true, alreadyEnabled: false,
+    if (!workFoldAgentOnly) {
+      assert.deepEqual(automationRequests, [], "loading the preload must not read or enable a proposal");
+      assert.deepEqual(await window.webContents.executeJavaScript("window.workFoldDesktop.automations.proposals()"), pendingProposals);
+      assert.deepEqual(await window.webContents.executeJavaScript(`window.workFoldDesktop.automations.enableProposal(${JSON.stringify(proposalPath)})`), {
+        automationId: "automation-smoke-test", enabled: true, alreadyEnabled: false,
       });
-      assert.deepEqual(routingRequests, [{ command: "proposals", args: [] }, { command: "enable-proposal", path: proposalPath }]);
-      assert.deepEqual(await window.webContents.executeJavaScript('window.workFoldDesktop.space.openPathWith("space-fixture", "files/a b.pdf")'), {
+      assert.deepEqual(automationRequests, [{ command: "proposals", args: [] }, { command: "enable-proposal", path: proposalPath }]);
+      assert.deepEqual(await window.webContents.executeJavaScript('window.workFoldDesktop.workFolder.openPathWith("work-folder-fixture", "files/a b.pdf")'), {
         opened: false, canceled: true, appName: null,
       });
-      assert.deepEqual(openWithRequests, [{ spaceId: "space-fixture", path: "files/a b.pdf" }]);
+      assert.deepEqual(openWithRequests, [{ workFolderId: "work-folder-fixture", path: "files/a b.pdf" }]);
     }
   } finally {
-    if (!managementOnly) {
-      ipcMain.removeHandler("work-fold:space:open-path-with");
-      ipcMain.removeHandler("work-fold:routings:proposals");
-      ipcMain.removeHandler("work-fold:routings:enable-proposal");
+    if (!workFoldAgentOnly) {
+      ipcMain.removeHandler("work-fold:work-folder:open-path-with");
+      ipcMain.removeHandler("work-fold:automations:proposals");
+      ipcMain.removeHandler("work-fold:automations:enable-proposal");
     }
     window.destroy();
   }

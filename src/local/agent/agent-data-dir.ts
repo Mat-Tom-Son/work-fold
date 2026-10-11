@@ -20,13 +20,13 @@ export function defaultAgentSdkDir(runtimeEnv: NodeJS.ProcessEnv = {}): string {
   return getAgentDir();
 }
 
-/** External session storage keyed by Space path; never pollutes user files. */
-export function spaceSessionDir(spaceRoot: string, agentDir = defaultAgentSdkDir()): string {
-  return join(agentDir, "sessions", "work-fold", spaceStorageKey(spaceRoot));
+/** External session storage keyed by work-folder path; never pollutes user files. */
+export function workFolderSessionDir(workFolderRoot: string, agentDir = defaultAgentSdkDir()): string {
+  return join(agentDir, "sessions", "work-fold", workFolderStorageKey(workFolderRoot));
 }
 
-export function spaceStorageKey(spaceRoot: string): string {
-  const resolved = resolve(spaceRoot);
+export function workFolderStorageKey(workFolderRoot: string): string {
+  const resolved = resolve(workFolderRoot);
   return `${readableDirSegment(basename(resolved))}-${createHash("sha256").update(normalizedStoragePath(resolved)).digest("hex").slice(0, 12)}`;
 }
 

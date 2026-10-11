@@ -10,28 +10,28 @@ export interface NativeResource extends ResolvedResource { kind: NativeResourceK
 const resourceKinds: NativeResourceKind[] = ["extensions", "skills", "prompts", "themes"];
 
 /** Resolve Pi's inventory without importing executable resources or installing missing sources. */
-export async function listNativeResources(spaceRoot: string, provider?: PiRuntimeProvider): Promise<NativeResource[]> {
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
-  return resolveNativeResources(spaceRoot, runtime);
+export async function listNativeResources(workFolderRoot: string, provider?: PiRuntimeProvider): Promise<NativeResource[]> {
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  return resolveNativeResources(workFolderRoot, runtime);
 }
 
-export async function resolveNativeResources(spaceRoot: string, runtime: ResolvedPiRuntime): Promise<NativeResource[]> {
-  const manager = new DefaultPackageManager({ cwd: spaceRoot, agentDir: runtime.agentDir, settingsManager: runtime.settingsManager });
+export async function resolveNativeResources(workFolderRoot: string, runtime: ResolvedPiRuntime): Promise<NativeResource[]> {
+  const manager = new DefaultPackageManager({ cwd: workFolderRoot, agentDir: runtime.agentDir, settingsManager: runtime.settingsManager });
   const paths = await manager.resolve(async () => "skip");
   const resources = resourceKinds.flatMap((kind) => paths[kind].map((resource) => ({ ...resource, kind })));
   // autoload:false describes a delta: Pi normally omits everything not named by
   // that delta. Resolve an all-negative baseline with Pi itself to expose those
   // disabled entries without changing the actual loader's selections or scopes.
   const known = new Set(resources.map(resourceKey));
-  const dormant = await resolveDormantPackageResources(spaceRoot, runtime);
+  const dormant = await resolveDormantPackageResources(workFolderRoot, runtime);
   return [
     ...resources,
     ...dormant.filter((resource) => !known.has(resourceKey(resource))),
-    ...await resolveIncludedResources(spaceRoot, runtime),
+    ...await resolveIncludedResources(workFolderRoot, runtime),
   ];
 }
 
-async function resolveDormantPackageResources(spaceRoot: string, runtime: ResolvedPiRuntime): Promise<NativeResource[]> {
+async function resolveDormantPackageResources(workFolderRoot: string, runtime: ResolvedPiRuntime): Promise<NativeResource[]> {
   const global = runtime.settingsManager.getGlobalSettings();
   const project = runtime.settingsManager.getProjectSettings();
   const trusted = runtime.settingsManager.isProjectTrusted();
@@ -41,7 +41,7 @@ async function resolveDormantPackageResources(spaceRoot: string, runtime: Resolv
     ? entry : { ...entry, ...Object.fromEntries(resourceKinds.map((kind) => [kind, ["!**/*", ...(entry[kind] ?? [])]])) };
   const settings = SettingsManager.inMemory({ ...global, packages: global.packages?.map(inventoryFilter) }, { projectTrusted: trusted });
   if (trusted) settings.setProjectPackages((project.packages ?? []).map(inventoryFilter));
-  const manager = new DefaultPackageManager({ cwd: spaceRoot, agentDir: runtime.agentDir, settingsManager: settings });
+  const manager = new DefaultPackageManager({ cwd: workFolderRoot, agentDir: runtime.agentDir, settingsManager: settings });
   const paths = await manager.resolve(async () => "skip");
   return resourceKinds.flatMap((kind) => paths[kind]
     .filter((resource) => resource.metadata.origin === "package" && !resource.enabled)
@@ -55,12 +55,12 @@ function resourceKey(resource: NativeResource): string {
 }
 
 /** Change exactly one native Pi filter; unrelated package patterns and scopes survive. */
-export async function setNativeResourceEnabled(spaceRoot: string, input: {
+export async function setNativeResourceEnabled(workFolderRoot: string, input: {
   path: string; kind: NativeResourceKind; enabled: boolean; scope: "user" | "project";
 }, provider?: PiRuntimeProvider): Promise<void> {
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
-  if (input.scope === "project" && !runtime.projectTrust.trusted) throw new Error("Register this Space before changing its resources.");
-  const resolved = await resolveNativeResources(spaceRoot, runtime);
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  if (input.scope === "project" && !runtime.projectTrust.trusted) throw new Error("Register this work-folder before changing its resources.");
+  const resolved = await resolveNativeResources(workFolderRoot, runtime);
   const resource = resolved.find((entry) => entry.kind === input.kind && resolve(entry.path) === resolve(input.path) && entry.metadata.scope === input.scope);
   if (!resource) throw new Error("This resource is no longer present in the selected scope. Refresh Skills & Extensions.");
   const settings = input.scope === "project" ? runtime.settingsManager.getProjectSettings() : runtime.settingsManager.getGlobalSettings();
@@ -69,7 +69,7 @@ export async function setNativeResourceEnabled(spaceRoot: string, input: {
     const index = packages.findIndex((entry) => (typeof entry === "string" ? entry : entry.source) === resource.metadata.source);
     if (index < 0 || !resource.metadata.baseDir) throw new Error("The resource's owning Pi package is no longer configured.");
     const entry = packages[index]!;
-    const manager = new DefaultPackageManager({ cwd: spaceRoot, agentDir: runtime.agentDir, settingsManager: runtime.settingsManager });
+    const manager = new DefaultPackageManager({ cwd: workFolderRoot, agentDir: runtime.agentDir, settingsManager: runtime.settingsManager });
     const installedPath = manager.getInstalledPath(resource.metadata.source, input.scope);
     if (installedPath && (await stat(installedPath)).isFile()) {
       if (resource.enabled === input.enabled) return;
@@ -90,7 +90,7 @@ export async function setNativeResourceEnabled(spaceRoot: string, input: {
     else runtime.settingsManager.setPackages(next);
   } else {
     const path = resolve(resource.path);
-    const baseDir = resource.metadata.baseDir ?? (input.scope === "project" ? join(spaceRoot, ".pi") : runtime.agentDir);
+    const baseDir = resource.metadata.baseDir ?? (input.scope === "project" ? join(workFolderRoot, ".pi") : runtime.agentDir);
     const siblings = resolved.filter((entry) => entry.kind === input.kind && entry.metadata.scope === input.scope
       && entry.metadata.origin !== "package" && resolve(entry.path) !== path);
     const next = replaceExactFilter(settings[input.kind] ?? [], path, input.enabled, baseDir, input.kind, siblings);

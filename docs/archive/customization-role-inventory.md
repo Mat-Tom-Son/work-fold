@@ -8,7 +8,7 @@ live consumer of the Space identity variables to a bounded role taxonomy so the 
 without repeating the audit.
 
 **Status: historical audit, partially implemented.** The semantic resolver and
-Customize Space shipped; [Space customization](../space-customization.md) is the
+Customize Space shipped; [Space customization](../work-folder-customization.md) is the
 current contract. The paths, line numbers, counts, and legacy `workspace-*`
 names below describe the audited revision, not today's source. Re-audit live
 consumers before continuing the remaining role migration. Read
@@ -411,7 +411,7 @@ surface, not an authenticated caller boundary. A read-only `workspace appearance
 active identity, resolved role values, audit results, schema version — fits v1 and is useful for
 verification. **Applying or importing a theme is a mutation and must not go through v1.** It requires
 the separately versioned authenticated transport, with authorization, replay protection, explicit
-scope, and durable receipts, as recorded in [the management layer](../management-layer.md).
+scope, and durable receipts, as recorded in [the management layer](../work-fold-agent-and-cli.md).
 
 Product rails this inventory assumes and does not change: appearance stays machine-local application
 state and is not written into `.workspace/` (see [product model](../product-model.md); the `space.json`

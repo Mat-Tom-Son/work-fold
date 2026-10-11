@@ -614,7 +614,7 @@ test("production loopback transport accepts bodyless responses and rejects respo
   }
 });
 
-test("reviewed request headers cannot carry routing, hop-by-hop, or credential names", async () => {
+test("reviewed request headers cannot carry automation, hop-by-hop, or credential names", async () => {
   for (const header of [
     "authorization", "host", "cookie", "content-length", "transfer-encoding",
     "forwarded", "x-forwarded-for", "x-forwarded-port", "proxy-connection",

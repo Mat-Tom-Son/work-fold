@@ -3,7 +3,7 @@ import test, { type TestContext } from "node:test";
 import { createRequire, registerHooks } from "node:module";
 import { createElement } from "react";
 import { createDomHarness } from "./support/dom.js";
-import type { ChatMessage, ChatStreamEvent, LocalEventStream, SpaceSummary } from "../web-local/src/types.js";
+import type { ChatMessage, ChatStreamEvent, LocalEventStream, WorkFolderSummary } from "../web-local/src/types.js";
 
 const userMessage: ChatMessage = { id: "request", role: "user", content: "Update the notes", createdAt: "2026-09-27T12:00:00Z" };
 
@@ -12,7 +12,7 @@ async function chatHarness(t: TestContext, readTranscript = async () => ({ messa
   const realApi = await import("../web-local/src/lib/api.js");
   const streams = new Map<string, LocalEventStream>();
   const api = async (path: string, options: { body?: unknown } = {}) => {
-    if (path === "/api/spaces/folder/conversations") return { conversations: [{ id: "chat", title: "Notes", updatedAt: "2026-09-27T12:00:00Z" }] };
+    if (path === "/api/work-folders/folder/conversations") return { conversations: [{ id: "chat", title: "Notes", updatedAt: "2026-09-27T12:00:00Z" }] };
     if (path.endsWith("/conversations/chat")) return readTranscript();
     if (path.endsWith("/conversations/chat/messages")) {
       const body = options.body as { userMessageId: string; requestId: string; content: string };
@@ -50,10 +50,10 @@ async function chatHarness(t: TestContext, readTranscript = async () => ({ messa
   HTMLElement.prototype.scrollIntoView = () => {};
   HTMLElement.prototype.scrollTo = () => {};
   const { ChatPanel } = await import("../web-local/src/components/chat/ChatPanel.js");
-  await dom.render(createElement(ChatPanel, { surfaceTabId: "chat-tab", space: { id: "folder", name: "Notes", spaceRoot: "/folder" } as SpaceSummary,
-    spaceCustomizations: {}, targetConversationId: "chat", contextPathRequest: null, selectedPath: null, onAgentFinished() {} }));
-  await dom.waitFor(() => streams.has("/api/spaces/folder/conversations/chat/events"));
-  const stream = streams.get("/api/spaces/folder/conversations/chat/events")!;
+  await dom.render(createElement(ChatPanel, { surfaceTabId: "chat-tab", workFolder: { id: "folder", name: "Notes", workFolderRoot: "/folder" } as WorkFolderSummary,
+    workFolderCustomizations: {}, targetConversationId: "chat", contextPathRequest: null, selectedPath: null, onAgentFinished() {} }));
+  await dom.waitFor(() => streams.has("/api/work-folders/folder/conversations/chat/events"));
+  const stream = streams.get("/api/work-folders/folder/conversations/chat/events")!;
   const emit = async (value: Omit<ChatStreamEvent, "conversationId">) => { await dom.act(async () => { stream.onmessage?.({ data: JSON.stringify({ conversationId: "chat", ...value }) }); await Promise.resolve(); }); await dom.settle(); };
   return { dom, stream, emit };
 }
@@ -112,14 +112,14 @@ test("a failed settlement read preserves the reply and steps, ends running state
   assert.equal(dom.container.querySelector(".streaming > .message-body")?.textContent, "Ready.");
   assert.equal(dom.container.querySelectorAll(".work-step.tool").length, 1, "live steps survive a failed read");
   assert.equal(dom.container.querySelector(".work-steps.running"), null);
-  assert.equal(dom.container.querySelector('[aria-label="Stop Assistant"]'), null, "a settled Worker is no longer running");
+  assert.equal(dom.container.querySelector('[aria-label="Stop Worker"]'), null, "a settled Worker is no longer running");
   assert.match(dom.container.textContent!, /still reconnecting/);
   await dom.waitFor(() => recoveryStarted);
   await dom.act(() => { resolveRecovery({ messages: [userMessage, savedReply("Ready.")] }); });
   await dom.waitFor(() => dom.container.querySelector(".streaming") === null);
   assert.equal([...dom.container.querySelectorAll(".message-body")].filter((item) => item.textContent === "Ready.").length, 1);
   assert.equal(dom.container.querySelectorAll(".work-step.tool").length, 1, "the saved trail replaces the live trail");
-  assert.equal(dom.container.querySelector('[aria-label="Stop Assistant"]'), null);
+  assert.equal(dom.container.querySelector('[aria-label="Stop Worker"]'), null);
   assert.doesNotMatch(dom.container.textContent!, /still reconnecting/);
 });
 
@@ -145,7 +145,7 @@ for (const recoveryOutcome of ["resolved", "rejected"] as const) {
     });
     await dom.settle();
     assert.equal(dom.container.querySelector(".streaming > .message-body")?.textContent, "New reply.");
-    assert.ok(dom.container.querySelector('[aria-label="Stop Assistant"]'), "the newer turn remains running");
+    assert.ok(dom.container.querySelector('[aria-label="Stop Worker"]'), "the newer turn remains running");
     assert.doesNotMatch(dom.container.textContent!, /Old reply\.|stale recovery|still reconnecting/);
   });
 }
@@ -173,10 +173,10 @@ test("sending the next message fences a pending recovery before its turn snapsho
     await Promise.resolve();
     await Promise.resolve();
   });
-  await dom.waitFor(() => Boolean(dom.container.querySelector('[aria-label="Stop Assistant"]')));
+  await dom.waitFor(() => Boolean(dom.container.querySelector('[aria-label="Stop Worker"]')));
   await dom.act(() => { resolveRecovery({ messages: [userMessage, savedReply("Old reply.")] }); });
   await dom.settle();
-  assert.ok(dom.container.querySelector('[aria-label="Stop Assistant"]'));
+  assert.ok(dom.container.querySelector('[aria-label="Stop Worker"]'));
   assert.match(dom.container.textContent!, /New request/);
   assert.doesNotMatch(dom.container.textContent!, /Old reply\.|still reconnecting/);
 });

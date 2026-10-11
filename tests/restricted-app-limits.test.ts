@@ -11,7 +11,7 @@ import {
 } from "../src/local/agent/restricted-app-limits.js";
 import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-inference.js";
 import { restrictedAppAssistantLimits, restrictedAppSubscriptionLimits } from "../src/shared/restricted-app-tasks.js";
-import { workFoldRequestLimits } from "../src/shared/fold-limits.js";
+import { workFoldRequestLimits } from "../src/shared/work-fold-limits.js";
 import { RestrictedAppNetworkBroker, restrictedAppNetworkDefaultLimits } from "../src/local/agent/restricted-app-connections.js";
 import { RestrictedAppFileBroker, restrictedAppFileDefaultLimits } from "../src/local/agent/restricted-app-files.js";
 import { restrictedAppStorageLimits } from "../src/local/agent/restricted-app-storage.js";
@@ -234,6 +234,6 @@ test("bridge envelopes preserve every request allowed by the published byte limi
   });
   assert.ok(
     Buffer.byteLength(assistantEnvelope) <= restrictedAppAssistantEnvelopeBytes,
-    "JSON escaping must not make an allowed Assistant request input fail in the preload",
+    "JSON escaping must not make an allowed Worker request input fail in the preload",
   );
 });

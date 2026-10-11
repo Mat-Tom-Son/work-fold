@@ -48,11 +48,11 @@ async function mount(t: Parameters<Parameters<typeof test>[1]>[0], models = cata
     const [value, setValue] = useState(groupByProvider ? modelCatalogKey(models[0]!) : models[0]!.id);
     return createElement("form", { onSubmit: (event: { preventDefault: () => void }) => { event.preventDefault(); submits += 1; } },
       createElement("span", { id: "model-label" }, "Model"),
-      createElement(ModelCatalogList, { id: "assistant-model", labelledBy: "model-label", models, value, groupByProvider, onChange: (next: string) => { chosen.push(next); setValue(next); } }),
+      createElement(ModelCatalogList, { id: "ai-model", labelledBy: "model-label", models, value, groupByProvider, onChange: (next: string) => { chosen.push(next); setValue(next); } }),
       createElement("button", { type: "submit" }, "Save"));
   }
   await dom.render(createElement(Screen));
-  const trigger = () => document.getElementById("assistant-model") as HTMLButtonElement;
+  const trigger = () => document.getElementById("ai-model") as HTMLButtonElement;
   const options = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'));
   return { dom, chosen, trigger, options, submits: () => submits };
 }

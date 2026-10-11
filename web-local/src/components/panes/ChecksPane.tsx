@@ -13,7 +13,7 @@ import type {
   ChecksOverview,
   ChecksStatus,
   ChecksTaskStatus,
-  SpaceSummary,
+  WorkFolderSummary,
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
 
@@ -50,17 +50,17 @@ export function ChecksToolbarButton({
 }
 
 export function ChecksPane({
-  space,
+  workFolder,
   active,
   onOpenFile,
   onChecksChanged,
-  onAskAssistant,
+  onAskWorker,
 }: {
-  space: SpaceSummary;
+  workFolder: WorkFolderSummary;
   active: boolean;
   onOpenFile: (path: string) => void;
   onChecksChanged: () => void | Promise<void>;
-  onAskAssistant?: (text: string) => void;
+  onAskWorker?: (text: string) => void;
 }) {
   const [correctionReview, setCorrectionReview] = useState<{ correction: CheckCorrectionRecord; before: string } | null>(null);
   const [correctionBusy, setCorrectionBusy] = useState(false);
@@ -80,8 +80,8 @@ export function ChecksPane({
   const overviewFlightRef = useRef<Promise<void> | null>(null);
   const onChecksChangedRef = useRef(onChecksChanged);
   const mutationRef = useRef<"run" | "abort" | `finding:${string}` | null>(null);
-  const spaceId = space.id;
-  const spaceIdRef = useRef(spaceId);
+  const workFolderId = workFolder.id;
+  const workFolderIdRef = useRef(workFolderId);
 
   useEffect(() => {
     onChecksChangedRef.current = onChecksChanged;
@@ -94,7 +94,7 @@ export function ChecksPane({
     else setLoading(true);
     const operation = (async () => {
       try {
-        const response = await readCheckOverview(spaceId, () => request === requestRef.current);
+        const response = await readCheckOverview(workFolderId, () => request === requestRef.current);
         if (request !== requestRef.current) return;
         setOverview(response.overview);
         setOverviewUnavailable(false);
@@ -116,11 +116,11 @@ export function ChecksPane({
     });
     overviewFlightRef.current = operation;
     return operation;
-  }, [spaceId]);
+  }, [workFolderId]);
 
   useEffect(() => {
-    if (spaceIdRef.current === spaceId) return;
-    spaceIdRef.current = spaceId;
+    if (workFolderIdRef.current === workFolderId) return;
+    workFolderIdRef.current = workFolderId;
     requestRef.current += 1;
     overviewFlightRef.current = null;
     setOverview(null);
@@ -135,11 +135,11 @@ export function ChecksPane({
     setError(null);
     setOverviewUnavailable(false);
     setLoading(true);
-  }, [spaceId]);
+  }, [workFolderId]);
 
   useEffect(() => {
     if (active) void loadOverview();
-  }, [active, spaceId]);
+  }, [active, workFolderId]);
 
   useEffect(() => {
     if (!active) return;
@@ -162,11 +162,11 @@ export function ChecksPane({
     const poll = async () => {
       try {
         const response = await api<{ task: ChecksTaskStatus }>(
-          `/api/spaces/${encodeURIComponent(spaceId)}/checks/tasks/${encodeURIComponent(task.taskId)}`,
+          `/api/work-folders/${encodeURIComponent(workFolderId)}/checks/tasks/${encodeURIComponent(task.taskId)}`,
         );
         if (cancelled) return;
         if (!isPendingTask(response.task) && trialTaskRef.current === response.task.taskId) {
-          const result = await api<{ run: WorkFoldCheckRunRecord }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/tasks/${encodeURIComponent(response.task.taskId)}/result`);
+          const result = await api<{ run: WorkFoldCheckRunRecord }>(`/api/work-folders/${encodeURIComponent(workFolderId)}/checks/tasks/${encodeURIComponent(response.task.taskId)}/result`);
           if (cancelled) return;
           setTrialResult(result.run);
         }
@@ -189,7 +189,7 @@ export function ChecksPane({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [loadOverview, task, spaceId]);
+  }, [loadOverview, task, workFolderId]);
 
   useEffect(() => {
     if (!active || (task && isPendingTask(task)) || !overview?.status.running) return;
@@ -202,35 +202,35 @@ export function ChecksPane({
     [overview?.checks],
   );
 
-  async function askFold(check?: ChecksOverview["checks"][number]) {
+  async function askWorkFoldAgent(check?: ChecksOverview["checks"][number]) {
     const draft = check
-      ? `Help me change ${JSON.stringify(check.title)} in work-folder ${JSON.stringify(space.name)} (${spaceId}). Keep the current Check unchanged while we review a new proposal. Check reference: ${check.id}.`
-      : `Help me set up a Check in work-folder ${JSON.stringify(space.name)} (${spaceId}).`;
+      ? `Help me change ${JSON.stringify(check.title)} in work-folder ${JSON.stringify(workFolder.name)} (${workFolderId}). Keep the current Check unchanged while we review a new proposal. Check reference: ${check.id}.`
+      : `Help me set up a Check in work-folder ${JSON.stringify(workFolder.name)} (${workFolderId}).`;
     try {
-      if (!window.workFoldDesktop?.agent?.openFoldDraft) throw new Error("Open the work-fold agent in the desktop app and ask it to set up a Check for this work-folder.");
-      await window.workFoldDesktop.agent.openFoldDraft(draft);
+      if (!window.workFoldDesktop?.agent?.openWorkFoldAgentDraft) throw new Error("Open the work-fold agent in the desktop app and ask it to set up a Check for this work-folder.");
+      await window.workFoldDesktop.agent.openWorkFoldAgentDraft(draft);
     } catch (caught) { setError(errorText(caught)); }
   }
 
   async function tryCheck(check: ChecksOverview["checks"][number]) {
     if (mutationRef.current) return;
-    if (!await requestConfirm({ title: `Try ${check.title}?`, body: `Run once over the displayed files${check.execution === "model" ? " using the fold’s model. Designated text is sent to your provider and charges may apply" : ""}. This trial does not turn on the Check or replace its live results.`, confirmLabel: "Try it" })) return;
+    if (!await requestConfirm({ title: `Try ${check.title}?`, body: `Run once over the displayed files${check.execution === "model" ? " using the work-fold agent’s model. Designated text is sent to your provider and charges may apply" : ""}. This trial does not turn on the Check or replace its live results.`, confirmLabel: "Try it" })) return;
     mutationRef.current = "run";
     setRunSubmitting(true); setTrialResult(null); setError(null);
     try {
-      const { task: accepted } = await api<{ task: { taskId: string; runId: string } }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/${encodeURIComponent(check.id)}/try`, { method: "POST", body: { expectedDigest: check.digest } });
+      const { task: accepted } = await api<{ task: { taskId: string; runId: string } }>(`/api/work-folders/${encodeURIComponent(workFolderId)}/checks/${encodeURIComponent(check.id)}/try`, { method: "POST", body: { expectedDigest: check.digest } });
       trialTaskRef.current = accepted.taskId;
       setTask({ ...accepted, state: "accepted", startedAt: new Date().toISOString(), endedAt: null, error: null });
     } catch (caught) { setError(errorText(caught)); }
     finally { mutationRef.current = null; setRunSubmitting(false); }
   }
 
-  async function askAssistant(finding: ChecksFinding) {
-    if (!onAskAssistant || mutationRef.current) return;
+  async function askWorker(finding: ChecksFinding) {
+    if (!onAskWorker || mutationRef.current) return;
     mutationRef.current = `finding:${finding.id}`; setFindingBusy(finding.id);
     try {
-      const { draft } = await api<{ draft: string }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/findings/${encodeURIComponent(finding.id)}/help`, { method: "POST", body: { fingerprint: finding.fingerprint } });
-      onAskAssistant(draft);
+      const { draft } = await api<{ draft: string }>(`/api/work-folders/${encodeURIComponent(workFolderId)}/checks/findings/${encodeURIComponent(finding.id)}/help`, { method: "POST", body: { fingerprint: finding.fingerprint } });
+      onAskWorker(draft);
     } catch (caught) { setError(errorText(caught)); await loadOverview(true); }
     finally { mutationRef.current = null; setFindingBusy(null); }
   }
@@ -239,7 +239,7 @@ export function ChecksPane({
     if (mutationRef.current) return;
     mutationRef.current = "run"; setCorrectionBusy(true); setError(null);
     try {
-      const result = await api<{ correction: CheckCorrectionRecord; before: string; task?: { taskId: string; runId: string }; rerunError?: string }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/corrections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: {} });
+      const result = await api<{ correction: CheckCorrectionRecord; before: string; task?: { taskId: string; runId: string }; rerunError?: string }>(`/api/work-folders/${encodeURIComponent(workFolderId)}/checks/corrections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: {} });
       if (action === "review") setCorrectionReview(result);
       else {
         setCorrectionReview(null);
@@ -254,10 +254,10 @@ export function ChecksPane({
   async function toggleCheck(check: ChecksOverview["checks"][number]): Promise<void> {
     if (mutationRef.current) return;
     const enabled = check.authority === "enabled";
-    if (!enabled && !await requestConfirm({ title: `Enable ${check.title}?`, body: `Allow this Check to inspect the displayed targets when requested${check.execution === "model" ? ", using the fold’s model and displayed criteria. Provider charges may apply" : ""}. Enabling does not start a run.`, confirmLabel: "Enable Check" })) return;
+    if (!enabled && !await requestConfirm({ title: `Enable ${check.title}?`, body: `Allow this Check to inspect the displayed targets when requested${check.execution === "model" ? ", using the work-fold agent’s model and displayed criteria. Provider charges may apply" : ""}. Enabling does not start a run.`, confirmLabel: "Enable Check" })) return;
     mutationRef.current = "run";
     try {
-      await api(`/api/spaces/${encodeURIComponent(spaceId)}/checks/${encodeURIComponent(check.id)}/${enabled ? "disable" : "enable"}`, { method: "POST", body: enabled ? {} : { expectedDigest: check.digest } });
+      await api(`/api/work-folders/${encodeURIComponent(workFolderId)}/checks/${encodeURIComponent(check.id)}/${enabled ? "disable" : "enable"}`, { method: "POST", body: enabled ? {} : { expectedDigest: check.digest } });
       await loadOverview(true);
     } catch (caught) { setError(errorText(caught)); }
     finally { mutationRef.current = null; }
@@ -272,7 +272,7 @@ export function ChecksPane({
     setError(null);
     try {
       const response = await api<{ task: { taskId: string; runId: string; checkIds: string[] } }>(
-        `/api/spaces/${encodeURIComponent(spaceId)}/checks/run`,
+        `/api/work-folders/${encodeURIComponent(workFolderId)}/checks/run`,
         { method: "POST", body: {} },
       );
       setTask({
@@ -296,7 +296,7 @@ export function ChecksPane({
     mutationRef.current = "abort";
     setAbortSubmitting(true);
     try {
-      const response = await api<{ aborted: boolean }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/tasks/${encodeURIComponent(task.taskId)}/abort`, {
+      const response = await api<{ aborted: boolean }>(`/api/work-folders/${encodeURIComponent(workFolderId)}/checks/tasks/${encodeURIComponent(task.taskId)}/abort`, {
         method: "POST",
         body: {},
       });
@@ -329,7 +329,7 @@ export function ChecksPane({
       const deferUntil = decision === "defer"
         ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         : undefined;
-      await api(`/api/spaces/${encodeURIComponent(spaceId)}/checks/findings/${encodeURIComponent(finding.id)}/decision`, {
+      await api(`/api/work-folders/${encodeURIComponent(workFolderId)}/checks/findings/${encodeURIComponent(finding.id)}/decision`, {
         method: "POST",
         body: { decision, ...(deferUntil ? { deferUntil } : {}) },
       });
@@ -357,13 +357,13 @@ export function ChecksPane({
   const taskPending = Boolean(task && isPendingTask(task));
   const running = runSubmitting || taskPending || Boolean(status?.running);
   return (
-    <div className="space-pane-content checks-pane professional-surface">
+    <div className="work-folder-pane-content checks-pane professional-surface">
       <header className="checks-header">
         <div>
           <h1>Checks</h1>
         </div>
         <div className="checks-header-actions">
-          <button type="button" className="ui-control" disabled={running} onClick={() => void askFold()}>Tell the work-fold agent what to check</button>
+          <button type="button" className="ui-control" disabled={running} onClick={() => void askWorkFoldAgent()}>Tell the work-fold agent what to check</button>
           <button type="button" className="checks-manual-button" disabled={running} onClick={() => setConfiguring(!configuring)}>Set up manually</button>
           {status?.lastRunAt ? <span className="checks-last-run">Last run {formatTimeAgo(status.lastRunAt)}</span> : null}
           {runSubmitting ? (
@@ -386,7 +386,7 @@ export function ChecksPane({
         </div>
       </header>
 
-      {configuring ? <CheckSetup spaceId={spaceId} onCancel={() => setConfiguring(false)} onSaved={async () => { setConfiguring(false); await loadOverview(true); }} /> : null}
+      {configuring ? <CheckSetup workFolderId={workFolderId} onCancel={() => setConfiguring(false)} onSaved={async () => { setConfiguring(false); await loadOverview(true); }} /> : null}
       {error ? <div className="checks-health-message error" role="alert"><AlertCircle size={15} /><span>{error}</span><button type="button" onClick={() => void loadOverview(true)}>Try Again</button></div> : null}
       {running ? <div className="checks-running" aria-live="polite"><Loader2 className="spin" size={15} /><span>Checking only the designated files…</span></div> : null}
       {overviewUnavailable
@@ -400,7 +400,7 @@ export function ChecksPane({
           {item.state === "pending" ? <div className="checks-header-actions"><button type="button" disabled={running || correctionBusy} onClick={() => void correctionAction(item.id, "review")}>Review correction</button><button type="button" disabled={correctionBusy} onClick={() => void correctionAction(item.id, "dismiss")}>Dismiss</button></div> : null}
         </article>)}
         {correctionReview ? <div className="checks-correction-review" aria-label="Review correction">
-          <h3>{correctionReview.correction.proposal.path}</h3><p>Apply saves the original in History and rechecks with the fold’s model. Provider charges may apply.</p>
+          <h3>{correctionReview.correction.proposal.path}</h3><p>Apply saves the original in History and rechecks with the work-fold agent’s model. Provider charges may apply.</p>
           <CorrectionDiff before={correctionReview.before} after={correctionReview.correction.proposal.replacement} />
           <button type="button" className="ui-control ui-control--primary" disabled={correctionBusy || running} onClick={() => void correctionAction(correctionReview.correction.id, "apply")}>Apply and recheck</button>
           <button type="button" disabled={correctionBusy} onClick={() => setCorrectionReview(null)}>Close review</button>
@@ -413,9 +413,9 @@ export function ChecksPane({
         {trialResult.findings.map((finding) => <article key={finding.id}><strong>{finding.title}</strong><p>{finding.targetPath}</p>{finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}>{evidence.quote}</blockquote> : null)}<p>{finding.detail}</p></article>)}
       </section> : null}
 
-      {Boolean(overview?.findings.length || running || overviewUnavailable) ? <section className="checks-section" aria-labelledby={`checks-findings-${spaceId}`}>
+      {Boolean(overview?.findings.length || running || overviewUnavailable) ? <section className="checks-section" aria-labelledby={`checks-findings-${workFolderId}`}>
         <div className="checks-section-heading">
-          <div><h2 id={`checks-findings-${spaceId}`}>Needs Attention</h2></div>
+          <div><h2 id={`checks-findings-${workFolderId}`}>Needs Attention</h2></div>
           {!overviewUnavailable && overview?.findings.length ? <span>{overview.findings.length}</span> : null}
         </div>
         {overviewUnavailable ? (
@@ -440,7 +440,7 @@ export function ChecksPane({
                     {finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}><p>{evidence.quote}</p></blockquote> : null)}
                     {finding.detail ? <p>{finding.detail}</p> : null}
                     {finding.remediation ? <p className="checks-remediation">{finding.remediation}</p> : null}
-                    {onAskAssistant ? <button type="button" className="ui-control" disabled={findingBusy !== null || running} onClick={() => void askAssistant(finding)}>Ask Space Assistant to help</button> : null}
+                    {onAskWorker ? <button type="button" className="ui-control" disabled={findingBusy !== null || running} onClick={() => void askWorker(finding)}>Ask the Worker to help</button> : null}
                     <div className="checks-finding-actions" role="group" aria-label={`Decisions for ${finding.title}`}>
                       <button type="button" aria-label={`Mark ${finding.title} resolved`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "resolve")}><Check size={13} />Mark resolved</button>
                       <button type="button" aria-label={`Defer ${finding.title} until tomorrow`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "defer")}><Clock3 size={13} />Tomorrow</button>
@@ -452,18 +452,18 @@ export function ChecksPane({
             })}
           </div>
         ) : running ? <p>Results will appear when this review finishes.</p> : <ChecksEmptyFindings overview={overview} />}
-        {!overviewUnavailable && overview?.truncated ? <p className="checks-truncated">More current findings exist. Narrow the Check or review them with the management CLI.</p> : null}
+        {!overviewUnavailable && overview?.truncated ? <p className="checks-truncated">More current findings exist. Narrow the Check or review them with the work-fold CLI.</p> : null}
       </section> : null}
 
       {!overviewUnavailable && overview?.healthErrors.length ? (
-        <section className="checks-section checks-health" aria-labelledby={`checks-health-${spaceId}`}>
-          <div className="checks-section-heading"><div><h2 id={`checks-health-${spaceId}`}>Check Health</h2></div></div>
+        <section className="checks-section checks-health" aria-labelledby={`checks-health-${workFolderId}`}>
+          <div className="checks-section-heading"><div><h2 id={`checks-health-${workFolderId}`}>Check Health</h2></div></div>
           <ul>{overview.healthErrors.map((message, index) => <li key={`${message}-${index}`}>{message}</li>)}</ul>
         </section>
       ) : null}
 
-      <section className="checks-section" aria-labelledby={`checks-expectations-${spaceId}`}>
-        <div className="checks-section-heading"><div><h2 id={`checks-expectations-${spaceId}`}>Your Checks</h2></div></div>
+      <section className="checks-section" aria-labelledby={`checks-expectations-${workFolderId}`}>
+        <div className="checks-section-heading"><div><h2 id={`checks-expectations-${workFolderId}`}>Your Checks</h2></div></div>
         {overviewUnavailable ? (
           <div className="checks-empty-config"><strong>Could not refresh Check configuration.</strong></div>
         ) : overview?.checks.length ? (
@@ -472,10 +472,10 @@ export function ChecksPane({
               <div className="checks-definition" key={check.id}>
                 <details open={check.authority !== "enabled"}><summary className="checks-definition-main"><strong>{check.title}</strong><span className={`checks-authority ${check.authority}`}>{authorityLabel(check.authority)}</span></summary>
                 {check.criteria ? <p>{check.criteria}</p> : null}
-                {check.execution === "model" ? <p>Text review · fold model · suggestions only</p> : null}
+                {check.execution === "model" ? <p>Text review · work-fold agent model · suggestions only</p> : null}
                 <button type="button" className="ui-control" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Turn Off" : "Turn On"}</button>
                 <button type="button" className="ui-control" disabled={running || !check.digest} onClick={() => void tryCheck(check)}>Try it</button>
-                <button type="button" className="ui-control" disabled={running} onClick={() => void askFold(check)}>Change with fold</button>
+                <button type="button" className="ui-control" disabled={running} onClick={() => void askWorkFoldAgent(check)}>Change with work-fold agent</button>
                 <div className="checks-target-list">
                   {check.targets.map((target, index) => (
                     <span key={`${target.role}:${target.path}:${index}`}>
@@ -565,10 +565,10 @@ function CorrectionDiff({ before, after }: { before: string; after: string }) {
 
 /** Files status and this work tab may refresh on the same focus event. Retry
  * only their brief read reservation conflict; never retry a Check or mutation. */
-async function readCheckOverview(spaceId: string, current: () => boolean): Promise<{ overview: ChecksOverview }> {
+async function readCheckOverview(workFolderId: string, current: () => boolean): Promise<{ overview: ChecksOverview }> {
   for (let attempt = 0; ; attempt++) {
     if (!current()) throw new Error("Check refresh superseded.");
-    try { return await api<{ overview: ChecksOverview }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/overview`, { method: "POST", body: {} }); }
+    try { return await api<{ overview: ChecksOverview }>(`/api/work-folders/${encodeURIComponent(workFolderId)}/checks/overview`, { method: "POST", body: {} }); }
     catch (caught) {
       if (!(caught instanceof ApiError) || caught.status !== 409 || attempt >= 3) throw caught;
       await new Promise<void>((resolve) => window.setTimeout(resolve, 80 * (2 ** attempt)));

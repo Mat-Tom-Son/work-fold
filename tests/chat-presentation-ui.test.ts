@@ -85,8 +85,8 @@ test("saved rows expose captured edit text safely, and Copy retains progress plu
   const copies: string[] = [];
   const opened: string[] = [];
   await dom.render(createElement(ChatMessageRow, { message, copied: false, showLanding: true, suppressEnterAnimation: true,
-    showRuntimePreview: false, runtimePreviews: [], spaceId: "folder", spaceRoot: "/folder", onCopyMessage: (_id, value) => { copies.push(value); },
-    onOpenSpaceFile: (path) => { opened.push(path); }, resolveSpacePathLinks: async () => new Map([["notes.txt", "notes.txt"]]) }));
+    showRuntimePreview: false, runtimePreviews: [], workFolderId: "folder", workFolderRoot: "/folder", onCopyMessage: (_id, value) => { copies.push(value); },
+    onOpenWorkFolderFile: (path) => { opened.push(path); }, resolveWorkFolderPathLinks: async () => new Map([["notes.txt", "notes.txt"]]) }));
   assert.equal(dom.container.querySelector(".message-surface > .message-body")?.textContent, "The notes are ready.");
   const summary = dom.container.querySelector<HTMLButtonElement>(".work-steps-summary")!;
   await dom.act(() => summary.click()); assert.equal(summary.getAttribute("aria-expanded"), "true");
@@ -95,8 +95,8 @@ test("saved rows expose captured edit text safely, and Copy retains progress plu
   assert.match(details.textContent!, /preview is incomplete/);
   assert.match(details.querySelector("pre")!.textContent!, /<script>old\(\)<\/script>/);
   assert.equal(dom.container.querySelector("script"), null);
-  await dom.act(() => dom.container.querySelector<HTMLButtonElement>(".work-step-progress .space-file-link")!.click());
-  assert.deepEqual(opened, ["notes.txt"], "progress keeps ordinary Folder file links");
+  await dom.act(() => dom.container.querySelector<HTMLButtonElement>(".work-step-progress .work-folder-file-link")!.click());
+  assert.deepEqual(opened, ["notes.txt"], "progress keeps ordinary work-folder file links");
   await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Copy message"]')!.click());
   assert.deepEqual(copies, [input.content]);
 });

@@ -13,7 +13,7 @@ const assets = registerHooks({
   },
 });
 
-const {HistoryPane}=await import('../web-local/src/components/panes/spacePanes.js');
+const {HistoryPane}=await import('../web-local/src/components/panes/workFolderPanes.js');
 assets.deregister();
 
 test('opening a History restore point completes under the exclusive host read fence', async t=>{
@@ -23,19 +23,19 @@ test('opening a History restore point completes under the exclusive host read fe
  globalThis.fetch=async(input,init)=>{
   assert.equal(init?.method??'GET','GET','inspection must never restore files');
   requests.push(String(input));
-  if(active){overlaps++;return Response.json({error:'Wait for the current History or Space registration operation to finish.'},{status:409});}
+  if(active){overlaps++;return Response.json({error:'Wait for the current History or work-folder registration operation to finish.'},{status:409});}
   active=true;
   try{
    await new Promise(r=>setTimeout(r,15));
-   return String(input).endsWith('/preview')?Response.json({preview:{checkpointId:'checkpoint-one',scope:'full',restoreFiles:['note.txt'],removePaths:[],moves:[],excludedPaths:[],uncoveredPaths:[],conflicts:[]}}):Response.json({checkpoints:[{checkpointId:'checkpoint-one',label:'After Assistant turn',createdAt:'2026-10-08T23:00:00Z',fileCount:1,reason:'post_turn'}]});
+   return String(input).endsWith('/preview')?Response.json({preview:{checkpointId:'checkpoint-one',scope:'full',restoreFiles:['note.txt'],removePaths:[],moves:[],excludedPaths:[],uncoveredPaths:[],conflicts:[]}}):Response.json({checkpoints:[{checkpointId:'checkpoint-one',label:'After turn',createdAt:'2026-10-08T23:00:00Z',fileCount:1,reason:'post_turn'}]});
   }finally{active=false;}
  };
- await dom.render(createElement(StrictMode,null,createElement(HistoryPane,{space:{id:'disposable',name:'Test folder'} as never,selectedCheckpointId:'checkpoint-one',onError(message){assert.fail(message??'History error');}})));
+ await dom.render(createElement(StrictMode,null,createElement(HistoryPane,{workFolder:{id:'disposable',name:'Test folder'} as never,selectedCheckpointId:'checkpoint-one',onError(message){assert.fail(message??'History error');}})));
  await dom.waitFor(()=>dom.container.textContent?.includes('Restore files · 1')===true);
  assert.equal(overlaps,0);
  assert.equal(requests.length,2);
  assert.equal(dom.container.querySelector('[role="alert"]'),null);
- assert.match(dom.container.querySelector('h1')!.textContent!,/After Assistant turn/);
+ assert.match(dom.container.querySelector('h1')!.textContent!,/After turn/);
  const restore=[...dom.container.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Restore these files');
  assert.ok(restore);assert.equal(restore.disabled,false);
 });

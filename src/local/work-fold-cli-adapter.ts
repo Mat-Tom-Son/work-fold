@@ -5,7 +5,7 @@ import {
   type WorkFoldCliCheckStatusSummary,
   type WorkFoldCliContextSnapshot,
   type WorkFoldCliKernel,
-  type WorkFoldCliSpaceSummary,
+  type WorkFoldCliWorkFolderSummary,
   type WorkFoldCliTaskSummary,
 } from "./cli/protocol.js";
 import {
@@ -16,17 +16,18 @@ import {
   WorkFoldContextRequiredError,
   type WorkFoldActor,
   type WorkFoldCapabilityScope,
-  type WorkFoldSpaceSnapshot,
+  type WorkFoldWorkFolderSnapshot,
   WorkFoldKernel,
 } from "./work-fold-kernel.js";
+import { workFoldAgentScopeId } from "./state-paths.js";
 
 interface WorkFoldCliOptions {
-  space?: string;
+  workFolder?: string;
 }
 
 export interface WorkFoldCliCheckStatusProviderInput {
-  spaceId: string;
-  spaceRoot: string;
+  workFolderId: string;
+  workFolderRoot: string;
 }
 
 export type WorkFoldCliCheckStatusProvider = (
@@ -52,41 +53,43 @@ export class WorkFoldCliKernelAdapter implements WorkFoldCliKernel {
     actor: WorkFoldCliActor,
     options: WorkFoldCliOptions,
   ): Promise<WorkFoldCliContextSnapshot> {
-    const selected = await this.#selectSpace(actor, options.space);
+    const selected = await this.#selectWorkFolder(actor, options.workFolder);
     const context = selected
       ? await this.kernel.getContext(scopedActor(actor, selected.id))
       : await this.kernel.getContext(actor);
 
     return {
       cwd: actor.cwd,
-      space: context.space ? summarizeSpace(context.space, true) : null,
+      workFolder: context.workFolder ? summarizeWorkFolder(context.workFolder, true) : null,
       selectedPath: null,
       activeSurface: null,
     };
   }
 
-  async listSpaces(
+  async listWorkFolders(
     actor: WorkFoldCliActor,
     options: WorkFoldCliOptions,
-  ): Promise<WorkFoldCliSpaceSummary[]> {
-    const snapshot = await this.kernel.getSpaces(actor);
-    const selected = resolveWorkFoldCliSpaceSelector(snapshot.spaces, options.space);
-    const activeId = selected?.id ?? (await this.kernel.getContext(actor)).space?.id;
-    const spaces = selected ? [selected] : snapshot.spaces;
-    return spaces.map((space) => summarizeSpace(space, space.id === activeId));
+  ): Promise<WorkFoldCliWorkFolderSummary[]> {
+    const snapshot = await this.kernel.getWorkFolders(actor);
+    const selected = resolveWorkFoldCliWorkFolderSelector(snapshot.workFolders, options.workFolder);
+    const activeId = selected?.id ?? (await this.kernel.getContext(actor)).workFolder?.id;
+    const workFolders = selected ? [selected] : snapshot.workFolders;
+    return workFolders.map((workFolder) => summarizeWorkFolder(workFolder, workFolder.id === activeId));
   }
 
   async listTasks(
     actor: WorkFoldCliActor,
     options: WorkFoldCliOptions,
   ): Promise<WorkFoldCliTaskSummary[]> {
-    const selected = await this.#selectSpace(actor, options.space);
+    const selected = await this.#selectWorkFolder(actor, options.workFolder);
     const snapshot = await this.kernel.getTasks(selected ? scopedActor(actor, selected.id) : actor);
     return snapshot.tasks.map((task) => ({
       id: task.id,
-      label: task.kind === "assistant_turn" ? "Assistant turn" : "Chat compaction",
+      label: task.kind !== "assistant_turn"
+        ? "Chat compaction"
+        : task.workFolderId === workFoldAgentScopeId ? "work-fold agent turn" : "Worker turn",
       status: task.status,
-      spaceId: task.spaceId,
+      workFolderId: task.workFolderId,
       updatedAt: task.startedAt,
     }));
   }
@@ -95,7 +98,7 @@ export class WorkFoldCliKernelAdapter implements WorkFoldCliKernel {
     actor: WorkFoldCliActor,
     options: WorkFoldCliOptions,
   ): Promise<WorkFoldCliCapabilitySummary[]> {
-    const selected = await this.#selectSpace(actor, options.space);
+    const selected = await this.#selectWorkFolder(actor, options.workFolder);
     try {
       const snapshot = await this.kernel.getCapabilities(selected ? scopedActor(actor, selected.id) : actor);
       const { catalog } = snapshot;
@@ -161,7 +164,7 @@ export class WorkFoldCliKernelAdapter implements WorkFoldCliKernel {
       if (error instanceof WorkFoldContextRequiredError) {
         throw new WorkFoldCliError(
           "notFound",
-          "No Space contains the current working directory. Select one with --space <id-or-name>.",
+          "No work-folder contains the current working directory. Select one with --work-folder <id-or-name>.",
           { cause: error },
         );
       }
@@ -173,22 +176,22 @@ export class WorkFoldCliKernelAdapter implements WorkFoldCliKernel {
     actor: WorkFoldCliActor,
     options: WorkFoldCliOptions,
   ): Promise<WorkFoldCliCheckStatusSummary> {
-    const selected = await this.#selectSpace(actor, options.space);
+    const selected = await this.#selectWorkFolder(actor, options.workFolder);
     const context = await this.kernel.getContext(selected ? scopedActor(actor, selected.id) : actor);
-    if (!context.space) {
+    if (!context.workFolder) {
       throw new WorkFoldCliError(
         "notFound",
-        "No Space contains the current working directory. Select one with --space <id-or-name>.",
+        "No work-folder contains the current working directory. Select one with --work-folder <id-or-name>.",
       );
     }
-    const unavailable = unavailableChecksStatus(context.space.id);
+    const unavailable = unavailableChecksStatus(context.workFolder.id);
     if (!this.#checksStatusProvider) return unavailable;
     try {
       const snapshot = await this.#checksStatusProvider({
-        spaceId: context.space.id,
-        spaceRoot: context.space.spaceRoot,
+        workFolderId: context.workFolder.id,
+        workFolderRoot: context.workFolder.workFolderRoot,
       });
-      return projectChecksStatus(snapshot, context.space.id) ?? unavailable;
+      return projectChecksStatus(snapshot, context.workFolder.id) ?? unavailable;
     } catch {
       // Provider failures may contain file paths or Check error details. The
       // read lane exposes only the fact that aggregate status is unavailable.
@@ -196,9 +199,9 @@ export class WorkFoldCliKernelAdapter implements WorkFoldCliKernel {
     }
   }
 
-  async #selectSpace(actor: WorkFoldCliActor, selector: string | undefined): Promise<WorkFoldSpaceSnapshot | undefined> {
+  async #selectWorkFolder(actor: WorkFoldCliActor, selector: string | undefined): Promise<WorkFoldWorkFolderSnapshot | undefined> {
     if (selector === undefined) return undefined;
-    return resolveWorkFoldCliSpaceSelector((await this.kernel.getSpaces(actor)).spaces, selector);
+    return resolveWorkFoldCliWorkFolderSelector((await this.kernel.getWorkFolders(actor)).workFolders, selector);
   }
 }
 
@@ -211,9 +214,9 @@ const checkStates = new Set([
   "check-error",
 ]);
 
-function projectChecksStatus(snapshot: WorkFoldCheckStatusSnapshot, spaceId: string): WorkFoldCliCheckStatusSummary | null {
+function projectChecksStatus(snapshot: WorkFoldCheckStatusSnapshot, workFolderId: string): WorkFoldCliCheckStatusSummary | null {
   if (!snapshot || snapshot.kind !== "work-fold.checks.experimental" || snapshot.version !== workFoldCheckExperimentalSnapshotVersion) return null;
-  if (snapshot.spaceId !== spaceId || !checkStates.has(snapshot.state)) return null;
+  if (snapshot.workFolderId !== workFolderId || !checkStates.has(snapshot.state)) return null;
   const counts = [
     snapshot.configured,
     snapshot.proposed,
@@ -234,7 +237,7 @@ function projectChecksStatus(snapshot: WorkFoldCheckStatusSnapshot, spaceId: str
     kind: "work-fold.checks.experimental",
     version: workFoldCheckExperimentalSnapshotVersion,
     available: true,
-    spaceId,
+    workFolderId,
     state: snapshot.state,
     configured: snapshot.configured,
     proposed: snapshot.proposed,
@@ -250,12 +253,12 @@ function projectChecksStatus(snapshot: WorkFoldCheckStatusSnapshot, spaceId: str
   };
 }
 
-function unavailableChecksStatus(spaceId: string): WorkFoldCliCheckStatusSummary {
+function unavailableChecksStatus(workFolderId: string): WorkFoldCliCheckStatusSummary {
   return {
     kind: "work-fold.checks.experimental",
     version: workFoldCheckExperimentalSnapshotVersion,
     available: false,
-    spaceId,
+    workFolderId,
     state: "unavailable",
     configured: 0,
     proposed: 0,
@@ -272,48 +275,48 @@ function unavailableChecksStatus(spaceId: string): WorkFoldCliCheckStatusSummary
 }
 
 /**
- * Shared "--space <id-or-exact-name>" selection: an id match wins, a unique
+ * Shared "--work-folder <id-or-exact-name>" selection: an id match wins, a unique
  * case-folded name match is accepted, and duplicates are rejected as
  * ambiguous. The act facade reuses this so both CLI lanes select identically.
  */
-export function resolveWorkFoldCliSpaceSelector<T extends { id: string; name: string }>(
-  spaces: T[],
+export function resolveWorkFoldCliWorkFolderSelector<T extends { id: string; name: string }>(
+  workFolders: T[],
   selector: string | undefined,
 ): T | undefined {
   if (selector === undefined) return undefined;
   const normalized = selector.trim();
-  const idMatch = spaces.find((space) => space.id === normalized);
+  const idMatch = workFolders.find((workFolder) => workFolder.id === normalized);
   if (idMatch) return idMatch;
 
   const folded = normalized.toLocaleLowerCase("en-US");
-  const nameMatches = spaces.filter((space) => space.name.toLocaleLowerCase("en-US") === folded);
+  const nameMatches = workFolders.filter((workFolder) => workFolder.name.toLocaleLowerCase("en-US") === folded);
   if (nameMatches.length === 1) return nameMatches[0];
   if (nameMatches.length > 1) {
     throw new WorkFoldCliError(
       "conflict",
-      `Space name is ambiguous: ${normalized || "(empty)"}. Use an exact Space id.`,
+      `work-folder name is ambiguous: ${normalized || "(empty)"}. Use an exact work-folder id.`,
     );
   }
-  throw new WorkFoldCliError("notFound", `Space not found: ${normalized || "(empty)"}.`);
+  throw new WorkFoldCliError("notFound", `work-folder not found: ${normalized || "(empty)"}.`);
 }
 
-function scopedActor(actor: WorkFoldCliActor, spaceId: string): WorkFoldActor {
-  return { ...actor, spaceId };
+function scopedActor(actor: WorkFoldCliActor, workFolderId: string): WorkFoldActor {
+  return { ...actor, workFolderId };
 }
 
-function summarizeSpace(space: WorkFoldSpaceSnapshot, active: boolean): WorkFoldCliSpaceSummary {
+function summarizeWorkFolder(workFolder: WorkFoldWorkFolderSnapshot, active: boolean): WorkFoldCliWorkFolderSummary {
   return {
-    id: space.id,
-    name: space.name,
-    spaceRoot: space.spaceRoot,
+    id: workFolder.id,
+    name: workFolder.name,
+    workFolderRoot: workFolder.workFolderRoot,
     active,
-    ...(space.parentSpaceId ? { parentSpaceId: space.parentSpaceId } : {}),
+    ...(workFolder.parentWorkFolderId ? { parentWorkFolderId: workFolder.parentWorkFolderId } : {}),
   };
 }
 
 function cliScope(scope: WorkFoldCapabilityScope | "global" | "project" | undefined): string {
-  if (scope === "global" || scope === undefined) return "personal";
-  if (scope === "project") return "space";
+  if (scope === "global" || scope === undefined) return "everywhere";
+  if (scope === "project") return "work-folder";
   return scope;
 }
 

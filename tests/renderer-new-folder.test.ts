@@ -31,7 +31,7 @@ test("folder creation keeps its destination, shows a duplicate error, and allows
   const created: unknown[] = [];
   let closed = 0;
   await dom.render(createElement(NewFolderModal, {
-    target: { spaceId: "original-folder", spaceName: "Planning", parentPath: "Notes" },
+    target: { workFolderId: "original-folder", workFolderName: "Planning", parentPath: "Notes" },
     onCreated: (folder) => created.push(folder),
     onClose: () => { closed += 1; },
   }));
@@ -55,8 +55,8 @@ test("folder creation keeps its destination, shows a duplicate error, and allows
   await dom.act(() => { submit.click(); });
   await dom.waitFor(() => closed === 1);
   assert.deepEqual(calls, [
-    { url: "/api/spaces/original-folder/folders", body: { parentPath: "Notes", name: "Existing" } },
-    { url: "/api/spaces/original-folder/folders", body: { parentPath: "Notes", name: "Research" } },
+    { url: "/api/work-folders/original-folder/folders", body: { parentPath: "Notes", name: "Existing" } },
+    { url: "/api/work-folders/original-folder/folders", body: { parentPath: "Notes", name: "Research" } },
   ]);
   assert.deepEqual(created, [{ path: "Notes/Research", name: "Research" }]);
 });

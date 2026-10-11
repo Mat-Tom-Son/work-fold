@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import test from "node:test";
 import {
-  normalizeWorkFoldRoutingProposal,
-  workFoldRoutingMessagePlaceholders,
-} from "../src/local/routings/routing-declarations.js";
+  normalizeWorkFoldAutomationProposal,
+  workFoldAutomationMessagePlaceholders,
+} from "../src/local/automations/automation-declarations.js";
 
 import {
   WORKFOLD_CLI_PROTOCOL_VERSION,
@@ -27,16 +27,16 @@ import {
   workFoldRequestIdPattern,
   workFoldRequestLimitMessage,
 } from "../src/local/requests/request-records.js";
-import { workFoldRequestLimits, workFoldRoutingDeclarationBounds } from "../src/shared/fold-limits.js";
+import { workFoldRequestLimits, workFoldAutomationDeclarationBounds } from "../src/shared/work-fold-limits.js";
 
 test("CLI request and response schemas preserve the locked protocol fields", () => {
   const id = randomUUID();
   const cwd = resolve(".");
-  const request = createWorkFoldCliRequest({ id, argv: ["spaces", "list", "--json"], cwd, createdAt: "2026-07-11T12:00:00.000Z" });
+  const request = createWorkFoldCliRequest({ id, argv: ["work-folders", "list", "--json"], cwd, createdAt: "2026-07-11T12:00:00.000Z" });
   assert.deepEqual(request, {
     protocolVersion: 1,
     id,
-    argv: ["spaces", "list", "--json"],
+    argv: ["work-folders", "list", "--json"],
     cwd,
     createdAt: "2026-07-11T12:00:00.000Z",
   });
@@ -64,42 +64,42 @@ test("CLI protocol rejects unknown fields, bad versions, invalid ids, relative c
 
 test("CLI argv parser supports every foundation command with global flags in either position", () => {
   assert.deepEqual(parseWorkFoldCliArgv([]), { name: "help", output: "human" });
-  assert.deepEqual(parseWorkFoldCliArgv(["--json", "context", "--space", "Personal"]), {
+  assert.deepEqual(parseWorkFoldCliArgv(["--json", "context", "--work-folder", "Everywhere"]), {
     name: "context",
     output: "json",
-    space: "Personal",
+    workFolder: "Everywhere",
   });
-  assert.deepEqual(parseWorkFoldCliArgv(["spaces", "list", "--space=space-1234567890abcdef", "--json"]), {
-    name: "spaces.list",
+  assert.deepEqual(parseWorkFoldCliArgv(["work-folders", "list", "--work-folder=space-1234567890abcdef", "--json"]), {
+    name: "work-folders.list",
     output: "json",
-    space: "space-1234567890abcdef",
+    workFolder: "space-1234567890abcdef",
   });
   assert.deepEqual(parseWorkFoldCliArgv(["tasks", "list"]), { name: "tasks.list", output: "human" });
-  assert.deepEqual(parseWorkFoldCliArgv(["capabilities", "list", "--space", "space-aaaaaaaaaaaaaaaa"]), {
+  assert.deepEqual(parseWorkFoldCliArgv(["capabilities", "list", "--work-folder", "space-aaaaaaaaaaaaaaaa"]), {
     name: "capabilities.list",
     output: "human",
-    space: "space-aaaaaaaaaaaaaaaa",
+    workFolder: "space-aaaaaaaaaaaaaaaa",
   });
-  assert.deepEqual(parseWorkFoldCliArgv(["checks", "status", "--space", "space-aaaaaaaaaaaaaaaa", "--json"]), {
+  assert.deepEqual(parseWorkFoldCliArgv(["checks", "status", "--work-folder", "space-aaaaaaaaaaaaaaaa", "--json"]), {
     name: "checks.status",
     output: "json",
-    space: "space-aaaaaaaaaaaaaaaa",
+    workFolder: "space-aaaaaaaaaaaaaaaa",
   });
   assert.deepEqual(parseWorkFoldCliArgv(["version", "--json"]), { name: "version", output: "json" });
   assert.deepEqual(parseWorkFoldCliArgv(["--version", "--json"]), { name: "version", output: "json" });
   assert.deepEqual(parseWorkFoldCliArgv(["help", "tasks", "--json"]), { name: "help", output: "json", topic: "tasks" });
-  assert.deepEqual(parseWorkFoldCliArgv(["spaces", "--help"]), { name: "help", output: "human", topic: "spaces" });
+  assert.deepEqual(parseWorkFoldCliArgv(["work-folders", "--help"]), { name: "help", output: "human", topic: "work-folders" });
 });
 
 test("CLI argv parser produces stable usage errors", () => {
   for (const argv of [
     ["unknown"],
-    ["spaces"],
-    ["spaces", "list", "extra"],
+    ["work-folders"],
+    ["work-folders", "list", "extra"],
     ["--wat"],
-    ["context", "--space"],
-    ["context", "--space", "one", "--space", "two"],
-    ["version", "--space", "one"],
+    ["context", "--work-folder"],
+    ["context", "--work-folder", "one", "--work-folder", "two"],
+    ["version", "--work-folder", "one"],
   ]) {
     assert.throws(
       () => parseWorkFoldCliArgv(argv),
@@ -110,8 +110,8 @@ test("CLI argv parser produces stable usage errors", () => {
 });
 
 test("CLI help covers every landed act family and is honest about what it runs", () => {
-  // The spelled verb inventory of docs/fold-act-ledger.md plus the sibling
-  // routings/pages plans, as the act argv parser accepts them. Growing the
+  // The spelled verb inventory of docs/act-ledger.md plus the sibling
+  // automations/pages plans, as the act argv parser accepts them. Growing the
   // act table without growing help fails here on purpose.
   const families: Record<string, string[]> = {
     chat: [
@@ -119,12 +119,12 @@ test("CLI help covers every landed act family and is honest about what it runs",
       "report", "ask", "answer", "handoff",
     ],
     chats: ["list"],
-    manage: ["send", "status", "result", "wait", "stop", "abort", "list", "glance"],
+    agent: ["send", "status", "result", "wait", "stop", "abort", "list", "overview"],
     checks: ["status", "enable", "disable", "run", "task", "result", "wait", "abort", "problems", "decide"],
     history: ["list", "save", "restore", "versions", "restore-file"],
     search: [""],
     files: ["add", "move", "rename", "delete", "mkdir", "create"],
-    spaces: [
+    "work-folders": [
       "list", "create", "register", "rename", "unregister", "delete",
       "appearance apply", "appearance reset", "appearance undo",
       "worker show", "worker model", "worker instructions",
@@ -137,9 +137,9 @@ test("CLI help covers every landed act family and is honest about what it runs",
       "release publish", "release delete", "install prepare", "update prepare",
       "operation activate", "operation cancel", "uninstall",
     ],
-    routings: ["enable", "list", "show", "run", "stop", "disable", "delete", "receipts"],
+    automations: ["enable", "list", "show", "run", "stop", "disable", "delete", "receipts"],
     pages: ["share", "share-app", "list", "status", "revoke", "narrow", "widen", "snapshot-off"],
-    trash: ["list", "restore"],
+    "recently-deleted": ["list", "restore"],
     requests: ["list", "show"],
   };
   const overview = workFoldCliHelp("work-fold");
@@ -164,34 +164,34 @@ test("CLI help covers every landed act family and is honest about what it runs",
   assert.match(workFoldCliHelp("work-fold", "tools"), /immediately with a receipt/);
   assert.match(workFoldCliHelp("work-fold", "apps"), /--purge-data/);
   // A single-file permission is granted by naming its file; a folder
-  // permission covers the whole Space (docs/receipts-not-gates.md, F21).
-  assert.match(workFoldCliHelp("work-fold", "apps"), /--kind <network\|files\|notifications> --declaration <id> \[--path <space-path>\]/);
-  assert.match(workFoldCliHelp("work-fold", "apps"), /names a single file needs\n?.*--path <space-path>/);
+  // permission covers the whole work-folder (docs/receipts-not-gates.md, F21).
+  assert.match(workFoldCliHelp("work-fold", "apps"), /--kind <network\|files\|notifications> --declaration <id> \[--path <work-folder-path>\]/);
+  assert.match(workFoldCliHelp("work-fold", "apps"), /names a single file needs\n?.*--path <work-folder-path>/);
   // Recently deleted is where a delete History could not fully cover goes
   // (docs/receipts-not-gates.md, F20), and nothing empties it early.
-  const trashTopic = workFoldCliHelp("work-fold", "trash");
-  assert.match(trashTopic, /Recently deleted holds what a delete could not leave to History/);
-  assert.match(trashTopic, /30 days by default/);
-  assert.match(trashTopic, /Nothing empties Recently deleted early/);
-  assert.match(overview, /trash list\|restore  Bring back what was deleted/);
+  const recentlyDeletedTopic = workFoldCliHelp("work-fold", "recently-deleted");
+  assert.match(recentlyDeletedTopic, /Recently deleted holds what a delete could not leave to History/);
+  assert.match(recentlyDeletedTopic, /30 days by default/);
+  assert.match(recentlyDeletedTopic, /Nothing empties Recently deleted early/);
+  assert.match(overview, /recently-deleted list\|restore\s+Bring back what was deleted/);
   assert.match(workFoldCliHelp("work-fold", "files"), /moves to Recently deleted instead/);
-  assert.match(workFoldCliHelp("work-fold", "spaces"), /moves a managed Space's folder\nto Recently deleted/);
+  assert.match(workFoldCliHelp("work-fold", "work-folders"), /moves\na managed work-folder to Recently deleted/);
   assert.doesNotMatch(overview, /files destroy|\bdestroy\b/);
   // The setup-only boundary stays visible where an agent looks first.
   assert.match(overview, /local setup/);
   assert.match(overview, /runs immediately and leaves a receipt/);
 });
 
-test("CLI executor passes actor cwd and Space scope through the narrow kernel", async () => {
-  const calls: Array<{ method: string; actor: WorkFoldCliActor; space?: string }> = [];
+test("CLI executor passes actor cwd and work-folder scope through the narrow kernel", async () => {
+  const calls: Array<{ method: string; actor: WorkFoldCliActor; workFolder?: string }> = [];
   const kernel = fixtureKernel(calls);
-  const cwd = resolve("test-space");
+  const cwd = resolve("test-work-folder");
   const commands = [
-    ["context", "--space", "space-aaaaaaaaaaaaaaaa"],
-    ["spaces", "list", "--space", "space-aaaaaaaaaaaaaaaa"],
-    ["tasks", "list", "--space", "space-aaaaaaaaaaaaaaaa"],
-    ["capabilities", "list", "--space", "space-aaaaaaaaaaaaaaaa"],
-    ["checks", "status", "--space", "space-aaaaaaaaaaaaaaaa"],
+    ["context", "--work-folder", "space-aaaaaaaaaaaaaaaa"],
+    ["work-folders", "list", "--work-folder", "space-aaaaaaaaaaaaaaaa"],
+    ["tasks", "list", "--work-folder", "space-aaaaaaaaaaaaaaaa"],
+    ["capabilities", "list", "--work-folder", "space-aaaaaaaaaaaaaaaa"],
+    ["checks", "status", "--work-folder", "space-aaaaaaaaaaaaaaaa"],
   ];
   for (const argv of commands) {
     const response = await executeWorkFoldCliRequest(
@@ -203,20 +203,20 @@ test("CLI executor passes actor cwd and Space scope through the narrow kernel", 
     assert.equal(response.stderr, "");
     assert.equal(response.completedAt, "2026-07-11T12:00:00.000Z");
   }
-  assert.deepEqual(calls.map(({ method, actor, space }) => ({ method, actor, space })), [
-    { method: "context", actor: { kind: "cli", cwd }, space: "space-aaaaaaaaaaaaaaaa" },
-    { method: "spaces", actor: { kind: "cli", cwd }, space: "space-aaaaaaaaaaaaaaaa" },
-    { method: "tasks", actor: { kind: "cli", cwd }, space: "space-aaaaaaaaaaaaaaaa" },
-    { method: "capabilities", actor: { kind: "cli", cwd }, space: "space-aaaaaaaaaaaaaaaa" },
-    { method: "checks", actor: { kind: "cli", cwd }, space: "space-aaaaaaaaaaaaaaaa" },
+  assert.deepEqual(calls.map(({ method, actor, workFolder }) => ({ method, actor, workFolder })), [
+    { method: "context", actor: { kind: "cli", cwd }, workFolder: "space-aaaaaaaaaaaaaaaa" },
+    { method: "work-folders", actor: { kind: "cli", cwd }, workFolder: "space-aaaaaaaaaaaaaaaa" },
+    { method: "tasks", actor: { kind: "cli", cwd }, workFolder: "space-aaaaaaaaaaaaaaaa" },
+    { method: "capabilities", actor: { kind: "cli", cwd }, workFolder: "space-aaaaaaaaaaaaaaaa" },
+    { method: "checks", actor: { kind: "cli", cwd }, workFolder: "space-aaaaaaaaaaaaaaaa" },
   ]);
 });
 
 test("CLI Checks status emits aggregate-only JSON and human output", async () => {
   const kernel = fixtureKernel([]);
-  const cwd = resolve("test-space");
+  const cwd = resolve("test-work-folder");
   const json = await executeWorkFoldCliRequest(
-    createWorkFoldCliRequest({ id: randomUUID(), argv: ["checks", "status", "--space", "space-aaaaaaaaaaaaaaaa", "--json"], cwd }),
+    createWorkFoldCliRequest({ id: randomUUID(), argv: ["checks", "status", "--work-folder", "space-aaaaaaaaaaaaaaaa", "--json"], cwd }),
     kernel,
     { version: "1.2.3" },
   );
@@ -228,7 +228,7 @@ test("CLI Checks status emits aggregate-only JSON and human output", async () =>
       kind: "work-fold.checks.experimental",
       version: 1,
       available: true,
-      spaceId: "space-aaaaaaaaaaaaaaaa",
+      workFolderId: "space-aaaaaaaaaaaaaaaa",
       state: "needs-attention",
       configured: 3,
       proposed: 1,
@@ -249,7 +249,7 @@ test("CLI Checks status emits aggregate-only JSON and human output", async () =>
   }
 
   const human = await executeWorkFoldCliRequest(
-    createWorkFoldCliRequest({ id: randomUUID(), argv: ["checks", "status", "--space", "space-aaaaaaaaaaaaaaaa"], cwd }),
+    createWorkFoldCliRequest({ id: randomUUID(), argv: ["checks", "status", "--work-folder", "space-aaaaaaaaaaaaaaaa"], cwd }),
     kernel,
     { version: "1.2.3" },
   );
@@ -265,12 +265,12 @@ test("CLI executor emits useful human output and a stable JSON envelope", async 
   const kernel = fixtureKernel([]);
   const cwd = resolve(".");
   const human = await executeWorkFoldCliRequest(
-    createWorkFoldCliRequest({ id: randomUUID(), argv: ["spaces", "list"], cwd }),
+    createWorkFoldCliRequest({ id: randomUUID(), argv: ["work-folders", "list"], cwd }),
     kernel,
     { version: "1.2.3" },
   );
   assert.equal(human.exitCode, 0);
-  assert.match(human.stdout, /Personal \[space-aaaaaaaaaaaaaaaa\].*test-space/);
+  assert.match(human.stdout, /Everywhere \[space-aaaaaaaaaaaaaaaa\].*test-work-folder/);
   assert.equal(human.stderr, "");
 
   const json = await executeWorkFoldCliRequest(
@@ -282,7 +282,7 @@ test("CLI executor emits useful human output and a stable JSON envelope", async 
     ok: true,
     command: "capabilities.list",
     data: {
-      capabilities: [{ id: "skill-a", name: "Example Skill", kind: "skill", scope: "space", status: "loaded", source: ".pi/skills/example" }],
+      capabilities: [{ id: "skill-a", name: "Example Skill", kind: "skill", scope: "work-folder", status: "loaded", source: ".pi/skills/example" }],
       total: 1,
     },
   });
@@ -293,27 +293,27 @@ test("CLI human output neutralizes terminal control sequences from host metadata
   const hostile = "before\u001b]8;;https://example.invalid\u0007click\u001b]8;;\u0007\u009b31m\u202eafter";
   const kernel: WorkFoldCliKernel = {
     async getContext() {
-      return { cwd: hostile, space: { id: hostile, name: hostile, spaceRoot: hostile }, selectedPath: hostile, activeSurface: hostile };
+      return { cwd: hostile, workFolder: { id: hostile, name: hostile, workFolderRoot: hostile }, selectedPath: hostile, activeSurface: hostile };
     },
-    async listSpaces() {
-      return [{ id: hostile, name: hostile, spaceRoot: hostile }];
+    async listWorkFolders() {
+      return [{ id: hostile, name: hostile, workFolderRoot: hostile }];
     },
     async listTasks() {
-      return [{ id: hostile, label: hostile, status: hostile, spaceId: hostile }];
+      return [{ id: hostile, label: hostile, status: hostile, workFolderId: hostile }];
     },
     async listCapabilities() {
       return [{ id: hostile, name: hostile, kind: "other", scope: hostile, status: hostile, source: hostile }];
     },
     async getChecksStatus() {
       return {
-        kind: "work-fold.checks.experimental", version: 1, available: true, spaceId: hostile,
+        kind: "work-fold.checks.experimental", version: 1, available: true, workFolderId: hostile,
         state: "current-clear", configured: 1, proposed: 0, enabled: 1, current: 1, neverRun: 0,
         stale: 0, blocked: 0, errors: 0, needsAttention: 0, running: 0, lastRunAt: null,
       };
     },
   };
   const cwd = resolve(".");
-  for (const argv of [["context"], ["spaces", "list"], ["tasks", "list"], ["capabilities", "list"], ["checks", "status"]]) {
+  for (const argv of [["context"], ["work-folders", "list"], ["tasks", "list"], ["capabilities", "list"], ["checks", "status"]]) {
     const response = await executeWorkFoldCliRequest(createWorkFoldCliRequest({ id: randomUUID(), argv, cwd }), kernel, { version: "1.2.3" });
     assert.equal(response.exitCode, 0);
     assert.doesNotMatch(response.stdout, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
@@ -331,26 +331,26 @@ test("CLI human output neutralizes terminal control sequences from host metadata
   assert.doesNotMatch(failure.stderr, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
 });
 
-test("Routing help's complete authoring example passes the real proposal validator", () => {
-  const example = workFoldCliHelp("work-fold", "routings").split("\n").find((line) => line.startsWith('{"kind":"work-fold.routing-proposal"'));
+test("Automation help's complete authoring example passes the real proposal validator", () => {
+  const example = workFoldCliHelp("work-fold", "automations").split("\n").find((line) => line.startsWith('{"kind":"work-fold.automation-proposal"'));
   assert.ok(example);
-  const proposal = normalizeWorkFoldRoutingProposal(JSON.parse(example));
+  const proposal = normalizeWorkFoldAutomationProposal(JSON.parse(example));
   assert.equal(proposal.version, 4);
-  assert.equal(proposal.routing.trigger.kind, "files-changed");
-  assert.deepEqual(proposal.routing.steps.map((step) => step.kind), ["files", "chat", "check", "fold"]);
+  assert.equal(proposal.automation.trigger.kind, "files-changed");
+  assert.deepEqual(proposal.automation.steps.map((step) => step.kind), ["files", "chat", "check", "agent"]);
   // The example teaches the closed placeholder set, so it must itself be
   // something the parser accepts and the executor can fill in.
-  const adopt = proposal.routing.steps[1] as { message: string };
+  const adopt = proposal.automation.steps[1] as { message: string };
   assert.deepEqual(
-    workFoldRoutingMessagePlaceholders(adopt.message).map((entry) => entry.name),
+    workFoldAutomationMessagePlaceholders(adopt.message).map((entry) => entry.name),
     ["trigger.changedFiles"],
   );
-  const report = proposal.routing.steps[3] as { message: string };
+  const report = proposal.automation.steps[3] as { message: string };
   assert.deepEqual(
-    workFoldRoutingMessagePlaceholders(report.message).map((entry) => entry.name),
+    workFoldAutomationMessagePlaceholders(report.message).map((entry) => entry.name),
     ["trigger.summary", "steps.adopt.createdFiles"],
   );
-  const help = workFoldCliHelp("work-fold", "routings");
+  const help = workFoldCliHelp("work-fold", "automations");
   assert.doesNotMatch(help, /Up to 16 steps/);
   assert.doesNotMatch(help, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
 });
@@ -391,7 +391,7 @@ test("help collaborate's worked example parses through the real act parser", () 
   // The topic documents every verb the contract lists, in the contract's own
   // spelling, so an agent reading help sees the shape the parser accepts.
   for (const spelled of [
-    "chat report", "chat ask", "chat answer", "chat handoff", "chat wait", "manage wait", "requests list", "requests show",
+    "chat report", "chat ask", "chat answer", "chat handoff", "chat wait", "agent wait", "requests list", "requests show",
   ]) {
     assert.ok(help.includes(`work-fold ${spelled} `), `help collaborate must show usage for '${spelled}'`);
   }
@@ -405,12 +405,12 @@ test("help collaborate's worked example parses through the real act parser", () 
 test("the act parser accepts the four collaboration verbs and the request reads", () => {
   assert.deepEqual(
     parseWorkFoldCliActArgv([
-      "chat", "report", "--space", "space-1", "--task", "task-1",
+      "chat", "report", "--work-folder", "work-folder-1", "--task", "task-1",
       "--summary", "Drafted the note.", "--file", "drafts/q3.md", "--file", "drafts/q3-data.csv",
       "--data", '{"words":812}', "--outcome", "partial", "--json",
     ]),
     {
-      name: "chat.report", output: "json", space: "space-1", task: "task-1",
+      name: "chat.report", output: "json", workFolder: "work-folder-1", task: "task-1",
       summary: "Drafted the note.", files: ["drafts/q3.md", "drafts/q3-data.csv"],
       outcome: "partial", resultData: { words: 812 },
     },
@@ -418,52 +418,52 @@ test("the act parser accepts the four collaboration verbs and the request reads"
   // An outcome is succeeded unless the reporter says otherwise, and a report
   // that names no file carries an empty list rather than a missing field.
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done."]),
-    { name: "chat.report", output: "human", space: "space-1", task: "task-1", summary: "Done.", files: [], outcome: "succeeded" },
+    parseWorkFoldCliActArgv(["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done."]),
+    { name: "chat.report", output: "human", workFolder: "work-folder-1", task: "task-1", summary: "Done.", files: [], outcome: "succeeded" },
   );
   // `--data @<path>` defers the read to the host, which resolves it against
   // the directory the command ran in; argv could not carry 256 KiB anyway.
   assert.deepEqual(
     parseWorkFoldCliActArgv([
-      "chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--data", "@out/result.json",
+      "chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done.", "--data", "@out/result.json",
     ]),
     {
-      name: "chat.report", output: "human", space: "space-1", task: "task-1",
+      name: "chat.report", output: "human", workFolder: "work-folder-1", task: "task-1",
       summary: "Done.", files: [], outcome: "succeeded", resultDataPath: "out/result.json",
     },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which quarter?"]),
-    { name: "chat.ask", output: "human", space: "space-1", task: "task-1", question: "Which quarter?", respondent: "person" },
+    parseWorkFoldCliActArgv(["chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1", "--question", "Which quarter?"]),
+    { name: "chat.ask", output: "human", workFolder: "work-folder-1", task: "task-1", question: "Which quarter?", respondent: "person" },
   );
   assert.equal(
     parseWorkFoldCliActArgv([
-      "chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which quarter?", "--to", "parent",
+      "chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1", "--question", "Which quarter?", "--to", "parent",
     ]).respondent,
     "parent",
   );
   // --question carries free text for ask and an id for answer. That is the
   // contract's spelling (docs/collaboration-contract.md), not a slip.
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["chat", "answer", "--space", "space-1", "--question", "question-1", "--answer", "November."]),
-    { name: "chat.answer", output: "human", space: "space-1", questionId: "question-1", answer: "November." },
+    parseWorkFoldCliActArgv(["chat", "answer", "--work-folder", "work-folder-1", "--question", "question-1", "--answer", "November."]),
+    { name: "chat.answer", output: "human", workFolder: "work-folder-1", questionId: "question-1", answer: "November." },
   );
   assert.deepEqual(
     parseWorkFoldCliActArgv([
-      "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2",
+      "chat", "handoff", "--work-folder", "work-folder-1", "--task", "task-1", "--to-work-folder", "work-folder-2",
       "--message", "Take this on.", "--file", "drafts/q3.md",
     ]),
     {
-      name: "chat.handoff", output: "human", space: "space-1", task: "task-1", toSpace: "space-2",
+      name: "chat.handoff", output: "human", workFolder: "work-folder-1", task: "task-1", toWorkFolder: "work-folder-2",
       message: "Take this on.", files: ["drafts/q3.md"],
     },
   );
   assert.deepEqual(
     parseWorkFoldCliActArgv([
-      "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message-from-payload",
+      "chat", "handoff", "--work-folder", "work-folder-1", "--task", "task-1", "--to-work-folder", "work-folder-2", "--message-from-payload",
     ]),
     {
-      name: "chat.handoff", output: "human", space: "space-1", task: "task-1", toSpace: "space-2",
+      name: "chat.handoff", output: "human", workFolder: "work-folder-1", task: "task-1", toWorkFolder: "work-folder-2",
       messageFromPayload: true, files: [],
     },
   );
@@ -475,10 +475,10 @@ test("the act parser accepts the four collaboration verbs and the request reads"
   // All four are mutations, so all four record management lineage; the two
   // request reads deliberately do not.
   for (const argv of [
-    ["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done."],
-    ["chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which?"],
-    ["chat", "answer", "--space", "space-1", "--question", "question-1", "--answer", "November."],
-    ["chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message", "Go."],
+    ["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done."],
+    ["chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1", "--question", "Which?"],
+    ["chat", "answer", "--work-folder", "work-folder-1", "--question", "question-1", "--answer", "November."],
+    ["chat", "handoff", "--work-folder", "work-folder-1", "--task", "task-1", "--to-work-folder", "work-folder-2", "--message", "Go."],
   ]) {
     assert.equal(parseWorkFoldCliActArgv([...argv, "--parent-task", "task-root"]).parentTaskId, "task-root", argv.join(" "));
   }
@@ -486,22 +486,22 @@ test("the act parser accepts the four collaboration verbs and the request reads"
 
 test("the act parser refuses malformed collaboration arguments with stable usage errors", () => {
   const refusals: Array<[string[], RegExp]> = [
-    [["chat", "send", "--space", "space-1", "--new", "--message", "hi", "--file", "notes.md"], /--file cannot be used with 'chat send'\./],
-    [["requests", "list", "--space", "space-1"], /sits above Spaces, so 'requests' takes no --space\./],
+    [["chat", "send", "--work-folder", "work-folder-1", "--new", "--message", "hi", "--file", "notes.md"], /--file cannot be used with 'chat send'\./],
+    [["requests", "list", "--work-folder", "work-folder-1"], /sits above work-folders, so 'requests' takes no --work-folder\./],
     [["requests", "show"], /Provide --request <request-id>\./],
     [["requests", "list", "--parent-task", "task-1"], /--parent-task cannot be used with 'requests list'\./],
-    [["chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which?", "--to", "someone"], /--to must be person or parent\./],
-    [["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--outcome", "great"], /--outcome must be succeeded, partial, or failed\./],
-    [["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--data", "not json"], /--data must be valid JSON, or @<path> naming a JSON file\./],
-    [["chat", "report", "--space", "space-1", "--task", "task-1"], /Provide --summary <text> or --summary-file <path>\./],
-    [["chat", "report", "--task", "task-1", "--summary", "Done."], /explicit --space/],
+    [["chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1", "--question", "Which?", "--to", "someone"], /--to must be person or parent\./],
+    [["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done.", "--outcome", "great"], /--outcome must be succeeded, partial, or failed\./],
+    [["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done.", "--data", "not json"], /--data must be valid JSON, or @<path> naming a JSON file\./],
+    [["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1"], /Provide --summary <text> or --summary-file <path>\./],
+    [["chat", "report", "--task", "task-1", "--summary", "Done."], /explicit --work-folder/],
     [
-      ["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--file", "q3.md", "--file", "q3.md"],
+      ["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done.", "--file", "q3.md", "--file", "q3.md"],
       /--file names the same path twice\./,
     ],
-    [["chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2"], /Provide --message <text> or --message-file <path>\./],
-    [["chat", "answer", "--space", "space-1", "--question", "question-1"], /Provide --answer <text> or --answer-file <path>\./],
-    [["chat", "answer", "--space", "space-1", "--question", "question-1", "--answer", "November.", "--task", "task-1"], /--task cannot be used with 'chat answer'\./],
+    [["chat", "handoff", "--work-folder", "work-folder-1", "--task", "task-1", "--to-work-folder", "work-folder-2"], /Provide --message <text> or --message-file <path>\./],
+    [["chat", "answer", "--work-folder", "work-folder-1", "--question", "question-1"], /Provide --answer <text> or --answer-file <path>\./],
+    [["chat", "answer", "--work-folder", "work-folder-1", "--question", "question-1", "--answer", "November.", "--task", "task-1"], /--task cannot be used with 'chat answer'\./],
   ];
   for (const [argv, message] of refusals) {
     assert.throws(
@@ -513,7 +513,7 @@ test("the act parser refuses malformed collaboration arguments with stable usage
   // A bound refused at parse time says exactly what the same bound says when
   // the request record refuses it (docs/receipts-not-gates.md, principle 6).
   const overLongQuestion = () => parseWorkFoldCliActArgv([
-    "chat", "ask", "--space", "space-1", "--task", "task-1",
+    "chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1",
     "--question", "x".repeat(workFoldRequestLimits.maxQuestionTextBytes + 1),
   ]);
   assert.throws(overLongQuestion, (error) => error instanceof WorkFoldCliError
@@ -521,14 +521,14 @@ test("the act parser refuses malformed collaboration arguments with stable usage
     && error.message.startsWith(workFoldRequestLimitMessage("questionText", workFoldRequestLimits.maxQuestionTextBytes)));
   const manyHandoffFiles = Array.from({ length: 100 }, (_, index) => ["--file", `notes/${index}.md`]).flat();
   assert.doesNotThrow(() => parseWorkFoldCliActArgv([
-    "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message", "Take this.", ...manyHandoffFiles,
+    "chat", "handoff", "--work-folder", "work-folder-1", "--task", "task-1", "--to-work-folder", "work-folder-2", "--message", "Take this.", ...manyHandoffFiles,
   ]));
   const manyDeliverables = Array.from(
     { length: 100 },
     (_, index) => ["--file", `drafts/${index}.md`],
   ).flat();
   assert.doesNotThrow(() => parseWorkFoldCliActArgv([
-    "chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", ...manyDeliverables,
+    "chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done.", ...manyDeliverables,
   ]));
 });
 
@@ -536,7 +536,7 @@ test("CLI help/version avoid kernel work and kernel failures map to stable exit 
   let called = false;
   const kernel: WorkFoldCliKernel = {
     async getContext() { called = true; throw new WorkFoldCliError("permissionDenied", "Not allowed."); },
-    async listSpaces() { called = true; return []; },
+    async listWorkFolders() { called = true; return []; },
     async listTasks() { called = true; return []; },
     async listCapabilities() { called = true; return []; },
     async getChecksStatus() { called = true; throw new WorkFoldCliError("permissionDenied", "Not allowed."); },
@@ -566,31 +566,31 @@ function exampleArgv(line: string): string[] {
   return argv;
 }
 
-function fixtureKernel(calls: Array<{ method: string; actor: WorkFoldCliActor; space?: string }>): WorkFoldCliKernel {
+function fixtureKernel(calls: Array<{ method: string; actor: WorkFoldCliActor; workFolder?: string }>): WorkFoldCliKernel {
   return {
     async getContext(actor, options) {
-      calls.push({ method: "context", actor, space: options.space });
-      return { cwd: actor.cwd, space: { id: "space-aaaaaaaaaaaaaaaa", name: "Personal", spaceRoot: resolve("test-space"), active: true }, selectedPath: "notes.md", activeSurface: "Files" };
+      calls.push({ method: "context", actor, workFolder: options.workFolder });
+      return { cwd: actor.cwd, workFolder: { id: "space-aaaaaaaaaaaaaaaa", name: "Everywhere", workFolderRoot: resolve("test-work-folder"), active: true }, selectedPath: "notes.md", activeSurface: "Files" };
     },
-    async listSpaces(actor, options) {
-      calls.push({ method: "spaces", actor, space: options.space });
-      return [{ id: "space-aaaaaaaaaaaaaaaa", name: "Personal", spaceRoot: resolve("test-space"), active: true }];
+    async listWorkFolders(actor, options) {
+      calls.push({ method: "work-folders", actor, workFolder: options.workFolder });
+      return [{ id: "space-aaaaaaaaaaaaaaaa", name: "Everywhere", workFolderRoot: resolve("test-work-folder"), active: true }];
     },
     async listTasks(actor, options) {
-      calls.push({ method: "tasks", actor, space: options.space });
-      return [{ id: "task-a", label: "Index files", status: "running", spaceId: "space-aaaaaaaaaaaaaaaa", updatedAt: "2026-07-11T12:00:00.000Z" }];
+      calls.push({ method: "tasks", actor, workFolder: options.workFolder });
+      return [{ id: "task-a", label: "Index files", status: "running", workFolderId: "space-aaaaaaaaaaaaaaaa", updatedAt: "2026-07-11T12:00:00.000Z" }];
     },
     async listCapabilities(actor, options) {
-      calls.push({ method: "capabilities", actor, space: options.space });
-      return [{ id: "skill-a", name: "Example Skill", kind: "skill", scope: "space", status: "loaded", source: ".pi/skills/example" }];
+      calls.push({ method: "capabilities", actor, workFolder: options.workFolder });
+      return [{ id: "skill-a", name: "Example Skill", kind: "skill", scope: "work-folder", status: "loaded", source: ".pi/skills/example" }];
     },
     async getChecksStatus(actor, options) {
-      calls.push({ method: "checks", actor, space: options.space });
+      calls.push({ method: "checks", actor, workFolder: options.workFolder });
       return {
         kind: "work-fold.checks.experimental",
         version: 1,
         available: true,
-        spaceId: "space-aaaaaaaaaaaaaaaa",
+        workFolderId: "space-aaaaaaaaaaaaaaaa",
         state: "needs-attention",
         configured: 3,
         proposed: 1,

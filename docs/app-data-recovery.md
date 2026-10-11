@@ -17,8 +17,8 @@ and entries. Its limits match storage: 65,536 keys, 16 MiB per value, and
 256 MiB of data. The restore request itself is still read with a 6 MiB body
 ceiling, so a larger backup exports but cannot yet be restored through that
 route. This is a data export, not an app
-package, Space backup, connection export, or migration format. Host credentials,
-grants, schedules, Chats and separately selected Space files are absent. Data
+package, work-folder backup, connection export, or migration format. Host credentials,
+grants, schedules, Chats and separately selected work-folder files are absent. Data
 the app itself stored remains part of the export.
 
 The service resolves installation/Project ownership from its registry. It
@@ -29,13 +29,13 @@ resolve the package digest from their retained Release lineage and require the
 owning source Project.
 
 Restoration shares the desktop's capability-mutation reservation, so an active
-Assistant or conflicting app operation cannot race setup. It validates the
+Worker or conflicting app operation cannot race setup. It validates the
 backup and the expected current storage revision, stops the current app host,
 and advances only data authority before replacement. The storage commit checks
 the expected revision again under its namespace queue. Current network/file/
 notification grants, connections, jobs, and all other authority remain current;
 none are loaded from a backup. Runtime bridge calls cannot export, restore,
-clear with recovery, or select another namespace through this management API.
+clear with recovery, or select another namespace through this administrative API.
 
 One bounded `work-fold.app-data-recovery` record in the same namespace retains
 the previous snapshot, operation id/time, exact app digest, and hash of the
@@ -56,7 +56,7 @@ machine-local Recently deleted store before any live data is removed
 ([Receipts, not gates](receipts-not-gates.md), F20). Clearing storage that
 holds nothing writes no copy: there is nothing to bring back. Each copy is
 machine-local, is kept for the retention window in Settings → Recently
-deleted (30 days by default), and records the Space, the app, its
+deleted (30 days by default), and records the work-folder, the app, its
 exact revision, the installation, the Data Namespace, and the receipt id of
 the act that produced it.
 
@@ -66,7 +66,7 @@ advances the current storage revision, and it leaves the storage layer's own
 single recovery point available to undo the restore itself. A copy whose app
 is no longer installed — every purged retained record among them — can only be
 saved as a file, from Recently deleted or with
-`work-fold trash restore --entry <id> --to <absolute-file-path>`.
+`work-fold recently-deleted restore --entry <id> --to <absolute-file-path>`.
 
 Recovery is not automatic backup or cross-installation adoption. Save exports
 outside the app before removing it when long-term access matters. Schema

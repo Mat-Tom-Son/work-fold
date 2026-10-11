@@ -1,4 +1,4 @@
-import type { SpaceCheckpoint } from "../history.js";
+import type { WorkFolderCheckpoint } from "../history.js";
 
 export const maxTurnFileChanges = 64;
 export interface WorkFoldTurnFileChanges {
@@ -9,7 +9,7 @@ export interface WorkFoldTurnFileChanges {
 }
 
 /** Observed History changes during a turn, not a claim that every edit was made by the model. */
-export function turnFileChanges(before: SpaceCheckpoint | null, after: SpaceCheckpoint | null): WorkFoldTurnFileChanges | undefined {
+export function turnFileChanges(before: WorkFolderCheckpoint | null, after: WorkFolderCheckpoint | null): WorkFoldTurnFileChanges | undefined {
   if (!before || !after || before.scope !== "full" || after.scope !== "full") return undefined;
   const prior = new Map(before.files.map((file) => [file.path, file.hashSha256]));
   const skipped = before.skippedFiles.map((file) => file.path);

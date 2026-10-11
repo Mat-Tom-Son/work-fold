@@ -1,6 +1,6 @@
 import { FolderOpen, FolderPlus } from "lucide-react";
 
-export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace: () => void; onOpenFolder: () => void }) {
+export function OnboardingFlow({ onCreateWorkFolder, onOpenFolder }: { onCreateWorkFolder: () => void; onOpenFolder: () => void }) {
   return <main className="onboarding-flow">
     <section className="onboarding-choose" aria-label="Choose a folder">
       <div className="onboarding-actions">
@@ -8,7 +8,7 @@ export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace:
           <FolderOpen size={19} aria-hidden="true" />
           <span>Add existing folder</span>
         </button>
-        <button className="onboarding-folder-action" type="button" onClick={onCreateSpace}>
+        <button className="onboarding-folder-action" type="button" onClick={onCreateWorkFolder}>
           <FolderPlus size={19} aria-hidden="true" />
           <span>Create new work-folder</span>
         </button>

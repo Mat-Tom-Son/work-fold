@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { createDomHarness } from "./support/dom.js";
 import { applicationAppearanceKey, defaultApplicationAppearance } from "../src/shared/application-appearance.js";
 import { ApplicationAppearanceStore } from "../web-local/src/lib/application-appearance-store.js";
-import type { SpaceSummary } from "../web-local/src/types.js";
+import type { WorkFolderSummary } from "../web-local/src/types.js";
 
 function mediaEnvironment(matches: Record<string,boolean> = {}) {
   const callbacks = new Map<string,Set<() => void>>();
@@ -16,13 +16,13 @@ function changeSelect(label: string, value: string) {
   select.value = value; select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-test("appearance controls affect the shared document, preserve explicit Space routing, and support undo", async (t) => {
+test("appearance controls affect the shared document, preserve explicit work-folder automation, and support undo", async (t) => {
   const dom = await createDomHarness(); t.after(() => dom.cleanup()); mediaEnvironment();
   const { useApplicationAppearance } = await import("../web-local/src/hooks/useApplicationAppearance.js");
   const { AppearanceSettingsPane } = await import("../web-local/src/components/modals/AppearanceSettingsPane.js");
   const store = new ApplicationAppearanceStore(null, true);
   const routes: string[] = [];
-  function Screen() { const appearance = useApplicationAppearance({ store, fixtureMode: true }); return createElement(AppearanceSettingsPane, { appearance, space: { id: "space-owner", name: "Workshop" } as SpaceSummary, onCustomizeSpace: (id) => routes.push(id) }); }
+  function Screen() { const appearance = useApplicationAppearance({ store, fixtureMode: true }); return createElement(AppearanceSettingsPane, { appearance, workFolder: { id: "work-folder-owner", name: "Workshop" } as WorkFolderSummary, onCustomizeWorkFolder: (id) => routes.push(id) }); }
   await dom.render(createElement(Screen));
   assert.equal(document.querySelector(".appearance-settings")?.firstElementChild?.getAttribute("aria-labelledby"), "appearance-preview-title");
   assert.equal(document.querySelector("#appearance-preview-title")?.textContent, "Preview");
@@ -38,7 +38,7 @@ test("appearance controls affect the shared document, preserve explicit Space ro
   await dom.act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Undo")!.click());
   assert.equal(document.documentElement.dataset.appearanceMessages, "tinted");
   await dom.act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Customize this work-folder")!.click());
-  assert.deepEqual(routes, ["space-owner"]);
+  assert.deepEqual(routes, ["work-folder-owner"]);
 });
 
 test("device accessibility follows changes even with an explicit app mode, and fixture never touches native theme", async (t) => {
@@ -87,7 +87,7 @@ test("a file import that completes after leaving Appearance cannot save into the
   const { AppearanceSettingsPane } = await import("../web-local/src/components/modals/AppearanceSettingsPane.js");
   const store = new ApplicationAppearanceStore(null, true);
   let finishFile!: (text: string) => void;
-  function Screen() { const appearance = useApplicationAppearance({ store, fixtureMode: true }); return createElement(AppearanceSettingsPane, { appearance, space: null }); }
+  function Screen() { const appearance = useApplicationAppearance({ store, fixtureMode: true }); return createElement(AppearanceSettingsPane, { appearance, workFolder: null }); }
   await dom.render(createElement(Screen));
   await dom.act(() => {
     const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
@@ -104,7 +104,7 @@ test("the Worker steps choice reaches the document, and Reset only offers itself
   const { useApplicationAppearance } = await import("../web-local/src/hooks/useApplicationAppearance.js");
   const { AppearanceSettingsPane } = await import("../web-local/src/components/modals/AppearanceSettingsPane.js");
   const store = new ApplicationAppearanceStore(null, true);
-  function Screen() { const appearance = useApplicationAppearance({ store, fixtureMode: true }); return createElement(AppearanceSettingsPane, { appearance, space: null }); }
+  function Screen() { const appearance = useApplicationAppearance({ store, fixtureMode: true }); return createElement(AppearanceSettingsPane, { appearance, workFolder: null }); }
   await dom.render(createElement(Screen));
   const reset = () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Reset")!;
   assert.equal(document.documentElement.dataset.appearanceChatSteps, "every");
@@ -125,7 +125,7 @@ test("the Interface section ends with any desktop row the Settings window passes
   const store = new ApplicationAppearanceStore(null, true);
   function Screen() {
     const appearance = useApplicationAppearance({ store, fixtureMode: true });
-    return createElement(AppearanceSettingsPane, { appearance, space: null, interfaceExtra: createElement("div", { role: "radiogroup", "aria-label": "Closing the Window" }) });
+    return createElement(AppearanceSettingsPane, { appearance, workFolder: null, interfaceExtra: createElement("div", { role: "radiogroup", "aria-label": "Closing the Window" }) });
   }
   await dom.render(createElement(Screen));
   const section = document.querySelector('[aria-labelledby="appearance-interface-title"]')!;

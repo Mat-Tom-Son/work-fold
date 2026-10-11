@@ -25,7 +25,7 @@ import { createPersistentPiAuthStorage } from "./auth-storage.js";
 type AuthStatus = ReturnType<ModelRuntime["getProviderAuthStatus"]>;
 
 import { applyAzureOpenAIDeployments } from "./azure-openai-models.js";
-import { defaultAgentSdkDir, spaceSessionDir } from "./agent-data-dir.js";
+import { defaultAgentSdkDir, workFolderSessionDir } from "./agent-data-dir.js";
 import type { PiExtensionUiBridge } from "./extension-ui.js";
 import type { ModelContextInspector } from "./model-context-inspector.js";
 import { includedResourceOptions, type IncludedToolsConfiguration } from "./included-tools.js";
@@ -36,7 +36,7 @@ export interface PiPreferredModel {
 }
 
 export interface PiProjectTrustRequest {
-  spaceRoot: string;
+  workFolderRoot: string;
   hasProjectResources: boolean;
   savedDecision: boolean | null;
   defaultDecision: "ask" | "always" | "never";
@@ -78,8 +78,8 @@ export interface PiRuntimeConfig {
   /** Host-fetched catalogs applied to each fresh cwd-specific registry. */
   modelCatalogs?: PiModelCatalog[];
   preferredModel?: PiPreferredModel;
-  /** Machine-local instructions appended to this Space's Pi system prompt. */
-  assistantInstructions?: string;
+  /** Machine-local Worker instructions appended to this work-folder's Pi system prompt. */
+  workerInstructions?: string;
   projectTrust?: PiProjectTrustPolicy;
   extensionUi?: PiExtensionUiBridge;
   /** Optional local diagnostic recorder; never a source of model context. */
@@ -92,36 +92,36 @@ export interface PiRuntimeConfig {
 }
 
 export interface PiRuntimeProvider {
-  resolveRuntime(spaceRoot: string): Promise<PiRuntimeConfig>;
-  setPreferredModel?(spaceRoot: string, model: PiPreferredModel): Promise<void>;
-  getAssistantInstructions?(spaceRoot: string): Promise<string>;
-  setAssistantInstructions?(spaceRoot: string, instructions: string): Promise<void>;
+  resolveRuntime(workFolderRoot: string): Promise<PiRuntimeConfig>;
+  setPreferredModel?(workFolderRoot: string, model: PiPreferredModel): Promise<void>;
+  getWorkerInstructions?(workFolderRoot: string): Promise<string>;
+  setWorkerInstructions?(workFolderRoot: string, instructions: string): Promise<void>;
   refreshModelCatalog?(providerId: string): Promise<PiModelCatalogRefreshResult>;
   listModelCatalogs?(): Promise<PiModelCatalogStatus[]>;
 }
 
-export async function getPiAssistantInstructions(
-  spaceRoot: string,
+export async function getPiWorkerInstructions(
+  workFolderRoot: string,
   provider?: PiRuntimeProvider,
 ): Promise<string> {
-  if (provider?.getAssistantInstructions) return provider.getAssistantInstructions(spaceRoot);
-  return (await provider?.resolveRuntime(spaceRoot))?.assistantInstructions ?? "";
+  if (provider?.getWorkerInstructions) return provider.getWorkerInstructions(workFolderRoot);
+  return (await provider?.resolveRuntime(workFolderRoot))?.workerInstructions ?? "";
 }
 
-export async function setPiAssistantInstructions(
-  spaceRoot: string,
+export async function setPiWorkerInstructions(
+  workFolderRoot: string,
   instructions: string,
   provider?: PiRuntimeProvider,
 ): Promise<void> {
-  if (!provider?.setAssistantInstructions) {
-    throw new Error("This Assistant runtime does not support Space instructions.");
+  if (!provider?.setWorkerInstructions) {
+    throw new Error("This runtime does not support Worker instructions.");
   }
-  await provider.setAssistantInstructions(spaceRoot, instructions);
+  await provider.setWorkerInstructions(workFolderRoot, instructions);
 }
 
-export function appendAssistantInstructions(base: string[], instructions: string | undefined): string[] {
+export function appendWorkerInstructions(base: string[], instructions: string | undefined): string[] {
   const value = instructions?.trim();
-  return value ? [...base, `## Space instructions\n\n${value}`] : base;
+  return value ? [...base, `## Worker instructions\n\n${value}`] : base;
 }
 
 export interface PiModelCatalog {
@@ -262,27 +262,27 @@ export function hasExplicitPiProjectMutationTrust(runtime: ResolvedPiRuntime): b
 }
 
 export async function isPiProjectMutationTrusted(
-  spaceRoot: string,
+  workFolderRoot: string,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<boolean> {
-  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
+  const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider, { requestProjectTrust: false });
   return hasExplicitPiProjectMutationTrust(runtime);
 }
 
 export async function resolvePiRuntime(
-  spaceRoot: string,
+  workFolderRoot: string,
   provider?: PiRuntimeProvider,
   options: { requestProjectTrust?: boolean } = {},
 ): Promise<ResolvedPiRuntime> {
-  const config = await provider?.resolveRuntime(spaceRoot) ?? {};
+  const config = await provider?.resolveRuntime(workFolderRoot) ?? {};
   const agentDir = config.agentDir ?? defaultAgentSdkDir();
   await mkdir(agentDir, { recursive: true });
 
   const credentials = config.credentials ?? (await createPersistentPiAuthStorage({ agentDir })).credentials;
   const initialSettings = config.settingsManager
-    ?? SettingsManager.create(spaceRoot, agentDir, { projectTrusted: false });
+    ?? SettingsManager.create(workFolderRoot, agentDir, { projectTrusted: false });
   const trust = await resolveProjectTrust(
-    spaceRoot,
+    workFolderRoot,
     agentDir,
     initialSettings,
     config.projectTrust,
@@ -304,7 +304,7 @@ export async function resolvePiRuntime(
   return {
     config,
     agentDir,
-    sessionDir: config.sessionDir ?? spaceSessionDir(spaceRoot, agentDir),
+    sessionDir: config.sessionDir ?? workFolderSessionDir(workFolderRoot, agentDir),
     credentials,
     settingsManager: initialSettings,
     modelRuntime,
@@ -328,11 +328,11 @@ export function applyPiRuntimeDefaults(settings: SettingsManager): void {
 }
 
 export async function getPiSetupStatus(
-  spaceRoot: string,
+  workFolderRoot: string,
   provider?: PiRuntimeProvider,
 ): Promise<PiSetupStatus> {
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
-  const providerDiagnostics = await loadRuntimeProviders(spaceRoot, runtime);
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  const providerDiagnostics = await loadRuntimeProviders(workFolderRoot, runtime);
   const models = runtime.modelRuntime.getAllModels();
   const stored = new Map((await runtime.credentials.list()).map((item) => [item.providerId, item]));
   const providerIds = new Set(runtime.modelRuntime.getProviders().map((item) => item.id));
@@ -385,11 +385,11 @@ export async function getPiSetupStatus(
 }
 
 export async function listPiModels(
-  spaceRoot: string,
+  workFolderRoot: string,
   provider?: PiRuntimeProvider,
 ): Promise<PiModelSummary[]> {
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
-  await loadRuntimeProviders(spaceRoot, runtime);
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  await loadRuntimeProviders(workFolderRoot, runtime);
   const oauthProviders = new Set(runtime.modelRuntime.getProviders().filter((item) => item.auth?.oauth).map((item) => item.id));
   const stored = new Map((await runtime.credentials.list()).map((item) => [item.providerId, item]));
   return runtime.modelRuntime.getModels().map((model) => {
@@ -422,11 +422,11 @@ export async function listPiModels(
  * composer can be truthful before a conversation session has been created.
  */
 export async function getPiComposerState(
-  spaceRoot: string,
+  workFolderRoot: string,
   provider?: PiRuntimeProvider,
 ): Promise<PiComposerState> {
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
-  await loadRuntimeProviders(spaceRoot, runtime);
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  await loadRuntimeProviders(workFolderRoot, runtime);
   const preferred = runtime.preferredModel
     ? runtime.modelRuntime.getModel(runtime.preferredModel.provider, runtime.preferredModel.id)
     : undefined;
@@ -449,12 +449,12 @@ export async function getPiComposerState(
  * that session as usual.
  */
 export async function setPiDefaultThinkingLevel(
-  spaceRoot: string,
+  workFolderRoot: string,
   level: string,
   provider?: PiRuntimeProvider,
 ): Promise<PiComposerState> {
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
-  await loadRuntimeProviders(spaceRoot, runtime);
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  await loadRuntimeProviders(workFolderRoot, runtime);
   const preferred = runtime.preferredModel
     ? runtime.modelRuntime.getModel(runtime.preferredModel.provider, runtime.preferredModel.id)
     : undefined;
@@ -476,7 +476,7 @@ export async function setPiDefaultThinkingLevel(
 }
 
 export async function savePiApiKey(
-  spaceRoot: string,
+  workFolderRoot: string,
   providerId: string,
   apiKey: string,
   options: { env?: Record<string, string>; runtimeProvider?: PiRuntimeProvider } = {},
@@ -484,8 +484,8 @@ export async function savePiApiKey(
   const id = cleanProviderId(providerId);
   const key = apiKey.trim();
   if (!key) throw new Error("API key is required.");
-  const runtime = await resolvePiRuntime(spaceRoot, options.runtimeProvider, { requestProjectTrust: false });
-  await loadRuntimeProviders(spaceRoot, runtime);
+  const runtime = await resolvePiRuntime(workFolderRoot, options.runtimeProvider, { requestProjectTrust: false });
+  await loadRuntimeProviders(workFolderRoot, runtime);
   if (!runtime.modelRuntime.getProvider(id)?.auth?.apiKey?.login) throw new Error(`Provider ${id} does not offer API-key setup.`);
   await runtime.credentials.modify(id, async (current) => ({
     type: "api_key",
@@ -498,37 +498,37 @@ export async function savePiApiKey(
 }
 
 export async function removePiProviderAuth(
-  spaceRoot: string,
+  workFolderRoot: string,
   providerId: string,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<void> {
   const id = cleanProviderId(providerId);
-  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
+  const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider, { requestProjectTrust: false });
   await runtime.modelRuntime.logout(id);
   await runtime.flushCredentials();
   await runtime.modelRuntime.refresh({ allowNetwork: false, providers: [id] });
 }
 
 export async function loginPiOAuth(
-  spaceRoot: string,
+  workFolderRoot: string,
   providerId: string,
   hooks: PiOAuthHooks,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<void> {
-  return loginPiProvider(spaceRoot, providerId, "oauth", hooks, runtimeProvider);
+  return loginPiProvider(workFolderRoot, providerId, "oauth", hooks, runtimeProvider);
 }
 
 /** Pi owns the prompts and the complete credential, including provider-scoped configuration. */
 export async function loginPiProvider(
-  spaceRoot: string,
+  workFolderRoot: string,
   providerId: string,
   method: AuthType,
   hooks: PiOAuthHooks,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<void> {
   const id = cleanProviderId(providerId);
-  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
-  await loadRuntimeProviders(spaceRoot, runtime);
+  const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider, { requestProjectTrust: false });
+  await loadRuntimeProviders(workFolderRoot, runtime);
   const auth = runtime.modelRuntime.getProvider(id)?.auth;
   if (method === "oauth" ? !auth?.oauth : !auth?.apiKey?.login) throw new Error(`Provider ${id} does not offer ${method} login.`);
   try {
@@ -545,16 +545,16 @@ export async function loginPiProvider(
 }
 
 export async function setPiDefaultModel(
-  spaceRoot: string,
+  workFolderRoot: string,
   model: PiPreferredModel,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<void> {
-  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
-  await loadRuntimeProviders(spaceRoot, runtime);
+  const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider, { requestProjectTrust: false });
+  await loadRuntimeProviders(workFolderRoot, runtime);
   const selected = runtime.modelRuntime.getModel(model.provider.trim(), model.id.trim());
   if (!selected) throw new Error(`Model not found: ${model.provider}/${model.id}`);
   if (runtimeProvider?.setPreferredModel) {
-    await runtimeProvider.setPreferredModel(spaceRoot, { provider: selected.provider, id: selected.id });
+    await runtimeProvider.setPreferredModel(workFolderRoot, { provider: selected.provider, id: selected.id });
     return;
   }
   runtime.settingsManager.setDefaultModelAndProvider(selected.provider, selected.id);
@@ -575,52 +575,52 @@ export async function refreshPiModelCatalog(
 }
 
 export async function setPiProjectTrust(
-  spaceRoot: string,
+  workFolderRoot: string,
   decision: boolean | null,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<void> {
-  const config = await runtimeProvider?.resolveRuntime(spaceRoot) ?? {};
+  const config = await runtimeProvider?.resolveRuntime(workFolderRoot) ?? {};
   const agentDir = config.agentDir ?? defaultAgentSdkDir();
   await mkdir(agentDir, { recursive: true });
-  new ProjectTrustStore(agentDir).set(spaceRoot, decision);
+  new ProjectTrustStore(agentDir).set(workFolderRoot, decision);
 }
 
 export async function listPiPackages(
-  spaceRoot: string,
+  workFolderRoot: string,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<PiConfiguredPackage[]> {
-  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
-  return createPackageManager(spaceRoot, runtime).listConfiguredPackages();
+  const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider, { requestProjectTrust: false });
+  return createPackageManager(workFolderRoot, runtime).listConfiguredPackages();
 }
 
 export async function installPiPackage(
-  spaceRoot: string,
+  workFolderRoot: string,
   source: string,
   options: PiPackageMutationOptions = {},
 ): Promise<void> {
   const packageSource = source.trim();
   if (!packageSource) throw new Error("Package source is required.");
-  const runtime = await resolvePiRuntime(spaceRoot, options.runtimeProvider, { requestProjectTrust: false });
+  const runtime = await resolvePiRuntime(workFolderRoot, options.runtimeProvider, { requestProjectTrust: false });
   assertPiProjectMutationTrusted(runtime, options.scope);
-  const manager = createPackageManager(spaceRoot, runtime, options.onProgress);
+  const manager = createPackageManager(workFolderRoot, runtime, options.onProgress);
   await manager.installAndPersist(packageSource, { local: options.scope === "project" });
   await runtime.settingsManager.flush();
 }
 
 export async function removePiPackage(
-  spaceRoot: string,
+  workFolderRoot: string,
   source: string,
   options: PiPackageMutationOptions = {},
 ): Promise<boolean> {
   const packageSource = source.trim();
   if (!packageSource) throw new Error("Package source is required.");
-  const runtime = await resolvePiRuntime(spaceRoot, options.runtimeProvider, { requestProjectTrust: false });
+  const runtime = await resolvePiRuntime(workFolderRoot, options.runtimeProvider, { requestProjectTrust: false });
   assertPiProjectMutationTrusted(runtime, options.scope);
-  const manager = createPackageManager(spaceRoot, runtime, options.onProgress);
+  const manager = createPackageManager(workFolderRoot, runtime, options.onProgress);
   const configured = manager.listConfiguredPackages().find((item) =>
     item.source === packageSource && item.scope === (options.scope ?? "user"));
   // Local project sources are persisted relative to `.pi/settings.json` while
-  // remove input is normally resolved from the Space root. Feed the resolved
+  // remove input is normally resolved from the work-folder root. Feed the resolved
   // path back to Pi so a source copied directly from listPiPackages matches.
   const removalSource = configured?.installedPath && !isManagedPackageSource(packageSource)
     ? configured.installedPath
@@ -631,13 +631,13 @@ export async function removePiPackage(
 }
 
 export async function updatePiPackages(
-  spaceRoot: string,
+  workFolderRoot: string,
   source: string | undefined,
   options: PiPackageMutationOptions = {},
 ): Promise<void> {
-  const runtime = await resolvePiRuntime(spaceRoot, options.runtimeProvider, { requestProjectTrust: false });
+  const runtime = await resolvePiRuntime(workFolderRoot, options.runtimeProvider, { requestProjectTrust: false });
   assertPiProjectMutationTrusted(runtime, options.scope);
-  const manager = createPackageManager(spaceRoot, runtime, options.onProgress);
+  const manager = createPackageManager(workFolderRoot, runtime, options.onProgress);
   const packageSource = source?.trim() || undefined;
   if (!options.scope) {
     await manager.update(packageSource);
@@ -667,7 +667,7 @@ function assertPiProjectMutationTrusted(
   scope: PiPackageMutationOptions["scope"],
 ): void {
   if (scope === "project" && !hasExplicitPiProjectMutationTrust(runtime)) {
-    throw new Error("Trust this Space before changing Space-scoped capabilities.");
+    throw new Error("Trust this work-folder before changing its Skills & Extensions.");
   }
 }
 
@@ -709,12 +709,12 @@ function applyModelCatalogs(registry: ModelRuntime, catalogs: PiModelCatalog[]):
 }
 
 async function loadRuntimeProviders(
-  spaceRoot: string,
+  workFolderRoot: string,
   runtime: ResolvedPiRuntime,
 ): Promise<Array<{ type: "info" | "warning" | "error"; message: string }>> {
   await runtime.modelRuntime.refresh({ allowNetwork: false });
   const services = await createAgentSessionServices({
-    cwd: spaceRoot,
+    cwd: workFolderRoot,
     agentDir: runtime.agentDir,
     settingsManager: runtime.settingsManager,
     modelRuntime: runtime.modelRuntime,
@@ -723,8 +723,8 @@ async function loadRuntimeProviders(
       additionalSkillPaths: runtime.config.additionalSkillPaths,
       additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
       additionalThemePaths: runtime.config.additionalThemePaths,
-      appendSystemPromptOverride: (base) => appendAssistantInstructions(base, runtime.config.assistantInstructions),
-      ...await includedResourceOptions(spaceRoot, runtime, "catalog"),
+      appendSystemPromptOverride: (base) => appendWorkerInstructions(base, runtime.config.workerInstructions),
+      ...await includedResourceOptions(workFolderRoot, runtime, "catalog"),
     },
   });
   applyPiRuntimeDefaults(runtime.settingsManager);
@@ -738,12 +738,12 @@ async function loadRuntimeProviders(
 }
 
 function createPackageManager(
-  spaceRoot: string,
+  workFolderRoot: string,
   runtime: ResolvedPiRuntime,
   onProgress?: (event: ProgressEvent) => void,
 ): DefaultPackageManager {
   const manager = new DefaultPackageManager({
-    cwd: spaceRoot,
+    cwd: workFolderRoot,
     agentDir: runtime.agentDir,
     settingsManager: runtime.settingsManager,
   });
@@ -752,15 +752,15 @@ function createPackageManager(
 }
 
 async function resolveProjectTrust(
-  spaceRoot: string,
+  workFolderRoot: string,
   agentDir: string,
   settings: SettingsManager,
   policy: PiProjectTrustPolicy | undefined,
   allowRequest: boolean,
 ): Promise<ResolvedPiRuntime["projectTrust"]> {
-  const required = hasTrustRequiringProjectResources(spaceRoot);
+  const required = hasTrustRequiringProjectResources(workFolderRoot);
   const store = new ProjectTrustStore(agentDir);
-  const savedDecision = store.get(spaceRoot);
+  const savedDecision = store.get(workFolderRoot);
   if (!required) return { required: false, trusted: true, savedDecision };
   if (typeof policy?.override === "boolean") {
     return { required: true, trusted: policy.override, savedDecision };
@@ -775,13 +775,13 @@ async function resolveProjectTrust(
   if (!allowRequest || !policy?.request) return { required: true, trusted: false, savedDecision };
 
   const rawDecision = await policy.request({
-    spaceRoot,
+    workFolderRoot,
     hasProjectResources: true,
     savedDecision,
     defaultDecision,
   });
   const decision = typeof rawDecision === "boolean" ? { trusted: rawDecision } : rawDecision;
-  if (decision.remember) store.set(spaceRoot, decision.trusted);
+  if (decision.remember) store.set(workFolderRoot, decision.trusted);
   return {
     required: true,
     trusted: decision.trusted,

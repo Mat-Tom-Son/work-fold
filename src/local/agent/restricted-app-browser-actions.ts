@@ -368,7 +368,7 @@ function assertScope(record: ActionRecord, scope: RestrictedAppTaskScope, owner:
   if (!same(record.scope, scope) || !same(record.owner, owner)) denied("This request belongs to a different app revision, permission selection, or browser.");
 }
 function validateScope(value: unknown): asserts value is RestrictedAppTaskScope {
-  exact(value, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest"]);
+  exact(value, ["workFolderId", "appId", "featureInstallationId", "digest", "authorityDigest"]);
   if (Object.values(value).some((item) => typeof item !== "string" || !item.length || item.length > 200)
     || !/^[a-f0-9]{64}$/.test(String(value.digest)) || !/^[a-f0-9]{64}$/.test(String(value.authorityDigest))) invalid("The app scope is invalid.");
 }

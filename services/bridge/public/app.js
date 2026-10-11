@@ -25,13 +25,13 @@ const localSlug = new URL(location.href).searchParams.get("slug") || "";
 const coarsePointer = matchMedia("(pointer: coarse)").matches;
 
 // ?fixture=new|chat|needs renders canned local state for QA (the desktop
-// renderer's ?fixture=space precedent). Fixture mode is client-side only and
+// renderer's ?fixture=work-folder precedent). Fixture mode is client-side only and
 // inert against the real API: api() and remote() refuse before any fetch or
 // auth material is touched, and the event stream never opens.
 const fixtureName = (() => {
   const requested = new URL(location.href).searchParams.get("fixture");
   if (requested === "home" || requested === "chats") return "new";
-  if (requested === "files" || requested === "spaces") return "new";
+  if (requested === "files" || requested === "work-folders") return "new";
   if (requested === "needs") return "chat";
   return requested === "new" || requested === "chat" ? requested : null;
 })();
@@ -96,7 +96,7 @@ const state = {
   conversationsLoaded: false,
   filePreviewAvailable: false,
   sharedPagesAvailable: false,
-  spaceApps: new Map(),
+  workFolderApps: new Map(),
   transcriptLoading: false,
   sessionRebooting: false,
   rateLimitedUntil: 0,
@@ -136,24 +136,24 @@ function updateCapabilities(capabilities) {
     sharedPages?.capabilityChanged();
   }
 }
-function openFilePreview(spaceId, path) {
+function openFilePreview(workFolderId, path) {
   filePreview ??= createFilePreview({
     available: () => Boolean(fixtureName || state.filePreviewAvailable),
     online: () => Boolean(state.session?.desktopOnline),
-    fetchPreview: readSpaceFilePreview,
+    fetchPreview: readWorkFolderFilePreview,
   });
-  void filePreview.open({ spaceId, path, spaceName: "work-folder" });
+  void filePreview.open({ workFolderId, path, workFolderName: "work-folder" });
 }
 
-async function readSpaceFilePreview(selectedSpaceId, selectedPath) {
+async function readWorkFolderFilePreview(selectedWorkFolderId, selectedPath) {
   if (fixtureName) {
     const text = selectedPath.endsWith(".csv") ? "item,next_step\nTwo invoices,Match purchase orders\nTravel,Reconcile category labels"
       : selectedPath === "delivery-plan.md" ? "# Delivery plan\n\nDelivery target: five days."
       : selectedPath === "notes.md" ? `# Field notes\n\n${"Keep the original quote and delivery estimate together so the next review has the same evidence.\n\n".repeat(60)}`
         : "# Quarterly summary\n\nRevenue is up **12%**.\n\n| Item | Next step |\n|---|---|\n| Two invoices | Match purchase orders |\n| Travel | Reconcile category labels |";
-    return { spaceId: selectedSpaceId, path: selectedPath, kind: "text", format: selectedPath.endsWith(".md") ? "markdown" : "text", text, truncated: false };
+    return { workFolderId: selectedWorkFolderId, path: selectedPath, kind: "text", format: selectedPath.endsWith(".md") ? "markdown" : "text", text, truncated: false };
   }
-  return (await remote("spaces.filePreview", { spaceId: selectedSpaceId, path: selectedPath })).preview;
+  return (await remote("work-folders.filePreview", { workFolderId: selectedWorkFolderId, path: selectedPath })).preview;
 }
 
 
@@ -164,19 +164,19 @@ const fixtureAppActions = createFixtureAppActions();
 
 function openBrowserAppResult(reference) {
   void browserAppController().open({ ...reference, title: reference.label, webView: true, sourceDigest: reference.digest,
-    spaceName: "work-folder" });
+    workFolderName: "work-folder" });
 }
 function browserAppController() {
   browserApp ??= createBrowserAppView({
     actions: async (app, operation, input) => {
       if (fixtureName) return fixtureAppActions(app, operation, input);
-      const { spaceId, appId, featureInstallationId, digest, authorityDigest } = app;
-      return remote(`apps.actions.${operation}`, { spaceId, appId, featureInstallationId, digest, authorityDigest, ...input });
+      const { workFolderId, appId, featureInstallationId, digest, authorityDigest } = app;
+      return remote(`apps.actions.${operation}`, { workFolderId, appId, featureInstallationId, digest, authorityDigest, ...input });
     },
     online: () => Boolean(state.session?.desktopOnline),
     resolve: async (app) => {
-      if (fixtureName) return (state.spaceApps.get(app.spaceId) ?? []).find((item) => item.featureInstallationId === app.featureInstallationId);
-      const result = await remote("apps.list", { spaceId: app.spaceId });
+      if (fixtureName) return (state.workFolderApps.get(app.workFolderId) ?? []).find((item) => item.featureInstallationId === app.featureInstallationId);
+      const result = await remote("apps.list", { workFolderId: app.workFolderId });
       return (result.apps ?? []).find((item) => item.featureInstallationId === app.featureInstallationId);
     },
     read: async (app, call) => {
@@ -187,8 +187,8 @@ function browserAppController() {
             : { kind: "data.keys", keys: ["quotes:north"] };
         return { state: "served", result: { ok: true, result } };
       }
-      const { spaceId, appId, featureInstallationId, digest, authorityDigest } = app;
-      return remote("apps.read", { spaceId, appId, featureInstallationId, digest, authorityDigest, call });
+      const { workFolderId, appId, featureInstallationId, digest, authorityDigest } = app;
+      return remote("apps.read", { workFolderId, appId, featureInstallationId, digest, authorityDigest, call });
     },
   });
   return browserApp;
@@ -1018,7 +1018,7 @@ function renderMessages() {
   );
   if (working && state.liveAssistantText) {
     visible.push({
-      id: `live-assistant:${state.selectedConversationId ?? "management"}`,
+      id: `live-assistant:${state.selectedConversationId ?? "agent"}`,
       role: "assistant",
       content: state.liveAssistantText,
       streaming: true,
@@ -1058,16 +1058,16 @@ function renderMessages() {
     ${working && !visibleWork && !state.liveAssistantText ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working…")}</span></div>` : ""}
     ${!visibleWork && requestPhase === "failed" ? `<p class="request-outcome">Couldn’t finish${request.error ? `: ${escapeHtml(request.error)}` : "."}</p>` : ""}
     ${results.length ? `<details class="request-deliverables"${resultsOpen ? " open" : ""}><summary>Files and apps</summary><div class="request-result-links">${results.map((result) => result.kind === "file"
-      ? `<button type="button" data-space-id="${escapeAttribute(result.spaceId)}" data-result-file="${escapeAttribute(result.path)}" title="${escapeAttribute(result.spaceName)} · ${escapeAttribute(result.path)}">${escapeHtml(result.label)}</button>`
-      : `<button type="button" data-space-id="${escapeAttribute(result.spaceId)}" data-result-app="${escapeAttribute(result.featureInstallationId)}">${escapeHtml(result.label)}</button>`).join("")}</div></details>` : ""}
+      ? `<button type="button" data-space-id="${escapeAttribute(result.workFolderId)}" data-result-file="${escapeAttribute(result.path)}" title="${escapeAttribute(result.workFolderName)} · ${escapeAttribute(result.path)}">${escapeHtml(result.label)}</button>`
+      : `<button type="button" data-space-id="${escapeAttribute(result.workFolderId)}" data-result-app="${escapeAttribute(result.featureInstallationId)}">${escapeHtml(result.label)}</button>`).join("")}</div></details>` : ""}
   `);
   if (workChanged) {
     const resultLinks = requestResultLinks(request);
     for (const button of workStatus.querySelectorAll("[data-result-app]")) button.addEventListener("click", () => {
-      const reference = resultLinks.find((item) => item.kind === "app" && item.featureInstallationId === button.dataset.resultApp && item.spaceId === button.dataset.spaceId);
+      const reference = resultLinks.find((item) => item.kind === "app" && item.featureInstallationId === button.dataset.resultApp && item.workFolderId === button.dataset.workFolderId);
       if (reference) openBrowserAppResult(reference);
     });
-    for (const button of workStatus.querySelectorAll("[data-result-file]")) button.addEventListener("click", () => openFilePreview(button.dataset.spaceId, button.dataset.resultFile));
+    for (const button of workStatus.querySelectorAll("[data-result-file]")) button.addEventListener("click", () => openFilePreview(button.dataset.workFolderId, button.dataset.resultFile));
   }
   if (container.dataset.rendered !== "true") container.dataset.rendered = "true";
   if (!sameConversation || (wasNearBottom && (noticeChanged || messagesChanged || workChanged))) {
@@ -2179,7 +2179,7 @@ function renderBanner() {
 function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
   closeFilePreview();
   sharedPages?.destroy(); sharedPages = null;
-  browserApp?.destroy(); browserApp = null; state.spaceApps.clear();
+  browserApp?.destroy(); browserApp = null; state.workFolderApps.clear();
   app.innerHTML = `<main class="auth-shell">
     <header class="auth-top"><span class="brand" role="img" aria-label="work-fold"><img class="brand-lockup brand-lockup-black" src="/brand-lockup-black.png" alt="" /><img class="brand-lockup brand-lockup-white" src="/brand-lockup-white.png" alt="" /></span></header>
     <section class="auth-stage"><div class="auth-copy"><p class="eyebrow">${eyebrow}</p><h1>${headline}</h1>${supporting ? `<p>${supporting}</p>` : ""}</div><div class="auth-panel">${panel}</div></section>

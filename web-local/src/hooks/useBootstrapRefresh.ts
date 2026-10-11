@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { api, errorText } from "../lib/api";
 import type { BootstrapResponse } from "../types";
 
-/** Older registry reads must never resurrect a Space removed by a newer read. */
+/** Older registry reads must never resurrect a work-folder removed by a newer read. */
 export function useBootstrapRefresh(enabled: boolean, receive: (value: BootstrapResponse) => void, onError: (message: string) => void) {
   const callbacks = useRef({ receive, onError });
   callbacks.current = { receive, onError };

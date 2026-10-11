@@ -5,7 +5,7 @@ import { copyFile, lstat, mkdir, open, opendir, rename, unlink } from "node:fs/p
 import { basename, dirname, join } from "node:path";
 
 import { normalizeWorkFoldCheckTargetPath, type WorkFoldCheckDeclaration } from "../../shared/checks.js";
-import { spaceCheckStateFile } from "../state-paths.js";
+import { workFolderCheckStateFile } from "../state-paths.js";
 import {
   workFoldCheckStateVersion,
   type WorkFoldCheckAuthorization,
@@ -27,8 +27,8 @@ export interface WorkFoldCheckStoreOptions {
 }
 
 /** Removal-only cleanup: revoke Check bytes without trusting or parsing them. */
-export async function purgeWorkFoldCheckState(spaceId: string, options: WorkFoldCheckStoreOptions = {}): Promise<void> {
-  const path = options.path ?? spaceCheckStateFile(spaceId);
+export async function purgeWorkFoldCheckState(workFolderId: string, options: WorkFoldCheckStoreOptions = {}): Promise<void> {
+  const path = options.path ?? workFolderCheckStateFile(workFolderId);
   for (const candidate of [path, `${path}.bak`]) {
     await unlink(candidate).catch((error: unknown) => {
       if (!isMissingFile(error)) throw error;
@@ -68,8 +68,8 @@ export class WorkFoldCheckStore {
     this.#preserveBackupOnNextWrite = preserveBackupOnNextWrite;
   }
 
-  static async create(spaceId: string, options: WorkFoldCheckStoreOptions = {}): Promise<WorkFoldCheckStore> {
-    const path = options.path ?? spaceCheckStateFile(spaceId);
+  static async create(workFolderId: string, options: WorkFoldCheckStoreOptions = {}): Promise<WorkFoldCheckStore> {
+    const path = options.path ?? workFolderCheckStateFile(workFolderId);
     let firstError: unknown;
     for (const candidate of [path, `${path}.bak`]) {
       const source = await readBoundedStateFile(candidate).catch((error: unknown) => {
