@@ -145,6 +145,13 @@ for one-act undo, and requires the running app's per-launch act token — the au
 replay-protected, receipted transport defined in [the work-fold agent layer](work-fold-agent-and-cli.md). The
 npm-script primitive stays inert and import-only.
 
+`work-fold work-folders appearance apply` can also change just the parts named instead of importing a
+proposal: `--banner-image <path>`, `--icon <name>`, and `--color <#rrggbb>`, in any combination (never with
+`--proposal`). Each named part replaces only itself, and the rest of the appearance stays. The banner image is
+read host-side, resized to fit 1600×640, and stored as the same bounded data URL an upload uses, with any preset
+and framing cleared so it shows whole. It is the same journaled act with the same one-step undo. A Worker uses
+it to make a picture from [image generation](image-generation.md) the work-folder's banner.
+
 ## Verification
 
 The normal gates cover the shared contract, clean-profile store, renderer API, UI structure, and package:

@@ -1046,7 +1046,15 @@ export interface WorkFoldActFacade {
    * the act lane (for example on the desktop), because the recorded prior
    * state then no longer describes what would be displaced.
    */
-  workFoldersAppearanceApply(input: { workFolder: string; proposalPath: string; cwd: string; parentTaskId?: string }): Promise<{
+  workFoldersAppearanceApply(input: {
+    workFolder: string;
+    /** A typed proposal that replaces the whole appearance… */
+    proposalPath?: string;
+    /** …or just these parts, keeping the rest. The image path resolves against `cwd`. */
+    parts?: { bannerImagePath?: string; icon?: string; color?: string };
+    cwd: string;
+    parentTaskId?: string;
+  }): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     applied: true;
     proposalName: string;
