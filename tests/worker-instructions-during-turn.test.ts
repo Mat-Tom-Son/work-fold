@@ -48,10 +48,20 @@ test("Worker instructions save while a turn runs, and that Chat picks them up wh
   });
   try {
     const { workFolder } = await api.actFacade.createWorkFolder({ name: "Garden" });
-    const settled = (taskId: string) => () => {
-      const state = api.requests.byTaskId(taskId)?.turns.at(-1)?.state;
-      return state !== undefined && state !== "accepted" && state !== "running";
+    // A finished turn's request settles a moment before its Chat takes the next message.
+    const sendWhenFree = async (content: string, conversationId: string) => {
+      const deadline = Date.now() + 20_000;
+      for (;;) {
+        try {
+          return await api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId, content });
+        } catch (error) {
+          if (!/Wait for the current agent turn to finish/.test(String(error)) || Date.now() > deadline) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
     };
+    // Settled means the request itself finished, not just its latest turn.
+    const settled = (taskId: string) => () => ["done", "partial", "failed", "stopped"].includes(api.requests.byTaskId(taskId)?.state ?? "");
 
     // The Worker is mid-turn when it saves its own work-folder's instructions.
     holdNext = true;
@@ -66,14 +76,14 @@ test("Worker instructions save while a turn runs, and that Chat picks them up wh
 
     // That Chat's next turn runs on a rebuilt session that carries the new instructions.
     const builds = sessionInstructions.length;
-    const second = await api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: first.conversationId, content: "/noop" });
+    const second = await sendWhenFree("/noop", first.conversationId);
     await waitFor(settled(second.taskId), "the second turn to finish");
     assert.ok(sessionInstructions.length > builds, "the Chat's client was rebuilt");
     assert.equal(sessionInstructions.at(-1), "This folder plans the spring vegetable garden.");
 
     // An idle Chat rebuilds at once.
     await api.actFacade.workerSetInstructions({ workFolder: workFolder.id, instructions: "Keep seed orders in Supplies." });
-    const third = await api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: first.conversationId, content: "/noop" });
+    const third = await sendWhenFree("/noop", first.conversationId);
     await waitFor(settled(third.taskId), "the third turn to finish");
     assert.equal(sessionInstructions.at(-1), "Keep seed orders in Supplies.");
   } finally {
