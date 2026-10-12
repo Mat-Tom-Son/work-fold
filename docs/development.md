@@ -123,11 +123,17 @@ extra repository instruction source.
   It verifies shared files and paths, not model obedience or personal settings.
 - `npm run check` runs repository hygiene plus both TypeScript checks.
 - `npm test` runs the application suite. While editing, run a focused file with
-  `node --import tsx --test tests/documentation-contract.test.ts`, substituting
-  the relevant test file. Use the full suite before handing off behavior changes.
+  `npm test -- tests/documentation-contract.test.ts`, substituting the relevant
+  test files. Use the full suite before handing off behavior changes.
   The runner can divide the discovered test files into four disjoint shards;
   run one with `npm test -- --shard=1/4` (through `4/4`). Every file belongs to exactly
   one shard; an unsharded `npm test` still runs everything.
+- Tests never use your real Pi folder. The runner points `PI_CODING_AGENT_DIR`
+  at a temporary folder for every test process, so no test reads your
+  provider credentials or writes sessions, settings, or locks into `~/.pi`, and
+  it fails the run and names the test file if anything still changes the real
+  folder. Running a test file directly with `node --import tsx --test` skips
+  that isolation; use `npm test -- <file>` instead.
 - `npm ci --prefix services/bridge` and `npm test --prefix services/bridge` run
   the bridge suite. It uses an in-memory test database; a live PostgreSQL server
   or Railway account is not required for those tests.

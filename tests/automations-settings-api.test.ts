@@ -192,10 +192,9 @@ test("automations enable is direct and an agent step opens a new management thre
   assert.equal((await api.automations.getAutomation(enabled.automationId))?.grants.length, 1);
 
   await api.automationSettings.run(enabled.automationId);
-  // A fold hop opens a real work-fold agent Chat and runs a real Pi turn against
-  // it. Building that session is the slowest thing in the suite: measured
-  // between 4 s idle and 17 s while the rest of the suite shares the machine,
-  // so the budget is generous on purpose. It bounds a hang, not a slow start.
+  // A fold hop opens a real work-fold agent Chat and starts a real Pi turn
+  // against it. The budget is generous on purpose: it bounds a hang, not a
+  // slow start while the rest of the suite shares the machine.
   await waitFor(async () => {
     const history = await api.automationSettings.history(enabled.automationId);
     return history.runs[0]?.hops[0]?.outcome !== undefined && history.runs[0]?.hops[0]?.outcome !== "accepted";
@@ -214,11 +213,12 @@ test("automations enable is direct and an agent step opens a new management thre
   }], "the receipt records exactly what work-fold filled in");
   assert.equal(terminal?.messageBytes, "Started by hand. Say hello.".length);
 
-  // In this sandbox the work-fold agent turn settles on its own (the hop records
-  // `succeeded` with a real conversation id). Without prepared management
-  // instructions the hop would instead fail honestly, so both branches are
-  // asserted; what must hold either way is that a *new* management thread
-  // carries the filled-in message as its first person-visible message.
+  // The runner's temporary Pi folder has no provider credentials, so the turn
+  // itself ends failed and the hop reports that with its real conversation id.
+  // Without prepared management instructions there would be no conversation
+  // at all, so both branches are asserted; what must hold either way is that a
+  // *new* management thread carries the filled-in message as its first
+  // person-visible message.
   if (terminal?.conversationId) {
     const transcript = await readFile(
       join(workFoldAgentRoot(), ".work-fold", "conversations", `${terminal.conversationId}.jsonl`),
