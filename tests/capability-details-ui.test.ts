@@ -56,7 +56,7 @@ test("installed details keep metadata collapsed while setup, failures and contro
   assert.doesNotMatch(dom.container.textContent!, /None registered|Flags|Commands|Executable capability|obsolete explanation/);
   const button = (name: string) => [...dom.container.querySelectorAll("button")].find((item) => item.textContent === name)!;
   await dom.act(() => button("Connect Chrome").click());
-  assert.deepEqual(writes, [{ workFolderId: "workshop", id: "chrome", action: "connect-chrome" }]);
+  assert.deepEqual(writes, [{ workFolderId: "workshop", id: "chrome", action: "connect-chrome" }], "before its status is known, Chrome keeps the plain Connect action");
   assert.match(dom.container.textContent!, /Connecting/);
   assert.doesNotMatch(dom.container.textContent!, /Load unpacked|Developer mode|Copy folder path/);
   await dom.act(() => technical.querySelector("summary")!.click());
@@ -299,9 +299,13 @@ test("Chrome Store setup observes the authenticated handshake and a refused disc
   await dom.render(createElement(IncludedChromeSetup, { workFolderId: "first", enabled: true }));
   await dom.waitFor(() => dom.container.textContent!.includes("Not Connected"));
   assert.deepEqual(posts, [], "opening setup reads status without registration or launch");
-  await dom.act(() => { button("Connect Chrome").click(); button("Connect Chrome")?.click(); });
-  await dom.waitFor(() => dom.container.textContent!.includes("In Chrome, choose Connect."));
-  assert.ok(button("Cancel"), "a successful Store opening starts observation even before a profile is selected");
+  // Two steps: add the extension, then choose Connect in it.
+  assert.match(dom.container.textContent!, /Add the work-fold extension/);
+  assert.match(dom.container.textContent!, /Choose Connect in the extension/);
+  assert.equal(button("Check"), undefined, "nothing to check before a profile is selected");
+  await dom.act(() => { button("Open Chrome Web Store").click(); button("Open Chrome Web Store")?.click(); });
+  await dom.waitFor(() => posts.length === 1 && !dom.container.querySelector('[aria-busy="true"]'));
+  assert.match(dom.container.textContent!, /This page updates by itself/, "a successful Store opening keeps watching for Connect");
   assert.equal(posts.length, 1);
   assert.equal(posts[0]!.action, "connect-chrome");
   assert.notEqual(dom.container.querySelector('[role="status"]')!.textContent, "Connected", "issuing a native lease does not establish browser readiness");
@@ -345,8 +349,8 @@ test("missing Store identity has no invented install link and closing setup neve
   assert.equal([...dom.container.querySelectorAll("button")].some((button) => button.textContent === "Connect Chrome"), false);
   state = "not_connected";
   await dom.act(() => window.dispatchEvent(new Event("focus")));
-  await dom.waitFor(() => dom.container.textContent!.includes("Connect Chrome"));
-  await dom.act(() => [...dom.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Connect Chrome")!.click());
+  await dom.waitFor(() => dom.container.textContent!.includes("Open Chrome Web Store"));
+  await dom.act(() => [...dom.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Open Chrome Web Store")!.click());
   await dom.render(null);
   const before = delivered.length;
   state = "connected";

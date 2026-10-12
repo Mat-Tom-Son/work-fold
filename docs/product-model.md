@@ -109,7 +109,10 @@ GPT-6.1 Sol; Claude: Claude Opus 4.8; OpenRouter: GPT-6 Luna; Google: Gemini
 choice, the composer, and the status agree on the model in use. A failed turn
 whose reply already explains the failure shows no second status line. ChatGPT
 sign-in is offered once, under OpenAI; Pi's legacy ChatGPT entry appears only
-while it is connected.
+while it is connected. When the desktop app includes Chrome and Computer Control
+and either is not yet set up, first run adds an optional **Let your Worker use
+your Mac** step before the folder, with each tool's setup inline; the included
+tools' setup works with or without a work-folder.
 
 AI Models lists Pi's complete provider catalog and uses its advertised sign-in
 methods and labels. Providers with no chat models can connect without changing
@@ -494,7 +497,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Extend the shipped personal act lane with Chat-scoped grants, confirmation and revocation ceremonies, and headless execution, if the surface ever outgrows the per-launch single-user token.
 - Extend the shipped fold and bounded Automation triggers only through deliberate contracts for any new event source, handoff condition, or recovery behavior. Cross-work-folder coordination stays in the work-fold agent; work-folder Chats remain local to their own work.
 - Add restricted-app remote subscriptions and arbitrary push adapters, finer web-runtime resource controls, and a verified work-folder-service registry backed by a trusted launcher, per-instance challenge, and process-generation lifecycle. Raw numeric loopback grants remain useful for development but do not prove which process owns a port.
-- Extend first run with optional Chrome and Computer Control setup, deepen accessibility coverage beyond the shipped keyboard reach, renderer interaction tests, recovery, export, and diagnostics.
+- Offer Chrome and Computer Control setup in a Chat the first time a Worker needs them, deepen accessibility coverage beyond the shipped keyboard reach, renderer interaction tests, recovery, export, and diagnostics.
 
 ### Later adapters and distribution maturity
 

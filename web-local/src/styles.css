@@ -648,6 +648,58 @@ body:has(> #root > .desktop-chrome-shell) {
   }
 }
 
+.onboarding-tool-list {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+
+.onboarding-tool {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+}
+
+.onboarding-tool-header {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  color: var(--ui-text);
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.onboarding-tool-header > svg:first-child {
+  color: var(--ui-accent);
+}
+
+.onboarding-tool-header span {
+  display: grid;
+  gap: 2px;
+  color: var(--ui-text-muted);
+  font-size: 0.84rem;
+}
+
+.onboarding-tool-header strong {
+  color: var(--ui-text);
+  font-size: 0.95rem;
+}
+
+.onboarding-tool.open .onboarding-tool-header > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.onboarding-tool-body {
+  padding: 0 16px 16px;
+}
+
 /* Connect your AI: first run, the Connect AI dialog, and AI Models while nothing is connected. */
 .connect-ai {
   width: 100%;

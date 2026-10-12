@@ -30,3 +30,23 @@
 .included-mcp-form input, .included-mcp-form select, .included-mcp-form textarea { width: 100%; box-sizing: border-box; color: inherit; background: transparent; border: 1px solid var(--border-color, #80808055); border-radius: 6px; padding: 8px; }
 .included-mcp-form summary { cursor: pointer; }
 .included-mcp-auth { padding: 8px 0; }
+
+/* Computer Control's permission checklist and Chrome's two steps (2026-10-11). */
+.setup-checklist { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.setup-checklist li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); }
+.setup-checklist li > svg { color: var(--ui-text-subtle); }
+.setup-checklist li.done > svg { color: var(--ui-success); }
+.setup-checklist li span strong { margin-right: 4px; }
+.setup-checklist li span { color: var(--ui-text-muted); }
+.setup-checklist li span strong { color: var(--ui-text); }
+.setup-checklist-state { color: var(--ui-success); font-size: 0.82rem; font-weight: 650; }
+.setup-checklist .ui-control { min-height: 30px; padding-block: 4px; }
+.included-tool-setup .setup-hint { color: var(--ui-text-muted); font-size: 0.86rem; }
+.included-tool-setup .setup-waiting { display: inline-flex; align-items: center; gap: 8px; color: var(--ui-text-muted); }
+.setup-steps { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 10px; }
+.setup-steps li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 12px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); }
+.setup-steps li > div { display: grid; gap: 4px; justify-items: start; }
+.setup-steps li > div > span { color: var(--ui-text-muted); line-height: 1.45; }
+.setup-steps li .ui-control { margin-top: 6px; }
+.setup-step-mark { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--ui-border-strong); color: var(--ui-text-muted); font-size: 0.8rem; font-weight: 700; }
+.setup-steps li.done .setup-step-mark { color: var(--ui-surface); background: var(--ui-success); border-color: var(--ui-success); }

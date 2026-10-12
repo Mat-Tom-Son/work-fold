@@ -165,10 +165,16 @@ explicit **Check**. Use coalesces no-launch permission observations for thirty
 seconds without delaying tool results. After five minutes a successful observation becomes neutral **Last
 Check Passed**, preserving its timestamp, until another observation replaces it.
 An idle helper is unverified rather than unavailable. **Check** never repairs the
-helper or disposes Chat sessions. **Start and Check** verifies the immutable
-helper and starts it if needed, without repair, permission prompts or peer Chat
-disposal. **Repair and Recheck** is the explicit setup
-operation under the existing capability mutation fence.
+helper or disposes Chat sessions. Setup (2026-10-11) is one **Allow Computer
+Control** button: it asks macOS for both permissions, then watches every two
+seconds for up to five minutes, with a checklist that shows each permission and
+opens its System Settings pane, and the one sentence that names **work-fold
+Computer** as what to turn on. Once macOS reports Screen Recording allowed but
+the running helper cannot capture yet, setup restarts the helper once, because
+macOS applies the permission only after a restart. Allow finishes at once when
+both are already allowed, so a Not checked Computer Control offers **Set up**.
+**Restart helper** under Technical details is the explicit repair, under the
+existing capability mutation fence.
 
 Documents uses the run worker's own library and canvas verification, with no
 second readiness worker, or an explicit **Check**. That proof

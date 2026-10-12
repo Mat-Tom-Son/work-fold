@@ -43,6 +43,7 @@ function stubApi(t: TestContext, reply: (path: string, body: Record<string, unkn
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const path = String(input);
     if (path.startsWith("/api/agent/models")) return Response.json({ providers, models: [], status: { ...connectedStatus, configured: false, provider: null, model: null } });
+    if (path.startsWith("/api/agent/included-tools")) return Response.json({ tools: [] });
     const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
     posts.push({ path, body });
     return Response.json(reply(path, body));

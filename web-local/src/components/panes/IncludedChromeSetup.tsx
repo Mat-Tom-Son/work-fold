@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import type { ChromeSetupAction } from "../../../../src/shared/chrome-connection";
 import type { IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
 import { chromeConnectionReadiness } from "../../lib/included-tool-readiness";
+import { includedToolsPath, includedToolSetupBody } from "../../lib/included-tool-scope";
 
-type Props = { workFolderId: string; enabled: boolean; onStatusChange?: (status: IncludedToolStatus | null) => void };
+type Props = { workFolderId?: string; enabled: boolean; onStatusChange?: (status: IncludedToolStatus | null) => void };
+
+/** How long setup keeps watching for Connect in Chrome after it opens the Web Store. */
+const watchMs = 10 * 60_000;
 
 export function IncludedChromeSetup(props: Props) {
   return <ChromeSetupSession key={props.workFolderId} {...props} />;
@@ -35,7 +40,7 @@ function ChromeSetupSession({ workFolderId, enabled, onStatusChange }: Props) {
     readRequest.current = controller;
     const owner = ++revision.current;
     try {
-      const { tools } = await api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?workFolderId=${encodeURIComponent(workFolderId)}`, { signal: controller.signal });
+      const { tools } = await api<{ tools: IncludedToolStatus[] }>(includedToolsPath(workFolderId), { signal: controller.signal });
       if (alive.current && !controller.signal.aborted && owner === revision.current) {
         publish(tools.find((tool) => tool.id === "chrome") ?? null);
         setError((current) => current?.source === "read" ? null : current);
@@ -86,13 +91,13 @@ function ChromeSetupSession({ workFolderId, enabled, onStatusChange }: Props) {
     let accepted = false;
     try {
       const result = await api<{ status: IncludedToolStatus }>("/api/agent/included-tools/setup", {
-        method: "POST", signal: controller.signal, body: { workFolderId, id: "chrome", action: nextAction },
+        method: "POST", signal: controller.signal, body: includedToolSetupBody(workFolderId, "chrome", nextAction),
       });
       if (!alive.current || controller.signal.aborted) return;
       accepted = true;
       publish(result.status);
       if ((nextAction === "connect-chrome" || nextAction === "change-chrome-profile") && ["not_connected", "connecting"].includes(result.status.chrome?.state ?? "")) {
-        watchUntil.current = Date.now() + 120_000; setWatching(true);
+        watchUntil.current = Date.now() + watchMs; setWatching(true);
       } else if (nextAction === "disconnect-chrome") setWatching(false);
     } catch (caught) {
       if (alive.current && !controller.signal.aborted) setError({ source: "action", message: errorText(caught) });
@@ -113,23 +118,46 @@ function ChromeSetupSession({ workFolderId, enabled, onStatusChange }: Props) {
   const canConnect = (!hasSelection || state === "update_extension" || connection?.problem === "native_host_unavailable") && !["connected", "connecting", "store_unavailable", "app_not_running", "update_app", "profile_conflict", "busy"].includes(state ?? "");
   const pendingLabel = action === "check" ? "Checking…" : action === "disconnect-chrome" ? "Disconnecting…" : action === "change-chrome-profile" ? "Changing profile…" : action ? "Connecting…" : null;
   const cancelObservation = () => { setWatching(false); readRequest.current?.abort(); };
+  const setup = status?.chromeSetup;
+  const connected = state === "connected";
+  const needsChrome = setup?.browserInstalled === false && !connected && !hasSelection;
+  // Two steps a person can see: add the extension, then choose Connect in it.
+  // Either order works; work-fold accepts Connect from a freshly added extension.
+  const showSteps = enabled && !hasSelection && !needsChrome && canConnect && (state === "not_connected" || state === "native_host_missing");
+  const extensionAdded = setup?.extensionSeen === true;
   return <section className="included-tool-setup" aria-label="Chrome setup" aria-busy={Boolean(action)}>
-    <div className="included-tool-status"><strong role="status">{!enabled ? "Turned Off" : pendingLabel ?? presentation.label}</strong>
-      <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("check")}>Check</button>
+    <div className="included-tool-status"><strong role="status">{!enabled ? "Turned Off" : pendingLabel ?? (needsChrome ? "Chrome Not Installed" : presentation.label)}</strong>
+      {!showSteps && !needsChrome ? <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("check")}>Check</button> : null}
     </div>
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
+    {needsChrome ? <p>Your Worker browses with your own Google Chrome, signed in as you. <a href="https://www.google.com/chrome/" target="_blank" rel="noreferrer">Install Google Chrome</a>, then come back here.</p> : null}
+    {showSteps ? <>
+      <p>Your Worker browses with your own Google Chrome, signed in as you, through the work-fold extension.</p>
+      <ol className="setup-steps">
+        <li className={extensionAdded ? "done" : ""}>
+          <span className="setup-step-mark" aria-hidden="true">{extensionAdded ? <Check size={14} /> : "1"}</span>
+          <div><strong>Add the work-fold extension</strong><span>{extensionAdded ? "Added to Chrome." : "Opens the Chrome Web Store in Chrome. Choose Add to Chrome."}</span>
+            {!extensionAdded ? <button type="button" className="ui-control ui-control--primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : "Open Chrome Web Store"}</button> : null}
+          </div>
+        </li>
+        <li>
+          <span className="setup-step-mark" aria-hidden="true">2</span>
+          <div><strong>Choose Connect in the extension</strong><span>In Chrome, click the puzzle-piece icon in the toolbar, choose work-fold, then Connect. This page updates by itself.</span></div>
+        </li>
+      </ol>
+    </> : null}
+    {connected ? <p>Your Worker can browse with this Chrome profile.</p> : null}
     {state === "busy" ? <p>Stop Chrome work before changing the connection.</p> : null}
-    {enabled && watching && !hasSelection ? <p>In Chrome, choose Connect.</p> : null}
     {enabled && hasSelection && state === "connecting" ? <p>Reconnecting to your selected Chrome profile…</p> : null}
     {enabled && hasSelection && state === "not_connected" ? <p>Open Chrome. Your selected profile reconnects automatically.</p> : null}
     {enabled && state === "connection_error" ? <p>{status?.detail}</p> : null}
     <div className="included-tool-actions included-chrome-actions">
-      {canConnect ? <button type="button" className="ui-control ui-control--primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : state === "update_extension" ? "Update extension" : connection?.problem === "native_host_unavailable" ? "Repair Connection" : "Connect Chrome"}</button> : null}
+      {canConnect && !showSteps && !needsChrome ? <button type="button" className="ui-control ui-control--primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : state === "update_extension" ? "Update extension" : connection?.problem === "native_host_unavailable" ? "Repair Connection" : "Connect Chrome"}</button> : null}
       {hasSelection ? <>
         <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("change-chrome-profile")}>Change profile</button>
         <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("disconnect-chrome")}>Disconnect</button>
       </> : null}
-      {watching ? <button type="button" className="ui-control" disabled={Boolean(action)} onClick={cancelObservation}>Cancel</button> : null}
+      {watching && !showSteps ? <button type="button" className="ui-control" disabled={Boolean(action)} onClick={cancelObservation}>Cancel</button> : null}
     </div>
   </section>;
 }
