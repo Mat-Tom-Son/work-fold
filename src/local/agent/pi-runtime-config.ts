@@ -592,6 +592,45 @@ export async function setPiDefaultModel(
   await runtime.settingsManager.flush();
 }
 
+/**
+ * The model a newly connected provider starts on (2026-10-11), tried in order
+ * against its catalog. Pi keeps the same idea as `defaultModelPerProvider` but
+ * does not export it; OpenRouter leans to GPT-6 Luna here. A provider not
+ * listed, or whose listed models are gone, starts on its first model.
+ */
+const recommendedModels: Record<string, string[]> = {
+  openai: ["gpt-6.1-sol", "gpt-5.5"],
+  "openai-codex": ["gpt-6.1-sol", "gpt-5.5"],
+  anthropic: ["claude-opus-4-8"],
+  openrouter: ["openai/gpt-6-luna", "moonshotai/kimi-k2.6"],
+  google: ["gemini-3.1-pro-preview"],
+};
+
+/**
+ * After a provider is connected, makes sure every Worker without its own
+ * choice has a model it can use: when Pi's saved default is missing or its
+ * provider is not connected, saves the provider's recommended model as that
+ * default. Returns the model it saved, or undefined when it left the default.
+ */
+export async function ensurePiDefaultModel(
+  workFolderRoot: string,
+  providerId: string,
+  runtimeProvider?: PiRuntimeProvider,
+): Promise<PiPreferredModel | undefined> {
+  const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider, { requestProjectTrust: false });
+  await loadRuntimeProviders(workFolderRoot, runtime);
+  const saved = preferredModelFromSettings(runtime.settingsManager);
+  const savedModel = saved ? runtime.modelRuntime.getModel(saved.provider, saved.id) : undefined;
+  if (savedModel && runtime.modelRuntime.hasConfiguredAuth(savedModel.provider)) return undefined;
+  const id = cleanProviderId(providerId);
+  const models = (await runtime.modelRuntime.getAvailable()).filter((model) => model.provider === id);
+  const pick = (recommendedModels[id] ?? []).map((want) => models.find((model) => model.id === want)).find(Boolean) ?? models[0];
+  if (!pick) return undefined;
+  runtime.settingsManager.setDefaultModelAndProvider(pick.provider, pick.id);
+  await runtime.settingsManager.flush();
+  return { provider: pick.provider, id: pick.id };
+}
+
 export async function listPiModelCatalogs(runtimeProvider?: PiRuntimeProvider): Promise<PiModelCatalogStatus[]> {
   return runtimeProvider?.listModelCatalogs ? runtimeProvider.listModelCatalogs() : [];
 }

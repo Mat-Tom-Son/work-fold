@@ -159,7 +159,6 @@ export interface PiTurnContext {
    * only for the work-fold agent scope, so a context never carries both.
    */
   workFolderTurn?: PiWorkFolderTurnContext;
-  selectedPath?: string | null;
   /** Set when an Automation's step sent this turn's message; nobody is watching it run. */
   automation?: { title: string };
 }
@@ -341,7 +340,6 @@ export class PiConversationClient extends EventEmitter {
             customType: "work-fold-turn-context",
             content: contextMessage,
             display: false,
-            details: { selectedPath: context.selectedPath ?? null },
           }, { deliverAs: "nextTurn" }));
         }
       }
@@ -1808,13 +1806,6 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       context.workFolderTurn
         ? "When you finish, report with chat report: --summary saying what you did, --file for each file you made or changed, and --outcome succeeded, partial, or failed. If you cannot do the work, report failed and say why. The Automation's run history shows your summary and that outcome. Then give your final reply."
         : "Your final reply is this step's record in the Automation's run history: say what you did, and say plainly if you could not do it and why.",
-    );
-  }
-  if (context.selectedPath) {
-    lines.push(
-      "The user currently has this work-folder path selected (path metadata only):",
-      JSON.stringify({ selectedPath: context.selectedPath }),
-      "Inspect it with tools before making claims about its contents.",
     );
   }
   if (context.attachedLinks?.length) {

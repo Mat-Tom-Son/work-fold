@@ -468,140 +468,440 @@ body:has(> #root > .desktop-chrome-shell) {
   cursor: not-allowed;
 }
 
+/* First run (2026-10-11): welcome, Connect your AI, then the first folder. */
 .onboarding-flow {
+  position: relative;
   min-height: 100dvh;
   display: grid;
   place-items: center;
   overflow: auto;
-  padding: 24px 28px 30px;
-  background: radial-gradient(circle at 50% 45%, rgba(251, 250, 247, 0.78), transparent 36%),
-    linear-gradient(147deg, transparent 0 54%, rgba(255, 255, 255, 0.32) 54% calc(54% + 1px), transparent calc(54% + 1px)),
-    linear-gradient(147deg, rgba(235, 229, 220, 0.44), transparent 44%);
+  padding: 40px 24px 56px;
+  color: var(--ui-text);
+  background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--ui-accent) 10%, transparent), transparent 60%), var(--ui-canvas);
 }
 
 .desktop-chrome-shell .onboarding-flow {
   min-height: calc(100dvh - var(--desktop-titlebar-height));
 }
 
-/* Empty folder list: let the two available actions speak for themselves. */
-
-.onboarding-actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: 100%;
-}
-
-.onboarding-folder-action {
-  min-height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  padding: 0 16px;
-  color: #1d2738;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(122, 133, 152, 0.3);
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(14, 35, 66, 0.05);
-  font: inherit;
-  font-size: 0.86rem;
-  font-weight: 650;
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.onboarding-folder-action svg {
-  color: var(--work-fold-accent);
-}
-
-.onboarding-folder-action:hover,
-.onboarding-folder-action:focus-visible {
-  background: color-mix(in srgb, var(--work-fold-accent-soft) 54%, rgba(255, 255, 255, 0.9));
-  border-color: color-mix(in srgb, var(--work-fold-accent) 48%, rgba(122, 133, 152, 0.3));
-}
-
-.onboarding-folder-action:focus-visible {
-  outline: 2px solid var(--work-fold-accent);
-  outline-offset: 2px;
-}
-
-@media (max-width: 480px) {
-
-.onboarding-actions {
-  grid-template-columns: minmax(0, 1fr);
-}
-}
-
-.onboarding-choose {
-  width: min(520px, 100%);
+.onboarding-step {
+  width: min(560px, 100%);
   display: grid;
-  gap: 18px;
+  gap: 14px;
   justify-items: center;
   text-align: center;
 }
 
-/* A literal menu-bar scene: the template mark sits in its real system context,
-   with the work-fold agent popover opening directly beneath it. */
-
-@keyframes onboarding-menubar-in {
-
-to {
-  opacity: 1;
-  transform: translateY(0);
-}
+.onboarding-step h1 {
+  margin: 0;
+  font-family: var(--work-fold-font-display);
+  font-size: clamp(1.5rem, 3.4vw, 2rem);
+  font-weight: var(--work-fold-font-weight-heavy);
+  letter-spacing: -0.01em;
 }
 
-@keyframes onboarding-menubar-fold-in {
-
-from {
-  opacity: 0;
-  transform: translateY(-4px);
+.onboarding-step > p {
+  max-width: 460px;
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
-70% {
-  opacity: 1;
-  transform: translateY(0);
-  box-shadow: 0 0 0 6px rgba(11, 111, 214, 0.12);
+.onboarding-lockup {
+  --work-fold-lockup-mark: 48px;
+  margin-bottom: 10px;
 }
 
-to {
-  opacity: 1;
-  transform: translateY(0);
-  box-shadow: 0 0 0 2px rgba(11, 111, 214, 0.08);
-}
-}
-
-@keyframes onboarding-menubar-pin-in {
-
-to {
-  transform: scaleY(1);
-}
+.onboarding-progress {
+  margin: 0;
+  color: var(--ui-text-subtle);
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-@keyframes onboarding-popover-in {
-
-to {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
+.onboarding-step > .onboarding-progress {
+  color: var(--ui-text-subtle);
+  font-size: 0.78rem;
 }
 
-@media (max-width: 480px) {
-
-.onboarding-flow {
-  padding-inline: 18px;
+.onboarding-step .onboarding-primary {
+  min-width: 168px;
+  min-height: 42px;
+  margin-top: 8px;
+  justify-content: center;
+  color: var(--ui-surface);
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+  font-size: 0.92rem;
 }
+
+.onboarding-step .onboarding-primary:hover,
+.onboarding-step .onboarding-primary:focus-visible {
+  background: var(--ui-accent-hover);
+  border-color: var(--ui-accent-hover);
 }
 
-@media (max-height: 820px) and (min-width: 721px) {
-
-.onboarding-flow {
-  padding-top: 16px;
-  padding-bottom: 18px;
+.onboarding-connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ui-text);
+  font-weight: 600;
 }
+
+.onboarding-connected svg {
+  flex: none;
+  color: var(--ui-success);
+}
+
+.onboarding-step > .onboarding-note,
+.onboarding-note {
+  color: var(--ui-text-subtle);
+  font-size: 0.84rem;
+}
+
+.onboarding-skip,
+.onboarding-back,
+.connect-ai-link {
+  padding: 4px 6px;
+  color: var(--ui-text-muted);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 0.86rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.onboarding-skip:hover,
+.onboarding-back:hover,
+.connect-ai-link:hover {
+  color: var(--ui-text);
+}
+
+.onboarding-back {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  text-decoration: none;
 }
 
 .onboarding-actions {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.onboarding-folder-action {
+  min-height: 132px;
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 6px;
+  padding: 18px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.onboarding-folder-action svg {
+  margin-bottom: 4px;
+  color: var(--ui-accent);
+}
+
+.onboarding-folder-action strong {
+  font-size: 0.95rem;
+}
+
+.onboarding-folder-action span {
+  color: var(--ui-text-muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.onboarding-folder-action:hover,
+.onboarding-folder-action:focus-visible {
+  background: var(--ui-surface-subtle);
+  border-color: color-mix(in srgb, var(--ui-accent) 55%, var(--ui-border));
+}
+
+.onboarding-folder-action:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .onboarding-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Connect your AI: first run, the Connect AI dialog, and AI Models while nothing is connected. */
+.connect-ai {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+  text-align: left;
+}
+
+.connect-ai-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.connect-ai-card {
+  position: relative;
+  min-height: 84px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 14px 16px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.connect-ai-card strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.95rem;
+}
+
+.connect-ai-card > span {
+  color: var(--ui-text-muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.connect-ai-card:hover:not(:disabled),
+.connect-ai-card:focus-visible {
+  background: var(--ui-surface-subtle);
+  border-color: color-mix(in srgb, var(--ui-accent) 55%, var(--ui-border));
+}
+
+.connect-ai-card:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+.connect-ai-card:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.connect-ai-card[aria-busy="true"] {
+  opacity: 1;
+  border-color: var(--ui-accent);
+}
+
+.connect-ai-card-spinner {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  color: var(--ui-accent);
+}
+
+.connect-ai-card > .connect-ai-connected,
+.connect-ai-connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ui-success);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.connect-ai-key {
+  display: grid;
+  gap: 8px;
+}
+
+.connect-ai-key label {
+  font-weight: 650;
+}
+
+.connect-ai-key input,
+.connect-ai-search input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.connect-ai-key input:focus-visible,
+.connect-ai-search input:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
+.connect-ai-key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.connect-ai-hint,
+.connect-ai-loading {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.connect-ai-hint a {
+  color: var(--ui-accent);
+}
+
+.connect-ai-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.connect-ai-error {
+  margin: 0;
+  color: var(--ui-danger);
+  font-size: 0.84rem;
+}
+
+.connect-ai-search {
+  position: relative;
+  display: block;
+}
+
+.connect-ai-search svg {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  color: var(--ui-text-subtle);
+}
+
+.connect-ai-search input {
+  padding-left: 36px;
+}
+
+.connect-ai-others {
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+}
+
+.connect-ai-others button {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--ui-text);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.connect-ai-others button:hover,
+.connect-ai-others button:focus-visible {
+  background: var(--ui-surface-hover);
+}
+
+.connect-ai-others li.connect-ai-hint {
+  padding: 8px 10px;
+}
+
+.connect-ai-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  color: var(--ui-text);
+  background: var(--ui-canvas);
+  border: 1px solid var(--ui-border);
+  border-radius: 14px;
+  box-shadow: var(--ui-shadow-lg);
+}
+
+.connect-ai-dialog .modal-title {
+  margin: 0;
+  padding: 0;
+}
+
+.connect-ai-dialog-intro {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.connect-ai-dialog-done {
+  display: grid;
+  gap: 12px;
+}
+
+@media (max-width: 520px) {
+  .connect-ai-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The composer's Connect AI chip, where the model would show once one is connected. */
+.composer-connect-ai {
+  min-height: 26px;
+  padding: 0 10px;
+  color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.composer-connect-ai:hover,
+.composer-connect-ai:focus-visible {
+  background: color-mix(in srgb, var(--ui-accent) 22%, transparent);
+}
+
+.turn-interruption--setup .ui-control {
+  justify-self: start;
+  margin-top: 6px;
 }
 
 .modal-backdrop {
@@ -6561,13 +6861,6 @@ to {
   background: var(--ui-canvas, #0f1622);
 }
 
-.app-shell[data-theme="dark"] .onboarding-flow {
-  background-color: rgba(13, 20, 32, 0.96);
-  background: linear-gradient(147deg, transparent 0 54%, rgba(255, 255, 255, 0.08) 54% calc(54% + 1px), transparent calc(54% + 1px)),
-    linear-gradient(147deg, rgba(52, 66, 92, 0.38), transparent 44%),
-    rgba(13, 20, 32, 0.96);
-}
-
 .app-shell[data-theme="dark"] .modal-title h2,
 .app-shell[data-theme="dark"] .settings-section-heading h3,
 .app-shell[data-theme="dark"] .panel-title h2,
@@ -6981,24 +7274,6 @@ to {
 
 .app-shell[data-theme="dark"] .work-folder-surface-empty strong {
   color: #e5edf7;
-}
-
-.app-shell[data-theme="dark"] .onboarding-choose h2 {
-  color: #e6eae7;
-}
-
-/* Keep the menu-bar scene faithful and composed in dark mode. */
-
-.app-shell[data-theme="dark"] .onboarding-folder-action {
-  color: #e6eae7;
-  background: rgba(21, 31, 46, 0.96);
-  border-color: rgba(148, 163, 190, 0.24);
-}
-
-.app-shell[data-theme="dark"] .onboarding-folder-action:hover,
-.app-shell[data-theme="dark"] .onboarding-folder-action:focus-visible {
-  background: rgba(35, 48, 68, 0.94);
-  border-color: rgba(30, 160, 255, 0.5);
 }
 
 .app-shell[data-theme="dark"] .publish-review-backdrop {

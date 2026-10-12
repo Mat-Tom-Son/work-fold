@@ -247,7 +247,7 @@ test("local API exposes path-safe file operations, undo checkpoints, chat rename
   const rejectedTurn = await fetch(`${api.origin}/api/work-folders/${id}/conversations/${conversation.conversation.id}/messages`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ content: "This must not be appended", selectedPath: "../outside.txt", contextPaths: [] }),
+    body: JSON.stringify({ content: "This must not be appended", contextPaths: ["../outside.txt"] }),
   });
   assert.equal(rejectedTurn.status, 400);
   const transcriptAfterRejectedTurn = await json(`${api.origin}/api/work-folders/${id}/conversations/${conversation.conversation.id}`) as {
@@ -257,7 +257,8 @@ test("local API exposes path-safe file operations, undo checkpoints, chat rename
   const acceptedAfterRejectedTurn = await fetch(`${api.origin}/api/work-folders/${id}/conversations/${conversation.conversation.id}/messages`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ content: "/session", selectedPath: "Inbox/final.md", contextPaths: [] }),
+    // A selected path from an older client is ignored, even one that no longer exists.
+    body: JSON.stringify({ content: "/session", selectedPath: "Inbox/deleted-since.md", contextPaths: [] }),
   });
   assert.equal(acceptedAfterRejectedTurn.status, 202, await acceptedAfterRejectedTurn.text());
   await waitFor(() => historyEvents.some((event) => event.reason === "post_turn"));

@@ -5,6 +5,7 @@ import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/r
 
 import { safeExternalHref } from "../../lib/api";
 import { copyToClipboard } from "../../lib/clipboard";
+import { requestConnectAi } from "../../lib/connect-ai";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
 import { assistantTurnView, savedWorkTrailPreviews } from "../../lib/chat-work-trail";
@@ -196,9 +197,10 @@ export function TurnLanding({ landing }: { landing: ChatMessageLanding }) {
 function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessage["interruption"]> }) {
   if (interruption.reason === "setup_error") {
     return (
-      <section className="turn-interruption" role="status" aria-label="Worker setup needed">
-        <strong>Worker setup needed</strong>
-        <span>Open Settings → AI Models to choose a provider and model, then try again.</span>
+      <section className="turn-interruption turn-interruption--setup" role="status" aria-label="Worker setup needed">
+        <strong>Connect your AI to continue</strong>
+        <span>Sign in with ChatGPT, Claude, or OpenRouter, or paste an API key.</span>
+        <button className="ui-control ui-control--primary" type="button" onClick={() => requestConnectAi()}>Connect AI</button>
       </section>
     );
   }

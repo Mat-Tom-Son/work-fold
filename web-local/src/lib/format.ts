@@ -9,7 +9,6 @@ export interface StoredPendingChatSend {
   userMessageId: string;
   content: string;
   createdAt: string;
-  selectedPath: string | null;
   contextPaths: string[];
   transientConversation: boolean;
   draftStorageKey: string;
@@ -76,7 +75,6 @@ function normalizePendingChatSend(value: unknown): StoredPendingChatSend | null 
     || typeof record.userMessageId !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(record.userMessageId)
     || typeof record.content !== "string" || !record.content.trim() || record.content.length > chatDraftMaxStoredChars
     || typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))
-    || (record.selectedPath !== null && typeof record.selectedPath !== "string")
     || !Array.isArray(record.contextPaths) || record.contextPaths.some((path) => typeof path !== "string")
     || typeof record.transientConversation !== "boolean"
     || typeof record.draftStorageKey !== "string") return null;
@@ -86,7 +84,6 @@ function normalizePendingChatSend(value: unknown): StoredPendingChatSend | null 
     userMessageId: record.userMessageId,
     content: record.content,
     createdAt: record.createdAt,
-    selectedPath: record.selectedPath,
     contextPaths: record.contextPaths,
     transientConversation: record.transientConversation,
     draftStorageKey: record.draftStorageKey,

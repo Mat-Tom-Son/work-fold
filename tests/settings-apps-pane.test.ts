@@ -206,7 +206,7 @@ test("a stale saved work-folder cannot fetch apps before bootstrap validates reg
   await dom.settle();
   assert.deepEqual(appReads, [], "the stale persisted selection has not been admitted by bootstrap");
   await dom.act(() => completeBootstrap(Response.json({ workFolders: [], agent: { configured: false, ready: false } })));
-  await dom.waitFor(() => Boolean(dom.container.querySelector('[aria-label="Choose a folder"]')));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".onboarding-flow")));
   assert.deepEqual(appReads, [], "the removed work-folder is never fetched after the registry is known");
   assert.equal(dom.container.querySelector('[role="alert"]'), null);
 });

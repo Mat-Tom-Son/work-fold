@@ -12,6 +12,7 @@ import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from 
 import { chatDraftDebounceMs, genericChatEmptyGreetings, workFolderPathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureConversationSummary } from "../../fixtures/shared";
 import { ApiError, api, createEventSource, errorText, isTransientNetworkError, rawErrorMessage } from "../../lib/api";
+import { requestConnectAi } from "../../lib/connect-ai";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
 import { displayModelLabel } from "../../lib/model-display";
@@ -38,6 +39,7 @@ import { resolveFixtureWorkFolderPathCandidates } from "../../lib/work-folder-pa
 import { workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
 import type { AgentCatalog, AgentCommand, AgentModel, AgentStatus, ComposerState, ChatContextPathRequest,
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, WorkFolderCustomizationMap, WorkFolderFixtureConversation, WorkFolderSummary } from "../../types";
+import type { WorkRequestView } from "../../../../src/shared/request-presentation";
 import { ExtensionQuestions } from "./ExtensionQuestions";
 import { AttachmentChip } from "./AttachmentChip";
 import { Banner, FluentGlyph, WorkFolderIconGlyph } from "../chrome/common";
@@ -110,7 +112,6 @@ export function ChatPanel({
   onAddPathToChatContext,
   onUploadDroppedFiles,
   onOpenWorkFolderFile,
-  selectedPath,
   onConversationActivated,
   onConversationsChanged,
   onRunningChange,
@@ -138,7 +139,6 @@ export function ChatPanel({
   onAddPathToChatContext?: (path: string) => void;
   onUploadDroppedFiles?: (dataTransfer: DataTransfer) => Promise<string[]>;
   onOpenWorkFolderFile?: (path: string) => void;
-  selectedPath: string | null;
   onConversationActivated?: (conversation: ConversationSummary | null) => void;
   onConversationsChanged?: (conversations: ConversationSummary[]) => void;
   onRunningChange?: (conversationId: string, running: boolean) => void;
@@ -1085,7 +1085,6 @@ export function ChatPanel({
       requestId: stored.requestId,
       userMessageId: stored.userMessageId,
       localUserMessage,
-      selectedPath: stored.selectedPath,
       contextPaths: stored.contextPaths,
       transientConversation: stored.transientConversation,
       draftStorageKey: stored.draftStorageKey,
@@ -1292,7 +1291,6 @@ export function ChatPanel({
         requestId,
         userMessageId,
         localUserMessage,
-        selectedPath,
         contextPaths: contextAttachments.map((attachment) => attachment.sourcePath),
         transientConversation: transientConversationIdsRef.current.has(activeConversation.id),
         draftStorageKey: sentDraftStorageKey,
@@ -1305,7 +1303,6 @@ export function ChatPanel({
         userMessageId,
         content,
         createdAt: localUserMessage.createdAt,
-        selectedPath,
         contextPaths: pending.contextPaths,
         transientConversation: pending.transientConversation,
         draftStorageKey: sentDraftStorageKey,
@@ -1373,7 +1370,6 @@ export function ChatPanel({
         idempotent: true,
         body: {
           content: pending.content,
-          selectedPath: pending.selectedPath,
           contextPaths: pending.contextPaths,
           requestId: pending.requestId,
           userMessageId: pending.userMessageId,
@@ -1798,9 +1794,9 @@ export function ChatPanel({
               </button>
             </div>
           ) : null}
-          <WorkRequest {...workState} showProgress={!running} showStop={!running && !requestBusy} onOpenFile={(workFolderId, path) => {
+          {failureShownInReply(workState.work, messages) ? null : <WorkRequest {...workState} showProgress={!running} showStop={!running && !requestBusy} onOpenFile={(workFolderId, path) => {
             if (workFolderId === workFolder.id && onOpenWorkFolderFile) onOpenWorkFolderFile(path); else return openWorkFile(workFolderId, path);
-          }} />
+          }} />}
           {extensionSnapshot && extensionSnapshot.conversationId === conversation?.id ? <ExtensionQuestions requests={extensionRequests} scope={`${workFolder.id}/${conversation.id}`} respond={respondToExtension} /> : null}
           <div className="message-end-sentinel" ref={messageEndRef} aria-hidden="true" />
         </div>
@@ -2009,7 +2005,9 @@ export function ChatPanel({
               ? <ConversationContextMeter runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} />
               : modelStatus?.configured && composerState?.model
                 ? <ConfiguredModel model={composerState.model} workFolderName={workFolder.name} picker={composerModelPicker} />
-                : null}
+                : modelStatus && !modelStatus.configured
+                  ? <button className="composer-connect-ai" type="button" onClick={() => requestConnectAi()} title="Connect an AI provider so this Worker can start">Connect AI</button>
+                  : null}
             {modelStatus?.configured && (conversationRuntime ?? composerState)
               ? (
                 <ThinkingLevelControl
@@ -2622,4 +2620,14 @@ function fixtureRuntimePreviews(): RuntimePreviewEntry[] {
     });
   }
   return previews;
+}
+
+/**
+ * A failed turn whose reply already says why, with nothing else to show (no
+ * questions, other Workers, or files), needs no second "Couldn't finish" line.
+ */
+function failureShownInReply(work: WorkRequestView | null, messages: ChatMessage[]): boolean {
+  if (!work || work.state !== "failed" || work.children.length || work.questions.length || work.result?.files.length) return false;
+  const last = messages.at(-1);
+  return last?.role === "assistant" && Boolean(last.interruption);
 }

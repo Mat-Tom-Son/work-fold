@@ -188,7 +188,6 @@ export interface PendingChatSend {
   requestId: string;
   userMessageId: string;
   localUserMessage: ChatMessage;
-  selectedPath: string | null;
   contextPaths: string[];
   transientConversation: boolean;
   draftStorageKey: string;

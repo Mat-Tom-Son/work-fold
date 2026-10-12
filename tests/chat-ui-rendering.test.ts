@@ -43,12 +43,14 @@ test("pending Chat sends preserve one stable acceptance identity across renderer
       userMessageId: "message-recovery-1",
       content: "Continue exactly once.",
       createdAt: "2026-08-13T12:00:00.000Z",
-      selectedPath: "notes.md",
       contextPaths: ["notes.md"],
       transientConversation: false,
       draftStorageKey: "draft-key",
     };
     assert.equal(writeStoredPendingChatSend("work-folder-1", "chat-1", pending), true);
+    assert.deepEqual(readStoredPendingChatSend("work-folder-1", "chat-1"), pending);
+    // A send saved before 2026-10-11 still carries the file selected in Files; it reads back without it.
+    assert.equal(writeStoredPendingChatSend("work-folder-1", "chat-1", { ...pending, selectedPath: "notes.md" } as typeof pending), true);
     assert.deepEqual(readStoredPendingChatSend("work-folder-1", "chat-1"), pending);
     clearStoredPendingChatSend("work-folder-1", "chat-1");
     assert.equal(readStoredPendingChatSend("work-folder-1", "chat-1"), null);
