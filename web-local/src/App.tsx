@@ -19,6 +19,7 @@ import { Banner, CenteredState, EmptyInline, WorkFolderIconGlyph } from "./compo
 import { DesktopTitleBar } from "./components/chrome/DesktopTitleBar";
 import { CommandPaletteHost, type CommandPaletteCommand } from "./components/modals/CommandPaletteHost";
 import { CreateWorkFolderModal } from "./components/modals/CreateWorkFolderModal";
+import { ConnectAiDialog } from "./components/modals/ConnectAiDialog";
 import { DesktopSettingsModal, type SettingsPage } from "./components/modals/DesktopSettingsModal";
 import { FileVersionHistoryModal } from "./components/modals/FileVersionHistoryModal";
 import { SkillsExtensionsModal } from "./components/modals/SkillsExtensionsModal";
@@ -27,6 +28,7 @@ import { TextInputModal } from "./components/modals/TextInputModal";
 import { NewFolderModal, type NewFolderTarget } from "./components/modals/NewFolderModal";
 import { subscribeControlEvents } from "./lib/control-events";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
+import { onConnectAiRequested, requestConnectAi } from "./lib/connect-ai";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
 import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
@@ -79,7 +81,7 @@ import { childFolderPaths, combineActivityStatuses, descendantFolders, folderAnc
 import type { MentionFolderOption } from "./components/chat/FolderMentionMenu";
 import { mentionNames } from "./lib/folder-mentions";
 import { removeWorkFolderConfirmText, surfacePanelDomId, surfaceTabDomId, workFolderHeaderSourceBadgeLabel } from "./lib/work-folder-ui";
-import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, SkillsExtensionsView, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkFolderCustomization, WorkFolderCustomizationMap, WorkFolderCustomizationPatch, WorkFolderPane, WorkFolderRailMode, WorkFolderSummary } from "./types";
+import type { AgentCatalog, AgentExtensionSurface, AgentStatus, AppTheme, AppThemePreference, SkillsExtensionsView, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkFolderCustomization, WorkFolderCustomizationMap, WorkFolderCustomizationPatch, WorkFolderPane, WorkFolderRailMode, WorkFolderSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
 import { workFolderIconOptions } from "./work-folder-icons";
 
@@ -121,6 +123,10 @@ export function App() {
   const [activeWorkFolderId, setActiveWorkFolderId] = useState(() => localStorage.getItem("work-fold.work-folder.active") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [createWorkFolderOpen, setCreateWorkFolderOpen] = useState(false);
+  // Connect your AI: one dialog for every surface that finds no model connected.
+  const [connectAiOpen, setConnectAiOpen] = useState(false);
+  const afterConnectAi = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => onConnectAiRequested((then) => { afterConnectAi.current = then; setConnectAiOpen(true); }), []);
   // work-folders just added that still show the Set up for me card (2026-10-11).
   const [setUpOffers, setSetUpOffers] = useState<string[]>(() => readWorkFolderSetUpOffers());
   useEffect(() => {
@@ -330,6 +336,12 @@ export function App() {
     try { const status = await window.workFoldDesktop?.updates.check(); if (status) setUpdateStatus(status); } catch (caught) { setError(errorText(caught)); }
   }
 
+  /** A provider was connected from first run or the Connect AI dialog. */
+  function aiConnected(agent: AgentStatus) {
+    setBoot((current) => current ? { ...current, agent } : current);
+    modelConfigurationChanged();
+  }
+
   async function runUpdateAction() {
     const updates = window.workFoldDesktop?.updates;
     if (!updates) return;
@@ -347,9 +359,10 @@ export function App() {
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeWorkFolder ? <WorkFolderAppearanceProvider palette={appearance.preferences.palette}><WorkFolderView workFolder={activeWorkFolder} workFolders={boot.workFolders} restrictedAppsStore={restrictedAppsState} agent={boot.agent} modelConfigurationRevision={modelConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkFolder={(workFolder) => setActiveWorkFolderId(workFolder.id)} onRefreshBootstrap={refreshBootstrap} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} setUpOffered={setUpOffers.includes(activeWorkFolder.id)} onCloseSetUpOffer={() => changeSetUpOffers((current) => current.filter((id) => id !== activeWorkFolder.id))} /></WorkFolderAppearanceProvider> : <OnboardingFlow onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} />}
+    {activeWorkFolder ? <WorkFolderAppearanceProvider palette={appearance.preferences.palette}><WorkFolderView workFolder={activeWorkFolder} workFolders={boot.workFolders} restrictedAppsStore={restrictedAppsState} agent={boot.agent} modelConfigurationRevision={modelConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkFolder={(workFolder) => setActiveWorkFolderId(workFolder.id)} onRefreshBootstrap={refreshBootstrap} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} setUpOffered={setUpOffers.includes(activeWorkFolder.id)} onCloseSetUpOffer={() => changeSetUpOffers((current) => current.filter((id) => id !== activeWorkFolder.id))} /></WorkFolderAppearanceProvider> : <OnboardingFlow agentConfigured={Boolean(boot.agent?.configured)} onAiConnected={aiConnected} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={() => openSettings("ai-models", "agent", true)} fixtureMode={Boolean(fixture)} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createWorkFolderOpen ? <CreateWorkFolderModal onClose={() => setCreateWorkFolderOpen(false)} onCreate={createWorkFolder} /> : null}
+    {connectAiOpen ? <ConnectAiDialog fixtureMode={Boolean(fixture)} onClose={() => { afterConnectAi.current = undefined; setConnectAiOpen(false); }} onConnected={(connected) => { aiConnected(connected.status); const then = afterConnectAi.current; afterConnectAi.current = undefined; then?.(); }} onOpenSettings={() => { setConnectAiOpen(false); openSettings("ai-models", "agent", true); }} /> : null}
     {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeWorkFolder={(workFolderId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-work-folder", workFolderId }); }} workFolder={settingsWorkerWorkFolderId ? boot.workFolders.find((item) => item.id === settingsWorkerWorkFolderId) ?? null : activeWorkFolder} workFolders={boot.workFolders} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", workFolderId: app.sourceWorkFolderId, app }); }} onOpenAppBuildChat={(workFolderId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", workFolderId, conversationId }); }} onOpenAppResultFile={(workFolderId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", workFolderId, path }); }} onOpenAppStudio={(workFolderId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", workFolderId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialModelScope={settingsModelScope} focusAiModel={settingsFocusAiModel} focusWorkerInstructions={settingsFocusWorkerInstructions} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onModelChanged={modelConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onBackToCustomization={settingsBackAction ? () => { setSettingsOpen(false); setSettingsBackAction(null); settingsBackAction(); } : undefined} onClose={closeSettings} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
@@ -1097,13 +1110,19 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   /** Set up for me or Just the look: a fresh Chat whose first message the included set-up Skill answers. */
   async function startSetUp(mode: WorkFolderSetUpMode) {
     if (fixture) { showToast({ text: "Set up for me is unavailable in the preview", tone: "info" }); return; }
+    // With no AI connected the Worker cannot start; connect first, then carry on.
+    if (!agent.configured) { requestConnectAi(() => void sendSetUp(mode)); return; }
+    await sendSetUp(mode);
+  }
+
+  async function sendSetUp(mode: WorkFolderSetUpMode) {
     const target = workFolder;
     try {
       const base = `/api/work-folders/${encodeURIComponent(target.id)}/conversations`;
       const { conversation } = await api<{ conversation: ConversationSummary }>(base, { method: "POST", body: {} });
       await api(`${base}/${encodeURIComponent(conversation.id)}/messages`, {
         method: "POST",
-        body: { content: workFolderSetUpMessage(mode), contextPaths: [], selectedPath: null },
+        body: { content: workFolderSetUpMessage(mode), contextPaths: [] },
       });
       const { conversations } = await api<{ conversations: ConversationSummary[] }>(base);
       setConversationGroups((current) => ({ ...current, [target.id]: conversations }));
@@ -1795,7 +1814,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
                 : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this work-folder." />;
             })() : tab.kind === "chat" ? (
-              <ChatPanel surfaceTabId={tab.id} workFolder={targetWorkFolder} workFolderCustomizations={customizations} modelConfigurationRevision={modelConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetWorkFolder, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetWorkFolder.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetWorkFolder.id, tab.id)} onAddPathToChatContext={active && targetWorkFolder.id === workFolder.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetWorkFolder.id === workFolder.id ? uploadDroppedFilesForChat : undefined} onOpenWorkFolderFile={active && targetWorkFolder.id === workFolder.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); } : undefined} selectedPath={active && targetWorkFolder.id === workFolder.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetWorkFolder, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetWorkFolder.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetWorkFolder.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetWorkFolder.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetWorkFolder.id, conversationId), false)} onAgentFinished={() => targetWorkFolder.id === workFolder.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("ai-models", "work-folder", true, targetWorkFolder.id)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetWorkFolder, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetWorkFolder.id}:new`) ? fixture.conversations[targetWorkFolder.id] : undefined} fixtureTreeEntries={fixture?.trees[targetWorkFolder.id]} mentionFolders={mentionFoldersFor(targetWorkFolder)} />
+              <ChatPanel surfaceTabId={tab.id} workFolder={targetWorkFolder} workFolderCustomizations={customizations} modelConfigurationRevision={modelConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetWorkFolder, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetWorkFolder.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetWorkFolder.id, tab.id)} onAddPathToChatContext={active && targetWorkFolder.id === workFolder.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetWorkFolder.id === workFolder.id ? uploadDroppedFilesForChat : undefined} onOpenWorkFolderFile={active && targetWorkFolder.id === workFolder.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); } : undefined} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetWorkFolder, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetWorkFolder.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetWorkFolder.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetWorkFolder.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetWorkFolder.id, conversationId), false)} onAgentFinished={() => targetWorkFolder.id === workFolder.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("ai-models", "work-folder", true, targetWorkFolder.id)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetWorkFolder, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetWorkFolder.id}:new`) ? fixture.conversations[targetWorkFolder.id] : undefined} fixtureTreeEntries={fixture?.trees[targetWorkFolder.id]} mentionFolders={mentionFoldersFor(targetWorkFolder)} />
             ) : null}
           </div>
         );

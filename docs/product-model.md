@@ -89,6 +89,28 @@ re-entering the key. Pasted Responses URLs normalize to the v1 endpoint.
 Saving configures existing deployments at one endpoint; it does not test
 inference, sign in to Azure, or discover deployments.
 
+**First run and Connect your AI (2026-10-11).** With no work-folder yet, the
+app opens on a short first run: a welcome that says what work-fold is, **Connect
+your AI**, then **Pick a folder to start with** (Add existing folder or Create
+new work-folder). Connect your AI offers ChatGPT, Claude, and OpenRouter first,
+signing in where the desktop app can run the provider's sign-in and taking a key
+otherwise, plus **Another provider**, a search over the rest of Pi's catalog
+(Azure and providers that need more than a key go to AI Models). The step is
+skipped when a provider is already connected and can be skipped by the person;
+a work-folder is still a useful folder without AI. The same picker opens as a
+dialog from the composer's **Connect AI** chip (shown in place of the model
+label while nothing is connected), from the **Connect AI** button on a turn
+that stopped for want of a model, and before **Set up for me**, which then
+carries on once a provider is connected; it also leads AI Models while nothing
+is connected. Connecting a provider when no usable default model is saved
+saves a recommended one for that provider as Pi's default (OpenAI and ChatGPT:
+GPT-6.1 Sol; Claude: Claude Opus 4.8; OpenRouter: GPT-6 Luna; Google: Gemini
+3.1 Pro; otherwise the provider's first model), so every Worker without its own
+choice, the composer, and the status agree on the model in use. A failed turn
+whose reply already explains the failure shows no second status line. ChatGPT
+sign-in is offered once, under OpenAI; Pi's legacy ChatGPT entry appears only
+while it is connected.
+
 AI Models lists Pi's complete provider catalog and uses its advertised sign-in
 methods and labels. Providers with no chat models can connect without changing
 the Worker's model. Guided setup runs Pi's native credential prompts, including
@@ -150,10 +172,12 @@ with raw filesystem tools.
 
 Background state is quieter and machine-local: a small running marker follows an accepted agent turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 
-The configured provider and model remain visible in the Chat composer before the first message. Clicking that label opens an inline model picker with the work-folder’s saved model pinned first and search when more than eight connected models are available. A selection saves the work-folder default for new Chats; existing Chat sessions keep their model. The picker’s **Model settings** link opens **Settings → AI Models** scoped to that work-folder. The label always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. In the Chat that trail is the Worker's steps: while a turn runs, each step appears in the order it happened with the active one shimmering and live reasoning in a short panel; once the reply starts, the steps fold into one plain line such as "Read a file, edited a file, ran commands" that opens on click, and a "Thought" row opens its reasoning. Reasoning a model keeps hidden still shows as "Thought for 3s", so a saved thinking entry records its duration. A step that used an app's tool names the app and the tool ("Used Inbox: Search messages"), never the tool's registered name. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
+The configured provider and model remain visible in the Chat composer before the first message; with no provider connected, the composer shows a **Connect AI** chip there instead. Clicking that label opens an inline model picker with the work-folder’s saved model pinned first and search when more than eight connected models are available. A selection saves the work-folder default for new Chats; existing Chat sessions keep their model. The picker’s **Model settings** link opens **Settings → AI Models** scoped to that work-folder. The label always names the provider/model, never the product. The adjacent reasoning control is hydrated before the first send from Pi's saved default and lists only supported levels; a live Pi session becomes authoritative. Successful and interrupted Worker messages persist their bounded tool trail with terminal states, so tab switches and relaunches restore it without a ghost spinner or replay of completed tools. In the Chat that trail is the Worker's steps: while a turn runs, each step appears in the order it happened with the active one shimmering and live reasoning in a short panel; once the reply starts, the steps fold into one plain line such as "Read a file, edited a file, ran commands" that opens on click, and a "Thought" row opens its reasoning. Reasoning a model keeps hidden still shows as "Thought for 3s", so a saved thinking entry records its duration. A step that used an app's tool names the app and the tool ("Used Inbox: Search messages"), never the tool's registered name. Provider failures use Pi's bounded retry path, preserving completed tool results; exhausted retries, setup failures, stops, terminal failures, and recovery append typed user-safe results. Startup never reruns a Worker turn that reached the runtime. The portable transcript is the content authority and the local journal supplies acceptance deduplication and reconciliation.
 
 Attaching a file from Files stages a reference to its work-folder-relative path for
-the next message. A quiet file icon, filename, and remove control above the
+the next message. Selecting a file in Files is not context: since 2026-10-11 the
+Worker is not told which file is selected, so a stale or deleted selection can
+neither mislead it nor block a message; attach a file to include it. A quiet file icon, filename, and remove control above the
 composer show that selection; attaching does not produce a success toast or
 an extraction-status warning. Documents and other non-image files are not
 extracted or copied into the model prompt: the Worker is told which paths the
@@ -470,7 +494,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Extend the shipped personal act lane with Chat-scoped grants, confirmation and revocation ceremonies, and headless execution, if the surface ever outgrows the per-launch single-user token.
 - Extend the shipped fold and bounded Automation triggers only through deliberate contracts for any new event source, handoff condition, or recovery behavior. Cross-work-folder coordination stays in the work-fold agent; work-folder Chats remain local to their own work.
 - Add restricted-app remote subscriptions and arbitrary push adapters, finer web-runtime resource controls, and a verified work-folder-service registry backed by a trusted launcher, per-instance challenge, and process-generation lifecycle. Raw numeric loopback grants remain useful for development but do not prove which process owns a port.
-- Strengthen onboarding, deepen accessibility coverage beyond the shipped keyboard reach, renderer interaction tests, recovery, export, and diagnostics.
+- Extend first run with optional Chrome and Computer Control setup, deepen accessibility coverage beyond the shipped keyboard reach, renderer interaction tests, recovery, export, and diagnostics.
 
 ### Later adapters and distribution maturity
 

@@ -199,7 +199,9 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.select('select[aria-label="Provider"]', "anthropic");
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-api-key")?.value, "");
   await ui.type("#ai-models-api-key", "synthetic-new-provider-key");
-  assert.equal(ui.button("Save Model").disabled, true, "model action cannot silently submit a connection key");
+  // Nothing is connected, so there is no model action at all; it cannot silently submit a connection key.
+  assert.equal(ui.button("Save Model"), undefined, "model action cannot silently submit a connection key");
+  assert.match(ui.dom.container.textContent!, /Connect your AI/, "the featured providers lead while nothing is connected");
   await ui.submit("connection", true);
   const write = ui.requests.at(-1)!;
   assert.deepEqual(write.body, { scope: "work-folder", workFolderId: "a", provider: "anthropic", apiKey: "synthetic-new-provider-key" });
@@ -348,7 +350,7 @@ test("Azure setup starts with user-entered deployments, accepts multiple names, 
   const azureModels = [{ ...models[0]!, provider: "azure", providerName: "Azure OpenAI", id: "catalog-model", name: "Catalog model", authConfigured: false }];
   await ui.render(workFolder("a"));
   await ui.finish(ui.requests[0]!, modelResponse({ status: azureStatus, models: azureModels, azure: { baseUrl: "", deployments: [] } }));
-  assert.equal(ui.dom.container.querySelector<HTMLButtonElement>("#ai-model")?.disabled, true, "connection setup needs no catalog model");
+  assert.equal(ui.dom.container.querySelector("#ai-model"), null, "connection setup needs no catalog model");
   assert.equal(ui.button("Save Azure settings").disabled, true);
   await ui.type("#ai-models-azure-endpoint", "https://example.cognitiveservices.azure.com/openai/responses?api-version=2025-04-01-preview");
   await ui.type("#ai-models-api-key", "synthetic-key");

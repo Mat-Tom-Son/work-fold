@@ -138,6 +138,7 @@ import {
   refreshPiModelCatalog,
   savePiApiKey,
   resolvePiRuntime,
+  ensurePiDefaultModel,
   setPiDefaultModel,
   setPiDefaultThinkingLevel,
   setPiWorkerInstructions,
@@ -1126,7 +1127,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
         const workFolder = await getWorkFolder(receipt.scope.workFolderId);
         await createConversation(workFolder.workFolderRoot, restrictedAppTaskChatTitle(app.title, receipt.title), receipt.conversationId);
         await acceptConversationTurn(state, workFolder, receipt.conversationId, {
-          content: restrictedAppTaskPrompt(receipt, app.title), contextPaths: [], selectedPath: null, actorKind: "system",
+          content: restrictedAppTaskPrompt(receipt, app.title), contextPaths: [], actorKind: "system",
           requestId: restrictedAppTaskTurnRequestId(receipt), userMessageId: `message-app-${receipt.id}`,
           // The message is the app's, not the person's; the Chat says so.
           appSource: { appId: receipt.scope.appId, title: app.title },
@@ -2878,6 +2879,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         await saveAzureOpenAIConnection(scope.workFolderRoot, azure, body.apiKey, state.runtimeProvider);
       } else if (body.apiKey?.trim()) {
         await savePiApiKey(scope.workFolderRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
+        // A first connection also gives every Worker a model to start on.
+        if (!body.model) await ensurePiDefaultModel(scope.workFolderRoot, body.provider!, state.runtimeProvider);
       }
       if (body.model) await setPiDefaultModel(scope.workFolderRoot, { provider: body.provider!, id: body.model }, state.runtimeProvider);
     }, { requireProjectTrust: false });
@@ -2921,6 +2924,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     await runCapabilityMutation(state, scope, "global", async () => {
       await loginPiProvider(scope.workFolderRoot, body.provider!, authMethod, state.piOAuthHooks!, state.runtimeProvider);
       if (body.model) await setPiDefaultModel(scope.workFolderRoot, { provider: body.provider!, id: body.model }, state.runtimeProvider);
+      else await ensurePiDefaultModel(scope.workFolderRoot, body.provider!, state.runtimeProvider);
     }, { requireProjectTrust: false });
     const status = await getPiSetupStatus(scope.workFolderRoot, state.runtimeProvider);
     sendJson(res, {
@@ -3301,7 +3305,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const body = await readJsonBody<{
       content?: string;
       contextPaths?: string[];
-      selectedPath?: string | null;
+      /** Ignored since 2026-10-11: the file selected in Files no longer reaches the Worker. */
+      selectedPath?: unknown;
       requestId?: unknown;
       userMessageId?: unknown;
       delivery?: unknown;
@@ -3319,13 +3324,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       sendJson(res, { accepted: true, delivery: "steer", message: steered.message, taskId: steered.taskId, replayed: steered.replayed }, 202);
       return;
     }
-    const selectedPath = normalizeSelectedPath(workFolder.workFolderRoot, body.selectedPath);
     const contextPaths = normalizeContextPaths(workFolder.workFolderRoot, body.contextPaths);
     const addressedWorkFolderIds = await normalizeAddressedWorkFolderIds(body.addressedWorkFolderIds, workFolder.id);
     const { message, taskId, replayed } = await acceptConversationTurn(state, workFolder, conversationId, {
       content,
       contextPaths,
-      selectedPath,
       actorKind: "assistant",
       ...(addressedWorkFolderIds.length ? { addressedWorkFolderIds } : {}),
       requestId: optionalTurnIdentity(body.requestId, "requestId"),
@@ -3483,7 +3486,6 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const { message, taskId } = await acceptConversationTurn(state, { id: scope.id, workFolderRoot: scope.rootPath }, conversationId, {
       content,
       contextPaths: [],
-      selectedPath: null,
       actorKind: "renderer",
       workFoldAgentAttachments: attachments,
       ...(addressedWorkFolderIds.length ? { addressedWorkFolderIds } : {}),
@@ -4004,7 +4006,6 @@ async function admitConversationTurn(
   input: {
     content: string;
     contextPaths: string[];
-    selectedPath: string | null;
     /** `system` marks turns app code dispatches (automation chat hops). */
     actorKind: "assistant" | "cli" | "renderer" | "system";
     /** Management-scope reference attachments; never used for work-folder Chats. */
@@ -4198,7 +4199,6 @@ async function admitConversationTurn(
     conversationId,
     input.content,
     input.contextPaths,
-    input.selectedPath,
     task.id,
     {
       ...(workFoldAgentAttachments ? { workFoldAgentAttachments } : {}),
@@ -4438,7 +4438,6 @@ const maxRememberedSteeredMessages = 500;
 function assistantTurnRequestDigest(input: {
   content: string;
   contextPaths: string[];
-  selectedPath: string | null;
   workFoldAgentAttachments?: WorkFoldAgentAttachmentRef[];
   actorKind?: string;
   continuedFromWorkFoldAgentTaskId?: string;
@@ -4449,7 +4448,8 @@ function assistantTurnRequestDigest(input: {
   return createHash("sha256").update(JSON.stringify({
     content: input.content,
     contextPaths: input.contextPaths,
-    selectedPath: input.selectedPath,
+    // Kept constant so digests from before the selected path was dropped still match.
+    selectedPath: null,
     actorKind: input.actorKind ?? null,
     continuedFromWorkFoldAgentTaskId: input.continuedFromWorkFoldAgentTaskId ?? null,
     workFoldAgentAttachments: (input.workFoldAgentAttachments ?? []).map((attachment) => ({
@@ -5633,7 +5633,6 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
               {
                 content,
                 contextPaths: [],
-                selectedPath: null,
                 actorKind: "renderer",
                 workFoldAgentAttachments: staged.attachments,
                 ...(continuedFromWorkFoldAgentTaskId ? { continuedFromWorkFoldAgentTaskId } : {}),
@@ -6411,7 +6410,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         accepted = await acceptConversationTurn(state, workFolder, record.owner.conversationId, {
           content: delivered,
           contextPaths: [],
-          selectedPath: null,
           actorKind: "cli",
           requestId: `answer-${questionId}`,
           request: { joinRequestId: record.requestId, answeringQuestionId: questionId },
@@ -6607,7 +6605,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const { message, taskId } = await acceptConversationTurn(state, workFolder, conversationId, {
           content,
           contextPaths: [],
-          selectedPath: null,
           actorKind: "cli",
           requestId: input.requestId,
           ...(input.parentTaskId ? { request: { parentTaskId: input.parentTaskId } } : {}),
@@ -6773,7 +6770,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const { message, taskId: childTaskId } = await acceptConversationTurn(state, destination, conversation.id, {
           content,
           contextPaths: [],
-          selectedPath: null,
           actorKind: "cli",
           requestId: input.requestId,
           request: { parentTaskId: taskId, kind: "work-folder" },
@@ -8735,7 +8731,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const { message, taskId } = await acceptConversationTurn(state, { id: scope.id, workFolderRoot: scope.rootPath }, conversationId, {
           content,
           contextPaths: [],
-          selectedPath: null,
           actorKind: "cli",
           workFoldAgentAttachments: attachments,
           requestId: input.requestId,
@@ -11446,7 +11441,7 @@ async function performWorkAction(state: LocalApiState, record: WorkFoldRequestRe
       if (!view.canContinue && !replay) throw httpError(409, "This work cannot continue here. Open the Chat for its current state.");
       const workFolder = record.owner.workFolderId ? await getWorkFolder(record.owner.workFolderId) : workFoldAgentScope(state);
       await acceptConversationTurn(state, { id: record.owner.workFolderId ?? workFoldAgentScopeId, workFolderRoot: "workFolderRoot" in workFolder ? workFolder.workFolderRoot : workFolder.rootPath }, record.owner.conversationId, {
-        content: await composeContinuationMessage(state, record, state.requests.children(record.requestId)), contextPaths: [], selectedPath: null,
+        content: await composeContinuationMessage(state, record, state.requests.children(record.requestId)), contextPaths: [],
         releasedChildTaskIds: state.requests.children(record.requestId).map((child) => child.turns.at(-1)!.taskId),
         actorKind: "system", requestId: deliveryId, request: { joinRequestId: record.requestId },
       });
@@ -11486,7 +11481,7 @@ async function maybeStartRequestContinuation(state: LocalApiState, requestId: st
   if (!note.allowed) return;
   try {
     await acceptConversationTurn(state, workFolder, request.owner.conversationId, {
-      content, contextPaths: [], selectedPath: null, actorKind: "system",
+      content, contextPaths: [], actorKind: "system",
       ...(request.owner.workFolderId ? {} : { workFoldAgentAttachments: [] }),
       requestId: `continuation-${requestId}-${note.count}`,
       request: { joinRequestId: requestId },
@@ -11635,7 +11630,6 @@ async function runAgentTurn(
   conversationId: string,
   content: string,
   contextPaths: string[],
-  selectedPath: string | null,
   taskId: string,
   options: {
     workFoldAgentAttachments?: WorkFoldAgentAttachmentRef[];
@@ -11736,7 +11730,6 @@ async function runAgentTurn(
     promptStarted = true;
     const finalText = await client.prompt(content, {
       loadContextAttachments,
-      selectedPath,
       ...(workFolderId === workFoldAgentScopeId ? { workFoldAgentTaskId: taskId } : {}),
       ...(workFoldAgentWorkFolders ? { workFoldAgentWorkFolders } : {}),
       ...(workFolderTurn ? { workFolderTurn } : {}),
@@ -12085,7 +12078,7 @@ function assistantFailurePublicDetail(error: unknown): string {
     return `The model stopped responding${retrySummary}.`;
   }
   if (isModelSetupError(error)) {
-    return "The agent isn’t set up yet. Open Settings → AI Models to choose a provider and model, then try again.";
+    return "The Worker couldn’t reach an AI model. Connect an AI provider, or check the one in Settings → AI Models, then try again.";
   }
   if (isPiTurnTimeoutError(error)) {
     return `${errorMessage(error)} Raise or clear that limit to let long turns finish.`;
@@ -13853,7 +13846,6 @@ function createAutomationHopPorts(state: LocalApiState): WorkFoldAutomationHopPo
         const { taskId } = await acceptConversationTurn(state, workFolder, conversation.id, {
           content: message,
           contextPaths: [],
-          selectedPath: null,
           actorKind: "system",
           automationSource: { automationId: context.automationId, title: context.title },
         });
@@ -13887,7 +13879,6 @@ function createAutomationHopPorts(state: LocalApiState): WorkFoldAutomationHopPo
       const { taskId } = await acceptConversationTurn(state, { id: scope.id, workFolderRoot: scope.rootPath }, conversation.id, {
         content: message,
         contextPaths: [],
-        selectedPath: null,
         actorKind: "system",
         workFoldAgentAttachments: [],
         automationSource: { automationId: context.automationId, title: context.title },
@@ -14671,19 +14662,6 @@ async function sendWorkFolderRawFile(res: ServerResponse, workFolderRoot: string
     stream.on("end", resolvePromise);
     stream.pipe(res);
   });
-}
-
-function normalizeSelectedPath(workFolderRoot: string, value: string | null | undefined): string | null {
-  const path = typeof value === "string" ? normalizeWorkFolderRelativePath(value) : "";
-  if (!path) return null;
-  let absolutePath: string;
-  try {
-    absolutePath = resolveWorkFolderPath(workFolderRoot, path);
-  } catch (error) {
-    throw badRequest(errorMessage(error));
-  }
-  if (!existsSync(absolutePath)) throw badRequest("The selected work-folder item no longer exists.");
-  return path;
 }
 
 /**

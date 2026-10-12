@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ModelCatalogList, modelCatalogKey } from "./ModelCatalogList";
 import { ImageModelSection, type ImageModelSettings } from "./ImageModelSection";
+import { ConnectAi, featuredProviders } from "../onboarding/ConnectAi";
 import { RefreshCw } from "lucide-react";
 import { Eye20Regular, EyeOff20Regular } from "@fluentui/react-icons";
 import { api, errorText } from "../../lib/api";
@@ -316,8 +317,11 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
       ?? result.models.find((item) => item.authConfigured);
     const nextProvider = draft.model?.provider ?? first?.provider ?? "";
     const nextConnection = draft.connectionProvider ?? provider;
+    // With nothing connected, start on the first featured provider rather than the alphabetical first.
     setProvider(connections.some(item => item.id === nextConnection) ? nextConnection
-      : connections.find(item => item.id === result.status.provider)?.id ?? connections.find(item => item.configured)?.id ?? connections[0]?.id ?? "");
+      : connections.find(item => item.id === result.status.provider)?.id ?? connections.find(item => item.configured)?.id
+        ?? featuredProviders.map((item) => connections.find((connection) => connection.id === item.provider)).find(Boolean)?.id
+        ?? connections[0]?.id ?? "");
     setModelProvider(nextProvider);
     const requestedModel = draft.model?.model ?? result.status.model ?? "";
     setModel(resolveModelSelection(result.models, nextProvider, requestedModel));
@@ -518,7 +522,12 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
 
   return <>
     {externalChange ? <div className="ai-models-external-change"><span>Saved settings have changed.</span><button className="ai-models-refresh" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
-    <section className="ai-models-settings-section" aria-labelledby="ai-model-heading"><span className="sr-only" id="ai-model-heading">Model</span>
+    {!connectedModels.length && providerCatalog.length ? <section className="ai-models-settings-section ai-models-connect" aria-labelledby="ai-models-connect-heading">
+      <div className="ai-models-section-heading"><h3 id="ai-models-connect-heading">Connect your AI</h3></div>
+      <p className="professional-field-hint">Sign in with an account you already have, or paste an API key. Every Worker shares the connection.</p>
+      <ConnectAi providers={providerCatalog} fixtureMode={fixtureMode} onConnected={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }} />
+    </section> : null}
+    {connectedModels.length || !providerCatalog.length ? <section className="ai-models-settings-section" aria-labelledby="ai-model-heading"><span className="sr-only" id="ai-model-heading">Model</span>
       <form onSubmit={(event) => { event.preventDefault(); void configure("model"); }}>
         <div className="professional-field">
           <span className="professional-field-label" id="ai-model-label">Model</span>
@@ -535,14 +544,15 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
           <button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || !model || !modelChanged || !selectedModel?.authConfigured}>{saving === "model" ? "Saving…" : "Save Model"}</button>
         </div>
       </form>
-    </section>
+    </section> : null}
     <section className="ai-models-settings-section" aria-labelledby="ai-models-connection-heading">
       <div className="ai-models-connection-panel">
         <div className="ai-models-section-heading"><h3 id="ai-models-connection-heading">Provider connections</h3></div>
         <label className="professional-field"><span className="sr-only">Provider</span>
           <select aria-label="Provider" value={provider} disabled={mutationBusy || !providers.length} onChange={(event) => changeProvider(event.target.value)}>
             {[true, false].map(connected => {
-              const options = providerCatalog.filter(item => item.configured === connected);
+              // ChatGPT sign-in lives under OpenAI; the legacy entry shows only while it is connected.
+              const options = providerCatalog.filter(item => item.configured === connected && (item.id !== "openai-codex" || item.configured || item.id === provider));
               return options.length ? <optgroup key={String(connected)} label={connected ? "Connected" : "Available"}>{options.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</optgroup> : null;
             })}
           </select>
