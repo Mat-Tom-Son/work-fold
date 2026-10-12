@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, delimiter, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -551,7 +552,9 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       });
       const chromeConnection = await IncludedChromeConnectionService.create({
         stateRoot: join(userData, "assistant-tools"), distribution: chromeDistribution,
-        registerNativeHost: (explicit) => chromeRegistration.register(explicit),
+        registerNativeHost: (explicit, ifAbsent) => chromeRegistration.register(explicit, ifAbsent),
+        // Setup says "Install Google Chrome" instead of failing to open it; app bundles only.
+        browserInstalled: () => ["/Applications/Google Chrome.app", join(homedir(), "Applications/Google Chrome.app")].some((path) => existsSync(path)),
         openStore: async () => {
           if (!chromeDistribution.storeId || !/^[a-p]{32}$/.test(chromeDistribution.storeId)) throw new Error("Chrome connection is not available yet.");
           await new Promise<void>((resolveOpen, rejectOpen) => execFile("/usr/bin/open", ["-a", "Google Chrome", `https://chromewebstore.google.com/detail/${chromeDistribution.storeId}`], error => error ? rejectOpen(new Error("Google Chrome could not open the work-fold listing.")) : resolveOpen()));

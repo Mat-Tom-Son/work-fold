@@ -108,7 +108,13 @@ trusted-only local extension storage, never Chrome sync. work-fold stores the
 selected installation and proof hash under its private application-data
 directory. A signed Native Messaging helper authenticates the exact extension
 ID and forwards setup requests to the running app; it does not identify the
-Chrome profile by itself. Temporary connection credentials stay in the browser
+Chrome profile by itself. When Chrome is set up on the Mac and has no work-fold
+registration yet, the installed app writes that helper's registration (a small
+file naming the helper and the extension ID) into Chrome's
+`NativeMessagingHosts` folder at launch, so the extension can connect whenever
+the person chooses Connect; it never replaces another installation's
+registration. To say whether Chrome is installed, setup checks only for the
+Google Chrome app, never a Chrome profile. Temporary connection credentials stay in the browser
 service worker's memory and native host runtime, outside Chat and setup status.
 
 The Chrome extension can process requested tab URLs/titles, page text and

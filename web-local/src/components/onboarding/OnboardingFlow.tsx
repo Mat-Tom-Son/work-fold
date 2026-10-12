@@ -1,11 +1,17 @@
-import { useState } from "react";
-import { Check, FolderOpen, FolderPlus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, ChevronDown, FolderOpen, FolderPlus, Globe, MousePointerClick } from "lucide-react";
 
+import type { IncludedToolStatus } from "../../../../src/shared/included-tools";
+import { api } from "../../lib/api";
+import { includedToolsPath } from "../../lib/included-tool-scope";
 import type { AgentStatus } from "../../types";
+import { IncludedChromeSetup } from "../panes/IncludedChromeSetup";
+import { IncludedComputerSetup } from "../panes/IncludedComputerSetup";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { ConnectAi, type ConnectedAi } from "./ConnectAi";
 
-type OnboardingStep = "welcome" | "connect" | "folder";
+type OnboardingStep = "welcome" | "connect" | "tools" | "folder";
+type MacTool = "chrome" | "computer";
 
 /**
  * First run (2026-10-11): what work-fold is, connecting an AI provider, then
@@ -23,7 +29,14 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
 }) {
   const [step, setStep] = useState<OnboardingStep>("welcome");
   const [connected, setConnected] = useState<ConnectedAi | null>(null);
-  const steps: OnboardingStep[] = agentConfigured && !connected ? ["welcome", "folder"] : ["welcome", "connect", "folder"];
+  const macTools = useMacTools(fixtureMode);
+  const [openTool, setOpenTool] = useState<MacTool | null>(null);
+  const steps: OnboardingStep[] = [
+    "welcome",
+    ...(agentConfigured && !connected ? [] : ["connect" as const]),
+    ...(macTools.length ? ["tools" as const] : []),
+    "folder",
+  ];
   const position = steps.indexOf(step) + 1;
 
   function next() {
@@ -65,6 +78,27 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
         </section>
       ) : null}
 
+      {step === "tools" ? (
+        <section className="onboarding-step onboarding-tools" aria-labelledby="onboarding-tools-title">
+          <p className="onboarding-progress">Step {position} of {steps.length}</p>
+          <h1 id="onboarding-tools-title">Let your Worker use your Mac</h1>
+          <p>Optional. When you ask, your Worker can browse with your own Chrome and use apps on your Mac. You can set these up later in Skills &amp; Extensions.</p>
+          <div className="onboarding-tool-list">
+            {macTools.map((tool) => (
+              <div key={tool} className={`onboarding-tool${openTool === tool ? " open" : ""}`}>
+                <button className="onboarding-tool-header" type="button" aria-expanded={openTool === tool} onClick={() => setOpenTool((current) => current === tool ? null : tool)}>
+                  {tool === "chrome" ? <Globe size={18} aria-hidden="true" /> : <MousePointerClick size={18} aria-hidden="true" />}
+                  <span><strong>{tool === "chrome" ? "Chrome" : "Computer Control"}</strong>{tool === "chrome" ? "Browse the web with your signed-in Chrome" : "See the screen and use apps"}</span>
+                  <ChevronDown size={16} aria-hidden="true" />
+                </button>
+                {openTool === tool ? <div className="onboarding-tool-body">{tool === "chrome" ? <IncludedChromeSetup enabled /> : <IncludedComputerSetup enabled />}</div> : null}
+              </div>
+            ))}
+          </div>
+          <button className="ui-control ui-control--primary onboarding-primary" type="button" onClick={next}>Continue</button>
+        </section>
+      ) : null}
+
       {step === "folder" ? (
         <section className="onboarding-step onboarding-choose" aria-labelledby="onboarding-folder-title">
           <p className="onboarding-progress">Step {position} of {steps.length}</p>
@@ -89,4 +123,29 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
       {step !== "welcome" ? <button className="onboarding-back" type="button" onClick={() => setStep(steps[Math.max(steps.indexOf(step) - 1, 0)]!)}>Back</button> : null}
     </main>
   );
+}
+
+/**
+ * The included Mac tools first run can offer: Chrome when its extension is
+ * available, and Computer Control on a Mac that supports it. None outside the
+ * desktop app, where the tools are not included.
+ */
+function useMacTools(fixtureMode: boolean): MacTool[] {
+  const [tools, setTools] = useState<MacTool[]>([]);
+  useEffect(() => {
+    if (fixtureMode) return;
+    const controller = new AbortController();
+    api<{ tools: IncludedToolStatus[] }>(includedToolsPath(), { signal: controller.signal })
+      .then(({ tools: statuses }) => {
+        const offered: MacTool[] = [];
+        const chrome = statuses.find((item) => item.id === "chrome");
+        if (chrome && chrome.chrome?.state !== "store_unavailable" && chrome.chrome?.state !== "connected") offered.push("chrome");
+        const computer = statuses.find((item) => item.id === "computer");
+        if (computer && computer.state !== "ready" && computer.facts?.supportedOS !== false) offered.push("computer");
+        if (!controller.signal.aborted) setTools(offered);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [fixtureMode]);
+  return tools;
 }

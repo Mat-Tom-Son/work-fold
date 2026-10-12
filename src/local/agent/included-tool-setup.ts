@@ -10,7 +10,7 @@ import { loadIncludedMcpConfig } from "./included-mcp-setup.js";
 const jiti = createJiti(import.meta.url, { moduleCache: true });
 
 /** Explicit projection: native leases, profile identities and bootstrap proofs stay in the host. */
-function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
+function chromeStatus(summary?: ChromeConnectionSummary, environment?: { browserInstalled: boolean; extensionSeen: boolean }): IncludedToolStatus {
   const source = summary ?? { state: "native_host_missing", checkedAt: new Date().toISOString() };
   const chrome: ChromeConnectionSummary = {
     state: source.state, checkedAt: source.checkedAt,
@@ -31,7 +31,9 @@ function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
     detail: chrome.problem === "transport_unavailable" ? "The local Chrome connection could not start. Another local browser automation host may be using its port. Quit that host, then restart work-fold."
       : chrome.problem === "native_host_unavailable" ? "The Chrome native helper could not be registered. Open Chrome setup to repair the connection."
       : chrome.state === "not_connected" && chrome.hasSelection ? "Open Chrome. Your selected profile reconnects automatically."
+      : environment && !environment.browserInstalled && chrome.state !== "connected" ? "Install Google Chrome to let your Worker browse with it."
       : details[chrome.state], checkedAt: chrome.checkedAt, chrome,
+    ...(environment ? { chromeSetup: { browserInstalled: environment.browserInstalled, extensionSeen: environment.extensionSeen } } : {}),
   };
 }
 
@@ -51,7 +53,10 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
   const braveCredential = await runtime.credentials.read("work-fold:web:brave");
   return includedToolDefinitions.map(({ id }) => {
     if (id === "mcp") return mcp;
-    if (id === "chrome") return chromeStatus(runtime.config.includedTools?.chromeConnection?.status());
+    if (id === "chrome") {
+      const connection = runtime.config.includedTools?.chromeConnection;
+      return chromeStatus(connection?.status(), connection?.environment?.());
+    }
     const now = new Date().toISOString();
     if (id === "web") return braveCredential?.type === "api_key"
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
@@ -84,7 +89,7 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
     }
     // Its app-owned observation already accounts for profile generation and
     // handshake freshness. Never retain a second five-minute Ready cache.
-    return { status: chromeStatus(summary) };
+    return { status: chromeStatus(summary, service.environment?.()) };
   }
   // Starting an explicit recheck invalidates earlier evidence even if this
   // attempt throws before it can produce a new structured result.

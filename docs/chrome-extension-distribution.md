@@ -6,8 +6,17 @@ separate release requirements. The unpublished item is
 
 ## Installation and updates
 
-**Skills & Extensions → Chrome → Connect Chrome** registers the app's signed
-native helper and opens the exact Chrome Web Store listing. The person adds
+Chrome setup in work-fold (Skills & Extensions → Chrome, or first run's
+optional **Let your Worker use your Mac** step) shows two steps: **Add the
+work-fold extension** (**Open Chrome Web Store** registers the app's signed
+native helper and opens the exact Chrome Web Store listing) and **Choose Connect
+in the extension**. Either order works (2026-10-11): at launch the installed app
+registers its native helper when Chrome is set up on the Mac and no work-fold
+registration exists yet, never replacing another installation's, and it
+accepts **Connect** chosen in a freshly added extension without an earlier
+Connect Chrome in work-fold. Setup marks the first step done once the extension
+has reached work-fold, and says to install Google Chrome when no Chrome app is
+installed; it never reads a Chrome profile to find out. The person adds
 **work-fold**, then chooses **Connect** in that profile. The first installation
 opens this small setup page once; extension updates do not reopen it or connect
 another profile. The UI shows Connected only after the authenticated HTTP

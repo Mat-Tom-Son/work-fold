@@ -3063,17 +3063,16 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { servers: await entry.service.list({ inspectCredentials: true }) }); return;
   }
   if (method === "GET" && url.pathname === "/api/agent/included-tools") {
-    const workFolderId = url.searchParams.get("workFolderId");
-    if (!workFolderId) throw badRequest("A work-folder is required.");
-    const workFolder = await getWorkFolder(workFolderId);
+    // The included tools are machine-wide; first run sets them up before any work-folder exists.
+    const workFolder = await includedToolScope(url.searchParams.get("workFolderId"));
     sendJson(res, { tools: await listIncludedToolStatus(workFolder.workFolderRoot, state.runtimeProvider) });
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/included-tools/setup") {
     const body = await readJsonBody<{ workFolderId?: string; id?: IncludedToolId; action?: IncludedSetupAction; secret?: string }>(state, req);
-    if (!body.workFolderId || !includedToolDefinitions.some((item) => item.id === body.id) || typeof body.action !== "string") throw badRequest("A work-folder, included tool, and setup action are required.");
+    if (!includedToolDefinitions.some((item) => item.id === body.id) || typeof body.action !== "string") throw badRequest("An included tool and setup action are required.");
     if (body.secret !== undefined && typeof body.secret !== "string") throw badRequest("The connection key must be text.");
-    const workFolder = await getWorkFolder(body.workFolderId);
+    const workFolder = await includedToolScope(body.workFolderId);
     const signal = new AbortController();
     const closed = () => { if (!res.writableEnded) signal.abort(); };
     res.once("close", closed);
@@ -14511,6 +14510,12 @@ async function safeAgentStatus(workFolderRoot: string, provider: PiRuntimeProvid
   } catch (error) {
     return { ...emptyAgentStatus(), ready: false, error: errorMessage(error) };
   }
+}
+
+/** A work-folder when one is named; otherwise the work-fold agent's scope (first run, no work-folder yet). */
+async function includedToolScope(workFolderId: string | null | undefined): Promise<{ id: string; workFolderRoot: string }> {
+  if (workFolderId) return getWorkFolder(workFolderId);
+  return { id: workFoldAgentScopeId, workFolderRoot: workFoldAgentRoot() };
 }
 
 interface ModelScope {

@@ -10,6 +10,8 @@ export interface ChromeDistribution {
 }
 export interface IncludedChromeConnectionHost extends ChromeHostFacilities {
   status(): ChromeConnectionSummary;
+  /** What setup can show without reading a Chrome profile: whether Chrome is installed and the extension has reached work-fold. */
+  environment?(): { browserInstalled: boolean; extensionSeen: boolean };
   prepare(): Promise<ChromeConnectionSummary>;
   check(): Promise<ChromeConnectionSummary>;
   disconnect(): Promise<ChromeConnectionSummary>;
@@ -20,8 +22,10 @@ interface SavedConnection { version: 1; enabled: boolean; generation: number; se
 interface Options {
   stateRoot: string;
   distribution: ChromeDistribution;
-  registerNativeHost(explicit: boolean): Promise<void>;
+  registerNativeHost(explicit: boolean, ifAbsent?: boolean): Promise<void>;
   openStore(): Promise<void>;
+  /** Whether Google Chrome is installed; app bundles only, never a profile. */
+  browserInstalled?(): boolean;
   probe(): Promise<void>;
   startTransport(facilities: ChromeHostFacilities): Promise<{ close(): void }>;
 }
@@ -50,6 +54,8 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
   #transport?: { close(): void };
   #closed = false;
   #changing = false;
+  /** Set when the extension first reaches this launch's bootstrap, so setup can show it was added. */
+  #extensionSeen = false;
   #serial: Promise<unknown> = Promise.resolve();
   #closing?: Promise<void>;
   private constructor(options: Options) { this.#options = options; }
@@ -128,8 +134,24 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
     return () => { this.#active.delete(owner); };
   };
 
+  environment() {
+    return { browserInstalled: this.#options.browserInstalled?.() ?? true, extensionSeen: this.#extensionSeen || Boolean(this.#saved.selected) };
+  }
+
+  /**
+   * At launch. A connection the person set up resumes; otherwise (2026-10-11)
+   * work-fold quietly registers its native helper when Chrome has none yet and
+   * listens, so choosing Connect in a freshly added extension works before
+   * anyone opens Chrome setup in work-fold. That quiet path reports no problem.
+   */
   async startIfEnabled(): Promise<void> {
     return this.#exclusive(async () => {
+      if (!this.#saved.enabled && this.#origin && !this.#closed && !this.#recordUnreadable) {
+        try { await this.#options.registerNativeHost(false, true); }
+        catch { return; }
+        if (!this.#closed) await this.#start().catch(() => undefined);
+        return;
+      }
       if (this.#saved.enabled && this.#origin && !this.#closed) {
         try { await this.#options.registerNativeHost(false); }
         catch (error) { this.#startupProblem = "native_host_unavailable"; throw error; }
@@ -217,6 +239,7 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
       if (!this.#origin) return result("store_unavailable");
       if (origin !== this.#origin || !validRequest(input)) return result("connection_error");
       const request = input;
+      this.#extensionSeen = true;
       const expected = this.#options.distribution.bridge;
       if (request.bridge.major > expected.major) return result("update_app");
       if (request.bridge.major < expected.major || expected.capabilities.some(capability => !request.bridge.capabilities.includes(capability))) return result("update_extension");
@@ -231,7 +254,9 @@ export class IncludedChromeConnectionService implements IncludedChromeConnection
       else if (request.action === "status") response = { version: 1, state: "status", status: this.status() };
       else if (request.action === "disconnect") response = selected ? { version: 1, state: "status", status: await this.#disconnect() } : result("not_connected");
       else if (!selected && request.action === "resume") response = result("not_connected");
-      else if (!this.#saved.enabled) response = result("not_connected");
+      // Connect chosen in the extension is the person's own act, whether or not
+      // they opened Chrome setup in work-fold first (2026-10-11).
+      else if (!this.#saved.enabled && request.action !== "connect") response = result("not_connected");
       else {
         if (!selected) {
           if (this.#active.size) return result("busy");

@@ -21,9 +21,25 @@ const run = promisify(execFile);
 /** Register only this app's exact Store origin, never inspect or edit a Chrome profile. */
 export class ChromeNativeHostRegistration {
   constructor(private readonly options: Options) {}
-  async register(explicit: boolean): Promise<void> {
+  /**
+   * `explicit` claims Chrome's registration for this installation; a startup
+   * refresh only renews one this installation already owns. `ifAbsent`
+   * (2026-10-11) registers at launch only when Chrome is set up on this Mac and
+   * no work-fold registration exists yet, so adding the extension first works;
+   * it never replaces another installation's registration.
+   */
+  async register(explicit: boolean, ifAbsent = false): Promise<void> {
     const { distribution } = this.options;
     if (!this.options.enabled) throw new Error("Chrome Store setup is available in the installed work-fold app.");
+    if (ifAbsent && !explicit) {
+      const chromeRoot = this.options.chromeUserDataRoot ?? join(homedir(), "Library/Application Support/Google/Chrome");
+      if (!await stat(chromeRoot).then((info) => info.isDirectory(), () => false)) return;
+      const existing = join(chromeRoot, "NativeMessagingHosts", `${distribution.nativeHostName}.json`);
+      const present = await stat(existing).then(() => true, () => false);
+      if (!present) return this.register(true);
+      try { return await this.register(false); }
+      catch { return; /* Another installation's registration stays as it is. */ }
+    }
     if (!distribution.storeId || !/^[a-p]{32}$/.test(distribution.storeId) || !/^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(distribution.nativeHostName)) throw new Error("The Chrome Store connection identity is not available.");
     const origin = `chrome-extension://${distribution.storeId}/`;
     const source = await realpath(join(this.options.sourceDirectory, "work-fold-chrome-host"));
