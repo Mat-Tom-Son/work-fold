@@ -180,7 +180,13 @@ tool's observed readiness as one concise status and offers **Set up** only when 
 person can act; enabled state and Pi load diagnostics stay in the tool's
 details. Setup belongs to that tool: macOS permissions, the Chrome
 companion, optional Brave search credentials, and native MCP server definitions
-and authentication. A saved credential alone does not establish readiness.
+and authentication. Computer Control setup is one **Allow Computer Control**
+button with a two-item permission checklist; Chrome setup is two steps, add the
+work-fold extension from the Chrome Web Store and choose Connect in it, in either
+order (2026-10-11). Both also appear in first run's optional **Let your Worker
+use your Mac** step, and their setup works with or without a work-folder; see
+[Extensions and computer work](extension-foundation.md) and
+[Chrome extension distribution](chrome-extension-distribution.md). A saved credential alone does not establish readiness.
 Visible setup surfaces refresh cold host reads automatically. Successful tool use
 supplies native readiness evidence without repeatedly pressing Check. Computer
 permissions retain a visible timestamp and become neutral historical evidence
