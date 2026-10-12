@@ -41,8 +41,8 @@ Use **Compare** in Version History or a selected work-folder restore point to re
 ## Try it
 
 1. [Download work-fold](https://www.work-fold.com/download/macos) for an Apple silicon Mac.
-2. Connect your model provider in **Settings → AI Models**. Provider usage may cost money.
-3. Open an existing folder or create a work-folder, then start a Chat.
+2. Open it. First run connects your AI (sign in with ChatGPT, Claude, or OpenRouter, or paste an API key; provider usage may cost money), optionally sets up Chrome and Computer Control, then asks for your first folder. You can change the model anytime in **Settings → AI Models**.
+3. Choose **Set up for me** to have the Worker organize the folder and give it a look, or just start a Chat.
 
 Files live on your computer. Content a Worker uses goes to your chosen model provider. Optional Web Access is in private alpha and needs your Mac online. See [Privacy](PRIVACY.md) for details.
 
@@ -67,9 +67,10 @@ them, and lists your **Shared pages**.
 **Skills & Extensions** manages native Pi resources, package updates and
 removal, and setup for the included Computer Control, Chrome, Web, Documents,
 and Service Connections tools, which use the same Pi formats and tool loop as
-Extensions you add. Computer permissions, the Chrome companion, and service
-credentials are explicit setup; web search and the document runtime work
-without them. An ordinary Extension's questions appear in its owning Chat and
+Extensions you add. Computer permissions, the Chrome companion (the
+[work-fold extension](https://chromewebstore.google.com/detail/ophmjbphcjmjcpcdpmfehbldiomkepgk)
+in the Chrome Web Store), and service credentials are explicit setup; web search
+and the document runtime work without them. An ordinary Extension's questions appear in its owning Chat and
 end with Stop or the session; a Worker's durable questions keep their own
 continuation contract. See [Extensions and computer work](docs/extension-foundation.md)
 for supported jobs, dependencies, reviewed patches, and release acceptance.

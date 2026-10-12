@@ -1,8 +1,10 @@
 # Chrome extension distribution
 
-Status: implemented in source; Store review and installed-Store acceptance are
-separate release requirements. The unpublished item is
-`ophmjbphcjmjcpcdpmfehbldiomkepgk`. Creating an item does not publish an extension.
+Status: published in the Chrome Web Store as
+[work-fold](https://chromewebstore.google.com/detail/ophmjbphcjmjcpcdpmfehbldiomkepgk)
+(item `ophmjbphcjmjcpcdpmfehbldiomkepgk`), which the desktop setup and the
+website's **Add work-fold to Chrome** link open. Each extension update goes
+through Google's review before Chrome delivers it.
 
 ## Installation and updates
 
@@ -84,9 +86,12 @@ missing verification does not repeat a successful input. The
 desktop observes compatible polls, accepted results and active-command
 heartbeats rather than mistaking a long operation for a lost connection.
 Desktop status refreshes do
-not upgrade an installed extension. Companion-side fixes require the reviewed
-1.0.2 ZIP to be approved and installed separately; the Store item remains
-unpublished until Google accepts that submission.
+not upgrade an installed extension. A companion-side fix ships as a new Store
+version (the app currently pins companion 1.0.2 in
+`src/shared/chrome-distribution.json`); after Google approves it, Chrome
+updates installed copies on its own schedule, and the bridge version check
+asks for **Update Chrome extension** when an older companion lacks a required
+capability. App-side setup changes need no Store update.
 
 ## Build and publication
 
@@ -98,7 +103,7 @@ The optional public key, when supplied, must derive the pinned item ID. A Store
 upload can omit `manifest.key`; the Store signs it using its assigned identity.
 No private signing key belongs in this repository. Production native builds and
 the connector build reject missing Store identity. `--draft` permits a missing
-identity only for an unpublished first upload; it is not a publication lane.
+identity only for a first upload of a new item; it is not a publication lane.
 
 The Store listing must disclose broad site/debugger permissions, requested page
 and interaction data, and transfer through the desktop to the configured model
@@ -107,10 +112,10 @@ documented MV3 exception; it is not represented as an absence of supplied code.
 No extension script is downloaded for execution in the extension context.
 The [privacy policy](../PRIVACY.md) must be public and current before submission.
 
-Publication requires the registered publisher account, final ZIP, listing and
-privacy fields, truthful screenshots, and Google review. Google controls the
-review outcome. Verify the final approved Store installation with the signed
-desktop before describing onboarding as production-complete.
+Each Store update requires the registered publisher account, final ZIP, listing
+and privacy fields, truthful screenshots, and Google review. Google controls the
+review outcome. Verify an approved Store installation with the signed desktop
+before describing a changed onboarding flow as production-complete.
 
 ## Verification
 
