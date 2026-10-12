@@ -6,6 +6,8 @@ release-note file alone does not mean a version was published.
 
 ## October 11, 2026
 
+[0.10.0](work-fold-0.10.0.md) adds a first run that connects your AI, Set up for me, pictures Workers make in the Chat, and simpler Computer Control and Chrome setup.
+
 [0.9.0](work-fold-0.9.0.md) lists a work-folder's Automations in its left pane, lets folder automations catch up after work-fold was closed, gives each step its own model and a reported result, and keeps App Studio history when a work-folder is removed.
 
 [0.4.52](work-fold-0.4.52.md) fixes the window layout after closing the agent panel, keeps apps in their left pane with work-fold's look, and tightens how apps are contained.
